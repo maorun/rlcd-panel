@@ -12,20 +12,29 @@
 - `rlcd_panel/st7305_framebuffer.h`: Header-only 400×300 1-bpp framebuffer (`15,000` bytes) with `ST7305` 2×4 block pixel packing and 5×7 text primitives.
 - `rlcd_panel/st7305_panel.h`: ESP32-S3 hardware SPI driver for the `ST7305` RLCD controller.
 - `rlcd_panel/shtc3_sensor.h`: Sensirion `SHTC3` CRC-8 (`0x31`) and raw frame decoder.
+- `rlcd_panel/dashboard_view.h`: Decoupled 4-tile climate dashboard renderer shared between firmware and preview generator.
 - `rlcd_panel/rlcd_panel.ino`: Main firmware entry point (`setup()` / `loop()`).
 - `scripts/backup-firmware.sh`: Backs up NVS (`0x9000`, `20 KB`) and full flash (`0x0`, `16 MB`) via `esptool` into `firmware_backups/` (mode `0700`).
-- `tests/test_firmware_logic.cpp`: Host C++17 unit test suite covering BLE packet parsing, registry management, framebuffer bit mapping, and `SHTC3` CRC-8 decoding.
+- `scripts/generate-display-preview.sh`: Compiles and executes the bit-exact framebuffer renderer, generating `docs/display_preview.png`.
+- `scripts/flash-firmware.sh`: Mandatory flash script that generates the display preview image first, compiles, and uploads to the board.
+- `tools/render_display_preview.cpp`: Host C++ tool that renders the dashboard and exports 400×300 24-bpp BMP/PNG.
+- `tests/test_firmware_logic.cpp`: Host C++17 unit test suite covering BLE packet parsing, registry management, framebuffer bit mapping, `SHTC3` CRC-8 decoding, and dashboard rendering.
 
 ## Hardware & Firmware Invariants
 
 1. **Pre-Flash Backup:** Run `./scripts/backup-firmware.sh` to dump NVS and the full 16 MB flash before the first flash upload.
-2. **GPIO Output Ordering on ESP32 Core 3.3.12:** Always call `pinMode(pin, OUTPUT)` before `digitalWrite(pin, level)`.
-3. **ST7305 Framebuffer Packing:** The 400×300 display uses `15,000` bytes where each byte represents a 2-column × 4-row block (`byte_index = (y / 4) * 200 + (x / 2)`, `bit = 7 - ((y % 4) * 2 + (x % 2))`).
-4. **MicroSD Card (`SD_MMC`):** Always call `SD_MMC.setPins(38, 21, 39)` before `SD_MMC.begin("/sdcard", true)`.
-5. **Build Cleanliness:** Do not commit `build/`, `rlcd_panel/build/`, `firmware_backups/`, or `test_runner` binaries.
+2. **Pre-Flash Preview Mandatory:** Always generate and inspect `docs/display_preview.png` via `./scripts/generate-display-preview.sh` before flashing firmware to the board.
+3. **GPIO Output Ordering on ESP32 Core 3.3.12:** Always call `pinMode(pin, OUTPUT)` before `digitalWrite(pin, level)`.
+4. **ST7305 Framebuffer Packing:** The 400×300 display uses `15,000` bytes where each byte represents a 2-column × 4-row block (`byte_index = (y / 4) * 200 + (x / 2)`, `bit = 7 - ((y % 4) * 2 + (x % 2))`).
+5. **MicroSD Card (`SD_MMC`):** Always call `SD_MMC.setPins(38, 21, 39)` before `SD_MMC.begin("/sdcard", true)`.
+6. **Build Cleanliness:** Do not commit `build/`, `rlcd_panel/build/`, `firmware_backups/`, or `test_runner` binaries.
 
 ## Verification Commands
 
+- **Display Preview Generation:**
+  ```bash
+  ./scripts/generate-display-preview.sh
+  ```
 - **Host Unit Tests:**
   ```bash
   c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner && rm -f test_runner
@@ -33,4 +42,8 @@
 - **Firmware Compile Check:**
   ```bash
   arduino-cli compile rlcd_panel
+  ```
+- **Firmware Flash (with Preview):**
+  ```bash
+  ./scripts/flash-firmware.sh
   ```

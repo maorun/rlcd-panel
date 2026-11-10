@@ -13,4 +13,5 @@ firmware_backups/
 *.map
 *.o
 *.d
+*.bmp
 test_runner

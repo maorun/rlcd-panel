@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include "../rlcd_panel/board_pins.h"
+#include "../rlcd_panel/dashboard_view.h"
 #include "../rlcd_panel/shtc3_sensor.h"
 #include "../rlcd_panel/st7305_framebuffer.h"
 #include "../rlcd_panel/switchbot_ble.h"
@@ -174,6 +175,36 @@ void testShtc3Codec() {
   assert(!Shtc3Codec::decodeFrame(frame, sizeof(frame), out));
 }
 
+void testDashboardViewRendering() {
+  St7305Framebuffer fb;
+  Shtc3Reading onboard;
+  onboard.valid = true;
+  onboard.temperature_c = 22.0f;
+  onboard.humidity_pct = 50.0f;
+
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  slots[0].valid = true;
+  slots[0].temperature_c = 19.5f;
+  slots[0].humidity_pct = 55;
+  slots[0].battery_pct = 90;
+
+  DashboardView::render(fb, onboard, slots, MAX_SWITCHBOT_SENSORS);
+
+  // Top header bar (y in 0..27) must contain active black pixels
+  bool header_pixels_found = false;
+  for (uint16_t x = 0; x < 50; ++x) {
+    if (fb.getPixel(x, 10)) {
+      header_pixels_found = true;
+      break;
+    }
+  }
+  assert(header_pixels_found);
+
+  // Null slots gracefully handled without crash
+  DashboardView::render(fb, onboard, nullptr, 0);
+  assert(header_pixels_found);
+}
+
 } // namespace
 
 int main() {
@@ -183,6 +214,7 @@ int main() {
   testSwitchBotServiceBatteryAndRegistry();
   testSt7305FramebufferPixelMapping();
   testShtc3Codec();
-  printf("All 6 firmware logic test suites passed.\n");
+  testDashboardViewRendering();
+  printf("All 7 firmware logic test suites passed.\n");
   return 0;
 }

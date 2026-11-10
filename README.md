@@ -47,28 +47,35 @@ Standalone `Arduino CLI` (`ESP32-S3`) firmware for the **Waveshare ESP32-S3-RLCD
 | **7** | `GPIO17` | Free GPIO |
 | **8** | `GPIO18` | `KEY` Button (Active Low) |
 
-## Build, Test, and Flash Commands
+## Build, Test, Preview, and Flash Commands
 
-### 1. Run Host Unit Tests
+### 1. Generate Display Preview Image
+
+```bash
+./scripts/generate-display-preview.sh
+```
+Renders a bit-exact 400×300 preview of the monochrome RLCD screen into `docs/display_preview.png`.
+
+### 2. Run Host Unit Tests
 
 ```bash
 c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner && rm -f test_runner
 ```
 
-### 2. Compile Firmware with `arduino-cli`
+### 3. Compile Firmware with `arduino-cli`
 
 ```bash
 arduino-cli compile rlcd_panel
 ```
 
-### 3. Back Up Current / Factory Flash Before Flashing
+### 4. Back Up Current / Factory Flash Before Flashing
 
 ```bash
 ./scripts/backup-firmware.sh
 ```
 
-### 4. Flash Firmware to Board
+### 5. Flash Firmware to Board (with Pre-Flash Preview)
 
 ```bash
-arduino-cli upload -p /dev/cu.usbmodem* rlcd_panel
+./scripts/flash-firmware.sh
 ```
