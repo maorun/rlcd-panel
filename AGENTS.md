@@ -13,6 +13,7 @@
 - `rlcd_panel/st7305_framebuffer.h`: Header-only 400×300 1-bpp framebuffer (`15,000` bytes) with `ST7305` 2×4 block pixel packing and 5×7 text primitives.
 - `rlcd_panel/st7305_panel.h`: ESP32-S3 hardware SPI driver for the `ST7305` RLCD controller.
 - `rlcd_panel/shtc3_sensor.h`: Sensirion `SHTC3` CRC-8 (`0x31`) and raw frame decoder.
+- `rlcd_panel/power_manager.h`: Header-only deep sleep manager: wakeup timer maths, wakeup cause decoding, wake cycle state machine, and checksummed RTC-memory state (registry, battery, view mode).
 - `rlcd_panel/dashboard_view.h`: Decoupled 4-tile climate dashboard renderer shared between firmware and preview generator.
 - `rlcd_panel/rlcd_panel.ino`: Main firmware entry point (`setup()` / `loop()`).
 - `scripts/backup-firmware.sh`: Backs up NVS (`0x9000`, `20 KB`) and full flash (`0x0`, `16 MB`) via `esptool` into `firmware_backups/` (mode `0700`).
@@ -29,7 +30,8 @@
 4. **ST7305 Framebuffer Packing:** The 400×300 display uses `15,000` bytes with column-major block packing and inverted Y (`byte_index = (x / 2) * 75 + ((299 - y) / 4)`, `bit = 7 - (((299 - y) % 4) * 2 + (x % 2))`).
 5. **MicroSD Card (`SD_MMC`):** Always call `SD_MMC.setPins(38, 21, 39)` before `SD_MMC.begin("/sdcard", true)`.
 6. **Build Cleanliness:** Do not commit `build/`, `rlcd_panel/build/`, `firmware_backups/`, or `test_runner` binaries.
-7. **SHTC3 Calibration Offset:** The onboard SHTC3 temperature sensor is subject to PCB self-heating and applies a default calibration offset of `-1.9 °C` (`Shtc3Codec::DEFAULT_TEMP_OFFSET_C`).
+7. **Deep Sleep Cycle:** `setup()` runs one wake cycle (restore, scan, render, save, `esp_deep_sleep_start()`); `loop()` never runs. Use the RTC-backed `nowMs()` for timestamps, not `millis()`, which restarts after sleep. Call `PowerPlatform::releasePinsAfterSleep()` first in `setup()`: it frees the KEY pin and the held display pins (`CS`, `DC`, `RST`) after they were driven high.
+8. **SHTC3 Calibration Offset:** The onboard SHTC3 temperature sensor is subject to PCB self-heating and applies a default calibration offset of `-1.9 °C` (`Shtc3Codec::DEFAULT_TEMP_OFFSET_C`).
 
 ## Verification Commands
 

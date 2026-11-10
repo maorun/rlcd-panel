@@ -24,7 +24,7 @@ struct SwitchBotReading {
   bool fahrenheit_mode = false;
   int rssi = 0;
   uint32_t updated_ms = 0;
-  uint32_t packet_count = 0; // advertisements received from this sensor since boot
+  uint32_t packet_count = 0; // advertisements received from this sensor since power-on
 
   // Unsigned subtraction keeps the result correct when millis() wraps around.
   bool isStale(uint32_t now_ms, uint32_t timeout_ms = SENSOR_STALE_TIMEOUT_MS) const {
@@ -140,6 +140,20 @@ public:
       return kEmptyReading;
     }
     return slots_[index];
+  }
+
+  // Restores one slot from persisted state. Rejects invalid readings and MACs held by another slot.
+  bool restoreSlot(size_t index, const SwitchBotReading& reading) {
+    if (index >= MAX_SWITCHBOT_SENSORS || !reading.valid) {
+      return false;
+    }
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (i != index && slots_[i].valid && memcmp(slots_[i].mac, reading.mac, 6) == 0) {
+        return false;
+      }
+    }
+    slots_[index] = reading;
+    return true;
   }
 
   size_t activeCount() const {

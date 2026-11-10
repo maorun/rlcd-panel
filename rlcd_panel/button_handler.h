@@ -67,6 +67,12 @@ public:
     return mode_;
   }
 
+  void setMode(DisplayMode mode) {
+    if (static_cast<uint8_t>(mode) < DISPLAY_MODE_COUNT) {
+      mode_ = mode;
+    }
+  }
+
   void next() {
     mode_ = static_cast<DisplayMode>((static_cast<uint8_t>(mode_) + 1) % DISPLAY_MODE_COUNT);
   }

@@ -70,6 +70,10 @@ Der ESP32-S3 befindet sich nun im ROM Download Mode (`0x0`) und akzeptiert Flash
 | **7** | `GPIO17` | Free GPIO |
 | **8** | `GPIO18` | `KEY` Button (Active Low) |
 
+## Power Management
+
+The firmware sleeps between measurements. Each 60 s cycle scans BLE for 4 s, redraws the display, and enters deep sleep. The reflective LCD keeps the image without power. RTC memory keeps the sensor registry, battery reading, and view mode. Press `KEY` to wake the board and cycle the view. The serial port is not active during deep sleep, so hold `BOOT` while you connect `PWR` or USB to flash (see above).
+
 ## Build, Test, Preview, and Flash Commands
 
 ### 1. Generate Display Preview Image
