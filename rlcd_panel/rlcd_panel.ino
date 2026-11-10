@@ -62,6 +62,8 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
     }
 
     reading.rssi = advertisedDevice.getRSSI();
+    // Keep this timestamp at or before the millis() read in renderDashboard() so a fresh reading
+    // never appears to lie in the future (unsigned subtraction would flag it stale).
     reading.updated_ms = millis();
 
     portENTER_CRITICAL(&g_registry_mux);
@@ -142,7 +144,8 @@ void renderDashboard() {
       g_battery_reading,
       snapshot,
       MAX_SWITCHBOT_SENSORS,
-      clock_text);
+      clock_text,
+      millis());
   g_panel.flush(g_framebuffer);
 }
 

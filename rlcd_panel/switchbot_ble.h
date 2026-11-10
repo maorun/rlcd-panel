@@ -12,6 +12,8 @@ constexpr uint16_t SWITCHBOT_COMPANY_ID = 0x0969;
 constexpr uint16_t SWITCHBOT_SERVICE_UUID = 0xFD3D;
 
 constexpr size_t MAX_SWITCHBOT_SENSORS = 3;
+// A sensor is stale when no packet arrived for 30 minutes.
+constexpr uint32_t SENSOR_STALE_TIMEOUT_MS = 1800000;
 
 struct SwitchBotReading {
   bool valid = false;
@@ -22,6 +24,11 @@ struct SwitchBotReading {
   bool fahrenheit_mode = false;
   int rssi = 0;
   uint32_t updated_ms = 0;
+
+  // Unsigned subtraction keeps the result correct when millis() wraps around.
+  bool isStale(uint32_t now_ms, uint32_t timeout_ms = SENSOR_STALE_TIMEOUT_MS) const {
+    return valid && (now_ms - updated_ms) > timeout_ms;
+  }
 };
 
 class SwitchBotBleParser {

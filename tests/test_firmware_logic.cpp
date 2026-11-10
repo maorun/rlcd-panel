@@ -251,7 +251,7 @@ void testDashboardViewRendering() {
   slots[0].humidity_pct = 55;
   slots[0].battery_pct = 90;
 
-  DashboardView::render(fb, onboard, battery, slots, MAX_SWITCHBOT_SENSORS);
+  DashboardView::render(fb, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, nullptr, 0);
 
   // Top header bar (y in 0..27) must contain active black pixels
   bool header_pixels_found = false;
@@ -264,7 +264,7 @@ void testDashboardViewRendering() {
   assert(header_pixels_found);
 
   // Null slots gracefully handled without crash
-  DashboardView::render(fb, onboard, battery, nullptr, 0);
+  DashboardView::render(fb, onboard, battery, nullptr, 0, nullptr, 0);
   assert(header_pixels_found);
 }
 
@@ -382,8 +382,8 @@ void testDashboardHeaderClock() {
 
   St7305Framebuffer base;
   St7305Framebuffer with_clock;
-  DashboardView::render(base, onboard, battery, nullptr, 0, nullptr);
-  DashboardView::render(with_clock, onboard, battery, nullptr, 0, "88:88");
+  DashboardView::render(base, onboard, battery, nullptr, 0, nullptr, 0);
+  DashboardView::render(with_clock, onboard, battery, nullptr, 0, "88:88", 0);
 
   // Title occupies x 10..224, battery label + icon start at x = 316.
   const uint16_t title_right = 10 + 18 * 12;
@@ -426,8 +426,114 @@ void testDashboardHeaderClock() {
 
   // Overlong clock text is rejected instead of clipping into the battery area
   St7305Framebuffer overlong;
-  DashboardView::render(overlong, onboard, battery, nullptr, 0, "12:34:56:78");
+  DashboardView::render(overlong, onboard, battery, nullptr, 0, "12:34:56:78", 0);
   assert(memcmp(overlong.data(), base.data(), St7305Framebuffer::BYTE_COUNT) == 0);
+}
+
+void testSwitchBotStaleDetection() {
+  SwitchBotReading reading;
+  reading.valid = true;
+  reading.updated_ms = 1000;
+
+  assert(SENSOR_STALE_TIMEOUT_MS == 1800000u);
+
+  // Fresh reading (< 30 min) is not stale
+  assert(!reading.isStale(1000));
+  assert(!reading.isStale(1000 + 60000));
+  assert(!reading.isStale(1000 + SENSOR_STALE_TIMEOUT_MS));
+  // Older than 1800000 ms is stale
+  assert(reading.isStale(1000 + SENSOR_STALE_TIMEOUT_MS + 1));
+  // Custom timeout
+  assert(reading.isStale(1000 + 5001, 5000));
+  assert(!reading.isStale(1000 + 5000, 5000));
+
+  // millis() wrap-around: packet 10 s before the wrap, now 10 s after it (20 s elapsed)
+  SwitchBotReading wrapped;
+  wrapped.valid = true;
+  wrapped.updated_ms = 0xFFFFFFFFu - 9999u;
+  assert(!wrapped.isStale(10000u));
+  // Exactly 30 min after a wrapped packet is not stale, 30 min + 1 ms is
+  assert(!wrapped.isStale(SENSOR_STALE_TIMEOUT_MS - 10000u));
+  assert(wrapped.isStale(SENSOR_STALE_TIMEOUT_MS - 9999u));
+
+  // Invalid (never seen) slots are not reported as stale
+  SwitchBotReading empty;
+  assert(!empty.isStale(0xFFFFFFFFu));
+}
+
+void testDashboardStaleIndicator() {
+  Shtc3Reading onboard;
+  onboard.valid = true;
+  onboard.temperature_c = 22.0f;
+  onboard.humidity_pct = 50.0f;
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.85f;
+  battery.percentage = 65;
+
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    slots[i].valid = true;
+    slots[i].temperature_c = 18.0f + static_cast<float>(i);
+    slots[i].humidity_pct = 55;
+    slots[i].battery_pct = 90;
+    slots[i].updated_ms = 100000;
+  }
+  slots[1].updated_ms = 100000 - SENSOR_STALE_TIMEOUT_MS - 1; // 1 ms past the timeout (stale)
+
+  const uint32_t now_ms = 100000;
+  SwitchBotReading fresh_slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    fresh_slots[i] = slots[i];
+  }
+  fresh_slots[1].updated_ms = now_ms; // same data, but fresh
+
+  St7305Framebuffer fresh;
+  St7305Framebuffer mixed;
+  // Only slot 1 is stale in "mixed"
+  DashboardView::render(fresh, onboard, battery, fresh_slots, MAX_SWITCHBOT_SENSORS, nullptr, now_ms);
+  DashboardView::render(mixed, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, nullptr, now_ms);
+
+  // Tile 1 is SwitchBot 2: col 0 / row 1 => x 6..195, y 168..291; tile area differs
+  auto diffInRect = [&](uint16_t x0, uint16_t y0, uint16_t w, uint16_t h) {
+    size_t diff = 0;
+    for (uint16_t y = y0; y < y0 + h; ++y) {
+      for (uint16_t x = x0; x < x0 + w; ++x) {
+        if (fresh.getPixel(x, y) != mixed.getPixel(x, y)) {
+          ++diff;
+        }
+      }
+    }
+    return diff;
+  };
+
+  // SwitchBot 2 tile (stale): pixels must differ
+  assert(diffInRect(6, 36 + 132, 190, 124) > 0);
+  // Onboard, SwitchBot 1 and SwitchBot 3 tiles and the header stay identical
+  assert(diffInRect(6, 36, 190, 124) == 0);
+  assert(diffInRect(204, 36, 190, 124) == 0);
+  assert(diffInRect(204, 36 + 132, 190, 124) == 0);
+  assert(diffInRect(0, 0, 400, 28) == 0);
+
+  // The stale indicator stays inside the tile border, in the title band above the divider line
+  size_t outside = 0;
+  for (uint16_t y = 0; y < 300; ++y) {
+    for (uint16_t x = 0; x < 400; ++x) {
+      if (fresh.getPixel(x, y) != mixed.getPixel(x, y) &&
+          (x <= 6 || x >= 195 || y <= 168 || y >= 168 + 24)) {
+        ++outside;
+      }
+    }
+  }
+  assert(outside == 0);
+
+  // Invalid slot never shows STALE
+  SwitchBotReading invalid_slots[MAX_SWITCHBOT_SENSORS];
+  St7305Framebuffer a;
+  St7305Framebuffer b;
+  DashboardView::render(a, onboard, battery, invalid_slots, MAX_SWITCHBOT_SENSORS, nullptr, 0);
+  DashboardView::render(b, onboard, battery, invalid_slots, MAX_SWITCHBOT_SENSORS, nullptr, 0xFFFFFFFFu);
+  assert(memcmp(a.data(), b.data(), St7305Framebuffer::BYTE_COUNT) == 0);
 }
 
 } // namespace
@@ -444,6 +550,8 @@ int main() {
   testPcf85063BcdCodec();
   testPcf85063InvalidValues();
   testDashboardHeaderClock();
-  printf("All 11 firmware logic test suites passed.\n");
+  testSwitchBotStaleDetection();
+  testDashboardStaleIndicator();
+  printf("All 13 firmware logic test suites passed.\n");
   return 0;
 }

@@ -124,13 +124,19 @@ int main(int argc, char** argv) {
   slots[2].humidity_pct = 61;
   slots[2].battery_pct = 76;
 
+  // Preview clock: slots 0 and 1 are fresh, slot 2 got its last packet 45 minutes ago (stale)
+  const uint32_t now_ms = 10000000;
+  slots[0].updated_ms = now_ms - 60000;
+  slots[1].updated_ms = now_ms - 120000;
+  slots[2].updated_ms = now_ms - 45 * 60 * 1000;
+
   BatteryReading battery;
   battery.valid = true;
   battery.voltage_v = 3.92f;
   battery.percentage = 72;
   battery.usb_powered = false;
 
-  DashboardView::render(fb, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "14:32");
+  DashboardView::render(fb, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "14:32", now_ms);
 
   if (!exportFramebufferToBmp(fb, out_path)) {
     return 1;
