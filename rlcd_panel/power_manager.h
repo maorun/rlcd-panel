@@ -4,6 +4,7 @@
 #include <stdint.h>
 #include <string.h>
 
+#include "audio_alert.h"
 #include "battery_monitor.h"
 #include "board_pins.h"
 #include "button_handler.h"
@@ -76,6 +77,8 @@ struct PersistentState {
   ClimateHistory history; // hourly temperature samples for the trend curves
   uint32_t last_log_ms = 0;  // clock value of the last MicroSD record
   bool has_logged = false;   // false until the first MicroSD attempt, success or failure
+  bool muted = false;        // true: alerts stay silent
+  uint8_t alert_mask = ALERT_NONE; // alerts active in the last wake cycle (hysteresis latch)
 };
 
 struct WakeupPlan {
@@ -86,7 +89,7 @@ struct WakeupPlan {
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 3;
+  static constexpr uint8_t STATE_VERSION = 4;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Slot layout: valid, mac[6], temperature (float bits), humidity, battery, fahrenheit,
   // rssi (int16), updated_ms, packet_count.
@@ -97,10 +100,12 @@ public:
       ClimateHistory::SLOT_COUNT * HISTORY_RING_SIZE + 4 + 1;
   // SD log trailer: last log time, logged flag.
   static constexpr size_t SD_LOG_SIZE = 4 + 1;
+  // Audio trailer: one byte, bit 0 muted, bits 1..2 alert mask.
+  static constexpr size_t AUDIO_SIZE = 1;
   // Header: magic, version, mode, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + SD_LOG_SIZE + 4;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -208,6 +213,7 @@ public:
     out[pos++] = state.history.has_sampled ? 1 : 0;
     putU32(out, pos, state.last_log_ms);
     out[pos++] = state.has_logged ? 1 : 0;
+    out[pos++] = static_cast<uint8_t>((state.muted ? 1 : 0) | ((state.alert_mask & ALERT_MASK_ALL) << 1));
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -308,6 +314,12 @@ public:
       return false;
     }
     s.has_logged = logged == 1;
+    const uint8_t audio = data[pos++];
+    if ((audio & ~7u) != 0) {
+      return false;
+    }
+    s.muted = (audio & 1) != 0;
+    s.alert_mask = static_cast<uint8_t>(audio >> 1);
     out = s;
     return true;
   }
@@ -451,6 +463,8 @@ public:
   // Returns the KEY pin from RTC control and frees the held display pins. Call it first in
   // setup(), before pinMode() and before the panel driver starts.
   static void releasePinsAfterSleep() {
+    // The amplifier pin stayed held low; the audio driver sets its level when it needs it.
+    gpio_hold_dis(static_cast<gpio_num_t>(PIN_PA_CTRL));
     rtc_gpio_deinit(static_cast<gpio_num_t>(PIN_BTN_KEY));
     for (const uint8_t pin : kHeldDisplayPins) {
       // Drive the idle level (high) before the release, so the pad never floats.
@@ -471,6 +485,11 @@ public:
     for (const uint8_t pin : kHeldDisplayPins) {
       gpio_hold_en(static_cast<gpio_num_t>(pin));
     }
+    // Hold the speaker amplifier off so a floating pad cannot drain the battery in deep sleep.
+    const gpio_num_t pa = static_cast<gpio_num_t>(PIN_PA_CTRL);
+    gpio_set_direction(pa, GPIO_MODE_OUTPUT);
+    gpio_set_level(pa, 0);
+    gpio_hold_en(pa);
     gpio_deep_sleep_hold_en();
     if (plan.enable_key_wakeup) {
       const gpio_num_t key = static_cast<gpio_num_t>(PIN_BTN_KEY);

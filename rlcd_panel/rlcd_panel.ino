@@ -7,6 +7,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
 
+#include "audio_alert.h"
 #include "board_pins.h"
 #include "battery_monitor.h"
 #include "button_handler.h"
@@ -249,6 +250,26 @@ void logToSdCard() {
   }
 }
 
+// Evaluates the climate thresholds and sounds a chime for each alert that switched on. The mask
+// is stored even while muted, so unmuting never replays an old alert. The amplifier is off again
+// before this function returns, so deep sleep draws no speaker current.
+void chimeOnAlerts() {
+  SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    snapshot[i] = g_state.registry.slot(i);
+  }
+  const uint8_t current = AlertEvaluator::evaluate(
+      g_state.alert_mask, g_onboard_reading, snapshot, MAX_SWITCHBOT_SENSORS, nowMs());
+  const uint8_t bits = AlertEvaluator::chimeBits(g_state.muted, g_state.alert_mask, current);
+  g_state.alert_mask = current;
+  if (bits != ALERT_NONE) {
+    Es8311Hal hal;
+    if (!AudioSequencer::play(hal, bits, ChimeSynth::DEFAULT_VOLUME_PCT)) {
+      Serial.println("Chime failed");
+    }
+  }
+}
+
 } // namespace
 
 void setup() {
@@ -290,13 +311,25 @@ void setup() {
   }
   refreshSensors();
   renderDashboard();
+  chimeOnAlerts();
   logToSdCard(); // after the render: the display shows fresh data even if the card is slow
 
   // Grace window after a KEY wakeup or a power-on: further KEY presses redraw without a new
   // wakeup. A timer wakeup skips it to save battery.
   const uint32_t grace_start = millis();
   const bool wants_grace = cause != WakeupCause::TIMER;
+  bool boot_was_down = digitalRead(PIN_BTN_BOOT) == LOW;
   while (wants_grace && millis() - grace_start < KEY_GRACE_MS) {
+    // A BOOT press in the grace window toggles the mute flag; a short beep confirms unmuting.
+    const bool boot_down = digitalRead(PIN_BTN_BOOT) == LOW;
+    if (boot_down && !boot_was_down) {
+      g_state.muted = !g_state.muted;
+      if (!g_state.muted) {
+        Es8311Hal hal;
+        AudioSequencer::playConfirm(hal, ChimeSynth::DEFAULT_VOLUME_PCT);
+      }
+    }
+    boot_was_down = boot_down;
     if (g_mode_controller.update(digitalRead(PIN_BTN_KEY) == LOW, millis())) {
       renderDashboard();
     }

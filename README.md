@@ -143,3 +143,7 @@ arduino-cli compile rlcd_panel
 ```bash
 ./scripts/flash-firmware.sh
 ```
+
+## Audio Alerts
+
+The onboard `ES8311` DAC and speaker play a short chime when a sensor crosses a limit: a freezer alert below 0 °C (three beeps) and a mold risk alert above 70 %RH (two rising notes). A chime sounds once when the alert switches on. The alerts release at 1 °C and 67 %RH. Press `BOOT` during the 3 s window after a wakeup to mute or unmute the chime. The window opens after a `KEY` wakeup or a power-on, not after a timer wakeup. The mute flag stays in RTC memory and resets with it. The power amplifier (`GPIO46`) is off outside playback. The code is in `rlcd_panel/audio_alert.h`.
