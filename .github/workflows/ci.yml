@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  host-tests:
+    name: Host tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and run host unit tests
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o "${RUNNER_TEMP}/test_runner"
+          "${RUNNER_TEMP}/test_runner"
+
+      - name: Build preview renderer and render all scenes
+        run: |
+          c++ -std=c++17 -Wall -Wextra -Werror tools/render_display_preview.cpp -o "${RUNNER_TEMP}/render_display_preview"
+          mkdir -p "${RUNNER_TEMP}/previews"
+          "${RUNNER_TEMP}/render_display_preview" --all "${RUNNER_TEMP}/previews"
+          ls -l "${RUNNER_TEMP}/previews"
+
+  firmware-compile:
+    name: Firmware compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: arduino/setup-arduino-cli@v2
+        with:
+          version: 1.5.1
+
+      - name: Cache arduino-cli data directory
+        uses: actions/cache@v4
+        with:
+          path: ~/.arduino15
+          key: arduino-esp32-3.3.12-${{ runner.os }}-${{ hashFiles('rlcd_panel/sketch.yaml') }}
+          restore-keys: |
+            arduino-esp32-3.3.12-${{ runner.os }}-
+
+      # The profile in sketch.yaml installs esp32:esp32@3.3.12 from its index URL.
+      # rlcd_panel/wifi_config.h is optional and not part of the checkout.
+      - name: Compile firmware
+        run: arduino-cli compile --profile rlcd_panel_s3 rlcd_panel
