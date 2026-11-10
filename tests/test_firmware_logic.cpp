@@ -8,6 +8,7 @@
 #include "../rlcd_panel/board_pins.h"
 #include "../rlcd_panel/button_handler.h"
 #include "../rlcd_panel/dashboard_view.h"
+#include "../rlcd_panel/es7210_mic.h"
 #include "../rlcd_panel/ntp_sync.h"
 #include "../rlcd_panel/pcf85063_rtc.h"
 #include "../rlcd_panel/power_manager.h"
@@ -1801,7 +1802,7 @@ void testAudioStatePersistence() {
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(!r.muted && r.alert_mask == ALERT_HUMIDITY);
   // A reserved bit with a valid CRC is rejected
-  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::NTP_SIZE - 1] = 0x08;
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::NTP_SIZE - 1] = 0x20;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -1814,6 +1815,287 @@ void testAudioStatePersistence() {
   // The defaults are unmuted and quiet
   PersistentState d;
   assert(!d.muted && d.alert_mask == ALERT_NONE);
+}
+
+// Fake ADC for the sampler: serves a constant-amplitude square wave, counts the power calls.
+struct FakeMicHal {
+  bool bus_ok = true;
+  bool adc_ok = true;
+  size_t reads_before_fail = static_cast<size_t>(-1);
+  int16_t amplitude = 1000;
+  size_t reads = 0;
+  int begin_calls = 0, shutdown_calls = 0, end_calls = 0;
+
+  bool beginBus() { ++begin_calls; return bus_ok; }
+  bool configureAdc() { return adc_ok; }
+  size_t read(int16_t* samples, size_t count) {
+    if (reads++ >= reads_before_fail) {
+      return 0;
+    }
+    for (size_t i = 0; i < count; ++i) {
+      samples[i] = (i & 1) ? static_cast<int16_t>(-amplitude) : amplitude;
+    }
+    return count;
+  }
+  void shutdownAdc() { ++shutdown_calls; }
+  void endBus() { ++end_calls; }
+};
+
+void testNoiseRmsCalculation() {
+  RmsAccumulator acc;
+  // No samples and null input give 0
+  assert(acc.rms() == 0 && acc.sampleCount() == 0);
+  acc.add(nullptr, 10);
+  assert(acc.sampleCount() == 0 && acc.rms() == 0);
+
+  // Silence
+  int16_t buf[1600] = {0};
+  acc.add(buf, 1600);
+  assert(acc.rms() == 0 && acc.sampleCount() == 1600);
+
+  // Sine of amplitude A has RMS A / sqrt(2); 100 full periods of 160 samples
+  const float amp = 10000.0f;
+  for (size_t i = 0; i < 1600; ++i) {
+    buf[i] = static_cast<int16_t>(lrintf(amp * sinf(6.28318530718f * static_cast<float>(i % 160) / 160.0f)));
+  }
+  acc.reset();
+  assert(acc.sampleCount() == 0);
+  acc.add(buf, 1600);
+  assert(abs(static_cast<int>(acc.rms()) - 7071) <= 2);
+
+  // Chunked input gives the same result as one block
+  RmsAccumulator chunked;
+  chunked.add(buf, 100);
+  chunked.add(buf + 100, 1500);
+  assert(chunked.rms() == acc.rms());
+
+  // DC offset counts as energy
+  int16_t dc[64];
+  for (int16_t& v : dc) v = -500;
+  RmsAccumulator dc_acc;
+  dc_acc.add(dc, 64);
+  assert(dc_acc.rms() == 500);
+
+  // Full scale: +32767 and the most negative value both clamp to 32767 without overflow
+  int16_t full[64];
+  for (size_t i = 0; i < 64; ++i) full[i] = (i & 1) ? INT16_MIN : INT16_MAX;
+  RmsAccumulator clip;
+  clip.add(full, 64);
+  assert(clip.rms() == 32767);
+  // Many windows of full scale do not overflow the 64-bit sum
+  for (int i = 0; i < 100000; ++i) clip.add(full, 64);
+  assert(clip.rms() == 32767);
+}
+
+void testNoiseBandThresholds() {
+  using NC = NoiseClassifier;
+  // From quiet: bands switch at the trigger levels
+  assert(NC::classify(NoiseBand::QUIET, 0) == NoiseBand::QUIET);
+  assert(NC::classify(NoiseBand::QUIET, NC::MODERATE_TRIGGER_RMS - 1) == NoiseBand::QUIET);
+  assert(NC::classify(NoiseBand::QUIET, NC::MODERATE_TRIGGER_RMS) == NoiseBand::MODERATE);
+  assert(NC::classify(NoiseBand::QUIET, NC::LOUD_TRIGGER_RMS - 1) == NoiseBand::MODERATE);
+  assert(NC::classify(NoiseBand::QUIET, NC::LOUD_TRIGGER_RMS) == NoiseBand::LOUD);
+  assert(NC::classify(NoiseBand::QUIET, 32767) == NoiseBand::LOUD);
+
+  // Hysteresis: moderate holds down to the release level
+  assert(NC::classify(NoiseBand::MODERATE, NC::MODERATE_RELEASE_RMS) == NoiseBand::MODERATE);
+  assert(NC::classify(NoiseBand::MODERATE, NC::MODERATE_TRIGGER_RMS - 1) == NoiseBand::MODERATE);
+  assert(NC::classify(NoiseBand::MODERATE, NC::MODERATE_RELEASE_RMS - 1) == NoiseBand::QUIET);
+  // Loud holds down to its release level, then falls to moderate or quiet
+  assert(NC::classify(NoiseBand::LOUD, NC::LOUD_TRIGGER_RMS - 1) == NoiseBand::LOUD);
+  assert(NC::classify(NoiseBand::LOUD, NC::LOUD_RELEASE_RMS) == NoiseBand::LOUD);
+  assert(NC::classify(NoiseBand::LOUD, NC::LOUD_RELEASE_RMS - 1) == NoiseBand::MODERATE);
+  assert(NC::classify(NoiseBand::LOUD, 0) == NoiseBand::QUIET);
+
+  // A level that jitters around the trigger does not flip the band on every window
+  NoiseBand band = NoiseBand::QUIET;
+  const uint16_t jitter[] = {290, 310, 290, 250, 310, 210, 190, 290};
+  const NoiseBand expected[] = {
+      NoiseBand::QUIET, NoiseBand::MODERATE, NoiseBand::MODERATE, NoiseBand::MODERATE,
+      NoiseBand::MODERATE, NoiseBand::MODERATE, NoiseBand::QUIET, NoiseBand::QUIET};
+  for (size_t i = 0; i < sizeof(jitter) / sizeof(jitter[0]); ++i) {
+    band = NC::classify(band, jitter[i]);
+    assert(band == expected[i]);
+  }
+
+  // Hysteresis gaps are real
+  assert(NC::MODERATE_RELEASE_RMS < NC::MODERATE_TRIGGER_RMS);
+  assert(NC::LOUD_RELEASE_RMS < NC::LOUD_TRIGGER_RMS);
+  assert(NC::MODERATE_TRIGGER_RMS < NC::LOUD_RELEASE_RMS);
+
+  // Labels and levels
+  assert(strcmp(NC::label(NoiseBand::QUIET), "QUIET") == 0);
+  assert(strcmp(NC::label(NoiseBand::MODERATE), "MODERATE") == 0);
+  assert(strcmp(NC::label(NoiseBand::LOUD), "LOUD") == 0);
+  assert(NC::dbfs(0) == NC::DBFS_FLOOR);
+  assert(NC::dbfs(32767) == 0);
+  assert(NC::dbfs(16384) == -6);
+  assert(NC::dbfs(1) == -90);
+  const NoiseReading r = NC::makeReading(NoiseBand::QUIET, 3500);
+  assert(r.valid && r.rms == 3500 && r.band == NoiseBand::LOUD);
+  assert(!NoiseReading{}.valid);
+}
+
+void testNoiseSamplerPowersDownOnEveryPath() {
+  // Normal window: constant 1000 amplitude gives RMS 1000 and a moderate band
+  FakeMicHal ok;
+  NoiseReading r = NoiseSampler::measure(ok, NoiseBand::QUIET);
+  assert(r.valid && r.rms == 1000 && r.band == NoiseBand::MODERATE);
+  assert(ok.begin_calls == 1 && ok.shutdown_calls == 1 && ok.end_calls == 1);
+  // The window reads exactly settle + 5 s of stereo samples (rounded up to whole chunks)
+  const size_t total = (NoiseSampler::SETTLE_FRAMES + NoiseSampler::SAMPLE_RATE_HZ * 5) * 2;
+  assert(ok.reads == (total + NoiseSampler::CHUNK_SAMPLES - 1) / NoiseSampler::CHUNK_SAMPLES);
+
+  // Bus failure and ADC failure: no reading, ADC still powered down
+  FakeMicHal bus;
+  bus.bus_ok = false;
+  assert(!NoiseSampler::measure(bus, NoiseBand::QUIET).valid);
+  assert(bus.shutdown_calls == 1 && bus.end_calls == 1);
+  FakeMicHal adc;
+  adc.adc_ok = false;
+  assert(!NoiseSampler::measure(adc, NoiseBand::QUIET).valid);
+  assert(adc.shutdown_calls == 1 && adc.end_calls == 1);
+
+  // A read that stops mid-window discards the window instead of reporting a partial one
+  FakeMicHal cut;
+  cut.reads_before_fail = 10;
+  assert(!NoiseSampler::measure(cut, NoiseBand::QUIET).valid);
+  assert(cut.shutdown_calls == 1 && cut.end_calls == 1);
+
+  // A zero length window is rejected
+  FakeMicHal zero;
+  assert(!NoiseSampler::measure(zero, NoiseBand::QUIET, 0).valid);
+  assert(zero.shutdown_calls == 1);
+
+  // Settling samples do not count: a loud start followed by silence measures silence
+  struct SettleHal : FakeMicHal {
+    size_t served = 0;
+    size_t read(int16_t* samples, size_t count) {
+      for (size_t i = 0; i < count; ++i) {
+        samples[i] = served < NoiseSampler::SETTLE_FRAMES * 2 ? INT16_MAX : 0;
+        ++served;
+      }
+      return count;
+    }
+  } settle;
+  r = NoiseSampler::measure(settle, NoiseBand::QUIET, 1000);
+  assert(r.valid && r.rms == 0 && r.band == NoiseBand::QUIET);
+}
+
+void testNoiseHardwareConstants() {
+  assert(I2C_ADDR_ES7210 == 0x40);
+  assert(PIN_I2S_DIN == 10 && PIN_I2S_BCLK == 9 && PIN_I2S_LRCLK == 45 && PIN_I2S_MCLK == 16);
+  assert(NoiseSampler::WINDOW_MS == 5000);
+  // The shutdown sequence powers down the ADCs and microphone bias
+  bool bias_off = false, adc_off = false;
+  for (const Es7210Reg& r : es7210::SHUTDOWN_SEQUENCE) {
+    bias_off = bias_off || (r.reg == 0x41 && r.value == 0x00);
+    adc_off = adc_off || (r.reg == 0x4B && r.value == 0xFF);
+  }
+  assert(bias_off && adc_off);
+}
+
+void testDiagnosticsNoiseIndicator() {
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+
+  auto render = [&](St7305Framebuffer& fb, const NoiseReading& noise) {
+    SystemInfo info;
+    info.free_heap_bytes = 8u * 1024 * 1024;
+    info.uptime_ms = 0xFFFFFFFFFFull * 1000;
+    info.noise = noise;
+    fb.clear(true);
+    DashboardView::renderDiagnostics(fb, battery, info, "88:88");
+  };
+  auto inkIn = [](const St7305Framebuffer& fb, uint16_t y0, uint16_t y1) {
+    size_t ink = 0;
+    for (uint16_t y = y0; y < y1; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        ink += fb.getPixel(x, y) ? 1 : 0;
+      }
+    }
+    return ink;
+  };
+
+  St7305Framebuffer none, quiet, moderate, loud;
+  render(none, NoiseReading{});
+  render(quiet, NoiseClassifier::makeReading(NoiseBand::QUIET, 10));
+  render(moderate, NoiseClassifier::makeReading(NoiseBand::QUIET, 600));
+  render(loud, NoiseClassifier::makeReading(NoiseBand::QUIET, 32767));
+
+  // The noise line is at y = 204: it has ink in every state and differs by band
+  assert(inkIn(none, 204, 218) > 20);
+  assert(inkIn(quiet, 204, 218) > 20);
+  bool differ_quiet_moderate = false, differ_moderate_loud = false, differ_none_quiet = false;
+  for (uint16_t y = 204; y < 218; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      differ_quiet_moderate = differ_quiet_moderate || quiet.getPixel(x, y) != moderate.getPixel(x, y);
+      differ_moderate_loud = differ_moderate_loud || moderate.getPixel(x, y) != loud.getPixel(x, y);
+      differ_none_quiet = differ_none_quiet || none.getPixel(x, y) != quiet.getPixel(x, y);
+    }
+  }
+  assert(differ_quiet_moderate && differ_moderate_loud && differ_none_quiet);
+
+  // No clipping with the widest text: blank right and bottom margins, and the line ends
+  // inside the screen ("NOISE: MODERATE -96 DB" = 264 px from x = 10)
+  const NoiseReading widest = {true, 0, NoiseBand::MODERATE}; // -96 DB: widest number
+  St7305Framebuffer wide;
+  render(wide, widest);
+  St7305Framebuffer* frames[] = {&none, &quiet, &moderate, &loud, &wide};
+  for (St7305Framebuffer* fb : frames) {
+    for (uint16_t y = DashboardView::HEADER_HEIGHT; y < St7305Framebuffer::HEIGHT; ++y) {
+      for (uint16_t x = St7305Framebuffer::WIDTH - 8; x < St7305Framebuffer::WIDTH; ++x) {
+        assert(!fb->getPixel(x, y));
+      }
+    }
+    for (uint16_t y = St7305Framebuffer::HEIGHT - 8; y < St7305Framebuffer::HEIGHT; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        assert(!fb->getPixel(x, y));
+      }
+    }
+  }
+  // The line stays clear of the uptime line above it
+  assert(inkIn(wide, 182, 202) == 0);
+  // Right of the text nothing is drawn
+  for (uint16_t y = 204; y < 218; ++y) {
+    for (uint16_t x = 10 + 22 * 12; x < St7305Framebuffer::WIDTH; ++x) {
+      assert(!wide.getPixel(x, y));
+    }
+  }
+
+  // Other views ignore the noise value
+  SystemInfo info;
+  info.noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 600);
+  St7305Framebuffer a, b;
+  Shtc3Reading onboard;
+  DashboardView::renderMode(a, DisplayMode::SENSOR_STATS, onboard, battery, nullptr, 0, info, "88:88", 0);
+  DashboardView::renderMode(b, DisplayMode::SENSOR_STATS, onboard, battery, nullptr, 0, SystemInfo{}, "88:88", 0);
+  assert(memcmp(a.data(), b.data(), RLCD_BUFFER_SIZE) == 0);
+}
+
+void testNoiseStatePersistence() {
+  PersistentState s;
+  assert(s.noise_band == NoiseBand::QUIET);
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  PersistentState r;
+  const NoiseBand bands[] = {NoiseBand::QUIET, NoiseBand::MODERATE, NoiseBand::LOUD};
+  for (NoiseBand band : bands) {
+    s.noise_band = band;
+    s.muted = true;
+    s.alert_mask = ALERT_HUMIDITY;
+    assert(PowerManager::serialize(s, buf, sizeof(buf)));
+    assert(PowerManager::deserialize(buf, sizeof(buf), r));
+    assert(r.noise_band == band && r.muted && r.alert_mask == ALERT_HUMIDITY);
+  }
+  // Band value 3 does not exist and is rejected even with a valid CRC
+  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::NTP_SIZE - 1;
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  buf[audio_pos] = static_cast<uint8_t>(3 << 3);
+  const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
+  for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
 }
 
 bool calendarIs(int64_t epoch, uint16_t y, uint8_t mo, uint8_t d, uint8_t wd, uint8_t h, uint8_t mi, uint8_t sec) {
@@ -2071,12 +2353,18 @@ int main() {
   testChimeMuteAndEdge();
   testChimePcmSynthesis();
   testAudioStatePersistence();
+  testNoiseRmsCalculation();
+  testNoiseBandThresholds();
+  testNoiseSamplerPowersDownOnEveryPath();
+  testNoiseHardwareConstants();
+  testDiagnosticsNoiseIndicator();
+  testNoiseStatePersistence();
   testNtpEpochToCalendar();
   testNtpTimezoneDst();
   testNtpRegisterEncoding();
   testNtpScheduleAndOfflineFallback();
   testNtpSystemClockRestore();
   testNtpStatePersistence();
-  printf("All 40 firmware logic test suites passed.\n");
+  printf("All 46 firmware logic test suites passed.\n");
   return 0;
 }

@@ -12,6 +12,7 @@
 #include "battery_monitor.h"
 #include "button_handler.h"
 #include "dashboard_view.h"
+#include "es7210_mic.h"
 #include "ntp_sync.h"
 #include "pcf85063_rtc.h"
 #include "power_manager.h"
@@ -36,6 +37,8 @@ BLEScan* g_ble_scan = nullptr;
 DisplayModeController g_mode_controller;
 std::atomic<bool> g_scan_running{false};
 PowerConfig g_power_config;
+NoiseReading g_noise; // measured at most once per wake cycle, only for the diagnostics view
+bool g_noise_attempted = false; // a failed window is not retried in the same wake cycle
 
 // After a render the board stays awake this long so more KEY presses can cycle the view
 // without a new wakeup.
@@ -167,6 +170,23 @@ bool syncNtpTime(bool key_wakeup) {
   return result == NtpResult::OK;
 }
 
+// Measures one 5 s noise window, at most once per wake cycle. The microphones stay off in the
+// other views and on timer wakeups, so they cost no battery there. The ADC is powered down again
+// before this function returns. The band is stored for the hysteresis of the next window.
+void measureNoiseOnce() {
+  if (g_noise_attempted) {
+    return;
+  }
+  g_noise_attempted = true;
+  Es7210Hal hal;
+  g_noise = NoiseSampler::measure(hal, g_state.noise_band);
+  if (g_noise.valid) {
+    g_state.noise_band = g_noise.band;
+  } else {
+    Serial.println("Noise measurement failed");
+  }
+}
+
 void renderDashboard() {
   SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
   portENTER_CRITICAL(&g_registry_mux);
@@ -182,6 +202,7 @@ void renderDashboard() {
   info.free_heap_bytes = ESP.getFreeHeap();
   // System time since power-on. A reset that keeps the RTC clock does not restart it.
   info.uptime_ms = PowerPlatform::clockMs64();
+  info.noise = g_noise;
 
   DashboardView::renderMode(
       g_framebuffer,
@@ -195,6 +216,17 @@ void renderDashboard() {
       nowMs(),
       &g_state.history);
   g_panel.flush(g_framebuffer);
+}
+
+// Adds the noise level to the diagnostics view after the first render, so the 5 s window never
+// delays the display, the chime or the SD log. `measure` is false on timer wakeups. A measurement
+// in the KEY grace loop outlasts the 3 s grace window; KEY presses during it are not seen.
+void measureNoiseAndRedraw(bool measure) {
+  if (measure && !g_noise_attempted &&
+      g_mode_controller.mode() == DisplayMode::SYSTEM_DIAGNOSTICS) {
+    measureNoiseOnce();
+    renderDashboard();
+  }
 }
 
 SwitchBotAdvertisedCallbacks g_ble_callbacks;
@@ -337,6 +369,7 @@ void setup() {
     updateRtc();
     renderDashboard();
   }
+  measureNoiseAndRedraw(cause != WakeupCause::TIMER);
 
   // Grace window after a KEY wakeup or a power-on: further KEY presses redraw without a new
   // wakeup. A timer wakeup skips it to save battery.
@@ -356,6 +389,7 @@ void setup() {
     boot_was_down = boot_down;
     if (g_mode_controller.update(digitalRead(PIN_BTN_KEY) == LOW, millis())) {
       renderDashboard();
+      measureNoiseAndRedraw(true);
     }
     delay(10);
   }

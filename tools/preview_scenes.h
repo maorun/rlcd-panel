@@ -97,6 +97,7 @@ inline void renderScene(St7305Framebuffer& fb, DisplayMode mode, bool low_batter
   SystemInfo info;
   info.free_heap_bytes = 214 * 1024;
   info.uptime_ms = 93784000; // 1 d 02:03:04
+  info.noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 650); // moderate, about -34 DB
 
   DashboardView::renderMode(
       fb,

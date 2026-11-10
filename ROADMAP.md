@@ -22,15 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Audio and Networking Expansions (Score 22–27)
 
-### Ambient noise monitor via ES7210 dual microphone ADC
-
-- **Rank:** Feature model. Total 23/40 (use 5, setup 5, harmony 7, safety 6). Effort L.
-- **Area:** Sensors / Audio.
-- **Code:** `rlcd_panel/es7210_mic.h`, `rlcd_panel/dashboard_view.h`.
-- **Problem:** The onboard ES7210 ADC chip and dual microphone array are currently unused.
-- **Goal:** Initialize the ES7210 over I2C (`0x40`) and I2S. Compute average RMS acoustic energy over 5-second sampling windows. Render an ambient noise level indicator (quiet / moderate / loud) on the diagnostics view.
-- **Acceptance test:** Host unit test computes RMS amplitude on test sine waves and verifies categorization into noise bands.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

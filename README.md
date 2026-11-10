@@ -148,6 +148,10 @@ arduino-cli compile rlcd_panel
 
 The onboard `ES8311` DAC and speaker play a short chime when a sensor crosses a limit: a freezer alert below 0 °C (three beeps) and a mold risk alert above 70 %RH (two rising notes). A chime sounds once when the alert switches on. The alerts release at 1 °C and 67 %RH. Press `BOOT` during the 3 s window after a wakeup to mute or unmute the chime. The window opens after a `KEY` wakeup or a power-on, not after a timer wakeup. The mute flag stays in RTC memory and resets with it. The power amplifier (`GPIO46`) is off outside playback. The code is in `rlcd_panel/audio_alert.h`.
 
+## Ambient Noise Monitor
+
+The onboard `ES7210` ADC and the dual microphone array measure the ambient noise level. The diagnostics view (third `KEY` view) shows `QUIET`, `MODERATE` or `LOUD` and the level in dBFS. The firmware measures a 5 s window after a `KEY` wakeup or a power-on, only while this view is on screen. A timer wakeup does not measure, and the microphones stay off. The levels are relative to full scale, not calibrated sound pressure levels. The code is in `rlcd_panel/es7210_mic.h`.
+
 ## Time Synchronization (optional)
 
 The firmware can set the `PCF85063A` clock over Wi-Fi and NTP once per day. Copy `rlcd_panel/wifi_config.example.h` to `rlcd_panel/wifi_config.h` and enter your SSID and password. Git ignores this file. The default time zone is CET/CEST. Without the file, the radio stays off and the clock keeps its time. If the network fails, the firmware keeps the RTC unchanged and retries with a growing delay (15 min to 6 h). The radio switches off right after each attempt. The code is in `rlcd_panel/ntp_sync.h`.

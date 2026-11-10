@@ -5,6 +5,7 @@
 #include "battery_monitor.h"
 #include "board_pins.h"
 #include "button_handler.h"
+#include "es7210_mic.h"
 #include "shtc3_sensor.h"
 #include "sparkline.h"
 #include "st7305_framebuffer.h"
@@ -16,6 +17,7 @@ namespace rlcd_panel {
 struct SystemInfo {
   uint32_t free_heap_bytes = 0;
   uint64_t uptime_ms = 0; // 64 bit: millis() wraps after 49.7 days
+  NoiseReading noise;     // ambient noise of the last window; invalid shows "--"
 };
 
 class DashboardView {
@@ -351,6 +353,19 @@ public:
         static_cast<unsigned long>((total_s / 60) % 60),
         static_cast<unsigned long>(total_s % 60));
     drawLine(fb, 10, 164, line);
+
+    // Widest line: "NOISE: MODERATE -96 DB" = 22 glyphs = 264 px.
+    if (info.noise.valid) {
+      snprintf(
+          line,
+          sizeof(line),
+          "NOISE: %s %d DB",
+          NoiseClassifier::label(info.noise.band),
+          NoiseClassifier::dbfs(info.noise.rms));
+    } else {
+      snprintf(line, sizeof(line), "NOISE: --");
+    }
+    drawLine(fb, 10, 204, line);
   }
 
   static void renderMode(
