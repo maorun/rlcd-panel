@@ -51,6 +51,55 @@ private:
   uint32_t candidate_since_ms_ = 0;
 };
 
+// Tells a short press from a long press. begin() starts the timing at a debounced press edge.
+// update() gets the debounced level: LONG fires once when the button has been down for
+// LONG_PRESS_MS, SHORT fires on a release before that limit. After LONG the release gives NONE.
+class LongPressDetector {
+public:
+  enum class Result : uint8_t { NONE, SHORT, LONG };
+
+  static constexpr uint32_t LONG_PRESS_MS = 2000;
+
+  void begin(uint32_t now_ms) {
+    active_ = true;
+    since_ms_ = now_ms;
+  }
+
+  bool active() const {
+    return active_;
+  }
+
+  void cancel() {
+    active_ = false;
+  }
+
+  // Unsigned subtraction keeps the timing correct when millis() wraps around.
+  Result update(bool pressed, uint32_t now_ms) {
+    if (!active_) {
+      return Result::NONE;
+    }
+    if (!pressed) {
+      active_ = false;
+      return Result::SHORT;
+    }
+    if ((now_ms - since_ms_) >= LONG_PRESS_MS) {
+      active_ = false;
+      return Result::LONG;
+    }
+    return Result::NONE;
+  }
+
+private:
+  bool active_ = false;
+  uint32_t since_ms_ = 0;
+};
+
+enum class ButtonEvent : uint8_t {
+  NONE,
+  MODE_CHANGED,
+  CALIBRATE, // long press in the diagnostics view; the mode stays
+};
+
 enum class DisplayMode : uint8_t {
   DASHBOARD = 0,
   SENSOR_STATS = 1,
@@ -86,8 +135,46 @@ public:
     return true;
   }
 
+  // Like update(), with a long press in the diagnostics view. There a press does not change the
+  // mode at once: a release before 2 s changes it (short press), a hold of 2 s or more returns
+  // CALIBRATE and keeps the mode. In the other views every press changes the mode at once. A
+  // button that is already down at the first call raises no event, so the press that woke the
+  // board cannot start a calibration.
+  ButtonEvent updateWithLongPress(bool raw_pressed, uint32_t now_ms) {
+    const bool edge = button_.update(raw_pressed, now_ms);
+    if (edge) {
+      if (mode_ != DisplayMode::SYSTEM_DIAGNOSTICS) {
+        next();
+        return ButtonEvent::MODE_CHANGED;
+      }
+      long_press_.begin(now_ms);
+    }
+    switch (long_press_.update(button_.pressed(), now_ms)) {
+      case LongPressDetector::Result::SHORT:
+        next();
+        return ButtonEvent::MODE_CHANGED;
+      case LongPressDetector::Result::LONG:
+        return ButtonEvent::CALIBRATE;
+      case LongPressDetector::Result::NONE:
+      default:
+        return ButtonEvent::NONE;
+    }
+  }
+
+  // True while a press waits for its release or the long press limit. The caller keeps the board
+  // awake meanwhile.
+  bool pressPending() const {
+    return long_press_.active();
+  }
+
+  // Drops a pending press, for example after a calibration that blocked the loop.
+  void cancelPress() {
+    long_press_.cancel();
+  }
+
 private:
   ButtonDebouncer button_;
+  LongPressDetector long_press_;
   DisplayMode mode_ = DisplayMode::DASHBOARD;
 };
 

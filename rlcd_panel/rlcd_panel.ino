@@ -39,6 +39,9 @@ std::atomic<bool> g_scan_running{false};
 PowerConfig g_power_config;
 NoiseReading g_noise; // measured at most once per wake cycle, only for the diagnostics view
 bool g_noise_attempted = false; // a failed window is not retried in the same wake cycle
+MicCalibration g_mic_cal;       // loaded from NVS in setup(); the default when absent or corrupt
+bool g_mic_cal_busy = false;    // the 10 s calibration window runs
+bool g_mic_cal_failed = false;  // the last calibration of this wake cycle was rejected
 
 // After a render the board stays awake this long so more KEY presses can cycle the view
 // without a new wakeup.
@@ -179,7 +182,7 @@ void measureNoiseOnce() {
   }
   g_noise_attempted = true;
   Es7210Hal hal;
-  g_noise = NoiseSampler::measure(hal, g_state.noise_band);
+  g_noise = NoiseSampler::measure(hal, g_state.noise_band, NoiseSampler::WINDOW_MS, g_mic_cal);
   if (g_noise.valid) {
     g_state.noise_band = g_noise.band;
   } else {
@@ -203,6 +206,9 @@ void renderDashboard() {
   // System time since power-on. A reset that keeps the RTC clock does not restart it.
   info.uptime_ms = PowerPlatform::clockMs64();
   info.noise = g_noise;
+  info.mic_cal = g_mic_cal;
+  info.mic_cal_busy = g_mic_cal_busy;
+  info.mic_cal_failed = g_mic_cal_failed;
 
   DashboardView::renderMode(
       g_framebuffer,
@@ -227,6 +233,32 @@ void measureNoiseAndRedraw(bool measure) {
     measureNoiseOnce();
     renderDashboard();
   }
+}
+
+// Measures the noise floor of a quiet room for 10 s and stores it in NVS. The floor is measured
+// without band limits. A failed window or a floor outside the accepted range keeps the old
+// calibration. The wake cycle takes about 11 s longer; KEY presses during it are not seen.
+void calibrateMicrophone() {
+  // The window starts after the finger left KEY, so the release click stays out of the floor.
+  const uint32_t wait_start = millis();
+  while (digitalRead(PIN_BTN_KEY) == LOW && millis() - wait_start < 3000) {
+    delay(10);
+  }
+  delay(300);
+  g_mic_cal_failed = false;
+  g_mic_cal_busy = true;
+  renderDashboard(); // shows "MIC CAL: MEASURING"
+  Es7210Hal hal;
+  const NoiseReading floor = NoiseSampler::measure(
+      hal, NoiseBand::QUIET, MicCalibration::CALIBRATION_WINDOW_MS, MicCalibration{});
+  g_mic_cal_busy = false;
+  if (applyCalibrationWindow(floor, g_mic_cal, g_noise, g_state.noise_band, MicCalibrationStore::save)) {
+    g_noise_attempted = true;
+  } else {
+    g_mic_cal_failed = true;
+    Serial.println("Mic calibration failed");
+  }
+  renderDashboard();
 }
 
 SwitchBotAdvertisedCallbacks g_ble_callbacks;
@@ -341,6 +373,7 @@ void setup() {
     cycle.begin(cause);
   }
   g_mode_controller.setMode(g_state.mode);
+  g_mic_cal = MicCalibrationStore::load();
   ++g_state.boot_count;
 
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
@@ -376,7 +409,9 @@ void setup() {
   const uint32_t grace_start = millis();
   const bool wants_grace = cause != WakeupCause::TIMER;
   bool boot_was_down = digitalRead(PIN_BTN_BOOT) == LOW;
-  while (wants_grace && millis() - grace_start < KEY_GRACE_MS) {
+  // A pending KEY press (long press check) keeps the window open; it ends within 2 s.
+  while (wants_grace &&
+         (millis() - grace_start < KEY_GRACE_MS || g_mode_controller.pressPending())) {
     // A BOOT press in the grace window toggles the mute flag; a short beep confirms unmuting.
     const bool boot_down = digitalRead(PIN_BTN_BOOT) == LOW;
     if (boot_down && !boot_was_down) {
@@ -387,9 +422,18 @@ void setup() {
       }
     }
     boot_was_down = boot_down;
-    if (g_mode_controller.update(digitalRead(PIN_BTN_KEY) == LOW, millis())) {
-      renderDashboard();
-      measureNoiseAndRedraw(true);
+    switch (g_mode_controller.updateWithLongPress(digitalRead(PIN_BTN_KEY) == LOW, millis())) {
+      case ButtonEvent::MODE_CHANGED:
+        renderDashboard();
+        measureNoiseAndRedraw(true);
+        break;
+      case ButtonEvent::CALIBRATE:
+        calibrateMicrophone();
+        g_mode_controller.cancelPress();
+        break;
+      case ButtonEvent::NONE:
+      default:
+        break;
     }
     delay(10);
   }
