@@ -5,6 +5,7 @@
 
 #include "../rlcd_panel/battery_monitor.h"
 #include "../rlcd_panel/board_pins.h"
+#include "../rlcd_panel/button_handler.h"
 #include "../rlcd_panel/dashboard_view.h"
 #include "../rlcd_panel/pcf85063_rtc.h"
 #include "../rlcd_panel/shtc3_sensor.h"
@@ -536,6 +537,284 @@ void testDashboardStaleIndicator() {
   assert(memcmp(a.data(), b.data(), St7305Framebuffer::BYTE_COUNT) == 0);
 }
 
+void testButtonDebounceAndModeTransitions() {
+  // Bounce on press is ignored: no event before the 30 ms debounce time has passed.
+  ButtonDebouncer button;
+  assert(!button.update(false, 0));      // seed: released
+  assert(!button.update(true, 100));     // contact bounce starts
+  assert(!button.update(false, 110));    // bounce back
+  assert(!button.update(true, 115));
+  assert(!button.update(true, 140));     // 25 ms stable: too early
+  assert(!button.pressed());
+  assert(button.update(true, 145));      // 30 ms stable: one press event
+  assert(button.pressed());
+  assert(!button.update(true, 500));     // holding raises no further event
+  assert(!button.update(false, 600));    // release raises no event
+  assert(!button.update(false, 640));
+  assert(!button.pressed());
+
+  // Bounce on release raises no event; only the next stable press does.
+  ButtonDebouncer chatter;
+  assert(!chatter.update(false, 0));
+  assert(!chatter.update(true, 10));
+  assert(chatter.update(true, 40));       // press event
+  assert(!chatter.update(false, 100));    // release bounce starts
+  assert(!chatter.update(true, 110));
+  assert(!chatter.update(false, 120));
+  assert(!chatter.update(false, 160));    // stable release
+  assert(!chatter.pressed());
+  assert(!chatter.update(true, 200));
+  assert(chatter.update(true, 230));      // second press: exactly one more event
+
+  // Zero debounce time reports a press on the second identical sample, and a long hold stays silent.
+  ButtonDebouncer instant(0);
+  assert(!instant.update(false, 0));
+  assert(!instant.update(true, 1));
+  assert(instant.update(true, 2));
+  for (uint32_t t = 2; t < 100000; t += 997) {
+    assert(!instant.update(true, t));
+  }
+  assert(!instant.update(false, 100000));
+  assert(!instant.update(false, 100001));
+  assert(!instant.update(true, 100002));
+  assert(instant.update(true, 100003));
+
+  // A button held at boot seeds the state and does not count as a press.
+  ButtonDebouncer held;
+  assert(!held.update(true, 0));
+  assert(!held.update(true, 1000));
+
+  // Debounce survives millis() wrap-around.
+  ButtonDebouncer wrapped;
+  assert(!wrapped.update(false, 0xFFFFFFF0u));
+  assert(!wrapped.update(true, 0xFFFFFFF8u));
+  assert(!wrapped.update(true, 0x00000010u)); // 24 ms elapsed
+  assert(wrapped.update(true, 0x00000016u));  // 30 ms elapsed
+
+  // Each debounced press cycles DASHBOARD -> SENSOR_STATS -> SYSTEM_DIAGNOSTICS -> DASHBOARD.
+  DisplayModeController controller;
+  assert(controller.mode() == DisplayMode::DASHBOARD);
+  uint32_t t = 0;
+  const DisplayMode expected[4] = {
+      DisplayMode::SENSOR_STATS,
+      DisplayMode::SYSTEM_DIAGNOSTICS,
+      DisplayMode::DASHBOARD,
+      DisplayMode::SENSOR_STATS};
+  controller.update(false, t);
+  for (const DisplayMode want : expected) {
+    t += 100;
+    controller.update(true, t);
+    t += 40;
+    assert(controller.update(true, t));
+    assert(controller.mode() == want);
+    t += 100;
+    controller.update(false, t);
+    t += 40;
+    assert(!controller.update(false, t));
+    assert(controller.mode() == want);
+  }
+}
+
+void testDisplayModesRenderWithoutClipping() {
+  Shtc3Reading onboard;
+  onboard.valid = true;
+  onboard.temperature_c = -12.3f;
+  onboard.humidity_pct = 100.0f;
+
+  // Worst-case widths: low RSSI, big packet counter, long age, wide battery label.
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    slots[i].valid = true;
+    slots[i].rssi = -100;
+    slots[i].packet_count = 4000000000u;
+    slots[i].updated_ms = 0;
+    for (size_t b = 0; b < 6; ++b) {
+      slots[i].mac[b] = 0xDD;
+    }
+  }
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 4.20f;
+  battery.percentage = 100;
+  SystemInfo info;
+  info.free_heap_bytes = 8u * 1024 * 1024;
+  info.uptime_ms = 0xFFFFFFFFFFull * 1000; // widest uptime: thousands of days
+  const uint32_t now_ms = 0xFFFFFFFFu;
+
+  const DisplayMode modes[DISPLAY_MODE_COUNT] = {
+      DisplayMode::DASHBOARD, DisplayMode::SENSOR_STATS, DisplayMode::SYSTEM_DIAGNOSTICS};
+  St7305Framebuffer frames[DISPLAY_MODE_COUNT];
+  for (uint8_t m = 0; m < DISPLAY_MODE_COUNT; ++m) {
+    St7305Framebuffer& fb = frames[m];
+    // Poison the buffer: a full redraw must overwrite stale content.
+    fb.clear(true);
+    DashboardView::renderMode(
+        fb, modes[m], onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info, "88:88", now_ms);
+
+    // Header bar is drawn and the body has content.
+    assert(fb.getPixel(0, 0));
+    size_t body_ink = 0;
+    for (uint16_t y = DashboardView::HEADER_HEIGHT; y < St7305Framebuffer::HEIGHT; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        if (fb.getPixel(x, y)) {
+          ++body_ink;
+        }
+      }
+    }
+    assert(body_ink > 500);
+
+    if (modes[m] != DisplayMode::DASHBOARD) {
+      // Text views leave a blank margin on the right and bottom edges: nothing is cut off.
+      for (uint16_t y = DashboardView::HEADER_HEIGHT; y < St7305Framebuffer::HEIGHT; ++y) {
+        for (uint16_t x = St7305Framebuffer::WIDTH - 8; x < St7305Framebuffer::WIDTH; ++x) {
+          assert(!fb.getPixel(x, y));
+        }
+      }
+      for (uint16_t y = St7305Framebuffer::HEIGHT - 8; y < St7305Framebuffer::HEIGHT; ++y) {
+        for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+          assert(!fb.getPixel(x, y));
+        }
+      }
+    }
+  }
+
+  // Sensor stats: every sensor block (3 text lines of 12 px height) has ink on each line.
+  for (uint16_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    for (uint16_t line = 0; line < 3; ++line) {
+      const uint16_t y0 = static_cast<uint16_t>(34 + i * 78 + line * 18);
+      size_t ink = 0;
+      for (uint16_t y = y0; y < y0 + 14; ++y) {
+        for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+          ink += frames[1].getPixel(x, y) ? 1 : 0;
+        }
+      }
+      assert(ink > 20);
+    }
+  }
+
+  // Diagnostics: power, battery, heap and uptime lines are all drawn.
+  const uint16_t diag_rows[4] = {44, 84, 124, 164};
+  for (const uint16_t y0 : diag_rows) {
+    size_t ink = 0;
+    for (uint16_t y = y0; y < y0 + 14; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        ink += frames[2].getPixel(x, y) ? 1 : 0;
+      }
+    }
+    assert(ink > 20);
+  }
+
+  // Invalid slot prints one NO SIGNAL line and leaves the MAC and packet lines blank.
+  {
+    SwitchBotReading one_invalid[MAX_SWITCHBOT_SENSORS] = {};
+    St7305Framebuffer fb;
+    DashboardView::renderMode(
+        fb, DisplayMode::SENSOR_STATS, onboard, battery, one_invalid, MAX_SWITCHBOT_SENSORS,
+        info, "88:88", 0);
+    size_t first = 0, second = 0;
+    for (uint16_t y = 34; y < 48; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        first += fb.getPixel(x, y) ? 1 : 0;
+      }
+    }
+    for (uint16_t y = 52; y < 84; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        second += fb.getPixel(x, y) ? 1 : 0;
+      }
+    }
+    assert(first > 20);
+    assert(second == 0);
+  }
+
+  // A packet stamped after now_ms renders age 0 instead of a wrapped value: same pixels as age 0.
+  {
+    SwitchBotReading future[MAX_SWITCHBOT_SENSORS] = {};
+    SwitchBotReading zero[MAX_SWITCHBOT_SENSORS] = {};
+    future[0].valid = zero[0].valid = true;
+    future[0].updated_ms = 5000;
+    zero[0].updated_ms = 4000;
+    St7305Framebuffer a, b;
+    DashboardView::renderMode(
+        a, DisplayMode::SENSOR_STATS, onboard, battery, future, MAX_SWITCHBOT_SENSORS, info, "88:88", 4000);
+    DashboardView::renderMode(
+        b, DisplayMode::SENSOR_STATS, onboard, battery, zero, MAX_SWITCHBOT_SENSORS, info, "88:88", 4000);
+    assert(memcmp(a.data(), b.data(), St7305Framebuffer::BYTE_COUNT) == 0);
+  }
+
+  // Age text: seconds, minutes, hours and a 30-day silence each render differently; a packet
+  // 65 s in the near future still renders as age 0.
+  {
+    const uint32_t ages_ms[5] = {0, 59000u, 61000u, 2u * 3600u * 1000u, 30u * 86400u * 1000u};
+    St7305Framebuffer renders[5];
+    for (size_t k = 0; k < 5; ++k) {
+      SwitchBotReading one[MAX_SWITCHBOT_SENSORS] = {};
+      one[0].valid = true;
+      one[0].updated_ms = 1000;
+      DashboardView::renderMode(
+          renders[k], DisplayMode::SENSOR_STATS, onboard, battery, one, MAX_SWITCHBOT_SENSORS,
+          info, "88:88", 1000 + ages_ms[k]);
+    }
+    for (size_t a = 0; a < 5; ++a) {
+      for (size_t b = a + 1; b < 5; ++b) {
+        assert(memcmp(renders[a].data(), renders[b].data(), St7305Framebuffer::BYTE_COUNT) != 0);
+      }
+    }
+  }
+
+  // Header titles of the text views stay clear of the clock and the battery indicator.
+  for (uint8_t m = 1; m < DISPLAY_MODE_COUNT; ++m) {
+    St7305Framebuffer with_clock;
+    St7305Framebuffer without_clock;
+    DashboardView::renderMode(
+        with_clock, modes[m], onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info, "88:88", now_ms);
+    DashboardView::renderMode(
+        without_clock, modes[m], onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info, nullptr, now_ms);
+    uint16_t min_x = St7305Framebuffer::WIDTH;
+    for (uint16_t y = 0; y < DashboardView::HEADER_HEIGHT; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        if (with_clock.getPixel(x, y) != without_clock.getPixel(x, y) && x < min_x) {
+          min_x = x;
+        }
+      }
+    }
+    assert(min_x > 10 + 18 * 12 + 8); // longest title "SYSTEM DIAGNOSTICS" ends at x = 226
+  }
+
+  // The three views differ, and empty inputs render without crashing.
+  assert(memcmp(frames[0].data(), frames[1].data(), St7305Framebuffer::BYTE_COUNT) != 0);
+  assert(memcmp(frames[1].data(), frames[2].data(), St7305Framebuffer::BYTE_COUNT) != 0);
+  BatteryReading no_battery;
+  for (uint8_t m = 0; m < DISPLAY_MODE_COUNT; ++m) {
+    St7305Framebuffer fb;
+    DashboardView::renderMode(fb, modes[m], Shtc3Reading{}, no_battery, nullptr, 0, SystemInfo{}, nullptr, 0);
+  }
+}
+
+void testSwitchBotPacketCounter() {
+  SwitchBotRegistry registry;
+  SwitchBotReading reading;
+  reading.valid = true;
+  reading.mac[5] = 0x07;
+  assert(registry.upsert(reading));
+  assert(registry.slot(0).packet_count == 1);
+  assert(registry.upsert(reading));
+  assert(registry.upsert(reading));
+  assert(registry.slot(0).packet_count == 3);
+
+  // A new MAC starts at 1 even when the incoming reading carries a stale counter.
+  SwitchBotReading other;
+  other.valid = true;
+  other.mac[5] = 0x08;
+  other.packet_count = 99;
+  assert(registry.upsert(other));
+  assert(registry.slot(1).packet_count == 1);
+  assert(registry.slot(0).packet_count == 3);
+  // A repeat of that MAC counts from the stored value, not from the incoming one.
+  other.packet_count = 50;
+  assert(registry.upsert(other));
+  assert(registry.slot(1).packet_count == 2);
+}
+
 } // namespace
 
 int main() {
@@ -552,6 +831,9 @@ int main() {
   testDashboardHeaderClock();
   testSwitchBotStaleDetection();
   testDashboardStaleIndicator();
-  printf("All 13 firmware logic test suites passed.\n");
+  testButtonDebounceAndModeTransitions();
+  testDisplayModesRenderWithoutClipping();
+  testSwitchBotPacketCounter();
+  printf("All 16 firmware logic test suites passed.\n");
   return 0;
 }

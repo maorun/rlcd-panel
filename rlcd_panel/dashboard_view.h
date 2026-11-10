@@ -4,11 +4,18 @@
 #include <string.h>
 #include "battery_monitor.h"
 #include "board_pins.h"
+#include "button_handler.h"
 #include "shtc3_sensor.h"
 #include "st7305_framebuffer.h"
 #include "switchbot_ble.h"
 
 namespace rlcd_panel {
+
+// Runtime figures for the system diagnostics view.
+struct SystemInfo {
+  uint32_t free_heap_bytes = 0;
+  uint64_t uptime_ms = 0; // 64 bit: millis() wraps after 49.7 days
+};
 
 class DashboardView {
 public:
@@ -100,19 +107,17 @@ public:
     }
   }
 
-  static void render(
+  // Clears the framebuffer and draws the header bar: title, optional clock and battery indicator.
+  static void renderHeader(
       St7305Framebuffer& fb,
-      const Shtc3Reading& onboard,
+      const char* title,
       const BatteryReading& battery,
-      const SwitchBotReading* switchbot_slots,
-      size_t switchbot_count,
-      const char* clock_text,
-      uint32_t now_ms) {
+      const char* clock_text) {
     fb.clear(false);
 
     // Header bar (black filled rectangle)
     fb.fillRect(0, 0, RLCD_WIDTH, HEADER_HEIGHT, true);
-    fb.drawText(10, 7, "RLCD CLIMATE PANEL", 2, false);
+    fb.drawText(10, 7, title, 2, false);
 
     // Header clock between the title and the battery indicator
     if (clock_text != nullptr && strlen(clock_text) <= HEADER_CLOCK_MAX_CHARS) {
@@ -136,6 +141,17 @@ public:
       fb.drawText(text_x, 7, bat_header, 2, false);
       renderBatteryIcon(fb, 368, 8, battery.percentage, true);
     }
+  }
+
+  static void render(
+      St7305Framebuffer& fb,
+      const Shtc3Reading& onboard,
+      const BatteryReading& battery,
+      const SwitchBotReading* switchbot_slots,
+      size_t switchbot_count,
+      const char* clock_text,
+      uint32_t now_ms) {
+    renderHeader(fb, "RLCD CLIMATE PANEL", battery, clock_text);
 
     const uint16_t tile_w = 190;
     const uint16_t tile_h = 124;
@@ -181,6 +197,147 @@ public:
           sb.battery_pct,
           -1.0f,
           sb.isStale(now_ms));
+    }
+  }
+
+  // Draws one scale-2 text line; returns false (and draws nothing) when it would not fit the screen.
+  static bool drawLine(St7305Framebuffer& fb, uint16_t x, uint16_t y, const char* text) {
+    if (static_cast<uint32_t>(x) + strlen(text) * 12 > RLCD_WIDTH) {
+      return false;
+    }
+    fb.drawText(x, y, text, 2, true);
+    return true;
+  }
+
+  static void renderSensorStats(
+      St7305Framebuffer& fb,
+      const BatteryReading& battery,
+      const SwitchBotReading* switchbot_slots,
+      size_t switchbot_count,
+      const char* clock_text,
+      uint32_t now_ms) {
+    renderHeader(fb, "SENSOR STATS", battery, clock_text);
+
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      const uint16_t y = static_cast<uint16_t>(34 + i * 78);
+      const bool have_slot = (switchbot_slots != nullptr && i < switchbot_count);
+      const SwitchBotReading empty_reading{};
+      const SwitchBotReading& sb = have_slot ? switchbot_slots[i] : empty_reading;
+
+      char line[40];
+      if (!sb.valid) {
+        snprintf(line, sizeof(line), "S%u NO SIGNAL", static_cast<unsigned>(i + 1));
+        drawLine(fb, 10, y, line);
+        continue;
+      }
+
+      snprintf(line, sizeof(line), "S%u RSSI %d DBM", static_cast<unsigned>(i + 1), sb.rssi);
+      drawLine(fb, 10, y, line);
+
+      snprintf(
+          line,
+          sizeof(line),
+          "MAC %02X:%02X:%02X:%02X:%02X:%02X",
+          sb.mac[0], sb.mac[1], sb.mac[2], sb.mac[3], sb.mac[4], sb.mac[5]);
+      drawLine(fb, 10, static_cast<uint16_t>(y + 18), line);
+
+      // The BLE task can stamp a packet shortly after the caller read now_ms: show 0 s for such a
+      // packet from the near future (under 65 s) instead of a wrapped age near 49.7 days.
+      const uint32_t age_ms = now_ms - sb.updated_ms;
+      const uint32_t age_s = age_ms >= 0xFFFF0000u ? 0 : age_ms / 1000;
+      char age[12];
+      if (age_s < 60) {
+        snprintf(age, sizeof(age), "%lu S", static_cast<unsigned long>(age_s));
+      } else if (age_s < 3600) {
+        snprintf(age, sizeof(age), "%lu M", static_cast<unsigned long>(age_s / 60));
+      } else {
+        snprintf(age, sizeof(age), "%lu H", static_cast<unsigned long>(age_s / 3600));
+      }
+      snprintf(
+          line,
+          sizeof(line),
+          "PKT %lu AGE %s",
+          static_cast<unsigned long>(sb.packet_count),
+          age);
+      drawLine(fb, 10, static_cast<uint16_t>(y + 36), line);
+    }
+
+    // Raw voltage readings: only the onboard cell is measured; SwitchBot packets carry a percentage.
+    char line[40];
+    if (battery.valid) {
+      snprintf(line, sizeof(line), "ONBOARD BAT %.2f V", battery.voltage_v);
+    } else {
+      snprintf(line, sizeof(line), "ONBOARD BAT --");
+    }
+    drawLine(fb, 10, 270, line);
+  }
+
+  static void renderDiagnostics(
+      St7305Framebuffer& fb,
+      const BatteryReading& battery,
+      const SystemInfo& info,
+      const char* clock_text) {
+    renderHeader(fb, "SYSTEM DIAGNOSTICS", battery, clock_text);
+
+    char line[40];
+    const char* power = !battery.valid ? "NONE" : (battery.usb_powered ? "USB" : "BATTERY");
+    snprintf(line, sizeof(line), "POWER: %s", power);
+    drawLine(fb, 10, 44, line);
+
+    if (battery.valid && battery.percentage >= 0) {
+      snprintf(
+          line,
+          sizeof(line),
+          "BAT: %.2f V %d %%",
+          battery.voltage_v,
+          static_cast<int>(battery.percentage));
+    } else if (battery.valid) {
+      snprintf(line, sizeof(line), "BAT: %.2f V --", battery.voltage_v);
+    } else {
+      snprintf(line, sizeof(line), "BAT: --");
+    }
+    drawLine(fb, 10, 84, line);
+
+    snprintf(
+        line,
+        sizeof(line),
+        "HEAP: %lu KB FREE",
+        static_cast<unsigned long>(info.free_heap_bytes / 1024));
+    drawLine(fb, 10, 124, line);
+
+    const uint64_t total_s = info.uptime_ms / 1000;
+    snprintf(
+        line,
+        sizeof(line),
+        "UP: %llu D %02lu:%02lu:%02lu",
+        static_cast<unsigned long long>(total_s / 86400),
+        static_cast<unsigned long>((total_s / 3600) % 24),
+        static_cast<unsigned long>((total_s / 60) % 60),
+        static_cast<unsigned long>(total_s % 60));
+    drawLine(fb, 10, 164, line);
+  }
+
+  static void renderMode(
+      St7305Framebuffer& fb,
+      DisplayMode mode,
+      const Shtc3Reading& onboard,
+      const BatteryReading& battery,
+      const SwitchBotReading* switchbot_slots,
+      size_t switchbot_count,
+      const SystemInfo& info,
+      const char* clock_text,
+      uint32_t now_ms) {
+    switch (mode) {
+      case DisplayMode::SENSOR_STATS:
+        renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms);
+        break;
+      case DisplayMode::SYSTEM_DIAGNOSTICS:
+        renderDiagnostics(fb, battery, info, clock_text);
+        break;
+      case DisplayMode::DASHBOARD:
+      default:
+        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms);
+        break;
     }
   }
 };

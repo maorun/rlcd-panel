@@ -24,6 +24,7 @@ struct SwitchBotReading {
   bool fahrenheit_mode = false;
   int rssi = 0;
   uint32_t updated_ms = 0;
+  uint32_t packet_count = 0; // advertisements received from this sensor since boot
 
   // Unsigned subtraction keeps the result correct when millis() wraps around.
   bool isStale(uint32_t now_ms, uint32_t timeout_ms = SENSOR_STALE_TIMEOUT_MS) const {
@@ -111,7 +112,9 @@ public:
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       if (slots_[i].valid && memcmp(slots_[i].mac, reading.mac, 6) == 0) {
         int8_t prev_battery = slots_[i].battery_pct;
+        const uint32_t prev_count = slots_[i].packet_count;
         slots_[i] = reading;
+        slots_[i].packet_count = prev_count + 1;
         if (slots_[i].battery_pct < 0 && prev_battery >= 0) {
           slots_[i].battery_pct = prev_battery;
         }
@@ -123,6 +126,7 @@ public:
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       if (!slots_[i].valid) {
         slots_[i] = reading;
+        slots_[i].packet_count = 1;
         return true;
       }
     }

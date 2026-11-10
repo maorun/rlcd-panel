@@ -3,11 +3,14 @@
 #include <BLEDevice.h>
 #include <BLEAdvertisedDevice.h>
 #include <BLEScan.h>
+#include <atomic>
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
+#include <esp_timer.h>
 
 #include "board_pins.h"
 #include "battery_monitor.h"
+#include "button_handler.h"
 #include "dashboard_view.h"
 #include "pcf85063_rtc.h"
 #include "shtc3_sensor.h"
@@ -29,9 +32,18 @@ Shtc3Reading g_onboard_reading;
 BatteryReading g_battery_reading;
 BLEScan* g_ble_scan = nullptr;
 uint32_t g_last_refresh_ms = 0;
+uint32_t g_last_sensor_read_ms = 0;
+uint32_t g_last_scan_attempt_ms = 0;
+DisplayModeController g_mode_controller;
+std::atomic<bool> g_scan_running{false};
 
 constexpr uint32_t BLE_SCAN_DURATION_SEC = 4;
 constexpr uint32_t DISPLAY_REFRESH_INTERVAL_MS = 15000;
+constexpr uint32_t SCAN_RETRY_INTERVAL_MS = 1000;
+// Text views show ages and uptime, so they redraw every second.
+constexpr uint32_t TEXT_VIEW_REFRESH_INTERVAL_MS = 1000;
+// Watchdog: a scan that never reports completion is stopped after its duration plus this margin.
+constexpr uint32_t SCAN_WATCHDOG_MARGIN_MS = 5000;
 
 class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice advertisedDevice) override {
@@ -71,6 +83,14 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
     portEXIT_CRITICAL(&g_registry_mux);
   }
 };
+
+void onScanComplete(BLEScanResults) {
+  // Runs in the BLE task: clearing here avoids racing the scan callback from the loop task.
+  if (g_ble_scan != nullptr) {
+    g_ble_scan->clearResults();
+  }
+  g_scan_running = false;
+}
 
 bool readOnboardShtc3(Shtc3Reading& out) {
   out = Shtc3Reading{};
@@ -138,12 +158,18 @@ void renderDashboard() {
   char clock_text[8];
   Pcf85063Codec::formatClock(g_rtc_time, clock_text, sizeof(clock_text));
 
-  DashboardView::render(
+  SystemInfo info;
+  info.free_heap_bytes = ESP.getFreeHeap();
+  info.uptime_ms = static_cast<uint64_t>(esp_timer_get_time()) / 1000;
+
+  DashboardView::renderMode(
       g_framebuffer,
+      g_mode_controller.mode(),
       g_onboard_reading,
       g_battery_reading,
       snapshot,
       MAX_SWITCHBOT_SENSORS,
+      info,
       clock_text,
       millis());
   g_panel.flush(g_framebuffer);
@@ -180,20 +206,42 @@ void setup() {
 }
 
 void loop() {
-  if (g_ble_scan != nullptr) {
-    g_ble_scan->start(BLE_SCAN_DURATION_SEC, false);
-    g_ble_scan->clearResults();
+  // Non-blocking scan keeps the KEY button responsive while the radio listens.
+  const uint32_t now = millis();
+  if (g_ble_scan != nullptr && g_scan_running &&
+      now - g_last_scan_attempt_ms >= BLE_SCAN_DURATION_SEC * 1000 + SCAN_WATCHDOG_MARGIN_MS) {
+    g_ble_scan->stop();
+    g_scan_running = false;
+    // A late completion callback from the stopped scan arrives within milliseconds. The retry
+    // interval keeps the next scan from starting before it.
+    g_last_scan_attempt_ms = now;
+  }
+  if (g_ble_scan != nullptr && !g_scan_running &&
+      now - g_last_scan_attempt_ms >= SCAN_RETRY_INTERVAL_MS) {
+    g_last_scan_attempt_ms = now;
+    // Set the flag first: a fast completion callback in the BLE task must not be overwritten.
+    g_scan_running = true;
+    if (!g_ble_scan->start(BLE_SCAN_DURATION_SEC, onScanComplete, false)) {
+      g_scan_running = false;
+    }
   }
 
-  const uint32_t now = millis();
-  if (now - g_last_refresh_ms >= DISPLAY_REFRESH_INTERVAL_MS ||
-      digitalRead(PIN_BTN_KEY) == LOW) {
-    readOnboardShtc3(g_onboard_reading);
-    g_battery_reading = BatteryMonitor::read();
-    updateRtc();
+  // KEY is active low; a debounced press cycles the display mode and redraws at once.
+  const bool mode_changed = g_mode_controller.update(digitalRead(PIN_BTN_KEY) == LOW, now);
+  const uint32_t refresh_interval_ms = g_mode_controller.mode() == DisplayMode::DASHBOARD
+      ? DISPLAY_REFRESH_INTERVAL_MS
+      : TEXT_VIEW_REFRESH_INTERVAL_MS;
+  if (mode_changed || now - g_last_refresh_ms >= refresh_interval_ms) {
+    // Sensors keep the 15 s cadence the SHTC3 offset was calibrated for, also in text views.
+    if (now - g_last_sensor_read_ms >= DISPLAY_REFRESH_INTERVAL_MS) {
+      readOnboardShtc3(g_onboard_reading);
+      g_battery_reading = BatteryMonitor::read();
+      updateRtc();
+      g_last_sensor_read_ms = now;
+    }
     renderDashboard();
     g_last_refresh_ms = now;
   }
 
-  delay(250);
+  delay(10);
 }
