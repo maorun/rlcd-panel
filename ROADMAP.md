@@ -18,18 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: High-Impact Core Features (Score 34–40)
 
-### Key button display mode switcher
-
-- **Rank:** Feature model. Total 34/40 (use 9, setup 8, harmony 9, safety 8). Effort S.
-- **Area:** User Interface / Input.
-- **Code:** `rlcd_panel/button_handler.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`.
-- **Problem:** The physical user button `KEY` (GPIO 18, active low) has no software function in firmware. The 400x300 screen only shows one fixed dashboard view.
-- **Goal:** Implement an active-low debounced button handler on GPIO 18. Each press cycles the display between:
-  1. Main 4-tile climate dashboard.
-  2. Detailed sensor statistics view (RSSI, packet counter, MAC address, raw voltages).
-  3. Power and system diagnostics view (onboard battery curve, free heap, uptime).
-- **Acceptance test:** Host unit test processes button press events and confirms state machine transitions across all three views.
-
 ## Priority 2: Power, Storage, and Visuals (Score 28–33)
 
 ### Deep sleep power management with periodic wakeup
