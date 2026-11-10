@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdio.h>
+#include <string.h>
 #include "battery_monitor.h"
 #include "board_pins.h"
 #include "shtc3_sensor.h"
@@ -11,6 +12,13 @@ namespace rlcd_panel {
 
 class DashboardView {
 public:
+  // Header clock "HH:MM" (5 glyphs at scale 2 = 58 px wide). The title ends at x = 224 and the
+  // widest battery label ("100%") starts at x = 316, so the clock fits between them.
+  static constexpr uint16_t HEADER_HEIGHT = 28;
+  static constexpr uint16_t HEADER_CLOCK_X = 244;
+  static constexpr uint16_t HEADER_CLOCK_Y = 7;
+  static constexpr size_t HEADER_CLOCK_MAX_CHARS = 5;
+
   static void renderBatteryIcon(
       St7305Framebuffer& fb,
       uint16_t x,
@@ -85,12 +93,18 @@ public:
       const Shtc3Reading& onboard,
       const BatteryReading& battery,
       const SwitchBotReading* switchbot_slots,
-      size_t switchbot_count) {
+      size_t switchbot_count,
+      const char* clock_text = nullptr) {
     fb.clear(false);
 
     // Header bar (black filled rectangle)
-    fb.fillRect(0, 0, RLCD_WIDTH, 28, true);
+    fb.fillRect(0, 0, RLCD_WIDTH, HEADER_HEIGHT, true);
     fb.drawText(10, 7, "RLCD CLIMATE PANEL", 2, false);
+
+    // Header clock between the title and the battery indicator
+    if (clock_text != nullptr && strlen(clock_text) <= HEADER_CLOCK_MAX_CHARS) {
+      fb.drawText(HEADER_CLOCK_X, HEADER_CLOCK_Y, clock_text, 2, false);
+    }
 
     // Header battery indicator on the right side
     if (battery.valid) {

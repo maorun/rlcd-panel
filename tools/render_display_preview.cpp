@@ -130,7 +130,7 @@ int main(int argc, char** argv) {
   battery.percentage = 72;
   battery.usb_powered = false;
 
-  DashboardView::render(fb, onboard, battery, slots, MAX_SWITCHBOT_SENSORS);
+  DashboardView::render(fb, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "14:32");
 
   if (!exportFramebufferToBmp(fb, out_path)) {
     return 1;

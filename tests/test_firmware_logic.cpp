@@ -6,6 +6,7 @@
 #include "../rlcd_panel/battery_monitor.h"
 #include "../rlcd_panel/board_pins.h"
 #include "../rlcd_panel/dashboard_view.h"
+#include "../rlcd_panel/pcf85063_rtc.h"
 #include "../rlcd_panel/shtc3_sensor.h"
 #include "../rlcd_panel/st7305_framebuffer.h"
 #include "../rlcd_panel/switchbot_ble.h"
@@ -267,6 +268,168 @@ void testDashboardViewRendering() {
   assert(header_pixels_found);
 }
 
+void testPcf85063BcdCodec() {
+  uint8_t bin = 0;
+  assert(Pcf85063Codec::bcdToBin(0x59, bin) && bin == 59);
+  assert(Pcf85063Codec::bcdToBin(0x00, bin) && bin == 0);
+  assert(!Pcf85063Codec::bcdToBin(0x5A, bin));
+  assert(!Pcf85063Codec::bcdToBin(0xA0, bin));
+  assert(Pcf85063Codec::binToBcd(59) == 0x59);
+  assert(Pcf85063Codec::binToBcd(7) == 0x07);
+
+  // 2026-11-10 (Tuesday) 14:32:45
+  const uint8_t regs[7] = {0x45, 0x32, 0x14, 0x10, 0x02, 0x11, 0x26};
+  RtcTime t;
+  assert(Pcf85063Codec::decodeRegisters(regs, sizeof(regs), t));
+  assert(t.valid && !t.oscillator_stopped);
+  assert(t.hour == 14 && t.minute == 32 && t.second == 45);
+  assert(t.day == 10 && t.weekday == 2 && t.month == 11 && t.year == 2026);
+  assert(Pcf85063Codec::computeWeekday(2026, 11, 10) == 2);
+
+  // Encode round trip
+  uint8_t out[7] = {0};
+  assert(Pcf85063Codec::encodeRegisters(t, out, sizeof(out)));
+  assert(memcmp(out, regs, sizeof(regs)) == 0);
+
+  // Control bits in the register high bits are masked off
+  const uint8_t masked[7] = {0x45, 0xB2, 0x14 | 0x80, 0x10 | 0x40, 0x02 | 0xF8, 0x11 | 0xE0, 0x26};
+  assert(Pcf85063Codec::decodeRegisters(masked, sizeof(masked), t));
+  assert(t.hour == 14 && t.minute == 32 && t.month == 11);
+
+  char text[8];
+  Pcf85063Codec::formatClock(t, text, sizeof(text));
+  assert(strcmp(text, "14:32") == 0);
+  Pcf85063Codec::formatClock(RtcTime{}, text, sizeof(text));
+  assert(strcmp(text, "--:--") == 0);
+}
+
+void testPcf85063InvalidValues() {
+  RtcTime t;
+  const uint8_t good[7] = {0x45, 0x32, 0x14, 0x10, 0x02, 0x11, 0x26};
+  uint8_t regs[7];
+
+  // Oscillator-stop flag (bit 7 of seconds) marks the time as invalid
+  memcpy(regs, good, sizeof(regs));
+  regs[0] |= 0x80;
+  assert(!Pcf85063Codec::decodeRegisters(regs, sizeof(regs), t));
+  assert(!t.valid && t.oscillator_stopped);
+
+  // Invalid BCD digit
+  memcpy(regs, good, sizeof(regs));
+  regs[1] = 0x6A;
+  assert(!Pcf85063Codec::decodeRegisters(regs, sizeof(regs), t));
+  assert(!t.valid);
+
+  // BCD valid but out of range: 24 h, 60 min, month 13, day 0
+  memcpy(regs, good, sizeof(regs));
+  regs[2] = 0x24;
+  assert(!Pcf85063Codec::decodeRegisters(regs, sizeof(regs), t));
+  memcpy(regs, good, sizeof(regs));
+  regs[1] = 0x60;
+  assert(!Pcf85063Codec::decodeRegisters(regs, sizeof(regs), t));
+  memcpy(regs, good, sizeof(regs));
+  regs[5] = 0x13;
+  assert(!Pcf85063Codec::decodeRegisters(regs, sizeof(regs), t));
+  memcpy(regs, good, sizeof(regs));
+  regs[3] = 0x00;
+  assert(!Pcf85063Codec::decodeRegisters(regs, sizeof(regs), t));
+
+  // Impossible calendar dates: Feb 31, Apr 31, Feb 29 in a non-leap year
+  memcpy(regs, good, sizeof(regs));
+  regs[3] = 0x31;
+  regs[5] = 0x02;
+  assert(!Pcf85063Codec::decodeRegisters(regs, sizeof(regs), t));
+  regs[5] = 0x04;
+  assert(!Pcf85063Codec::decodeRegisters(regs, sizeof(regs), t));
+  regs[3] = 0x29;
+  regs[5] = 0x02;
+  assert(!Pcf85063Codec::decodeRegisters(regs, sizeof(regs), t)); // 2026
+  regs[6] = 0x24; // 2024 is a leap year
+  assert(Pcf85063Codec::decodeRegisters(regs, sizeof(regs), t));
+  assert(Pcf85063Codec::daysInMonth(2100, 2) == 28);
+  assert(Pcf85063Codec::daysInMonth(2000, 2) == 29);
+
+  // Null and short buffers
+  assert(!Pcf85063Codec::decodeRegisters(nullptr, 7, t));
+  assert(!Pcf85063Codec::decodeRegisters(good, 6, t));
+
+  // Encode rejects out-of-range values and short buffers
+  RtcTime bad;
+  bad.valid = true;
+  bad.hour = 24;
+  assert(!Pcf85063Codec::encodeRegisters(bad, regs, sizeof(regs)));
+  RtcTime ok;
+  assert(!Pcf85063Codec::encodeRegisters(ok, regs, 6));
+  assert(!Pcf85063Codec::encodeRegisters(ok, nullptr, 7));
+
+  // Compile stamp parsing
+  RtcTime stamp;
+  assert(Pcf85063Codec::fromCompileStamp("Nov 10 2026", "14:03:47", stamp));
+  assert(stamp.valid && stamp.year == 2026 && stamp.month == 11 && stamp.day == 10);
+  assert(stamp.hour == 14 && stamp.minute == 3 && stamp.second == 47 && stamp.weekday == 2);
+  assert(Pcf85063Codec::fromCompileStamp("Jan  5 2027", "00:00:00", stamp));
+  assert(stamp.day == 5);
+  assert(!Pcf85063Codec::fromCompileStamp("Xyz 10 2026", "14:03:47", stamp));
+  assert(!Pcf85063Codec::fromCompileStamp("Nov 10 2026", "25:03:47", stamp));
+}
+
+void testDashboardHeaderClock() {
+  Shtc3Reading onboard;
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 4.20f;
+  battery.percentage = 100; // widest battery label "100%"
+
+  St7305Framebuffer base;
+  St7305Framebuffer with_clock;
+  DashboardView::render(base, onboard, battery, nullptr, 0, nullptr);
+  DashboardView::render(with_clock, onboard, battery, nullptr, 0, "88:88");
+
+  // Title occupies x 10..224, battery label + icon start at x = 316.
+  const uint16_t title_right = 10 + 18 * 12;
+  const uint16_t battery_left = 364 - 4 * 12;
+
+  uint16_t min_x = St7305Framebuffer::WIDTH, max_x = 0;
+  uint16_t min_y = St7305Framebuffer::HEIGHT, max_y = 0;
+  size_t changed = 0;
+  for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      if (base.getPixel(x, y) != with_clock.getPixel(x, y)) {
+        ++changed;
+        if (x < min_x) min_x = x;
+        if (x > max_x) max_x = x;
+        if (y < min_y) min_y = y;
+        if (y > max_y) max_y = y;
+      }
+    }
+  }
+
+  assert(changed > 0);
+  // Inside the header bar
+  assert(max_y < DashboardView::HEADER_HEIGHT);
+  assert(min_y >= 1);
+  // No overlap with title or battery indicator, with a margin on both sides
+  assert(min_x > title_right + 8);
+  assert(max_x + 8 < battery_left);
+  // Full 5 glyphs rendered without clipping: 4 * 12 + 10 = 58 px
+  assert(max_x - min_x + 1 >= 50);
+
+  // Title and battery pixels are unchanged by the clock
+  for (uint16_t y = 0; y < DashboardView::HEADER_HEIGHT; ++y) {
+    for (uint16_t x = 0; x <= title_right; ++x) {
+      assert(base.getPixel(x, y) == with_clock.getPixel(x, y));
+    }
+    for (uint16_t x = battery_left; x < St7305Framebuffer::WIDTH; ++x) {
+      assert(base.getPixel(x, y) == with_clock.getPixel(x, y));
+    }
+  }
+
+  // Overlong clock text is rejected instead of clipping into the battery area
+  St7305Framebuffer overlong;
+  DashboardView::render(overlong, onboard, battery, nullptr, 0, "12:34:56:78");
+  assert(memcmp(overlong.data(), base.data(), St7305Framebuffer::BYTE_COUNT) == 0);
+}
+
 } // namespace
 
 int main() {
@@ -278,6 +441,9 @@ int main() {
   testShtc3Codec();
   testBatteryMonitorDecoding();
   testDashboardViewRendering();
-  printf("All 8 firmware logic test suites passed.\n");
+  testPcf85063BcdCodec();
+  testPcf85063InvalidValues();
+  testDashboardHeaderClock();
+  printf("All 11 firmware logic test suites passed.\n");
   return 0;
 }
