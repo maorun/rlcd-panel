@@ -20,15 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Power, Storage, and Visuals (Score 28–33)
 
-### Deep sleep power management with periodic wakeup
-
-- **Rank:** Feature model. Total 33/40 (use 9, setup 7, harmony 8, safety 9). Effort M.
-- **Area:** Power Management.
-- **Code:** `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`.
-- **Problem:** The ESP32-S3 CPU and BLE radio run continuously at 240 MHz. An 18650 lithium battery empties in less than 24 hours. The reflective LCD needs zero power to maintain a static image.
-- **Goal:** Implement light sleep or deep sleep between BLE scan cycles. Wake up every 60 seconds, scan for advertisements for 4 seconds, refresh the RLCD screen, and return to sleep.
-- **Acceptance test:** State machine preserves registry and battery data across sleep cycles in RTC memory. Host test verifies timer calculations and state preservation logic.
-
 ### Low battery visual alert and critical warning banner
 
 - **Rank:** Feature model. Total 32/40 (use 9, setup 7, harmony 8, safety 8). Effort S.

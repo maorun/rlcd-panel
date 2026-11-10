@@ -8,6 +8,7 @@
 #include "../rlcd_panel/button_handler.h"
 #include "../rlcd_panel/dashboard_view.h"
 #include "../rlcd_panel/pcf85063_rtc.h"
+#include "../rlcd_panel/power_manager.h"
 #include "../rlcd_panel/shtc3_sensor.h"
 #include "../rlcd_panel/st7305_framebuffer.h"
 #include "../rlcd_panel/switchbot_ble.h"
@@ -815,6 +816,222 @@ void testSwitchBotPacketCounter() {
   assert(registry.slot(1).packet_count == 2);
 }
 
+SwitchBotReading makeReading(uint8_t id, float temp, uint8_t hum, int8_t batt) {
+  SwitchBotReading r;
+  r.valid = true;
+  for (int i = 0; i < 6; ++i) r.mac[i] = static_cast<uint8_t>(0xA0 + id);
+  r.temperature_c = temp;
+  r.humidity_pct = hum;
+  r.battery_pct = batt;
+  r.rssi = -71;
+  r.updated_ms = 12345u * id;
+  r.packet_count = 7u + id;
+  return r;
+}
+
+void testPowerSleepTimerCalculation() {
+  PowerConfig cfg;
+  assert(cfg.sleep_interval_s == 60 && cfg.scan_duration_s == 4);
+  // Awake for 6 s after the scan start: sleep the remaining 54 s.
+  assert(PowerManager::sleepMicros(cfg, 16000, 10000) == 54000000ULL);
+  // No time elapsed: full interval.
+  assert(PowerManager::sleepMicros(cfg, 10000, 10000) == 60000000ULL);
+  // Awake longer than the interval: clamp to the minimum.
+  assert(PowerManager::sleepMicros(cfg, 90000, 10000) == PowerManager::MIN_SLEEP_US);
+  // Awake almost the whole interval: clamp to the minimum.
+  assert(PowerManager::sleepMicros(cfg, 69500, 10000) == PowerManager::MIN_SLEEP_US);
+  // Clock wrap-around between scan start and now.
+  assert(PowerManager::sleepMicros(cfg, 5000, 0xFFFFF000u) == (60000ULL - 9096ULL) * 1000ULL);
+  // Boundary: 1 s left is the minimum; 1 ms either side stays at the minimum or one step above.
+  assert(PowerManager::sleepMicros(cfg, 10000 + 59000, 10000) == 1000000ULL);
+  assert(PowerManager::sleepMicros(cfg, 10000 + 58999, 10000) == 1001000ULL);
+  assert(PowerManager::sleepMicros(cfg, 10000 + 59001, 10000) == PowerManager::MIN_SLEEP_US);
+  assert(PowerManager::sleepMicros(cfg, 10000 + 60000, 10000) == PowerManager::MIN_SLEEP_US);
+  // Interval beyond 71 minutes must not overflow 32 bit math.
+  PowerConfig big;
+  big.sleep_interval_s = 100000;
+  assert(PowerManager::sleepMicros(big, 0, 0) == 3600ULL * 1000000ULL);
+
+  // Sanitizing: limits for interval, scan at least 1 s and at most half the interval.
+  PowerConfig low;
+  low.sleep_interval_s = 1;
+  low.scan_duration_s = 50;
+  const PowerConfig fixed = low.sanitized();
+  assert(fixed.sleep_interval_s == PowerConfig::MIN_SLEEP_INTERVAL_S);
+  assert(fixed.scan_duration_s == PowerConfig::MIN_SLEEP_INTERVAL_S / 2);
+  PowerConfig zero;
+  zero.scan_duration_s = 0;
+  assert(zero.sanitized().scan_duration_s == 1);
+
+  // The plan skips the KEY wakeup while the button is held.
+  assert(PowerManager::planSleep(cfg, 16000, 10000, false).enable_key_wakeup);
+  assert(!PowerManager::planSleep(cfg, 16000, 10000, true).enable_key_wakeup);
+  assert(PowerManager::planSleep(cfg, 16000, 10000, false).timer_us == 54000000ULL);
+}
+
+void testPowerStateSerialization() {
+  PersistentState s;
+  s.boot_count = 42;
+  s.last_scan_ms = 0xDEADBEEFu;
+  s.mode = DisplayMode::SENSOR_STATS;
+  s.battery.valid = true;
+  s.battery.voltage_v = 3.87f;
+  s.battery.percentage = 67;
+  s.battery.usb_powered = false;
+  s.registry.upsert(makeReading(1, 21.4f, 55, 88));
+  s.registry.upsert(makeReading(2, -7.3f, 90, -1));
+
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  assert(!PowerManager::serialize(s, buf, sizeof(buf) - 1));
+
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.boot_count == 42 && r.last_scan_ms == 0xDEADBEEFu);
+  assert(r.mode == DisplayMode::SENSOR_STATS);
+  assert(r.battery.valid && r.battery.percentage == 67 && approxEqual(r.battery.voltage_v, 3.87f));
+  assert(r.registry.activeCount() == 2);
+  const SwitchBotReading& a = r.registry.slot(0);
+  assert(a.valid && approxEqual(a.temperature_c, 21.4f) && a.humidity_pct == 55 &&
+         a.battery_pct == 88 && a.rssi == -71 && a.updated_ms == 12345u && a.packet_count == 1u);
+  assert(memcmp(a.mac, s.registry.slot(0).mac, 6) == 0);
+  const SwitchBotReading& b = r.registry.slot(1);
+  assert(approxEqual(b.temperature_c, -7.3f) && b.battery_pct == -1);
+  assert(!r.registry.slot(2).valid);
+
+  // Corruption: every single flipped byte fails the checksum or a field check.
+  for (size_t i = 0; i < sizeof(buf); ++i) {
+    uint8_t bad[PowerManager::SERIALIZED_SIZE];
+    memcpy(bad, buf, sizeof(buf));
+    bad[i] ^= 0x40;
+    PersistentState out;
+    out.boot_count = 99;
+    assert(!PowerManager::deserialize(bad, sizeof(bad), out));
+    assert(out.boot_count == 0 && out.registry.activeCount() == 0);
+  }
+  // Wrong length, null pointer, blank RTC memory.
+  PersistentState out;
+  assert(!PowerManager::deserialize(buf, sizeof(buf) - 1, out));
+  assert(!PowerManager::deserialize(nullptr, sizeof(buf), out));
+  uint8_t blank[PowerManager::SERIALIZED_SIZE] = {0};
+  assert(!PowerManager::deserialize(blank, sizeof(blank), out));
+
+  // Wrong version with a valid checksum is rejected.
+  uint8_t old[PowerManager::SERIALIZED_SIZE];
+  memcpy(old, buf, sizeof(buf));
+  old[4] = PowerManager::STATE_VERSION + 1;
+  const uint32_t crc = PowerManager::crc32(old, sizeof(old) - 4);
+  for (int i = 0; i < 4; ++i) old[sizeof(old) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(old, sizeof(old), out));
+
+  // Range checks behind a valid checksum: each out-of-range field makes deserialize fail.
+  struct Patch { size_t offset; uint8_t value; };
+  const size_t slot0_off = PowerManager::HEADER_SIZE;
+  const Patch patches[] = {
+      {5, 9},                       // mode
+      {6, 4},                       // battery flags
+      {7, 101},                     // battery percentage
+      {11, 0x7F},                   // battery voltage exponent byte -> huge value
+      {slot0_off, 2},               // slot valid flag
+      {slot0_off + 11, 101},        // slot humidity
+      {slot0_off + 12, 101},        // slot battery
+      {slot0_off + 13, 2},          // slot fahrenheit flag
+  };
+  for (const Patch& p : patches) {
+    uint8_t bad[PowerManager::SERIALIZED_SIZE];
+    memcpy(bad, buf, sizeof(buf));
+    bad[p.offset] = p.value;
+    const uint32_t c = PowerManager::crc32(bad, sizeof(bad) - 4);
+    for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(c >> (8 * i));
+    assert(!PowerManager::deserialize(bad, sizeof(bad), out));
+  }
+
+  // restoreSlot refuses a bad index, an invalid reading, and a MAC held by another slot.
+  PersistentState dup;
+  assert(dup.registry.restoreSlot(0, makeReading(1, 20.0f, 50, 50)));
+  assert(!dup.registry.restoreSlot(1, makeReading(1, 21.0f, 51, 51)));
+  assert(!dup.registry.restoreSlot(MAX_SWITCHBOT_SENSORS, makeReading(2, 21.0f, 51, 51)));
+  assert(!dup.registry.restoreSlot(1, SwitchBotReading{}));
+  assert(dup.registry.restoreSlot(0, makeReading(1, 22.0f, 52, 52))); // same slot may overwrite
+  assert(dup.registry.activeCount() == 1);
+
+  // A blob with two slots of one MAC and a valid checksum fails in deserialize.
+  uint8_t dupbuf[PowerManager::SERIALIZED_SIZE];
+  memcpy(dupbuf, buf, sizeof(buf));
+  const size_t slot0 = PowerManager::HEADER_SIZE;
+  memcpy(dupbuf + slot0 + PowerManager::SLOT_SIZE + 1, dupbuf + slot0 + 1, 6);
+  const uint32_t dupcrc = PowerManager::crc32(dupbuf, sizeof(dupbuf) - 4);
+  for (int i = 0; i < 4; ++i) dupbuf[sizeof(dupbuf) - 4 + i] = static_cast<uint8_t>(dupcrc >> (8 * i));
+  assert(!PowerManager::deserialize(dupbuf, sizeof(dupbuf), out));
+
+  // CRC-32 check value for "123456789".
+  const uint8_t check[9] = {'1', '2', '3', '4', '5', '6', '7', '8', '9'};
+  assert(PowerManager::crc32(check, 9) == 0xCBF43926u);
+}
+
+void testPowerWakeupAndStateMachine() {
+  assert(PowerManager::decodeWakeupCause(0) == WakeupCause::POWER_ON);
+  assert(PowerManager::decodeWakeupCause(4) == WakeupCause::TIMER);
+  assert(PowerManager::decodeWakeupCause(2) == WakeupCause::KEY_BUTTON);
+  assert(PowerManager::decodeWakeupCause(3) == WakeupCause::KEY_BUTTON);
+  assert(PowerManager::decodeWakeupCause(7) == WakeupCause::OTHER);
+
+  assert(!PowerManager::stateSurvives(WakeupCause::POWER_ON));
+  assert(PowerManager::stateSurvives(WakeupCause::TIMER));
+  assert(PowerManager::stateSurvives(WakeupCause::KEY_BUTTON));
+  assert(!PowerManager::stateSurvives(WakeupCause::OTHER));
+  assert(PowerManager::needsScan(WakeupCause::TIMER));
+  assert(PowerManager::needsScan(WakeupCause::POWER_ON));
+  assert(!PowerManager::needsScan(WakeupCause::KEY_BUTTON));
+
+  // Restore ignores valid bytes after a power-on and accepts them after a timer wakeup.
+  PersistentState s;
+  s.boot_count = 5;
+  s.registry.upsert(makeReading(3, 18.0f, 40, 70));
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(!PowerManager::restore(WakeupCause::POWER_ON, buf, sizeof(buf), r));
+  assert(r.boot_count == 0 && r.registry.activeCount() == 0);
+  assert(PowerManager::restore(WakeupCause::TIMER, buf, sizeof(buf), r));
+  assert(r.boot_count == 5 && r.registry.activeCount() == 1);
+  buf[10] ^= 1;
+  assert(!PowerManager::restore(WakeupCause::KEY_BUTTON, buf, sizeof(buf), r));
+
+  // Timer wakeup: RESTORE -> SCAN -> RENDER -> SAVE -> SLEEP, SLEEP is final.
+  PowerCycle timer;
+  assert(timer.phase() == PowerPhase::BOOT);
+  timer.begin(WakeupCause::TIMER);
+  assert(timer.phase() == PowerPhase::RESTORE);
+  assert(timer.advance() == PowerPhase::SCAN);
+  assert(timer.advance() == PowerPhase::RENDER);
+  assert(timer.advance() == PowerPhase::SAVE);
+  assert(timer.advance() == PowerPhase::SLEEP);
+  assert(timer.advance() == PowerPhase::SLEEP);
+
+  // KEY wakeup skips the scan.
+  PowerCycle key;
+  key.begin(WakeupCause::KEY_BUTTON);
+  assert(key.advance() == PowerPhase::RENDER);
+
+  // Timestamps from a reset clock (in the future of now) make restored state inconsistent.
+  PersistentState ts;
+  ts.last_scan_ms = 5000;
+  ts.registry.upsert(makeReading(1, 20.0f, 50, 50)); // updated_ms = 12345
+  assert(PowerManager::timestampsConsistent(ts, 20000));
+  assert(PowerManager::timestampsConsistent(ts, 12345));
+  assert(!PowerManager::timestampsConsistent(ts, 12344));
+  ts.last_scan_ms = 30000;
+  assert(!PowerManager::timestampsConsistent(ts, 20000));
+
+  // The controller accepts a restored mode and ignores an out-of-range value.
+  DisplayModeController ctrl;
+  ctrl.setMode(DisplayMode::SYSTEM_DIAGNOSTICS);
+  assert(ctrl.mode() == DisplayMode::SYSTEM_DIAGNOSTICS);
+  ctrl.setMode(static_cast<DisplayMode>(9));
+  assert(ctrl.mode() == DisplayMode::SYSTEM_DIAGNOSTICS);
+}
+
 } // namespace
 
 int main() {
@@ -834,6 +1051,9 @@ int main() {
   testButtonDebounceAndModeTransitions();
   testDisplayModesRenderWithoutClipping();
   testSwitchBotPacketCounter();
-  printf("All 16 firmware logic test suites passed.\n");
+  testPowerSleepTimerCalculation();
+  testPowerStateSerialization();
+  testPowerWakeupAndStateMachine();
+  printf("All 19 firmware logic test suites passed.\n");
   return 0;
 }

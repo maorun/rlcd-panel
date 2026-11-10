@@ -6,13 +6,13 @@
 #include <atomic>
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
-#include <esp_timer.h>
 
 #include "board_pins.h"
 #include "battery_monitor.h"
 #include "button_handler.h"
 #include "dashboard_view.h"
 #include "pcf85063_rtc.h"
+#include "power_manager.h"
 #include "shtc3_sensor.h"
 #include "st7305_framebuffer.h"
 #include "st7305_panel.h"
@@ -24,26 +24,26 @@ namespace {
 
 St7305Framebuffer g_framebuffer;
 St7305Panel g_panel;
-SwitchBotRegistry g_switchbot_registry;
+PersistentState g_state; // registry, battery, and view mode; saved to RTC memory before sleep
 portMUX_TYPE g_registry_mux = portMUX_INITIALIZER_UNLOCKED;
 Pcf85063Rtc g_rtc;
 RtcTime g_rtc_time;
 Shtc3Reading g_onboard_reading;
-BatteryReading g_battery_reading;
 BLEScan* g_ble_scan = nullptr;
-uint32_t g_last_refresh_ms = 0;
-uint32_t g_last_sensor_read_ms = 0;
-uint32_t g_last_scan_attempt_ms = 0;
 DisplayModeController g_mode_controller;
 std::atomic<bool> g_scan_running{false};
+PowerConfig g_power_config;
 
-constexpr uint32_t BLE_SCAN_DURATION_SEC = 4;
-constexpr uint32_t DISPLAY_REFRESH_INTERVAL_MS = 15000;
-constexpr uint32_t SCAN_RETRY_INTERVAL_MS = 1000;
-// Text views show ages and uptime, so they redraw every second.
-constexpr uint32_t TEXT_VIEW_REFRESH_INTERVAL_MS = 1000;
+// After a render the board stays awake this long so more KEY presses can cycle the view
+// without a new wakeup.
+constexpr uint32_t KEY_GRACE_MS = 3000;
 // Watchdog: a scan that never reports completion is stopped after its duration plus this margin.
-constexpr uint32_t SCAN_WATCHDOG_MARGIN_MS = 5000;
+constexpr uint32_t SCAN_WATCHDOG_MARGIN_MS = 3000;
+
+// Deep sleep resets millis(), so all timestamps use the RTC-backed clock instead.
+uint32_t nowMs() {
+  return PowerPlatform::clockMs();
+}
 
 class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
   void onResult(BLEAdvertisedDevice advertisedDevice) override {
@@ -74,12 +74,12 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
     }
 
     reading.rssi = advertisedDevice.getRSSI();
-    // Keep this timestamp at or before the millis() read in renderDashboard() so a fresh reading
+    // Keep this timestamp at or before the nowMs() read in renderDashboard() so a fresh reading
     // never appears to lie in the future (unsigned subtraction would flag it stale).
-    reading.updated_ms = millis();
+    reading.updated_ms = nowMs();
 
     portENTER_CRITICAL(&g_registry_mux);
-    g_switchbot_registry.upsert(reading);
+    g_state.registry.upsert(reading);
     portEXIT_CRITICAL(&g_registry_mux);
   }
 };
@@ -151,7 +151,7 @@ void renderDashboard() {
   SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
   portENTER_CRITICAL(&g_registry_mux);
   for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
-    snapshot[i] = g_switchbot_registry.slot(i);
+    snapshot[i] = g_state.registry.slot(i);
   }
   portEXIT_CRITICAL(&g_registry_mux);
 
@@ -160,35 +160,25 @@ void renderDashboard() {
 
   SystemInfo info;
   info.free_heap_bytes = ESP.getFreeHeap();
-  info.uptime_ms = static_cast<uint64_t>(esp_timer_get_time()) / 1000;
+  // System time since power-on. A reset that keeps the RTC clock does not restart it.
+  info.uptime_ms = PowerPlatform::clockMs64();
 
   DashboardView::renderMode(
       g_framebuffer,
       g_mode_controller.mode(),
       g_onboard_reading,
-      g_battery_reading,
+      g_state.battery,
       snapshot,
       MAX_SWITCHBOT_SENSORS,
       info,
       clock_text,
-      millis());
+      nowMs());
   g_panel.flush(g_framebuffer);
 }
 
 SwitchBotAdvertisedCallbacks g_ble_callbacks;
 
-} // namespace
-
-void setup() {
-  Serial.begin(115200);
-
-  pinMode(PIN_BTN_KEY, INPUT_PULLUP);
-  pinMode(PIN_BTN_BOOT, INPUT_PULLUP);
-
-  Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
-  g_rtc.begin(Wire);
-  g_panel.begin();
-
+void initBle() {
   BLEDevice::init("rlcd-panel");
   g_ble_scan = BLEDevice::getScan();
   if (g_ble_scan != nullptr) {
@@ -197,51 +187,102 @@ void setup() {
     g_ble_scan->setInterval(100);
     g_ble_scan->setWindow(99);
   }
+}
 
+// Blocks for one scan. The deep sleep cycle needs no concurrent work during the scan.
+void scanOnce() {
+  if (g_ble_scan == nullptr) {
+    return;
+  }
+  const uint32_t duration_s = g_power_config.sanitized().scan_duration_s;
+  // Set the flag first: a fast completion callback in the BLE task must not be overwritten.
+  g_scan_running = true;
+  if (!g_ble_scan->start(duration_s, onScanComplete, false)) {
+    g_scan_running = false;
+    return;
+  }
+  const uint32_t started = millis();
+  while (g_scan_running && millis() - started < duration_s * 1000 + SCAN_WATCHDOG_MARGIN_MS) {
+    delay(10);
+  }
+  if (g_scan_running) {
+    g_ble_scan->stop();
+    g_scan_running = false;
+    delay(100); // let a late completion callback from the BLE task finish
+  }
+}
+
+void refreshSensors() {
   readOnboardShtc3(g_onboard_reading);
-  g_battery_reading = BatteryMonitor::read();
+  g_state.battery = BatteryMonitor::read();
   updateRtc();
+}
+
+} // namespace
+
+void setup() {
+  Serial.begin(115200);
+
+  PowerPlatform::releasePinsAfterSleep(); // KEY and display pins stayed held during deep sleep
+  pinMode(PIN_BTN_KEY, INPUT_PULLUP);
+  pinMode(PIN_BTN_BOOT, INPUT_PULLUP);
+
+  WakeupCause cause = PowerPlatform::wakeupCause();
+  PowerCycle cycle;
+  cycle.begin(cause);
+
+  // A failed restore (blank or corrupt RTC memory) behaves like a power-on: scan at once.
+  if (!PowerPlatform::loadState(cause, g_state) ||
+      !PowerManager::timestampsConsistent(g_state, nowMs())) {
+    g_state = PersistentState{};
+    cause = WakeupCause::POWER_ON;
+    cycle.begin(cause);
+  }
+  g_mode_controller.setMode(g_state.mode);
+  ++g_state.boot_count;
+
+  Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+  g_rtc.begin(Wire);
+  g_panel.begin();
+
+  if (cycle.advance() == PowerPhase::SCAN) {
+    g_state.last_scan_ms = nowMs();
+    initBle();
+    scanOnce();
+    BLEDevice::deinit(false);
+    cycle.advance();
+  }
+
+  // The KEY press that woke the board cycles the view.
+  if (cause == WakeupCause::KEY_BUTTON) {
+    g_mode_controller.next();
+  }
+  refreshSensors();
   renderDashboard();
-  g_last_refresh_ms = millis();
+
+  // Grace window after a KEY wakeup or a power-on: further KEY presses redraw without a new
+  // wakeup. A timer wakeup skips it to save battery.
+  const uint32_t grace_start = millis();
+  const bool wants_grace = cause != WakeupCause::TIMER;
+  while (wants_grace && millis() - grace_start < KEY_GRACE_MS) {
+    if (g_mode_controller.update(digitalRead(PIN_BTN_KEY) == LOW, millis())) {
+      renderDashboard();
+    }
+    delay(10);
+  }
+
+  cycle.advance(); // SAVE
+  g_state.mode = g_mode_controller.mode();
+  if (!PowerPlatform::saveState(g_state)) {
+    Serial.println("RTC state save failed");
+  }
+  cycle.advance(); // SLEEP
+
+  const WakeupPlan plan = PowerManager::planSleep(
+      g_power_config, nowMs(), g_state.last_scan_ms, digitalRead(PIN_BTN_KEY) == LOW);
+  PowerPlatform::enterDeepSleep(plan);
 }
 
 void loop() {
-  // Non-blocking scan keeps the KEY button responsive while the radio listens.
-  const uint32_t now = millis();
-  if (g_ble_scan != nullptr && g_scan_running &&
-      now - g_last_scan_attempt_ms >= BLE_SCAN_DURATION_SEC * 1000 + SCAN_WATCHDOG_MARGIN_MS) {
-    g_ble_scan->stop();
-    g_scan_running = false;
-    // A late completion callback from the stopped scan arrives within milliseconds. The retry
-    // interval keeps the next scan from starting before it.
-    g_last_scan_attempt_ms = now;
-  }
-  if (g_ble_scan != nullptr && !g_scan_running &&
-      now - g_last_scan_attempt_ms >= SCAN_RETRY_INTERVAL_MS) {
-    g_last_scan_attempt_ms = now;
-    // Set the flag first: a fast completion callback in the BLE task must not be overwritten.
-    g_scan_running = true;
-    if (!g_ble_scan->start(BLE_SCAN_DURATION_SEC, onScanComplete, false)) {
-      g_scan_running = false;
-    }
-  }
-
-  // KEY is active low; a debounced press cycles the display mode and redraws at once.
-  const bool mode_changed = g_mode_controller.update(digitalRead(PIN_BTN_KEY) == LOW, now);
-  const uint32_t refresh_interval_ms = g_mode_controller.mode() == DisplayMode::DASHBOARD
-      ? DISPLAY_REFRESH_INTERVAL_MS
-      : TEXT_VIEW_REFRESH_INTERVAL_MS;
-  if (mode_changed || now - g_last_refresh_ms >= refresh_interval_ms) {
-    // Sensors keep the 15 s cadence the SHTC3 offset was calibrated for, also in text views.
-    if (now - g_last_sensor_read_ms >= DISPLAY_REFRESH_INTERVAL_MS) {
-      readOnboardShtc3(g_onboard_reading);
-      g_battery_reading = BatteryMonitor::read();
-      updateRtc();
-      g_last_sensor_read_ms = now;
-    }
-    renderDashboard();
-    g_last_refresh_ms = now;
-  }
-
-  delay(10);
+  // Not reached: setup() ends in deep sleep.
 }
