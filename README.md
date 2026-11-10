@@ -70,6 +70,43 @@ Der ESP32-S3 befindet sich nun im ROM Download Mode (`0x0`) und akzeptiert Flash
 | **7** | `GPIO17` | Free GPIO |
 | **8** | `GPIO18` | `KEY` Button (Active Low) |
 
+## Display Views
+
+The panel renders three views. The `KEY` button on `GPIO18` (active low, internal pull-up) cycles them in this fixed order: **Dashboard → Sensor Stats → System Diagnostics → Dashboard**. The source of truth is `DisplayMode` in `rlcd_panel/button_handler.h`, the pin is `PIN_BTN_KEY` in `rlcd_panel/board_pins.h`. All images below are bit-exact renderings from `./scripts/generate-display-preview.sh` with fixed sample data.
+
+### Mode 0: Dashboard
+
+![Dashboard view](docs/display_preview_dashboard.png)
+
+Four climate tiles: the onboard `SHTC3` and up to three SwitchBot sensors. Each tile shows temperature, humidity, battery, and a 24-hour temperature sparkline. A `STALE` badge marks a SwitchBot sensor without a recent packet. The header shows the title, the clock, and the battery level of the panel. This is the default view after a power-on.
+
+### Mode 1: Sensor Stats
+
+![Sensor Stats view](docs/display_preview_stats.png)
+
+One text block per SwitchBot sensor with `RSSI`, `MAC` address, received packet count (`PKT`), and the age of the last packet (`AGE`). The last line shows the onboard battery voltage.
+
+### Mode 2: System Diagnostics
+
+![System Diagnostics view](docs/display_preview_diagnostics.png)
+
+Power source (battery or USB), battery voltage and percentage, free heap, and uptime.
+
+### Low Battery Alert
+
+![Low battery alert on the dashboard](docs/display_preview_low_battery.png)
+
+If the battery is low, an inverted warning banner replaces the header bar in every view. The preview shows the banner on the dashboard. The alert uses hysteresis, so it does not flicker around the threshold.
+
+### Switching Views with the `KEY` Button
+
+1. Press `KEY` (`GPIO18`) once. A debounced press (30 ms) moves to the next view.
+2. After a `KEY` wakeup or a power-on, the board stays awake for 3 s. Each further press in this window redraws the next view without a new wakeup.
+3. A press while the board sleeps wakes it through `ext0` on `GPIO18`. This press also moves to the next view.
+4. The selected view stays in RTC memory across deep sleep, so the timer wakeups redraw the same view.
+
+To render a single view by hand, run `render_display_preview <out.bmp> [mode 0..2] [low]` (source: `tools/render_display_preview.cpp`). The scene list for all previews is `PREVIEW_SCENES` in `tools/preview_scenes.h`.
+
 ## Power Management
 
 The firmware sleeps between measurements. Each 60 s cycle scans BLE for 4 s, redraws the display, and enters deep sleep. The reflective LCD keeps the image without power. RTC memory keeps the sensor registry, battery reading, and view mode. Press `KEY` to wake the board and cycle the view. The serial port is not active during deep sleep, so hold `BOOT` while you connect `PWR` or USB to flash (see above).
@@ -81,7 +118,7 @@ The firmware sleeps between measurements. Each 60 s cycle scans BLE for 4 s, red
 ```bash
 ./scripts/generate-display-preview.sh
 ```
-Renders a bit-exact 400×300 preview of the monochrome RLCD screen into `docs/display_preview.png`.
+Renders bit-exact 400×300 previews of the monochrome RLCD screen into `docs/`: `display_preview_dashboard.png` (also `display_preview.png`), `display_preview_stats.png`, `display_preview_diagnostics.png`, and `display_preview_low_battery.png`.
 
 ### 2. Run Host Unit Tests
 
