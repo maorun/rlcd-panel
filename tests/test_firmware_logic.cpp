@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../rlcd_panel/audio_alert.h"
 #include "../rlcd_panel/battery_monitor.h"
 #include "../rlcd_panel/board_pins.h"
 #include "../rlcd_panel/button_handler.h"
@@ -1434,7 +1435,7 @@ void testHistoryPersistence() {
   assert(rejected.history.slots[0].size() == 0);
 
   // Each corrupt field with a valid CRC is rejected: head, sample range, sampled flag
-  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SD_LOG_SIZE - 1;
+  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE - 1;
   const size_t cases[3][2] = {{ring_pos + 1, 24}, {ring_pos + 3, 0x7F}, {sampled_pos, 2}};
   for (const auto& c : cases) {
     uint8_t b[PowerManager::SERIALIZED_SIZE];
@@ -1613,10 +1614,205 @@ void testSdLogSchedule() {
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(r.last_log_ms == 123456 && r.has_logged);
-  buf[PowerManager::SERIALIZED_SIZE - 5] = 2;
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::AUDIO_SIZE - 1] = 2;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+}
+
+Shtc3Reading makeOnboard(float temp, float hum) {
+  Shtc3Reading r;
+  r.valid = true;
+  r.temperature_c = temp;
+  r.humidity_pct = hum;
+  return r;
+}
+
+void testAlertThresholds() {
+  const uint32_t now = 1000;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  const Shtc3Reading none;
+  // Normal climate: no alert
+  assert(AlertEvaluator::evaluate(ALERT_NONE, makeOnboard(21.0f, 50.0f), slots, 3, now) == ALERT_NONE);
+  // Freezer: below 0 C triggers, exactly 0 C does not
+  assert(AlertEvaluator::evaluate(ALERT_NONE, makeOnboard(-0.1f, 50.0f), slots, 3, now) == ALERT_FREEZER);
+  assert(AlertEvaluator::evaluate(ALERT_NONE, makeOnboard(0.0f, 50.0f), slots, 3, now) == ALERT_NONE);
+  // Humidity: above 70 % triggers, exactly 70 % does not
+  assert(AlertEvaluator::evaluate(ALERT_NONE, makeOnboard(21.0f, 70.5f), slots, 3, now) == ALERT_HUMIDITY);
+  assert(AlertEvaluator::evaluate(ALERT_NONE, makeOnboard(21.0f, 70.0f), slots, 3, now) == ALERT_NONE);
+  // Both at once
+  assert(AlertEvaluator::evaluate(ALERT_NONE, makeOnboard(-5.0f, 90.0f), slots, 3, now) == ALERT_MASK_ALL);
+  // A SwitchBot slot triggers too (freezer sensor)
+  slots[1] = makeReading(1, -18.0f, 40, 80);
+  slots[1].updated_ms = now;
+  assert(AlertEvaluator::evaluate(ALERT_NONE, none, slots, 3, now) == ALERT_FREEZER);
+  // A stale slot is ignored
+  assert(AlertEvaluator::evaluate(ALERT_NONE, none, slots, 3, now + SENSOR_STALE_TIMEOUT_MS + 1) == ALERT_NONE);
+  // Invalid onboard and NaN readings are ignored
+  assert(AlertEvaluator::evaluate(ALERT_NONE, none, nullptr, 0, now) == ALERT_NONE);
+  assert(AlertEvaluator::evaluate(ALERT_NONE, makeOnboard(NAN, NAN), nullptr, 0, now) == ALERT_NONE);
+  // Hysteresis: an active alert holds in the band, clears above the release limit
+  assert(AlertEvaluator::evaluate(ALERT_FREEZER, makeOnboard(0.5f, 50.0f), nullptr, 0, now) == ALERT_FREEZER);
+  assert(AlertEvaluator::evaluate(ALERT_FREEZER, makeOnboard(1.0f, 50.0f), nullptr, 0, now) == ALERT_NONE);
+  assert(AlertEvaluator::evaluate(ALERT_NONE, makeOnboard(0.5f, 50.0f), nullptr, 0, now) == ALERT_NONE);
+  assert(AlertEvaluator::evaluate(ALERT_HUMIDITY, makeOnboard(21.0f, 68.0f), nullptr, 0, now) == ALERT_HUMIDITY);
+  assert(AlertEvaluator::evaluate(ALERT_HUMIDITY, makeOnboard(21.0f, 67.0f), nullptr, 0, now) == ALERT_NONE);
+  // Latch: with no usable reading an active alert holds, so a dropout does not clear and re-chime
+  assert(AlertEvaluator::evaluate(ALERT_MASK_ALL, none, nullptr, 0, now) == ALERT_MASK_ALL);
+  assert(AlertEvaluator::evaluate(ALERT_FREEZER, none, slots, 3, now + SENSOR_STALE_TIMEOUT_MS + 1) == ALERT_FREEZER);
+  assert(AlertEvaluator::evaluate(ALERT_NONE, none, nullptr, 0, now) == ALERT_NONE);
+}
+
+void testChimeMuteAndEdge() {
+  // New alerts sound; an alert that stays active does not repeat
+  assert(AlertEvaluator::chimeBits(false, ALERT_NONE, ALERT_FREEZER) == ALERT_FREEZER);
+  assert(AlertEvaluator::chimeBits(false, ALERT_FREEZER, ALERT_FREEZER) == ALERT_NONE);
+  assert(AlertEvaluator::chimeBits(false, ALERT_FREEZER, ALERT_MASK_ALL) == ALERT_HUMIDITY);
+  assert(AlertEvaluator::chimeBits(false, ALERT_MASK_ALL, ALERT_NONE) == ALERT_NONE);
+  // Mute suppresses every chime
+  assert(AlertEvaluator::chimeBits(true, ALERT_NONE, ALERT_MASK_ALL) == ALERT_NONE);
+
+  // The sequencer plays nothing without alert bits or at volume 0, and never touches the hardware
+  struct Hal {
+    int drains = 0, begins = 0, amp_on = 0, amp_off = 0, samples = 0, shutdowns = 0, ends = 0;
+    bool amp_state = false, amp_during_write = true, fail_codec = false, fail_write = false, fail_bus = false;
+    bool beginBus() { ++begins; return !fail_bus; }
+    bool configureCodec() { return !fail_codec; }
+    void setAmplifier(bool on) { on ? ++amp_on : ++amp_off; amp_state = on; }
+    bool write(const int16_t*, size_t n) {
+      if (fail_write) return false;
+      samples += static_cast<int>(n);
+      amp_during_write = amp_during_write && amp_state;
+      return true;
+    }
+    void drain() { ++drains; }
+    void shutdownCodec() { ++shutdowns; }
+    void endBus() { ++ends; }
+  };
+  Hal idle;
+  assert(!AudioSequencer::play(idle, ALERT_NONE, 30));
+  assert(!AudioSequencer::play(idle, ALERT_FREEZER, 0));
+  assert(idle.begins == 0 && idle.amp_on == 0 && idle.samples == 0);
+
+  // Playback: amplifier on only while samples flow, off afterwards, bus closed
+  Hal hal;
+  assert(AudioSequencer::play(hal, ALERT_MASK_ALL, 30));
+  const uint32_t expected = ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_FREEZER)) +
+                            ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_HUMIDITY));
+  assert(static_cast<uint32_t>(hal.samples) == expected);
+  assert(hal.amp_on == 1 && hal.amp_off == 1 && !hal.amp_state && hal.amp_during_write);
+  assert(hal.shutdowns == 1 && hal.ends == 1);
+
+  // A failed codec setup still switches the amplifier off and closes the bus
+  Hal broken;
+  broken.fail_codec = true;
+  assert(!AudioSequencer::play(broken, ALERT_FREEZER, 30));
+  assert(broken.amp_on == 0 && broken.amp_off == 1 && broken.samples == 0 && broken.ends == 1);
+
+  // A failed bus start and a failed write also end with the amplifier off and the bus closed
+  Hal nobus;
+  nobus.fail_bus = true;
+  assert(!AudioSequencer::play(nobus, ALERT_FREEZER, 30));
+  assert(nobus.amp_on == 0 && nobus.amp_off == 1 && nobus.shutdowns == 1 && nobus.ends == 1);
+  Hal badwrite;
+  badwrite.fail_write = true;
+  assert(!AudioSequencer::play(badwrite, ALERT_MASK_ALL, 30));
+  assert(badwrite.amp_on == 1 && badwrite.amp_off == 1 && !badwrite.amp_state && badwrite.ends == 1);
+  assert(hal.drains == 1);
+
+  // The unmute confirmation plays one short tone of its own
+  Hal confirm;
+  assert(AudioSequencer::playConfirm(confirm, 30));
+  assert(static_cast<uint32_t>(confirm.samples) == ChimeSynth::totalSamples(ChimeSynth::confirmPattern()));
+  assert(ChimeSynth::confirmPattern().notes[0].freq_hz != ChimeSynth::pattern(ALERT_FREEZER).notes[0].freq_hz);
+  assert(ChimeSynth::confirmPattern().notes[0].freq_hz != ChimeSynth::pattern(ALERT_HUMIDITY).notes[1].freq_hz);
+  Hal confirm_mute;
+  assert(!AudioSequencer::playConfirm(confirm_mute, 0) && confirm_mute.begins == 0);
+}
+
+void testChimePcmSynthesis() {
+  const ChimePattern freezer = ChimeSynth::pattern(ALERT_FREEZER);
+  const ChimePattern humidity = ChimeSynth::pattern(ALERT_HUMIDITY);
+  assert(ChimeSynth::pattern(ALERT_NONE).notes == nullptr);
+  // Duration: 3 x 120 ms + 2 x 80 ms = 520 ms; 160 + 40 + 240 = 440 ms
+  assert(ChimeSynth::totalSamples(freezer) == 520u * 16);
+  assert(ChimeSynth::totalSamples(humidity) == 440u * 16);
+
+  static int16_t pcm[16 * 520];
+  assert(ChimeSynth::render(freezer, 100, 0, pcm, 16 * 520) == 16u * 520);
+  // Nothing after the end; a short tail returns the remainder
+  int16_t tail[8];
+  assert(ChimeSynth::render(freezer, 100, 16 * 520, tail, 8) == 0);
+  assert(ChimeSynth::render(freezer, 100, 16 * 520 - 3, tail, 8) == 3);
+  // Chunked rendering equals one-shot rendering
+  static int16_t chunked[16 * 520];
+  size_t pos = 0;
+  while (pos < 16u * 520) {
+    const size_t n = ChimeSynth::render(freezer, 100, pos, chunked + pos, 100);
+    assert(n > 0);
+    pos += n;
+  }
+  assert(memcmp(pcm, chunked, sizeof(pcm)) == 0);
+
+  // Frequency: count rising zero crossings inside the first note (880 Hz, 120 ms ~ 105 cycles)
+  int crossings = 0;
+  for (size_t i = 1; i < 16 * 120; ++i) {
+    if (pcm[i - 1] <= 0 && pcm[i] > 0) ++crossings;
+  }
+  assert(crossings >= 104 && crossings <= 106);
+  // Pause between notes is silent
+  for (size_t i = 16 * 120; i < 16 * 200; ++i) assert(pcm[i] == 0);
+
+  // Volume: the peak scales with the percentage and stays inside the sample range
+  int peak100 = 0;
+  for (size_t i = 0; i < 16 * 520; ++i) peak100 = abs(pcm[i]) > peak100 ? abs(pcm[i]) : peak100;
+  assert(peak100 > 32000 && peak100 <= 32767);
+  static int16_t quiet[16 * 520];
+  assert(ChimeSynth::render(freezer, 30, 0, quiet, 16 * 520) == 16u * 520);
+  int peak30 = 0;
+  for (size_t i = 0; i < 16 * 520; ++i) peak30 = abs(quiet[i]) > peak30 ? abs(quiet[i]) : peak30;
+  assert(peak30 > 9500 && peak30 < 10000);
+  // Volume 0 is silent; volume above 100 clamps to full scale
+  static int16_t mute[16 * 520];
+  assert(ChimeSynth::render(freezer, 0, 0, mute, 16 * 520) == 16u * 520);
+  for (size_t i = 0; i < 16 * 520; ++i) assert(mute[i] == 0);
+  assert(ChimeSynth::render(freezer, 250, 0, mute, 16 * 520) == 16u * 520);
+  assert(memcmp(mute, pcm, sizeof(pcm)) == 0);
+  // Fade in and out: first and last sample of a note start and end at 0
+  assert(pcm[0] == 0 && pcm[16 * 120 - 1] == 0);
+  // Null handling
+  assert(ChimeSynth::render({nullptr, 0}, 30, 0, pcm, 4) == 0);
+  assert(ChimeSynth::render(freezer, 30, 0, nullptr, 4) == 0);
+}
+
+void testAudioStatePersistence() {
+  PersistentState s;
+  s.muted = true;
+  s.alert_mask = ALERT_MASK_ALL;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.muted && r.alert_mask == ALERT_MASK_ALL);
+  s.muted = false;
+  s.alert_mask = ALERT_HUMIDITY;
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(!r.muted && r.alert_mask == ALERT_HUMIDITY);
+  // A reserved bit with a valid CRC is rejected
+  buf[PowerManager::SERIALIZED_SIZE - 5] = 0x08;
+  const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
+  for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+  // The old format (version 3) is rejected, even with a valid CRC
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  buf[4] = 3;
+  const uint32_t crc3 = PowerManager::crc32(buf, sizeof(buf) - 4);
+  for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc3 >> (8 * i));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+  // The defaults are unmuted and quiet
+  PersistentState d;
+  assert(!d.muted && d.alert_mask == ALERT_NONE);
 }
 
 int main() {
@@ -1650,6 +1846,10 @@ int main() {
   testPreviewScenesCoverAllDisplayModes();
   testSdLogCodec();
   testSdLogSchedule();
-  printf("All 30 firmware logic test suites passed.\n");
+  testAlertThresholds();
+  testChimeMuteAndEdge();
+  testChimePcmSynthesis();
+  testAudioStatePersistence();
+  printf("All 34 firmware logic test suites passed.\n");
   return 0;
 }

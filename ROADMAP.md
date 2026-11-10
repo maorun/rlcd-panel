@@ -22,15 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Audio and Networking Expansions (Score 22–27)
 
-### Audio chime alerts via ES8311 DAC and speaker
-
-- **Rank:** Feature model. Total 27/40 (use 7, setup 6, harmony 8, safety 6). Effort M.
-- **Area:** Audio / Alerts.
-- **Code:** `rlcd_panel/audio_alert.h`, `rlcd_panel/board_pins.h`, `rlcd_panel/rlcd_panel.ino`.
-- **Problem:** The device is silent. If a freezer sensor drops below a safe temperature or a room exceeds high humidity thresholds (> 70 %RH mold risk), the user must look at the display to notice.
-- **Goal:** Drive the onboard ES8311 I2S DAC and power amplifier (GPIO 8, 9, 10, 16, 45, 46) to produce subtle audio alert beeps when configured climate thresholds are breached.
-- **Acceptance test:** Host unit test validates PCM sample generation and threshold event triggers. Audio generation honors mute settings.
-
 ### Wi-Fi NTP time synchronization with offline fallback
 
 - **Rank:** Feature model. Total 26/40 (use 6, setup 7, harmony 7, safety 6). Effort M.
