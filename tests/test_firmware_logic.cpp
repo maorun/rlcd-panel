@@ -8,6 +8,7 @@
 #include "../rlcd_panel/board_pins.h"
 #include "../rlcd_panel/button_handler.h"
 #include "../rlcd_panel/dashboard_view.h"
+#include "../rlcd_panel/ntp_sync.h"
 #include "../rlcd_panel/pcf85063_rtc.h"
 #include "../rlcd_panel/power_manager.h"
 #include "../rlcd_panel/sd_logger.h"
@@ -1435,7 +1436,7 @@ void testHistoryPersistence() {
   assert(rejected.history.slots[0].size() == 0);
 
   // Each corrupt field with a valid CRC is rejected: head, sample range, sampled flag
-  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE - 1;
+  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE - 1;
   const size_t cases[3][2] = {{ring_pos + 1, 24}, {ring_pos + 3, 0x7F}, {sampled_pos, 2}};
   for (const auto& c : cases) {
     uint8_t b[PowerManager::SERIALIZED_SIZE];
@@ -1614,7 +1615,7 @@ void testSdLogSchedule() {
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(r.last_log_ms == 123456 && r.has_logged);
-  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::AUDIO_SIZE - 1] = 2;
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - 1] = 2;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -1800,7 +1801,7 @@ void testAudioStatePersistence() {
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(!r.muted && r.alert_mask == ALERT_HUMIDITY);
   // A reserved bit with a valid CRC is rejected
-  buf[PowerManager::SERIALIZED_SIZE - 5] = 0x08;
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::NTP_SIZE - 1] = 0x08;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -1813,6 +1814,226 @@ void testAudioStatePersistence() {
   // The defaults are unmuted and quiet
   PersistentState d;
   assert(!d.muted && d.alert_mask == ALERT_NONE);
+}
+
+bool calendarIs(int64_t epoch, uint16_t y, uint8_t mo, uint8_t d, uint8_t wd, uint8_t h, uint8_t mi, uint8_t sec) {
+  RtcTime t;
+  return NtpTime::epochToCalendar(epoch, t) && t.valid && t.year == y && t.month == mo &&
+         t.day == d && t.weekday == wd && t.hour == h && t.minute == mi && t.second == sec;
+}
+
+void testNtpEpochToCalendar() {
+  assert(calendarIs(946684800, 2000, 1, 1, 6, 0, 0, 0));          // Saturday
+  assert(calendarIs(951782400, 2000, 2, 29, 2, 0, 0, 0));         // 2000 is a leap year
+  assert(calendarIs(951868800, 2000, 3, 1, 3, 0, 0, 0));
+  assert(calendarIs(1709164800, 2024, 2, 29, 4, 0, 0, 0));        // 2024 is a leap year
+  assert(calendarIs(1709251199, 2024, 2, 29, 4, 23, 59, 59));     // hour rollover edge
+  assert(calendarIs(1709251200, 2024, 3, 1, 5, 0, 0, 0));         // month boundary
+  assert(calendarIs(1735689599, 2024, 12, 31, 2, 23, 59, 59));    // year boundary
+  assert(calendarIs(1735689600, 2025, 1, 1, 3, 0, 0, 0));
+  assert(calendarIs(1767225599, 2025, 12, 31, 3, 23, 59, 59));
+  assert(calendarIs(1788246245, 2026, 9, 1, 2, 7, 4, 5));
+  {
+    // 2100 is no leap year: the day after 2100-02-28 is 2100-03-01 (outside the RTC range)
+    int32_t y = 0;
+    uint8_t mo = 0, d = 0;
+    NtpTime::civilFromDays(NtpTime::daysFromCivil(2100, 2, 28) + 1, y, mo, d);
+    assert(y == 2100 && mo == 3 && d == 1);
+    NtpTime::civilFromDays(NtpTime::daysFromCivil(2000, 2, 28) + 1, y, mo, d);
+    assert(y == 2000 && mo == 2 && d == 29);
+    assert(NtpTime::daysFromCivil(1970, 1, 1) == 0);
+  }
+  assert(calendarIs(4102444799, 2099, 12, 31, 4, 23, 59, 59));    // last second of the RTC range
+  RtcTime t;
+  assert(!NtpTime::epochToCalendar(946684799, t) && !t.valid);    // before 2000
+  assert(!NtpTime::epochToCalendar(4102444800, t) && !t.valid);   // 2100 is out of range
+  assert(!NtpTime::epochToCalendar(-1, t));
+  assert(NtpTime::isLeapYear(2000) && NtpTime::isLeapYear(2024));
+  assert(!NtpTime::isLeapYear(2100) && !NtpTime::isLeapYear(2023));
+  // The weekday agrees with the RTC codec for every day of a leap year
+  for (int64_t e = 1709164800; e < 1709164800 + 366 * 86400LL; e += 86400) {
+    RtcTime d;
+    assert(NtpTime::epochToCalendar(e, d));
+    assert(d.weekday == Pcf85063Codec::computeWeekday(d.year, d.month, d.day));
+  }
+}
+
+void testNtpTimezoneDst() {
+  const TimeZone cet;
+  // 2024: DST starts Sunday 31 March 01:00 UTC (1711846800), ends Sunday 27 October 01:00 UTC
+  assert(NtpTime::lastSunday(2024, 3) == 31 && NtpTime::lastSunday(2024, 10) == 27);
+  assert(NtpTime::lastSunday(2026, 3) == 29 && NtpTime::lastSunday(2026, 10) == 25);
+  assert(NtpTime::euDstStartUtc(2024) == 1711846800);
+  assert(NtpTime::euDstEndUtc(2024) == 1729990800);
+  assert(NtpTime::offsetSeconds(1711846799, cet) == 3600);   // 1 s before the start: CET
+  assert(NtpTime::offsetSeconds(1711846800, cet) == 7200);   // at the start: CEST
+  assert(NtpTime::offsetSeconds(1729990799, cet) == 7200);   // 1 s before the end: CEST
+  assert(NtpTime::offsetSeconds(1729990800, cet) == 3600);   // at the end: CET
+  assert(NtpTime::offsetSeconds(1720000000, cet) == 7200);   // July
+  assert(NtpTime::offsetSeconds(1704067200, cet) == 3600);   // January
+  assert(NtpTime::offsetSeconds(NtpTime::EPOCH_2100, cet) == 3600); // out of range: no DST
+  // Local time across the transitions: 01:59:59 UTC -> 03:00:00 CEST, and back
+  RtcTime t;
+  assert(NtpTime::utcToLocal(1711846799, cet, t) && t.hour == 1 && t.minute == 59 && t.day == 31);
+  assert(NtpTime::utcToLocal(1711846800, cet, t) && t.hour == 3 && t.minute == 0 && t.day == 31);
+  assert(NtpTime::utcToLocal(1729990799, cet, t) && t.hour == 2 && t.minute == 59 && t.day == 27);
+  assert(NtpTime::utcToLocal(1729990800, cet, t) && t.hour == 2 && t.minute == 0 && t.day == 27);
+  // The offset carries into the next day and year
+  assert(NtpTime::utcToLocal(1735686000, cet, t)); // 2024-12-31 23:00:00 UTC
+  assert(t.year == 2025 && t.month == 1 && t.day == 1 && t.hour == 0 && t.weekday == 3);
+  // Local time inside 2000 is accepted for 1999-12-31 23:59:59 UTC; below that it is rejected
+  assert(NtpTime::utcToLocal(946684800 - 1, cet, t) && t.year == 2000); // 1999-12-31 23:59:59 UTC
+  assert(!NtpTime::utcToLocal(946684800 - 7200, cet, t));
+  // A zone without DST and a western zone
+  TimeZone utc{0, false};
+  assert(NtpTime::utcToLocal(1720000000, utc, t) && t.hour == 9 && t.minute == 46);
+  TimeZone west{-18000, false};
+  assert(NtpTime::utcToLocal(1704067200, west, t) && t.year == 2023 && t.month == 12 &&
+         t.day == 31 && t.hour == 19);
+}
+
+void testNtpRegisterEncoding() {
+  const TimeZone cet;
+  uint8_t regs[Pcf85063Codec::TIME_REGISTER_COUNT];
+  // 2026-09-01 07:04:05 UTC = 09:04:05 CEST, a Tuesday
+  assert(NtpTime::epochToRegisters(1788246245, cet, regs, sizeof(regs)));
+  assert(regs[0] == 0x05 && regs[1] == 0x04 && regs[2] == 0x09 && regs[3] == 0x01);
+  assert(regs[4] == 0x02 && regs[5] == 0x09 && regs[6] == 0x26);
+  // 2024-12-31 23:59:59 UTC = 2025-01-01 00:59:59 CET
+  assert(NtpTime::epochToRegisters(1735689599, cet, regs, sizeof(regs)));
+  assert(regs[0] == 0x59 && regs[1] == 0x59 && regs[2] == 0x00 && regs[3] == 0x01);
+  assert(regs[4] == 0x03 && regs[5] == 0x01 && regs[6] == 0x25);
+  // The registers decode to the same local time
+  RtcTime decoded;
+  assert(Pcf85063Codec::decodeRegisters(regs, sizeof(regs), decoded));
+  assert(decoded.year == 2025 && decoded.hour == 0 && decoded.second == 59);
+  // 2099-12-31 23:00 UTC leaves the RTC range in local time
+  assert(!NtpTime::epochToRegisters(4102444800 - 3600, cet, regs, sizeof(regs)));
+  assert(!NtpTime::epochToRegisters(0, cet, regs, sizeof(regs)));
+  assert(!NtpTime::epochToRegisters(1788246245, cet, regs, 3));
+  assert(!NtpTime::epochToRegisters(1788246245, cet, nullptr, 7));
+}
+
+void testNtpScheduleAndOfflineFallback() {
+  NtpSyncState s;
+  const uint32_t day = NtpSchedule::SYNC_INTERVAL_MS;
+  // Credentials
+  assert(!NtpSchedule::hasCredentials("", ""));
+  assert(!NtpSchedule::hasCredentials(nullptr, "x"));
+  assert(!NtpSchedule::hasCredentials("ssid", nullptr));
+  assert(!NtpSchedule::hasCredentials("123456789012345678901234567890123", ""));
+  assert(NtpSchedule::hasCredentials("ssid", ""));
+  assert(!NtpSchedule::hasCredentials("ssid", "secret"));        // WPA2 needs 8..63 characters
+  assert(NtpSchedule::hasCredentials("ssid", "secret12"));
+  assert(NtpSchedule::hasCredentials("ssid", "0123456789abcdefABCDEF0123456789abcdefABCDEF0123456789abcdefABCD")); // 64-digit hex PSK
+  assert(!NtpSchedule::hasCredentials("ssid", "0123456789abcdefABCDEF0123456789abcdefABCDEF0123456789abcdefABCG"));
+  assert(!NtpSchedule::hasCredentials("ssid", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"));
+  // First wake cycle: due at once
+  assert(NtpSchedule::due(s, 1000));
+  assert(NtpSchedule::decide(s, 1000, false, true, true, false) == NtpDecision::ATTEMPT);
+  // Offline fallback: no credentials, no RTC, key wakeup and low battery never start the radio
+  assert(NtpSchedule::decide(s, 1000, false, false, true, false) == NtpDecision::SKIP_NO_CREDENTIALS);
+  assert(NtpSchedule::decide(s, 1000, false, true, false, false) == NtpDecision::SKIP_NO_RTC);
+  assert(NtpSchedule::decide(s, 1000, true, true, true, false) == NtpDecision::SKIP_KEY_WAKEUP);
+  assert(NtpSchedule::decide(s, 1000, false, true, true, true) == NtpDecision::SKIP_LOW_BATTERY);
+  // Skips leave the state untouched, so the sync stays due
+  assert(!s.has_attempted && NtpSchedule::due(s, 2000));
+  // Success: next attempt after 24 h
+  NtpSchedule::record(s, 5000, true);
+  assert(s.last_ok && s.failures == 0 && s.has_attempted);
+  assert(!NtpSchedule::due(s, 5000 + day - 1));
+  assert(NtpSchedule::due(s, 5000 + day));
+  assert(NtpSchedule::decide(s, 6000, false, true, true, false) == NtpDecision::SKIP_NOT_DUE);
+  // Failure: not marked as done, retry with a doubling backoff up to 6 h
+  NtpSchedule::record(s, 100000, false);
+  assert(!s.last_ok && s.failures == 1);
+  assert(NtpSchedule::retryDelayMs(1) == 900000);
+  assert(NtpSchedule::retryDelayMs(2) == 1800000);
+  assert(NtpSchedule::retryDelayMs(3) == 3600000);
+  assert(NtpSchedule::retryDelayMs(5) == 14400000);
+  assert(NtpSchedule::retryDelayMs(6) == NtpSchedule::RETRY_MAX_MS);
+  assert(NtpSchedule::retryDelayMs(255) == NtpSchedule::RETRY_MAX_MS);
+  assert(!NtpSchedule::due(s, 100000 + 899999));
+  assert(NtpSchedule::due(s, 100000 + 900000));
+  NtpSchedule::record(s, 2000000, false);
+  assert(s.failures == 2 && !NtpSchedule::due(s, 2000000 + 1799999) && NtpSchedule::due(s, 2000000 + 1800000));
+  for (int i = 0; i < 100; ++i) NtpSchedule::record(s, 3000000, false);
+  assert(s.failures == NtpSchedule::MAX_FAILURES);
+  // A later success resets the backoff
+  NtpSchedule::record(s, 90000000, true);
+  assert(s.failures == 0 && s.last_ok);
+  // Clock wrap-around and a clock reset give an early try, never a stall
+  NtpSyncState w;
+  NtpSchedule::record(w, 0xFFFFFF00u, true);
+  assert(!NtpSchedule::due(w, 0x100u));
+  assert(NtpSchedule::due(w, 0xFFFFFF00u + day));
+  NtpSyncState r;
+  NtpSchedule::record(r, 4000000, true);
+  assert(NtpSchedule::due(r, 1000)); // clock restarted below the stamp
+}
+
+void testNtpSystemClockRestore() {
+  int64_t sec = 0, usec = 0;
+  advanceTime(100, 250000, 0, sec, usec);
+  assert(sec == 100 && usec == 250000);
+  advanceTime(100, 900000, 200000, sec, usec); // microsecond carry
+  assert(sec == 101 && usec == 100000);
+  advanceTime(100, 0, 14000000, sec, usec);    // 14 s of sync time
+  assert(sec == 114 && usec == 0);
+  advanceTime(0, 999999, 1, sec, usec);
+  assert(sec == 1 && usec == 0);
+}
+
+void testNtpStatePersistence() {
+  PersistentState s;
+  NtpSchedule::record(s.ntp, 123456, false);
+  NtpSchedule::record(s.ntp, 234567, false);
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.ntp.has_attempted && !r.ntp.last_ok && r.ntp.failures == 2 && r.ntp.last_attempt_ms == 234567);
+  NtpSchedule::record(s.ntp, 345678, true);
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.ntp.last_ok && r.ntp.failures == 0 && r.ntp.last_attempt_ms == 345678);
+  // Defaults: never attempted
+  PersistentState d;
+  assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0));
+  // The previous format (version 4) is rejected, even with a valid CRC
+  assert(PowerManager::STATE_VERSION == 5);
+  buf[4] = 4;
+  uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
+  for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+  // Reserved flag bit, success without attempt, and too many failures are rejected
+  const size_t flags_pos = PowerManager::SERIALIZED_SIZE - 4 - 2;
+  const uint8_t bad_flags[3][2] = {{4, 0}, {2, 0}, {1, NtpSchedule::MAX_FAILURES + 1}};
+  for (const auto& b : bad_flags) {
+    assert(PowerManager::serialize(s, buf, sizeof(buf)));
+    buf[flags_pos] = b[0];
+    buf[flags_pos + 1] = b[1];
+    crc = PowerManager::crc32(buf, sizeof(buf) - 4);
+    for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+    assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+  }
+  // No attempt, but a failure count or a stamp is rejected
+  const uint8_t no_attempt[2][2] = {{0, 1}, {0, 0}};
+  for (int k = 0; k < 2; ++k) {
+    assert(PowerManager::serialize(s, buf, sizeof(buf)));
+    buf[flags_pos] = no_attempt[k][0];
+    buf[flags_pos + 1] = no_attempt[k][1]; // k = 1 keeps the stamp from s, which is nonzero
+    crc = PowerManager::crc32(buf, sizeof(buf) - 4);
+    for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+    assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+  }
+  // Success with failures left is rejected
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  buf[flags_pos] = 3;
+  buf[flags_pos + 1] = 1;
+  crc = PowerManager::crc32(buf, sizeof(buf) - 4);
+  for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
 }
 
 int main() {
@@ -1850,6 +2071,12 @@ int main() {
   testChimeMuteAndEdge();
   testChimePcmSynthesis();
   testAudioStatePersistence();
-  printf("All 34 firmware logic test suites passed.\n");
+  testNtpEpochToCalendar();
+  testNtpTimezoneDst();
+  testNtpRegisterEncoding();
+  testNtpScheduleAndOfflineFallback();
+  testNtpSystemClockRestore();
+  testNtpStatePersistence();
+  printf("All 40 firmware logic test suites passed.\n");
   return 0;
 }

@@ -14,6 +14,7 @@
 - `rlcd_panel/st7305_panel.h`: ESP32-S3 hardware SPI driver for the `ST7305` RLCD controller.
 - `rlcd_panel/shtc3_sensor.h`: Sensirion `SHTC3` CRC-8 (`0x31`) and raw frame decoder.
 - `rlcd_panel/power_manager.h`: Header-only deep sleep manager: wakeup timer maths, wakeup cause decoding, wake cycle state machine, and checksummed RTC-memory state (registry, battery, view mode).
+- `rlcd_panel/ntp_sync.h`: Wi-Fi NTP sync: epoch-to-calendar and CET/CEST converter, `PCF85063A` register encoding, sync schedule with backoff, and the ESP32 `NtpClient`. Optional credentials come from the ignored `rlcd_panel/wifi_config.h` (template: `wifi_config.example.h`).
 - `rlcd_panel/dashboard_view.h`: Decoupled 4-tile climate dashboard renderer shared between firmware and preview generator.
 - `rlcd_panel/rlcd_panel.ino`: Main firmware entry point (`setup()` / `loop()`).
 - `scripts/backup-firmware.sh`: Backs up NVS (`0x9000`, `20 KB`) and full flash (`0x0`, `16 MB`) via `esptool` into `firmware_backups/` (mode `0700`).

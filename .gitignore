@@ -15,3 +15,6 @@ firmware_backups/
 *.d
 *.bmp
 test_runner
+
+# Optional local Wi-Fi credentials
+rlcd_panel/wifi_config.h

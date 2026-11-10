@@ -22,15 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Audio and Networking Expansions (Score 22–27)
 
-### Wi-Fi NTP time synchronization with offline fallback
-
-- **Rank:** Feature model. Total 26/40 (use 6, setup 7, harmony 7, safety 6). Effort M.
-- **Area:** Networking / RTC.
-- **Code:** `rlcd_panel/ntp_sync.h`, `rlcd_panel/rlcd_panel.ino`.
-- **Problem:** The PCF85063A real-time clock requires manual setting on initial power-up. If the backup coin cell runs out, clock time drifts.
-- **Goal:** Provide optional background Wi-Fi connection to NTP pool servers once per day (or on startup). Synchronize the PCF85063A RTC hardware registers, then shut off the Wi-Fi radio immediately.
-- **Acceptance test:** Host unit test verifies epoch timestamp conversion into PCF85063 BCD register format with timezone and daylight saving offset support.
-
 ### Ambient noise monitor via ES7210 dual microphone ADC
 
 - **Rank:** Feature model. Total 23/40 (use 5, setup 5, harmony 7, safety 6). Effort L.

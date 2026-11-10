@@ -8,6 +8,7 @@
 #include "battery_monitor.h"
 #include "board_pins.h"
 #include "button_handler.h"
+#include "ntp_sync.h"
 #include "sparkline.h"
 #include "switchbot_ble.h"
 
@@ -79,6 +80,7 @@ struct PersistentState {
   bool has_logged = false;   // false until the first MicroSD attempt, success or failure
   bool muted = false;        // true: alerts stay silent
   uint8_t alert_mask = ALERT_NONE; // alerts active in the last wake cycle (hysteresis latch)
+  NtpSyncState ntp;          // NTP attempt time, result and backoff
 };
 
 struct WakeupPlan {
@@ -89,7 +91,7 @@ struct WakeupPlan {
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 4;
+  static constexpr uint8_t STATE_VERSION = 5;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Slot layout: valid, mac[6], temperature (float bits), humidity, battery, fahrenheit,
   // rssi (int16), updated_ms, packet_count.
@@ -102,10 +104,12 @@ public:
   static constexpr size_t SD_LOG_SIZE = 4 + 1;
   // Audio trailer: one byte, bit 0 muted, bits 1..2 alert mask.
   static constexpr size_t AUDIO_SIZE = 1;
+  // NTP trailer: last attempt time, flags (bit 0 attempted, bit 1 last ok), failure count.
+  static constexpr size_t NTP_SIZE = 4 + 1 + 1;
   // Header: magic, version, mode, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + 4;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -214,6 +218,9 @@ public:
     putU32(out, pos, state.last_log_ms);
     out[pos++] = state.has_logged ? 1 : 0;
     out[pos++] = static_cast<uint8_t>((state.muted ? 1 : 0) | ((state.alert_mask & ALERT_MASK_ALL) << 1));
+    putU32(out, pos, state.ntp.last_attempt_ms);
+    out[pos++] = static_cast<uint8_t>((state.ntp.has_attempted ? 1 : 0) | (state.ntp.last_ok ? 2 : 0));
+    out[pos++] = state.ntp.failures;
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -320,6 +327,19 @@ public:
     }
     s.muted = (audio & 1) != 0;
     s.alert_mask = static_cast<uint8_t>(audio >> 1);
+    s.ntp.last_attempt_ms = getU32(data, pos);
+    const uint8_t ntp_flags = data[pos++];
+    s.ntp.failures = data[pos++];
+    // A success needs an attempt and leaves no failures; the failure count has a ceiling.
+    // Without an attempt, the stamp and the failure count stay zero.
+    if ((ntp_flags & ~3u) != 0 || ((ntp_flags & 2) != 0 && (ntp_flags & 1) == 0) ||
+        ((ntp_flags & 1) == 0 && (s.ntp.failures != 0 || s.ntp.last_attempt_ms != 0)) ||
+        s.ntp.failures > NtpSchedule::MAX_FAILURES ||
+        ((ntp_flags & 2) != 0 && s.ntp.failures != 0)) {
+      return false;
+    }
+    s.ntp.has_attempted = (ntp_flags & 1) != 0;
+    s.ntp.last_ok = (ntp_flags & 2) != 0;
     out = s;
     return true;
   }
@@ -328,7 +348,7 @@ public:
   // A reset clock with intact RTC memory breaks this and forces a clean start with a scan. The
   // 32-bit clock wraps after 49.7 days; the same clean start then runs once, which is harmless.
   static bool timestampsConsistent(const PersistentState& state, uint32_t now_ms) {
-    // The history and the SD log gate are exempt: they use wrap-safe subtraction, so a reset or
+    // The history, the SD log gate and the NTP schedule are exempt: they use wrap-safe subtraction, so a reset or
     // wrapped clock only triggers an early sample or record. The history keeps its 24 hours.
     if (state.last_scan_ms > now_ms) {
       return false;
