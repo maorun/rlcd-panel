@@ -9,6 +9,7 @@
 #include "../rlcd_panel/dashboard_view.h"
 #include "../rlcd_panel/pcf85063_rtc.h"
 #include "../rlcd_panel/power_manager.h"
+#include "../rlcd_panel/sd_logger.h"
 #include "../rlcd_panel/shtc3_sensor.h"
 #include "../rlcd_panel/sparkline.h"
 #include "../rlcd_panel/st7305_framebuffer.h"
@@ -1433,7 +1434,7 @@ void testHistoryPersistence() {
   assert(rejected.history.slots[0].size() == 0);
 
   // Each corrupt field with a valid CRC is rejected: head, sample range, sampled flag
-  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - 1;
+  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SD_LOG_SIZE - 1;
   const size_t cases[3][2] = {{ring_pos + 1, 24}, {ring_pos + 3, 0x7F}, {sampled_pos, 2}};
   for (const auto& c : cases) {
     uint8_t b[PowerManager::SERIALIZED_SIZE];
@@ -1505,6 +1506,119 @@ void testPreviewScenesCoverAllDisplayModes() {
   assert(frames[low_index].getPixel(0, 0));  // banner frame
 }
 
+void testSdLogCodec() {
+  char buf[SdLogCodec::MAX_ROW_SIZE];
+
+  // Header
+  const size_t hl = SdLogCodec::formatHeader(buf, sizeof(buf));
+  assert(hl > 0 && hl == strlen(buf));
+  assert(strncmp(buf, "timestamp,battery_pct,battery_v,usb,onboard_temp_c,onboard_rh,", 62) == 0);
+  assert(buf[hl - 1] == '\n');
+  size_t header_commas = 0;
+  for (size_t i = 0; i < hl; ++i) header_commas += buf[i] == ',';
+  assert(header_commas == 14);
+  assert(SdLogCodec::formatHeader(nullptr, 100) == 0);
+  assert(SdLogCodec::formatHeader(buf, 0) == 0);
+  assert(SdLogCodec::formatHeader(buf, hl) == 0); // no room for the terminator
+
+  // Filename
+  RtcTime t;
+  t.valid = true; t.year = 2026; t.month = 3; t.day = 9; t.hour = 7; t.minute = 5; t.second = 1;
+  char path[SdLogCodec::MAX_PATH_SIZE];
+  assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) > 0);
+  assert(strcmp(path, "/sdcard/climate_202603.csv") == 0);
+  t.month = 12;
+  SdLogCodec::formatFilename(&t, path, sizeof(path));
+  assert(strcmp(path, "/sdcard/climate_202612.csv") == 0);
+  t.month = 3;
+  assert(SdLogCodec::formatFilename(nullptr, path, sizeof(path)) == 0);
+  assert(SdLogCodec::formatFilename(&t, nullptr, 32) == 0);
+  assert(SdLogCodec::formatFilename(&t, path, 0) == 0);
+  assert(SdLogCodec::formatFilename(&t, path, 10) == 0 && path[0] == '\0');
+  RtcTime bad = t;
+  bad.valid = false;
+  assert(SdLogCodec::formatFilename(&bad, path, sizeof(path)) == 0);
+  bad = t; bad.month = 13;
+  assert(SdLogCodec::formatFilename(&bad, path, sizeof(path)) == 0);
+  bad = t; bad.month = 0;
+  assert(SdLogCodec::formatFilename(&bad, path, sizeof(path)) == 0);
+  bad = t; bad.year = 1999;
+  assert(SdLogCodec::formatFilename(&bad, path, sizeof(path)) == 0);
+  bad = t; bad.year = 2100;
+  assert(SdLogCodec::formatFilename(&bad, path, sizeof(path)) == 0);
+
+  // Row with valid battery, onboard sensor, and two valid SwitchBot slots
+  BatteryReading bat;
+  bat.valid = true; bat.percentage = 87; bat.voltage_v = 4.0f; bat.usb_powered = false;
+  Shtc3Reading onboard;
+  onboard.valid = true; onboard.temperature_c = 21.54f; onboard.humidity_pct = 45.0f;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  slots[0].valid = true; slots[0].temperature_c = -3.5f; slots[0].humidity_pct = 80;
+  slots[0].battery_pct = 90; slots[0].updated_ms = 1000;
+  slots[1].valid = true; slots[1].temperature_c = 19.0f; slots[1].humidity_pct = 50;
+  slots[1].battery_pct = -1; slots[1].updated_ms = 1000;
+  const size_t rl = SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 2000, buf, sizeof(buf));
+  assert(rl == strlen(buf));
+  assert(strcmp(buf, "2026-03-09 07:05:01,87,4.00,0,21.5,45.0,-3.5,80,90,19.0,50,,,,\n") == 0);
+
+  // Row with invalid battery, invalid onboard, a stale slot, a NaN slot, and a missing slot
+  BatteryReading nobat;
+  Shtc3Reading noonboard;
+  slots[0].updated_ms = 0;
+  slots[1].temperature_c = NAN;
+  const uint32_t late = SENSOR_STALE_TIMEOUT_MS + 5000;
+  SdLogCodec::formatRow(&t, &nobat, &noonboard, slots, 3, late, buf, sizeof(buf));
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,\n") == 0);
+  SdLogCodec::formatRow(&t, &nobat, &noonboard, nullptr, 0, 0, buf, sizeof(buf));
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,\n") == 0);
+
+  // Every row has as many columns as the header
+  size_t row_commas = 0;
+  for (size_t i = 0; buf[i] != '\0'; ++i) row_commas += buf[i] == ',';
+  assert(row_commas == header_commas);
+
+  // Null, empty and invalid input
+  assert(SdLogCodec::formatRow(nullptr, &bat, &onboard, slots, 3, 0, buf, sizeof(buf)) == 0);
+  assert(buf[0] == '\0');
+  RtcTime invalid_time;
+  assert(SdLogCodec::formatRow(&invalid_time, &bat, &onboard, slots, 3, 0, buf, sizeof(buf)) == 0);
+  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, nullptr, 256) == 0);
+  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, buf, 0) == 0);
+  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, buf, 16) == 0);
+  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, buf, SdLogCodec::MAX_ROW_SIZE - 1) == 0);
+  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, buf, SdLogCodec::MAX_ROW_SIZE) > 0);
+  assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, buf, sizeof(buf)) > 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,\n") == 0);
+}
+
+void testSdLogSchedule() {
+  const uint32_t H = SdLogCodec::LOG_INTERVAL_MS;
+  assert(SdLogCodec::logDue(false, 0, 0));
+  assert(!SdLogCodec::logDue(true, 1000, 1000 + H - 1));
+  assert(SdLogCodec::logDue(true, 1000, 1000 + H));
+  // wrap-safe
+  assert(!SdLogCodec::logDue(true, 0xFFFFFF00u, 100));
+  assert(SdLogCodec::logDue(true, 0xFFFFFF00u, 0xFFFFFF00u + H));
+  // a failed write retries after the retry interval, not after an hour
+  const uint32_t stamp = SdLogCodec::retryStamp(5000000);
+  assert(!SdLogCodec::logDue(true, stamp, 5000000 + SdLogCodec::RETRY_INTERVAL_MS - 1));
+  assert(SdLogCodec::logDue(true, stamp, 5000000 + SdLogCodec::RETRY_INTERVAL_MS));
+
+  // The log gate survives the RTC round trip and rejects a corrupt flag
+  PersistentState s;
+  s.last_log_ms = 123456;
+  s.has_logged = true;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.last_log_ms == 123456 && r.has_logged);
+  buf[PowerManager::SERIALIZED_SIZE - 5] = 2;
+  const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
+  for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+}
+
 int main() {
   testSwitchBotManufacturerPositiveTemp();
   testSwitchBotManufacturerNegativeTemp();
@@ -1534,6 +1648,8 @@ int main() {
   testDashboardSparklineInsideTiles();
   testHistoryPersistence();
   testPreviewScenesCoverAllDisplayModes();
-  printf("All 28 firmware logic test suites passed.\n");
+  testSdLogCodec();
+  testSdLogSchedule();
+  printf("All 30 firmware logic test suites passed.\n");
   return 0;
 }

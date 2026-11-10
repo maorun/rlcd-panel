@@ -74,6 +74,8 @@ struct PersistentState {
   BatteryReading battery;
   SwitchBotRegistry registry;
   ClimateHistory history; // hourly temperature samples for the trend curves
+  uint32_t last_log_ms = 0;  // clock value of the last MicroSD record
+  bool has_logged = false;   // false until the first MicroSD attempt, success or failure
 };
 
 struct WakeupPlan {
@@ -84,7 +86,7 @@ struct WakeupPlan {
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 2;
+  static constexpr uint8_t STATE_VERSION = 3;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Slot layout: valid, mac[6], temperature (float bits), humidity, battery, fahrenheit,
   // rssi (int16), updated_ms, packet_count.
@@ -93,10 +95,12 @@ public:
   static constexpr size_t HISTORY_RING_SIZE = 1 + 1 + TemperatureHistory::CAPACITY * 2;
   static constexpr size_t HISTORY_SIZE =
       ClimateHistory::SLOT_COUNT * HISTORY_RING_SIZE + 4 + 1;
+  // SD log trailer: last log time, logged flag.
+  static constexpr size_t SD_LOG_SIZE = 4 + 1;
   // Header: magic, version, mode, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + 4;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + SD_LOG_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -202,6 +206,8 @@ public:
     }
     putU32(out, pos, state.history.last_sample_ms);
     out[pos++] = state.history.has_sampled ? 1 : 0;
+    putU32(out, pos, state.last_log_ms);
+    out[pos++] = state.has_logged ? 1 : 0;
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -296,6 +302,12 @@ public:
       return false;
     }
     s.history.has_sampled = sampled == 1;
+    s.last_log_ms = getU32(data, pos);
+    const uint8_t logged = data[pos++];
+    if (logged > 1) {
+      return false;
+    }
+    s.has_logged = logged == 1;
     out = s;
     return true;
   }
@@ -304,8 +316,8 @@ public:
   // A reset clock with intact RTC memory breaks this and forces a clean start with a scan. The
   // 32-bit clock wraps after 49.7 days; the same clean start then runs once, which is harmless.
   static bool timestampsConsistent(const PersistentState& state, uint32_t now_ms) {
-    // The history is exempt: its sample gate uses wrap-safe subtraction, so a reset or wrapped
-    // clock only triggers an early sample and keeps the 24 hours of data.
+    // The history and the SD log gate are exempt: they use wrap-safe subtraction, so a reset or
+    // wrapped clock only triggers an early sample or record. The history keeps its 24 hours.
     if (state.last_scan_ms > now_ms) {
       return false;
     }
