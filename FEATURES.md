@@ -34,3 +34,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The history stays in RTC memory (state version 2). The old format gives a clean start.
 - `tools/render_display_preview.cpp` renders a sample 24 hour history.
 - Host tests cover the FIFO over 24+ samples, the sample gate, the scaling edge cases, the pixel bounds, the tile bounds, and the RTC round trip with corrupt fields.
+
+## MicroSD offline climate telemetry logger
+
+- **Code:** `rlcd_panel/sd_logger.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`.
+- `SdLogCodec` has no Arduino dependency. It writes the CSV header, one row per record, and the file name `/sdcard/climate_YYYYMM.csv`.
+- A row has the timestamp, battery (percent, volt, USB), the onboard `SHTC3` (T, RH), and 3 SwitchBot slots (T, RH, battery). A missing, invalid, stale or NaN source gives empty fields, so each row has 15 columns.
+- Every codec function returns 0 for a null pointer, an empty buffer, a small buffer or an invalid time.
+- `SdLogger` (Arduino only) calls `SD_MMC.setPins(38, 21, 39)` before `SD_MMC.begin("/sdcard", true)`. It checks the card type, appends one record, and unmounts. A new file gets the header first. A failed header write removes the new file.
+- The board logs once per hour, also after a deep sleep wake. The log runs after the render, so a slow or missing card never delays the display.
+- A failed mount or write gives no crash. The next try follows after 10 min, not after 1 h.
+- `last_log_ms` and `has_logged` stay in RTC memory (state version 3). The old format gives a clean start. The gate uses wrap-safe 32-bit maths.
+- Host tests cover the header, valid and invalid rows, the file name bounds, null and empty input, the schedule with wrap and retry, and the RTC round trip with a corrupt flag.

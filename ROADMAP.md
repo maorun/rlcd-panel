@@ -20,15 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Power, Storage, and Visuals (Score 28–33)
 
-### MicroSD offline climate telemetry logger
-
-- **Rank:** Feature model. Total 29/40 (use 7, setup 7, harmony 8, safety 7). Effort M.
-- **Area:** Storage / Logging.
-- **Code:** `rlcd_panel/sd_logger.h`, `rlcd_panel/rlcd_panel.ino`.
-- **Problem:** Historical sensor data disappears when the device restarts or loses power.
-- **Goal:** Mount the onboard MicroSD card slot over 1-bit SD_MMC (GPIO 38, 21, 39). Append hourly climate records (timestamp, battery, SHTC3 T/RH, 3 SwitchBot slots) to `/sdcard/climate_YYYYMM.csv`.
-- **Acceptance test:** Host unit test validates CSV formatting, header generation, and sensor serialization. Mock driver handles missing or removed card gracefully.
-
 ## Priority 3: Audio and Networking Expansions (Score 22–27)
 
 ### Audio chime alerts via ES8311 DAC and speaker

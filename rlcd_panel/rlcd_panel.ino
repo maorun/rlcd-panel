@@ -13,6 +13,7 @@
 #include "dashboard_view.h"
 #include "pcf85063_rtc.h"
 #include "power_manager.h"
+#include "sd_logger.h"
 #include "shtc3_sensor.h"
 #include "st7305_framebuffer.h"
 #include "st7305_panel.h"
@@ -226,6 +227,28 @@ void refreshSensors() {
       nowMs(), g_onboard_reading.valid, g_onboard_reading.temperature_c, g_state.registry);
 }
 
+// Appends one hourly record to the MicroSD card. A missing card or a failed write never blocks
+// the cycle; the next attempt follows after a short retry interval.
+void logToSdCard() {
+  const uint32_t now = nowMs();
+  if (!SdLogCodec::logDue(g_state.has_logged, g_state.last_log_ms, now) || !g_rtc_time.valid) {
+    return;
+  }
+  SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    snapshot[i] = g_state.registry.slot(i);
+  }
+  const SdLogResult result = SdLogger::append(
+      g_rtc_time, g_state.battery, g_onboard_reading, snapshot, MAX_SWITCHBOT_SENSORS, now);
+  g_state.has_logged = true;
+  if (result == SdLogResult::OK) {
+    g_state.last_log_ms = now;
+  } else {
+    g_state.last_log_ms = SdLogCodec::retryStamp(now);
+    Serial.printf("SD log failed: %u\n", static_cast<unsigned>(result));
+  }
+}
+
 } // namespace
 
 void setup() {
@@ -267,6 +290,7 @@ void setup() {
   }
   refreshSensors();
   renderDashboard();
+  logToSdCard(); // after the render: the display shows fresh data even if the card is slow
 
   // Grace window after a KEY wakeup or a power-on: further KEY presses redraw without a new
   // wakeup. A timer wakeup skips it to save battery.
