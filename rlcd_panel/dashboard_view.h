@@ -18,6 +18,8 @@ public:
   static constexpr uint16_t HEADER_CLOCK_X = 244;
   static constexpr uint16_t HEADER_CLOCK_Y = 7;
   static constexpr size_t HEADER_CLOCK_MAX_CHARS = 5;
+  static constexpr uint16_t STALE_BADGE_W = 35;
+  static constexpr uint16_t STALE_BADGE_H = 17;
 
   static void renderBatteryIcon(
       St7305Framebuffer& fb,
@@ -54,7 +56,8 @@ public:
       float temp_c,
       float humidity_pct,
       int8_t battery_pct,
-      float battery_voltage_v = -1.0f) {
+      float battery_voltage_v = -1.0f,
+      bool is_stale = false) {
     fb.drawRect(x, y, w, h, true);
     fb.drawHLine(x, y + 24, w, true);
     fb.drawText(x + 8, y + 6, title, 2, true);
@@ -86,6 +89,15 @@ public:
       }
       fb.drawText(x + 12, y + 96, line_bat, 2, true);
     }
+
+    if (is_stale) {
+      // Inverted "STALE" badge (5 glyphs at scale 1 = 29 px wide) in the title band, right of the
+      // title ("SWITCHBOT 3" ends at x + 138) and above the divider line at y + 24.
+      const uint16_t bx = static_cast<uint16_t>(x + w - STALE_BADGE_W - 4);
+      const uint16_t by = static_cast<uint16_t>(y + 4);
+      fb.fillRect(bx, by, STALE_BADGE_W, STALE_BADGE_H, true);
+      fb.drawText(bx + 3, by + 5, "STALE", 1, false);
+    }
   }
 
   static void render(
@@ -94,7 +106,8 @@ public:
       const BatteryReading& battery,
       const SwitchBotReading* switchbot_slots,
       size_t switchbot_count,
-      const char* clock_text = nullptr) {
+      const char* clock_text,
+      uint32_t now_ms) {
     fb.clear(false);
 
     // Header bar (black filled rectangle)
@@ -165,7 +178,9 @@ public:
           sb.valid,
           sb.temperature_c,
           static_cast<float>(sb.humidity_pct),
-          sb.battery_pct);
+          sb.battery_pct,
+          -1.0f,
+          sb.isStale(now_ms));
     }
   }
 };

@@ -18,15 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: High-Impact Core Features (Score 34–40)
 
-### Sensor inactivity timeout and stale indicator
-
-- **Rank:** Feature model. Total 35/40 (use 10, setup 9, harmony 8, safety 8). Effort S.
-- **Area:** BLE / UI.
-- **Code:** `rlcd_panel/switchbot_ble.h`, `rlcd_panel/dashboard_view.h`.
-- **Problem:** When a SwitchBot sensor runs out of battery or moves out of BLE range, the tile keeps displaying the last received reading indefinitely. The user cannot tell if a reading is fresh or hours old.
-- **Goal:** Track elapsed time since last packet reception per slot. If elapsed time exceeds 30 minutes, display a visible "STALE" flag or offline icon on that tile.
-- **Acceptance test:** Host unit test marks sensor reading stale when `current_ms - updated_ms > 1800000`. `DashboardView` renders the stale indicator on expired tiles.
-
 ### Key button display mode switcher
 
 - **Rank:** Feature model. Total 34/40 (use 9, setup 8, harmony 9, safety 8). Effort S.
