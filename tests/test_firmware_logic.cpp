@@ -177,20 +177,34 @@ void testSt7305FramebufferPixelMapping() {
 }
 
 void testShtc3Codec() {
-  // 0x6666 -> ~25.0 C, 0x8000 -> 50.0 %RH
+  // 0x6666 -> ~25.0 C uncalibrated, 0x8000 -> 50.0 %RH
   uint8_t frame[6] = {0x66, 0x66, 0x00, 0x80, 0x00, 0x00};
   frame[2] = Shtc3Codec::computeCrc8(frame, 2);
   frame[5] = Shtc3Codec::computeCrc8(frame + 3, 2);
 
-  Shtc3Reading out;
-  assert(Shtc3Codec::decodeFrame(frame, sizeof(frame), out));
-  assert(out.valid);
-  assert(approxEqual(out.temperature_c, 25.0f, 0.1f));
-  assert(approxEqual(out.humidity_pct, 50.0f, 0.1f));
+  // Default calibration offset (-1.9 C): 25.0 - 1.9 = 23.1 C
+  Shtc3Reading default_out;
+  assert(Shtc3Codec::decodeFrame(frame, sizeof(frame), default_out));
+  assert(default_out.valid);
+  assert(approxEqual(default_out.temperature_c, 23.1f, 0.1f));
+  assert(approxEqual(default_out.humidity_pct, 50.0f, 0.1f));
+
+  // Explicit zero offset (raw uncalibrated): 25.0 C
+  Shtc3Reading raw_out;
+  assert(Shtc3Codec::decodeFrame(frame, sizeof(frame), raw_out, 0.0f));
+  assert(raw_out.valid);
+  assert(approxEqual(raw_out.temperature_c, 25.0f, 0.1f));
+  assert(approxEqual(raw_out.humidity_pct, 50.0f, 0.1f));
+
+  // Explicit custom offset (-2.5 C): 25.0 - 2.5 = 22.5 C
+  Shtc3Reading custom_out;
+  assert(Shtc3Codec::decodeFrame(frame, sizeof(frame), custom_out, -2.5f));
+  assert(custom_out.valid);
+  assert(approxEqual(custom_out.temperature_c, 22.5f, 0.1f));
 
   // Corrupt CRC must fail
   frame[2] ^= 0xFF;
-  assert(!Shtc3Codec::decodeFrame(frame, sizeof(frame), out));
+  assert(!Shtc3Codec::decodeFrame(frame, sizeof(frame), default_out));
 }
 
 void testBatteryMonitorDecoding() {

@@ -29,6 +29,7 @@
 4. **ST7305 Framebuffer Packing:** The 400×300 display uses `15,000` bytes with column-major block packing and inverted Y (`byte_index = (x / 2) * 75 + ((299 - y) / 4)`, `bit = 7 - (((299 - y) % 4) * 2 + (x % 2))`).
 5. **MicroSD Card (`SD_MMC`):** Always call `SD_MMC.setPins(38, 21, 39)` before `SD_MMC.begin("/sdcard", true)`.
 6. **Build Cleanliness:** Do not commit `build/`, `rlcd_panel/build/`, `firmware_backups/`, or `test_runner` binaries.
+7. **SHTC3 Calibration Offset:** The onboard SHTC3 temperature sensor is subject to PCB self-heating and applies a default calibration offset of `-1.9 °C` (`Shtc3Codec::DEFAULT_TEMP_OFFSET_C`).
 
 ## Verification Commands
 

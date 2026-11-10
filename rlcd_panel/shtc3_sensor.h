@@ -13,6 +13,9 @@ struct Shtc3Reading {
 
 class Shtc3Codec {
 public:
+  // Calibration offset to compensate for ESP32-S3 PCB and SoC self-heating.
+  static constexpr float DEFAULT_TEMP_OFFSET_C = -1.9f;
+
   // Sensirion CRC-8: polynomial 0x31, initialization 0xFF
   static uint8_t computeCrc8(const uint8_t* data, size_t len) {
     uint8_t crc = 0xFF;
@@ -30,7 +33,12 @@ public:
   }
 
   // Decode 6-byte SHTC3 response: [T_MSB, T_LSB, T_CRC, RH_MSB, RH_LSB, RH_CRC]
-  static bool decodeFrame(const uint8_t* frame, size_t len, Shtc3Reading& out) {
+  // Applies temperature calibration offset (default: DEFAULT_TEMP_OFFSET_C = -1.9 C).
+  static bool decodeFrame(
+      const uint8_t* frame,
+      size_t len,
+      Shtc3Reading& out,
+      float temp_offset_c = DEFAULT_TEMP_OFFSET_C) {
     if (frame == nullptr || len < 6) {
       return false;
     }
@@ -46,7 +54,9 @@ public:
     const uint16_t raw_rh =
         (static_cast<uint16_t>(frame[3]) << 8) | static_cast<uint16_t>(frame[4]);
 
-    out.temperature_c = -45.0f + (175.0f * static_cast<float>(raw_temp)) / 65536.0f;
+    const float uncalibrated_temp =
+        -45.0f + (175.0f * static_cast<float>(raw_temp)) / 65536.0f;
+    out.temperature_c = uncalibrated_temp + temp_offset_c;
     out.humidity_pct = (100.0f * static_cast<float>(raw_rh)) / 65536.0f;
     out.valid = true;
     return true;
