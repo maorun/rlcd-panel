@@ -22,3 +22,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The 5x7 font has a new `!` glyph.
 - `tools/render_display_preview.cpp` renders the banner with a third argument `low`.
 - Host tests cover the hysteresis sequence, USB suppression, USB re-arming, banner geometry in all views, and the RTC round trip of the flag.
+
+## 24-hour temperature trend sparklines
+
+- **Code:** `rlcd_panel/sparkline.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`.
+- `TemperatureHistory` is a circular FIFO of 24 `int16_t` samples in 0.1 C steps. The oldest sample drops out first.
+- `ClimateHistory` holds one history for the onboard sensor and for each of the 3 SwitchBot slots. It records one sample per hour. It skips invalid, stale and NaN readings. The hour gate uses wrap-safe 32-bit maths.
+- `Sparkline` scales the curve to the minimum and maximum of the history. A flat line or a single sample gets a span of 1.0 C. The renderer clips every pixel to its box.
+- Each dashboard tile shows a 72 x 16 px curve right of the humidity line. The box stays inside the tile border and below the title divider. A tile with fewer than 2 samples shows no curve.
+- The width is 72 px, not 80 px, so the curve fits next to the humidity text in a 190 px tile.
+- The history stays in RTC memory (state version 2). The old format gives a clean start.
+- `tools/render_display_preview.cpp` renders a sample 24 hour history.
+- Host tests cover the FIFO over 24+ samples, the sample gate, the scaling edge cases, the pixel bounds, the tile bounds, and the RTC round trip with corrupt fields.

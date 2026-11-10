@@ -6,6 +6,7 @@
 #include "board_pins.h"
 #include "button_handler.h"
 #include "shtc3_sensor.h"
+#include "sparkline.h"
 #include "st7305_framebuffer.h"
 #include "switchbot_ble.h"
 
@@ -28,6 +29,12 @@ public:
   static constexpr const char* LOW_BATTERY_TEXT = "! LOW BATTERY - PLEASE CHARGE !";
   static constexpr uint16_t STALE_BADGE_W = 35;
   static constexpr uint16_t STALE_BADGE_H = 17;
+  // Trend curve right of the humidity line ("H: 100 %" ends at x + 106). The box lies fully
+  // inside the tile: 6 px from the right border, between the divider (y + 24) and the bottom.
+  static constexpr uint16_t SPARKLINE_W = 72;
+  static constexpr uint16_t SPARKLINE_H = 16;
+  static constexpr uint16_t SPARKLINE_RIGHT_MARGIN = 6;
+  static constexpr uint16_t SPARKLINE_Y_OFFSET = 66;
 
   static void renderBatteryIcon(
       St7305Framebuffer& fb,
@@ -65,7 +72,8 @@ public:
       float humidity_pct,
       int8_t battery_pct,
       float battery_voltage_v = -1.0f,
-      bool is_stale = false) {
+      bool is_stale = false,
+      const TemperatureHistory* history = nullptr) {
     fb.drawRect(x, y, w, h, true);
     fb.drawHLine(x, y + 24, w, true);
     fb.drawText(x + 8, y + 6, title, 2, true);
@@ -82,6 +90,19 @@ public:
     char line_rh[24];
     snprintf(line_rh, sizeof(line_rh), "H: %.0f %%", humidity_pct);
     fb.drawText(x + 12, y + 68, line_rh, 2, true);
+
+    // A curve needs two samples. One sample would draw a single dot.
+    if (history != nullptr && history->size() >= 2 && w > SPARKLINE_W + SPARKLINE_RIGHT_MARGIN &&
+        h > SPARKLINE_Y_OFFSET + SPARKLINE_H) {
+      Sparkline::render(
+          fb,
+          static_cast<uint16_t>(x + w - SPARKLINE_W - SPARKLINE_RIGHT_MARGIN),
+          static_cast<uint16_t>(y + SPARKLINE_Y_OFFSET),
+          SPARKLINE_W,
+          SPARKLINE_H,
+          *history,
+          true);
+    }
 
     if (battery_pct >= 0) {
       char line_bat[24];
@@ -161,7 +182,8 @@ public:
       const SwitchBotReading* switchbot_slots,
       size_t switchbot_count,
       const char* clock_text,
-      uint32_t now_ms) {
+      uint32_t now_ms,
+      const ClimateHistory* history = nullptr) {
     renderHeader(fb, "RLCD CLIMATE PANEL", battery, clock_text);
 
     const uint16_t tile_w = 190;
@@ -179,7 +201,9 @@ public:
         onboard.temperature_c,
         onboard.humidity_pct,
         battery.percentage,
-        battery.valid ? battery.voltage_v : -1.0f);
+        battery.valid ? battery.voltage_v : -1.0f,
+        false,
+        history != nullptr ? &history->slots[ClimateHistory::ONBOARD] : nullptr);
 
     // Tiles 1..3: SwitchBot Outdoor Meters (WoIOSensor)
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
@@ -207,7 +231,8 @@ public:
           static_cast<float>(sb.humidity_pct),
           sb.battery_pct,
           -1.0f,
-          sb.isStale(now_ms));
+          sb.isStale(now_ms),
+          history != nullptr ? &history->slots[1 + i] : nullptr);
     }
   }
 
@@ -337,7 +362,8 @@ public:
       size_t switchbot_count,
       const SystemInfo& info,
       const char* clock_text,
-      uint32_t now_ms) {
+      uint32_t now_ms,
+      const ClimateHistory* history = nullptr) {
     switch (mode) {
       case DisplayMode::SENSOR_STATS:
         renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms);
@@ -347,7 +373,7 @@ public:
         break;
       case DisplayMode::DASHBOARD:
       default:
-        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms);
+        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history);
         break;
     }
   }
