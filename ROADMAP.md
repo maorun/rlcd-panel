@@ -20,15 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Power, Storage, and Visuals (Score 28–33)
 
-### 24-hour temperature trend sparkline mini-charts
-
-- **Rank:** Feature model. Total 30/40 (use 8, setup 6, harmony 9, safety 7). Effort M.
-- **Area:** Graphics / Framebuffer.
-- **Code:** `rlcd_panel/sparkline.h`, `rlcd_panel/dashboard_view.h`.
-- **Problem:** Tiles display only instantaneous temperature and humidity values. The user cannot see whether temperature is rising or falling over time.
-- **Goal:** Store an hourly circular buffer of 24 temperature samples per sensor slot. Render a compact 1-bpp sparkline curve (width 80 px, height 16 px) at the bottom of each tile.
-- **Acceptance test:** Host unit test records 24 consecutive values, validates min/max auto-scaling, and tests clipping within tile pixel boundaries.
-
 ### MicroSD offline climate telemetry logger
 
 - **Rank:** Feature model. Total 29/40 (use 7, setup 7, harmony 8, safety 7). Effort M.

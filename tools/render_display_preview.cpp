@@ -1,3 +1,4 @@
+#include <math.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -165,6 +166,16 @@ int main(int argc, char** argv) {
     battery.low_battery = BatteryMonitor::updateLowBattery(battery, false);
   }
 
+  // Preview history: 24 hourly samples with a daily rhythm per sensor
+  ClimateHistory history;
+  const float base[ClimateHistory::SLOT_COUNT] = {21.8f, 19.4f, 13.8f, 16.2f};
+  const float swing[ClimateHistory::SLOT_COUNT] = {1.2f, 2.5f, 5.0f, 0.2f};
+  for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
+    for (int hour = 0; hour < 24; ++hour) {
+      history.slots[s].pushCelsius(base[s] + swing[s] * sinf(static_cast<float>(hour) * 0.2618f));
+    }
+  }
+
   SystemInfo info;
   info.free_heap_bytes = 214 * 1024;
   info.uptime_ms = 93784000; // 1 d 02:03:04
@@ -178,7 +189,8 @@ int main(int argc, char** argv) {
       MAX_SWITCHBOT_SENSORS,
       info,
       "14:32",
-      now_ms);
+      now_ms,
+      &history);
 
   if (!exportFramebufferToBmp(fb, out_path)) {
     return 1;

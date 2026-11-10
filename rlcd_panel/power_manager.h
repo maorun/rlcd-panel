@@ -7,6 +7,7 @@
 #include "battery_monitor.h"
 #include "board_pins.h"
 #include "button_handler.h"
+#include "sparkline.h"
 #include "switchbot_ble.h"
 
 #if defined(ARDUINO) || defined(ESP_PLATFORM)
@@ -72,6 +73,7 @@ struct PersistentState {
   DisplayMode mode = DisplayMode::DASHBOARD;
   BatteryReading battery;
   SwitchBotRegistry registry;
+  ClimateHistory history; // hourly temperature samples for the trend curves
 };
 
 struct WakeupPlan {
@@ -82,15 +84,19 @@ struct WakeupPlan {
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 1;
+  static constexpr uint8_t STATE_VERSION = 2;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Slot layout: valid, mac[6], temperature (float bits), humidity, battery, fahrenheit,
   // rssi (int16), updated_ms, packet_count.
   static constexpr size_t SLOT_SIZE = 1 + 6 + 4 + 1 + 1 + 1 + 2 + 4 + 4;
+  // History ring: count, head, 24 samples (int16). Trailer: last sample time, sampled flag.
+  static constexpr size_t HISTORY_RING_SIZE = 1 + 1 + TemperatureHistory::CAPACITY * 2;
+  static constexpr size_t HISTORY_SIZE =
+      ClimateHistory::SLOT_COUNT * HISTORY_RING_SIZE + 4 + 1;
   // Header: magic, version, mode, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + 4;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -184,6 +190,18 @@ public:
       putU32(out, pos, r.updated_ms);
       putU32(out, pos, r.packet_count);
     }
+    for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
+      const TemperatureHistory& h = state.history.slots[i];
+      out[pos++] = static_cast<uint8_t>(h.size());
+      out[pos++] = h.head();
+      for (size_t k = 0; k < TemperatureHistory::CAPACITY; ++k) {
+        const uint16_t bits = static_cast<uint16_t>(h.rawSample(k));
+        out[pos++] = static_cast<uint8_t>(bits & 0xFF);
+        out[pos++] = static_cast<uint8_t>(bits >> 8);
+      }
+    }
+    putU32(out, pos, state.history.last_sample_ms);
+    out[pos++] = state.history.has_sampled ? 1 : 0;
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -259,6 +277,25 @@ public:
         return false; // duplicate MAC
       }
     }
+    for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
+      const uint8_t count = data[pos++];
+      const uint8_t head = data[pos++];
+      int16_t samples[TemperatureHistory::CAPACITY];
+      for (size_t k = 0; k < TemperatureHistory::CAPACITY; ++k) {
+        samples[k] = static_cast<int16_t>(
+            static_cast<uint16_t>(data[pos]) | (static_cast<uint16_t>(data[pos + 1]) << 8));
+        pos += 2;
+      }
+      if (!s.history.slots[i].restore(count, head, samples)) {
+        return false;
+      }
+    }
+    s.history.last_sample_ms = getU32(data, pos);
+    const uint8_t sampled = data[pos++];
+    if (sampled > 1) {
+      return false;
+    }
+    s.history.has_sampled = sampled == 1;
     out = s;
     return true;
   }
@@ -267,6 +304,8 @@ public:
   // A reset clock with intact RTC memory breaks this and forces a clean start with a scan. The
   // 32-bit clock wraps after 49.7 days; the same clean start then runs once, which is harmless.
   static bool timestampsConsistent(const PersistentState& state, uint32_t now_ms) {
+    // The history is exempt: its sample gate uses wrap-safe subtraction, so a reset or wrapped
+    // clock only triggers an early sample and keeps the 24 hours of data.
     if (state.last_scan_ms > now_ms) {
       return false;
     }

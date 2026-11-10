@@ -10,6 +10,7 @@
 #include "../rlcd_panel/pcf85063_rtc.h"
 #include "../rlcd_panel/power_manager.h"
 #include "../rlcd_panel/shtc3_sensor.h"
+#include "../rlcd_panel/sparkline.h"
 #include "../rlcd_panel/st7305_framebuffer.h"
 #include "../rlcd_panel/switchbot_ble.h"
 
@@ -1148,6 +1149,304 @@ void testLowBatteryBanner() {
   assert(r.battery.low_battery);
 }
 
+void testTemperatureHistoryFifo() {
+  TemperatureHistory h;
+  assert(h.size() == 0);
+  assert(h.at(0) == 0);
+  for (int i = 0; i < 24; ++i) {
+    h.push(static_cast<int16_t>(i));
+    assert(h.size() == static_cast<size_t>(i + 1));
+  }
+  assert(h.at(0) == 0 && h.at(23) == 23);
+
+  // Samples 24..29 push out 0..5: the oldest leaves first, order stays chronological
+  for (int i = 24; i < 30; ++i) {
+    h.push(static_cast<int16_t>(i));
+  }
+  assert(h.size() == 24);
+  assert(h.at(0) == 6);
+  assert(h.at(23) == 29);
+  for (size_t i = 1; i < 24; ++i) {
+    assert(h.at(i) == h.at(i - 1) + 1);
+  }
+  assert(h.at(24) == 0); // out of range
+
+  // Many wraps keep the last 24 samples
+  for (int i = 30; i < 1000; ++i) {
+    h.push(static_cast<int16_t>(i));
+  }
+  assert(h.at(0) == 976 && h.at(23) == 999);
+
+  // Encoding: 0.1 C steps, rounding, clamping
+  assert(TemperatureHistory::encode(21.84f) == 218);
+  assert(TemperatureHistory::encode(-5.06f) == -51);
+  assert(TemperatureHistory::encode(500.0f) == TemperatureHistory::MAX_VALUE);
+  assert(TemperatureHistory::encode(-500.0f) == TemperatureHistory::MIN_VALUE);
+  assert(TemperatureHistory::encode(NAN) == 0);
+}
+
+void testClimateHistorySampleGate() {
+  ClimateHistory c;
+  SwitchBotRegistry reg;
+  const uint32_t hour = ClimateHistory::SAMPLE_INTERVAL_MS;
+
+  // No valid sensor: nothing recorded, gate stays open
+  assert(!c.record(1000, false, 0.0f, reg));
+  assert(c.sampleDue(1000));
+
+  assert(c.record(1000, true, 20.0f, reg));
+  assert(c.slots[0].size() == 1 && c.slots[0].at(0) == 200);
+  assert(c.slots[1].size() == 0);
+  assert(!c.record(1000 + hour - 1, true, 21.0f, reg)); // not due
+  assert(c.slots[0].size() == 1);
+  assert(c.record(1000 + hour, true, 21.0f, reg));
+  assert(c.slots[0].size() == 2);
+
+  // NaN is ignored; a stale SwitchBot slot is not recorded
+  ClimateHistory q;
+  assert(!q.record(5000, true, NAN, reg));
+  assert(q.slots[0].size() == 0);
+  SwitchBotRegistry stale_reg;
+  SwitchBotReading sb;
+  sb.valid = true;
+  sb.temperature_c = 18.0f;
+  sb.mac[5] = 1;
+  sb.updated_ms = 1000;
+  stale_reg.upsert(sb);
+  const uint32_t late = 1000 + 3600UL * 1000UL;
+  assert(!q.record(late, false, 0.0f, stale_reg)); // slot is stale at `late`
+  assert(q.slots[1].size() == 0);
+  assert(q.record(1000 + 1000, false, 0.0f, stale_reg)); // fresh slot is recorded
+  assert(q.slots[1].size() == 1 && q.slots[1].at(0) == 180);
+
+  // A wrapped 32-bit clock still counts the interval
+  ClimateHistory w;
+  assert(w.record(0xFFFFFFFFu - 10, true, 10.0f, reg));
+  assert(!w.sampleDue(0xFFFFFFFFu - 10 + 5));
+  assert(w.sampleDue(static_cast<uint32_t>(0xFFFFFFFFu - 10 + hour)));
+}
+
+void testSparklineAutoScale() {
+  TemperatureHistory h;
+  Sparkline::Scale s;
+  assert(!Sparkline::computeScale(h, s)); // empty
+
+  // Single sample: span of MIN_SPAN centered on the value
+  h.push(200);
+  assert(Sparkline::computeScale(h, s));
+  assert(s.hi - s.lo == Sparkline::MIN_SPAN);
+  assert(s.lo < 200 && s.hi > 200);
+  assert(Sparkline::valueToRow(200, s, 16) == 7 || Sparkline::valueToRow(200, s, 16) == 8);
+
+  // Flat line: same span, every sample on the same row (no divide by zero)
+  for (int i = 0; i < 23; ++i) {
+    h.push(200);
+  }
+  assert(Sparkline::computeScale(h, s));
+  assert(s.hi - s.lo == Sparkline::MIN_SPAN);
+
+  // Small range below MIN_SPAN is widened, not stretched to full height
+  TemperatureHistory small;
+  small.push(200);
+  small.push(203);
+  assert(Sparkline::computeScale(small, s));
+  assert(s.hi - s.lo == Sparkline::MIN_SPAN);
+  assert(Sparkline::valueToRow(203, s, 16) < Sparkline::valueToRow(200, s, 16));
+
+  // Full range: min on the bottom row, max on the top row
+  TemperatureHistory full;
+  full.push(TemperatureHistory::MIN_VALUE);
+  full.push(TemperatureHistory::MAX_VALUE);
+  assert(Sparkline::computeScale(full, s));
+  assert(s.lo == TemperatureHistory::MIN_VALUE && s.hi == TemperatureHistory::MAX_VALUE);
+  assert(Sparkline::valueToRow(s.lo, s, 16) == 15);
+  assert(Sparkline::valueToRow(s.hi, s, 16) == 0);
+  assert(Sparkline::valueToRow(s.hi + 100, s, 16) == 0); // clamp
+  assert(Sparkline::valueToRow(0, s, 1) == 0);
+
+  // Negative values near the bottom of the range
+  TemperatureHistory neg;
+  neg.push(-205);
+  neg.push(-200);
+  assert(Sparkline::computeScale(neg, s));
+  assert(s.hi - s.lo == Sparkline::MIN_SPAN);
+
+  // Columns: newest sample at the right edge, oldest of a full window at column 0
+  assert(Sparkline::sampleColumn(23, 24, 80) == 79);
+  assert(Sparkline::sampleColumn(0, 24, 80) == 0);
+  assert(Sparkline::sampleColumn(0, 1, 80) == 79);
+  assert(Sparkline::sampleColumn(23, 24, 72) == 71);
+  assert(Sparkline::sampleColumn(0, 24, 72) == 0);
+  assert(Sparkline::sampleColumn(0, 2, 80) < Sparkline::sampleColumn(1, 2, 80));
+}
+
+void testSparklineBoundsAndClipping() {
+  // Rising ramp over the full range, with a frame of set pixels around the box to detect leaks
+  TemperatureHistory h;
+  for (int i = 0; i < 24; ++i) {
+    h.push(static_cast<int16_t>(i * 20 - 200));
+  }
+  const uint16_t bx = 100, by = 100, bw = 80, bh = 16;
+  St7305Framebuffer fb;
+  fb.clear(false);
+  assert(!Sparkline::render(fb, bx, by, 0, bh, h));
+  assert(!Sparkline::render(fb, bx, by, bw, 0, h));
+  assert(!Sparkline::render(fb, bx, by, bw, bh, TemperatureHistory{}));
+  assert(Sparkline::render(fb, bx, by, bw, bh, h));
+
+  int inside = 0;
+  for (uint16_t y = 0; y < RLCD_HEIGHT; ++y) {
+    for (uint16_t x = 0; x < RLCD_WIDTH; ++x) {
+      const bool in_box = x >= bx && x < bx + bw && y >= by && y < by + bh;
+      if (fb.getPixel(x, y)) {
+        assert(in_box);
+        ++inside;
+      }
+    }
+  }
+  assert(inside >= bw); // a connected curve touches every column
+  assert(fb.getPixel(bx, by + bh - 1));   // oldest (lowest) at bottom left
+  assert(fb.getPixel(bx + bw - 1, by));   // newest (highest) at top right
+  for (uint16_t x = bx; x < bx + bw; ++x) {
+    bool column_hit = false;
+    for (uint16_t y = by; y < by + bh; ++y) {
+      column_hit = column_hit || fb.getPixel(x, y);
+    }
+    assert(column_hit);
+  }
+
+  // Box at the screen corner: no write outside the framebuffer
+  St7305Framebuffer corner;
+  assert(Sparkline::render(corner, RLCD_WIDTH - bw, RLCD_HEIGHT - bh, bw, bh, h));
+  assert(corner.getPixel(RLCD_WIDTH - 1, RLCD_HEIGHT - bh));
+}
+
+void testDashboardSparklineInsideTiles() {
+  Shtc3Reading onboard;
+  onboard.valid = true;
+  onboard.temperature_c = 21.0f;
+  onboard.humidity_pct = 100.0f;
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    slots[i].valid = true;
+    slots[i].temperature_c = 15.0f;
+    slots[i].humidity_pct = 100;
+    slots[i].battery_pct = 80;
+    slots[i].updated_ms = 100;
+  }
+  ClimateHistory history;
+  for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
+    for (int i = 0; i < 24; ++i) {
+      history.slots[s].push(static_cast<int16_t>(i % 2 == 0 ? -300 : 400));
+    }
+  }
+
+  St7305Framebuffer with, without;
+  DashboardView::render(with, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, nullptr, 100, &history);
+  DashboardView::render(without, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, nullptr, 100);
+
+  const uint16_t tile_w = 190, tile_h = 124;
+  // Tile origins as in DashboardView::render: slot 0 at (6,36), slots 1..3 on a 2-column grid
+  const uint16_t ox[4] = {6, 6 + 198, 6, 6 + 198};
+  const uint16_t oy[4] = {36, 36, 36 + 132, 36 + 132};
+  // The sparkline layer = pixels that differ between both renders. They must lie inside the
+  // sparkline box, which lies inside the tile without touching the border.
+  int differing = 0;
+  for (uint16_t y = 0; y < RLCD_HEIGHT; ++y) {
+    for (uint16_t x = 0; x < RLCD_WIDTH; ++x) {
+      if (with.getPixel(x, y) == without.getPixel(x, y)) {
+        continue;
+      }
+      ++differing;
+      bool in_box = false;
+      for (int t = 0; t < 4; ++t) {
+        const uint16_t bx = ox[t] + tile_w - DashboardView::SPARKLINE_W - DashboardView::SPARKLINE_RIGHT_MARGIN;
+        const uint16_t by = oy[t] + DashboardView::SPARKLINE_Y_OFFSET;
+        if (x >= bx && x < bx + DashboardView::SPARKLINE_W && y >= by &&
+            y < by + DashboardView::SPARKLINE_H) {
+          in_box = true;
+          // Strictly inside the tile border and below the divider line
+          assert(x > ox[t] && x < ox[t] + tile_w - 1);
+          assert(y > oy[t] + 24 && y < oy[t] + tile_h - 1);
+        }
+      }
+      assert(in_box);
+    }
+  }
+  assert(differing > 4 * 20);
+
+  // A single sample draws no curve
+  ClimateHistory one;
+  for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
+    one.slots[s].push(200);
+  }
+  St7305Framebuffer single;
+  DashboardView::render(single, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, nullptr, 100, &one);
+  for (uint16_t y = 0; y < RLCD_HEIGHT; ++y) {
+    for (uint16_t x = 0; x < RLCD_WIDTH; ++x) {
+      assert(single.getPixel(x, y) == without.getPixel(x, y));
+    }
+  }
+}
+
+void testHistoryPersistence() {
+  PersistentState s;
+  for (int i = 0; i < 30; ++i) {
+    s.history.slots[0].push(static_cast<int16_t>(100 + i));
+  }
+  s.history.slots[3].push(-45);
+  s.history.last_sample_ms = 5000;
+  s.history.has_sampled = true;
+
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.history.slots[0].size() == 24);
+  for (size_t i = 0; i < 24; ++i) {
+    assert(r.history.slots[0].at(i) == s.history.slots[0].at(i));
+  }
+  assert(r.history.slots[3].size() == 1 && r.history.slots[3].at(0) == -45);
+  assert(r.history.slots[1].size() == 0);
+  assert(r.history.last_sample_ms == 5000 && r.history.has_sampled);
+  assert(PowerManager::timestampsConsistent(r, 5000));
+  // The history timestamp alone never forces a clean start; the sample gate handles a clock reset
+  assert(PowerManager::timestampsConsistent(r, 4999));
+  assert(r.history.sampleDue(4999));
+
+  // Out-of-range ring data with a valid CRC is rejected
+  const size_t ring_pos = PowerManager::HEADER_SIZE + MAX_SWITCHBOT_SENSORS * PowerManager::SLOT_SIZE;
+  uint8_t bad[PowerManager::SERIALIZED_SIZE];
+  memcpy(bad, buf, sizeof(bad));
+  bad[ring_pos] = 25; // count > capacity
+  const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
+  for (int i = 0; i < 4; ++i) {
+    bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  }
+  PersistentState rejected;
+  assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+  assert(rejected.history.slots[0].size() == 0);
+
+  // Each corrupt field with a valid CRC is rejected: head, sample range, sampled flag
+  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - 1;
+  const size_t cases[3][2] = {{ring_pos + 1, 24}, {ring_pos + 3, 0x7F}, {sampled_pos, 2}};
+  for (const auto& c : cases) {
+    uint8_t b[PowerManager::SERIALIZED_SIZE];
+    memcpy(b, buf, sizeof(b));
+    b[c[0]] = static_cast<uint8_t>(c[1]);
+    const uint32_t cc = PowerManager::crc32(b, sizeof(b) - 4);
+    for (int i = 0; i < 4; ++i) {
+      b[sizeof(b) - 4 + i] = static_cast<uint8_t>(cc >> (8 * i));
+    }
+    PersistentState x;
+    assert(!PowerManager::deserialize(b, sizeof(b), x));
+  }
+}
+
 int main() {
   testSwitchBotManufacturerPositiveTemp();
   testSwitchBotManufacturerNegativeTemp();
@@ -1170,6 +1469,12 @@ int main() {
   testPowerWakeupAndStateMachine();
   testLowBatteryHysteresis();
   testLowBatteryBanner();
-  printf("All 21 firmware logic test suites passed.\n");
+  testTemperatureHistoryFifo();
+  testClimateHistorySampleGate();
+  testSparklineAutoScale();
+  testSparklineBoundsAndClipping();
+  testDashboardSparklineInsideTiles();
+  testHistoryPersistence();
+  printf("All 27 firmware logic test suites passed.\n");
   return 0;
 }
