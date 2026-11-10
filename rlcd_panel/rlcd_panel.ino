@@ -12,6 +12,7 @@
 #include "battery_monitor.h"
 #include "button_handler.h"
 #include "dashboard_view.h"
+#include "ntp_sync.h"
 #include "pcf85063_rtc.h"
 #include "power_manager.h"
 #include "sd_logger.h"
@@ -147,6 +148,23 @@ void updateRtc() {
   if (Pcf85063Codec::fromCompileStamp(__DATE__, __TIME__, seed) && g_rtc.setTime(seed)) {
     g_rtc.readTime(g_rtc_time);
   }
+}
+
+// Sets the RTC from NTP when a sync is due. The radio runs only inside this call. A missing
+// configuration, a failed connection or a timeout leaves the RTC unchanged and starts a backoff.
+// The call is bounded to about 14 s. Returns true when the RTC got a new time.
+bool syncNtpTime(bool key_wakeup) {
+  const TimeZone tz{RLCD_TZ_STD_OFFSET_S, RLCD_TZ_EU_DST != 0};
+  const bool credentials = NtpSchedule::hasCredentials(RLCD_WIFI_SSID, RLCD_WIFI_PASSWORD);
+  const bool battery_low = g_state.battery.valid && g_state.battery.low_battery;
+  if (NtpSchedule::decide(g_state.ntp, nowMs(), key_wakeup, credentials, g_rtc.present(), battery_low) !=
+      NtpDecision::ATTEMPT) {
+    return false;
+  }
+  const NtpResult result = NtpClient::sync(g_rtc, RLCD_WIFI_SSID, RLCD_WIFI_PASSWORD, tz);
+  NtpSchedule::record(g_state.ntp, nowMs(), result == NtpResult::OK);
+  Serial.printf("NTP sync result: %u\n", static_cast<unsigned>(result));
+  return result == NtpResult::OK;
 }
 
 void renderDashboard() {
@@ -313,6 +331,12 @@ void setup() {
   renderDashboard();
   chimeOnAlerts();
   logToSdCard(); // after the render: the display shows fresh data even if the card is slow
+  // The sync runs after the first render, so a slow or absent network never delays the display.
+  // A new time redraws the header clock.
+  if (syncNtpTime(cause == WakeupCause::KEY_BUTTON)) {
+    updateRtc();
+    renderDashboard();
+  }
 
   // Grace window after a KEY wakeup or a power-on: further KEY presses redraw without a new
   // wakeup. A timer wakeup skips it to save battery.
