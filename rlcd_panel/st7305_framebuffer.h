@@ -8,17 +8,20 @@
 namespace rlcd_panel {
 
 // ST7305 400x300 1-bit monochrome framebuffer (15,000 bytes).
-// Each byte packs a 2-column x 4-row pixel block:
-//   Bit 7: (row 0, col 0)   Bit 6: (row 0, col 1)
-//   Bit 5: (row 1, col 0)   Bit 4: (row 1, col 1)
-//   Bit 3: (row 2, col 0)   Bit 2: (row 2, col 1)
-//   Bit 1: (row 3, col 0)   Bit 0: (row 3, col 1)
+// The physical ST7305 RAM on Waveshare ESP32-S3-RLCD-4.2 uses column-major
+// memory layout with inverted Y. Each byte packs a 2-column x 4-row pixel block:
+//   Column stride = HEIGHT / 4 = 75 blocks per column pair
+//   byte_index = (x / 2) * 75 + ((299 - y) / 4)
+//   Within each byte:
+//     inv_y = 299 - y
+//     local_y = inv_y % 4, local_x = x % 2
+//     bit_pos = 7 - ((local_y * 2) + local_x)
 class St7305Framebuffer {
 public:
   static constexpr uint16_t WIDTH = RLCD_WIDTH;
   static constexpr uint16_t HEIGHT = RLCD_HEIGHT;
   static constexpr uint32_t BYTE_COUNT = RLCD_BUFFER_SIZE;
-  static constexpr uint16_t BLOCKS_PER_ROW = WIDTH / 2; // 200
+  static constexpr uint16_t BLOCKS_PER_COL = HEIGHT / 4; // 75
 
   St7305Framebuffer() {
     clear(false);
@@ -36,8 +39,14 @@ public:
     if (x >= WIDTH || y >= HEIGHT) {
       return false;
     }
-    out_byte_index = static_cast<uint32_t>(y / 4) * BLOCKS_PER_ROW + (x / 2);
-    const uint8_t bit_pos = static_cast<uint8_t>(7 - (((y % 4) * 2) + (x % 2)));
+    const uint16_t inv_y = static_cast<uint16_t>((HEIGHT - 1) - y);
+    const uint16_t block_y = inv_y >> 2;
+    const uint8_t local_y = static_cast<uint8_t>(inv_y & 3);
+    const uint16_t byte_x = x >> 1;
+    const uint8_t local_x = static_cast<uint8_t>(x & 1);
+
+    out_byte_index = static_cast<uint32_t>(byte_x) * BLOCKS_PER_COL + block_y;
+    const uint8_t bit_pos = static_cast<uint8_t>(7 - ((local_y << 1) | local_x));
     out_bit_mask = static_cast<uint8_t>(1U << bit_pos);
     return true;
   }

@@ -134,23 +134,40 @@ void testSwitchBotServiceBatteryAndRegistry() {
 void testSt7305FramebufferPixelMapping() {
   St7305Framebuffer fb;
   assert(St7305Framebuffer::BYTE_COUNT == 15000);
+  assert(St7305Framebuffer::BLOCKS_PER_COL == 75);
 
-  // Verify all 8 pixels inside the top-left 2x4 block map to byte 0 bits 7..0
-  for (uint16_t row = 0; row < 4; ++row) {
-    for (uint16_t col = 0; col < 2; ++col) {
+  // Bottom-left block (x in 0..1, y in 296..299) maps to byte 0 (inv_y in 0..3)
+  for (uint16_t local_y = 0; local_y < 4; ++local_y) {
+    const uint16_t y = static_cast<uint16_t>((St7305Framebuffer::HEIGHT - 1) - local_y);
+    for (uint16_t local_x = 0; local_x < 2; ++local_x) {
       fb.clear(false);
-      fb.setPixel(col, row, true);
-      assert(fb.getPixel(col, row));
-      const uint8_t expected_mask = static_cast<uint8_t>(1U << (7 - (row * 2 + col)));
+      fb.setPixel(local_x, y, true);
+      assert(fb.getPixel(local_x, y));
+      const uint8_t expected_mask = static_cast<uint8_t>(1U << (7 - (local_y * 2 + local_x)));
       assert(fb.data()[0] == expected_mask);
     }
   }
 
-  // Last pixel (399, 299) maps to byte 14999, bit 0
+  // Top-left pixel (0, 0): inv_y = 299 -> block_y = 74, local_y = 3, byte_x = 0, local_x = 0
+  // byte_index = 0 * 75 + 74 = 74, bit = 7 - (3*2 + 0) = 1 (mask 0x02)
+  fb.clear(false);
+  fb.setPixel(0, 0, true);
+  assert(fb.getPixel(0, 0));
+  assert(fb.data()[74] == 0x02);
+
+  // Top-right pixel (399, 0): inv_y = 299 -> block_y = 74, local_y = 3, byte_x = 199, local_x = 1
+  // byte_index = 199 * 75 + 74 = 14999, bit = 7 - (3*2 + 1) = 0 (mask 0x01)
+  fb.clear(false);
+  fb.setPixel(399, 0, true);
+  assert(fb.getPixel(399, 0));
+  assert(fb.data()[14999] == 0x01);
+
+  // Bottom-right pixel (399, 299): inv_y = 0 -> block_y = 0, local_y = 0, byte_x = 199, local_x = 1
+  // byte_index = 199 * 75 + 0 = 14925, bit = 7 - (0*2 + 1) = 6 (mask 0x40)
   fb.clear(false);
   fb.setPixel(399, 299, true);
   assert(fb.getPixel(399, 299));
-  assert(fb.data()[14999] == 0x01);
+  assert(fb.data()[14925] == 0x40);
 
   // Out-of-bounds writes are ignored safely
   fb.setPixel(400, 0, true);

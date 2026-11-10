@@ -26,7 +26,7 @@
 1. **Pre-Flash Backup:** Run `./scripts/backup-firmware.sh` to dump NVS and the full 16 MB flash before the first flash upload.
 2. **Pre-Flash Preview Mandatory:** Always generate and inspect `docs/display_preview.png` via `./scripts/generate-display-preview.sh` before flashing firmware to the board.
 3. **GPIO Output Ordering on ESP32 Core 3.3.12:** Always call `pinMode(pin, OUTPUT)` before `digitalWrite(pin, level)`.
-4. **ST7305 Framebuffer Packing:** The 400×300 display uses `15,000` bytes where each byte represents a 2-column × 4-row block (`byte_index = (y / 4) * 200 + (x / 2)`, `bit = 7 - ((y % 4) * 2 + (x % 2))`).
+4. **ST7305 Framebuffer Packing:** The 400×300 display uses `15,000` bytes with column-major block packing and inverted Y (`byte_index = (x / 2) * 75 + ((299 - y) / 4)`, `bit = 7 - (((299 - y) % 4) * 2 + (x % 2))`).
 5. **MicroSD Card (`SD_MMC`):** Always call `SD_MMC.setPins(38, 21, 39)` before `SD_MMC.begin("/sdcard", true)`.
 6. **Build Cleanliness:** Do not commit `build/`, `rlcd_panel/build/`, `firmware_backups/`, or `test_runner` binaries.
 
