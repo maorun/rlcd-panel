@@ -19,6 +19,29 @@ Standalone `Arduino CLI` (`ESP32-S3`) firmware for the **Waveshare ESP32-S3-RLCD
 | **Audio I²S** | `ES8311` / `ES7210` | `DOUT` / `BCLK` / `DIN` / `MCLK` / `LRCLK` / `PA_CTRL` | `GPIO8` / `GPIO9` / `GPIO10` / `GPIO16` / `GPIO45` / `GPIO46` | Speaker DAC and dual-microphone array |
 | **Buttons & Battery** | Onboard | `BOOT` / `KEY` / `BAT_ADC` | `GPIO0` / `GPIO18` / `GPIO4` | Buttons active-low; battery voltage divider `3.0×` (monitored in header bar and onboard tile) |
 
+## Hardware Buttons & Download Mode
+
+The Waveshare `ESP32-S3-RLCD-4.2` has three physical push buttons arranged in a row along the **top edge** of the board:
+
+![Hardware Buttons Diagram](docs/board_buttons.png)
+
+| Position (Top Edge, L → R) | Button | Mapping | Function |
+| :--- | :--- | :--- | :--- |
+| **1. Links (Left)** | `BOOT` | `GPIO0` (Active Low) | ROM Bootloader / Download Mode |
+| **2. Mitte (Middle)** | `PWR` | Power-Management | **Klick:** Einschalten / Wake<br>**Gedrückt halten (> 5 s):** Ausschalten |
+| **3. Rechts (Right)** | `KEY` | `GPIO18` (Active Low) | Frei programmierbare Benutzertaste |
+
+### Manuell in den Download Mode (Flash-Modus) versetzen
+
+Wenn der `esptool`-Upload den Fehler `Wrong boot mode detected` meldet:
+
+1. **Board ausschalten:** Entweder `PWR` (mittlere Taste) lange gedrückt halten oder das USB-Kabel abziehen.
+2. **`BOOT`-Taste (linke Taste) gedrückt halten.**
+3. **Board einschalten:** Entweder kurz auf `PWR` (mittlere Taste) klicken oder das USB-Kabel einstecken.
+4. **`BOOT`-Taste loslassen.**
+
+Der ESP32-S3 befindet sich nun im ROM Download Mode (`0x0`) und akzeptiert Flash-Vorgänge über `esptool` / `arduino-cli`.
+
 ## Rear 2×8 Expansion Header Layout
 
 ### Left Header Side (Pins 1–8, Row 1)
