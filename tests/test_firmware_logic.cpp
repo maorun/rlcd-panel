@@ -929,7 +929,7 @@ void testPowerStateSerialization() {
   const size_t slot0_off = PowerManager::HEADER_SIZE;
   const Patch patches[] = {
       {5, 9},                       // mode
-      {6, 4},                       // battery flags
+      {6, 8},                       // battery flags (unknown bit)
       {7, 101},                     // battery percentage
       {11, 0x7F},                   // battery voltage exponent byte -> huge value
       {slot0_off, 2},               // slot valid flag
@@ -1034,6 +1034,120 @@ void testPowerWakeupAndStateMachine() {
 
 } // namespace
 
+void testLowBatteryHysteresis() {
+  auto reading = [](int8_t pct, float v, bool usb = false) {
+    BatteryReading r;
+    r.valid = true;
+    r.percentage = pct;
+    r.voltage_v = v;
+    r.usb_powered = usb;
+    return r;
+  };
+
+  // Triggers at <= 15 % or < 3.40 V
+  assert(!BatteryMonitor::updateLowBattery(reading(16, 3.60f), false));
+  assert(BatteryMonitor::updateLowBattery(reading(15, 3.60f), false));
+  assert(BatteryMonitor::updateLowBattery(reading(40, 3.39f), false));
+  assert(!BatteryMonitor::updateLowBattery(reading(40, 3.40f), false));
+
+  // Stays latched between the thresholds, clears only at >= 20 % and >= 3.50 V
+  assert(BatteryMonitor::updateLowBattery(reading(18, 3.45f), true));
+  assert(BatteryMonitor::updateLowBattery(reading(19, 3.60f), true));
+  assert(BatteryMonitor::updateLowBattery(reading(25, 3.49f), true));
+  assert(!BatteryMonitor::updateLowBattery(reading(20, 3.50f), true));
+
+  // Full sequence without oscillation around 15 %
+  bool low = false;
+  const int8_t pcts[] = {30, 16, 15, 17, 19, 16, 20, 17};
+  const bool expected[] = {false, false, true, true, true, true, false, false};
+  for (size_t i = 0; i < sizeof(pcts); ++i) {
+    low = BatteryMonitor::updateLowBattery(reading(pcts[i], 3.55f), low);
+    assert(low == expected[i]);
+  }
+
+  // USB power and invalid readings suppress the alert, also when latched
+  assert(!BatteryMonitor::updateLowBattery(reading(5, 3.30f, true), true));
+  assert(!BatteryMonitor::updateLowBattery(reading(-1, 3.30f), true));
+  BatteryReading invalid;
+  assert(!BatteryMonitor::updateLowBattery(invalid, true));
+
+  // The alert re-arms at the first battery reading after USB power ends
+  low = BatteryMonitor::updateLowBattery(reading(10, 3.30f, true), low);
+  assert(!low);
+  low = BatteryMonitor::updateLowBattery(reading(10, 3.30f), low);
+  assert(low);
+}
+
+void testLowBatteryBanner() {
+  Shtc3Reading onboard;
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.30f;
+  battery.percentage = 8;
+
+  St7305Framebuffer normal;
+  St7305Framebuffer banner;
+  DashboardView::render(normal, onboard, battery, nullptr, 0, "12:34", 0);
+  battery.low_battery = true;
+  DashboardView::render(banner, onboard, battery, nullptr, 0, "12:34", 0);
+
+  // Banner is the inverse of the normal header: top-left pixel white instead of black
+  assert(normal.getPixel(5, 5));
+  assert(!banner.getPixel(5, 5));
+
+  // Text is centered and fully inside the width: margins left and right, no clipping
+  const uint16_t text_w = static_cast<uint16_t>(strlen(DashboardView::LOW_BATTERY_TEXT) * 12 - 2);
+  const uint16_t left = (RLCD_WIDTH - text_w) / 2;
+  assert(left >= 4 && left + text_w + 4 <= RLCD_WIDTH);
+  uint16_t min_x = St7305Framebuffer::WIDTH, max_x = 0;
+  size_t text_pixels = 0;
+  for (uint16_t y = 4; y < DashboardView::HEADER_HEIGHT - 4; ++y) {
+    for (uint16_t x = 4; x < St7305Framebuffer::WIDTH - 4; ++x) {
+      if (banner.getPixel(x, y)) {
+        ++text_pixels;
+        if (x < min_x) min_x = x;
+        if (x > max_x) max_x = x;
+      }
+    }
+  }
+  assert(text_pixels > 100);
+  assert(min_x >= left && max_x < left + text_w);
+  assert(max_x - min_x + 1 >= text_w - 12);
+
+  // Frame lines cover the full header edge
+  for (uint16_t x = 0; x < RLCD_WIDTH; ++x) {
+    assert(banner.getPixel(x, 0));
+    assert(banner.getPixel(x, DashboardView::HEADER_HEIGHT - 1));
+  }
+
+  // Tiles below the header are unchanged
+  for (uint16_t y = DashboardView::HEADER_HEIGHT; y < St7305Framebuffer::HEIGHT; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      assert(normal.getPixel(x, y) == banner.getPixel(x, y));
+    }
+  }
+
+  // All views show the banner without writing outside the framebuffer
+  SystemInfo info;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (int m = 0; m < DISPLAY_MODE_COUNT; ++m) {
+    St7305Framebuffer fb;
+    DashboardView::renderMode(
+        fb, static_cast<DisplayMode>(m), onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info,
+        "88:88", 0);
+    assert(!fb.getPixel(5, 5));
+  }
+
+  // The flag survives the RTC state round trip
+  PersistentState s;
+  s.battery = battery;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.battery.low_battery);
+}
+
 int main() {
   testSwitchBotManufacturerPositiveTemp();
   testSwitchBotManufacturerNegativeTemp();
@@ -1054,6 +1168,8 @@ int main() {
   testPowerSleepTimerCalculation();
   testPowerStateSerialization();
   testPowerWakeupAndStateMachine();
-  printf("All 19 firmware logic test suites passed.\n");
+  testLowBatteryHysteresis();
+  testLowBatteryBanner();
+  printf("All 21 firmware logic test suites passed.\n");
   return 0;
 }

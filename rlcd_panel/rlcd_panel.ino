@@ -214,7 +214,11 @@ void scanOnce() {
 
 void refreshSensors() {
   readOnboardShtc3(g_onboard_reading);
+  // After a reset of the RTC state the latch starts off: a cell at 16..19 % raises no alert until
+  // it reaches the set threshold.
+  const bool was_low = g_state.battery.low_battery;
   g_state.battery = BatteryMonitor::read();
+  g_state.battery.low_battery = BatteryMonitor::updateLowBattery(g_state.battery, was_low);
   updateRtc();
 }
 

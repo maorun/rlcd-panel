@@ -25,6 +25,7 @@ public:
   static constexpr uint16_t HEADER_CLOCK_X = 244;
   static constexpr uint16_t HEADER_CLOCK_Y = 7;
   static constexpr size_t HEADER_CLOCK_MAX_CHARS = 5;
+  static constexpr const char* LOW_BATTERY_TEXT = "! LOW BATTERY - PLEASE CHARGE !";
   static constexpr uint16_t STALE_BADGE_W = 35;
   static constexpr uint16_t STALE_BADGE_H = 17;
 
@@ -114,6 +115,16 @@ public:
       const BatteryReading& battery,
       const char* clock_text) {
     fb.clear(false);
+
+    if (battery.low_battery) {
+      // Inverted banner: white bar with a double black frame and centered text. The text is
+      // 31 glyphs at scale 2 = 370 px wide, inside the 400 px width.
+      fb.drawRect(0, 0, RLCD_WIDTH, HEADER_HEIGHT, true);
+      fb.drawRect(1, 1, RLCD_WIDTH - 2, HEADER_HEIGHT - 2, true);
+      const uint16_t text_w = static_cast<uint16_t>(strlen(LOW_BATTERY_TEXT) * 12 - 2);
+      fb.drawText(static_cast<uint16_t>((RLCD_WIDTH - text_w) / 2), 7, LOW_BATTERY_TEXT, 2, true);
+      return;
+    }
 
     // Header bar (black filled rectangle)
     fb.fillRect(0, 0, RLCD_WIDTH, HEADER_HEIGHT, true);

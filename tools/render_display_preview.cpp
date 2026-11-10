@@ -99,7 +99,7 @@ bool exportFramebufferToBmp(const St7305Framebuffer& fb, const char* filepath) {
 int main(int argc, char** argv) {
   const char* out_path = (argc > 1) ? argv[1] : "docs/display_preview.bmp";
   // Optional second argument selects the view: 0 = dashboard (default), 1 = sensor stats,
-  // 2 = system diagnostics.
+  // 2 = system diagnostics. An optional third argument "low" renders the low battery banner.
   char* mode_end = nullptr;
   const long mode_arg = (argc > 2) ? strtol(argv[2], &mode_end, 10) : 0;
   if ((argc > 2 && (mode_end == argv[2] || *mode_end != '\0')) || mode_arg < 0 ||
@@ -107,6 +107,8 @@ int main(int argc, char** argv) {
     fprintf(stderr, "Error: mode must be 0..%d\n", DISPLAY_MODE_COUNT - 1);
     return 1;
   }
+
+  const bool low_battery_preview = (argc > 3 && strcmp(argv[3], "low") == 0);
 
   St7305Framebuffer fb;
 
@@ -157,6 +159,11 @@ int main(int argc, char** argv) {
   battery.voltage_v = 3.92f;
   battery.percentage = 72;
   battery.usb_powered = false;
+  if (low_battery_preview) {
+    battery.voltage_v = 3.38f;
+    battery.percentage = 12;
+    battery.low_battery = BatteryMonitor::updateLowBattery(battery, false);
+  }
 
   SystemInfo info;
   info.free_heap_bytes = 214 * 1024;
