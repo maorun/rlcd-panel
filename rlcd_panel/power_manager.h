@@ -157,7 +157,8 @@ public:
     putU32(out, pos, STATE_MAGIC);
     out[pos++] = STATE_VERSION;
     out[pos++] = static_cast<uint8_t>(state.mode);
-    out[pos++] = static_cast<uint8_t>((state.battery.valid ? 1 : 0) | (state.battery.usb_powered ? 2 : 0));
+    out[pos++] = static_cast<uint8_t>((state.battery.valid ? 1 : 0) | (state.battery.usb_powered ? 2 : 0) |
+                                     (state.battery.low_battery ? 4 : 0));
     out[pos++] = static_cast<uint8_t>(state.battery.percentage);
     putFloat(out, pos, state.battery.voltage_v);
     putU32(out, pos, state.boot_count);
@@ -211,11 +212,12 @@ public:
     }
     s.mode = static_cast<DisplayMode>(mode);
     const uint8_t flags = data[pos++];
-    if ((flags & ~3u) != 0) {
+    if ((flags & ~7u) != 0) {
       return false;
     }
     s.battery.valid = (flags & 1) != 0;
     s.battery.usb_powered = (flags & 2) != 0;
+    s.battery.low_battery = (flags & 4) != 0;
     s.battery.percentage = static_cast<int8_t>(data[pos++]);
     s.battery.voltage_v = getFloat(data, pos);
     if (s.battery.percentage < -1 || s.battery.percentage > 100 ||

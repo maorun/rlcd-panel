@@ -20,15 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Power, Storage, and Visuals (Score 28–33)
 
-### Low battery visual alert and critical warning banner
-
-- **Rank:** Feature model. Total 32/40 (use 9, setup 7, harmony 8, safety 8). Effort S.
-- **Area:** Power / UI.
-- **Code:** `rlcd_panel/battery_monitor.h`, `rlcd_panel/dashboard_view.h`.
-- **Problem:** The battery icon changes bar segments, but gives no prominent warning when the 18650 cell drops below 15% or 3.4 V. The board powers off unexpectedly during use.
-- **Goal:** Detect low battery state (< 15% or < 3.40 V). Render an inverted warning banner across the screen header with flashing exclamation mark when critical. Add hysteresis to prevent oscillation around 15%.
-- **Acceptance test:** Host unit test validates low-battery hysteresis thresholds (triggers at <= 15%, clears at >= 20%).
-
 ### 24-hour temperature trend sparkline mini-charts
 
 - **Rank:** Feature model. Total 30/40 (use 8, setup 6, harmony 9, safety 7). Effort M.
