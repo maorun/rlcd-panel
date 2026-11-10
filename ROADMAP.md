@@ -18,15 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: High-Impact Core Features (Score 34–40)
 
-### Real-time clock integration and header clock display
-
-- **Rank:** Feature model. Total 36/40 (use 10, setup 8, harmony 9, safety 9). Effort S.
-- **Area:** Firmware / RTC.
-- **Code:** `rlcd_panel/pcf85063_rtc.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`.
-- **Problem:** The top header bar displays only a static title and the battery percentage. It shows no current time or date. The board has an onboard NXP PCF85063A real-time clock chip on I2C address `0x51`.
-- **Goal:** Initialize the PCF85063A RTC on I2C. Read hours and minutes. Render the time `HH:MM` in the top header bar between the title and battery icon.
-- **Acceptance test:** Host unit test decodes PCF85063 BCD time registers. `DashboardView` renders the clock string in the header without text clipping.
-
 ### Sensor inactivity timeout and stale indicator
 
 - **Rank:** Feature model. Total 35/40 (use 10, setup 9, harmony 8, safety 8). Effort S.

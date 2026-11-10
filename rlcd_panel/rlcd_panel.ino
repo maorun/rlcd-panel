@@ -9,6 +9,7 @@
 #include "board_pins.h"
 #include "battery_monitor.h"
 #include "dashboard_view.h"
+#include "pcf85063_rtc.h"
 #include "shtc3_sensor.h"
 #include "st7305_framebuffer.h"
 #include "st7305_panel.h"
@@ -22,6 +23,8 @@ St7305Framebuffer g_framebuffer;
 St7305Panel g_panel;
 SwitchBotRegistry g_switchbot_registry;
 portMUX_TYPE g_registry_mux = portMUX_INITIALIZER_UNLOCKED;
+Pcf85063Rtc g_rtc;
+RtcTime g_rtc_time;
 Shtc3Reading g_onboard_reading;
 BatteryReading g_battery_reading;
 BLEScan* g_ble_scan = nullptr;
@@ -108,6 +111,20 @@ bool readOnboardShtc3(Shtc3Reading& out) {
   return Shtc3Codec::decodeFrame(frame, sizeof(frame), out);
 }
 
+void updateRtc() {
+  if (!g_rtc.present()) {
+    g_rtc.begin(Wire); // retry after a failed probe at boot
+  }
+  if (g_rtc.readTime(g_rtc_time) || !g_rtc.present() || !g_rtc_time.oscillator_stopped) {
+    return;
+  }
+  // Oscillator-stop flag set (first boot or battery loss): seed the clock from the build time.
+  RtcTime seed;
+  if (Pcf85063Codec::fromCompileStamp(__DATE__, __TIME__, seed) && g_rtc.setTime(seed)) {
+    g_rtc.readTime(g_rtc_time);
+  }
+}
+
 void renderDashboard() {
   SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
   portENTER_CRITICAL(&g_registry_mux);
@@ -116,12 +133,16 @@ void renderDashboard() {
   }
   portEXIT_CRITICAL(&g_registry_mux);
 
+  char clock_text[8];
+  Pcf85063Codec::formatClock(g_rtc_time, clock_text, sizeof(clock_text));
+
   DashboardView::render(
       g_framebuffer,
       g_onboard_reading,
       g_battery_reading,
       snapshot,
-      MAX_SWITCHBOT_SENSORS);
+      MAX_SWITCHBOT_SENSORS,
+      clock_text);
   g_panel.flush(g_framebuffer);
 }
 
@@ -136,6 +157,7 @@ void setup() {
   pinMode(PIN_BTN_BOOT, INPUT_PULLUP);
 
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
+  g_rtc.begin(Wire);
   g_panel.begin();
 
   BLEDevice::init("rlcd-panel");
@@ -149,6 +171,7 @@ void setup() {
 
   readOnboardShtc3(g_onboard_reading);
   g_battery_reading = BatteryMonitor::read();
+  updateRtc();
   renderDashboard();
   g_last_refresh_ms = millis();
 }
@@ -164,6 +187,7 @@ void loop() {
       digitalRead(PIN_BTN_KEY) == LOW) {
     readOnboardShtc3(g_onboard_reading);
     g_battery_reading = BatteryMonitor::read();
+    updateRtc();
     renderDashboard();
     g_last_refresh_ms = now;
   }
