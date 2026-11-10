@@ -18,14 +18,7 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-### Microphone calibration with stored noise floor and SPL offset
-
-- **Rank:** Feature model. Total 34/40 (use 7, setup 10, harmony 8, safety 9). Effort M.
-- **Area:** Sensors / Audio / Setup.
-- **Code:** `rlcd_panel/es7210_mic.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/button_handler.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`.
-- **Problem:** `NoiseClassifier` uses fixed, uncalibrated PCM RMS limits. The 30 dB microphone gain and the board tolerance are not verified on hardware. The diagnostics view shows dBFS, not a sound pressure level. Two boards can show different bands in the same room.
-- **Goal:** Add a `MicCalibration` struct with an SPL offset (`int16_t`, the dB SPL level that matches 0 dBFS) and a measured noise floor (RMS). Add a calibration mode: a `KEY` long press (2 s or more) in the diagnostics view starts a 10 s measurement in a quiet room and stores the noise floor. A short press keeps the mode change. The SPL offset comes from a compile-time default (`MIC_SPL_OFFSET_DB`), measured once against a reference sound level meter. A later config file can override it (see "Configurable thresholds"). Store the calibration in NVS with `Preferences`, with a version and a CRC, so a flash erase or a corrupt record gives the default. Derive the band limits from the noise floor (for example floor + 10 dB and floor + 30 dB). Show `NOISE: <BAND> <dB> DBA` with the offset, or `DBFS` without a calibration. Show `MIC CAL: OK` or `MIC CAL: DEFAULT` in the diagnostics view.
-- **Acceptance test:** Host tests cover the dBFS to dB SPL conversion with offset and clamp, the derived band limits with hysteresis, the long-press detection (2 s limit, release before the limit), the serialization with version and CRC rejection, and the line width in the diagnostics view.
+No open item.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
@@ -52,7 +45,7 @@ Do the work in priority order, unless the maintainer gives a different order.
 - **Rank:** Feature model. Total 30/40 (use 7, setup 6, harmony 10, safety 7). Effort M.
 - **Area:** Storage / Audio.
 - **Code:** `rlcd_panel/sd_logger.h`, `rlcd_panel/es7210_mic.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`.
-- **Dependency:** "Microphone calibration" gives the dB SPL value.
+- **Dependency:** The microphone calibration (see `FEATURES.md`) gives the dB SPL value.
 - **Problem:** The board measures noise only when the diagnostics view is on screen after a `KEY` wakeup. The CSV log has no noise data, so the user cannot see noise patterns over the day.
 - **Goal:** Run one 5 s `NoiseSampler` window in the wake cycle that writes the hourly CSV record, also after a timer wakeup. Add the columns `noise_rms`, `noise_db`, and `noise_band` to each row. An invalid reading gives empty fields. Change the file name to `/sdcard/climate_v2_YYYYMM.csv`, so the new header never mixes with rows of the old 15-column format. Keep the microphones off on all other timer wakeups. Skip the measurement with a low battery alert.
 - **Acceptance test:** Host tests cover the 18-column header, rows with valid and invalid noise data, the new file name bounds, the gate that measures only when a log is due, the low battery skip, and that the sampler powers down the ADC on each exit path.

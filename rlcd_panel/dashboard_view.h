@@ -18,6 +18,9 @@ struct SystemInfo {
   uint32_t free_heap_bytes = 0;
   uint64_t uptime_ms = 0; // 64 bit: millis() wraps after 49.7 days
   NoiseReading noise;     // ambient noise of the last window; invalid shows "--"
+  MicCalibration mic_cal; // calibrated: dB SPL (DBA) is shown, else dBFS
+  bool mic_cal_busy = false; // the calibration window is running
+  bool mic_cal_failed = false; // the last calibration of this wake cycle was rejected
 };
 
 class DashboardView {
@@ -354,18 +357,34 @@ public:
         static_cast<unsigned long>(total_s % 60));
     drawLine(fb, 10, 164, line);
 
-    // Widest line: "NOISE: MODERATE -96 DB" = 22 glyphs = 264 px.
-    if (info.noise.valid) {
+    // Widest line: "NOISE: MODERATE 140 DBA" = 23 glyphs = 276 px; "... -96 DBFS" = 24 = 288 px.
+    if (info.noise.valid && info.mic_cal.calibrated) {
       snprintf(
           line,
           sizeof(line),
-          "NOISE: %s %d DB",
+          "NOISE: %s %d DBA",
+          NoiseClassifier::label(info.noise.band),
+          info.mic_cal.splDb(info.noise.rms));
+    } else if (info.noise.valid) {
+      snprintf(
+          line,
+          sizeof(line),
+          "NOISE: %s %d DBFS",
           NoiseClassifier::label(info.noise.band),
           NoiseClassifier::dbfs(info.noise.rms));
     } else {
       snprintf(line, sizeof(line), "NOISE: --");
     }
     drawLine(fb, 10, 204, line);
+
+    snprintf(
+        line,
+        sizeof(line),
+        "MIC CAL: %s",
+        info.mic_cal_busy ? "MEASURING"
+                          : (info.mic_cal_failed ? "FAILED"
+                                                 : (info.mic_cal.calibrated ? "OK" : "DEFAULT")));
+    drawLine(fb, 10, 244, line);
   }
 
   static void renderMode(

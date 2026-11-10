@@ -2039,7 +2039,7 @@ void testDiagnosticsNoiseIndicator() {
   assert(differ_quiet_moderate && differ_moderate_loud && differ_none_quiet);
 
   // No clipping with the widest text: blank right and bottom margins, and the line ends
-  // inside the screen ("NOISE: MODERATE -96 DB" = 264 px from x = 10)
+  // inside the screen ("NOISE: MODERATE -96 DBFS" = 288 px from x = 10)
   const NoiseReading widest = {true, 0, NoiseBand::MODERATE}; // -96 DB: widest number
   St7305Framebuffer wide;
   render(wide, widest);
@@ -2060,7 +2060,7 @@ void testDiagnosticsNoiseIndicator() {
   assert(inkIn(wide, 182, 202) == 0);
   // Right of the text nothing is drawn
   for (uint16_t y = 204; y < 218; ++y) {
-    for (uint16_t x = 10 + 22 * 12; x < St7305Framebuffer::WIDTH; ++x) {
+    for (uint16_t x = 10 + 24 * 12; x < St7305Framebuffer::WIDTH; ++x) {
       assert(!wide.getPixel(x, y));
     }
   }
@@ -2318,6 +2318,416 @@ void testNtpStatePersistence() {
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
 }
 
+
+void testMicSplConversionAndClamp() {
+  MicCalibration cal;
+  assert(!cal.calibrated && cal.spl_offset_db == MIC_SPL_OFFSET_DB);
+  assert(MicCalibration::DEFAULT_SPL_OFFSET_DB == MIC_SPL_OFFSET_DB);
+
+  // dB SPL = dBFS + offset. Full scale (32767) is 0 dBFS, 1024 is -30 dBFS.
+  cal.spl_offset_db = 94;
+  assert(cal.splDb(32767) == 94);
+  assert(cal.splDb(1024) == 64);
+  assert(cal.splDb(0) == 0); // -96 + 94 = -2: clamped to 0
+
+  // Clamp to 0..140 dB SPL
+  cal.spl_offset_db = 200;
+  assert(cal.splDb(32767) == MicCalibration::SPL_MAX_DB);
+  cal.spl_offset_db = 10;
+  assert(cal.splDb(10) == MicCalibration::SPL_MIN_DB);
+  assert(cal.splDb(0) == MicCalibration::SPL_MIN_DB);
+
+  // The offset shifts the level one to one
+  cal.spl_offset_db = 80;
+  const int a = cal.splDb(2000);
+  cal.spl_offset_db = 90;
+  assert(cal.splDb(2000) == a + 10);
+
+  // fromFloor accepts a quiet room only and keeps `out` unchanged otherwise
+  MicCalibration out;
+  assert(!MicCalibration::fromFloor(0, 90, out) && !out.calibrated);
+  assert(!MicCalibration::fromFloor(MicCalibration::MAX_FLOOR_RMS + 1, 90, out) && !out.calibrated);
+  assert(!MicCalibration::fromFloor(100, -1, out) && !out.calibrated);
+  assert(!MicCalibration::fromFloor(100, 201, out) && !out.calibrated);
+  assert(MicCalibration::fromFloor(100, 90, out));
+  assert(out.calibrated && out.noise_floor_rms == 100 && out.spl_offset_db == 90);
+  assert(MicCalibration::fromFloor(MicCalibration::MIN_FLOOR_RMS, 0, out));
+  assert(MicCalibration::fromFloor(MicCalibration::MAX_FLOOR_RMS, 200, out));
+  assert(MicCalibration::CALIBRATION_WINDOW_MS == 10000);
+}
+
+void testDerivedBandLimitsWithHysteresis() {
+  using NC = NoiseClassifier;
+  // Without calibration the fixed limits apply
+  const NoiseBandLimits fixed = NC::limits(MicCalibration{});
+  assert(fixed.moderate_trigger == NC::MODERATE_TRIGGER_RMS);
+  assert(fixed.loud_release == NC::LOUD_RELEASE_RMS);
+
+  // Floor RMS 100: +10 dB = 316, +30 dB = 3162, release 3 dB lower (224 and 2239)
+  MicCalibration cal;
+  assert(MicCalibration::fromFloor(100, 90, cal));
+  const NoiseBandLimits l = NC::limits(cal);
+  assert(l.moderate_trigger == 316 && l.moderate_release == 224);
+  assert(l.loud_trigger == 3162 && l.loud_release == 2239);
+  assert(l.moderate_release < l.moderate_trigger && l.loud_release < l.loud_trigger);
+  assert(l.moderate_trigger < l.loud_release);
+
+  // Trigger edges
+  assert(NC::classify(NoiseBand::QUIET, 315, cal) == NoiseBand::QUIET);
+  assert(NC::classify(NoiseBand::QUIET, 316, cal) == NoiseBand::MODERATE);
+  assert(NC::classify(NoiseBand::QUIET, 3161, cal) == NoiseBand::MODERATE);
+  assert(NC::classify(NoiseBand::QUIET, 3162, cal) == NoiseBand::LOUD);
+  // Hysteresis: a latched band holds down to the release limit
+  assert(NC::classify(NoiseBand::MODERATE, 224, cal) == NoiseBand::MODERATE);
+  assert(NC::classify(NoiseBand::MODERATE, 223, cal) == NoiseBand::QUIET);
+  assert(NC::classify(NoiseBand::LOUD, 2239, cal) == NoiseBand::LOUD);
+  assert(NC::classify(NoiseBand::LOUD, 2238, cal) == NoiseBand::MODERATE);
+  // A level of 300 is moderate with the fixed limits, quiet with this floor
+  assert(NC::classify(NoiseBand::QUIET, 300) == NoiseBand::MODERATE);
+  assert(NC::classify(NoiseBand::QUIET, 300, cal) == NoiseBand::QUIET);
+
+  // A sequence around the trigger does not flip on every window
+  NoiseBand band = NoiseBand::QUIET;
+  const uint16_t levels[] = {315, 316, 300, 250, 224, 223, 316};
+  const NoiseBand expected[] = {
+      NoiseBand::QUIET, NoiseBand::MODERATE, NoiseBand::MODERATE, NoiseBand::MODERATE,
+      NoiseBand::MODERATE, NoiseBand::QUIET, NoiseBand::MODERATE};
+  for (size_t i = 0; i < sizeof(levels) / sizeof(levels[0]); ++i) {
+    band = NC::classify(band, levels[i], cal);
+    assert(band == expected[i]);
+  }
+
+  // A very loud floor keeps the limits inside the 16-bit range and in order
+  MicCalibration loud;
+  assert(MicCalibration::fromFloor(MicCalibration::MAX_FLOOR_RMS, 90, loud));
+  const NoiseBandLimits ll = NC::limits(loud);
+  assert(ll.loud_trigger <= 32767 && ll.moderate_trigger < ll.loud_release);
+  assert(ll.loud_trigger < 32767); // the accepted floor range keeps the limit below full scale
+  // A calibrated record with an out-of-range floor gives the fixed limits
+  const uint16_t bad_floors[] = {0, 65535};
+  for (const uint16_t bad_floor : bad_floors) {
+    MicCalibration bad;
+    bad.calibrated = true;
+    bad.noise_floor_rms = bad_floor;
+    assert(NC::limits(bad).moderate_trigger == NC::MODERATE_TRIGGER_RMS);
+  }
+  // An uncalibrated record with a stray floor value gives the fixed limits
+  MicCalibration stray;
+  stray.noise_floor_rms = 100;
+  assert(NC::limits(stray).moderate_trigger == NC::MODERATE_TRIGGER_RMS);
+  // makeReading and the sampler use the calibration
+  assert(NC::makeReading(NoiseBand::QUIET, 400, cal).band == NoiseBand::MODERATE);
+  FakeMicHal hal;
+  hal.amplitude = 250;
+  assert(NoiseSampler::measure(hal, NoiseBand::QUIET).band == NoiseBand::QUIET);
+  FakeMicHal hal2;
+  hal2.amplitude = 400;
+  assert(NoiseSampler::measure(hal2, NoiseBand::QUIET, 1000, cal).band == NoiseBand::MODERATE);
+}
+
+void testLongPressDetection() {
+  LongPressDetector d;
+  using R = LongPressDetector::Result;
+  assert(LongPressDetector::LONG_PRESS_MS == 2000);
+  assert(d.update(true, 0) == R::NONE && !d.active()); // not started
+
+  // Release before the limit: short press
+  d.begin(1000);
+  assert(d.active());
+  assert(d.update(true, 2999) == R::NONE); // 1999 ms
+  assert(d.update(false, 2999) == R::SHORT && !d.active());
+  assert(d.update(false, 3000) == R::NONE);
+
+  // Exactly at the limit: long press, once; the release afterwards gives nothing
+  d.begin(1000);
+  assert(d.update(true, 2999) == R::NONE);
+  assert(d.update(true, 3000) == R::LONG && !d.active());
+  assert(d.update(true, 3500) == R::NONE);
+  assert(d.update(false, 3600) == R::NONE);
+
+  // Wrap-around of the 32-bit clock
+  d.begin(0xFFFFFC00u);
+  assert(d.update(true, 0x000003CFu) == R::NONE); // 1999 ms
+  assert(d.update(true, 0x000003D0u) == R::LONG);
+
+  // cancel() drops a pending press
+  d.begin(0);
+  d.cancel();
+  assert(!d.active() && d.update(false, 10) == R::NONE);
+
+  // Controller: in the diagnostics view a short press changes the mode on release
+  DisplayModeController c;
+  c.setMode(DisplayMode::SYSTEM_DIAGNOSTICS);
+  uint32_t t = 0;
+  assert(c.updateWithLongPress(false, t) == ButtonEvent::NONE); // seeds: released
+  t += 100;
+  c.updateWithLongPress(true, t);
+  t += 40;
+  assert(c.updateWithLongPress(true, t) == ButtonEvent::NONE); // debounced press, mode unchanged
+  assert(c.mode() == DisplayMode::SYSTEM_DIAGNOSTICS && c.pressPending());
+  t += 500;
+  c.updateWithLongPress(false, t);
+  t += 40;
+  assert(c.updateWithLongPress(false, t) == ButtonEvent::MODE_CHANGED);
+  assert(c.mode() == DisplayMode::DASHBOARD && !c.pressPending());
+
+  // A hold of 2 s or more calibrates and keeps the mode
+  DisplayModeController h;
+  h.setMode(DisplayMode::SYSTEM_DIAGNOSTICS);
+  t = 0;
+  h.updateWithLongPress(false, t);
+  t += 100;
+  h.updateWithLongPress(true, t);
+  t += 40;
+  h.updateWithLongPress(true, t); // press confirmed at t = 140
+  const uint32_t press_ms = t;
+  assert(h.updateWithLongPress(true, press_ms + 1999) == ButtonEvent::NONE);
+  assert(h.updateWithLongPress(true, press_ms + 2000) == ButtonEvent::CALIBRATE);
+  assert(h.mode() == DisplayMode::SYSTEM_DIAGNOSTICS);
+  assert(h.updateWithLongPress(true, press_ms + 2500) == ButtonEvent::NONE);
+  h.updateWithLongPress(false, press_ms + 3000);
+  assert(h.updateWithLongPress(false, press_ms + 3040) == ButtonEvent::NONE); // no mode change
+  assert(h.mode() == DisplayMode::SYSTEM_DIAGNOSTICS);
+
+  // Other views change the mode at once, as before
+  DisplayModeController o;
+  t = 0;
+  o.updateWithLongPress(false, t);
+  t += 100;
+  o.updateWithLongPress(true, t);
+  t += 40;
+  assert(o.updateWithLongPress(true, t) == ButtonEvent::MODE_CHANGED);
+  assert(o.mode() == DisplayMode::SENSOR_STATS && !o.pressPending());
+
+  // A button already held at the first call (the wake press) raises no event
+  DisplayModeController w;
+  w.setMode(DisplayMode::SYSTEM_DIAGNOSTICS);
+  assert(w.updateWithLongPress(true, 0) == ButtonEvent::NONE);
+  assert(w.updateWithLongPress(true, 5000) == ButtonEvent::NONE && !w.pressPending());
+}
+
+void testMicCalibrationSerialization() {
+  using Codec = MicCalibrationCodec;
+  MicCalibration cal;
+  assert(MicCalibration::fromFloor(123, 94, cal));
+  uint8_t buf[Codec::SERIALIZED_SIZE];
+  assert(Codec::serialize(cal, buf, sizeof(buf)));
+
+  MicCalibration back;
+  assert(Codec::deserialize(buf, sizeof(buf), back));
+  assert(back.calibrated && back.noise_floor_rms == 123 && back.spl_offset_db == 94);
+
+  // The default record round trips too
+  uint8_t dbuf[Codec::SERIALIZED_SIZE];
+  assert(Codec::serialize(MicCalibration{}, dbuf, sizeof(dbuf)));
+  MicCalibration dback;
+  dback.noise_floor_rms = 7; // overwritten
+  assert(Codec::deserialize(dbuf, sizeof(dbuf), dback));
+  assert(!dback.calibrated && dback.noise_floor_rms == 0);
+
+  // Buffer and record checks
+  assert(!Codec::serialize(cal, buf, sizeof(buf) - 1));
+  assert(!Codec::serialize(cal, nullptr, 16));
+  MicCalibration bad;
+  bad.calibrated = true; // floor 0 is not valid for a calibrated record
+  assert(!Codec::serialize(bad, buf, sizeof(buf)));
+  MicCalibration bad_offset;
+  bad_offset.spl_offset_db = 201;
+  assert(!Codec::serialize(bad_offset, buf, sizeof(buf)));
+
+  // Every single flipped bit is rejected (magic, version, flags, fields, CRC)
+  for (size_t byte = 0; byte < sizeof(buf); ++byte) {
+    for (int bit = 0; bit < 8; ++bit) {
+      uint8_t copy[Codec::SERIALIZED_SIZE];
+      memcpy(copy, buf, sizeof(copy));
+      copy[byte] ^= static_cast<uint8_t>(1u << bit);
+      MicCalibration out;
+      assert(!Codec::deserialize(copy, sizeof(copy), out));
+      assert(!Codec::decodeOrDefault(copy, sizeof(copy)).calibrated);
+    }
+  }
+
+  // A newer version with a matching CRC is rejected
+  uint8_t v2[Codec::SERIALIZED_SIZE];
+  memcpy(v2, buf, sizeof(v2));
+  v2[2] = Codec::VERSION + 1;
+  const uint32_t crc = Codec::crc32(v2, 8);
+  for (int i = 0; i < 4; ++i) {
+    v2[8 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  }
+  MicCalibration out;
+  assert(!Codec::deserialize(v2, sizeof(v2), out));
+
+  // A valid CRC with an out-of-range field is rejected
+  uint8_t range[Codec::SERIALIZED_SIZE];
+  memcpy(range, buf, sizeof(range));
+  range[6] = 0xFF;
+  range[7] = 0xFF; // floor 65535
+  const uint32_t crc2 = Codec::crc32(range, 8);
+  for (int i = 0; i < 4; ++i) {
+    range[8 + i] = static_cast<uint8_t>(crc2 >> (8 * i));
+  }
+  assert(!Codec::deserialize(range, sizeof(range), out));
+
+  // Wrong length, null, erased flash (0xFF) and zero fill give the default
+  assert(!Codec::deserialize(buf, sizeof(buf) - 1, out));
+  assert(!Codec::deserialize(buf, sizeof(buf) + 1, out));
+  assert(!Codec::deserialize(nullptr, sizeof(buf), out));
+  uint8_t erased[Codec::SERIALIZED_SIZE];
+  memset(erased, 0xFF, sizeof(erased));
+  const MicCalibration d1 = Codec::decodeOrDefault(erased, sizeof(erased));
+  assert(!d1.calibrated && d1.spl_offset_db == MIC_SPL_OFFSET_DB && d1.noise_floor_rms == 0);
+  memset(erased, 0, sizeof(erased));
+  assert(!Codec::decodeOrDefault(erased, sizeof(erased)).calibrated);
+  assert(!Codec::decodeOrDefault(nullptr, 0).calibrated);
+  // A good record decodes to itself
+  assert(Codec::decodeOrDefault(buf, sizeof(buf)).noise_floor_rms == 123);
+  // CRC-32 check value of the standard test string
+  assert(Codec::crc32(reinterpret_cast<const uint8_t*>("123456789"), 9) == 0xCBF43926u);
+}
+
+void testApplyCalibrationWindow() {
+  MicCalibration active;
+  assert(MicCalibration::fromFloor(50, 90, active));
+  NoiseReading reading;
+  NoiseBand band = NoiseBand::LOUD;
+  int saves = 0;
+  MicCalibration saved;
+  auto ok_save = [&](const MicCalibration& c) { ++saves; saved = c; return true; };
+  auto bad_save = [&](const MicCalibration&) { ++saves; return false; };
+
+  // Success: new record, offset from the build default, band reset to the new limits
+  assert(applyCalibrationWindow(NoiseReading{true, 100, NoiseBand::QUIET}, active, reading, band, ok_save));
+  assert(saves == 1 && saved.noise_floor_rms == 100 && saved.spl_offset_db == MIC_SPL_OFFSET_DB);
+  assert(active.noise_floor_rms == 100 && active.calibrated);
+  assert(reading.valid && reading.rms == 100 && reading.band == NoiseBand::QUIET);
+  assert(band == NoiseBand::QUIET);
+
+  // The stored offset is replaced by the build default
+  active.spl_offset_db = 120;
+  assert(applyCalibrationWindow(NoiseReading{true, 80, NoiseBand::QUIET}, active, reading, band, ok_save));
+  assert(active.spl_offset_db == MIC_SPL_OFFSET_DB);
+
+  // Failures change nothing: no reading, a loud room, a failed save
+  const MicCalibration before = active;
+  reading = NoiseReading{};
+  band = NoiseBand::MODERATE;
+  saves = 0;
+  assert(!applyCalibrationWindow(NoiseReading{}, active, reading, band, ok_save));
+  assert(!applyCalibrationWindow(
+      NoiseReading{true, static_cast<uint16_t>(MicCalibration::MAX_FLOOR_RMS + 1), NoiseBand::LOUD},
+      active, reading, band, ok_save));
+  assert(!applyCalibrationWindow(NoiseReading{true, 0, NoiseBand::QUIET}, active, reading, band, ok_save));
+  assert(saves == 0);
+  assert(!applyCalibrationWindow(NoiseReading{true, 100, NoiseBand::QUIET}, active, reading, band, bad_save));
+  assert(saves == 1);
+  assert(active.noise_floor_rms == before.noise_floor_rms && !reading.valid && band == NoiseBand::MODERATE);
+}
+
+void testDiagnosticsCalibrationLines() {
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+
+  MicCalibration cal;
+  assert(MicCalibration::fromFloor(100, 90, cal));
+  auto render = [&](St7305Framebuffer& fb, const NoiseReading& noise, const MicCalibration& mc,
+                    bool busy = false, bool failed = false) {
+    SystemInfo info;
+    info.free_heap_bytes = 8u * 1024 * 1024;
+    info.uptime_ms = 0xFFFFFFFFFFull * 1000;
+    info.noise = noise;
+    info.mic_cal = mc;
+    info.mic_cal_busy = busy;
+    info.mic_cal_failed = failed;
+    fb.clear(true);
+    DashboardView::renderDiagnostics(fb, battery, info, "88:88");
+  };
+  auto inkIn = [](const St7305Framebuffer& fb, uint16_t y0, uint16_t y1, uint16_t x0 = 0) {
+    size_t ink = 0;
+    for (uint16_t y = y0; y < y1; ++y) {
+      for (uint16_t x = x0; x < St7305Framebuffer::WIDTH; ++x) {
+        ink += fb.getPixel(x, y) ? 1 : 0;
+      }
+    }
+    return ink;
+  };
+  auto same = [](const St7305Framebuffer& a, const St7305Framebuffer& b, uint16_t y0, uint16_t y1) {
+    for (uint16_t y = y0; y < y1; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        if (a.getPixel(x, y) != b.getPixel(x, y)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+
+  const NoiseReading reading = NoiseClassifier::makeReading(NoiseBand::QUIET, 650, cal);
+  St7305Framebuffer dbfs, dba, nothing, busy, def, def_reading;
+  render(dbfs, reading, MicCalibration{});
+  render(dba, reading, cal);
+  render(nothing, NoiseReading{}, cal);
+  render(busy, reading, cal, true);
+  render(def, reading, MicCalibration{});
+  // DBA and DBFS lines differ (noise line y = 204); the status line (y = 244) differs between
+  // calibrated and default, and while measuring.
+  assert(!same(dbfs, dba, 204, 218));
+  assert(!same(dbfs, dba, 244, 258));
+  assert(same(dbfs, def, 204, 262));
+  assert(!same(dba, busy, 244, 258) && same(dba, busy, 204, 218));
+  assert(inkIn(nothing, 244, 258) > 20 && inkIn(dbfs, 244, 258) > 20);
+  assert(same(nothing, dba, 244, 258)); // the status line does not depend on the reading
+
+  // Text width: the widest lines end inside the screen with blank margins
+  //   "NOISE: MODERATE 140 DBA"  23 glyphs = 276 px, "NOISE: MODERATE -96 DBFS" 24 = 288 px
+  //   "MIC CAL: MEASURING"      18 glyphs = 216 px
+  MicCalibration hot;
+  assert(MicCalibration::fromFloor(100, 200, hot));
+  const NoiseReading loud = NoiseClassifier::makeReading(NoiseBand::QUIET, 32767, hot);
+  const NoiseReading silent = {true, 0, NoiseBand::MODERATE};
+  St7305Framebuffer failed_fb;
+  render(failed_fb, reading, cal, false, true);
+  assert(!same(failed_fb, dba, 244, 258) && !same(failed_fb, busy, 244, 258));
+  assert(inkIn(failed_fb, 244, 258, 10 + 16 * 12) == 0); // "MIC CAL: FAILED" = 15 glyphs
+  assert(same(failed_fb, dba, 204, 218));
+  St7305Framebuffer wide_dba, wide_dbfs, wide_busy;
+  render(wide_dba, loud, hot);
+  render(wide_dbfs, silent, MicCalibration{});
+  render(wide_busy, silent, cal, true);
+  St7305Framebuffer* frames[] = {&dbfs, &dba, &nothing, &busy, &wide_dba, &wide_dbfs, &wide_busy};
+  for (St7305Framebuffer* fb : frames) {
+    for (uint16_t y = DashboardView::HEADER_HEIGHT; y < St7305Framebuffer::HEIGHT; ++y) {
+      for (uint16_t x = St7305Framebuffer::WIDTH - 8; x < St7305Framebuffer::WIDTH; ++x) {
+        assert(!fb->getPixel(x, y));
+      }
+    }
+    for (uint16_t y = St7305Framebuffer::HEIGHT - 8; y < St7305Framebuffer::HEIGHT; ++y) {
+      assert(inkIn(*fb, y, y + 1) == 0);
+    }
+    // The noise line stays clear of the uptime line above and the status line stays clear of it
+    assert(inkIn(*fb, 182, 202) == 0);
+    assert(inkIn(*fb, 222, 242) == 0);
+  }
+  assert(inkIn(wide_dba, 204, 218, 10 + 23 * 12) == 0);
+  assert(inkIn(wide_dbfs, 204, 218, 10 + 24 * 12) == 0);
+  assert(inkIn(wide_dbfs, 204, 218, 10 + 24 * 12 - 12) > 0);
+  assert(inkIn(wide_busy, 244, 258, 10 + 18 * 12) == 0);
+  // Status line text lengths: "OK" is shorter than "DEFAULT" and "MEASURING"
+  assert(inkIn(dba, 244, 258) < inkIn(dbfs, 244, 258));
+  assert(inkIn(dbfs, 244, 258) < inkIn(busy, 244, 258));
+  // Other views ignore the calibration
+  SystemInfo info;
+  info.mic_cal = cal;
+  info.mic_cal_busy = true;
+  St7305Framebuffer a, b;
+  Shtc3Reading onboard;
+  DashboardView::renderMode(a, DisplayMode::SENSOR_STATS, onboard, battery, nullptr, 0, info, "88:88", 0);
+  DashboardView::renderMode(b, DisplayMode::SENSOR_STATS, onboard, battery, nullptr, 0, SystemInfo{}, "88:88", 0);
+  assert(memcmp(a.data(), b.data(), RLCD_BUFFER_SIZE) == 0);
+}
+
 int main() {
   testSwitchBotManufacturerPositiveTemp();
   testSwitchBotManufacturerNegativeTemp();
@@ -2358,6 +2768,12 @@ int main() {
   testNoiseSamplerPowersDownOnEveryPath();
   testNoiseHardwareConstants();
   testDiagnosticsNoiseIndicator();
+  testMicSplConversionAndClamp();
+  testDerivedBandLimitsWithHysteresis();
+  testLongPressDetection();
+  testMicCalibrationSerialization();
+  testApplyCalibrationWindow();
+  testDiagnosticsCalibrationLines();
   testNoiseStatePersistence();
   testNtpEpochToCalendar();
   testNtpTimezoneDst();
@@ -2365,6 +2781,6 @@ int main() {
   testNtpScheduleAndOfflineFallback();
   testNtpSystemClockRestore();
   testNtpStatePersistence();
-  printf("All 46 firmware logic test suites passed.\n");
+  printf("All 52 firmware logic test suites passed.\n");
   return 0;
 }

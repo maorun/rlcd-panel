@@ -97,7 +97,9 @@ inline void renderScene(St7305Framebuffer& fb, DisplayMode mode, bool low_batter
   SystemInfo info;
   info.free_heap_bytes = 214 * 1024;
   info.uptime_ms = 93784000; // 1 d 02:03:04
-  info.noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 650); // moderate, about -34 DB
+  // Calibrated microphone: floor RMS 100, offset 90 dB. RMS 650 is moderate, about 56 DBA.
+  MicCalibration::fromFloor(100, MicCalibration::DEFAULT_SPL_OFFSET_DB, info.mic_cal);
+  info.noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 650, info.mic_cal);
 
   DashboardView::renderMode(
       fb,
