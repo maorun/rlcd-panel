@@ -1,0 +1,16 @@
+# RovoDev worktrees and state
+.rovodev/
+
+# macOS
+.DS_Store
+
+# Build and flash backup artifacts
+build/
+rlcd_panel/build/
+firmware_backups/
+*.bin
+*.elf
+*.map
+*.o
+*.d
+test_runner
