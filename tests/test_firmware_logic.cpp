@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "../rlcd_panel/battery_monitor.h"
 #include "../rlcd_panel/board_pins.h"
 #include "../rlcd_panel/dashboard_view.h"
 #include "../rlcd_panel/shtc3_sensor.h"
@@ -175,6 +176,31 @@ void testShtc3Codec() {
   assert(!Shtc3Codec::decodeFrame(frame, sizeof(frame), out));
 }
 
+void testBatteryMonitorDecoding() {
+  assert(BatteryMonitor::voltageToPercent(4.20f) == 100);
+  assert(BatteryMonitor::voltageToPercent(4.30f) == 100);
+  assert(BatteryMonitor::voltageToPercent(3.70f) == 50);
+  assert(BatteryMonitor::voltageToPercent(3.20f) == 0);
+  assert(BatteryMonitor::voltageToPercent(3.10f) == 0);
+  assert(BatteryMonitor::voltageToPercent(0.20f) == -1);
+
+  // ADC = 1400 mV * 3.0 = 4200 mV -> 4.20 V, 100%
+  const BatteryReading full = BatteryMonitor::decodeMillivolts(1400);
+  assert(full.valid);
+  assert(approxEqual(full.voltage_v, 4.20f, 0.01f));
+  assert(full.percentage == 100);
+  assert(!full.usb_powered);
+
+  // ADC = 1450 mV * 3.0 = 4350 mV -> 4.35 V, usb_powered = true
+  const BatteryReading usb = BatteryMonitor::decodeMillivolts(1450);
+  assert(usb.valid);
+  assert(usb.usb_powered);
+
+  // ADC = 100 mV * 3.0 = 300 mV -> invalid (< 0.5V)
+  const BatteryReading empty = BatteryMonitor::decodeMillivolts(100);
+  assert(!empty.valid);
+}
+
 void testDashboardViewRendering() {
   St7305Framebuffer fb;
   Shtc3Reading onboard;
@@ -182,13 +208,18 @@ void testDashboardViewRendering() {
   onboard.temperature_c = 22.0f;
   onboard.humidity_pct = 50.0f;
 
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.85f;
+  battery.percentage = 65;
+
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
   slots[0].valid = true;
   slots[0].temperature_c = 19.5f;
   slots[0].humidity_pct = 55;
   slots[0].battery_pct = 90;
 
-  DashboardView::render(fb, onboard, slots, MAX_SWITCHBOT_SENSORS);
+  DashboardView::render(fb, onboard, battery, slots, MAX_SWITCHBOT_SENSORS);
 
   // Top header bar (y in 0..27) must contain active black pixels
   bool header_pixels_found = false;
@@ -201,7 +232,7 @@ void testDashboardViewRendering() {
   assert(header_pixels_found);
 
   // Null slots gracefully handled without crash
-  DashboardView::render(fb, onboard, nullptr, 0);
+  DashboardView::render(fb, onboard, battery, nullptr, 0);
   assert(header_pixels_found);
 }
 
@@ -214,7 +245,8 @@ int main() {
   testSwitchBotServiceBatteryAndRegistry();
   testSt7305FramebufferPixelMapping();
   testShtc3Codec();
+  testBatteryMonitorDecoding();
   testDashboardViewRendering();
-  printf("All 7 firmware logic test suites passed.\n");
+  printf("All 8 firmware logic test suites passed.\n");
   return 0;
 }

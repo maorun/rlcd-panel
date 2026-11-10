@@ -7,6 +7,7 @@
 #include <freertos/portmacro.h>
 
 #include "board_pins.h"
+#include "battery_monitor.h"
 #include "dashboard_view.h"
 #include "shtc3_sensor.h"
 #include "st7305_framebuffer.h"
@@ -22,6 +23,7 @@ St7305Panel g_panel;
 SwitchBotRegistry g_switchbot_registry;
 portMUX_TYPE g_registry_mux = portMUX_INITIALIZER_UNLOCKED;
 Shtc3Reading g_onboard_reading;
+BatteryReading g_battery_reading;
 BLEScan* g_ble_scan = nullptr;
 uint32_t g_last_refresh_ms = 0;
 
@@ -114,7 +116,12 @@ void renderDashboard() {
   }
   portEXIT_CRITICAL(&g_registry_mux);
 
-  DashboardView::render(g_framebuffer, g_onboard_reading, snapshot, MAX_SWITCHBOT_SENSORS);
+  DashboardView::render(
+      g_framebuffer,
+      g_onboard_reading,
+      g_battery_reading,
+      snapshot,
+      MAX_SWITCHBOT_SENSORS);
   g_panel.flush(g_framebuffer);
 }
 
@@ -141,6 +148,7 @@ void setup() {
   }
 
   readOnboardShtc3(g_onboard_reading);
+  g_battery_reading = BatteryMonitor::read();
   renderDashboard();
   g_last_refresh_ms = millis();
 }
@@ -155,6 +163,7 @@ void loop() {
   if (now - g_last_refresh_ms >= DISPLAY_REFRESH_INTERVAL_MS ||
       digitalRead(PIN_BTN_KEY) == LOW) {
     readOnboardShtc3(g_onboard_reading);
+    g_battery_reading = BatteryMonitor::read();
     renderDashboard();
     g_last_refresh_ms = now;
   }

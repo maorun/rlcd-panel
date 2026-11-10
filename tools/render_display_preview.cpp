@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "../rlcd_panel/battery_monitor.h"
 #include "../rlcd_panel/board_pins.h"
 #include "../rlcd_panel/dashboard_view.h"
 #include "../rlcd_panel/shtc3_sensor.h"
@@ -123,7 +124,13 @@ int main(int argc, char** argv) {
   slots[2].humidity_pct = 61;
   slots[2].battery_pct = 76;
 
-  DashboardView::render(fb, onboard, slots, MAX_SWITCHBOT_SENSORS);
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.92f;
+  battery.percentage = 72;
+  battery.usb_powered = false;
+
+  DashboardView::render(fb, onboard, battery, slots, MAX_SWITCHBOT_SENSORS);
 
   if (!exportFramebufferToBmp(fb, out_path)) {
     return 1;
