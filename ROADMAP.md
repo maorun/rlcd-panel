@@ -18,15 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-### GitHub Actions CI for host tests and firmware compile
-
-- **Rank:** Feature model. Total 34/40 (use 4, setup 10, harmony 10, safety 10). Effort S.
-- **Area:** Tooling / CI.
-- **Code:** `.github/workflows/ci.yml` (new), `README.md`.
-- **Problem:** The repository has no CI. Each check runs only on the local machine of the maintainer. A pull request can break the host tests, the preview renderer, or the firmware build without a signal.
-- **Goal:** Add one workflow that runs on each pull request and on each push to `master`. Job 1 builds and runs `tests/test_firmware_logic.cpp` with `-std=c++17 -Wall -Wextra -Werror`. Job 1 also compiles `tools/render_display_preview.cpp` and renders all scenes with `--all`. Job 2 installs `arduino-cli`, installs `esp32:esp32@3.3.12` from the index URL in `sketch.yaml`, and runs `arduino-cli compile --profile rlcd_panel_s3 rlcd_panel`. Cache the `arduino-cli` data directory with the core version in the cache key. Pin each action to a major version. Do not use secrets, because `wifi_config.h` is optional.
-- **Acceptance test:** The workflow passes on a branch from `master`. A deliberately failing host assertion on a test branch makes job 1 fail. Report a run without a runner (billing, policy or quota) as "not run".
-
 ### Microphone calibration with stored noise floor and SPL offset
 
 - **Rank:** Feature model. Total 34/40 (use 7, setup 10, harmony 8, safety 9). Effort M.

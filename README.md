@@ -1,5 +1,7 @@
 # rlcd-panel
 
+[![CI](https://github.com/maorun/rlcd-panel/actions/workflows/ci.yml/badge.svg)](https://github.com/maorun/rlcd-panel/actions/workflows/ci.yml)
+
 Standalone `Arduino CLI` (`ESP32-S3`) firmware for the **Waveshare ESP32-S3-RLCD-4.2** reflective LCD panel (`B0GF23YC3Y`) that directly receives BLE advertisements from up to three **SwitchBot IP65 Indoor/Outdoor Thermo-Hygrometers** (`WoIOSensor`, `B0DXPHZMMP`) and reads the onboard `SHTC3` climate sensor.
 
 ## Target Hardware

@@ -85,3 +85,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The board measures only when the diagnostics view is on screen and the wakeup is not a timer wakeup. It draws the view first, measures, then redraws. The measurement runs once per wake cycle, also after a failure. The microphones stay off in the other views, so they cost no battery.
 - The band stays in RTC memory (bits 3 and 4 of the audio byte). The state version stays 5: an old state decodes as `QUIET`, and a band value of 3 is rejected.
 - Host tests cover the RMS of silence, sine, DC and full scale, the band limits and hysteresis, the sampler power-down paths, the diagnostics line (all states, no clipping), and the RTC round trip.
+
+## GitHub Actions CI for host tests and firmware compile
+
+- **Code:** `.github/workflows/ci.yml`, `README.md`.
+- One workflow runs on each pull request and on each push to `master`. It uses no secrets and has read-only `contents` permission. A new push to the same ref cancels the older run.
+- Job `host-tests` builds `tests/test_firmware_logic.cpp` with `-std=c++17 -Wall -Wextra -Werror` and runs it. It also builds `tools/render_display_preview.cpp` and renders all scenes with `--all` into a temporary directory. The job creates no PNG files.
+- Job `firmware-compile` installs `arduino-cli` with `arduino/setup-arduino-cli@v2`. It pins `arduino-cli` to version 1.5.1. It runs `arduino-cli compile --profile rlcd_panel_s3 rlcd_panel`. The profile in `rlcd_panel/sketch.yaml` installs `esp32:esp32@3.3.12` from its index URL.
+- The job caches `~/.arduino15`. The cache key holds the core version and the hash of `sketch.yaml`.
+- The build does not need `rlcd_panel/wifi_config.h`, because the file is optional and ignored by Git.
+- All actions use a major version tag (`actions/checkout@v4`, `actions/cache@v4`, `arduino/setup-arduino-cli@v2`).
+- `README.md` shows the CI status badge.
