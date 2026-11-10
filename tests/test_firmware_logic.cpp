@@ -13,6 +13,7 @@
 #include "../rlcd_panel/sparkline.h"
 #include "../rlcd_panel/st7305_framebuffer.h"
 #include "../rlcd_panel/switchbot_ble.h"
+#include "../tools/preview_scenes.h"
 
 using namespace rlcd_panel;
 
@@ -1447,6 +1448,63 @@ void testHistoryPersistence() {
   }
 }
 
+void testPreviewScenesCoverAllDisplayModes() {
+  using namespace rlcd_panel::preview;
+  // Every display mode has at least one scene, and every scene has a unique file name.
+  bool mode_seen[DISPLAY_MODE_COUNT] = {};
+  for (uint8_t i = 0; i < PREVIEW_SCENE_COUNT; ++i) {
+    const PreviewScene& scene = PREVIEW_SCENES[i];
+    assert(static_cast<uint8_t>(scene.mode) < DISPLAY_MODE_COUNT);
+    mode_seen[static_cast<uint8_t>(scene.mode)] = true;
+    for (uint8_t j = 0; j < i; ++j) {
+      assert(strcmp(scene.file_name, PREVIEW_SCENES[j].file_name) != 0);
+    }
+  }
+  for (uint8_t m = 0; m < DISPLAY_MODE_COUNT; ++m) {
+    assert(mode_seen[m]);
+  }
+
+  // Every scene renders content, and no two scenes render the same image.
+  St7305Framebuffer frames[PREVIEW_SCENE_COUNT];
+  for (uint8_t i = 0; i < PREVIEW_SCENE_COUNT; ++i) {
+    frames[i].clear(true); // poison: a full redraw must overwrite it
+    renderScene(frames[i], PREVIEW_SCENES[i].mode, PREVIEW_SCENES[i].low_battery);
+    size_t ink = 0;
+    for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        ink += frames[i].getPixel(x, y) ? 1 : 0;
+      }
+    }
+    assert(ink > 500);
+    assert(ink < static_cast<size_t>(St7305Framebuffer::WIDTH) * St7305Framebuffer::HEIGHT - 500);
+    for (uint8_t j = 0; j < i; ++j) {
+      bool differs = false;
+      for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT && !differs; ++y) {
+        for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+          if (frames[i].getPixel(x, y) != frames[j].getPixel(x, y)) {
+            differs = true;
+            break;
+          }
+        }
+      }
+      assert(differs);
+    }
+  }
+
+  // The low battery scene replaces the dark header bar with the inverted banner.
+  uint8_t low_index = PREVIEW_SCENE_COUNT;
+  uint8_t dash_index = PREVIEW_SCENE_COUNT;
+  for (uint8_t i = 0; i < PREVIEW_SCENE_COUNT; ++i) {
+    if (PREVIEW_SCENES[i].mode == DisplayMode::DASHBOARD) {
+      (PREVIEW_SCENES[i].low_battery ? low_index : dash_index) = i;
+    }
+  }
+  assert(low_index < PREVIEW_SCENE_COUNT && dash_index < PREVIEW_SCENE_COUNT);
+  assert(frames[dash_index].getPixel(5, 5));  // filled header
+  assert(!frames[low_index].getPixel(5, 5)); // banner interior is white
+  assert(frames[low_index].getPixel(0, 0));  // banner frame
+}
+
 int main() {
   testSwitchBotManufacturerPositiveTemp();
   testSwitchBotManufacturerNegativeTemp();
@@ -1475,6 +1533,7 @@ int main() {
   testSparklineBoundsAndClipping();
   testDashboardSparklineInsideTiles();
   testHistoryPersistence();
-  printf("All 27 firmware logic test suites passed.\n");
+  testPreviewScenesCoverAllDisplayModes();
+  printf("All 28 firmware logic test suites passed.\n");
   return 0;
 }
