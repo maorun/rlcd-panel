@@ -19,7 +19,7 @@
 - `rlcd_panel/dashboard_view.h`: Decoupled 4-tile climate dashboard renderer shared between firmware and preview generator.
 - `rlcd_panel/rlcd_panel.ino`: Main firmware entry point (`setup()` / `loop()`).
 - `scripts/backup-firmware.sh`: Backs up NVS (`0x9000`, `20 KB`) and full flash (`0x0`, `16 MB`) via `esptool` into `firmware_backups/` (mode `0700`).
-- `scripts/generate-display-preview.sh`: Compiles and executes the bit-exact framebuffer renderer, generating `docs/display_preview.png` (dashboard), `display_preview_dashboard.png`, `display_preview_stats.png`, `display_preview_diagnostics.png`, and `display_preview_low_battery.png`.
+- `scripts/generate-display-preview.sh`: Compiles and executes the bit-exact framebuffer renderer, generating `docs/display_preview.png` (dashboard), `display_preview_dashboard.png`, `display_preview_stats.png`, `display_preview_diagnostics.png`, `display_preview_low_battery.png`, and `display_preview_quiet_hours.png`.
 - `scripts/flash-firmware.sh`: Mandatory flash script that generates the display preview image first, compiles, and uploads to the board.
 - `tools/render_display_preview.cpp`: Host C++ tool that renders one view (`<out.bmp> [mode 0..2] [low]`) or every scene (`--all <dir>`) and exports 400×300 24-bpp BMP.
 - `tools/preview_scenes.h`: Shared preview scene table (`PREVIEW_SCENES`) and fixed sample data, used by the tool and the host tests.

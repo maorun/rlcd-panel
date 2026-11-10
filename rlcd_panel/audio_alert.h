@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "board_pins.h"
+#include "pcf85063_rtc.h"
 #include "shtc3_sensor.h"
 #include "switchbot_ble.h"
 
@@ -66,10 +67,11 @@ public:
     return mask;
   }
 
-  // Alerts that switched on since the last cycle and may sound. Mute suppresses the sound only;
-  // the caller still stores the new mask, so unmuting never replays an old alert.
-  static uint8_t chimeBits(bool muted, uint8_t previous, uint8_t current) {
-    if (muted) {
+  // Alerts that switched on since the last cycle and may sound. Mute and quiet hours suppress the
+  // sound only; the caller still stores the new mask, so unmuting or the end of the quiet hours
+  // never replays an old alert.
+  static uint8_t chimeBits(bool muted, uint8_t previous, uint8_t current, bool quiet) {
+    if (muted || quiet) {
       return ALERT_NONE;
     }
     return static_cast<uint8_t>(current & ~previous & ALERT_MASK_ALL);
@@ -97,6 +99,39 @@ private:
       }
     }
   };
+};
+
+// Daily window in local RTC time in which no chime sounds. The window starts at start and ends
+// before end (end excluded). It may cross midnight (22:00..07:00). start == end is an empty
+// window: quiet hours are never active.
+struct QuietHoursWindow {
+  uint8_t start_hour = 22;
+  uint8_t start_minute = 0;
+  uint8_t end_hour = 7;
+  uint8_t end_minute = 0;
+
+  // False for an out-of-range time or window bound, so a corrupt value never suppresses a chime.
+  bool isInQuietHours(uint8_t hour, uint8_t minute) const {
+    if (hour > 23 || minute > 59 || start_hour > 23 || start_minute > 59 || end_hour > 23 ||
+        end_minute > 59) {
+      return false;
+    }
+    const uint16_t now = static_cast<uint16_t>(hour * 60 + minute);
+    const uint16_t start = static_cast<uint16_t>(start_hour * 60 + start_minute);
+    const uint16_t end = static_cast<uint16_t>(end_hour * 60 + end_minute);
+    if (start == end) {
+      return false;
+    }
+    if (start < end) {
+      return now >= start && now < end;
+    }
+    return now >= start || now < end; // crosses midnight
+  }
+
+  // Quiet hours are active only with a valid RTC time. Without one the chime must sound.
+  bool isActive(const RtcTime& time) const {
+    return time.valid && !time.oscillator_stopped && isInQuietHours(time.hour, time.minute);
+  }
 };
 
 // One note of a chime. A frequency of 0 is a pause.

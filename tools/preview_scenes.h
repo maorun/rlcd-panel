@@ -13,24 +13,28 @@
 namespace rlcd_panel {
 namespace preview {
 
-// One preview image: a display mode, optionally with the low battery alert banner.
+// One preview image: a display mode, optionally with the low battery alert banner or the quiet
+// hours marker.
 struct PreviewScene {
   const char* file_name; // file name inside docs/
   DisplayMode mode;
   bool low_battery;
+  bool quiet_hours;
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 4;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 5;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
-    {"display_preview_dashboard", DisplayMode::DASHBOARD, false},
-    {"display_preview_stats", DisplayMode::SENSOR_STATS, false},
-    {"display_preview_diagnostics", DisplayMode::SYSTEM_DIAGNOSTICS, false},
-    {"display_preview_low_battery", DisplayMode::DASHBOARD, true},
+    {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
+    {"display_preview_stats", DisplayMode::SENSOR_STATS, false, false},
+    {"display_preview_diagnostics", DisplayMode::SYSTEM_DIAGNOSTICS, false, false},
+    {"display_preview_low_battery", DisplayMode::DASHBOARD, true, false},
+    {"display_preview_quiet_hours", DisplayMode::DASHBOARD, false, true},
 };
 
 // Renders one mode with the fixed sample data used for all documentation previews.
-inline void renderScene(St7305Framebuffer& fb, DisplayMode mode, bool low_battery) {
+inline void renderScene(
+    St7305Framebuffer& fb, DisplayMode mode, bool low_battery, bool quiet_hours = false) {
   Shtc3Reading onboard;
   onboard.valid = true;
   onboard.temperature_c = 21.8f;
@@ -100,6 +104,7 @@ inline void renderScene(St7305Framebuffer& fb, DisplayMode mode, bool low_batter
   // Calibrated microphone: floor RMS 100, offset 90 dB. RMS 650 is moderate, about 56 DBA.
   MicCalibration::fromFloor(100, MicCalibration::DEFAULT_SPL_OFFSET_DB, info.mic_cal);
   info.noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 650, info.mic_cal);
+  info.quiet_hours = quiet_hours;
 
   DashboardView::renderMode(
       fb,
