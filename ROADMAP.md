@@ -18,15 +18,45 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-No open item.
+- [ ] MicroSD log dump over USB serial
+  - Rank: [Total: 35, Use: 9, Setup: 9, Harmony: 8, Safety: 9, Effort: M]
+  - Location: new `rlcd_panel/serial_console.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, new `scripts/dump-logs.sh`.
+  - Goal: Read the CSV logs without removing the MicroSD card. Add a line-based command parser without Arduino dependency (`LIST`, `DUMP <file>`, `INFO`). Accept commands only on USB power, while the board is awake. Reject file names that do not match `climate_v2_YYYYMM.csv`. Mount the card for one command and unmount it after the command. Send each file with a start line, the byte count, and a CRC-32 end line. Add `scripts/dump-logs.sh`, which sends the commands and writes the files into an ignored local directory.
+  - Acceptance test: Host tests cover the parser with valid, unknown, too long and path-traversal commands, and the frame with the byte count and the CRC-32. On the board with USB power, `./scripts/dump-logs.sh` copies each monthly file, and the CRC-32 agrees with the file on the card. On battery power, the board ignores the commands and its awake time does not increase.
+
+- [ ] Battery runtime estimator in the diagnostics view
+  - Rank: [Total: 34, Use: 9, Setup: 8, Harmony: 8, Safety: 9, Effort: M]
+  - Location: `rlcd_panel/battery_monitor.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `tools/preview_scenes.h`, `rlcd_panel/rlcd_panel.ino`.
+  - Goal: Show the remaining battery runtime in the diagnostics view. Keep 24 hourly battery voltage samples in `PersistentState` (new state version). Calculate the discharge rate with a least-squares slope across the samples. Show `RUNTIME: ~NN H` or `RUNTIME: ~N D`. Show `RUNTIME: --` on USB power, after a charge, and with fewer than 6 samples. Clear the samples when the voltage increases by 0.10 V or more, because this indicates a charge.
+  - Acceptance test: Host tests cover a linear discharge, a flat curve, a charge step, fewer than 6 samples, NaN and invalid readings, and the RTC round trip with a corrupt record. A new preview scene shows the runtime line without clipping. The estimate on the board is in the range of the measured runtime ±25 % after one full discharge.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-No open item.
+- [ ] BTHome v2 sensor support
+  - Rank: [Total: 30, Use: 8, Setup: 6, Harmony: 7, Safety: 9, Effort: M]
+  - Location: new `rlcd_panel/bthome_ble.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`.
+  - Goal: Show third-party thermo-hygrometers with the BTHome v2 protocol (Service Data `UUID 0xFCD2`) in the 3 sensor slots. Decode the unencrypted object IDs for temperature (`0x02`), humidity (`0x03`) and battery (`0x01`). Skip encrypted packets and unknown object IDs without a failure. Put BTHome and SwitchBot sensors into the same registry with the same 30 min stale rule.
+  - Acceptance test: Host tests cover valid packets, negative temperatures, truncated packets, encrypted packets, unknown object IDs, and a registry with one BTHome sensor and two SwitchBot sensors. A board with a BTHome v2 sensor shows its values in one tile, and the existing SwitchBot tests stay green.
+
+- [ ] MicroSD free space check and log retention
+  - Rank: [Total: 29, Use: 7, Setup: 8, Harmony: 7, Safety: 7, Effort: S]
+  - Location: `rlcd_panel/sd_logger.h`, `rlcd_panel/device_config.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`.
+  - Goal: Prevent a full card from stopping the hourly log. Read the free space after each hourly write. Add the key `log_retention_months` (default `0` = keep all files, range `0` to `120`) to `config.ini`. Delete only `climate_v2_YYYYMM.csv` files that are older than the retention period. Never delete the file of the current month, and never delete other files. Show the free space in MB in the diagnostics view.
+  - Acceptance test: Host tests cover the age calculation across a year change, the default `0`, the out-of-range values, and file names that do not match the pattern. On the board, a card with old test files keeps only the files inside the retention period, and the diagnostics view shows the free space.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 
-No open item.
+- [ ] Sensor dropout chime
+  - Rank: [Total: 27, Use: 6, Setup: 6, Harmony: 7, Safety: 8, Effort: S]
+  - Location: `rlcd_panel/audio_alert.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/rlcd_panel.ino`.
+  - Goal: Tell the user when a known external sensor stops sending, for example because its battery is empty. Add the alert bit `ALERT_SENSOR_LOST`. Set it when a valid slot becomes stale. Play one low 440 Hz note when the alert switches on. Obey the mute flag and quiet hours. Clear the bit when each valid slot sends again.
+  - Acceptance test: Host tests cover the change from fresh to stale, a slot that was never valid, the recovery, the mute and quiet hours suppression, and the RTC round trip of the new bit. On the board, the chime sounds once when a sensor gets its battery removed for more than 30 min.
+
+- [ ] Loud noise alert chime
+  - Rank: [Total: 24, Use: 5, Setup: 4, Harmony: 8, Safety: 7, Effort: M]
+  - Location: `rlcd_panel/audio_alert.h`, `rlcd_panel/es7210_mic.h`, `rlcd_panel/device_config.h`, `rlcd_panel/rlcd_panel.ino`.
+  - Goal: Tell the user when the hourly 5 s noise window is above a limit. Add the key `noise_alert_limit_db` (default `0` = off, range `40` to `100`) to `config.ini`. Use a release hysteresis of `-5 dB`. Use only the existing hourly noise window, so the microphones are not powered on more often. Do not play the chime while the noise window records.
+  - Acceptance test: Host tests cover the limit edges, the hysteresis, the default `0`, an invalid noise reading, and the mute and quiet hours suppression. The awake time per hour on battery power does not increase.
 
 ## Rules for ranking
 
