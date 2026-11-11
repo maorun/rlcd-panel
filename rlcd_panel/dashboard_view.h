@@ -21,6 +21,7 @@ struct SystemInfo {
   MicCalibration mic_cal; // calibrated: dB SPL (DBA) is shown, else dBFS
   bool mic_cal_busy = false; // the calibration window is running
   bool mic_cal_failed = false; // the last calibration of this wake cycle was rejected
+  bool quiet_hours = false; // chimes are suppressed now; the header shows "Q"
 };
 
 class DashboardView {
@@ -31,6 +32,12 @@ public:
   static constexpr uint16_t HEADER_CLOCK_X = 244;
   static constexpr uint16_t HEADER_CLOCK_Y = 7;
   static constexpr size_t HEADER_CLOCK_MAX_CHARS = 5;
+  // Quiet hours marker: a white 9x11 badge with a black "Q" (scale 1) between the title (ends at
+  // x = 224) and the clock (starts at x = 244), so it reads apart from both.
+  static constexpr uint16_t HEADER_QUIET_X = 230;
+  static constexpr uint16_t HEADER_QUIET_Y = 8;
+  static constexpr uint16_t HEADER_QUIET_W = 9;
+  static constexpr uint16_t HEADER_QUIET_H = 11;
   static constexpr const char* LOW_BATTERY_TEXT = "! LOW BATTERY - PLEASE CHARGE !";
   static constexpr uint16_t STALE_BADGE_W = 35;
   static constexpr uint16_t STALE_BADGE_H = 17;
@@ -139,7 +146,8 @@ public:
       St7305Framebuffer& fb,
       const char* title,
       const BatteryReading& battery,
-      const char* clock_text) {
+      const char* clock_text,
+      bool quiet_hours = false) {
     fb.clear(false);
 
     if (battery.low_battery) {
@@ -155,6 +163,11 @@ public:
     // Header bar (black filled rectangle)
     fb.fillRect(0, 0, RLCD_WIDTH, HEADER_HEIGHT, true);
     fb.drawText(10, 7, title, 2, false);
+
+    if (quiet_hours) {
+      fb.fillRect(HEADER_QUIET_X, HEADER_QUIET_Y, HEADER_QUIET_W, HEADER_QUIET_H, false);
+      fb.drawText(HEADER_QUIET_X + 2, HEADER_QUIET_Y + 2, "Q", 1, true);
+    }
 
     // Header clock between the title and the battery indicator
     if (clock_text != nullptr && strlen(clock_text) <= HEADER_CLOCK_MAX_CHARS) {
@@ -188,8 +201,9 @@ public:
       size_t switchbot_count,
       const char* clock_text,
       uint32_t now_ms,
-      const ClimateHistory* history = nullptr) {
-    renderHeader(fb, "RLCD CLIMATE PANEL", battery, clock_text);
+      const ClimateHistory* history = nullptr,
+      bool quiet_hours = false) {
+    renderHeader(fb, "RLCD CLIMATE PANEL", battery, clock_text, quiet_hours);
 
     const uint16_t tile_w = 190;
     const uint16_t tile_h = 124;
@@ -256,8 +270,9 @@ public:
       const SwitchBotReading* switchbot_slots,
       size_t switchbot_count,
       const char* clock_text,
-      uint32_t now_ms) {
-    renderHeader(fb, "SENSOR STATS", battery, clock_text);
+      uint32_t now_ms,
+      bool quiet_hours = false) {
+    renderHeader(fb, "SENSOR STATS", battery, clock_text, quiet_hours);
 
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       const uint16_t y = static_cast<uint16_t>(34 + i * 78);
@@ -318,7 +333,7 @@ public:
       const BatteryReading& battery,
       const SystemInfo& info,
       const char* clock_text) {
-    renderHeader(fb, "SYSTEM DIAGNOSTICS", battery, clock_text);
+    renderHeader(fb, "SYSTEM DIAGNOSTICS", battery, clock_text, info.quiet_hours);
 
     char line[40];
     const char* power = !battery.valid ? "NONE" : (battery.usb_powered ? "USB" : "BATTERY");
@@ -400,14 +415,14 @@ public:
       const ClimateHistory* history = nullptr) {
     switch (mode) {
       case DisplayMode::SENSOR_STATS:
-        renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms);
+        renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms, info.quiet_hours);
         break;
       case DisplayMode::SYSTEM_DIAGNOSTICS:
         renderDiagnostics(fb, battery, info, clock_text);
         break;
       case DisplayMode::DASHBOARD:
       default:
-        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history);
+        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours);
         break;
     }
   }

@@ -22,15 +22,6 @@ No open item.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-### Quiet hours for chime alerts
-
-- **Rank:** Feature model. Total 30/40 (use 7, setup 6, harmony 7, safety 10). Effort S.
-- **Area:** Audio / RTC.
-- **Code:** `rlcd_panel/audio_alert.h`, `rlcd_panel/pcf85063_rtc.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`.
-- **Problem:** A freezer or mold alert chimes at any time, also at night.
-- **Goal:** Suppress the chime sound between 22:00 and 07:00 local RTC time. Keep the alert state tracking active, so the alert does not replay in the morning. Support a window that crosses midnight and an empty window (start equals end). Without a valid RTC time, do not suppress. Show a small `Q` marker in the header while quiet hours are active.
-- **Acceptance test:** Host tests cover the window edges (21:59, 22:00, 06:59, 07:00), a window that does not cross midnight, the empty window, an invalid RTC time, and that an alert that starts in quiet hours does not chime after the window ends.
-
 ### Configurable thresholds and settings from the MicroSD card
 
 - **Rank:** Feature model. Total 30/40 (use 6, setup 9, harmony 8, safety 7). Effort M.

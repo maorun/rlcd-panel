@@ -1472,7 +1472,8 @@ void testPreviewScenesCoverAllDisplayModes() {
   St7305Framebuffer frames[PREVIEW_SCENE_COUNT];
   for (uint8_t i = 0; i < PREVIEW_SCENE_COUNT; ++i) {
     frames[i].clear(true); // poison: a full redraw must overwrite it
-    renderScene(frames[i], PREVIEW_SCENES[i].mode, PREVIEW_SCENES[i].low_battery);
+    renderScene(
+        frames[i], PREVIEW_SCENES[i].mode, PREVIEW_SCENES[i].low_battery, PREVIEW_SCENES[i].quiet_hours);
     size_t ink = 0;
     for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
       for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
@@ -1499,7 +1500,7 @@ void testPreviewScenesCoverAllDisplayModes() {
   uint8_t low_index = PREVIEW_SCENE_COUNT;
   uint8_t dash_index = PREVIEW_SCENE_COUNT;
   for (uint8_t i = 0; i < PREVIEW_SCENE_COUNT; ++i) {
-    if (PREVIEW_SCENES[i].mode == DisplayMode::DASHBOARD) {
+    if (PREVIEW_SCENES[i].mode == DisplayMode::DASHBOARD && !PREVIEW_SCENES[i].quiet_hours) {
       (PREVIEW_SCENES[i].low_battery ? low_index : dash_index) = i;
     }
   }
@@ -1667,12 +1668,12 @@ void testAlertThresholds() {
 
 void testChimeMuteAndEdge() {
   // New alerts sound; an alert that stays active does not repeat
-  assert(AlertEvaluator::chimeBits(false, ALERT_NONE, ALERT_FREEZER) == ALERT_FREEZER);
-  assert(AlertEvaluator::chimeBits(false, ALERT_FREEZER, ALERT_FREEZER) == ALERT_NONE);
-  assert(AlertEvaluator::chimeBits(false, ALERT_FREEZER, ALERT_MASK_ALL) == ALERT_HUMIDITY);
-  assert(AlertEvaluator::chimeBits(false, ALERT_MASK_ALL, ALERT_NONE) == ALERT_NONE);
+  assert(AlertEvaluator::chimeBits(false, ALERT_NONE, ALERT_FREEZER, false) == ALERT_FREEZER);
+  assert(AlertEvaluator::chimeBits(false, ALERT_FREEZER, ALERT_FREEZER, false) == ALERT_NONE);
+  assert(AlertEvaluator::chimeBits(false, ALERT_FREEZER, ALERT_MASK_ALL, false) == ALERT_HUMIDITY);
+  assert(AlertEvaluator::chimeBits(false, ALERT_MASK_ALL, ALERT_NONE, false) == ALERT_NONE);
   // Mute suppresses every chime
-  assert(AlertEvaluator::chimeBits(true, ALERT_NONE, ALERT_MASK_ALL) == ALERT_NONE);
+  assert(AlertEvaluator::chimeBits(true, ALERT_NONE, ALERT_MASK_ALL, false) == ALERT_NONE);
 
   // The sequencer plays nothing without alert bits or at volume 0, and never touches the hardware
   struct Hal {
@@ -1730,6 +1731,164 @@ void testChimeMuteAndEdge() {
   assert(ChimeSynth::confirmPattern().notes[0].freq_hz != ChimeSynth::pattern(ALERT_HUMIDITY).notes[1].freq_hz);
   Hal confirm_mute;
   assert(!AudioSequencer::playConfirm(confirm_mute, 0) && confirm_mute.begins == 0);
+}
+
+RtcTime makeRtc(uint8_t hour, uint8_t minute, bool valid = true) {
+  RtcTime t;
+  t.valid = valid;
+  t.hour = hour;
+  t.minute = minute;
+  return t;
+}
+
+void testQuietHoursWindowEdges() {
+  const QuietHoursWindow w; // default 22:00..07:00
+  assert(w.start_hour == 22 && w.start_minute == 0 && w.end_hour == 7 && w.end_minute == 0);
+  assert(!w.isInQuietHours(21, 59));
+  assert(w.isInQuietHours(22, 0));
+  assert(w.isInQuietHours(23, 59));
+  assert(w.isInQuietHours(0, 0));
+  assert(w.isInQuietHours(6, 59));
+  assert(!w.isInQuietHours(7, 0)); // the end minute is excluded
+  assert(!w.isInQuietHours(12, 0));
+  // Out-of-range times never suppress
+  assert(!w.isInQuietHours(24, 0));
+  assert(!w.isInQuietHours(23, 60));
+  assert(!w.isInQuietHours(255, 255));
+}
+
+void testQuietHoursSameDayAndEmptyWindow() {
+  QuietHoursWindow day;
+  day.start_hour = 13; day.start_minute = 30; day.end_hour = 15; day.end_minute = 15;
+  assert(!day.isInQuietHours(13, 29));
+  assert(day.isInQuietHours(13, 30));
+  assert(day.isInQuietHours(14, 0));
+  assert(day.isInQuietHours(15, 14));
+  assert(!day.isInQuietHours(15, 15));
+  assert(!day.isInQuietHours(23, 0));
+  assert(!day.isInQuietHours(0, 0));
+
+  QuietHoursWindow empty;
+  empty.start_hour = 8; empty.start_minute = 0; empty.end_hour = 8; empty.end_minute = 0;
+  for (uint8_t h = 0; h < 24; ++h) {
+    assert(!empty.isInQuietHours(h, 0));
+    assert(!empty.isInQuietHours(h, 59));
+  }
+  assert(!empty.isActive(makeRtc(8, 0)));
+
+  // An out-of-range window bound never suppresses
+  QuietHoursWindow bad;
+  bad.start_hour = 24;
+  assert(!bad.isInQuietHours(23, 0) && !bad.isInQuietHours(3, 0));
+  bad = QuietHoursWindow();
+  bad.end_minute = 60;
+  assert(!bad.isInQuietHours(23, 0) && !bad.isInQuietHours(3, 0));
+  bad = QuietHoursWindow();
+  bad.start_minute = 200;
+  assert(!bad.isInQuietHours(23, 0));
+  bad = QuietHoursWindow();
+  bad.end_hour = 99;
+  assert(!bad.isInQuietHours(3, 0));
+}
+
+void testQuietHoursNeedsValidRtc() {
+  const QuietHoursWindow w;
+  assert(w.isActive(makeRtc(23, 0)));
+  assert(w.isActive(makeRtc(3, 0)));
+  assert(!w.isActive(makeRtc(12, 0)));
+  // Invalid time: no suppression, also inside the nominal window
+  assert(!w.isActive(makeRtc(23, 0, false)));
+  RtcTime stopped = makeRtc(23, 0);
+  stopped.oscillator_stopped = true;
+  assert(!w.isActive(stopped));
+  assert(!w.isActive(RtcTime()));
+}
+
+void testQuietHoursSuppressChimeButLatchState() {
+  const QuietHoursWindow w;
+  const RtcTime night = makeRtc(23, 30);
+  const RtcTime morning = makeRtc(7, 0);
+  // A new alert in quiet hours stays silent
+  uint8_t mask = ALERT_NONE;
+  uint8_t current = ALERT_FREEZER;
+  assert(AlertEvaluator::chimeBits(false, mask, current, w.isActive(night)) == ALERT_NONE);
+  mask = current; // the caller stores the mask while quiet
+  // The window ends and the alert stays active: no replay
+  assert(!w.isActive(morning));
+  assert(AlertEvaluator::chimeBits(false, mask, current, w.isActive(morning)) == ALERT_NONE);
+  // A new second alert after the window sounds, the latched one does not
+  current = ALERT_MASK_ALL;
+  assert(AlertEvaluator::chimeBits(false, mask, current, false) == ALERT_HUMIDITY);
+  // Without a quiet flag the default behaviour stays
+  assert(AlertEvaluator::chimeBits(false, ALERT_NONE, ALERT_FREEZER, false) == ALERT_FREEZER);
+  assert(AlertEvaluator::chimeBits(true, ALERT_NONE, ALERT_FREEZER, false) == ALERT_NONE);
+  // Invalid RTC: the chime sounds
+  assert(AlertEvaluator::chimeBits(false, ALERT_NONE, ALERT_FREEZER, w.isActive(makeRtc(23, 0, false))) ==
+         ALERT_FREEZER);
+}
+
+void testQuietHoursHeaderMarker() {
+  Shtc3Reading onboard;
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 100;
+  St7305Framebuffer off, on;
+  DashboardView::render(off, onboard, battery, nullptr, 0, "12:34", 0, nullptr, false);
+  DashboardView::render(on, onboard, battery, nullptr, 0, "12:34", 0, nullptr, true);
+
+  // Only the marker area differs, and the marker has ink
+  const uint16_t x0 = DashboardView::HEADER_QUIET_X;
+  const uint16_t x1 = x0 + DashboardView::HEADER_QUIET_W;
+  size_t ink = 0;
+  for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      if (off.getPixel(x, y) != on.getPixel(x, y)) {
+        assert(x >= x0 && x < x1 && y >= DashboardView::HEADER_QUIET_Y &&
+               y < DashboardView::HEADER_QUIET_Y + DashboardView::HEADER_QUIET_H);
+        ++ink;
+      }
+    }
+  }
+  assert(ink > 10);
+  // The badge has black ink (the Q) inside a white box, so both colours occur in the marker area
+  bool white = false, black = false;
+  for (uint16_t y = DashboardView::HEADER_QUIET_Y; y < DashboardView::HEADER_QUIET_Y + DashboardView::HEADER_QUIET_H; ++y) {
+    for (uint16_t x = x0; x < x1; ++x) {
+      (on.getPixel(x, y) ? black : white) = true;
+    }
+  }
+  assert(white && black);
+  // No clipping: the marker lies between the title end (224) and the clock start (244), inside
+  // the header bar, with blank pixels (bar colour) on both sides.
+  assert(x0 > 224 && x1 < DashboardView::HEADER_CLOCK_X);
+  assert(DashboardView::HEADER_QUIET_Y + DashboardView::HEADER_QUIET_H + 2 <= DashboardView::HEADER_HEIGHT);
+  for (uint16_t y = 0; y < DashboardView::HEADER_HEIGHT - 2; ++y) {
+    assert(on.getPixel(x0 - 1, y) == off.getPixel(x0 - 1, y));
+    assert(on.getPixel(x1, y) == off.getPixel(x1, y));
+  }
+  // The same marker shows in the other views through SystemInfo
+  SystemInfo info;
+  info.quiet_hours = true;
+  St7305Framebuffer diag_on, diag_off;
+  DashboardView::renderMode(diag_on, DisplayMode::SYSTEM_DIAGNOSTICS, onboard, battery, nullptr, 0, info, "12:34", 0);
+  info.quiet_hours = false;
+  DashboardView::renderMode(diag_off, DisplayMode::SYSTEM_DIAGNOSTICS, onboard, battery, nullptr, 0, info, "12:34", 0);
+  St7305Framebuffer stats_on, stats_off;
+  info.quiet_hours = true;
+  DashboardView::renderMode(stats_on, DisplayMode::SENSOR_STATS, onboard, battery, nullptr, 0, info, "12:34", 0);
+  info.quiet_hours = false;
+  DashboardView::renderMode(stats_off, DisplayMode::SENSOR_STATS, onboard, battery, nullptr, 0, info, "12:34", 0);
+  assert(diag_on.getPixel(x0 + 2, 10) != diag_off.getPixel(x0 + 2, 10) ||
+         diag_on.getPixel(x0 + 4, 7) != diag_off.getPixel(x0 + 4, 7) ||
+         memcmp(diag_on.data(), diag_off.data(), St7305Framebuffer::BYTE_COUNT) != 0);
+  assert(memcmp(stats_on.data(), stats_off.data(), St7305Framebuffer::BYTE_COUNT) != 0);
+  // The low battery banner replaces the header and shows no marker
+  battery.low_battery = true;
+  St7305Framebuffer low_on, low_off;
+  DashboardView::render(low_on, onboard, battery, nullptr, 0, "12:34", 0, nullptr, true);
+  DashboardView::render(low_off, onboard, battery, nullptr, 0, "12:34", 0, nullptr, false);
+  assert(memcmp(low_on.data(), low_off.data(), St7305Framebuffer::BYTE_COUNT) == 0);
 }
 
 void testChimePcmSynthesis() {
@@ -2761,6 +2920,11 @@ int main() {
   testSdLogSchedule();
   testAlertThresholds();
   testChimeMuteAndEdge();
+  testQuietHoursWindowEdges();
+  testQuietHoursSameDayAndEmptyWindow();
+  testQuietHoursNeedsValidRtc();
+  testQuietHoursSuppressChimeButLatchState();
+  testQuietHoursHeaderMarker();
   testChimePcmSynthesis();
   testAudioStatePersistence();
   testNoiseRmsCalculation();

@@ -32,6 +32,7 @@ PersistentState g_state; // registry, battery, and view mode; saved to RTC memor
 portMUX_TYPE g_registry_mux = portMUX_INITIALIZER_UNLOCKED;
 Pcf85063Rtc g_rtc;
 RtcTime g_rtc_time;
+const QuietHoursWindow QUIET_HOURS; // default 22:00..07:00 local RTC time
 Shtc3Reading g_onboard_reading;
 BLEScan* g_ble_scan = nullptr;
 DisplayModeController g_mode_controller;
@@ -209,6 +210,7 @@ void renderDashboard() {
   info.mic_cal = g_mic_cal;
   info.mic_cal_busy = g_mic_cal_busy;
   info.mic_cal_failed = g_mic_cal_failed;
+  info.quiet_hours = QUIET_HOURS.isActive(g_rtc_time);
 
   DashboardView::renderMode(
       g_framebuffer,
@@ -333,7 +335,8 @@ void logToSdCard() {
 }
 
 // Evaluates the climate thresholds and sounds a chime for each alert that switched on. The mask
-// is stored even while muted, so unmuting never replays an old alert. The amplifier is off again
+// is stored even while muted or in quiet hours, so unmuting or the end of the quiet hours never
+// replays an old alert. The amplifier is off again
 // before this function returns, so deep sleep draws no speaker current.
 void chimeOnAlerts() {
   SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
@@ -342,7 +345,9 @@ void chimeOnAlerts() {
   }
   const uint8_t current = AlertEvaluator::evaluate(
       g_state.alert_mask, g_onboard_reading, snapshot, MAX_SWITCHBOT_SENSORS, nowMs());
-  const uint8_t bits = AlertEvaluator::chimeBits(g_state.muted, g_state.alert_mask, current);
+  // Quiet hours suppress the sound only. The mask below is stored, so no chime replays later.
+  const bool quiet = QUIET_HOURS.isActive(g_rtc_time);
+  const uint8_t bits = AlertEvaluator::chimeBits(g_state.muted, g_state.alert_mask, current, quiet);
   g_state.alert_mask = current;
   if (bits != ALERT_NONE) {
     Es8311Hal hal;

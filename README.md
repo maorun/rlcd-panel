@@ -120,7 +120,7 @@ The firmware sleeps between measurements. Each 60 s cycle scans BLE for 4 s, red
 ```bash
 ./scripts/generate-display-preview.sh
 ```
-Renders bit-exact 400×300 previews of the monochrome RLCD screen into `docs/`: `display_preview_dashboard.png` (also `display_preview.png`), `display_preview_stats.png`, `display_preview_diagnostics.png`, and `display_preview_low_battery.png`.
+Renders bit-exact 400×300 previews of the monochrome RLCD screen into `docs/`: `display_preview_dashboard.png` (also `display_preview.png`), `display_preview_stats.png`, `display_preview_diagnostics.png`, `display_preview_low_battery.png`, and `display_preview_quiet_hours.png`.
 
 ### 2. Run Host Unit Tests
 
@@ -148,7 +148,7 @@ arduino-cli compile rlcd_panel
 
 ## Audio Alerts
 
-The onboard `ES8311` DAC and speaker play a short chime when a sensor crosses a limit: a freezer alert below 0 °C (three beeps) and a mold risk alert above 70 %RH (two rising notes). A chime sounds once when the alert switches on. The alerts release at 1 °C and 67 %RH. Press `BOOT` during the 3 s window after a wakeup to mute or unmute the chime. The window opens after a `KEY` wakeup or a power-on, not after a timer wakeup. The mute flag stays in RTC memory and resets with it. The power amplifier (`GPIO46`) is off outside playback. The code is in `rlcd_panel/audio_alert.h`.
+The onboard `ES8311` DAC and speaker play a short chime when a sensor crosses a limit: a freezer alert below 0 °C (three beeps) and a mold risk alert above 70 %RH (two rising notes). A chime sounds once when the alert switches on. The alerts release at 1 °C and 67 %RH. Press `BOOT` during the 3 s window after a wakeup to mute or unmute the chime. The window opens after a `KEY` wakeup or a power-on, not after a timer wakeup. The mute flag stays in RTC memory and resets with it. Quiet hours from 22:00 to 07:00 local RTC time suppress the chime. The alert state stays tracked, so an alert does not chime when the window ends. A `Q` badge in the header shows active quiet hours. Without a valid RTC time the chime sounds. The power amplifier (`GPIO46`) is off outside playback. The code is in `rlcd_panel/audio_alert.h`.
 
 ## Ambient Noise Monitor
 
