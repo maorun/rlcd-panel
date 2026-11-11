@@ -1701,7 +1701,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 9);
+  assert(PowerManager::STATE_VERSION == 10);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3165,7 +3165,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 9);
+  assert(PowerManager::STATE_VERSION == 10);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -3855,7 +3855,8 @@ void testDeviceConfigRtcRoundTrip() {
       {9, 101},  // volume above range
       {10, 24},  // quiet start hour above range
       {11, 24},  // quiet end hour above range
-      {16, 2},   // unknown flag bit
+      {16, 121}, // log retention above range
+      {17, 2},   // unknown flag bit
   };
   for (const Corrupt& c : cases) {
     memcpy(bad, buf, sizeof(bad));
@@ -3914,6 +3915,177 @@ void testDiagnosticsConfigLine() {
   for (uint16_t y = 270; y < St7305Framebuffer::HEIGHT; ++y) {
     for (uint16_t x = 10 + 15 * 12; x < St7305Framebuffer::WIDTH; ++x) {
       assert(!def.getPixel(x, y));
+    }
+  }
+}
+
+// ---- MicroSD free space and log retention ----
+
+RtcTime rtcAt(uint16_t year, uint8_t month) {
+  RtcTime t;
+  t.valid = true;
+  t.year = year;
+  t.month = month;
+  return t;
+}
+
+void testLogRetentionAge() {
+  assert(SdLogCodec::monthsBetween(2026, 11, 2026, 11) == 0);
+  assert(SdLogCodec::monthsBetween(2026, 10, 2026, 11) == 1);
+  assert(SdLogCodec::monthsBetween(2025, 12, 2026, 1) == 1); // year change
+  assert(SdLogCodec::monthsBetween(2025, 1, 2026, 1) == 12);
+  assert(SdLogCodec::monthsBetween(2000, 1, 2099, 12) == 1199);
+  assert(SdLogCodec::monthsBetween(2026, 12, 2026, 11) == -1); // a file from the future
+
+  int y = 0, m = 0;
+  assert(SdLogCodec::parseLogFileName("climate_v2_202512.csv", y, m) && y == 2025 && m == 12);
+  y = m = 0;
+  assert(!SdLogCodec::parseLogFileName("climate_v2_202513.csv", y, m) && y == 0 && m == 0);
+}
+
+void testLogRetentionDecision() {
+  const RtcTime now = rtcAt(2026, 1);
+  // Default 0 keeps every file, however old
+  assert(!SdLogCodec::shouldDeleteLog("climate_v2_200001.csv", now, 0));
+  // Retention 3 at January 2026: October 2025 (3 months) stays, September 2025 (4) goes
+  assert(!SdLogCodec::shouldDeleteLog("climate_v2_202510.csv", now, 3));
+  assert(SdLogCodec::shouldDeleteLog("climate_v2_202509.csv", now, 3));
+  assert(SdLogCodec::shouldDeleteLog("climate_v2_202412.csv", now, 3));
+  // Retention 1: last month stays, two months ago goes
+  assert(!SdLogCodec::shouldDeleteLog("climate_v2_202512.csv", now, 1));
+  assert(SdLogCodec::shouldDeleteLog("climate_v2_202511.csv", now, 1));
+  // The current month and a future month never go, at any retention
+  for (int r = 0; r <= 255; ++r) {
+    assert(!SdLogCodec::shouldDeleteLog("climate_v2_202601.csv", now, static_cast<uint8_t>(r)));
+    assert(!SdLogCodec::shouldDeleteLog("climate_v2_202602.csv", now, static_cast<uint8_t>(r)));
+  }
+  // Maximum 120 months: exactly 10 years stay
+  assert(!SdLogCodec::shouldDeleteLog("climate_v2_201601.csv", now, 120));
+  assert(SdLogCodec::shouldDeleteLog("climate_v2_201512.csv", now, 120));
+  // Out-of-range retention deletes nothing
+  assert(!SdLogCodec::retentionActive(0));
+  assert(SdLogCodec::retentionActive(1) && SdLogCodec::retentionActive(120));
+  assert(!SdLogCodec::retentionActive(121));
+  assert(!SdLogCodec::shouldDeleteLog("climate_v2_200001.csv", now, 121));
+  assert(!SdLogCodec::shouldDeleteLog("climate_v2_200001.csv", now, 255));
+  // An invalid clock, a stopped oscillator and an implausible year delete nothing
+  RtcTime bad = now;
+  bad.valid = false;
+  assert(!SdLogCodec::shouldDeleteLog("climate_v2_200001.csv", bad, 1));
+  bad = now;
+  bad.oscillator_stopped = true;
+  assert(!SdLogCodec::shouldDeleteLog("climate_v2_200001.csv", bad, 1));
+  assert(!SdLogCodec::shouldDeleteLog("climate_v2_200001.csv", rtcAt(2000, 6), 1));
+  assert(!SdLogCodec::shouldDeleteLog("climate_v2_202001.csv", rtcAt(2024, 12), 1));
+  assert(SdLogCodec::shouldDeleteLog("climate_v2_202001.csv", rtcAt(2025, 1), 1));
+  // A wrong far-future clock still needs a trusted year: the 2099 case is the known limit
+  assert(!SdLogCodec::shouldDeleteLog("climate_v2_202601.csv", rtcAt(2026, 1), 1));
+}
+
+void testLogRetentionNamePattern() {
+  const RtcTime now = rtcAt(2026, 11);
+  const char* keep[] = {
+      nullptr, "", "config.ini", "climate_202001.csv", "climate_v2_202001.txt",
+      "climate_v2_202001.csv.bak", "climate_v2_2020.csv", "climate_v2_20200a.csv",
+      "CLIMATE_V2_202001.CSV", "/climate_v2_202001.csv", "../climate_v2_202001.csv",
+      "climate_v2_202013.csv", "climate_v2_202000.csv", "climate_v2_199901.csv",
+      "System Volume Information", "climate_v2_202001.csv ",
+  };
+  for (const char* name : keep) {
+    assert(!SdLogCodec::shouldDeleteLog(name, now, 1));
+  }
+  assert(SdLogCodec::shouldDeleteLog("climate_v2_202001.csv", now, 1));
+}
+
+void testLogRetentionConfig() {
+  DeviceConfig cfg;
+  assert(cfg.log_retention_months == 0 && cfg.isDefault() && cfg.valid());
+  auto parse = [&](const char* text) {
+    return DeviceConfigParser::parse(text, strlen(text), cfg);
+  };
+  assert(parse("log_retention_months=12\n").keys_set == 1 && cfg.log_retention_months == 12);
+  assert(parse("log_retention_months = 120").keys_set == 1 && cfg.log_retention_months == 120);
+  assert(parse("log_retention_months=0\n").keys_set == 1 && cfg.log_retention_months == 0);
+  // Out of range, negative, fractional and text values are rejected; the default stays
+  for (const char* bad : {"log_retention_months=121\n", "log_retention_months=-1\n",
+                          "log_retention_months=1.5\n", "log_retention_months=abc\n",
+                          "log_retention_months=\n", "log_retention_months=256\n"}) {
+    const ConfigParseResult r = parse(bad);
+    assert(r.keys_set == 0 && r.rejected == 1 && cfg.log_retention_months == 0);
+  }
+  // A later bad line keeps the earlier valid value
+  parse("log_retention_months=6\nlog_retention_months=999\n");
+  assert(cfg.log_retention_months == 6);
+  assert(!cfg.isDefault() && cfg.valid());
+  cfg.log_retention_months = 121;
+  assert(!cfg.valid());
+
+  // The value survives the RTC round trip
+  PersistentState s;
+  s.config.log_retention_months = 36;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.log_retention_months == 36);
+}
+
+void testSdFreeMegabytes() {
+  constexpr uint64_t MB = 1024ULL * 1024ULL;
+  assert(SdLogCodec::freeMegabytes(8000 * MB, 579 * MB) == 7421);
+  assert(SdLogCodec::freeMegabytes(8000 * MB, 8000 * MB) == 0);
+  assert(SdLogCodec::freeMegabytes(8000 * MB, 8000 * MB - 1) == 0); // below 1 MB rounds down
+  assert(SdLogCodec::freeMegabytes(0, 0) == -1);
+  assert(SdLogCodec::freeMegabytes(100 * MB, 101 * MB) == -1);
+  assert(SdLogCodec::freeMegabytes(1ULL << 50, 0) == static_cast<int32_t>(SdLogCodec::MAX_FREE_MB));
+}
+
+void testDiagnosticsSdFreeLine() {
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  constexpr uint16_t SD_Y = 144;
+  constexpr uint16_t SD_H = 14;
+  St7305Framebuffer unmounted, normal, widest, zero;
+  SystemInfo info;
+  info.sd_free_mb = -1;
+  unmounted.clear(true);
+  DashboardView::renderDiagnostics(unmounted, battery, info, "12:00");
+  info.sd_free_mb = 7421;
+  normal.clear(true);
+  DashboardView::renderDiagnostics(normal, battery, info, "12:00");
+  info.sd_free_mb = static_cast<int32_t>(SdLogCodec::MAX_FREE_MB);
+  widest.clear(true);
+  DashboardView::renderDiagnostics(widest, battery, info, "12:00");
+  info.sd_free_mb = 0;
+  zero.clear(true);
+  DashboardView::renderDiagnostics(zero, battery, info, "12:00");
+
+  // Only the SD line differs between the states
+  const St7305Framebuffer* others[] = {&normal, &widest, &zero};
+  for (const St7305Framebuffer* fb : others) {
+    size_t diff = 0;
+    for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        if (fb->getPixel(x, y) != unmounted.getPixel(x, y)) {
+          ++diff;
+          assert(y >= SD_Y && y < SD_Y + SD_H);
+        }
+      }
+    }
+    assert(diff > 0);
+  }
+  assert(memcmp(normal.data(), zero.data(), St7305Framebuffer::BYTE_COUNT) != 0);
+  // "SD FREE: 9999999 MB" is 19 glyphs = 226 px: no ink right of x = 10 + 19 * 12 in the line,
+  // and no ink in the 10 px margin on the left
+  for (const St7305Framebuffer* fb : {&unmounted, &normal, &widest, &zero}) {
+    for (uint16_t y = SD_Y; y < SD_Y + SD_H; ++y) {
+      for (uint16_t x = 10 + 19 * 12; x < St7305Framebuffer::WIDTH; ++x) {
+        assert(!fb->getPixel(x, y));
+      }
+      for (uint16_t x = 0; x < 10; ++x) {
+        assert(!fb->getPixel(x, y));
+      }
     }
   }
 }
@@ -5732,6 +5904,12 @@ int main() {
   testDeviceConfigWiring();
   testDeviceConfigRtcRoundTrip();
   testDiagnosticsConfigLine();
+  testLogRetentionAge();
+  testLogRetentionDecision();
+  testLogRetentionNamePattern();
+  testLogRetentionConfig();
+  testSdFreeMegabytes();
+  testDiagnosticsSdFreeLine();
   testGoertzelDetectsOneKhzSine();
   testGoertzelRejectsOtherFrequencies();
   testGoertzelRejectsSilenceAndNoise();
@@ -5785,6 +5963,6 @@ int main() {
   testSerialListAndInfo();
   testSerialRejectKeepsCardUnmounted();
   testSerialConsoleUsbGate();
-  printf("All 114 firmware logic test suites passed.\n");
+  printf("All 120 firmware logic test suites passed.\n");
   return 0;
 }

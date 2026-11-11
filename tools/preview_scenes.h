@@ -132,6 +132,7 @@ inline void renderScene(
   info.noise.mic.valid = true;
   info.quiet_hours = quiet_hours;
   info.config_from_sd = true;
+  info.sd_free_mb = 7421;
   info.loopback.status = LoopbackStatus::PASS;
   info.loopback.level_db = -24;
   // Fixed sample spectrum: a fan hum near 120 Hz with harmonics and a soft broad high band

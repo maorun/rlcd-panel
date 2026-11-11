@@ -161,11 +161,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
   | `quiet_hours_start_hour` | `22` | `0` to `23` | quiet hours start |
   | `quiet_hours_end_hour` | `7` | `0` to `23` | quiet hours end |
   | `mic_spl_offset_db` | `0.0` | `-20.0` to `20.0` | added to the microphone SPL offset |
+  | `log_retention_months` | `0` | `0` to `120` | delete log files older than this; `0` keeps all |
 
 - Equal start and end hours switch the quiet hours off. A lone CR is no line end: use LF or CRLF. The SPL offset has whole dB steps, so a fraction below 0.5 dB has no effect.
 - A card that does not mount keeps the previous settings on a `KEY` wakeup. A card without a usable file gives the defaults.
 - The release limits keep a fixed hysteresis: `+1.0 C` for the freezer alert and `-3 %RH` for the humidity alert. The extra SPL offset applies in memory only. A new microphone calibration never stores it.
-- The accepted values are part of `PersistentState` in RTC memory (state version 6). A corrupt or out-of-range record gives a clean start.
+- The accepted values are part of `PersistentState` in RTC memory (state version 10). A corrupt or out-of-range record gives a clean start.
 - The diagnostics view shows `CONFIG: SD` or `CONFIG: DEFAULT`.
 - Host tests cover valid values, comments, spaces, CRLF, missing keys, out-of-range and malformed values, duplicate keys, a file above 4 KB, the wiring into each consumer, and the RTC round trip with corrupt records.
 
@@ -246,3 +247,16 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `scripts/dump-logs.sh [port]` finds the port, sends `LIST` and one `DUMP` per file, checks the byte count and the CRC-32, and writes the files to the ignored directory `sd_logs/` (mode `0700`). It ignores boot log lines, rejects sizes above 16 MiB, drains the port after an error, and exits with 1 when a file fails.
 - The first read after a long deep sleep waits for the board to wake. The throughput of the USB CDC port and a dump of a large file on hardware are not measured yet.
 - Host tests cover the CRC-32 check value, the file name rules, valid, unknown, too long and path-traversal commands, the line assembler, the frame with byte count and CRC-32 over short reads, an empty file, a missing file, a read error, a missing card, short serial writes at every frame position, the sorted `LIST`, `INFO`, the mount count and the USB gate.
+
+## MicroSD free space check and log retention
+
+- **Code:** `rlcd_panel/sd_logger.h`, `rlcd_panel/device_config.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.
+- The diagnostics view shows `SD FREE: NNN MB` at y = 144. It shows `SD FREE: --` while the free space is unknown, for example when the card does not mount. The value is capped at 9999999 MB, so the line stays inside the screen.
+- The free space comes from `SD_MMC.totalBytes()` and `SD_MMC.usedBytes()` while the card is mounted: after each hourly write, and when `config.ini` loads. The value lives for one wake cycle only. A timer wakeup without a write does not mount the card and shows `--`.
+- The new key `log_retention_months` (default `0` = keep all files, range `0` to `120`) is part of `config.ini` and of the RTC state (state version 10, the old format gives a clean start). A value outside the range is rejected and the default stays.
+- After each hourly write, also after a failed write, the logger deletes the files `climate_v2_YYYYMM.csv` that are more than `log_retention_months` months older than the current RTC month (`SdLogCodec::shouldDeleteLog`). The age counts whole calendar months, also across a year change. Retention `3` in January 2026 keeps October 2025 and deletes September 2025.
+- The file of the current month, files from a future month, `config.ini`, the old v1 files and every other name stay. An invalid RTC time, a set oscillator-stop flag or a year before 2025 deletes nothing (`SdLogCodec::MIN_TRUSTED_YEAR`). A wrong clock that still reads a later valid year deletes by that clock; the NTP sync keeps the clock right.
+- One pass deletes at most 24 files (`SdLogCodec::MAX_PRUNE_PER_PASS`); the next hourly pass deletes the rest. The logger collects the names first and deletes after the directory closes.
+- A full card still fails the write of the record. The prune runs after that failed write, so the retry after 10 min finds free space. A card that is full of files inside the retention period needs manual cleanup; the diagnostics view then shows `SD FREE: 0 MB` after a successful mount.
+- `tools/preview_scenes.h` shows `SD FREE: 7421 MB` in `docs/display_preview_diagnostics.png`.
+- Host tests cover the month age across a year change, retention `0`, `1`, `3` and `120`, out-of-range values, the current and a future month, names that do not match the pattern, the `config.ini` key with valid, malformed and out-of-range values, the RTC round trip, the free-space maths, and the diagnostics line (unmounted, normal, zero and widest value without clipping). The directory walk and the free-space read on the real card are not tested on hardware yet.

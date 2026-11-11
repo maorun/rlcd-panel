@@ -29,6 +29,7 @@ struct SystemInfo {
   LoopbackResult loopback;     // last speaker to microphone test of this wake cycle
   SpectrumReading spectrum;    // last spectrum capture; invalid shows "NO DATA"
   BatteryRuntime runtime;      // remaining battery runtime; invalid shows "--"
+  int32_t sd_free_mb = -1;     // free MicroSD space in MB; negative (unmounted, unknown) shows "--"
 };
 
 class DashboardView {
@@ -407,6 +408,15 @@ public:
         "HEAP: %lu KB FREE",
         static_cast<unsigned long>(info.free_heap_bytes / 1024));
     drawLine(fb, 10, 124, line);
+
+    // SD space at y = 144, between the heap line (ends y = 138) and the uptime line (y = 164).
+    // Widest: "SD FREE: 9999999 MB" = 19 glyphs = 226 px.
+    if (info.sd_free_mb >= 0) {
+      snprintf(line, sizeof(line), "SD FREE: %ld MB", static_cast<long>(info.sd_free_mb));
+    } else {
+      snprintf(line, sizeof(line), "SD FREE: --");
+    }
+    drawLine(fb, 10, 144, line);
 
     const uint64_t total_s = info.uptime_ms / 1000;
     snprintf(

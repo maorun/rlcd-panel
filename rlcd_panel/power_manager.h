@@ -126,7 +126,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 9;
+  static constexpr uint8_t STATE_VERSION = 10;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Slot layout: valid, mac[6], temperature (float bits), humidity, battery, fahrenheit,
   // rssi (int16), updated_ms, packet_count.
@@ -147,8 +147,8 @@ public:
   // NTP trailer: last attempt time, flags (bit 0 attempted, bit 1 last ok), failure count.
   static constexpr size_t NTP_SIZE = 4 + 1 + 1;
   // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
-  // quiet end hour, SPL offset (float), flags (bit 0 loaded from the card).
-  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1;
+  // quiet end hour, SPL offset (float), log retention months, flags (bit 0 loaded from the card).
+  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1;
   // Header: magic, version, mode, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -321,6 +321,7 @@ public:
     out[pos++] = state.config.quiet_hours_start_hour;
     out[pos++] = state.config.quiet_hours_end_hour;
     putFloat(out, pos, state.config.mic_spl_offset_db);
+    out[pos++] = state.config.log_retention_months;
     out[pos++] = state.config_from_sd ? 1 : 0;
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
@@ -480,6 +481,7 @@ public:
     s.config.quiet_hours_start_hour = data[pos++];
     s.config.quiet_hours_end_hour = data[pos++];
     s.config.mic_spl_offset_db = getFloat(data, pos);
+    s.config.log_retention_months = data[pos++];
     const uint8_t config_flags = data[pos++];
     if ((config_flags & ~1u) != 0 || !s.config.valid()) {
       return false; // a corrupt record never reaches the alert limits
