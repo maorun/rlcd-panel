@@ -26,14 +26,7 @@ No open item.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 
-### Acoustic double-clap detection in the awake window
-
-- **Rank:** Feature model. Total 22/40 (use 5, setup 3, harmony 8, safety 6). Effort L.
-- **Area:** Audio / Input.
-- **Code:** `rlcd_panel/clap_detector.h` (new), `rlcd_panel/es7210_mic.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`.
-- **Problem:** The user must touch the board to change the view. The ES7210 has no interrupt output, and deep sleep cannot sample I2S. Thus a sound cannot wake the board from deep sleep.
-- **Goal:** Detect a double clap only while the board is awake. On USB power, keep the board awake with light sleep between 20 ms audio frames, and listen continuously. On battery, listen only in the existing 3 s grace window after a `KEY` wakeup. Detect a clap as a short energy transient (rise above the noise floor + 20 dB in less than 5 ms, decay in less than 100 ms). Accept two claps with 150 ms to 600 ms between them. Ignore a third clap in a short window. A double clap cycles the display mode, as a `KEY` press does. Switch off the microphones before deep sleep on each path.
-- **Acceptance test:** Host tests feed synthetic envelopes: one clap, two claps at 100 ms, 300 ms and 800 ms, three claps, continuous loud noise, and speech-like bursts. Only the 300 ms case triggers. Further tests cover the USB and battery gate and the microphone power-down before sleep. Measure the USB idle current on hardware and record it in `FEATURES.md`.
+No open item.
 
 ## Rules for ranking
 

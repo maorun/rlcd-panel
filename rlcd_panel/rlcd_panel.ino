@@ -13,6 +13,7 @@
 #include "board_pins.h"
 #include "battery_monitor.h"
 #include "button_handler.h"
+#include "clap_detector.h"
 #include "dashboard_view.h"
 #include "device_config.h"
 #include "es7210_mic.h"
@@ -376,7 +377,8 @@ void refreshSensors() {
 // Appends one hourly record to the MicroSD card. A missing card or a failed write never blocks
 // the cycle; the next attempt follows after a short retry interval. The wake cycle that writes the
 // record, also a timer wakeup, runs one 5 s noise window first. It is skipped with a low battery
-// alert, and then the noise fields stay empty. All other wake cycles keep the microphones off.
+// alert, and then the noise fields stay empty. Other wake cycles keep the microphones off, except
+// the clap listener on USB power.
 // The window outlasts the 3 s KEY grace window start: KEY presses during it are not seen. A failed
 // window gives a row with empty noise fields; the record is not repeated.
 void logToSdCard() {
@@ -529,10 +531,38 @@ void setup() {
   // Grace window after a KEY wakeup or a power-on: further KEY presses redraw without a new
   // wakeup. A timer wakeup skips it to save battery.
   const uint32_t grace_start = millis();
-  const bool wants_grace = cause != WakeupCause::TIMER;
+  // A double clap acts like a KEY press. On USB power the board listens until the next scan is due;
+  // on battery it listens in the grace window only.
+  const ClapListenMode clap_mode = PowerManager::clapListenMode(g_state.battery, cause);
+  Es7210Hal clap_hal;
+  ClapListener<Es7210Hal> clap_listener(clap_hal);
+  const bool wants_grace = cause != WakeupCause::TIMER || clap_mode == ClapListenMode::CONTINUOUS;
+  // Continuous listening ends when USB power ends or the listener fails; the grace window stays.
+  bool continuous_listen = clap_mode == ClapListenMode::CONTINUOUS;
+  UsbPowerWatch usb_watch(millis());
   // A pending KEY or BOOT press (long press check) keeps the window open; it ends within 2 s.
-  while (wants_grace && (millis() - grace_start < KEY_GRACE_MS || g_mode_controller.pressPending() ||
-                         g_boot_button.pressPending())) {
+  while (wants_grace &&
+         (millis() - grace_start < KEY_GRACE_MS || g_mode_controller.pressPending() ||
+          g_boot_button.pressPending() ||
+          (continuous_listen &&
+           PowerManager::continuousListenAllowed(g_power_config, nowMs(), g_state.last_scan_ms)))) {
+    if (continuous_listen && usb_watch.due(millis()) &&
+        !usb_watch.update(BatteryMonitor::read().usb_powered, millis())) {
+      continuous_listen = false;
+    }
+    if (continuous_listen && !clap_listener.available()) {
+      continuous_listen = false;
+    }
+    // The read blocks for one 20 ms audio frame, so the CPU idles between frames.
+    if (clap_mode != ClapListenMode::OFF && clap_listener.poll()) {
+      clap_listener.release(); // a noise window uses the same I2S bus; the next poll() reopens it
+      g_mode_controller.next();
+      renderDashboard();
+      measureNoiseAndRedraw(true);
+      g_spectrum_attempted = false; // a new entry to the view captures again
+      g_spectrum = SpectrumReading{};
+      captureSpectrumAndRedraw(true);
+    }
     // A short BOOT press in the grace window toggles the mute flag; a short beep confirms
     // unmuting. A long BOOT press in the diagnostics view runs the loopback test instead.
     switch (g_boot_button.update(
@@ -542,11 +572,13 @@ void setup() {
       case BootEvent::TOGGLE_MUTE:
         g_state.muted = !g_state.muted;
         if (!g_state.muted) {
+          clap_listener.release(); // the confirm beep uses the same I2S bus
           Es8311Hal hal;
           AudioSequencer::playConfirm(hal, config().chime_volume_pct);
         }
         break;
       case BootEvent::LOOPBACK:
+        clap_listener.release(); // the loopback test uses the same I2S bus
         runLoopbackTest();
         g_boot_button.cancelPress();
         break;
@@ -556,6 +588,7 @@ void setup() {
     }
     switch (g_mode_controller.updateWithLongPress(digitalRead(PIN_BTN_KEY) == LOW, millis())) {
       case ButtonEvent::MODE_CHANGED:
+        clap_listener.release(); // a noise window uses the same I2S bus
         renderDashboard();
         measureNoiseAndRedraw(true);
         g_spectrum_attempted = false; // a new entry to the view captures again
@@ -563,9 +596,11 @@ void setup() {
         captureSpectrumAndRedraw(true);
         break;
       case ButtonEvent::RECAPTURE:
+        clap_listener.release(); // the spectrum capture uses the same I2S bus
         captureSpectrumAndRedraw(true, true);
         break;
       case ButtonEvent::CALIBRATE:
+        clap_listener.release(); // the calibration window uses the same I2S bus
         calibrateMicrophone();
         g_mode_controller.cancelPress();
         break;
@@ -573,8 +608,11 @@ void setup() {
       default:
         break;
     }
-    delay(10);
+    if (!clap_listener.listening()) { // an open listener blocks in poll() instead
+      delay(10);
+    }
   }
+  clap_listener.stop(); // microphones off before deep sleep on each path
 
   cycle.advance(); // SAVE
   g_state.mode = g_mode_controller.mode();
