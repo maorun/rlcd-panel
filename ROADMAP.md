@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] Dew point and VPD line in the climate tiles
-  - Rank: [Total: 35, Use: 9, Setup: 7, Harmony: 9, Safety: 10, Effort: S]
-  - Location: new `rlcd_panel/climate_math.h`, `rlcd_panel/dashboard_view.h`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`.
-  - Goal: Show the dew point and the vapor pressure deficit (VPD) in each of the 4 tiles. Calculate the dew point with the Magnus formula (`a = 17.62`, `b = 243.12 C`). Calculate the VPD in kPa from the saturation vapor pressure and the relative humidity. Use the onboard `SHTC3`, SwitchBot and BTHome readings. Show `DP --` and `VPD --` for an invalid, stale or NaN reading. Keep the new line inside the 190 px tile and clear of the sparkline box. Do not change the RTC state.
-  - Acceptance test: Host tests cover reference points (20.0 C at 50 %RH gives a dew point of 9.3 C ±0.1 C and a VPD of 1.17 kPa ±0.01 kPa), 0 %RH, 100 %RH, negative temperatures, NaN and stale input, and the tile bounds. The regenerated `docs/display_preview.png` shows the line in all 4 tiles without clipping.
-
 - [ ] Deep sleep protection for an empty battery
   - Rank: [Total: 34, Use: 8, Setup: 7, Harmony: 9, Safety: 10, Effort: M]
   - Location: `rlcd_panel/battery_monitor.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.
