@@ -147,6 +147,10 @@ inline void renderScene(
   info.noise.mic.valid = true;
   info.quiet_hours = quiet_hours;
   info.config_from_sd = true;
+  info.rtc_drift.has_sync = true;
+  info.rtc_drift.has_drift = true;
+  info.rtc_drift.drift_s = 3;
+  info.rtc_drift.rate_ppm = 35;
   info.sd_free_mb = 7421;
   info.cycle_tenths = 123; // 12.3 cycles
   info.loopback.status = LoopbackStatus::PASS;

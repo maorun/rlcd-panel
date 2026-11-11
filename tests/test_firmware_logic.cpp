@@ -1053,7 +1053,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 20);
+  assert(PowerManager::STATE_VERSION == 21);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -1940,7 +1940,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 20);
+  assert(PowerManager::STATE_VERSION == 21);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -2375,7 +2375,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 20);
+  assert(PowerManager::STATE_VERSION == 21);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3430,8 +3430,8 @@ void testDiagnosticsNoiseIndicator() {
       }
     }
   }
-  // The line stays clear of the uptime line above it
-  assert(inkIn(wide, 182, 202) == 0);
+  // The line stays clear of the RTC drift line above it
+  assert(inkIn(wide, 179, 184) == 0 && inkIn(wide, 198, 204) == 0);
   // Right of the text nothing is drawn
   for (uint16_t y = 204; y < 218; ++y) {
     for (uint16_t x = 10 + 24 * 12; x < St7305Framebuffer::WIDTH; ++x) {
@@ -3954,13 +3954,13 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 20);
+  assert(PowerManager::STATE_VERSION == 21);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
   // Reserved flag bit, success without attempt, and too many failures are rejected
-  const size_t flags_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - 2;
+  const size_t flags_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE + 4;
   const uint8_t bad_flags[3][2] = {{4, 0}, {2, 0}, {1, NtpSchedule::MAX_FAILURES + 1}};
   for (const auto& b : bad_flags) {
     assert(PowerManager::serialize(s, buf, sizeof(buf)));
@@ -4378,7 +4378,7 @@ void testDiagnosticsCalibrationLines() {
       assert(inkIn(*fb, y, y + 1) == 0);
     }
     // The noise line stays clear of the uptime line above and the status line stays clear of it
-    assert(inkIn(*fb, 182, 202) == 0);
+    assert(inkIn(*fb, 179, 184) == 0 && inkIn(*fb, 198, 204) == 0);
     assert(inkIn(*fb, 220, 224) == 0 && inkIn(*fb, 239, 244) == 0);
   }
   assert(inkIn(wide_dba, 204, 218, 10 + 23 * 12) == 0);
@@ -4735,7 +4735,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 20);
+  assert(PowerManager::STATE_VERSION == 21);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4905,7 +4905,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 20);
+  assert(PowerManager::STATE_VERSION == 21);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -5086,8 +5086,8 @@ void testSensorNames() {
   assert(pr.rejected == 0 && strcmp(back.onboard_name, "WWWWWWWWWWWW") == 0 && strcmp(back.slot_name[1], "A-B 1") == 0);
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
-  // RTC round trip, state version 20, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 20);
+  // RTC round trip, state version 21, and rejection of a corrupt name
+  assert(PowerManager::STATE_VERSION == 21);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -5389,6 +5389,250 @@ void testDiagnosticsSdFreeLine() {
       for (uint16_t x = 0; x < 10; ++x) {
         assert(!fb->getPixel(x, y));
       }
+    }
+  }
+}
+
+// ---- RTC drift measurement ----
+
+static RtcTime driftCal(int64_t epoch) {
+  RtcTime t;
+  assert(NtpTime::epochToCalendar(epoch, t));
+  return t;
+}
+
+static bool driftSync(RtcDriftState& st, int64_t utc, int32_t rtc_offset_s, bool ok = true) {
+  return RtcDrift::record(st, ok, driftCal(utc + rtc_offset_s), driftCal(utc), utc);
+}
+
+void testRtcDriftFirstSyncHasNoRate() {
+  constexpr int64_t E0 = 1767225600; // 2026-01-01 00:00:00 UTC
+  RtcDriftState st;
+  char buf[48];
+  RtcDrift::describe(st, buf, sizeof(buf));
+  assert(strcmp(buf, "RTC DRIFT: --") == 0);
+  assert(!driftSync(st, E0, 5)); // the first sync only stores the time
+  assert(st.has_sync && !st.has_drift);
+  RtcDrift::describe(st, buf, sizeof(buf));
+  assert(strcmp(buf, "RTC DRIFT: --") == 0);
+}
+
+void testRtcDriftPositiveNegativeZero() {
+  constexpr int64_t E0 = 1767225600;
+  char buf[48];
+  RtcDriftState st;
+  driftSync(st, E0, 0);
+  assert(driftSync(st, E0 + 86400, 3)); // RTC runs ahead
+  assert(st.drift_s == 3 && st.rate_ppm == 35);
+  RtcDrift::describe(st, buf, sizeof(buf));
+  assert(strcmp(buf, "RTC DRIFT: +3 S (+35 PPM)") == 0);
+  assert(driftSync(st, E0 + 2 * 86400, -3)); // RTC runs behind
+  assert(st.drift_s == -3 && st.rate_ppm == -35);
+  RtcDrift::describe(st, buf, sizeof(buf));
+  assert(strcmp(buf, "RTC DRIFT: -3 S (-35 PPM)") == 0);
+  assert(driftSync(st, E0 + 3 * 86400, 0));
+  assert(st.has_drift && st.drift_s == 0 && st.rate_ppm == 0);
+  RtcDrift::describe(st, buf, sizeof(buf));
+  assert(strcmp(buf, "RTC DRIFT: +0 S (+0 PPM)") == 0);
+}
+
+void testRtcDriftRateOver24And168Hours() {
+  constexpr int64_t E0 = 1767225600;
+  RtcDriftState st;
+  driftSync(st, E0, 0);
+  assert(driftSync(st, E0 + 24 * 3600, 1));
+  assert(st.rate_ppm == 12); // 1 s / 86400 s = 11.57 ppm
+  RtcDriftState w;
+  driftSync(w, E0, 0);
+  assert(driftSync(w, E0 + 168 * 3600, 3));
+  assert(w.rate_ppm == 5); // 3 s / 604800 s = 4.96 ppm
+  RtcDriftState n;
+  driftSync(n, E0, 0);
+  assert(driftSync(n, E0 + 168 * 3600, -10));
+  assert(n.rate_ppm == -17); // -16.53 ppm
+}
+
+void testRtcDriftRejectsFailedSync() {
+  constexpr int64_t E0 = 1767225600;
+  RtcDriftState st;
+  driftSync(st, E0, 0);
+  driftSync(st, E0 + 86400, 2);
+  const RtcDriftState before = st;
+  assert(!driftSync(st, E0 + 2 * 86400, 7, false));
+  assert(st.has_sync == before.has_sync && st.has_drift == before.has_drift);
+  assert(st.last_sync_s == before.last_sync_s && st.drift_s == before.drift_s &&
+         st.rate_ppm == before.rate_ppm);
+  // A failed first sync stores nothing
+  RtcDriftState fresh;
+  assert(!driftSync(fresh, E0, 0, false));
+  assert(!fresh.has_sync && !fresh.has_drift);
+}
+
+void testRtcDriftRejectsUnusableReadings() {
+  constexpr int64_t E0 = 1767225600;
+  RtcDriftState st;
+  driftSync(st, E0, 0);
+  // RTC could not be read: no drift, but the sync time moves on
+  RtcTime bad;
+  assert(!RtcDrift::record(st, true, bad, driftCal(E0 + 86400), E0 + 86400));
+  assert(st.has_sync && !st.has_drift);
+  // A clock that went backwards gives no rate
+  assert(!driftSync(st, E0, 1));
+  assert(!st.has_drift);
+  // Implausible drift (RTC never set) is rejected
+  driftSync(st, E0 + 86400, 0);
+  assert(!driftSync(st, E0 + 2 * 86400, RtcDrift::MAX_DRIFT_S + 1));
+  assert(!st.has_drift);
+  driftSync(st, E0 + 3 * 86400, 0);
+  assert(driftSync(st, E0 + 4 * 86400, RtcDrift::MAX_DRIFT_S));
+  assert(st.drift_s == RtcDrift::MAX_DRIFT_S);
+  // Out of range epoch
+  assert(!RtcDrift::record(st, true, driftCal(E0), driftCal(E0), 100));
+}
+
+void testRtcDriftRejectsShortInterval() {
+  constexpr int64_t E0 = 1767225600;
+  RtcDriftState st;
+  driftSync(st, E0, 0);
+  assert(!driftSync(st, E0 + 60, 1)); // 60 s would show 16667 PPM
+  assert(st.has_sync && !st.has_drift && st.last_sync_s == E0 + 60);
+  assert(driftSync(st, E0 + 60 + RtcDrift::MIN_INTERVAL_S, 1));
+  assert(st.rate_ppm == 278); // 1 s / 3600 s
+}
+
+void testRtcDriftReferenceAcrossDst() {
+  const TimeZone tz{3600, true};
+  constexpr int64_t WINTER = 1767225600; // 2026-01-01 00:00:00 UTC, CET
+  constexpr int64_t SUMMER = 1783555200; // 2026-07-09 00:00:00 UTC, CEST
+  assert(NtpTime::offsetSeconds(WINTER, tz) == 3600 && NtpTime::offsetSeconds(SUMMER, tz) == 7200);
+  // The RTC kept the winter offset: the reference is one hour behind the summer local time
+  RtcTime ref;
+  assert(NtpTime::driftReference(SUMMER, WINTER, tz, ref));
+  RtcTime summer_local;
+  assert(NtpTime::utcToLocal(SUMMER, tz, summer_local));
+  assert(RtcDrift::calendarSeconds(summer_local) - RtcDrift::calendarSeconds(ref) == 3600);
+  // An RTC 2 s ahead shows a drift of 2 s, not 1 h 2 s
+  RtcDriftState st;
+  RtcDrift::record(st, true, driftCal(WINTER + 3600), driftCal(WINTER + 3600), WINTER);
+  RtcTime rtc = driftCal(SUMMER + 3600 + 2);
+  assert(RtcDrift::record(st, true, rtc, ref, SUMMER));
+  assert(st.drift_s == 2);
+  // Same offset at both syncs: reference equals the plain local time
+  assert(NtpTime::driftReference(WINTER + 86400, WINTER, tz, ref));
+  RtcTime local;
+  assert(NtpTime::utcToLocal(WINTER + 86400, tz, local));
+  assert(RtcDrift::calendarSeconds(ref) == RtcDrift::calendarSeconds(local));
+}
+
+void testRtcDriftSerializeSanitizes() {
+  PersistentState s;
+  s.rtc_drift.has_sync = true;
+  s.rtc_drift.has_drift = true;
+  s.rtc_drift.last_sync_s = 1767225600;
+  s.rtc_drift.drift_s = RtcDrift::MAX_DRIFT_S + 1;
+  s.rtc_drift.rate_ppm = 5;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  PersistentState r;
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  assert(PowerManager::deserialize(buf, sizeof(buf), r)); // the state survives
+  assert(r.rtc_drift.has_sync && !r.rtc_drift.has_drift && r.rtc_drift.drift_s == 0);
+  s.rtc_drift.last_sync_s = 5; // sync time outside 2000..2099: no sync on record
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(!r.rtc_drift.has_sync && !r.rtc_drift.has_drift && r.rtc_drift.last_sync_s == 0);
+}
+
+void testRtcDriftPersistence() {
+  constexpr int64_t E0 = 1767225600;
+  PersistentState s;
+  driftSync(s.rtc_drift, E0, 0);
+  driftSync(s.rtc_drift, E0 + 86400, -4);
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.rtc_drift.has_sync && r.rtc_drift.has_drift);
+  assert(r.rtc_drift.drift_s == -4 && r.rtc_drift.rate_ppm == -46);
+  assert(r.rtc_drift.last_sync_s == s.rtc_drift.last_sync_s);
+  // Default: nothing measured
+  PersistentState d;
+  assert(PowerManager::serialize(d, buf, sizeof(buf)));
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(!r.rtc_drift.has_sync && !r.rtc_drift.has_drift);
+  // Corrupt records are rejected, even with a valid CRC
+  const size_t drift_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - 13;
+  auto reseal = [&]() {
+    const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
+    for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  };
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  buf[drift_pos] = 4; // reserved flag bit
+  reseal();
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  buf[drift_pos] = 2; // drift without a sync
+  reseal();
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(PowerManager::serialize(d, buf, sizeof(buf)));
+  buf[drift_pos + 5] = 1; // value without a measurement
+  reseal();
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  buf[drift_pos + 8] = 0x7F; // drift beyond the limit
+  reseal();
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  for (int i = 1; i <= 4; ++i) buf[drift_pos + i] = 0; // sync time far below 2000
+  reseal();
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  buf[drift_pos + 9] = 0x10; // positive rate for a negative drift
+  buf[drift_pos + 10] = buf[drift_pos + 11] = buf[drift_pos + 12] = 0;
+  reseal();
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+}
+
+void testDiagnosticsRtcDriftLine() {
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  constexpr uint16_t Y = 184;
+  constexpr uint16_t H = 14;
+  St7305Framebuffer none, normal, widest;
+  SystemInfo info;
+  none.clear(true);
+  DashboardView::renderDiagnostics(none, battery, info, "12:00");
+  info.rtc_drift.has_sync = true;
+  info.rtc_drift.has_drift = true;
+  info.rtc_drift.drift_s = 3;
+  info.rtc_drift.rate_ppm = 35;
+  normal.clear(true);
+  DashboardView::renderDiagnostics(normal, battery, info, "12:00");
+  info.rtc_drift.drift_s = -RtcDrift::MAX_DRIFT_S;
+  info.rtc_drift.rate_ppm = -RtcDrift::MAX_PPM;
+  widest.clear(true);
+  DashboardView::renderDiagnostics(widest, battery, info, "12:00");
+  for (const St7305Framebuffer* fb : {&normal, &widest}) {
+    size_t diff = 0;
+    for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        if (fb->getPixel(x, y) != none.getPixel(x, y)) {
+          ++diff;
+          assert(y >= Y && y < Y + H);
+        }
+      }
+    }
+    assert(diff > 0);
+  }
+  // "RTC DRIFT: -86400 S (-99999 PPM)" is 32 glyphs = 384 px: it ends inside the screen
+  char buf[48];
+  RtcDrift::describe(info.rtc_drift, buf, sizeof(buf));
+  assert(strlen(buf) == 32);
+  for (const St7305Framebuffer* fb : {&none, &normal, &widest}) {
+    for (uint16_t y = Y; y < Y + H; ++y) {
+      for (uint16_t x = 0; x < 10; ++x) assert(!fb->getPixel(x, y));
+      for (uint16_t x = 10 + 32 * 12; x < St7305Framebuffer::WIDTH; ++x) assert(!fb->getPixel(x, y));
     }
   }
 }
@@ -8141,9 +8385,19 @@ testSerialConfigRunsWithoutMountingCard();
 testSerialConfigRoundTrip();
 testSerialConfigStopsOnShortWrite();
 testSerialConfigNegativeSmallOffset();
+  testRtcDriftFirstSyncHasNoRate();
+  testRtcDriftPositiveNegativeZero();
+  testRtcDriftRateOver24And168Hours();
+  testRtcDriftRejectsFailedSync();
+  testRtcDriftRejectsUnusableReadings();
+  testRtcDriftRejectsShortInterval();
+  testRtcDriftReferenceAcrossDst();
+  testRtcDriftSerializeSanitizes();
+  testRtcDriftPersistence();
+  testDiagnosticsRtcDriftLine();
   testSerialListAndInfo();
   testSerialRejectKeepsCardUnmounted();
   testSerialConsoleUsbGate();
-  printf("All 124 firmware logic test suites passed.\n");
+  printf("All 134 firmware logic test suites passed.\n");
   return 0;
 }
