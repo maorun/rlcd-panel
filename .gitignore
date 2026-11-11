@@ -18,3 +18,6 @@ test_runner
 
 # Optional local Wi-Fi credentials
 rlcd_panel/wifi_config.h
+
+# Local log dumps from scripts/dump-logs.sh
+sd_logs/

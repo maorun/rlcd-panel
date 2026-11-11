@@ -21,6 +21,7 @@
 #include "pcf85063_rtc.h"
 #include "power_manager.h"
 #include "sd_logger.h"
+#include "serial_console.h"
 #include "shtc3_sensor.h"
 #include "st7305_framebuffer.h"
 #include "st7305_panel.h"
@@ -29,6 +30,13 @@
 using namespace rlcd_panel;
 
 namespace {
+
+// Writes console replies to the USB serial port.
+struct SerialSink {
+  size_t write(const uint8_t* data, size_t len) {
+    return Serial.write(data, len);
+  }
+};
 
 St7305Framebuffer g_framebuffer;
 St7305Panel g_panel;
@@ -538,7 +546,18 @@ void setup() {
   const ClapListenMode clap_mode = PowerManager::clapListenMode(g_state.battery, cause);
   Es7210Hal clap_hal;
   ClapListener<Es7210Hal> clap_listener(clap_hal);
-  const bool wants_grace = cause != WakeupCause::TIMER || clap_mode == ClapListenMode::CONTINUOUS;
+  // The serial console runs on USB power only and has its own USB watch, so a failed clap listener
+  // does not end it. A command mounts the card for itself only.
+  bool console_active = PowerManager::serialConsoleAllowed(g_state.battery);
+  UsbPowerWatch console_watch(millis());
+  if (console_active) {
+    Serial.setTxTimeoutMs(1000); // a slow host reader must not shorten a DUMP frame
+  }
+  SerialLineAssembler console_line;
+  SerialSink console_sink;
+  SdLogStorage console_storage;
+  const bool wants_grace =
+      cause != WakeupCause::TIMER || clap_mode == ClapListenMode::CONTINUOUS || console_active;
   // Continuous listening ends when USB power ends or the listener fails; the grace window stays.
   bool continuous_listen = clap_mode == ClapListenMode::CONTINUOUS;
   UsbPowerWatch usb_watch(millis());
@@ -546,8 +565,28 @@ void setup() {
   while (wants_grace &&
          (millis() - grace_start < KEY_GRACE_MS || g_mode_controller.pressPending() ||
           g_boot_button.pressPending() ||
-          (continuous_listen &&
+          ((continuous_listen || console_active) &&
            PowerManager::continuousListenAllowed(g_power_config, nowMs(), g_state.last_scan_ms)))) {
+    if (console_active && console_watch.due(millis()) &&
+        !console_watch.update(BatteryMonitor::read().usb_powered, millis())) {
+      console_active = false;
+    }
+    while (console_active && Serial.available() > 0) {
+      const SerialLineAssembler::Event event = console_line.feed(static_cast<uint8_t>(Serial.read()));
+      if (event == SerialLineAssembler::Event::NONE) {
+        continue;
+      }
+      SerialCommand command;
+      const SerialParseStatus status = event == SerialLineAssembler::Event::LINE_TOO_LONG
+          ? SerialParseStatus::TOO_LONG
+          : SerialConsole::parse(console_line.line(), console_line.length(), command);
+      if (status == SerialParseStatus::OK) {
+        clap_listener.release(); // keep the I2S bus idle while the card transfers
+        SerialConsoleRunner<SdLogStorage, SerialSink>::execute(console_storage, console_sink, command);
+      } else {
+        SerialConsoleRunner<SdLogStorage, SerialSink>::reject(console_sink, status);
+      }
+    }
     if (continuous_listen && usb_watch.due(millis()) &&
         !usb_watch.update(BatteryMonitor::read().usb_powered, millis())) {
       continuous_listen = false;
