@@ -7192,6 +7192,141 @@ void testSerialRejectKeepsCardUnmounted() {
   assert(storage.mounts == 0);
 }
 
+void testSerialConfigParser() {
+  SerialCommand cmd;
+  assert(parseText("CONFIG", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::CONFIG);
+  assert(parseText("CONFIG\r\n", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::CONFIG);
+  assert(parseText("CONFIG now", cmd) == SerialParseStatus::UNKNOWN && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("CONFIG ", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("CONFIGX", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("config", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("CONFIG climate_v2_202611.csv", cmd) == SerialParseStatus::UNKNOWN);
+}
+
+void testSerialConfigLineFormat() {
+  DeviceConfig cfg; // defaults
+  char buf[DeviceConfigText::MAX_SIZE];
+  const size_t n = DeviceConfigText::format(cfg, buf, sizeof(buf));
+  assert(n > 0 && n == strlen(buf));
+  const std::string text(buf, n);
+  assert(text.find("temp_offset_c=-1.9\n") == 0);
+  assert(text.find("\nrh_offset_pct=0.0\n") != std::string::npos);
+  assert(text.find("\nfreeze_alert_limit_c=0.0\n") != std::string::npos);
+  assert(text.find("\nmold_alert_limit_rh=70\n") != std::string::npos);
+  assert(text.find("\nchime_volume_pct=30\n") != std::string::npos);
+  assert(text.find("\nquiet_hours_start_hour=22\n") != std::string::npos);
+  assert(text.find("\nquiet_hours_end_hour=7\n") != std::string::npos);
+  assert(text.find("\nmic_spl_offset_db=0.0\n") != std::string::npos);
+  assert(text.find("\nlog_retention_months=0\n") != std::string::npos);
+  assert(text.find("\nnoise_alert_limit_db=0\n") != std::string::npos);
+  assert(text.find("\nchime_alert_mask=15\n") != std::string::npos);
+  assert(text.find("\nntp_sync_interval_h=24\n") != std::string::npos);
+  for (int i = 1; i <= 3; ++i) {
+    assert(text.find("\nslot" + std::to_string(i) + "_temp_offset_c=0.0\n") != std::string::npos);
+    assert(text.find("\nslot" + std::to_string(i) + "_rh_offset_pct=0.0\n") != std::string::npos);
+  }
+  // 12 base keys plus six slot keys, one per line, no Wi-Fi key
+  size_t lines = 0;
+  for (char c : text) {
+    lines += c == '\n' ? 1 : 0;
+  }
+  assert(lines == 18);
+  assert(text.find("wifi") == std::string::npos && text.find("ssid") == std::string::npos &&
+         text.find("pass") == std::string::npos);
+  // Too small a buffer gives 0 and an empty string
+  char small[32];
+  assert(DeviceConfigText::format(cfg, small, sizeof(small)) == 0 && small[0] == '\0');
+  assert(DeviceConfigText::format(cfg, nullptr, 0) == 0);
+}
+
+void testSerialConfigFrameAndCrc() {
+  FakeConsoleStorage storage;
+  FakeSink sink;
+  DeviceConfig cfg;
+  cfg.temp_offset_c = 2.25f;
+  cfg.noise_alert_limit_db = 65;
+  TestRunner::showConfig(sink, cfg, true);
+  const std::string& out = sink.out;
+  const size_t crc_at = out.rfind("CRC32 ");
+  assert(crc_at != std::string::npos && out.size() == crc_at + 6 + 8 + 1 && out.back() == '\n');
+  const size_t source_at = out.find("SOURCE SD\n");
+  assert(source_at != std::string::npos && source_at + 10 == crc_at);
+  SerialCrc32 crc;
+  crc.update(reinterpret_cast<const uint8_t*>(out.data()), crc_at);
+  char expected[16];
+  snprintf(expected, sizeof(expected), "%08lx", static_cast<unsigned long>(crc.value()));
+  assert(out.substr(crc_at + 6, 8) == expected);
+  FakeSink defaults;
+  TestRunner::showConfig(defaults, DeviceConfig{}, false);
+  assert(defaults.out.find("SOURCE DEFAULT\nCRC32 ") != std::string::npos);
+  // The card stays untouched
+  assert(storage.mounts == 0);
+}
+
+void testSerialConfigRunsWithoutMountingCard() {
+  FakeConsoleStorage storage;
+  FakeSink sink;
+  SerialCommand cmd;
+  assert(parseText("CONFIG", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, sink, cmd); // a CONFIG command never reaches the card
+  assert(storage.mounts == 0 && storage.unmounts == 0 && sink.out.empty());
+}
+
+void testSerialConfigRoundTrip() {
+  const char* ini =
+      "temp_offset_c=-3.25\nrh_offset_pct=4.5\nfreeze_alert_limit_c=-7.5\nmold_alert_limit_rh=85\n"
+      "chime_volume_pct=100\nquiet_hours_start_hour=0\nquiet_hours_end_hour=23\nmic_spl_offset_db=-12.75\n"
+      "log_retention_months=120\nnoise_alert_limit_db=40\nchime_alert_mask=5\nntp_sync_interval_h=168\n"
+      "slot1_temp_offset_c=0.5\nslot2_temp_offset_c=-5.0\nslot3_temp_offset_c=4.75\n"
+      "slot1_rh_offset_pct=-10.0\nslot2_rh_offset_pct=3.5\nslot3_rh_offset_pct=10.0\n";
+  DeviceConfig original;
+  DeviceConfigParser::parse(ini, strlen(ini), original);
+  FakeSink sink;
+  TestRunner::showConfig(sink, original, true);
+  // Parse only the key=value block; the SOURCE and CRC32 lines follow it.
+  const size_t source_at = sink.out.find("SOURCE ");
+  assert(source_at != std::string::npos);
+  DeviceConfig back;
+  const ConfigParseResult result = DeviceConfigParser::parse(sink.out.data(), source_at, back);
+  assert(result.file_ok && result.rejected == 0 && result.keys_set == 18);
+  assert(back.temp_offset_c == original.temp_offset_c && back.rh_offset_pct == original.rh_offset_pct);
+  assert(back.freeze_alert_limit_c == original.freeze_alert_limit_c);
+  assert(back.mold_alert_limit_rh == 85 && back.chime_volume_pct == 100);
+  assert(back.quiet_hours_start_hour == 0 && back.quiet_hours_end_hour == 23);
+  assert(back.mic_spl_offset_db == original.mic_spl_offset_db);
+  assert(back.log_retention_months == 120 && back.noise_alert_limit_db == 40);
+  assert(back.chime_alert_mask == 5 && back.ntp_sync_interval_h == 168);
+  for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
+    assert(back.slot_temp_offset_c[i] == original.slot_temp_offset_c[i]);
+    assert(back.slot_rh_offset_pct[i] == original.slot_rh_offset_pct[i]);
+  }
+  // The defaults round trip too
+  FakeSink dsink;
+  TestRunner::showConfig(dsink, DeviceConfig{}, false);
+  DeviceConfig dback;
+  DeviceConfigParser::parse(dsink.out.data(), dsink.out.find("SOURCE "), dback);
+  assert(dback.isDefault());
+}
+
+void testSerialConfigNegativeSmallOffset() {
+  DeviceConfig cfg;
+  cfg.temp_offset_c = -0.004f; // prints as "-0.0"
+  cfg.rh_offset_pct = -10.0f;
+  FakeSink sink;
+  TestRunner::showConfig(sink, cfg, true);
+  assert(sink.out.find("temp_offset_c=-0.0\n") == 0);
+  DeviceConfig back;
+  const ConfigParseResult result = DeviceConfigParser::parse(sink.out.data(), sink.out.find("SOURCE "), back);
+  assert(result.rejected == 0 && back.temp_offset_c == 0.0f && back.rh_offset_pct == -10.0f);
+}
+
+void testSerialConfigStopsOnShortWrite() {
+  FakeSink sink;
+  sink.limit = 10;
+  TestRunner::showConfig(sink, DeviceConfig{}, true);
+  assert(sink.out.size() == 10 && sink.out.find("CRC32") == std::string::npos);
+}
+
 void testSerialConsoleUsbGate() {
   BatteryReading usb;
   usb.valid = true;
@@ -7808,6 +7943,13 @@ int main() {
   testSerialDumpEmptyFile();
   testSerialDumpFailures();
   testSerialDumpStopsOnShortWrite();
+testSerialConfigParser();
+testSerialConfigLineFormat();
+testSerialConfigFrameAndCrc();
+testSerialConfigRunsWithoutMountingCard();
+testSerialConfigRoundTrip();
+testSerialConfigStopsOnShortWrite();
+testSerialConfigNegativeSmallOffset();
   testSerialListAndInfo();
   testSerialRejectKeepsCardUnmounted();
   testSerialConsoleUsbGate();

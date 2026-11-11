@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Copies the monthly CSV logs from the MicroSD card over USB serial.
 # Usage: ./scripts/dump-logs.sh [port]
+#        ./scripts/dump-logs.sh --config [port]   prints the active configuration (CONFIG command)
 # The board answers on USB power only, while it is awake. Press KEY to wake it first.
 set -euo pipefail
 umask 077
@@ -10,6 +11,11 @@ OUT_DIR="${REPO_ROOT}/sd_logs"
 BAUD=115200
 TIMEOUT_S=20
 
+MODE=dump
+if [[ "${1:-}" == "--config" ]]; then
+  MODE=config
+  shift
+fi
 PORT="${1:-}"
 if [[ -z "${PORT}" ]]; then
   for candidate in /dev/cu.usbmodem* /dev/cu.usbserial* /dev/cu.wchusbserial*; do
@@ -27,10 +33,11 @@ fi
 mkdir -p "${OUT_DIR}"
 chmod 0700 "${OUT_DIR}"
 
-exec python3 -I - "${PORT}" "${BAUD}" "${OUT_DIR}" "${TIMEOUT_S}" <<'PY'
+exec python3 -I - "${PORT}" "${BAUD}" "${OUT_DIR}" "${TIMEOUT_S}" "${MODE}" <<'PY'
 import os, re, subprocess, sys, time, zlib
 
 port, baud, out_dir, timeout_s = sys.argv[1], int(sys.argv[2]), sys.argv[3], float(sys.argv[4])
+mode = sys.argv[5]
 NAME = re.compile(r"^climate_v2_(20\d\d)(0[1-9]|1[0-2])\.csv$")
 FILE_LINE = re.compile(r"^FILE (climate_v2_20\d\d(?:0[1-9]|1[0-2])\.csv) (\d{1,9})$")
 BEGIN_LINE = re.compile(r"^BEGIN (climate_v2_20\d\d(?:0[1-9]|1[0-2])\.csv) (\d{1,9})$")
@@ -73,6 +80,27 @@ def drain():
     buf.clear()
 
 drain()
+if mode == "config":
+    # CONFIG answers from the RTC copy: key=value lines, "SOURCE SD|DEFAULT", then the CRC32 line.
+    CONFIG_LINE = re.compile(r"^(?:[a-z0-9_]+=-?\d+(?:\.\d+)?|SOURCE (?:SD|DEFAULT))$")
+    command("CONFIG")
+    deadline = time.time() + timeout_s
+    body = bytearray()
+    while True:
+        text = line(deadline)
+        if text.startswith("ERR "):
+            raise SystemExit("Error: " + text)
+        if text.startswith("CRC32 "):
+            break
+        if CONFIG_LINE.match(text):
+            body.extend(text.encode("ascii") + b"\n")
+        else:
+            print(f"Warning: ignored line ({text!r})", file=sys.stderr)
+    expected = f"CRC32 {zlib.crc32(bytes(body)) & 0xFFFFFFFF:08x}"
+    if text != expected:
+        raise SystemExit(f"Error: CRC mismatch ({text} / {expected})")
+    sys.stdout.write(body.decode("ascii"))
+    sys.exit(0)
 command("LIST")
 files = []
 skipped = 0

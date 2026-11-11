@@ -691,7 +691,11 @@ void setup() {
       const SerialParseStatus status = event == SerialLineAssembler::Event::LINE_TOO_LONG
           ? SerialParseStatus::TOO_LONG
           : SerialConsole::parse(console_line.line(), console_line.length(), command);
-      if (status == SerialParseStatus::OK) {
+      if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::CONFIG) {
+        // The RTC copy answers: no card access, so the clap listener keeps running.
+        SerialConsoleRunner<SdLogStorage, SerialSink>::showConfig(console_sink, g_state.config,
+                                                                  g_state.config_from_sd);
+      } else if (status == SerialParseStatus::OK) {
         clap_listener.release(); // keep the I2S bus idle while the card transfers
         SerialConsoleRunner<SdLogStorage, SerialSink>::execute(console_storage, console_sink, command);
       } else {
