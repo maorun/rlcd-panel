@@ -2563,6 +2563,20 @@ void testNoiseHardwareConstants() {
   assert(bias_off && adc_off);
 }
 
+void testEs7210InitEnablesAllClocks() {
+  // Register 0x01 is CLK_OFF: a set bit switches that clock off, so 0x00 keeps every clock on
+  int writes = 0;
+  uint8_t clock_off = 0xFF;
+  for (const Es7210Reg& r : es7210::INIT_SEQUENCE) {
+    if (r.reg == 0x01) {
+      clock_off = r.value;
+      ++writes;
+    }
+  }
+  assert(writes == 1);
+  assert(clock_off == 0x00);
+}
+
 void testDiagnosticsNoiseIndicator() {
   BatteryReading battery;
   battery.valid = true;
@@ -5006,6 +5020,7 @@ int main() {
   testNoiseBandThresholds();
   testNoiseSamplerPowersDownOnEveryPath();
   testNoiseHardwareConstants();
+  testEs7210InitEnablesAllClocks();
   testDiagnosticsNoiseIndicator();
   testMicSelfTestClassification();
   testMicSelfTestImbalance();
@@ -5060,6 +5075,6 @@ int main() {
   testClapListenerReopenFailurePowersDown();
   testClapListenModeGate();
   testClapUsbPowerWatch();
-  printf("All 87 firmware logic test suites passed.\n");
+  printf("All 88 firmware logic test suites passed.\n");
   return 0;
 }

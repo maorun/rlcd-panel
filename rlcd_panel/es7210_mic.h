@@ -506,7 +506,7 @@ namespace es7210 {
 constexpr Es7210Reg INIT_SEQUENCE[] = {
     {0x00, 0xFF}, // reset
     {0x00, 0x41}, // release reset, slave mode
-    {0x01, 0x1F}, // clock off register: all clocks on
+    {0x01, 0x00}, // clock off register: 0 = clock on, all clocks on
     {0x09, 0x30}, // chip state machine timing
     {0x0A, 0x30},
     {0x23, 0x2A}, // high-pass filters of ADC 1 to 4
