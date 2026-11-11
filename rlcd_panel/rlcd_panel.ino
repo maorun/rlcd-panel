@@ -223,7 +223,8 @@ bool syncNtpTime(bool key_wakeup) {
   const TimeZone tz{RLCD_TZ_STD_OFFSET_S, RLCD_TZ_EU_DST != 0};
   const bool credentials = NtpSchedule::hasCredentials(RLCD_WIFI_SSID, RLCD_WIFI_PASSWORD);
   const bool battery_low = g_state.battery.valid && g_state.battery.low_battery;
-  if (NtpSchedule::decide(g_state.ntp, nowMs(), key_wakeup, credentials, g_rtc.present(), battery_low) !=
+  if (NtpSchedule::decide(g_state.ntp, nowMs(), key_wakeup, credentials, g_rtc.present(), battery_low,
+                         config().ntp_sync_interval_h) !=
       NtpDecision::ATTEMPT) {
     return false;
   }

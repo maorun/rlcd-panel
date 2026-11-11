@@ -26,12 +26,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] Configurable NTP sync interval from the MicroSD card
-  - Rank: [Total: 29, Use: 4, Setup: 8, Harmony: 8, Safety: 9, Effort: S]
-  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/ntp_sync.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`.
-  - Goal: Let the user set the time between two successful NTP syncs. Add the key `ntp_sync_interval_h` (default `24`, range `6` to `168`) to `config.ini`. Replace the fixed `NtpSchedule::SYNC_INTERVAL_MS` with this value. Keep the retry backoff after a failure unchanged. Store the value in `PersistentState` and increase the RTC state version.
-  - Acceptance test: Host tests cover the default, the range edges `6` and `168`, out-of-range and malformed values, the schedule decision with 6 h and 168 h, the unchanged backoff, and the RTC round trip. The `FEATURES.md` key table lists the new key.
-
 ## Priority 3: Audio Expansions (Score 22–27)
 
 - [ ] Battery charge cycle counter in the diagnostics view

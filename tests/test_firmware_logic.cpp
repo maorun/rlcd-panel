@@ -1807,7 +1807,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 15);
+  assert(PowerManager::STATE_VERSION == 16);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -2242,7 +2242,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 15);
+  assert(PowerManager::STATE_VERSION == 16);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3736,7 +3736,7 @@ void testNtpRegisterEncoding() {
 
 void testNtpScheduleAndOfflineFallback() {
   NtpSyncState s;
-  const uint32_t day = NtpSchedule::SYNC_INTERVAL_MS;
+  const uint32_t day = NtpSchedule::syncIntervalMs(DeviceConfig::DEFAULT_NTP_SYNC_INTERVAL_H);
   // Credentials
   assert(!NtpSchedule::hasCredentials("", ""));
   assert(!NtpSchedule::hasCredentials(nullptr, "x"));
@@ -3749,21 +3749,21 @@ void testNtpScheduleAndOfflineFallback() {
   assert(!NtpSchedule::hasCredentials("ssid", "0123456789abcdefABCDEF0123456789abcdefABCDEF0123456789abcdefABCG"));
   assert(!NtpSchedule::hasCredentials("ssid", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"));
   // First wake cycle: due at once
-  assert(NtpSchedule::due(s, 1000));
-  assert(NtpSchedule::decide(s, 1000, false, true, true, false) == NtpDecision::ATTEMPT);
+  assert(NtpSchedule::due(s, 1000, 24));
+  assert(NtpSchedule::decide(s, 1000, false, true, true, false, 24) == NtpDecision::ATTEMPT);
   // Offline fallback: no credentials, no RTC, key wakeup and low battery never start the radio
-  assert(NtpSchedule::decide(s, 1000, false, false, true, false) == NtpDecision::SKIP_NO_CREDENTIALS);
-  assert(NtpSchedule::decide(s, 1000, false, true, false, false) == NtpDecision::SKIP_NO_RTC);
-  assert(NtpSchedule::decide(s, 1000, true, true, true, false) == NtpDecision::SKIP_KEY_WAKEUP);
-  assert(NtpSchedule::decide(s, 1000, false, true, true, true) == NtpDecision::SKIP_LOW_BATTERY);
+  assert(NtpSchedule::decide(s, 1000, false, false, true, false, 24) == NtpDecision::SKIP_NO_CREDENTIALS);
+  assert(NtpSchedule::decide(s, 1000, false, true, false, false, 24) == NtpDecision::SKIP_NO_RTC);
+  assert(NtpSchedule::decide(s, 1000, true, true, true, false, 24) == NtpDecision::SKIP_KEY_WAKEUP);
+  assert(NtpSchedule::decide(s, 1000, false, true, true, true, 24) == NtpDecision::SKIP_LOW_BATTERY);
   // Skips leave the state untouched, so the sync stays due
-  assert(!s.has_attempted && NtpSchedule::due(s, 2000));
+  assert(!s.has_attempted && NtpSchedule::due(s, 2000, 24));
   // Success: next attempt after 24 h
   NtpSchedule::record(s, 5000, true);
   assert(s.last_ok && s.failures == 0 && s.has_attempted);
-  assert(!NtpSchedule::due(s, 5000 + day - 1));
-  assert(NtpSchedule::due(s, 5000 + day));
-  assert(NtpSchedule::decide(s, 6000, false, true, true, false) == NtpDecision::SKIP_NOT_DUE);
+  assert(!NtpSchedule::due(s, 5000 + day - 1, 24));
+  assert(NtpSchedule::due(s, 5000 + day, 24));
+  assert(NtpSchedule::decide(s, 6000, false, true, true, false, 24) == NtpDecision::SKIP_NOT_DUE);
   // Failure: not marked as done, retry with a doubling backoff up to 6 h
   NtpSchedule::record(s, 100000, false);
   assert(!s.last_ok && s.failures == 1);
@@ -3773,10 +3773,10 @@ void testNtpScheduleAndOfflineFallback() {
   assert(NtpSchedule::retryDelayMs(5) == 14400000);
   assert(NtpSchedule::retryDelayMs(6) == NtpSchedule::RETRY_MAX_MS);
   assert(NtpSchedule::retryDelayMs(255) == NtpSchedule::RETRY_MAX_MS);
-  assert(!NtpSchedule::due(s, 100000 + 899999));
-  assert(NtpSchedule::due(s, 100000 + 900000));
+  assert(!NtpSchedule::due(s, 100000 + 899999, 24));
+  assert(NtpSchedule::due(s, 100000 + 900000, 24));
   NtpSchedule::record(s, 2000000, false);
-  assert(s.failures == 2 && !NtpSchedule::due(s, 2000000 + 1799999) && NtpSchedule::due(s, 2000000 + 1800000));
+  assert(s.failures == 2 && !NtpSchedule::due(s, 2000000 + 1799999, 24) && NtpSchedule::due(s, 2000000 + 1800000, 24));
   for (int i = 0; i < 100; ++i) NtpSchedule::record(s, 3000000, false);
   assert(s.failures == NtpSchedule::MAX_FAILURES);
   // A later success resets the backoff
@@ -3785,11 +3785,11 @@ void testNtpScheduleAndOfflineFallback() {
   // Clock wrap-around and a clock reset give an early try, never a stall
   NtpSyncState w;
   NtpSchedule::record(w, 0xFFFFFF00u, true);
-  assert(!NtpSchedule::due(w, 0x100u));
-  assert(NtpSchedule::due(w, 0xFFFFFF00u + day));
+  assert(!NtpSchedule::due(w, 0x100u, 24));
+  assert(NtpSchedule::due(w, 0xFFFFFF00u + day, 24));
   NtpSyncState r;
   NtpSchedule::record(r, 4000000, true);
-  assert(NtpSchedule::due(r, 1000)); // clock restarted below the stamp
+  assert(NtpSchedule::due(r, 1000, 24)); // clock restarted below the stamp
 }
 
 void testNtpSystemClockRestore() {
@@ -3819,9 +3819,9 @@ void testNtpStatePersistence() {
   assert(r.ntp.last_ok && r.ntp.failures == 0 && r.ntp.last_attempt_ms == 345678);
   // Defaults: never attempted
   PersistentState d;
-  assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0));
+  assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 15);
+  assert(PowerManager::STATE_VERSION == 16);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4512,7 +4512,10 @@ void testDeviceConfigRtcRoundTrip() {
       {10, 24},  // quiet start hour above range
       {11, 24},  // quiet end hour above range
       {16, 121}, // log retention above range
-      {17, 2},   // unknown flag bit
+      {18, 16},  // chime alert mask above range
+      {19, 5},   // NTP sync interval below range
+      {19, 169}, // NTP sync interval above range
+      {20, 2},   // unknown flag bit
   };
   for (const Corrupt& c : cases) {
     memcpy(bad, buf, sizeof(bad));
@@ -4683,6 +4686,86 @@ void testLogRetentionConfig() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.log_retention_months == 36);
+}
+
+void testNtpSyncIntervalConfig() {
+  // Default and range edges
+  DeviceConfig cfg;
+  assert(cfg.ntp_sync_interval_h == 24 && cfg.isDefault() && cfg.valid());
+  auto parse = [&](const char* text) {
+    return DeviceConfigParser::parse(text, strlen(text), cfg);
+  };
+  assert(parse("ntp_sync_interval_h=6\n").keys_set == 1 && cfg.ntp_sync_interval_h == 6);
+  assert(parse("ntp_sync_interval_h = 168\r\n").keys_set == 1 && cfg.ntp_sync_interval_h == 168);
+  assert(!cfg.isDefault() && cfg.valid());
+  // Out of range and malformed values are rejected; the previous value stays
+  for (const char* bad : {"ntp_sync_interval_h=5\n", "ntp_sync_interval_h=0\n", "ntp_sync_interval_h=169\n",
+                          "ntp_sync_interval_h=256\n", "ntp_sync_interval_h=-6\n", "ntp_sync_interval_h=12.5\n",
+                          "ntp_sync_interval_h=abc\n", "ntp_sync_interval_h=\n"}) {
+    cfg = DeviceConfig{};
+    const ConfigParseResult r = parse(bad);
+    assert(r.keys_set == 0 && r.rejected == 1 && cfg.ntp_sync_interval_h == 24);
+  }
+  cfg = DeviceConfig{};
+  parse("ntp_sync_interval_h=48\nntp_sync_interval_h=999\n");
+  assert(cfg.ntp_sync_interval_h == 48);
+  cfg.ntp_sync_interval_h = 5;
+  assert(!cfg.valid());
+  cfg.ntp_sync_interval_h = 169;
+  assert(!cfg.valid());
+
+  // Schedule decision with 6 h and 168 h
+  constexpr uint32_t H = 3600000;
+  assert(NtpSchedule::syncIntervalMs(6) == 6 * H && NtpSchedule::syncIntervalMs(168) == 168 * H);
+  assert(NtpSchedule::syncIntervalMs(24) == 86400000);
+  NtpSyncState s;
+  NtpSchedule::record(s, 5000, true);
+  assert(!NtpSchedule::due(s, 5000 + 6 * H - 1, 6) && NtpSchedule::due(s, 5000 + 6 * H, 6));
+  assert(NtpSchedule::due(s, 5000 + 6 * H, 6) && !NtpSchedule::due(s, 5000 + 6 * H, 24));
+  assert(!NtpSchedule::due(s, 5000 + 168 * H - 1, 168) && NtpSchedule::due(s, 5000 + 168 * H, 168));
+  assert(NtpSchedule::decide(s, 5000 + 7 * H, false, true, true, false, 6) == NtpDecision::ATTEMPT);
+  assert(NtpSchedule::decide(s, 5000 + 7 * H, false, true, true, false, 168) == NtpDecision::SKIP_NOT_DUE);
+
+  // The retry backoff after a failure does not depend on the interval
+  for (uint8_t interval : {uint8_t(6), uint8_t(24), uint8_t(168)}) {
+    NtpSyncState f;
+    NtpSchedule::record(f, 100000, false);
+    assert(!NtpSchedule::due(f, 100000 + 899999, interval) && NtpSchedule::due(f, 100000 + 900000, interval));
+    NtpSchedule::record(f, 2000000, false);
+    assert(!NtpSchedule::due(f, 2000000 + 1799999, interval) && NtpSchedule::due(f, 2000000 + 1800000, interval));
+  }
+  assert(NtpSchedule::retryDelayMs(0) == 900000 && NtpSchedule::retryDelayMs(1) == 900000);
+  assert(NtpSchedule::retryDelayMs(2) == 1800000 && NtpSchedule::retryDelayMs(16) == NtpSchedule::RETRY_MAX_MS);
+
+  // RTC round trip and corrupt fields
+  PersistentState st;
+  assert(st.config.ntp_sync_interval_h == 24);
+  st.config.ntp_sync_interval_h = 168;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.ntp_sync_interval_h == 168);
+  st.config.ntp_sync_interval_h = 6;
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.ntp_sync_interval_h == 6);
+  st.config.ntp_sync_interval_h = 5; // corrupt value never reaches the schedule
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  PersistentState bad;
+  assert(!PowerManager::deserialize(buf, sizeof(buf), bad));
+  st.config.ntp_sync_interval_h = 169;
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), bad));
+  // The old state version gives a clean start
+  st.config.ntp_sync_interval_h = 24;
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  buf[4] = PowerManager::STATE_VERSION - 1;
+  const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
+  for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), bad));
+  buf[4] = PowerManager::STATE_VERSION; // the same record with the current version is accepted
+  const uint32_t crc2 = PowerManager::crc32(buf, sizeof(buf) - 4);
+  for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc2 >> (8 * i));
+  assert(PowerManager::deserialize(buf, sizeof(buf), bad) && bad.config.ntp_sync_interval_h == 24);
 }
 
 void testSdFreeMegabytes() {
@@ -6625,7 +6708,7 @@ void testNoiseAlertStatePersistence() {
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - 3;
+  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - 4;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -6718,7 +6801,7 @@ void testChimeAlertMask() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   uint8_t badbuf[PowerManager::SERIALIZED_SIZE];
   memcpy(badbuf, buf, sizeof(badbuf));
-  badbuf[PowerManager::SERIALIZED_SIZE - 4 - 2] = 16;
+  badbuf[PowerManager::SERIALIZED_SIZE - 4 - 3] = 16;
   const uint32_t crc = PowerManager::crc32(badbuf, sizeof(badbuf) - 4);
   for (int i = 0; i < 4; ++i) badbuf[sizeof(badbuf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState out;
@@ -7001,6 +7084,7 @@ int main() {
   testDeviceConfigFileSizeLimit();
   testDeviceConfigWiring();
   testDeviceConfigRtcRoundTrip();
+  testNtpSyncIntervalConfig();
   testDiagnosticsConfigLine();
   testLogRetentionAge();
   testLogRetentionDecision();
