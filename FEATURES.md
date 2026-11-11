@@ -76,7 +76,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 
 - **Code:** `rlcd_panel/ntp_sync.h`, `rlcd_panel/wifi_config.example.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`.
 - `NtpTime` has no Arduino dependency. It converts UTC epoch seconds (2000..2099) to calendar fields, applies the time zone, and encodes the `PCF85063A` BCD registers with the existing `Pcf85063Codec`. The default zone is CET/CEST. DST runs from 01:00 UTC on the last Sunday of March to 01:00 UTC on the last Sunday of October.
-- `NtpSchedule` decides when to sync: once per 24 h after a success. After a failure the retry delay doubles from 15 min up to 6 h. A `KEY` wakeup, a low battery, a missing RTC, and missing credentials never start the radio. These skips leave the state unchanged.
+- `NtpSchedule` decides when to sync: once per `ntp_sync_interval_h` hours after a success (default 24 h, range 6 h to 168 h). After a failure the retry delay doubles from 15 min up to 6 h. A `KEY` wakeup, a low battery, a missing RTC, and missing credentials never start the radio. These skips leave the state unchanged.
 - `NtpClient` (Arduino only) connects to Wi-Fi (8 s limit) and waits for SNTP (6 s limit) with `0/1/2.pool.ntp.org`. It then calls `WiFi.disconnect(true)` and `WiFi.mode(WIFI_OFF)` before it writes the local time to the `PCF85063A`. It restores the course of the system clock, because the firmware uses that clock for its timestamps. A failure leaves the RTC unchanged.
 - The sync runs after the first render, so a slow network never delays the display. A successful sync redraws the header clock. The wake cycle takes up to 14 s longer while the sync runs.
 - Credentials come from the optional file `rlcd_panel/wifi_config.h`. Git ignores it. Copy `wifi_config.example.h` to create it. Without it, or with an empty SSID, the radio stays off. The password must have 8 to 63 characters, be a 64-digit hex key, or be empty (open network).
@@ -164,11 +164,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
   | `log_retention_months` | `0` | `0` to `120` | delete log files older than this; `0` keeps all |
 | `noise_alert_limit_db` | `0` | `0` (off) or `40` to `100` | loud noise alert trigger |
 | `chime_alert_mask` | `15` | `0` to `15` | chime per alert (bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost) |
+  | `ntp_sync_interval_h` | `24` | `6` to `168` | hours between two successful NTP syncs |
 
 - Equal start and end hours switch the quiet hours off. A lone CR is no line end: use LF or CRLF. The SPL offset has whole dB steps, so a fraction below 0.5 dB has no effect.
 - A card that does not mount keeps the previous settings on a `KEY` wakeup. A card without a usable file gives the defaults.
 - The release limits keep a fixed hysteresis: `+1.0 C` for the freezer alert and `-3 %RH` for the humidity alert. The extra SPL offset applies in memory only. A new microphone calibration never stores it.
-- The accepted values are part of `PersistentState` in RTC memory (state version 12). A corrupt or out-of-range record gives a clean start.
+- The accepted values are part of `PersistentState` in RTC memory (state version 14). A corrupt or out-of-range record gives a clean start.
 - The diagnostics view shows `CONFIG: SD` or `CONFIG: DEFAULT`.
 - Host tests cover valid values, comments, spaces, CRLF, missing keys, out-of-range and malformed values, duplicate keys, a file above 4 KB, the wiring into each consumer, and the RTC round trip with corrupt records.
 
@@ -313,10 +314,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `setup()` reads the cell before any module starts. While the latch is set, the wake cycle skips the BLE scan, the audio, the MicroSD card, Wi-Fi and the NTP sync. It only saves the RTC state and sleeps.
 - `DashboardView::renderEmptyBattery` draws the full-screen warning `BATTERY EMPTY - CHARGE NOW` once, in the cycle that sets the latch. The reflective panel keeps the image without power, so later cycles leave the display alone.
 - `PowerManager::planProtectedSleep` sleeps 3600 s (`PROTECTED_SLEEP_US`) with the `KEY` wakeup. The `KEY` wakeup stays off while the button is held. A `KEY` wakeup checks the voltage again.
-- The latch uses bit 3 (value 8) of the battery flags byte in RTC memory. The state version is 13. The old format gives a clean start. A power-on clears the latch and checks the cell again.
+- The latch uses bit 3 (value 8) of the battery flags byte in RTC memory. The state version is 13 (15 since `ntp_sync_interval_h`). The old format gives a clean start. A power-on clears the latch and checks the cell again.
 - The preview scene `display_preview_battery_empty` shows the warning at 3.29 V.
 - Host tests cover 3.29 V and 3.30 V, the hysteresis at 3.49 V and 3.50 V, USB power, an invalid reading, the module gate, the render-once rule, the 3600 s plan, the RTC round trip with a corrupt flag bit, and the preview scene.
 - Not verified: the awake time per hour on the board with a lab supply.
+- The new key `ntp_sync_interval_h` (default `24`, range `6` to `168` hours) is part of `config.ini` and of the RTC state (state version 16, the old format gives a clean start). A value outside the range or a malformed value is rejected, and the previous value stays.
+- `NtpSchedule::syncIntervalMs` replaces the fixed `SYNC_INTERVAL_MS`. `NtpSchedule::due` and `NtpSchedule::decide` take the interval in hours. The retry backoff after a failure (15 min, doubling up to 6 h) does not depend on the interval.
+- `syncNtpTime` passes `config().ntp_sync_interval_h`. A change in `config.ini` applies from the next power-on or `KEY` wakeup that reads the card.
+- Host tests cover the default, the edges `6` and `168`, out-of-range and malformed values, the schedule decision with 6 h and 168 h, the unchanged backoff, the RTC round trip, corrupt fields, and the old state version.
 
 ## 24-hour minimum and maximum records in the stats view
 
@@ -326,7 +331,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `HumidityHistory::range` and `TemperatureHistory::range` return the lowest and highest sample. They return `false` for fewer than 2 samples.
 - The stats view shows one line below each sensor block, for example `24H T-15.0 TO 5.0 H58-86`. The text gives the lowest and highest temperature in C, then the lowest and highest humidity in %RH. Each part shows `--` for fewer than 2 samples. The 5x7 font has no `/`, so the line uses `TO`. The longest text has 30 glyphs (360 px) and keeps the 8 px right margin.
 - The sensor blocks in the stats view now have a pitch of 72 px (`SENSOR_BLOCK_PITCH`), so the new lines fit above the noise line. The onboard sensor has no block in this view, so it shows no record line.
-- Each slot adds 50 bytes to the RTC state. The state version is 14. The old format gives a clean start. A ring with a count or head out of range, or a sample outside -100.0 C to +100.0 C, gives a clean start.
+- Each slot adds 50 bytes to the RTC state. The state version is 14 (16 since `ntp_sync_interval_h`). The old format gives a clean start. A ring with a count or head out of range, or a sample outside -100.0 C to +100.0 C, gives a clean start.
 - Host tests cover the minimum and maximum over 24+ samples, the drop of the oldest sample, negative temperatures (-15 C to 5 C), the encoding limits, skipped and stale samples, fewer than 2 samples, the text bounds, the RTC round trip with corrupt fields, and the old state version. `docs/display_preview_stats.png` shows the records.
 
 ## Chime selection for each alert in config.ini
@@ -334,5 +339,5 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The new key `chime_alert_mask` (default `15`, range `0` to `15`) is part of `config.ini`. Bit 0 is `ALERT_FREEZER`, bit 1 is `ALERT_HUMIDITY`, bit 2 is `ALERT_NOISE_HIGH`, and bit 3 is `ALERT_SENSOR_LOST`. A value above `15` or a malformed value is rejected, and the previous value stays.
 - A cleared bit suppresses the sound of this alert only. The alert state is still stored, so setting the bit again does not replay an old alert. Mute and quiet hours still suppress each chime.
 - `AlertEvaluator::chimeBits`, `step`, `climateStep` and `NoiseAlertEvaluator::step` take the mask as the last argument. The default is all bits set.
-- The mask adds one byte to the config trailer in RTC memory. The state version is 15. The old format gives a clean start. A mask above `15` is rejected, even with a valid CRC.
+- The mask adds one byte to the config trailer in RTC memory. The state version is 15 (16 since `ntp_sync_interval_h`). The old format gives a clean start. A mask above `15` is rejected, even with a valid CRC.
 - Host tests cover the default, each single bit, `0`, a combination, out-of-range values, mute and quiet hours, no replay after the bit is set again, and the RTC round trip.

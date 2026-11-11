@@ -33,6 +33,9 @@ struct DeviceConfig {
   static constexpr uint8_t MAX_NOISE_ALERT_LIMIT_DB = 100;
   static constexpr uint8_t DEFAULT_CHIME_ALERT_MASK = 15; // all four alerts may sound
   static constexpr uint8_t MAX_CHIME_ALERT_MASK = 15;
+  static constexpr uint8_t DEFAULT_NTP_SYNC_INTERVAL_H = 24;
+  static constexpr uint8_t MIN_NTP_SYNC_INTERVAL_H = 6;
+  static constexpr uint8_t MAX_NTP_SYNC_INTERVAL_H = 168;
 
   float temp_offset_c = DEFAULT_TEMP_OFFSET_C;
   float freeze_alert_limit_c = DEFAULT_FREEZE_ALERT_LIMIT_C;
@@ -44,6 +47,7 @@ struct DeviceConfig {
   uint8_t log_retention_months = DEFAULT_LOG_RETENTION_MONTHS; // log files older than this are deleted
   uint8_t noise_alert_limit_db = DEFAULT_NOISE_ALERT_LIMIT_DB; // 0 = off, else 40..100 dB
   uint8_t chime_alert_mask = DEFAULT_CHIME_ALERT_MASK; // bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost
+  uint8_t ntp_sync_interval_h = DEFAULT_NTP_SYNC_INTERVAL_H; // hours between two successful NTP syncs, 6..168
 
   static bool inRange(float v, float lo, float hi) {
     return v >= lo && v <= hi; // false for NaN
@@ -59,7 +63,8 @@ struct DeviceConfig {
            inRange(mic_spl_offset_db, MIN_MIC_SPL_OFFSET_DB, MAX_MIC_SPL_OFFSET_DB) &&
            log_retention_months <= MAX_LOG_RETENTION_MONTHS && chime_alert_mask <= MAX_CHIME_ALERT_MASK &&
            (noise_alert_limit_db == 0 ||
-            (noise_alert_limit_db >= MIN_NOISE_ALERT_LIMIT_DB && noise_alert_limit_db <= MAX_NOISE_ALERT_LIMIT_DB));
+            (noise_alert_limit_db >= MIN_NOISE_ALERT_LIMIT_DB && noise_alert_limit_db <= MAX_NOISE_ALERT_LIMIT_DB)) &&
+           ntp_sync_interval_h >= MIN_NTP_SYNC_INTERVAL_H && ntp_sync_interval_h <= MAX_NTP_SYNC_INTERVAL_H;
   }
 
   bool isDefault() const {
@@ -69,7 +74,8 @@ struct DeviceConfig {
            quiet_hours_start_hour == d.quiet_hours_start_hour &&
            quiet_hours_end_hour == d.quiet_hours_end_hour && mic_spl_offset_db == d.mic_spl_offset_db &&
            log_retention_months == d.log_retention_months && noise_alert_limit_db == d.noise_alert_limit_db &&
-           chime_alert_mask == d.chime_alert_mask;
+           chime_alert_mask == d.chime_alert_mask &&
+           ntp_sync_interval_h == d.ntp_sync_interval_h;
   }
 };
 
@@ -263,6 +269,10 @@ private:
     } else if (keyIs(key, key_len, "chime_alert_mask")) {
       index = 9;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_CHIME_ALERT_MASK, cfg.chime_alert_mask);
+    } else if (keyIs(key, key_len, "ntp_sync_interval_h")) {
+      index = 10;
+      ok = parseIntIn(val, val_len, DeviceConfig::MIN_NTP_SYNC_INTERVAL_H, DeviceConfig::MAX_NTP_SYNC_INTERVAL_H,
+                      cfg.ntp_sync_interval_h);
     }
     if (index < 0) {
       return; // unknown key

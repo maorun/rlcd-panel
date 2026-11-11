@@ -171,10 +171,10 @@ enum class NtpDecision : uint8_t {
 };
 
 // When to try a sync. The policy never blocks a wake cycle and keeps the radio off whenever it
-// can: one attempt per 24 h after a success, and a doubling backoff after a failure.
+// can: one attempt per configured interval (default 24 h) after a success, and a doubling backoff after a failure.
 class NtpSchedule {
 public:
-  static constexpr uint32_t SYNC_INTERVAL_MS = 86400000;  // 24 h
+  static constexpr uint32_t MS_PER_HOUR = 3600000;
   static constexpr uint32_t RETRY_BASE_MS = 900000;       // 15 min after the first failure
   static constexpr uint32_t RETRY_MAX_MS = 21600000;      // 6 h
   static constexpr uint8_t MAX_FAILURES = 16;
@@ -208,6 +208,11 @@ public:
     return true;
   }
 
+  // Time between two successful syncs. The caller passes DeviceConfig::ntp_sync_interval_h (6..168).
+  static uint32_t syncIntervalMs(uint8_t interval_h) {
+    return static_cast<uint32_t>(interval_h) * MS_PER_HOUR;
+  }
+
   // Delay before the next attempt after `failures` failures in a row: 15 min, 30 min, ... 6 h.
   static uint32_t retryDelayMs(uint8_t failures) {
     if (failures == 0) {
@@ -221,21 +226,21 @@ public:
   }
 
   // Unsigned subtraction survives clock wrap-around and a clock reset (both give an early try).
-  static bool due(const NtpSyncState& s, uint32_t now_ms) {
+  static bool due(const NtpSyncState& s, uint32_t now_ms, uint8_t interval_h) {
     if (!s.has_attempted) {
       return true;
     }
     const uint32_t elapsed = static_cast<uint32_t>(now_ms - s.last_attempt_ms);
-    return elapsed >= (s.last_ok ? SYNC_INTERVAL_MS : retryDelayMs(s.failures));
+    return elapsed >= (s.last_ok ? syncIntervalMs(interval_h) : retryDelayMs(s.failures));
   }
 
   static NtpDecision decide(const NtpSyncState& s, uint32_t now_ms, bool key_wakeup,
-                            bool credentials, bool rtc_present, bool battery_low) {
+                            bool credentials, bool rtc_present, bool battery_low, uint8_t interval_h) {
     if (key_wakeup) return NtpDecision::SKIP_KEY_WAKEUP; // the user waits for the redraw
     if (!credentials) return NtpDecision::SKIP_NO_CREDENTIALS;
     if (!rtc_present) return NtpDecision::SKIP_NO_RTC;
     if (battery_low) return NtpDecision::SKIP_LOW_BATTERY;
-    if (!due(s, now_ms)) return NtpDecision::SKIP_NOT_DUE;
+    if (!due(s, now_ms, interval_h)) return NtpDecision::SKIP_NOT_DUE;
     return NtpDecision::ATTEMPT;
   }
 
