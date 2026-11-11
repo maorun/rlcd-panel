@@ -171,6 +171,7 @@ quiet_hours_end_hour=7
 mic_spl_offset_db=0.0
 log_retention_months=0
 noise_alert_limit_db=0
+chime_alert_mask=15
 ```
 
 A value that is missing, malformed, or outside its range keeps the default. The file limit is 4096 bytes. Use LF or CRLF line ends. Equal start and end hours switch the quiet hours off. Wi-Fi credentials never come from the card. The ranges are in `FEATURES.md`.

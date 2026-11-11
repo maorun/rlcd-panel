@@ -34,12 +34,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 
-- [ ] Chime selection for each alert in config.ini
-  - Rank: [Total: 27, Use: 5, Setup: 6, Harmony: 7, Safety: 9, Effort: S]
-  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`.
-  - Goal: Let the user switch off the chime of one alert and keep the others. Add the key `chime_alert_mask` (default `15`, range `0` to `15`) to `config.ini`. Bit 0 is `ALERT_FREEZER`, bit 1 is `ALERT_HUMIDITY`, bit 2 is `ALERT_NOISE_HIGH`, and bit 3 is `ALERT_SENSOR_LOST`. A cleared bit suppresses the sound only. The alert state is still tracked, so setting the bit again does not replay an old alert.
-  - Acceptance test: Host tests cover the default, each single bit, `0`, out-of-range values, the combination with mute and quiet hours, no replay after the bit is set again, and the RTC round trip.
-
 - [ ] Battery charge cycle counter in the diagnostics view
   - Rank: [Total: 26, Use: 4, Setup: 7, Harmony: 7, Safety: 8, Effort: M]
   - Location: `rlcd_panel/battery_monitor.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.

@@ -1807,7 +1807,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 14);
+  assert(PowerManager::STATE_VERSION == 15);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -2242,7 +2242,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 14);
+  assert(PowerManager::STATE_VERSION == 15);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3821,7 +3821,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 14);
+  assert(PowerManager::STATE_VERSION == 15);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6625,7 +6625,7 @@ void testNoiseAlertStatePersistence() {
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - 2;
+  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - 3;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -6642,6 +6642,91 @@ void testNoiseAlertStatePersistence() {
   const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
   for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
+}
+
+void testChimeAlertMask() {
+  using E = AlertEvaluator;
+  using N = NoiseAlertEvaluator;
+  const uint8_t bits[] = {ALERT_FREEZER, ALERT_HUMIDITY, ALERT_NOISE_HIGH, ALERT_SENSOR_LOST};
+  const QuietHoursWindow w = QuietHoursWindow::fromHours(22, 7);
+  // Default: all four chimes are on
+  ConfigParseResult r;
+  assert(DeviceConfig{}.chime_alert_mask == 15 && parseText("", &r).chime_alert_mask == 15);
+  assert(PersistentState{}.config.chime_alert_mask == 15 && DeviceConfig{}.isDefault());
+  for (uint8_t b : bits) {
+    assert(E::chimeBits(false, ALERT_NONE, b, false, 15) == b);
+  }
+  // Each single bit sounds only its own alert
+  for (uint8_t m : bits) {
+    for (uint8_t b : bits) {
+      assert(E::chimeBits(false, ALERT_NONE, b, false, m) == (b == m ? b : ALERT_NONE));
+    }
+  }
+  // Combination and zero
+  assert(E::chimeBits(false, ALERT_NONE, ALERT_MASK_ALL, false, ALERT_FREEZER | ALERT_NOISE_HIGH) ==
+         (ALERT_FREEZER | ALERT_NOISE_HIGH));
+  assert(E::chimeBits(false, ALERT_NONE, ALERT_MASK_ALL, false, 0) == ALERT_NONE);
+  // The mask is stored although the sound is off
+  E::Step st = E::step(false, ALERT_NONE, ALERT_FREEZER | ALERT_SENSOR_LOST, false, ALERT_FREEZER);
+  assert(st.mask == (ALERT_FREEZER | ALERT_SENSOR_LOST) && st.chime == ALERT_FREEZER);
+  st = E::climateStep(false, ALERT_NOISE_HIGH, ALERT_HUMIDITY, false, 0);
+  assert(st.mask == (ALERT_NOISE_HIGH | ALERT_HUMIDITY) && st.chime == ALERT_NONE);
+  st = N::step(false, ALERT_NONE, true, 90, 80, false, 0);
+  assert(st.mask == ALERT_NOISE_HIGH && st.chime == ALERT_NONE);
+  st = N::step(false, ALERT_NONE, true, 90, 80, false, ALERT_NOISE_HIGH);
+  assert(st.chime == ALERT_NOISE_HIGH);
+  // Mute and quiet hours still win over a set bit
+  assert(E::step(true, ALERT_NONE, ALERT_FREEZER, false, 15).chime == ALERT_NONE);
+  assert(E::step(false, ALERT_NONE, ALERT_FREEZER, w.isActive(makeRtc(23, 0)), 15).chime == ALERT_NONE);
+  assert(E::step(false, ALERT_NONE, ALERT_FREEZER, w.isActive(makeRtc(12, 0)), 15).chime == ALERT_FREEZER);
+  // No replay after the bit is set again
+  st = E::step(false, ALERT_NONE, ALERT_HUMIDITY, false, 0);
+  assert(st.chime == ALERT_NONE);
+  assert(E::step(false, st.mask, ALERT_HUMIDITY, false, 15).chime == ALERT_NONE);
+  // A new edge after the bit is set again sounds
+  st = E::step(false, st.mask, ALERT_NONE, false, 15);
+  assert(E::step(false, st.mask, ALERT_HUMIDITY, false, 15).chime == ALERT_HUMIDITY);
+  // Parser: valid values, range and rejection
+  for (int v = 0; v <= 15; ++v) {
+    char line[40];
+    snprintf(line, sizeof(line), "chime_alert_mask=%d\n", v);
+    assert(parseText(line, &r).chime_alert_mask == v && r.keys_set == 1 && r.rejected == 0);
+  }
+  const char* bad[] = {"chime_alert_mask=16\n", "chime_alert_mask=255\n", "chime_alert_mask=-1\n",
+                       "chime_alert_mask=abc\n", "chime_alert_mask=3.5\n", "chime_alert_mask=\n"};
+  for (const char* t : bad) {
+    const DeviceConfig c = parseText(t, &r);
+    assert(c.chime_alert_mask == 15 && r.rejected == 1 && r.keys_set == 0);
+  }
+  assert(parseText("chime_alert_mask=5\nchime_alert_mask=99\n", &r).chime_alert_mask == 5 && r.rejected == 1);
+  DeviceConfig inv;
+  inv.chime_alert_mask = 16;
+  assert(!inv.valid());
+  inv.chime_alert_mask = 0;
+  assert(inv.valid() && !inv.isDefault());
+  // RTC round trip for every value
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  for (int v = 0; v <= 15; ++v) {
+    PersistentState s;
+    s.config.chime_alert_mask = static_cast<uint8_t>(v);
+    PersistentState out;
+    assert(PowerManager::serialize(s, buf, sizeof(buf)));
+    assert(PowerManager::deserialize(buf, sizeof(buf), out) && out.config.chime_alert_mask == v);
+  }
+  // An out-of-range byte is rejected even with a valid CRC
+  PersistentState s;
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  uint8_t badbuf[PowerManager::SERIALIZED_SIZE];
+  memcpy(badbuf, buf, sizeof(badbuf));
+  badbuf[PowerManager::SERIALIZED_SIZE - 4 - 2] = 16;
+  const uint32_t crc = PowerManager::crc32(badbuf, sizeof(badbuf) - 4);
+  for (int i = 0; i < 4; ++i) badbuf[sizeof(badbuf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  PersistentState out;
+  assert(!PowerManager::deserialize(badbuf, sizeof(badbuf), out));
+  // An old record version is rejected
+  memcpy(badbuf, buf, sizeof(badbuf));
+  badbuf[4] = PowerManager::STATE_VERSION - 1;
+  assert(!PowerManager::deserialize(badbuf, sizeof(badbuf), out));
 }
 
 void testNoiseAlertStepWiring() {
@@ -6902,6 +6987,7 @@ int main() {
   testNoiseAlertConfigKey();
   testNoiseAlertStepWiring();
   testNoiseAlertStatePersistence();
+  testChimeAlertMask();
   testNtpEpochToCalendar();
   testNtpTimezoneDst();
   testNtpRegisterEncoding();

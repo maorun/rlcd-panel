@@ -163,6 +163,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
   | `mic_spl_offset_db` | `0.0` | `-20.0` to `20.0` | added to the microphone SPL offset |
   | `log_retention_months` | `0` | `0` to `120` | delete log files older than this; `0` keeps all |
 | `noise_alert_limit_db` | `0` | `0` (off) or `40` to `100` | loud noise alert trigger |
+| `chime_alert_mask` | `15` | `0` to `15` | chime per alert (bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost) |
 
 - Equal start and end hours switch the quiet hours off. A lone CR is no line end: use LF or CRLF. The SPL offset has whole dB steps, so a fraction below 0.5 dB has no effect.
 - A card that does not mount keeps the previous settings on a `KEY` wakeup. A card without a usable file gives the defaults.
@@ -327,3 +328,11 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The sensor blocks in the stats view now have a pitch of 72 px (`SENSOR_BLOCK_PITCH`), so the new lines fit above the noise line. The onboard sensor has no block in this view, so it shows no record line.
 - Each slot adds 50 bytes to the RTC state. The state version is 14. The old format gives a clean start. A ring with a count or head out of range, or a sample outside -100.0 C to +100.0 C, gives a clean start.
 - Host tests cover the minimum and maximum over 24+ samples, the drop of the oldest sample, negative temperatures (-15 C to 5 C), the encoding limits, skipped and stale samples, fewer than 2 samples, the text bounds, the RTC round trip with corrupt fields, and the old state version. `docs/display_preview_stats.png` shows the records.
+
+## Chime selection for each alert in config.ini
+
+- The new key `chime_alert_mask` (default `15`, range `0` to `15`) is part of `config.ini`. Bit 0 is `ALERT_FREEZER`, bit 1 is `ALERT_HUMIDITY`, bit 2 is `ALERT_NOISE_HIGH`, and bit 3 is `ALERT_SENSOR_LOST`. A value above `15` or a malformed value is rejected, and the previous value stays.
+- A cleared bit suppresses the sound of this alert only. The alert state is still stored, so setting the bit again does not replay an old alert. Mute and quiet hours still suppress each chime.
+- `AlertEvaluator::chimeBits`, `step`, `climateStep` and `NoiseAlertEvaluator::step` take the mask as the last argument. The default is all bits set.
+- The mask adds one byte to the config trailer in RTC memory. The state version is 15. The old format gives a clean start. A mask above `15` is rejected, even with a valid CRC.
+- Host tests cover the default, each single bit, `0`, a combination, out-of-range values, mute and quiet hours, no replay after the bit is set again, and the RTC round trip.
