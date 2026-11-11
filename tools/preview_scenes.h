@@ -105,6 +105,7 @@ inline void renderScene(
   MicCalibration::fromFloor(100, MicCalibration::DEFAULT_SPL_OFFSET_DB, info.mic_cal);
   info.noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 650, info.mic_cal);
   info.quiet_hours = quiet_hours;
+  info.config_from_sd = true;
 
   DashboardView::renderMode(
       fb,

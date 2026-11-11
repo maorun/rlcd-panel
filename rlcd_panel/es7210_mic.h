@@ -116,6 +116,20 @@ struct MicCalibration {
     return true;
   }
 
+  // Copy with `extra_db` (config.ini) added to the offset, rounded and clamped to the valid range.
+  // The offset has whole dB steps, so a fraction below 0.5 dB has no effect. The stored record keeps
+  // its own offset, so a later calibration never saves the extra value.
+  MicCalibration withExtraOffset(float extra_db) const {
+    MicCalibration c = *this;
+    if (extra_db != extra_db) {
+      return c; // NaN
+    }
+    float v = static_cast<float>(spl_offset_db) + extra_db;
+    v = v < MIN_SPL_OFFSET_DB ? MIN_SPL_OFFSET_DB : (v > MAX_SPL_OFFSET_DB ? MAX_SPL_OFFSET_DB : v);
+    c.spl_offset_db = static_cast<int16_t>(v < 0 ? v - 0.5f : v + 0.5f);
+    return c;
+  }
+
   // dB SPL of an RMS value: dBFS plus the offset, clamped to SPL_MIN_DB..SPL_MAX_DB. The value is
   // unweighted: no A-weighting filter runs, so the "DBA" label is an approximation.
   int splDb(uint16_t rms) const {

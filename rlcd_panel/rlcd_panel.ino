@@ -12,6 +12,7 @@
 #include "battery_monitor.h"
 #include "button_handler.h"
 #include "dashboard_view.h"
+#include "device_config.h"
 #include "es7210_mic.h"
 #include "ntp_sync.h"
 #include "pcf85063_rtc.h"
@@ -32,7 +33,6 @@ PersistentState g_state; // registry, battery, and view mode; saved to RTC memor
 portMUX_TYPE g_registry_mux = portMUX_INITIALIZER_UNLOCKED;
 Pcf85063Rtc g_rtc;
 RtcTime g_rtc_time;
-const QuietHoursWindow QUIET_HOURS; // default 22:00..07:00 local RTC time
 Shtc3Reading g_onboard_reading;
 BLEScan* g_ble_scan = nullptr;
 DisplayModeController g_mode_controller;
@@ -43,6 +43,19 @@ bool g_noise_attempted = false; // a failed window is not retried in the same wa
 MicCalibration g_mic_cal;       // loaded from NVS in setup(); the default when absent or corrupt
 bool g_mic_cal_busy = false;    // the 10 s calibration window runs
 bool g_mic_cal_failed = false;  // the last calibration of this wake cycle was rejected
+
+const DeviceConfig& config() {
+  return g_state.config;
+}
+
+QuietHoursWindow quietHours() {
+  return QuietHoursWindow::fromHours(config().quiet_hours_start_hour, config().quiet_hours_end_hour);
+}
+
+// The stored calibration plus the SPL offset from config.ini.
+MicCalibration activeMicCal() {
+  return g_mic_cal.withExtraOffset(config().mic_spl_offset_db);
+}
 
 // After a render the board stays awake this long so more KEY presses can cycle the view
 // without a new wakeup.
@@ -140,7 +153,7 @@ bool readOnboardShtc3(Shtc3Reading& out) {
   if (received != 6) {
     return false;
   }
-  return Shtc3Codec::decodeFrame(frame, sizeof(frame), out);
+  return Shtc3Codec::decodeFrame(frame, sizeof(frame), out, config().temp_offset_c);
 }
 
 void updateRtc() {
@@ -183,7 +196,7 @@ void measureNoiseOnce() {
   }
   g_noise_attempted = true;
   Es7210Hal hal;
-  g_noise = NoiseSampler::measure(hal, g_state.noise_band, NoiseSampler::WINDOW_MS, g_mic_cal);
+  g_noise = NoiseSampler::measure(hal, g_state.noise_band, NoiseSampler::WINDOW_MS, activeMicCal());
   if (g_noise.valid) {
     g_state.noise_band = g_noise.band;
   } else {
@@ -207,10 +220,11 @@ void renderDashboard() {
   // System time since power-on. A reset that keeps the RTC clock does not restart it.
   info.uptime_ms = PowerPlatform::clockMs64();
   info.noise = g_noise;
-  info.mic_cal = g_mic_cal;
+  info.mic_cal = activeMicCal();
+  info.config_from_sd = g_state.config_from_sd;
   info.mic_cal_busy = g_mic_cal_busy;
   info.mic_cal_failed = g_mic_cal_failed;
-  info.quiet_hours = QUIET_HOURS.isActive(g_rtc_time);
+  info.quiet_hours = quietHours().isActive(g_rtc_time);
 
   DashboardView::renderMode(
       g_framebuffer,
@@ -334,6 +348,31 @@ void logToSdCard() {
   }
 }
 
+AlertLimits alertLimits() {
+  AlertLimits limits;
+  limits.freezer_trigger_c = config().freeze_alert_limit_c;
+  limits.humidity_trigger_pct = static_cast<float>(config().mold_alert_limit_rh);
+  return limits;
+}
+
+// Reads /sdcard/config.ini on power-on and on a KEY wakeup, and keeps the result in the RTC state.
+// A timer wakeup reuses the stored copy, so the card stays unmounted there. A card without a usable
+// file gives the defaults. A card that does not mount keeps the previous settings, so a transient
+// error never resets them; after a power-on they are the defaults anyway. This runs before the
+// first sensor read, so the offset applies at once.
+void loadConfigFromCard(WakeupCause cause) {
+  if (!PowerManager::needsConfigLoad(cause)) {
+    return;
+  }
+  DeviceConfig loaded;
+  const SdConfigResult result = SdLogger::loadConfig(loaded);
+  if (result == SdConfigResult::NO_CARD) {
+    return;
+  }
+  g_state.config = loaded;
+  g_state.config_from_sd = result == SdConfigResult::LOADED;
+}
+
 // Evaluates the climate thresholds and sounds a chime for each alert that switched on. The mask
 // is stored even while muted or in quiet hours, so unmuting or the end of the quiet hours never
 // replays an old alert. The amplifier is off again
@@ -344,14 +383,14 @@ void chimeOnAlerts() {
     snapshot[i] = g_state.registry.slot(i);
   }
   const uint8_t current = AlertEvaluator::evaluate(
-      g_state.alert_mask, g_onboard_reading, snapshot, MAX_SWITCHBOT_SENSORS, nowMs());
+      g_state.alert_mask, g_onboard_reading, snapshot, MAX_SWITCHBOT_SENSORS, nowMs(), alertLimits());
   // Quiet hours suppress the sound only. The mask below is stored, so no chime replays later.
-  const bool quiet = QUIET_HOURS.isActive(g_rtc_time);
+  const bool quiet = quietHours().isActive(g_rtc_time);
   const uint8_t bits = AlertEvaluator::chimeBits(g_state.muted, g_state.alert_mask, current, quiet);
   g_state.alert_mask = current;
   if (bits != ALERT_NONE) {
     Es8311Hal hal;
-    if (!AudioSequencer::play(hal, bits, ChimeSynth::DEFAULT_VOLUME_PCT)) {
+    if (!AudioSequencer::play(hal, bits, config().chime_volume_pct)) {
       Serial.println("Chime failed");
     }
   }
@@ -380,6 +419,7 @@ void setup() {
   g_mode_controller.setMode(g_state.mode);
   g_mic_cal = MicCalibrationStore::load();
   ++g_state.boot_count;
+  loadConfigFromCard(cause);
 
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   g_rtc.begin(Wire);
@@ -423,7 +463,7 @@ void setup() {
       g_state.muted = !g_state.muted;
       if (!g_state.muted) {
         Es8311Hal hal;
-        AudioSequencer::playConfirm(hal, ChimeSynth::DEFAULT_VOLUME_PCT);
+        AudioSequencer::playConfirm(hal, config().chime_volume_pct);
       }
     }
     boot_was_down = boot_down;

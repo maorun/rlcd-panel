@@ -23,11 +23,25 @@ constexpr uint8_t ALERT_FREEZER = 1;  // a sensor reads below the freezer limit
 constexpr uint8_t ALERT_HUMIDITY = 2; // a sensor reads above the mold risk limit
 constexpr uint8_t ALERT_MASK_ALL = ALERT_FREEZER | ALERT_HUMIDITY;
 
+// Alert trigger limits. The release limits follow with a fixed hysteresis, so the settings from the
+// card give a trigger limit only.
+struct AlertLimits {
+  static constexpr float FREEZER_HYSTERESIS_C = 1.0f;
+  static constexpr float HUMIDITY_HYSTERESIS_PCT = 3.0f;
+
+  float freezer_trigger_c = 0.0f;
+  float humidity_trigger_pct = 70.0f;
+
+  float freezerReleaseC() const { return freezer_trigger_c + FREEZER_HYSTERESIS_C; }
+  float humidityReleasePct() const { return humidity_trigger_pct - HUMIDITY_HYSTERESIS_PCT; }
+};
+
 // Decoupled threshold evaluator. It has no hardware dependency, so the host tests build it.
 // Each alert has a trigger limit and a release limit (hysteresis), so a reading at the limit
 // does not chime on every wake cycle.
 class AlertEvaluator {
 public:
+  // Default limits; AlertLimits carries the values of config.ini.
   static constexpr float FREEZER_TRIGGER_C = 0.0f;   // alert below this temperature
   static constexpr float FREEZER_RELEASE_C = 1.0f;   // clear at or above this temperature
   static constexpr float HUMIDITY_TRIGGER_PCT = 70.0f; // alert above this humidity (mold risk)
@@ -42,8 +56,10 @@ public:
       const Shtc3Reading& onboard,
       const SwitchBotReading* slots,
       size_t slot_count,
-      uint32_t now_ms) {
+      uint32_t now_ms,
+      const AlertLimits& limits = AlertLimits{}) {
     Tally tally;
+    tally.limits = limits;
     if (onboard.valid) {
       tally.add(onboard.temperature_c, onboard.humidity_pct);
     }
@@ -79,6 +95,7 @@ public:
 
 private:
   struct Tally {
+    AlertLimits limits;
     bool cold_trigger = false;
     bool cold_hold = false;
     bool humid_trigger = false;
@@ -90,12 +107,12 @@ private:
       have_temperature = have_temperature || !isnan(temperature_c);
       have_humidity = have_humidity || !isnan(humidity_pct);
       if (!isnan(temperature_c)) {
-        cold_trigger = cold_trigger || temperature_c < FREEZER_TRIGGER_C;
-        cold_hold = cold_hold || temperature_c < FREEZER_RELEASE_C;
+        cold_trigger = cold_trigger || temperature_c < limits.freezer_trigger_c;
+        cold_hold = cold_hold || temperature_c < limits.freezerReleaseC();
       }
       if (!isnan(humidity_pct)) {
-        humid_trigger = humid_trigger || humidity_pct > HUMIDITY_TRIGGER_PCT;
-        humid_hold = humid_hold || humidity_pct > HUMIDITY_RELEASE_PCT;
+        humid_trigger = humid_trigger || humidity_pct > limits.humidity_trigger_pct;
+        humid_hold = humid_hold || humidity_pct > limits.humidityReleasePct();
       }
     }
   };
@@ -109,6 +126,13 @@ struct QuietHoursWindow {
   uint8_t start_minute = 0;
   uint8_t end_hour = 7;
   uint8_t end_minute = 0;
+
+  static QuietHoursWindow fromHours(uint8_t start_hour, uint8_t end_hour) {
+    QuietHoursWindow w;
+    w.start_hour = start_hour;
+    w.end_hour = end_hour;
+    return w;
+  }
 
   // False for an out-of-range time or window bound, so a corrupt value never suppresses a chime.
   bool isInQuietHours(uint8_t hour, uint8_t minute) const {

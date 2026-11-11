@@ -120,3 +120,29 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The calibration takes about 11 s. `KEY` presses during it are not seen. A pending press keeps the 3 s grace window open until the release or the 2 s limit.
 - The diagnostics view shows `NOISE: <BAND> <dB> DBA` with a calibration, or `NOISE: <BAND> <dB> DBFS` without. The widest line is 288 px. The new line `MIC CAL: OK`, `DEFAULT`, `MEASURING`, or `FAILED` is at y = 244.
 - Host tests cover the conversion and the clamp, the derived limits with hysteresis, the long press and short press edges (2 s limit, wrap-around), the serialization with every flipped bit, the apply decision, and the line widths.
+
+## Configurable thresholds and settings from the MicroSD card
+
+- **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/es7210_mic.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`.
+- The firmware reads an optional `/sdcard/config.ini` with `key=value` lines on power-on and on a `KEY` wakeup. A timer wakeup does not mount the card. It uses the copy in RTC memory.
+- `DeviceConfigParser` has no Arduino dependency. A line that starts with `#` or `;` is a comment. Spaces, tabs, CRLF line ends, and a UTF-8 byte order mark are accepted. Key names are case sensitive. The parser ignores unknown keys.
+- A missing, malformed, or out-of-range value keeps the default. The last valid line of a key wins. An invalid later line does not replace an earlier valid value.
+- The parser rejects a file above 4096 bytes as a whole. The card never supplies Wi-Fi credentials. Those keys are unknown keys.
+- Keys, defaults, and ranges:
+
+  | Key | Default | Range | Used by |
+  | --- | --- | --- | --- |
+  | `temp_offset_c` | `-1.9` | `-10.0` to `10.0` | `SHTC3` decoder |
+  | `freeze_alert_limit_c` | `0.0` | `-20.0` to `15.0` | freezer alert trigger |
+  | `mold_alert_limit_rh` | `70` | `40` to `95` | humidity alert trigger |
+  | `chime_volume_pct` | `30` | `0` to `100` | chimes and the unmute beep |
+  | `quiet_hours_start_hour` | `22` | `0` to `23` | quiet hours start |
+  | `quiet_hours_end_hour` | `7` | `0` to `23` | quiet hours end |
+  | `mic_spl_offset_db` | `0.0` | `-20.0` to `20.0` | added to the microphone SPL offset |
+
+- Equal start and end hours switch the quiet hours off. A lone CR is no line end: use LF or CRLF. The SPL offset has whole dB steps, so a fraction below 0.5 dB has no effect.
+- A card that does not mount keeps the previous settings on a `KEY` wakeup. A card without a usable file gives the defaults.
+- The release limits keep a fixed hysteresis: `+1.0 C` for the freezer alert and `-3 %RH` for the humidity alert. The extra SPL offset applies in memory only. A new microphone calibration never stores it.
+- The accepted values are part of `PersistentState` in RTC memory (state version 6). A corrupt or out-of-range record gives a clean start.
+- The diagnostics view shows `CONFIG: SD` or `CONFIG: DEFAULT`.
+- Host tests cover valid values, comments, spaces, CRLF, missing keys, out-of-range and malformed values, duplicate keys, a file above 4 KB, the wiring into each consumer, and the RTC round trip with corrupt records.

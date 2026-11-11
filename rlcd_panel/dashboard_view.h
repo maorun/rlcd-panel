@@ -22,6 +22,7 @@ struct SystemInfo {
   bool mic_cal_busy = false; // the calibration window is running
   bool mic_cal_failed = false; // the last calibration of this wake cycle was rejected
   bool quiet_hours = false; // chimes are suppressed now; the header shows "Q"
+  bool config_from_sd = false; // true: settings come from /sdcard/config.ini
 };
 
 class DashboardView {
@@ -400,6 +401,9 @@ public:
                           : (info.mic_cal_failed ? "FAILED"
                                                  : (info.mic_cal.calibrated ? "OK" : "DEFAULT")));
     drawLine(fb, 10, 244, line);
+
+    snprintf(line, sizeof(line), "CONFIG: %s", info.config_from_sd ? "SD" : "DEFAULT");
+    drawLine(fb, 10, 272, line);
   }
 
   static void renderMode(
