@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] MicroSD log dump over USB serial
-  - Rank: [Total: 35, Use: 9, Setup: 9, Harmony: 8, Safety: 9, Effort: M]
-  - Location: new `rlcd_panel/serial_console.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, new `scripts/dump-logs.sh`.
-  - Goal: Read the CSV logs without removing the MicroSD card. Add a line-based command parser without Arduino dependency (`LIST`, `DUMP <file>`, `INFO`). Accept commands only on USB power, while the board is awake. Reject file names that do not match `climate_v2_YYYYMM.csv`. Mount the card for one command and unmount it after the command. Send each file with a start line, the byte count, and a CRC-32 end line. Add `scripts/dump-logs.sh`, which sends the commands and writes the files into an ignored local directory.
-  - Acceptance test: Host tests cover the parser with valid, unknown, too long and path-traversal commands, and the frame with the byte count and the CRC-32. On the board with USB power, `./scripts/dump-logs.sh` copies each monthly file, and the CRC-32 agrees with the file on the card. On battery power, the board ignores the commands and its awake time does not increase.
-
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
 - [ ] BTHome v2 sensor support

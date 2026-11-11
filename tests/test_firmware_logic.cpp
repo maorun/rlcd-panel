@@ -4,6 +4,7 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <string>
 #include <vector>
 
 #include "../rlcd_panel/audio_alert.h"
@@ -20,6 +21,7 @@
 #include "../rlcd_panel/pcf85063_rtc.h"
 #include "../rlcd_panel/power_manager.h"
 #include "../rlcd_panel/sd_logger.h"
+#include "../rlcd_panel/serial_console.h"
 #include "../rlcd_panel/shtc3_sensor.h"
 #include "../rlcd_panel/sparkline.h"
 #include "../rlcd_panel/st7305_framebuffer.h"
@@ -5289,6 +5291,359 @@ void testPreviewRuntimeScene() {
   assert(found);
 }
 
+// ---- USB serial console ----
+
+namespace {
+
+struct FakeConsoleStorage {
+  std::vector<SerialLogEntry> entries;
+  std::vector<std::string> contents;
+  bool card = true;
+  int mounts = 0;
+  int unmounts = 0;
+  bool open = false;
+  size_t pos = 0;
+  size_t index = 0;
+  size_t max_read = 1000;
+  bool fail_read = false;
+
+  bool mount() {
+    ++mounts;
+    return card;
+  }
+  void unmount() { ++unmounts; }
+  size_t listLogs(SerialLogEntry* out, size_t cap) {
+    size_t n = 0;
+    for (const SerialLogEntry& e : entries) {
+      if (n < cap) {
+        out[n++] = e;
+      }
+    }
+    return n;
+  }
+  bool openLog(const char* name, uint32_t& size) {
+    for (size_t i = 0; i < entries.size(); ++i) {
+      if (strcmp(entries[i].name, name) == 0) {
+        open = true;
+        pos = 0;
+        index = i;
+        size = static_cast<uint32_t>(contents[i].size());
+        return true;
+      }
+    }
+    return false;
+  }
+  size_t read(uint8_t* out, size_t len) {
+    if (fail_read) {
+      return 0;
+    }
+    const size_t n = std::min(std::min(len, max_read), contents[index].size() - pos);
+    memcpy(out, contents[index].data() + pos, n);
+    pos += n;
+    return n;
+  }
+  void closeLog() { open = false; }
+  uint64_t totalBytes() { return 1000; }
+  uint64_t usedBytes() { return 250; }
+
+  void add(const char* name, const std::string& data) {
+    SerialLogEntry e;
+    snprintf(e.name, sizeof(e.name), "%s", name);
+    e.size = static_cast<uint32_t>(data.size());
+    entries.push_back(e);
+    contents.push_back(data);
+  }
+};
+
+struct FakeSink {
+  std::string out;
+  size_t limit = static_cast<size_t>(-1); // bytes the sink still accepts
+  size_t write(const uint8_t* d, size_t n) {
+    const size_t take = n < limit ? n : limit;
+    out.append(reinterpret_cast<const char*>(d), take);
+    limit -= take;
+    return take;
+  }
+};
+
+SerialParseStatus parseText(const std::string& s, SerialCommand& cmd) {
+  return SerialConsole::parse(s.data(), s.size(), cmd);
+}
+
+using TestRunner = SerialConsoleRunner<FakeConsoleStorage, FakeSink>;
+
+} // namespace
+
+void testSerialCrc32KnownVectors() {
+  SerialCrc32 empty;
+  assert(empty.value() == 0x00000000u);
+  SerialCrc32 check;
+  check.update(reinterpret_cast<const uint8_t*>("123456789"), 9);
+  assert(check.value() == 0xCBF43926u); // standard CRC-32 check value
+  SerialCrc32 split;
+  split.update(reinterpret_cast<const uint8_t*>("1234"), 4);
+  split.update(reinterpret_cast<const uint8_t*>("56789"), 5);
+  assert(split.value() == 0xCBF43926u);
+}
+
+void testSerialFileNameValidation() {
+  assert(SdLogCodec::isLogFileName("climate_v2_202611.csv"));
+  assert(SdLogCodec::isLogFileName("climate_v2_200001.csv"));
+  assert(SdLogCodec::isLogFileName("climate_v2_209912.csv"));
+  assert(!SdLogCodec::isLogFileName(nullptr));
+  assert(!SdLogCodec::isLogFileName(""));
+  assert(!SdLogCodec::isLogFileName("climate_v2_202613.csv")); // month 13
+  assert(!SdLogCodec::isLogFileName("climate_v2_202600.csv")); // month 0
+  assert(!SdLogCodec::isLogFileName("climate_v2_199912.csv")); // year before 2000
+  assert(!SdLogCodec::isLogFileName("climate_v2_210001.csv")); // year after 2099
+  assert(!SdLogCodec::isLogFileName("climate_202611.csv"));    // old v1 name
+  assert(!SdLogCodec::isLogFileName("climate_v2_20261.csv"));
+  assert(!SdLogCodec::isLogFileName("climate_v2_2026111.csv"));
+  assert(!SdLogCodec::isLogFileName("climate_v2_2026a1.csv"));
+  assert(!SdLogCodec::isLogFileName("climate_v2_202611.txt"));
+  assert(!SdLogCodec::isLogFileName("climate_v2_202611.csv "));
+  assert(!SdLogCodec::isLogFileName("CLIMATE_V2_202611.CSV"));
+  assert(!SdLogCodec::isLogFileName("/climate_v2_202611.csv"));
+  assert(!SdLogCodec::isLogFileName("../climate_v2_202611.csv"));
+  assert(!SdLogCodec::isLogFileName("climate_v2_202611.csv/.."));
+}
+
+void testSerialParserValidCommands() {
+  SerialCommand cmd;
+  assert(parseText("LIST", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::LIST);
+  assert(parseText("INFO", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::INFO);
+  assert(parseText("DUMP climate_v2_202611.csv", cmd) == SerialParseStatus::OK);
+  assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "climate_v2_202611.csv") == 0);
+  // CR and LF at the line end are tolerated
+  assert(parseText("LIST\r\n", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::LIST);
+  assert(parseText("DUMP climate_v2_202601.csv\r", cmd) == SerialParseStatus::OK);
+  assert(strcmp(cmd.file, "climate_v2_202601.csv") == 0);
+}
+
+void testSerialParserRejectsUnknownCommands() {
+  SerialCommand cmd;
+  assert(parseText("", cmd) == SerialParseStatus::EMPTY && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("\r\n", cmd) == SerialParseStatus::EMPTY);
+  assert(SerialConsole::parse(nullptr, 0, cmd) == SerialParseStatus::EMPTY);
+  assert(parseText("list", cmd) == SerialParseStatus::UNKNOWN); // case-sensitive
+  assert(parseText("DELETE climate_v2_202611.csv", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("LISTX", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("LIST now", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("INFO ", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("LIST\tINFO", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText(std::string("LIST\0x", 6), cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("\xC3\xA4", cmd) == SerialParseStatus::UNKNOWN);
+  assert(cmd.kind == SerialCommandKind::NONE);
+}
+
+void testSerialParserRejectsLongLines() {
+  SerialCommand cmd;
+  const std::string at_limit = "DUMP " + std::string(SerialConsole::MAX_LINE_SIZE - 5, 'a');
+  assert(at_limit.size() == SerialConsole::MAX_LINE_SIZE);
+  assert(parseText(at_limit, cmd) == SerialParseStatus::BAD_NAME); // long, but not too long
+  assert(parseText(at_limit + "a", cmd) == SerialParseStatus::TOO_LONG);
+  assert(parseText(std::string(5000, 'L'), cmd) == SerialParseStatus::TOO_LONG);
+  assert(cmd.kind == SerialCommandKind::NONE);
+}
+
+void testSerialParserRejectsPathTraversal() {
+  SerialCommand cmd;
+  const char* bad[] = {
+      "DUMP",
+      "DUMP ",
+      "DUMP  climate_v2_202611.csv",
+      "DUMP ../climate_v2_202611.csv",
+      "DUMP /climate_v2_202611.csv",
+      "DUMP /sdcard/climate_v2_202611.csv",
+      "DUMP ..",
+      "DUMP /config.ini",
+      "DUMP config.ini",
+      "DUMP climate_v2_202611.csv/",
+      "DUMP climate_v2_202611.csv extra",
+      "DUMP ..\\climate_v2_202611.csv",
+      "DUMP climate_v2_202613.csv",
+      "DUMP *",
+      "DUMP climate_v2_%%%%%%.csv",
+  };
+  for (const char* line : bad) {
+    assert(parseText(line, cmd) == SerialParseStatus::BAD_NAME);
+    assert(cmd.kind == SerialCommandKind::NONE && cmd.file[0] == '\0');
+  }
+}
+
+void testSerialLineAssembler() {
+  SerialLineAssembler a;
+  const char* text = "LIST\r\nINFO\n";
+  std::vector<std::string> lines;
+  for (const char* p = text; *p != '\0'; ++p) {
+    if (a.feed(static_cast<uint8_t>(*p)) == SerialLineAssembler::Event::LINE) {
+      lines.push_back(std::string(a.line(), a.length()));
+    }
+  }
+  assert(lines.size() == 2 && lines[0] == "LIST" && lines[1] == "INFO");
+  // An overlong line is dropped whole; its tail never runs as a command
+  SerialLineAssembler b;
+  int overflow = 0;
+  int ok = 0;
+  const std::string longline = std::string(100, 'x') + "LIST\n";
+  for (char c : longline) {
+    const SerialLineAssembler::Event e = b.feed(static_cast<uint8_t>(c));
+    overflow += e == SerialLineAssembler::Event::LINE_TOO_LONG;
+    ok += e == SerialLineAssembler::Event::LINE;
+  }
+  assert(overflow == 1 && ok == 0);
+  // The assembler recovers on the next line
+  for (char c : std::string("INFO\n")) {
+    ok += b.feed(static_cast<uint8_t>(c)) == SerialLineAssembler::Event::LINE;
+  }
+  assert(ok == 1 && strcmp(b.line(), "INFO") == 0);
+  // A line of exactly MAX_LINE_SIZE bytes is accepted
+  SerialLineAssembler c;
+  SerialLineAssembler::Event last = SerialLineAssembler::Event::NONE;
+  for (size_t i = 0; i < SerialConsole::MAX_LINE_SIZE; ++i) {
+    c.feed('a');
+  }
+  last = c.feed('\n');
+  assert(last == SerialLineAssembler::Event::LINE && c.length() == SerialConsole::MAX_LINE_SIZE);
+}
+
+void testSerialDumpFrame() {
+  FakeConsoleStorage storage;
+  std::string data;
+  for (int i = 0; i < 1500; ++i) { // several chunks, last one partial
+    data += static_cast<char>('a' + i % 26);
+    if (i % 60 == 59) {
+      data += '\n';
+    }
+  }
+  storage.add("climate_v2_202611.csv", data);
+  storage.max_read = 100; // short reads must still give a complete frame
+  FakeSink sink;
+  SerialCommand cmd;
+  assert(parseText("DUMP climate_v2_202611.csv", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, sink, cmd);
+
+  char begin[64];
+  snprintf(begin, sizeof(begin), "BEGIN climate_v2_202611.csv %zu\n", data.size());
+  assert(sink.out.compare(0, strlen(begin), begin) == 0);
+  const std::string payload = sink.out.substr(strlen(begin), data.size());
+  assert(payload == data); // exactly the byte count, unchanged
+  SerialCrc32 crc;
+  crc.update(reinterpret_cast<const uint8_t*>(data.data()), data.size());
+  char end[32];
+  snprintf(end, sizeof(end), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+  assert(sink.out.substr(strlen(begin) + data.size()) == end);
+  // The card mounts once and unmounts once
+  assert(storage.mounts == 1 && storage.unmounts == 1 && !storage.open);
+}
+
+void testSerialDumpEmptyFile() {
+  FakeConsoleStorage storage;
+  storage.add("climate_v2_202611.csv", "");
+  FakeSink sink;
+  SerialCommand cmd;
+  assert(parseText("DUMP climate_v2_202611.csv", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, sink, cmd);
+  assert(sink.out == "BEGIN climate_v2_202611.csv 0\nCRC32 00000000\n");
+}
+
+void testSerialDumpFailures() {
+  FakeConsoleStorage storage;
+  storage.add("climate_v2_202611.csv", std::string(300, 'x'));
+  SerialCommand cmd;
+  // Missing file
+  FakeSink missing;
+  assert(parseText("DUMP climate_v2_202601.csv", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, missing, cmd);
+  assert(missing.out == "ERR NOT_FOUND\n" && storage.unmounts == 1);
+  // Read error mid-file: no CRC line, so the host sees a failed transfer
+  storage.fail_read = true;
+  FakeSink broken;
+  assert(parseText("DUMP climate_v2_202611.csv", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, broken, cmd);
+  // The frame keeps the announced length (zero padded), then the error line replaces the CRC line
+  const std::string head = "BEGIN climate_v2_202611.csv 300\n";
+  assert(broken.out == head + std::string(300, '\0') + "ERR READ_FAILED\n");
+  assert(broken.out.find("CRC32") == std::string::npos);
+  assert(storage.unmounts == 2 && !storage.open);
+  // No card
+  FakeConsoleStorage empty;
+  empty.card = false;
+  FakeSink nocard;
+  TestRunner::execute(empty, nocard, cmd);
+  assert(nocard.out == "ERR NO_CARD\n" && empty.mounts == 1);
+}
+
+void testSerialDumpStopsOnShortWrite() {
+  std::string data(1000, 'q');
+  SerialCommand cmd;
+  assert(parseText("DUMP climate_v2_202611.csv", cmd) == SerialParseStatus::OK);
+  // The sink fails in the header, in the payload, and just before the CRC line
+  const size_t header = strlen("BEGIN climate_v2_202611.csv 1000\n");
+  const size_t limits[] = {5, header, header + 1, header + 300, header + 1000, header + 1000 + 3};
+  for (size_t limit : limits) {
+    FakeConsoleStorage storage;
+    storage.add("climate_v2_202611.csv", data);
+    FakeSink sink;
+    sink.limit = limit;
+    TestRunner::execute(storage, sink, cmd);
+    assert(sink.out.size() == limit);
+    assert(sink.out.find("CRC32 ") == std::string::npos || limit > header + 1000);
+    assert(!storage.open && storage.mounts == 1 && storage.unmounts == 1);
+  }
+}
+
+void testSerialListAndInfo() {
+  FakeConsoleStorage storage;
+  storage.add("climate_v2_202612.csv", std::string(20, 'b'));
+  storage.add("climate_v2_202611.csv", std::string(10, 'a'));
+  SerialCommand cmd;
+  FakeSink list;
+  assert(parseText("LIST", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, list, cmd);
+  assert(list.out ==
+         "FILE climate_v2_202611.csv 10\nFILE climate_v2_202612.csv 20\nEND LIST 2\n");
+  FakeSink info;
+  assert(parseText("INFO", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, info, cmd);
+  assert(info.out == "INFO total=1000 used=250 files=2\n");
+  assert(storage.mounts == 2 && storage.unmounts == 2);
+  // Empty card
+  FakeConsoleStorage none;
+  FakeSink nolist;
+  assert(parseText("LIST", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(none, nolist, cmd);
+  assert(nolist.out == "END LIST 0\n");
+}
+
+void testSerialRejectKeepsCardUnmounted() {
+  FakeConsoleStorage storage;
+  FakeSink sink;
+  TestRunner::reject(sink, SerialParseStatus::UNKNOWN);
+  TestRunner::reject(sink, SerialParseStatus::TOO_LONG);
+  TestRunner::reject(sink, SerialParseStatus::BAD_NAME);
+  TestRunner::reject(sink, SerialParseStatus::EMPTY);
+  assert(sink.out == "ERR UNKNOWN\nERR TOO_LONG\nERR BAD_NAME\n");
+  assert(storage.mounts == 0);
+  SerialCommand none;
+  TestRunner::execute(storage, sink, none);
+  assert(storage.mounts == 0);
+}
+
+void testSerialConsoleUsbGate() {
+  BatteryReading usb;
+  usb.valid = true;
+  usb.usb_powered = true;
+  BatteryReading battery = usb;
+  battery.usb_powered = false;
+  BatteryReading invalid;
+  invalid.valid = false;
+  invalid.usb_powered = true;
+  assert(PowerManager::serialConsoleAllowed(usb));
+  assert(!PowerManager::serialConsoleAllowed(battery));
+  assert(!PowerManager::serialConsoleAllowed(invalid));
+}
+
 int main() {
   testSwitchBotManufacturerPositiveTemp();
   testSwitchBotManufacturerNegativeTemp();
@@ -5416,6 +5771,20 @@ int main() {
   testDiagnosticsRuntimeLine();
   testTildeGlyphIsDrawn();
   testPreviewRuntimeScene();
-  printf("All 100 firmware logic test suites passed.\n");
+  testSerialCrc32KnownVectors();
+  testSerialFileNameValidation();
+  testSerialParserValidCommands();
+  testSerialParserRejectsUnknownCommands();
+  testSerialParserRejectsLongLines();
+  testSerialParserRejectsPathTraversal();
+  testSerialLineAssembler();
+  testSerialDumpFrame();
+  testSerialDumpEmptyFile();
+  testSerialDumpFailures();
+  testSerialDumpStopsOnShortWrite();
+  testSerialListAndInfo();
+  testSerialRejectKeepsCardUnmounted();
+  testSerialConsoleUsbGate();
+  printf("All 114 firmware logic test suites passed.\n");
   return 0;
 }

@@ -29,6 +29,31 @@ public:
   static constexpr size_t MAX_PATH_SIZE = 32;
   static constexpr size_t MAX_ROW_SIZE = 256;
   static constexpr const char* MOUNT_POINT = "/sdcard";
+  // "climate_v2_YYYYMM.csv" plus the terminator.
+  static constexpr size_t LOG_NAME_SIZE = 22;
+
+  // True for a bare log file name "climate_v2_YYYYMM.csv" with year 2000..2099 and month 01..12.
+  // Anything else is false, so a path separator or "." never reaches the card.
+  static bool isLogFileName(const char* name) {
+    static const char PREFIX[] = "climate_v2_";
+    static const char SUFFIX[] = ".csv";
+    constexpr size_t PREFIX_LEN = sizeof(PREFIX) - 1;
+    constexpr size_t SUFFIX_LEN = sizeof(SUFFIX) - 1;
+    if (name == nullptr || strlen(name) != PREFIX_LEN + 6 + SUFFIX_LEN ||
+        memcmp(name, PREFIX, PREFIX_LEN) != 0 ||
+        memcmp(name + PREFIX_LEN + 6, SUFFIX, SUFFIX_LEN) != 0) {
+      return false;
+    }
+    for (size_t i = 0; i < 6; ++i) {
+      if (name[PREFIX_LEN + i] < '0' || name[PREFIX_LEN + i] > '9') {
+        return false;
+      }
+    }
+    const int year = (name[PREFIX_LEN] - '0') * 1000 + (name[PREFIX_LEN + 1] - '0') * 100 +
+                     (name[PREFIX_LEN + 2] - '0') * 10 + (name[PREFIX_LEN + 3] - '0');
+    const int month = (name[PREFIX_LEN + 4] - '0') * 10 + (name[PREFIX_LEN + 5] - '0');
+    return year >= 2000 && year <= 2099 && month >= 1 && month <= 12;
+  }
 
   // True when a record is due. Unsigned subtraction survives clock wrap-around.
   static bool logDue(bool has_logged, uint32_t last_log_ms, uint32_t now_ms) {
@@ -248,6 +273,11 @@ public:
     }
     SD_MMC.end();
     return result;
+  }
+
+  // Mounts the card for a console command; the caller unmounts with SD_MMC.end().
+  static bool mountCard() {
+    return mount();
   }
 
 private:

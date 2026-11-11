@@ -194,6 +194,13 @@ public:
     return (cause == WakeupCause::TIMER) ? ClapListenMode::OFF : ClapListenMode::GRACE;
   }
 
+  // The USB serial console takes commands on USB power only. On battery the board neither reads
+  // the port nor stays awake for it, so the awake time does not grow. An invalid battery reading
+  // counts as no USB power.
+  static bool serialConsoleAllowed(const BatteryReading& battery) {
+    return battery.valid && battery.usb_powered;
+  }
+
   // True while a continuous listener may keep the board awake: the next scan is not yet due.
   static bool continuousListenAllowed(const PowerConfig& config, uint32_t now_ms, uint32_t last_scan_ms) {
     return sleepMicros(config, now_ms, last_scan_ms) > MIN_SLEEP_US;
