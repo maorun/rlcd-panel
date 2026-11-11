@@ -15,6 +15,13 @@ struct DeviceConfig {
   static constexpr float DEFAULT_RH_OFFSET_PCT = 0.0f;
   static constexpr float MIN_RH_OFFSET_PCT = -10.0f;
   static constexpr float MAX_RH_OFFSET_PCT = 10.0f;
+  static constexpr size_t SLOT_COUNT = 3; // SwitchBot and BTHome registry slots
+  static constexpr float DEFAULT_SLOT_TEMP_OFFSET_C = 0.0f;
+  static constexpr float MIN_SLOT_TEMP_OFFSET_C = -5.0f;
+  static constexpr float MAX_SLOT_TEMP_OFFSET_C = 5.0f;
+  static constexpr float DEFAULT_SLOT_RH_OFFSET_PCT = 0.0f;
+  static constexpr float MIN_SLOT_RH_OFFSET_PCT = -10.0f;
+  static constexpr float MAX_SLOT_RH_OFFSET_PCT = 10.0f;
   static constexpr float DEFAULT_FREEZE_ALERT_LIMIT_C = 0.0f;
   static constexpr float MIN_FREEZE_ALERT_LIMIT_C = -20.0f;
   static constexpr float MAX_FREEZE_ALERT_LIMIT_C = 15.0f;
@@ -42,6 +49,12 @@ struct DeviceConfig {
 
   float temp_offset_c = DEFAULT_TEMP_OFFSET_C;
   float rh_offset_pct = DEFAULT_RH_OFFSET_PCT; // added to the onboard humidity, result clamped to 0..100 %RH
+  // Offsets of the three registry slots (keys slot1_* to slot3_*), added to the decoded value of the
+  // slot by SwitchBotRegistry::calibrated(). The humidity result is clamped to 0..100 %RH.
+  float slot_temp_offset_c[SLOT_COUNT] = {DEFAULT_SLOT_TEMP_OFFSET_C, DEFAULT_SLOT_TEMP_OFFSET_C,
+                                          DEFAULT_SLOT_TEMP_OFFSET_C};
+  float slot_rh_offset_pct[SLOT_COUNT] = {DEFAULT_SLOT_RH_OFFSET_PCT, DEFAULT_SLOT_RH_OFFSET_PCT,
+                                          DEFAULT_SLOT_RH_OFFSET_PCT};
   float freeze_alert_limit_c = DEFAULT_FREEZE_ALERT_LIMIT_C;
   uint8_t mold_alert_limit_rh = DEFAULT_MOLD_ALERT_LIMIT_RH;
   uint8_t chime_volume_pct = DEFAULT_CHIME_VOLUME_PCT;
@@ -59,6 +72,12 @@ struct DeviceConfig {
 
   // True when every field lies inside its range. Used for the RTC record check.
   bool valid() const {
+    for (size_t i = 0; i < SLOT_COUNT; ++i) {
+      if (!inRange(slot_temp_offset_c[i], MIN_SLOT_TEMP_OFFSET_C, MAX_SLOT_TEMP_OFFSET_C) ||
+          !inRange(slot_rh_offset_pct[i], MIN_SLOT_RH_OFFSET_PCT, MAX_SLOT_RH_OFFSET_PCT)) {
+        return false;
+      }
+    }
     return inRange(temp_offset_c, MIN_TEMP_OFFSET_C, MAX_TEMP_OFFSET_C) &&
            inRange(rh_offset_pct, MIN_RH_OFFSET_PCT, MAX_RH_OFFSET_PCT) &&
            inRange(freeze_alert_limit_c, MIN_FREEZE_ALERT_LIMIT_C, MAX_FREEZE_ALERT_LIMIT_C) &&
@@ -74,6 +93,11 @@ struct DeviceConfig {
 
   bool isDefault() const {
     const DeviceConfig d;
+    for (size_t i = 0; i < SLOT_COUNT; ++i) {
+      if (slot_temp_offset_c[i] != d.slot_temp_offset_c[i] || slot_rh_offset_pct[i] != d.slot_rh_offset_pct[i]) {
+        return false;
+      }
+    }
     return temp_offset_c == d.temp_offset_c && rh_offset_pct == d.rh_offset_pct && freeze_alert_limit_c == d.freeze_alert_limit_c &&
            mold_alert_limit_rh == d.mold_alert_limit_rh && chime_volume_pct == d.chime_volume_pct &&
            quiet_hours_start_hour == d.quiet_hours_start_hour &&
@@ -115,7 +139,7 @@ public:
       return result;
     }
     result.file_ok = true;
-    uint16_t seen = 0;
+    uint32_t seen = 0;
     size_t pos = 0;
     if (len >= 3 && static_cast<uint8_t>(data[0]) == 0xEF && static_cast<uint8_t>(data[1]) == 0xBB &&
         static_cast<uint8_t>(data[2]) == 0xBF) {
@@ -129,7 +153,7 @@ public:
       applyLine(data + pos, end - pos, out, seen, result);
       pos = end + 1;
     }
-    for (uint16_t m = seen; m != 0; m = static_cast<uint16_t>(m & (m - 1))) {
+    for (uint32_t m = seen; m != 0; m &= m - 1) {
       ++result.keys_set;
     }
     return result;
@@ -215,7 +239,32 @@ private:
     return true;
   }
 
-  static void applyLine(const char* line, size_t n, DeviceConfig& cfg, uint16_t& seen, ConfigParseResult& result) {
+  // Keys slot1_temp_offset_c to slot3_temp_offset_c (index 12..14) and slot1_rh_offset_pct to
+  // slot3_rh_offset_pct (index 15..17). Returns false for any other key.
+  static bool parseSlotKey(const char* key, size_t key_len, const char* val, size_t val_len, DeviceConfig& cfg,
+                           bool& ok, int& index) {
+    static const char* const temp_keys[DeviceConfig::SLOT_COUNT] = {"slot1_temp_offset_c", "slot2_temp_offset_c",
+                                                                    "slot3_temp_offset_c"};
+    static const char* const rh_keys[DeviceConfig::SLOT_COUNT] = {"slot1_rh_offset_pct", "slot2_rh_offset_pct",
+                                                                  "slot3_rh_offset_pct"};
+    for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
+      if (keyIs(key, key_len, temp_keys[i])) {
+        index = static_cast<int>(12 + i);
+        ok = parseFloatIn(val, val_len, DeviceConfig::MIN_SLOT_TEMP_OFFSET_C,
+                          DeviceConfig::MAX_SLOT_TEMP_OFFSET_C, cfg.slot_temp_offset_c[i]);
+        return true;
+      }
+      if (keyIs(key, key_len, rh_keys[i])) {
+        index = static_cast<int>(15 + i);
+        ok = parseFloatIn(val, val_len, DeviceConfig::MIN_SLOT_RH_OFFSET_PCT,
+                          DeviceConfig::MAX_SLOT_RH_OFFSET_PCT, cfg.slot_rh_offset_pct[i]);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  static void applyLine(const char* line, size_t n, DeviceConfig& cfg, uint32_t& seen, ConfigParseResult& result) {
     trim(line, n);
     if (n == 0 || line[0] == '#' || line[0] == ';') {
       return;
@@ -282,12 +331,14 @@ private:
       index = 11;
       ok = parseFloatIn(val, val_len, DeviceConfig::MIN_RH_OFFSET_PCT, DeviceConfig::MAX_RH_OFFSET_PCT,
                         cfg.rh_offset_pct);
+    } else if (parseSlotKey(key, key_len, val, val_len, cfg, ok, index)) {
+      // index and ok set by parseSlotKey
     }
     if (index < 0) {
       return; // unknown key
     }
     if (ok) {
-      seen = static_cast<uint16_t>(seen | (1u << index));
+      seen = seen | (1u << index);
     } else if (result.rejected < 255) {
       ++result.rejected;
     }

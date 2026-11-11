@@ -374,3 +374,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The tile, the sparkline sample and the CSV row use the same onboard reading. They show the corrected value.
 - The offset adds 4 bytes (float) to the config trailer in RTC memory. The state version is 17. The old format gives a clean start. A NaN value or a value outside the range is rejected, even with a valid CRC.
 - Acceptance criteria: host tests cover the default, the edges `-10.0` and `10.0`, out-of-range and malformed values, the clamp at 0 and 100 %RH, the RTC round trip, and the rejection of the old state version.
+
+## Calibration offsets for each SwitchBot and BTHome slot
+
+- **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`. `rlcd_panel/bthome_ble.h` needs no change: BTHome and SwitchBot packets use the same registry slots.
+- The new `config.ini` keys `slot1_temp_offset_c` to `slot3_temp_offset_c` (default `0.0`, range `-5.0` to `5.0`) and `slot1_rh_offset_pct` to `slot3_rh_offset_pct` (default `0.0`, range `-10.0` to `10.0`) correct one registry slot each. A value outside the range or a malformed value is rejected, and the previous value stays. A slot without a key keeps its raw value.
+- An offset belongs to the slot position, not to the sensor MAC. A new sensor takes the first free slot, so check the offsets after a registry reset or a sensor swap.
+- `SwitchBotRegistry::calibrated()` returns a copy of the registry with the offsets added. The humidity is rounded and clamped to 0 to 100 %RH. An empty slot stays empty. The stored registry keeps the raw readings, so the RTC state never applies an offset twice.
+- `calibratedRegistry()` in `rlcd_panel.ino` feeds the dashboard views, the freezer and mold alerts, the hourly history and the CSV log. Each of them shows the corrected value.
+- The six floats add 24 bytes to the config trailer in RTC memory. The state version is 18. The old format gives a clean start. A NaN value or a value outside the range is rejected, even with a valid CRC.
+- Acceptance criteria: host tests cover the defaults, the range edges, malformed values, the application to the correct slot only (SwitchBot and BTHome), the humidity clamp, the effect on the freezer and mold alerts, the history sample and the RTC round trip. A slot without an offset key keeps its raw value.

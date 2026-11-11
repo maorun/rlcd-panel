@@ -167,6 +167,27 @@ public:
     return false;
   }
 
+  // Copy of the registry with a per-slot offset added to the decoded values. The stored registry keeps
+  // the raw readings, so the RTC state never applies an offset twice. The humidity is rounded and
+  // clamped to 0..100 %RH. A null array means no offset; an empty slot stays empty.
+  SwitchBotRegistry calibrated(const float* temp_offset_c, const float* rh_offset_pct) const {
+    SwitchBotRegistry out = *this;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      SwitchBotReading& r = out.slots_[i];
+      if (!r.valid) {
+        continue;
+      }
+      if (temp_offset_c != nullptr) {
+        r.temperature_c += temp_offset_c[i];
+      }
+      if (rh_offset_pct != nullptr) {
+        const float rh = static_cast<float>(r.humidity_pct) + rh_offset_pct[i];
+        r.humidity_pct = rh <= 0.0f ? 0 : (rh >= 100.0f ? 100 : static_cast<uint8_t>(rh + 0.5f));
+      }
+    }
+    return out;
+  }
+
   size_t activeCount() const {
     size_t count = 0;
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
