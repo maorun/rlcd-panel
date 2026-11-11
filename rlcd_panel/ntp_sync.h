@@ -138,6 +138,13 @@ public:
     return epochToCalendar(utc_epoch + offsetSeconds(utc_epoch, tz), out);
   }
 
+  // NTP time as the RTC would show it: local time with the UTC offset that held at the previous
+  // sync. The RTC keeps that offset until the next write, so a DST change in between shows no
+  // false hour of drift. Returns false when the time lies outside 2000..2099.
+  static bool driftReference(int64_t utc_epoch, int64_t previous_sync_utc, const TimeZone& tz, RtcTime& out) {
+    return epochToCalendar(utc_epoch + offsetSeconds(previous_sync_utc, tz), out);
+  }
+
   // UTC epoch to the PCF85063A time registers 0x04..0x0A (BCD, local time).
   static bool epochToRegisters(int64_t utc_epoch, const TimeZone& tz, uint8_t* regs, size_t len) {
     RtcTime local;
@@ -276,7 +283,8 @@ public:
   // PCF85063A. The radio is off before the I2C write. Both waits are bounded, and a failure leaves
   // the RTC unchanged. SNTP sets the system time, which the firmware uses as its timestamp clock
   // (PowerPlatform::clockMs), so the function puts the system time back to its old course.
-  static NtpResult sync(Pcf85063Rtc& rtc, const char* ssid, const char* password, const TimeZone& tz) {
+  static NtpResult sync(Pcf85063Rtc& rtc, const char* ssid, const char* password, const TimeZone& tz,
+                        RtcDriftState& drift) {
     struct timeval saved;
     gettimeofday(&saved, nullptr);
     const int64_t start_us = esp_timer_get_time();
@@ -328,9 +336,20 @@ public:
     }
     epoch += (esp_timer_get_time() - acquired_us) / 1000000;
     RtcTime local;
-    if (!NtpTime::utcToLocal(epoch, tz, local) || !rtc.setTime(local)) {
+    if (!NtpTime::utcToLocal(epoch, tz, local)) {
       return NtpResult::RTC_WRITE_FAILED;
     }
+    // Drift: the RTC time before the write against the NTP time in the offset the RTC held at the
+    // previous sync, so a DST change in between shows no false hour.
+    RtcTime before, reference;
+    if (!rtc.readTime(before)) {
+      before = RtcTime{}; // invalid: the sync stores its time but no figure
+    }
+    NtpTime::driftReference(epoch, drift.last_sync_s, tz, reference);
+    if (!rtc.setTime(local)) {
+      return NtpResult::RTC_WRITE_FAILED;
+    }
+    RtcDrift::record(drift, true, before, reference, epoch);
     return NtpResult::OK;
   }
 };

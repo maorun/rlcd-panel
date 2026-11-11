@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "board_pins.h"
@@ -183,6 +184,84 @@ public:
     }
     out.valid = true;
     return true;
+  }
+};
+
+// Result of the last RTC drift measurement. It survives deep sleep in RTC memory.
+struct RtcDriftState {
+  bool has_sync = false;     // a successful sync is on record
+  bool has_drift = false;    // the last sync produced a drift figure
+  uint32_t last_sync_s = 0;  // UTC epoch seconds of the last successful sync
+  int32_t drift_s = 0;       // RTC time minus NTP time before the write; positive: RTC ahead
+  int32_t rate_ppm = 0;      // drift_s over the time since the previous sync
+};
+
+// Drift maths. It has no Arduino dependency, so the host tests build it.
+class RtcDrift {
+public:
+  static constexpr int32_t MAX_DRIFT_S = 86400; // a larger offset means the RTC was never set
+  static constexpr int32_t MAX_PPM = 99999;
+  static constexpr int64_t MIN_INTERVAL_S = 3600; // a shorter interval gives a rate dominated by the 1 s resolution; the rate still moves in steps of 278 PPM at 1 h
+  static constexpr int64_t EPOCH_2000 = 946684800;
+  static constexpr int64_t EPOCH_2100 = 4102444800;
+
+  // Seconds since 2000-01-01 of a calendar time. Only the difference of two times is used.
+  static int64_t calendarSeconds(const RtcTime& t) {
+    const int64_t y = static_cast<int64_t>(t.year) - (t.month <= 2 ? 1 : 0);
+    const int64_t era = y / 400;
+    const int64_t yoe = y - era * 400;
+    const int64_t mp = t.month > 2 ? t.month - 3 : t.month + 9;
+    const int64_t doy = (153 * mp + 2) / 5 + t.day - 1;
+    const int64_t doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    const int64_t days = era * 146097 + doe;
+    return days * 86400 + t.hour * 3600 + t.minute * 60 + t.second;
+  }
+
+  // Records one sync. `rtc` is the RTC time read before the write, `reference` the NTP time in the
+  // same time zone offset the RTC held, `utc_epoch` the NTP time. A failed sync changes nothing.
+  // Returns true when the sync produced a drift figure. An unreadable RTC, a clock that did not
+  // advance and an implausible offset move the sync time on and leave no figure.
+  static bool record(RtcDriftState& s, bool sync_ok, const RtcTime& rtc, const RtcTime& reference,
+                     int64_t utc_epoch) {
+    if (!sync_ok || utc_epoch < EPOCH_2000 || utc_epoch >= EPOCH_2100) {
+      return false;
+    }
+    const bool had_sync = s.has_sync;
+    const int64_t previous = s.last_sync_s;
+    s.has_sync = true;
+    s.last_sync_s = static_cast<uint32_t>(utc_epoch);
+    s.has_drift = false;
+    s.drift_s = 0;
+    s.rate_ppm = 0;
+    if (!had_sync || !rtc.valid || !reference.valid || utc_epoch < previous + MIN_INTERVAL_S) {
+      return false;
+    }
+    const int64_t drift = calendarSeconds(rtc) - calendarSeconds(reference);
+    if (drift > MAX_DRIFT_S || drift < -MAX_DRIFT_S) {
+      return false;
+    }
+    const int64_t interval = utc_epoch - previous;
+    const int64_t scaled = drift * 1000000;
+    int64_t rate = (scaled >= 0 ? scaled + interval / 2 : scaled - interval / 2) / interval;
+    if (rate > MAX_PPM) rate = MAX_PPM;
+    if (rate < -MAX_PPM) rate = -MAX_PPM;
+    s.has_drift = true;
+    s.drift_s = static_cast<int32_t>(drift);
+    s.rate_ppm = static_cast<int32_t>(rate);
+    return true;
+  }
+
+  // "RTC DRIFT: +3 S (+35 PPM)", or "RTC DRIFT: --" without a figure. Widest line: 32 glyphs.
+  static void describe(const RtcDriftState& s, char* buf, size_t len) {
+    if (buf == nullptr || len == 0) {
+      return;
+    }
+    if (!s.has_drift) {
+      snprintf(buf, len, "RTC DRIFT: --");
+      return;
+    }
+    snprintf(buf, len, "RTC DRIFT: %+ld S (%+ld PPM)", static_cast<long>(s.drift_s),
+             static_cast<long>(s.rate_ppm));
   }
 };
 

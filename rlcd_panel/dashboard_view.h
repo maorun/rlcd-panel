@@ -10,6 +10,7 @@
 #include "button_handler.h"
 #include "climate_math.h"
 #include "device_config.h"
+#include "pcf85063_rtc.h"
 #include "es7210_mic.h"
 #include "shtc3_sensor.h"
 #include "sparkline.h"
@@ -32,6 +33,7 @@ struct SystemInfo {
   SpectrumReading spectrum;    // last spectrum capture; invalid shows "NO DATA"
   BatteryRuntime runtime;      // remaining battery runtime; invalid shows "--"
   int32_t cycle_tenths = -1;   // battery charge cycles in tenths; negative (unknown) shows "--"
+  RtcDriftState rtc_drift;     // RTC drift of the last NTP sync; no figure shows "--"
   int32_t sd_free_mb = -1;     // free MicroSD space in MB; negative (unmounted, unknown) shows "--"
 };
 
@@ -527,6 +529,11 @@ public:
         static_cast<unsigned long>((total_s / 60) % 60),
         static_cast<unsigned long>(total_s % 60));
     drawLine(fb, 10, 164, line);
+
+    // RTC drift at y = 184, between the uptime line (ends y = 178) and the noise line (y = 204).
+    // Widest: "RTC DRIFT: -86400 S (-99999 PPM)" = 32 glyphs = 384 px.
+    RtcDrift::describe(info.rtc_drift, line, sizeof(line));
+    drawLine(fb, 10, 184, line);
 
     // Widest line: "NOISE: MODERATE 140 DBA" = 23 glyphs = 276 px; "... -96 DBFS" = 24 = 288 px.
     // Without a usable channel the reading is invalid, so no band is shown.

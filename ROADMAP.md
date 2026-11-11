@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] RTC drift measurement at each NTP sync
-  - Rank: [Total: 29, Use: 3, Setup: 8, Harmony: 8, Safety: 10, Effort: S]
-  - Location: `rlcd_panel/ntp_sync.h`, `rlcd_panel/pcf85063_rtc.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`
-  - Goal: Read the `PCF85063A` time before each NTP write. Calculate the drift in seconds and the rate in ppm since the previous sync. Store the last drift and rate in RTC memory. Show `RTC DRIFT: +N S (+N PPM)` in the diagnostics view, or `RTC DRIFT: --` before the second sync.
-  - Acceptance test: Host tests cover a positive and a negative drift, a drift of 0, the ppm rate over 24 h and 168 h, the dashes without a previous sync, the rejection of a failed sync, the line bounds, and the RTC round trip.
-
 ## Priority 3: Audio Expansions (Score 22–27)
 
 - [ ] Daily climate summary file on the MicroSD card

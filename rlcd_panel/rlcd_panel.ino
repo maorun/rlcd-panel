@@ -216,6 +216,7 @@ void updateRtc() {
   // Oscillator-stop flag set (first boot or battery loss): seed the clock from the build time.
   RtcTime seed;
   if (Pcf85063Codec::fromCompileStamp(__DATE__, __TIME__, seed) && g_rtc.setTime(seed)) {
+    g_state.rtc_drift = RtcDriftState{}; // the old baseline is void: the next sync measures nothing
     g_rtc.readTime(g_rtc_time);
   }
 }
@@ -232,7 +233,7 @@ bool syncNtpTime(bool key_wakeup) {
       NtpDecision::ATTEMPT) {
     return false;
   }
-  const NtpResult result = NtpClient::sync(g_rtc, RLCD_WIFI_SSID, RLCD_WIFI_PASSWORD, tz);
+  const NtpResult result = NtpClient::sync(g_rtc, RLCD_WIFI_SSID, RLCD_WIFI_PASSWORD, tz, g_state.rtc_drift);
   NtpSchedule::record(g_state.ntp, nowMs(), result == NtpResult::OK);
   Serial.printf("NTP sync result: %u\n", static_cast<unsigned>(result));
   return result == NtpResult::OK;
@@ -287,6 +288,7 @@ void renderDashboard() {
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;
   info.runtime = g_state.battery_history.estimate(g_state.battery);
+  info.rtc_drift = g_state.rtc_drift;
   info.sd_free_mb = g_sd_free_mb;
   info.cycle_tenths = g_cycles.cycleTenths();
 
