@@ -235,6 +235,7 @@ void renderDashboard() {
   info.quiet_hours = quietHours().isActive(g_rtc_time);
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;
+  info.runtime = g_state.battery_history.estimate(g_state.battery);
 
   DashboardView::renderMode(
       g_framebuffer,
@@ -368,6 +369,7 @@ void refreshSensors() {
   const bool was_low = g_state.battery.low_battery;
   g_state.battery = BatteryMonitor::read();
   g_state.battery.low_battery = BatteryMonitor::updateLowBattery(g_state.battery, was_low);
+  g_state.battery_history.record(nowMs(), g_state.battery);
   updateRtc();
   // One sample per hour and sensor; the gate lives in the persisted state.
   g_state.history.record(
