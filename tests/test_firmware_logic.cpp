@@ -1556,7 +1556,7 @@ void testSdLogCodec() {
   assert(buf[hl - 1] == '\n');
   size_t header_commas = 0;
   for (size_t i = 0; i < hl; ++i) header_commas += buf[i] == ',';
-  assert(header_commas == 14);
+  assert(header_commas == 17);
   assert(SdLogCodec::formatHeader(nullptr, 100) == 0);
   assert(SdLogCodec::formatHeader(buf, 0) == 0);
   assert(SdLogCodec::formatHeader(buf, hl) == 0); // no room for the terminator
@@ -1566,10 +1566,10 @@ void testSdLogCodec() {
   t.valid = true; t.year = 2026; t.month = 3; t.day = 9; t.hour = 7; t.minute = 5; t.second = 1;
   char path[SdLogCodec::MAX_PATH_SIZE];
   assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) > 0);
-  assert(strcmp(path, "/sdcard/climate_202603.csv") == 0);
+  assert(strcmp(path, "/sdcard/climate_v2_202603.csv") == 0);
   t.month = 12;
   SdLogCodec::formatFilename(&t, path, sizeof(path));
-  assert(strcmp(path, "/sdcard/climate_202612.csv") == 0);
+  assert(strcmp(path, "/sdcard/climate_v2_202612.csv") == 0);
   t.month = 3;
   assert(SdLogCodec::formatFilename(nullptr, path, sizeof(path)) == 0);
   assert(SdLogCodec::formatFilename(&t, nullptr, 32) == 0);
@@ -1597,9 +1597,9 @@ void testSdLogCodec() {
   slots[0].battery_pct = 90; slots[0].updated_ms = 1000;
   slots[1].valid = true; slots[1].temperature_c = 19.0f; slots[1].humidity_pct = 50;
   slots[1].battery_pct = -1; slots[1].updated_ms = 1000;
-  const size_t rl = SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 2000, buf, sizeof(buf));
+  const size_t rl = SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 2000, nullptr, nullptr, buf, sizeof(buf));
   assert(rl == strlen(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,87,4.00,0,21.5,45.0,-3.5,80,90,19.0,50,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,87,4.00,0,21.5,45.0,-3.5,80,90,19.0,50,,,,,,,\n") == 0);
 
   // Row with invalid battery, invalid onboard, a stale slot, a NaN slot, and a missing slot
   BatteryReading nobat;
@@ -1607,10 +1607,10 @@ void testSdLogCodec() {
   slots[0].updated_ms = 0;
   slots[1].temperature_c = NAN;
   const uint32_t late = SENSOR_STALE_TIMEOUT_MS + 5000;
-  SdLogCodec::formatRow(&t, &nobat, &noonboard, slots, 3, late, buf, sizeof(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,\n") == 0);
-  SdLogCodec::formatRow(&t, &nobat, &noonboard, nullptr, 0, 0, buf, sizeof(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,\n") == 0);
+  SdLogCodec::formatRow(&t, &nobat, &noonboard, slots, 3, late, nullptr, nullptr, buf, sizeof(buf));
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,\n") == 0);
+  SdLogCodec::formatRow(&t, &nobat, &noonboard, nullptr, 0, 0, nullptr, nullptr, buf, sizeof(buf));
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,\n") == 0);
 
   // Every row has as many columns as the header
   size_t row_commas = 0;
@@ -1618,17 +1618,17 @@ void testSdLogCodec() {
   assert(row_commas == header_commas);
 
   // Null, empty and invalid input
-  assert(SdLogCodec::formatRow(nullptr, &bat, &onboard, slots, 3, 0, buf, sizeof(buf)) == 0);
+  assert(SdLogCodec::formatRow(nullptr, &bat, &onboard, slots, 3, 0, nullptr, nullptr, buf, sizeof(buf)) == 0);
   assert(buf[0] == '\0');
   RtcTime invalid_time;
-  assert(SdLogCodec::formatRow(&invalid_time, &bat, &onboard, slots, 3, 0, buf, sizeof(buf)) == 0);
-  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, nullptr, 256) == 0);
-  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, buf, 0) == 0);
-  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, buf, 16) == 0);
-  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, buf, SdLogCodec::MAX_ROW_SIZE - 1) == 0);
-  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, buf, SdLogCodec::MAX_ROW_SIZE) > 0);
-  assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,\n") == 0);
+  assert(SdLogCodec::formatRow(&invalid_time, &bat, &onboard, slots, 3, 0, nullptr, nullptr, buf, sizeof(buf)) == 0);
+  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, nullptr, nullptr, nullptr, 256) == 0);
+  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, nullptr, nullptr, buf, 0) == 0);
+  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, nullptr, nullptr, buf, 16) == 0);
+  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, nullptr, nullptr, buf, SdLogCodec::MAX_ROW_SIZE - 1) == 0);
+  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, nullptr, nullptr, buf, SdLogCodec::MAX_ROW_SIZE) > 0);
+  assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, nullptr, nullptr, buf, sizeof(buf)) > 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,\n") == 0);
 }
 
 void testSdLogSchedule() {
@@ -2175,6 +2175,132 @@ void testNoiseSamplerPowersDownOnEveryPath() {
   } settle;
   r = NoiseSampler::measure(settle, NoiseBand::QUIET, 1000);
   assert(r.valid && r.rms == 0 && r.band == NoiseBand::QUIET);
+}
+
+void testSdLogNoiseColumns() {
+  char buf[SdLogCodec::MAX_ROW_SIZE];
+  const size_t hl = SdLogCodec::formatHeader(buf, sizeof(buf));
+  assert(hl > 0);
+  size_t header_commas = 0;
+  for (size_t i = 0; i < hl; ++i) header_commas += buf[i] == ',';
+  assert(header_commas == 17); // 18 columns
+  assert(strstr(buf, "s3_battery_pct,noise_rms,noise_db,noise_band\n") != nullptr);
+
+  RtcTime t;
+  t.valid = true; t.year = 2026; t.month = 3; t.day = 9; t.hour = 7; t.minute = 5; t.second = 1;
+  // The v2 file name never matches the old 15-column file
+  char path[SdLogCodec::MAX_PATH_SIZE];
+  assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) == strlen("/sdcard/climate_v2_202603.csv"));
+  assert(strcmp(path, "/sdcard/climate_v2_202603.csv") == 0);
+  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v2_202603.csv")) == 0); // no room for NUL
+  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v2_202603.csv") + 1) > 0);
+  t.year = 2099; t.month = 12;
+  assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) > 0);
+  assert(strcmp(path, "/sdcard/climate_v2_209912.csv") == 0);
+  assert(strlen(path) < SdLogCodec::MAX_PATH_SIZE);
+  t.year = 2026; t.month = 3;
+
+  // Valid noise: RMS 1000 = -30 dBFS, +90 dB offset = 60 dB, band MODERATE
+  NoiseReading noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 1000);
+  const MicCalibration cal;
+  assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal, buf, sizeof(buf)) > 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,1000,60,MODERATE\n") == 0);
+  // The calibration offset applies
+  MicCalibration cal2;
+  cal2.spl_offset_db = 100;
+  SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal2, buf, sizeof(buf));
+  assert(strstr(buf, ",1000,70,MODERATE\n") != nullptr);
+  // A null calibration uses the default
+  SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, nullptr, buf, sizeof(buf));
+  assert(strstr(buf, ",1000,60,MODERATE\n") != nullptr);
+  // Every band label. The first argument is the previous band (hysteresis); the RMS sets the class.
+  noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 10);
+  SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal, buf, sizeof(buf));
+  assert(strstr(buf, ",10,") != nullptr && strstr(buf, ",QUIET\n") != nullptr);
+  noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 3500);
+  SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal, buf, sizeof(buf));
+  assert(strstr(buf, ",3500,") != nullptr && strstr(buf, ",LOUD\n") != nullptr);
+  size_t row_commas = 0;
+  for (size_t i = 0; buf[i] != '\0'; ++i) row_commas += buf[i] == ',';
+  assert(row_commas == header_commas);
+
+  // Invalid or missing noise: three empty fields, same column count
+  const NoiseReading invalid;
+  assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &invalid, &cal, buf, sizeof(buf)) > 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,\n") == 0);
+  SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, nullptr, &cal, buf, sizeof(buf));
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,\n") == 0);
+  row_commas = 0;
+  for (size_t i = 0; buf[i] != '\0'; ++i) row_commas += buf[i] == ',';
+  assert(row_commas == header_commas);
+
+  // A full row with all sensors and noise fits in MAX_ROW_SIZE
+  BatteryReading bat;
+  bat.valid = true; bat.percentage = 100; bat.voltage_v = 4.2f; bat.usb_powered = true;
+  Shtc3Reading onboard = makeOnboard(-20.5f, 100.0f);
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (auto& r : slots) {
+    r.valid = true; r.temperature_c = -40.0f; r.humidity_pct = 100; r.battery_pct = 100; r.updated_ms = 10;
+  }
+  noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 32767);
+  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 20, &noise, &cal, buf, sizeof(buf)) > 0);
+  assert(strstr(buf, ",32767,90,LOUD\n") != nullptr);
+  // The worst-case row stays below the buffer limit; a smaller buffer is rejected
+  assert(strlen(buf) < SdLogCodec::MAX_ROW_SIZE);
+  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 20, &noise, &cal, buf, SdLogCodec::MAX_ROW_SIZE - 1) == 0);
+}
+
+void testSdLogNoiseGate() {
+  const uint32_t H = SdLogCodec::LOG_INTERVAL_MS;
+  BatteryReading ok;
+  ok.valid = true; ok.percentage = 80; ok.voltage_v = 3.9f;
+  // First record: due
+  assert(SdLogCodec::noiseMeasureWanted(false, 0, 0, true, ok));
+  // Timer wakeup before the hour is over: microphones stay off
+  assert(!SdLogCodec::noiseMeasureWanted(true, 1000, 1000 + H - 1, true, ok));
+  assert(SdLogCodec::noiseMeasureWanted(true, 1000, 1000 + H, true, ok));
+  // Wrap-safe
+  assert(!SdLogCodec::noiseMeasureWanted(true, 0xFFFFFF00u, 100, true, ok));
+  assert(SdLogCodec::noiseMeasureWanted(true, 0xFFFFFF00u, 0xFFFFFF00u + H, true, ok));
+  // No valid RTC time: no row, no window
+  assert(!SdLogCodec::noiseMeasureWanted(false, 0, 0, false, ok));
+  // After a failed write the retry is due after the retry interval, and measures again
+  const uint32_t stamp = SdLogCodec::retryStamp(5000000);
+  assert(!SdLogCodec::noiseMeasureWanted(true, stamp, 5000000 + SdLogCodec::RETRY_INTERVAL_MS - 1, true, ok));
+  assert(SdLogCodec::noiseMeasureWanted(true, stamp, 5000000 + SdLogCodec::RETRY_INTERVAL_MS, true, ok));
+
+  // Low battery alert: skip, also when a record is due
+  BatteryReading low = ok;
+  low.percentage = 10; low.voltage_v = 3.3f;
+  low.low_battery = BatteryMonitor::updateLowBattery(low, false);
+  assert(low.low_battery);
+  assert(!SdLogCodec::noiseMeasureWanted(false, 0, 0, true, low));
+  assert(!SdLogCodec::noiseMeasureWanted(true, 1000, 1000 + H, true, low));
+  // The latch ignores a battery reading that is not valid
+  BatteryReading invalid_latched;
+  invalid_latched.low_battery = true;
+  assert(SdLogCodec::noiseMeasureWanted(false, 0, 0, true, invalid_latched));
+  // The latch clears: measure again
+  low.low_battery = false;
+  assert(SdLogCodec::noiseMeasureWanted(false, 0, 0, true, low));
+}
+
+void testNoiseWindowPowersDownForLogging() {
+  // Guard for the hourly record: the 5 s window with the stored calibration powers the ADC down on
+  // each exit path (the sampler already did so before the logger used it)
+  const MicCalibration cal;
+  FakeMicHal ok;
+  assert(NoiseSampler::measure(ok, NoiseBand::QUIET, NoiseSampler::WINDOW_MS, cal).valid);
+  assert(ok.shutdown_calls == 1 && ok.end_calls == 1);
+  for (int path = 0; path < 4; ++path) {
+    FakeMicHal hal;
+    hal.bus_ok = path != 0;
+    hal.adc_ok = path != 1;
+    if (path == 2) hal.reads_before_fail = 0;
+    if (path == 3) hal.reads_before_fail = 200;
+    assert(!NoiseSampler::measure(hal, NoiseBand::QUIET, NoiseSampler::WINDOW_MS, cal).valid);
+    assert(hal.shutdown_calls == 1 && hal.end_calls == 1);
+  }
 }
 
 void testNoiseHardwareConstants() {
@@ -3261,6 +3387,9 @@ int main() {
   testHistoryPersistence();
   testPreviewScenesCoverAllDisplayModes();
   testSdLogCodec();
+  testSdLogNoiseColumns();
+  testSdLogNoiseGate();
+  testNoiseWindowPowersDownForLogging();
   testSdLogSchedule();
   testAlertThresholds();
   testChimeMuteAndEdge();

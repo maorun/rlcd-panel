@@ -22,16 +22,6 @@ No open item.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-### MicroSD noise logging with hourly measurement
-
-- **Rank:** Feature model. Total 30/40 (use 7, setup 6, harmony 10, safety 7). Effort M.
-- **Area:** Storage / Audio.
-- **Code:** `rlcd_panel/sd_logger.h`, `rlcd_panel/es7210_mic.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`.
-- **Dependency:** The microphone calibration (see `FEATURES.md`) gives the dB SPL value.
-- **Problem:** The board measures noise only when the diagnostics view is on screen after a `KEY` wakeup. The CSV log has no noise data, so the user cannot see noise patterns over the day.
-- **Goal:** Run one 5 s `NoiseSampler` window in the wake cycle that writes the hourly CSV record, also after a timer wakeup. Add the columns `noise_rms`, `noise_db`, and `noise_band` to each row. An invalid reading gives empty fields. Change the file name to `/sdcard/climate_v2_YYYYMM.csv`, so the new header never mixes with rows of the old 15-column format. Keep the microphones off on all other timer wakeups. Skip the measurement with a low battery alert.
-- **Acceptance test:** Host tests cover the 18-column header, rows with valid and invalid noise data, the new file name bounds, the gate that measures only when a log is due, the low battery skip, and that the sampler powers down the ADC on each exit path.
-
 ### Microphone self-test in the diagnostics view
 
 - **Rank:** Feature model. Total 29/40 (use 3, setup 9, harmony 8, safety 9). Effort S.
