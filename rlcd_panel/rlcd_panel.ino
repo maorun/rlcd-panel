@@ -8,6 +8,7 @@
 #include <freertos/portmacro.h>
 
 #include "audio_alert.h"
+#include "audio_loopback.h"
 #include "board_pins.h"
 #include "battery_monitor.h"
 #include "button_handler.h"
@@ -43,6 +44,8 @@ bool g_noise_attempted = false; // a failed window is not retried in the same wa
 MicCalibration g_mic_cal;       // loaded from NVS in setup(); the default when absent or corrupt
 bool g_mic_cal_busy = false;    // the 10 s calibration window runs
 bool g_mic_cal_failed = false;  // the last calibration of this wake cycle was rejected
+LoopbackResult g_loopback;      // last loopback test of this wake cycle
+BootButtonController g_boot_button;
 
 const DeviceConfig& config() {
   return g_state.config;
@@ -225,6 +228,7 @@ void renderDashboard() {
   info.mic_cal_busy = g_mic_cal_busy;
   info.mic_cal_failed = g_mic_cal_failed;
   info.quiet_hours = quietHours().isActive(g_rtc_time);
+  info.loopback = g_loopback;
 
   DashboardView::renderMode(
       g_framebuffer,
@@ -273,6 +277,25 @@ void calibrateMicrophone() {
   } else {
     g_mic_cal_failed = true;
     Serial.println("Mic calibration failed");
+  }
+  renderDashboard();
+}
+
+// Plays a 1 kHz tone for 500 ms at the chime volume and records it over the shared I2S bus. A
+// muted board, quiet hours and chime volume 0 skip the test. The amplifier and both codecs are
+// off again before this function returns. The test takes about 1 s; KEY presses during it are
+// not seen.
+void runLoopbackTest() {
+  const bool quiet = quietHours().isActive(g_rtc_time);
+  const uint8_t volume = config().chime_volume_pct;
+  if (AudioLoopback::skipReason(g_state.muted, quiet, volume) == LoopbackStatus::NOT_RUN) {
+    g_loopback.status = LoopbackStatus::RUNNING;
+    renderDashboard(); // shows "AUDIO LOOP: RUNNING"
+  }
+  LoopbackHal hal;
+  g_loopback = AudioLoopback::run(hal, volume, g_state.muted, quiet);
+  if (!g_loopback.passed() && !g_loopback.skipped()) {
+    Serial.println("Audio loopback failed");
   }
   renderDashboard();
 }
@@ -471,20 +494,30 @@ void setup() {
   // wakeup. A timer wakeup skips it to save battery.
   const uint32_t grace_start = millis();
   const bool wants_grace = cause != WakeupCause::TIMER;
-  bool boot_was_down = digitalRead(PIN_BTN_BOOT) == LOW;
-  // A pending KEY press (long press check) keeps the window open; it ends within 2 s.
-  while (wants_grace &&
-         (millis() - grace_start < KEY_GRACE_MS || g_mode_controller.pressPending())) {
-    // A BOOT press in the grace window toggles the mute flag; a short beep confirms unmuting.
-    const bool boot_down = digitalRead(PIN_BTN_BOOT) == LOW;
-    if (boot_down && !boot_was_down) {
-      g_state.muted = !g_state.muted;
-      if (!g_state.muted) {
-        Es8311Hal hal;
-        AudioSequencer::playConfirm(hal, config().chime_volume_pct);
-      }
+  // A pending KEY or BOOT press (long press check) keeps the window open; it ends within 2 s.
+  while (wants_grace && (millis() - grace_start < KEY_GRACE_MS || g_mode_controller.pressPending() ||
+                         g_boot_button.pressPending())) {
+    // A short BOOT press in the grace window toggles the mute flag; a short beep confirms
+    // unmuting. A long BOOT press in the diagnostics view runs the loopback test instead.
+    switch (g_boot_button.update(
+        digitalRead(PIN_BTN_BOOT) == LOW,
+        millis(),
+        g_mode_controller.mode() == DisplayMode::SYSTEM_DIAGNOSTICS)) {
+      case BootEvent::TOGGLE_MUTE:
+        g_state.muted = !g_state.muted;
+        if (!g_state.muted) {
+          Es8311Hal hal;
+          AudioSequencer::playConfirm(hal, config().chime_volume_pct);
+        }
+        break;
+      case BootEvent::LOOPBACK:
+        runLoopbackTest();
+        g_boot_button.cancelPress();
+        break;
+      case BootEvent::NONE:
+      default:
+        break;
     }
-    boot_was_down = boot_down;
     switch (g_mode_controller.updateWithLongPress(digitalRead(PIN_BTN_KEY) == LOW, millis())) {
       case ButtonEvent::MODE_CHANGED:
         renderDashboard();

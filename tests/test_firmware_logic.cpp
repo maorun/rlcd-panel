@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "../rlcd_panel/audio_alert.h"
+#include "../rlcd_panel/audio_loopback.h"
 #include "../rlcd_panel/battery_monitor.h"
 #include "../rlcd_panel/board_pins.h"
 #include "../rlcd_panel/button_handler.h"
@@ -3659,6 +3660,395 @@ void testDiagnosticsConfigLine() {
   }
 }
 
+// ---- Speaker to microphone loopback ----
+
+std::vector<int16_t> sineBuffer(float freq_hz, float amplitude, size_t frames) {
+  std::vector<int16_t> v(frames);
+  for (size_t i = 0; i < frames; ++i) {
+    v[i] = static_cast<int16_t>(lroundf(
+        amplitude * sinf(6.28318530718f * freq_hz * static_cast<float>(i) / 16000.0f)));
+  }
+  return v;
+}
+
+LoopbackResult detect(const std::vector<int16_t>& mono) {
+  LoopbackDetector d;
+  std::vector<int16_t> stereo;
+  for (int16_t x : mono) {
+    stereo.push_back(x);
+    stereo.push_back(x);
+  }
+  d.addInterleaved(stereo.data(), stereo.size());
+  return d.result();
+}
+
+void testGoertzelDetectsOneKhzSine() {
+  const LoopbackResult r = detect(sineBuffer(1000.0f, 16384.0f, 6400)); // amplitude 0.5 = -6 dBFS
+  assert(r.status == LoopbackStatus::PASS);
+  assert(r.passed());
+  assert(r.level_db >= -7 && r.level_db <= -5);
+}
+
+void testGoertzelRejectsOtherFrequencies() {
+  assert(detect(sineBuffer(2000.0f, 16384.0f, 6400)).status == LoopbackStatus::FAIL_TONE);
+  assert(detect(sineBuffer(500.0f, 16384.0f, 6400)).status == LoopbackStatus::FAIL_TONE);
+  assert(detect(sineBuffer(1100.0f, 16384.0f, 6400)).status == LoopbackStatus::FAIL_TONE);
+}
+
+void testGoertzelRejectsSilenceAndNoise() {
+  const LoopbackResult silence = detect(std::vector<int16_t>(6400, 0));
+  assert(silence.status == LoopbackStatus::FAIL_TONE);
+  assert(silence.level_db == -120);
+
+  uint32_t seed = 12345;
+  std::vector<int16_t> noise(6400);
+  for (int16_t& x : noise) {
+    seed = seed * 1664525u + 1013904223u;
+    x = static_cast<int16_t>((static_cast<int32_t>(seed >> 16) - 32768) / 2);
+  }
+  assert(detect(noise).status == LoopbackStatus::FAIL_TONE);
+
+  // A loud tone in strong noise: tone share below the limit.
+  std::vector<int16_t> mixed = sineBuffer(1000.0f, 2000.0f, 6400);
+  for (size_t i = 0; i < mixed.size(); ++i) {
+    seed = seed * 1664525u + 1013904223u;
+    mixed[i] = static_cast<int16_t>(mixed[i] + (static_cast<int32_t>(seed >> 16) - 32768) / 2);
+  }
+  assert(detect(mixed).status == LoopbackStatus::FAIL_TONE);
+}
+
+void testLoopbackThresholdAndDbReporting() {
+  // -40 dBFS tone passes, -70 dBFS tone is below the -60 dB limit.
+  const LoopbackResult loud = detect(sineBuffer(1000.0f, 327.68f, 6400));
+  assert(loud.status == LoopbackStatus::PASS);
+  assert(loud.level_db >= -41 && loud.level_db <= -39);
+  const LoopbackResult weak = detect(sineBuffer(1000.0f, 10.4f, 6400));
+  assert(weak.status == LoopbackStatus::FAIL_TONE);
+  assert(weak.level_db >= -71 && weak.level_db <= -69);
+
+  ToneMeasurement m;
+  m.valid = true;
+  m.level_db = LoopbackDetector::MIN_LEVEL_DB;
+  m.tone_ratio = LoopbackDetector::MIN_TONE_RATIO;
+  assert(LoopbackDetector::passes(m));
+  m.level_db = LoopbackDetector::MIN_LEVEL_DB - 0.1f;
+  assert(!LoopbackDetector::passes(m));
+  m.level_db = -10.0f;
+  m.tone_ratio = LoopbackDetector::MIN_TONE_RATIO - 0.01f;
+  assert(!LoopbackDetector::passes(m));
+  assert(!LoopbackDetector::passes(ToneMeasurement{}));
+
+  // The stronger channel decides; an empty detector is a hardware failure.
+  LoopbackDetector d;
+  std::vector<int16_t> tone = sineBuffer(1000.0f, 16384.0f, 6400);
+  std::vector<int16_t> stereo;
+  for (int16_t x : tone) {
+    stereo.push_back(0);
+    stereo.push_back(x);
+  }
+  d.addInterleaved(stereo.data(), stereo.size());
+  assert(d.result().passed());
+  assert(LoopbackDetector{}.result().status == LoopbackStatus::FAIL_HARDWARE);
+
+  char text[40];
+  LoopbackResult r;
+  r.status = LoopbackStatus::PASS;
+  r.level_db = -24;
+  r.describe(text, sizeof(text));
+  assert(strcmp(text, "AUDIO LOOP: PASS -24 DB") == 0);
+  r.status = LoopbackStatus::FAIL_TONE;
+  r.describe(text, sizeof(text));
+  assert(strcmp(text, "AUDIO LOOP: FAIL") == 0);
+  r.status = LoopbackStatus::FAIL_HARDWARE;
+  r.describe(text, sizeof(text));
+  assert(strcmp(text, "AUDIO LOOP: FAIL") == 0);
+}
+
+// Hardware layer double. `echo` plays the written samples back into the read path.
+struct FakeLoopbackHal {
+  std::vector<const char*> calls;
+  bool fail_bus = false, fail_codec = false, fail_adc = false, fail_write = false;
+  size_t short_read_after = SIZE_MAX; // reads beyond this many calls return 0
+  float echo_gain = 0.5f;
+  size_t garbage_frames = 0; // the first frames of the echo hold loud noise (latency, settling)
+  int16_t tx_peak = 0;
+  bool last_write_silent = false;
+  bool amplifier_on = false;
+  bool amplifier_was_on_while_writing = true;
+  size_t reads = 0;
+  size_t read_frames = 0;
+  std::vector<int16_t> last_tx;
+
+  bool beginBus() { calls.push_back("begin"); return !fail_bus; }
+  bool configureCodec() { calls.push_back("codec"); return !fail_codec; }
+  bool configureAdc() { calls.push_back("adc"); return !fail_adc; }
+  void setAmplifier(bool on) { calls.push_back(on ? "amp_on" : "amp_off"); amplifier_on = on; }
+  bool write(const int16_t* s, size_t n) {
+    if (!amplifier_on) amplifier_was_on_while_writing = false;
+    last_tx.assign(s, s + n);
+    last_write_silent = true;
+    for (size_t i = 0; i < n; ++i) {
+      if (s[i] != 0) last_write_silent = false;
+      tx_peak = std::max<int16_t>(tx_peak, static_cast<int16_t>(abs(s[i])));
+    }
+    return !fail_write;
+  }
+  size_t read(int16_t* s, size_t n) {
+    if (reads++ >= short_read_after) return 0;
+    for (size_t i = 0; i < n; ++i) {
+      s[i] = static_cast<int16_t>(static_cast<float>(last_tx[i]) * echo_gain);
+      if (read_frames + i / 2 < garbage_frames) s[i] = (i / 2) % 2 == 0 ? 30000 : -30000;
+    }
+    read_frames += n / 2;
+    return n;
+  }
+  void drain() { calls.push_back("drain"); }
+  void shutdownCodec() { calls.push_back("codec_off"); }
+  void shutdownAdc() { calls.push_back("adc_off"); }
+  void endBus() { calls.push_back("end"); }
+
+  // The shutdown tail must be amp_off, codec_off, adc_off, end and must be the last four calls.
+  bool shutdownOrderOk() const {
+    const size_t n = calls.size();
+    return n >= 4 && strcmp(calls[n - 4], "amp_off") == 0 && strcmp(calls[n - 3], "codec_off") == 0 &&
+           strcmp(calls[n - 2], "adc_off") == 0 && strcmp(calls[n - 1], "end") == 0;
+  }
+};
+
+void testLoopbackPassPowersDownInOrder() {
+  FakeLoopbackHal hal;
+  const LoopbackResult r = AudioLoopback::run(hal, 30, false, false);
+  assert(r.passed());
+  assert(hal.shutdownOrderOk());
+  assert(hal.amplifier_was_on_while_writing);
+  assert(!hal.amplifier_on);
+  // Order of the whole run: bring-up, amplifier on, drain, shutdown.
+  assert(strcmp(hal.calls[0], "begin") == 0 && strcmp(hal.calls[1], "codec") == 0 &&
+         strcmp(hal.calls[2], "adc") == 0 && strcmp(hal.calls[3], "amp_on") == 0 &&
+         strcmp(hal.calls[4], "drain") == 0);
+  // 500 ms at 16 kHz = 8000 frames = 16000 interleaved samples were transferred.
+  assert(hal.reads == (8000 + AudioLoopback::CHUNK_FRAMES - 1) / AudioLoopback::CHUNK_FRAMES);
+  assert(LoopbackTone::DURATION_MS == 500);
+}
+
+void testLoopbackFailurePathsPowerDown() {
+  {
+    FakeLoopbackHal hal;
+    hal.fail_bus = true;
+    assert(AudioLoopback::run(hal, 30, false, false).status == LoopbackStatus::FAIL_HARDWARE);
+    assert(hal.shutdownOrderOk());
+    assert(!hal.amplifier_on);
+  }
+  {
+    FakeLoopbackHal hal;
+    hal.fail_codec = true;
+    assert(AudioLoopback::run(hal, 30, false, false).status == LoopbackStatus::FAIL_HARDWARE);
+    assert(hal.shutdownOrderOk());
+    for (const char* c : hal.calls) assert(strcmp(c, "amp_on") != 0); // never on before the codec
+  }
+  {
+    FakeLoopbackHal hal;
+    hal.fail_adc = true;
+    assert(AudioLoopback::run(hal, 30, false, false).status == LoopbackStatus::FAIL_HARDWARE);
+    assert(hal.shutdownOrderOk());
+    for (const char* c : hal.calls) assert(strcmp(c, "amp_on") != 0);
+  }
+  {
+    FakeLoopbackHal hal;
+    hal.fail_write = true;
+    assert(AudioLoopback::run(hal, 30, false, false).status == LoopbackStatus::FAIL_HARDWARE);
+    assert(hal.shutdownOrderOk());
+    assert(!hal.amplifier_on);
+  }
+  {
+    FakeLoopbackHal hal;
+    hal.short_read_after = 5;
+    assert(AudioLoopback::run(hal, 30, false, false).status == LoopbackStatus::FAIL_HARDWARE);
+    assert(hal.shutdownOrderOk());
+    assert(!hal.amplifier_on);
+  }
+  {
+    // A dead path (no echo) is a tone failure, and the hardware is still off.
+    FakeLoopbackHal hal;
+    hal.echo_gain = 0.0f;
+    assert(AudioLoopback::run(hal, 30, false, false).status == LoopbackStatus::FAIL_TONE);
+    assert(hal.shutdownOrderOk());
+  }
+}
+
+void testLoopbackSkipsWhenMutedQuietOrZeroVolume() {
+  {
+    FakeLoopbackHal hal;
+    const LoopbackResult r = AudioLoopback::run(hal, 30, true, false);
+    assert(r.status == LoopbackStatus::SKIPPED_MUTED && r.skipped() && !r.passed());
+    assert(hal.calls.empty()); // the hardware stays untouched
+  }
+  {
+    FakeLoopbackHal hal;
+    assert(AudioLoopback::run(hal, 30, false, true).status == LoopbackStatus::SKIPPED_QUIET);
+    assert(hal.calls.empty());
+  }
+  {
+    FakeLoopbackHal hal;
+    assert(AudioLoopback::run(hal, 0, false, false).status == LoopbackStatus::SKIPPED_VOLUME);
+    assert(hal.calls.empty());
+  }
+  {
+    FakeLoopbackHal hal; // mute wins over quiet hours
+    assert(AudioLoopback::run(hal, 30, true, true).status == LoopbackStatus::SKIPPED_MUTED);
+  }
+  assert(AudioLoopback::skipReason(false, false, 30) == LoopbackStatus::NOT_RUN);
+  char text[40];
+  LoopbackResult r;
+  r.status = LoopbackStatus::SKIPPED_MUTED;
+  r.describe(text, sizeof(text));
+  assert(strcmp(text, "AUDIO LOOP: SKIP MUTED") == 0);
+  r.status = LoopbackStatus::SKIPPED_QUIET;
+  r.describe(text, sizeof(text));
+  assert(strcmp(text, "AUDIO LOOP: SKIP QUIET") == 0);
+}
+
+void testLoopbackSettleDcAndTrailingSilence() {
+  // Loud garbage in the first 100 ms of the echo stays out of the analysis.
+  {
+    FakeLoopbackHal hal;
+    hal.garbage_frames = AudioLoopback::SETTLE_FRAMES;
+    assert(AudioLoopback::run(hal, 30, false, false).passed());
+  }
+  // Garbage after the settling time fails the test.
+  {
+    FakeLoopbackHal hal;
+    hal.garbage_frames = AudioLoopback::SETTLE_FRAMES + 2000;
+    assert(AudioLoopback::run(hal, 30, false, false).status == LoopbackStatus::FAIL_TONE);
+  }
+  // A microphone DC offset does not lower the tone share.
+  std::vector<int16_t> tone = sineBuffer(1000.0f, 3000.0f, 6400);
+  for (int16_t& x : tone) x = static_cast<int16_t>(x + 12000);
+  assert(detect(tone).passed());
+  // The last write before the shutdown is silence.
+  FakeLoopbackHal hal;
+  AudioLoopback::run(hal, 30, false, false);
+  assert(hal.last_write_silent);
+}
+
+void testLoopbackToneUsesChimeVolume() {
+  FakeLoopbackHal hal;
+  AudioLoopback::run(hal, 100, false, false);
+  const int16_t peak = hal.tx_peak;
+  assert(peak > 0);
+  FakeLoopbackHal low;
+  AudioLoopback::run(low, 10, false, false);
+  assert(low.tx_peak > 0 && low.tx_peak < peak);
+}
+
+void testBootButtonLongPressInDiagnostics() {
+  // Outside the diagnostics view a press toggles the mute flag at once.
+  {
+    BootButtonController b;
+    assert(b.update(false, 0, false) == BootEvent::NONE);
+    assert(b.update(true, 100, false) == BootEvent::NONE);
+    assert(b.update(true, 140, false) == BootEvent::TOGGLE_MUTE);
+    assert(!b.pressPending());
+  }
+  // In the diagnostics view a short press toggles on release.
+  {
+    BootButtonController b;
+    b.update(false, 0, true);
+    b.update(true, 100, true);
+    assert(b.update(true, 140, true) == BootEvent::NONE);
+    assert(b.pressPending());
+    b.update(false, 400, true);
+    assert(b.update(false, 440, true) == BootEvent::TOGGLE_MUTE);
+  }
+  // A long press starts the loopback and does not toggle the mute flag on release.
+  {
+    BootButtonController b;
+    b.update(false, 0, true);
+    b.update(true, 100, true);
+    b.update(true, 140, true);
+    // The press edge is debounced at 140 ms, so the limit is 2140 ms.
+    assert(b.update(true, 2139, true) == BootEvent::NONE);
+    assert(b.update(true, 2140, true) == BootEvent::LOOPBACK);
+    assert(b.update(false, 2300, true) == BootEvent::NONE);
+    assert(b.update(false, 2400, true) == BootEvent::NONE);
+  }
+  // A button down at the first call (the wake press) raises no event.
+  {
+    BootButtonController b;
+    assert(b.update(true, 0, true) == BootEvent::NONE);
+    assert(b.update(true, 3000, true) == BootEvent::NONE);
+    assert(!b.pressPending());
+  }
+}
+
+void testDiagnosticsLoopbackLine() {
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  SystemInfo info;
+  St7305Framebuffer none, pass, fail;
+  none.clear(true);
+  pass.clear(true);
+  fail.clear(true);
+  DashboardView::renderDiagnostics(none, battery, info, "12:00");
+  info.loopback.status = LoopbackStatus::PASS;
+  info.loopback.level_db = -120;
+  DashboardView::renderDiagnostics(pass, battery, info, "12:00");
+  info.loopback.status = LoopbackStatus::FAIL_TONE;
+  DashboardView::renderDiagnostics(fail, battery, info, "12:00");
+
+  size_t pass_diff = 0, fail_diff = 0, fail_vs_pass = 0;
+  const uint16_t Y0 = DashboardView::LOOPBACK_Y, Y1 = Y0 + 14;
+  for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      const bool inside = y >= Y0 && y < Y1;
+      if (none.getPixel(x, y) != pass.getPixel(x, y)) {
+        ++pass_diff;
+        assert(inside);
+      }
+      if (none.getPixel(x, y) != fail.getPixel(x, y)) {
+        ++fail_diff;
+        assert(inside);
+      }
+      if (pass.getPixel(x, y) != fail.getPixel(x, y)) ++fail_vs_pass;
+      // "AUDIO LOOP: PASS -120 DB" = 24 glyphs = 288 px; the right margin stays blank.
+      if (inside && x >= 10 + 24 * 12) assert(!pass.getPixel(x, y));
+    }
+  }
+  assert(pass_diff > 0 && fail_diff > 0 && fail_vs_pass > 0);
+  // The line sits clear of the calibration line above and the config line below.
+  assert(Y0 >= 244 + 14 && Y1 <= 276);
+}
+
+void testPreviewDiagnosticsShowsLoopback() {
+  // The preview scene shows the PASS line: it equals a render with the same PASS result and
+  // differs from a render without a result.
+  St7305Framebuffer scene, expected, not_run;
+  preview::renderScene(scene, DisplayMode::SYSTEM_DIAGNOSTICS, false);
+  expected.clear(true);
+  not_run.clear(true);
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.92f;
+  battery.percentage = 72;
+  battery.usb_powered = false;
+  SystemInfo info;
+  info.loopback.status = LoopbackStatus::PASS;
+  info.loopback.level_db = -24;
+  DashboardView::renderDiagnostics(expected, battery, info, "14:32");
+  info.loopback = LoopbackResult{};
+  DashboardView::renderDiagnostics(not_run, battery, info, "14:32");
+  size_t scene_vs_pass = 0, scene_vs_none = 0;
+  for (uint16_t y = DashboardView::LOOPBACK_Y; y < DashboardView::LOOPBACK_Y + 14; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      if (scene.getPixel(x, y) != expected.getPixel(x, y)) ++scene_vs_pass;
+      if (scene.getPixel(x, y) != not_run.getPixel(x, y)) ++scene_vs_none;
+    }
+  }
+  assert(scene_vs_pass == 0 && scene_vs_none > 0);
+}
+
 int main() {
   testSwitchBotManufacturerPositiveTemp();
   testSwitchBotManufacturerNegativeTemp();
@@ -3733,6 +4123,18 @@ int main() {
   testDeviceConfigWiring();
   testDeviceConfigRtcRoundTrip();
   testDiagnosticsConfigLine();
-  printf("All 60 firmware logic test suites passed.\n");
+  testGoertzelDetectsOneKhzSine();
+  testGoertzelRejectsOtherFrequencies();
+  testGoertzelRejectsSilenceAndNoise();
+  testLoopbackThresholdAndDbReporting();
+  testLoopbackPassPowersDownInOrder();
+  testLoopbackFailurePathsPowerDown();
+  testLoopbackSkipsWhenMutedQuietOrZeroVolume();
+  testLoopbackSettleDcAndTrailingSilence();
+  testLoopbackToneUsesChimeVolume();
+  testBootButtonLongPressInDiagnostics();
+  testDiagnosticsLoopbackLine();
+  testPreviewDiagnosticsShowsLoopback();
+  printf("All 72 firmware logic test suites passed.\n");
   return 0;
 }

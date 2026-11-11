@@ -94,6 +94,45 @@ private:
   uint32_t since_ms_ = 0;
 };
 
+enum class BootEvent : uint8_t {
+  NONE,
+  TOGGLE_MUTE, // short press: mute flag toggles
+  LOOPBACK,    // long press in the diagnostics view: speaker to microphone test
+};
+
+// BOOT button: a short press toggles the mute flag, a long press in the diagnostics view starts
+// the loopback test. Outside the diagnostics view every press toggles at once. In the diagnostics
+// view the toggle waits for the release, so a long press never toggles the mute flag. A button that
+// is down at the first call raises no event.
+class BootButtonController {
+public:
+  BootEvent update(bool raw_pressed, uint32_t now_ms, bool diagnostics_view) {
+    const bool edge = button_.update(raw_pressed, now_ms);
+    if (edge) {
+      if (!diagnostics_view) {
+        return BootEvent::TOGGLE_MUTE;
+      }
+      long_press_.begin(now_ms);
+    }
+    switch (long_press_.update(button_.pressed(), now_ms)) {
+      case LongPressDetector::Result::SHORT: return BootEvent::TOGGLE_MUTE;
+      case LongPressDetector::Result::LONG: return BootEvent::LOOPBACK;
+      case LongPressDetector::Result::NONE:
+      default: return BootEvent::NONE;
+    }
+  }
+
+  // True while a press waits for its release or the long press limit.
+  bool pressPending() const { return long_press_.active(); }
+
+  // Drops a pending press, for example after a test that blocked the loop.
+  void cancelPress() { long_press_.cancel(); }
+
+private:
+  ButtonDebouncer button_;
+  LongPressDetector long_press_;
+};
+
 enum class ButtonEvent : uint8_t {
   NONE,
   MODE_CHANGED,
