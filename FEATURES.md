@@ -341,3 +341,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `AlertEvaluator::chimeBits`, `step`, `climateStep` and `NoiseAlertEvaluator::step` take the mask as the last argument. The default is all bits set.
 - The mask adds one byte to the config trailer in RTC memory. The state version is 15 (16 since `ntp_sync_interval_h`). The old format gives a clean start. A mask above `15` is rejected, even with a valid CRC.
 - Host tests cover the default, each single bit, `0`, a combination, out-of-range values, mute and quiet hours, no replay after the bit is set again, and the RTC round trip.
+
+## USB power detection via USB controller status
+
+- `BatteryMonitor::read()` and `BatteryMonitor::readAveraged()` pass `HWCDC::isPlugged()` to `BatteryMonitor::decodeMillivolts(adc_millivolts, usb_plugged)`.
+- `BatteryReading::usb_powered` is true when the USB controller reports a host, or when the voltage is 4.25 V or more (`BatteryMonitor::USB_VOLTAGE_V`).
+- An installed cell clamps the voltage to 4.20 V. Before this change, the diagnostics view then showed `POWER: BATTERY` on a connected host.
+- The parameter `usb_plugged` defaults to false. Host tests use it as the injection point for the controller status.
+- Host tests cover the plugged state at 3.3 V, 3.8 V, 4.15 V and 4.2 V, the unplugged state below 4.25 V, the unplugged state at 4.25 V and above, the 4.248 V and 4.251 V limit, and the effect on the low battery alert and the empty protection.
+- `HWCDC::isPlugged()` calls `usb_serial_jtag_is_connected()`. The call reports SOF traffic of an active USB host, not the VBUS level. A charger without a host data connection with an installed cell still shows `POWER: BATTERY`, unless the voltage is 4.25 V or more.
+- The SOF watchdog can lag the real state for a few milliseconds after a wake. A short false reading shows `POWER: BATTERY` for one wake cycle at most.
+- The hardware check on the board connected to a Mac is not part of the host tests.

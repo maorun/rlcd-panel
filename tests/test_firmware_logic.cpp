@@ -400,6 +400,37 @@ void testBatteryMonitorDecoding() {
   assert(!empty.valid);
 }
 
+void testBatteryMonitorUsbPlugged() {
+  // ADC mV for 3.3 V, 3.8 V, 4.15 V, 4.2 V: 1100, 1267, 1383, 1400
+  const uint32_t adc_mv[] = {1100, 1267, 1383, 1400};
+  for (uint32_t mv : adc_mv) {
+    // Plugged to a host: USB power at each cell voltage, the voltage stays unchanged.
+    const BatteryReading plugged = BatteryMonitor::decodeMillivolts(mv, true);
+    assert(plugged.valid);
+    assert(plugged.usb_powered);
+    assert(plugged.voltage_v < 4.25f);
+    assert(plugged.percentage >= 0);
+    // Unplugged: the cell voltage below 4.25 V means battery power.
+    assert(!BatteryMonitor::decodeMillivolts(mv, false).usb_powered);
+    assert(!BatteryMonitor::decodeMillivolts(mv).usb_powered);
+  }
+
+  // Unplugged with 4.25 V or more (charger, floating pin): USB power.
+  assert(BatteryMonitor::decodeMillivolts(1417, false).usb_powered); // 4.251 V
+  assert(BatteryMonitor::decodeMillivolts(1450, false).usb_powered); // 4.35 V
+  assert(!BatteryMonitor::decodeMillivolts(1416, false).usb_powered); // 4.248 V
+  // Plugged with 4.25 V or more stays USB power.
+  assert(BatteryMonitor::decodeMillivolts(1450, true).usb_powered);
+
+  // The plugged flag ends the low battery alert and the empty protection of the cell.
+  const BatteryReading low_plugged = BatteryMonitor::decodeMillivolts(1050, true); // 3.15 V
+  assert(low_plugged.usb_powered);
+  assert(!BatteryMonitor::updateLowBattery(low_plugged, true));
+  assert(!BatteryMonitor::updateEmptyProtection(low_plugged, true));
+  const BatteryReading low_unplugged = BatteryMonitor::decodeMillivolts(1050, false);
+  assert(BatteryMonitor::updateEmptyProtection(low_unplugged, false));
+}
+
 void testDashboardViewRendering() {
   St7305Framebuffer fb;
   Shtc3Reading onboard;
@@ -6982,6 +7013,7 @@ int main() {
   testSt7305FramebufferPixelMapping();
   testShtc3Codec();
   testBatteryMonitorDecoding();
+  testBatteryMonitorUsbPlugged();
   testDashboardViewRendering();
   testPcf85063BcdCodec();
   testPcf85063InvalidValues();

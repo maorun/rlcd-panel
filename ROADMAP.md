@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] USB power detection via USB controller status
-  - Rank: [Total: 36, Use: 8, Setup: 9, Harmony: 9, Safety: 10, Effort: S]
-  - Location: `rlcd_panel/battery_monitor.h`, `tests/test_firmware_logic.cpp`.
-  - Goal: Detect USB host power correctly when a battery is installed. In `BatteryMonitor::read()`, use `HWCDC::isPlugged()` alongside `voltage_v >= 4.25f` to determine `usb_powered`. On the host test platform where Arduino HWCDC is absent, allow injecting or mocking the plugged status. Set `battery.usb_powered` to true when plugged into a USB host, so `POWER: USB` displays reliably even when a battery clamps the voltage below 4.25 V.
-  - Acceptance test: Host tests cover plugged and unplugged states across battery voltage levels (3.3 V to 4.2 V), verifying `usb_powered` is true whenever plugged. On the board connected to a Mac, the diagnostics view shows `POWER: USB` instead of `POWER: BATTERY`.
-
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
 ## Priority 3: Audio Expansions (Score 22–27)

@@ -56,11 +56,16 @@ public:
     return static_cast<int8_t>(pct + 0.5f);
   }
 
-  static BatteryReading decodeMillivolts(uint32_t adc_millivolts) {
+  // A charger or a floating pin lifts the cell voltage to 4.25 V or more. An installed cell clamps
+  // it to 4.20 V, so the USB controller status `usb_plugged` also marks USB power. Host tests
+  // inject `usb_plugged`; the firmware passes HWCDC::isPlugged().
+  static constexpr float USB_VOLTAGE_V = 4.25f;
+
+  static BatteryReading decodeMillivolts(uint32_t adc_millivolts, bool usb_plugged = false) {
     BatteryReading r;
     r.voltage_v = (static_cast<float>(adc_millivolts) * BAT_VOLTAGE_DIVIDER_RATIO) / 1000.0f;
     r.percentage = voltageToPercent(r.voltage_v);
-    r.usb_powered = (r.voltage_v >= 4.25f);
+    r.usb_powered = usb_plugged || (r.voltage_v >= USB_VOLTAGE_V);
     r.valid = (r.voltage_v > 0.5f);
     return r;
   }
@@ -99,7 +104,7 @@ public:
   static BatteryReading read() {
     // analogReadMilliVolts utilizes ESP32-S3 eFuse factory calibration curve
     const uint32_t raw_mv = analogReadMilliVolts(PIN_BAT_ADC);
-    return decodeMillivolts(raw_mv);
+    return decodeMillivolts(raw_mv, HWCDC::isPlugged());
   }
 
   // Mean of four ADC samples 5 ms apart. The protection check uses it, so one load dip cannot
@@ -110,7 +115,7 @@ public:
       sum_mv += analogReadMilliVolts(PIN_BAT_ADC);
       delay(5);
     }
-    return decodeMillivolts(sum_mv / 4);
+    return decodeMillivolts(sum_mv / 4, HWCDC::isPlugged());
   }
 #endif
 };
