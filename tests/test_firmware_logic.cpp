@@ -12,6 +12,7 @@
 #include "../rlcd_panel/battery_monitor.h"
 #include "../rlcd_panel/board_pins.h"
 #include "../rlcd_panel/button_handler.h"
+#include "../rlcd_panel/clap_detector.h"
 #include "../rlcd_panel/dashboard_view.h"
 #include "../rlcd_panel/device_config.h"
 #include "../rlcd_panel/es7210_mic.h"
@@ -4625,6 +4626,326 @@ void testSpectrumStoredViewMode() {
 }
 
 
+// Builds a level envelope in dBFS, one value per ms. Noise floor -70 dB with a slight ripple.
+struct ClapEnvelope {
+  std::vector<int> level;
+  explicit ClapEnvelope(size_t ms) : level(ms, -70) {
+    for (size_t i = 0; i < ms; ++i) level[i] = -70 + static_cast<int>(i % 3);
+  }
+  // Fast rise to -10 dB, decay to the floor in `decay_ms`.
+  void clap(size_t at, size_t decay_ms = 30) {
+    for (size_t i = 0; i < decay_ms && at + i < level.size(); ++i) {
+      level[at + i] = -10 - static_cast<int>(60 * i / decay_ms);
+    }
+  }
+  void fill(size_t from, size_t to, int db) {
+    for (size_t i = from; i < to && i < level.size(); ++i) level[i] = db;
+  }
+  // Number of double clap reports.
+  int run() const {
+    ClapDetector d;
+    int hits = 0;
+    for (size_t i = 0; i < level.size(); ++i) {
+      if (d.update(level[i], static_cast<uint32_t>(i))) ++hits;
+    }
+    return hits;
+  }
+};
+
+void testClapSingleClapDoesNotTrigger() {
+  ClapEnvelope e(3000);
+  e.clap(1000);
+  assert(e.run() == 0);
+}
+
+void testClapTwoClapsGapRules() {
+  ClapEnvelope tight(3000);
+  tight.clap(1000);
+  tight.clap(1100);
+  assert(tight.run() == 0); // 100 ms: an echo, not a second clap
+  ClapEnvelope good(3000);
+  good.clap(1000);
+  good.clap(1300);
+  assert(good.run() == 1); // 300 ms
+  ClapEnvelope lo(3000);
+  lo.clap(1000);
+  lo.clap(1150);
+  assert(lo.run() == 1); // lower limit
+  ClapEnvelope hi(3000);
+  hi.clap(1000);
+  hi.clap(1600);
+  assert(hi.run() == 1); // upper limit
+  ClapEnvelope slow(4000);
+  slow.clap(1000);
+  slow.clap(1800);
+  assert(slow.run() == 0); // 800 ms
+}
+
+void testClapThirdClapIsIgnored() {
+  ClapEnvelope e(5000);
+  e.clap(1000);
+  e.clap(1300);
+  e.clap(1600);
+  assert(e.run() == 0); // applause
+  // The lockout also covers a later pair
+  e.clap(2000);
+  e.clap(2300);
+  assert(e.run() == 0);
+  // After the lockout a new pair works
+  e.clap(3500);
+  e.clap(3800);
+  assert(e.run() == 1);
+}
+
+void testClapThirdClapJustInsideTriggerWindow() {
+  ClapEnvelope e(4000);
+  e.clap(1000);
+  e.clap(1300);
+  e.clap(1690, 30); // onset 390 ms after the second clap, decay ends after the 400 ms timer
+  assert(e.run() == 0);
+}
+
+void testClapReportsOnceAndLocksOut() {
+  ClapEnvelope e(5000);
+  e.clap(1000);
+  e.clap(1300);
+  e.clap(1900); // 600 ms after the second clap: after the triple window
+  assert(e.run() == 1);
+  // A pair inside the 1 s lockout after a report gives no second report
+  ClapEnvelope l(5000);
+  l.clap(1000);
+  l.clap(1300);
+  l.clap(1900);
+  l.clap(2200);
+  assert(l.run() == 1);
+}
+
+void testClapContinuousLoudNoise() {
+  ClapEnvelope e(5000);
+  e.fill(1000, 4000, -20); // loud and steady
+  assert(e.run() == 0);
+  // A loud room with a clap on top (15 dB step is below the rise limit)
+  ClapEnvelope loud(4000);
+  loud.fill(0, 4000, -30);
+  loud.fill(1000, 1030, -18);
+  loud.fill(1300, 1330, -18);
+  assert(loud.run() == 0);
+}
+
+void testClapSpeechLikeBursts() {
+  ClapEnvelope e(6000);
+  // Syllables: slow rise over 30 ms, plateau, slow decay over 150 ms; 250 ms apart
+  for (size_t t = 1000; t < 5000; t += 250) {
+    for (size_t i = 0; i < 30; ++i) e.level[t + i] = -70 + static_cast<int>(50 * i / 30);
+    for (size_t i = 0; i < 40; ++i) e.level[t + 30 + i] = -20;
+    for (size_t i = 0; i < 150; ++i) e.level[t + 70 + i] = -20 - static_cast<int>(50 * i / 150);
+  }
+  assert(e.run() == 0);
+  // Abrupt but long bursts do not decay within 100 ms
+  ClapEnvelope b(4000);
+  b.fill(1000, 1300, -15);
+  b.fill(1500, 1800, -15);
+  assert(b.run() == 0);
+}
+
+void testClapBelowMinimumPeak() {
+  ClapEnvelope e(3000);
+  for (size_t i = 0; i < 3000; ++i) e.level[i] = -96;
+  e.fill(1000, 1010, -50);
+  e.fill(1300, 1310, -50);
+  assert(e.run() == 0); // a rustle in a silent room
+}
+
+void testClapTimeWrapAround() {
+  ClapDetector d;
+  int hits = 0;
+  const uint32_t start = 0xFFFFFF00u;
+  ClapEnvelope e(3000);
+  e.clap(1000);
+  e.clap(1300);
+  for (size_t i = 0; i < e.level.size(); ++i) {
+    if (d.update(e.level[i], start + static_cast<uint32_t>(i))) ++hits;
+  }
+  assert(hits == 1);
+}
+
+// Fake ADC that serves a scripted level envelope as stereo frames: one millisecond is 16 frames
+// with the peak amplitude of the level value.
+struct FakeClapHal {
+  std::vector<int> level;
+  size_t pos_ms = 0;
+  bool bus_ok = true;
+  bool adc_ok = true;
+  size_t reads_before_fail = static_cast<size_t>(-1);
+  size_t reads = 0;
+  int begin_calls = 0, config_calls = 0, shutdown_calls = 0, end_calls = 0;
+  bool powered = false;
+
+  bool beginBus() { ++begin_calls; return bus_ok; }
+  bool configureAdc() { ++config_calls; powered = adc_ok; return adc_ok; }
+  size_t read(int16_t* samples, size_t count) {
+    if (reads++ >= reads_before_fail) return 0;
+    for (size_t i = 0; i < count; i += 2) {
+      const size_t ms = pos_ms + (i / 2) / 16;
+      const int db = ms < level.size() ? level[ms] : -70;
+      const float amp = 32768.0f * powf(10.0f, static_cast<float>(db) / 20.0f);
+      const int16_t v = static_cast<int16_t>(amp > 32767.0f ? 32767.0f : amp);
+      samples[i] = ((i / 2) & 1) ? static_cast<int16_t>(-v) : v;
+      samples[i + 1] = samples[i];
+    }
+    pos_ms += count / 32;
+    return count;
+  }
+  void shutdownAdc() { ++shutdown_calls; powered = false; }
+  void endBus() { ++end_calls; }
+};
+
+void testClapListenerDetectsDoubleClapFromAudio() {
+  FakeClapHal hal;
+  ClapEnvelope e(4000);
+  // The listener skips the first 100 ms of settling
+  e.clap(1000);
+  e.clap(1300);
+  hal.level = e.level;
+  int hits = 0;
+  {
+    ClapListener<FakeClapHal> listener(hal);
+    for (int i = 0; i < 200; ++i) {
+      if (listener.poll()) ++hits;
+    }
+    assert(listener.listening());
+    assert(hal.begin_calls == 1 && hal.config_calls == 1);
+  }
+  assert(hits == 1);
+  assert(!hal.powered && hal.shutdown_calls == 1 && hal.end_calls == 1);
+}
+
+void testClapListenerPowersDownOnEveryPath() {
+  // Bus failure
+  FakeClapHal bus;
+  bus.bus_ok = false;
+  {
+    ClapListener<FakeClapHal> l(bus);
+    assert(!l.poll() && !l.listening());
+    assert(bus.shutdown_calls == 1 && bus.end_calls == 1);
+    assert(!l.poll()); // stays stopped
+    assert(bus.begin_calls == 1);
+  }
+  // ADC failure
+  FakeClapHal adc;
+  adc.adc_ok = false;
+  {
+    ClapListener<FakeClapHal> l(adc);
+    assert(!l.poll() && !l.listening());
+    assert(adc.shutdown_calls == 1);
+  }
+  // Read failure after two frames
+  FakeClapHal rd;
+  rd.reads_before_fail = 2;
+  {
+    ClapListener<FakeClapHal> l(rd);
+    l.poll();
+    l.poll();
+    assert(l.listening() && rd.powered);
+    assert(!l.poll() && !l.listening() && !rd.powered);
+  }
+  // Explicit stop, then the destructor adds nothing
+  FakeClapHal st;
+  {
+    ClapListener<FakeClapHal> l(st);
+    l.poll();
+    l.stop();
+    assert(!st.powered && st.shutdown_calls == 1 && st.end_calls == 1);
+    l.stop();
+    assert(st.shutdown_calls == 1);
+  }
+  assert(st.shutdown_calls == 1);
+  // Scope exit without stop powers down
+  FakeClapHal sc;
+  {
+    ClapListener<FakeClapHal> l(sc);
+    l.poll();
+    assert(sc.powered);
+  }
+  assert(!sc.powered && sc.end_calls == 1);
+  // Never polled: the hardware stays untouched
+  FakeClapHal idle;
+  {
+    ClapListener<FakeClapHal> l(idle);
+  }
+  assert(idle.begin_calls == 0 && idle.shutdown_calls == 0);
+}
+
+void testClapListenerReleaseAndReopen() {
+  FakeClapHal hal;
+  ClapListener<FakeClapHal> l(hal);
+  l.poll();
+  l.release();
+  assert(!hal.powered && !l.listening());
+  l.poll();
+  assert(l.listening() && hal.begin_calls == 2);
+  l.stop();
+  assert(!hal.powered && hal.end_calls == 2);
+}
+
+void testClapListenerReopenFailurePowersDown() {
+  FakeClapHal hal;
+  ClapListener<FakeClapHal> l(hal);
+  l.poll();
+  l.release();
+  hal.bus_ok = false;
+  assert(!l.poll() && !l.listening() && !l.available());
+  assert(!hal.powered && hal.shutdown_calls == 2 && hal.end_calls == 2);
+}
+
+void testClapListenModeGate() {
+  BatteryReading usb;
+  usb.valid = true;
+  usb.usb_powered = true;
+  BatteryReading bat;
+  bat.valid = true;
+  bat.percentage = 80;
+  BatteryReading low = bat;
+  low.low_battery = true;
+  BatteryReading none; // no reading
+
+  // USB: continuous, also after a timer wakeup
+  assert(PowerManager::clapListenMode(usb, WakeupCause::TIMER) == ClapListenMode::CONTINUOUS);
+  assert(PowerManager::clapListenMode(usb, WakeupCause::KEY_BUTTON) == ClapListenMode::CONTINUOUS);
+  assert(PowerManager::clapListenMode(usb, WakeupCause::POWER_ON) == ClapListenMode::CONTINUOUS);
+  // Battery: grace window only
+  assert(PowerManager::clapListenMode(bat, WakeupCause::KEY_BUTTON) == ClapListenMode::GRACE);
+  assert(PowerManager::clapListenMode(bat, WakeupCause::POWER_ON) == ClapListenMode::GRACE);
+  assert(PowerManager::clapListenMode(bat, WakeupCause::TIMER) == ClapListenMode::OFF);
+  assert(PowerManager::clapListenMode(none, WakeupCause::TIMER) == ClapListenMode::OFF);
+  assert(PowerManager::clapListenMode(none, WakeupCause::KEY_BUTTON) == ClapListenMode::GRACE);
+  // Low battery alert: off
+  assert(PowerManager::clapListenMode(low, WakeupCause::KEY_BUTTON) == ClapListenMode::OFF);
+  assert(PowerManager::clapListenMode(low, WakeupCause::TIMER) == ClapListenMode::OFF);
+
+  // A continuous listener ends when the next scan is due
+  PowerConfig cfg;
+  assert(PowerManager::continuousListenAllowed(cfg, 10000, 0));
+  assert(PowerManager::continuousListenAllowed(cfg, 58000, 0));
+  assert(!PowerManager::continuousListenAllowed(cfg, 60000, 0));
+  assert(!PowerManager::continuousListenAllowed(cfg, 90000, 0));
+}
+
+void testClapUsbPowerWatch() {
+  UsbPowerWatch w(1000);
+  assert(!w.due(1000) && !w.due(5999) && w.due(6000));
+  assert(w.update(true, 6000));
+  assert(!w.due(10999) && w.due(11000));
+  // One low sample is a bad read, two in a row end the watch
+  assert(w.update(false, 11000));
+  assert(w.update(true, 16000)); // the count restarts
+  assert(w.update(false, 21000));
+  assert(!w.update(false, 26000));
+  // Clock wrap-around
+  UsbPowerWatch wrap(0xFFFFF000u);
+  assert(!wrap.due(0xFFFFF800u) && wrap.due(0x00000400u + 0x1000u));
+}
+
 int main() {
   testSwitchBotManufacturerPositiveTemp();
   testSwitchBotManufacturerNegativeTemp();
@@ -4724,6 +5045,21 @@ int main() {
   testBootButtonLongPressInDiagnostics();
   testDiagnosticsLoopbackLine();
   testPreviewDiagnosticsShowsLoopback();
-  printf("All 72 firmware logic test suites passed.\n");
+  testClapSingleClapDoesNotTrigger();
+  testClapTwoClapsGapRules();
+  testClapThirdClapIsIgnored();
+  testClapThirdClapJustInsideTriggerWindow();
+  testClapReportsOnceAndLocksOut();
+  testClapContinuousLoudNoise();
+  testClapSpeechLikeBursts();
+  testClapBelowMinimumPeak();
+  testClapTimeWrapAround();
+  testClapListenerDetectsDoubleClapFromAudio();
+  testClapListenerPowersDownOnEveryPath();
+  testClapListenerReleaseAndReopen();
+  testClapListenerReopenFailurePowersDown();
+  testClapListenModeGate();
+  testClapUsbPowerWatch();
+  printf("All 87 firmware logic test suites passed.\n");
   return 0;
 }

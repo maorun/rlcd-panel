@@ -9,6 +9,7 @@
 #include "battery_monitor.h"
 #include "board_pins.h"
 #include "button_handler.h"
+#include "clap_detector.h"
 #include "device_config.h"
 #include "ntp_sync.h"
 #include "sparkline.h"
@@ -94,6 +95,33 @@ struct WakeupPlan {
   bool enable_key_wakeup = false;
 };
 
+// Watches the USB power during continuous clap listening. due() is true every RECHECK_MS. The
+// caller then reads the battery and passes the result to update(). One low sample can come from a
+// bad ADC read, so LOST_SAMPLES samples in a row without USB power end the watch. Unsigned
+// subtraction keeps the timing correct when the clock wraps around.
+class UsbPowerWatch {
+public:
+  static constexpr uint32_t RECHECK_MS = 5000;
+  static constexpr uint8_t LOST_SAMPLES = 2;
+
+  explicit UsbPowerWatch(uint32_t now_ms) : last_ms_(now_ms) {}
+
+  bool due(uint32_t now_ms) const {
+    return now_ms - last_ms_ >= RECHECK_MS;
+  }
+
+  // Returns true while USB power stays present.
+  bool update(bool usb_powered, uint32_t now_ms) {
+    last_ms_ = now_ms;
+    low_count_ = usb_powered ? 0 : static_cast<uint8_t>(low_count_ + 1);
+    return low_count_ < LOST_SAMPLES;
+  }
+
+private:
+  uint32_t last_ms_;
+  uint8_t low_count_ = 0;
+};
+
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
@@ -146,6 +174,25 @@ public:
   // so the card stays unmounted in the normal cycle.
   static bool needsConfigLoad(WakeupCause cause) {
     return cause == WakeupCause::POWER_ON || cause == WakeupCause::KEY_BUTTON;
+  }
+
+  // Where the board listens for a double clap in this wake cycle. USB power: listen
+  // continuously, also after a timer wakeup. Battery: listen in the KEY grace window only, which
+  // runs after a KEY wakeup or a power-on. A timer wakeup on battery keeps the microphones off.
+  // A low battery alert on battery power keeps them off.
+  static ClapListenMode clapListenMode(const BatteryReading& battery, WakeupCause cause) {
+    if (battery.valid && battery.usb_powered) {
+      return ClapListenMode::CONTINUOUS;
+    }
+    if (battery.valid && battery.low_battery) {
+      return ClapListenMode::OFF;
+    }
+    return (cause == WakeupCause::TIMER) ? ClapListenMode::OFF : ClapListenMode::GRACE;
+  }
+
+  // True while a continuous listener may keep the board awake: the next scan is not yet due.
+  static bool continuousListenAllowed(const PowerConfig& config, uint32_t now_ms, uint32_t last_scan_ms) {
+    return sleepMicros(config, now_ms, last_scan_ms) > MIN_SLEEP_US;
   }
 
   // Microseconds until the next scan is due: interval minus the time since the last scan start.
