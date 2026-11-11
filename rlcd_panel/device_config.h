@@ -28,6 +28,9 @@ struct DeviceConfig {
   static constexpr float MAX_MIC_SPL_OFFSET_DB = 20.0f;
   static constexpr uint8_t DEFAULT_LOG_RETENTION_MONTHS = 0; // 0 keeps all log files
   static constexpr uint8_t MAX_LOG_RETENTION_MONTHS = 120;
+  static constexpr uint8_t DEFAULT_NOISE_ALERT_LIMIT_DB = 0; // 0 switches the noise alert off
+  static constexpr uint8_t MIN_NOISE_ALERT_LIMIT_DB = 40;
+  static constexpr uint8_t MAX_NOISE_ALERT_LIMIT_DB = 100;
 
   float temp_offset_c = DEFAULT_TEMP_OFFSET_C;
   float freeze_alert_limit_c = DEFAULT_FREEZE_ALERT_LIMIT_C;
@@ -37,6 +40,7 @@ struct DeviceConfig {
   uint8_t quiet_hours_end_hour = DEFAULT_QUIET_HOURS_END_HOUR;
   float mic_spl_offset_db = DEFAULT_MIC_SPL_OFFSET_DB; // added to the microphone calibration offset
   uint8_t log_retention_months = DEFAULT_LOG_RETENTION_MONTHS; // log files older than this are deleted
+  uint8_t noise_alert_limit_db = DEFAULT_NOISE_ALERT_LIMIT_DB; // 0 = off, else 40..100 dB
 
   static bool inRange(float v, float lo, float hi) {
     return v >= lo && v <= hi; // false for NaN
@@ -50,7 +54,9 @@ struct DeviceConfig {
            chime_volume_pct <= MAX_CHIME_VOLUME_PCT && quiet_hours_start_hour <= MAX_HOUR &&
            quiet_hours_end_hour <= MAX_HOUR &&
            inRange(mic_spl_offset_db, MIN_MIC_SPL_OFFSET_DB, MAX_MIC_SPL_OFFSET_DB) &&
-           log_retention_months <= MAX_LOG_RETENTION_MONTHS;
+           log_retention_months <= MAX_LOG_RETENTION_MONTHS &&
+           (noise_alert_limit_db == 0 ||
+            (noise_alert_limit_db >= MIN_NOISE_ALERT_LIMIT_DB && noise_alert_limit_db <= MAX_NOISE_ALERT_LIMIT_DB));
   }
 
   bool isDefault() const {
@@ -59,7 +65,7 @@ struct DeviceConfig {
            mold_alert_limit_rh == d.mold_alert_limit_rh && chime_volume_pct == d.chime_volume_pct &&
            quiet_hours_start_hour == d.quiet_hours_start_hour &&
            quiet_hours_end_hour == d.quiet_hours_end_hour && mic_spl_offset_db == d.mic_spl_offset_db &&
-           log_retention_months == d.log_retention_months;
+           log_retention_months == d.log_retention_months && noise_alert_limit_db == d.noise_alert_limit_db;
   }
 };
 
@@ -83,7 +89,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 4096;
-  static constexpr size_t KEY_COUNT = 8;
+  static constexpr size_t KEY_COUNT = 9;
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
   // Always resets `out` to the defaults first.
@@ -94,7 +100,7 @@ public:
       return result;
     }
     result.file_ok = true;
-    uint8_t seen = 0;
+    uint16_t seen = 0;
     size_t pos = 0;
     if (len >= 3 && static_cast<uint8_t>(data[0]) == 0xEF && static_cast<uint8_t>(data[1]) == 0xBB &&
         static_cast<uint8_t>(data[2]) == 0xBF) {
@@ -108,7 +114,7 @@ public:
       applyLine(data + pos, end - pos, out, seen, result);
       pos = end + 1;
     }
-    for (uint8_t m = seen; m != 0; m = static_cast<uint8_t>(m & (m - 1))) {
+    for (uint16_t m = seen; m != 0; m = static_cast<uint16_t>(m & (m - 1))) {
       ++result.keys_set;
     }
     return result;
@@ -194,7 +200,7 @@ private:
     return true;
   }
 
-  static void applyLine(const char* line, size_t n, DeviceConfig& cfg, uint8_t& seen, ConfigParseResult& result) {
+  static void applyLine(const char* line, size_t n, DeviceConfig& cfg, uint16_t& seen, ConfigParseResult& result) {
     trim(line, n);
     if (n == 0 || line[0] == '#' || line[0] == ';') {
       return;
@@ -240,12 +246,22 @@ private:
     } else if (keyIs(key, key_len, "log_retention_months")) {
       index = 7;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_LOG_RETENTION_MONTHS, cfg.log_retention_months);
+    } else if (keyIs(key, key_len, "noise_alert_limit_db")) {
+      index = 8;
+      // 0 is off; 1..39 is rejected, so a typo never gives a limit below the useful range. The
+      // previous value stays on a rejected line.
+      uint8_t limit = 0;
+      ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_NOISE_ALERT_LIMIT_DB, limit) &&
+           (limit == 0 || limit >= DeviceConfig::MIN_NOISE_ALERT_LIMIT_DB);
+      if (ok) {
+        cfg.noise_alert_limit_db = limit;
+      }
     }
     if (index < 0) {
       return; // unknown key
     }
     if (ok) {
-      seen = static_cast<uint8_t>(seen | (1u << index));
+      seen = static_cast<uint16_t>(seen | (1u << index));
     } else if (result.rejected < 255) {
       ++result.rejected;
     }

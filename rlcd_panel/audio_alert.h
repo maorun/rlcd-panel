@@ -17,11 +17,13 @@
 
 namespace rlcd_panel {
 
-// Alert kinds as bit mask. The mask is persisted in RTC memory (two bits).
+// Alert kinds as bit mask. The mask is persisted in RTC memory (three bits).
 constexpr uint8_t ALERT_NONE = 0;
 constexpr uint8_t ALERT_FREEZER = 1;  // a sensor reads below the freezer limit
 constexpr uint8_t ALERT_HUMIDITY = 2; // a sensor reads above the mold risk limit
-constexpr uint8_t ALERT_MASK_ALL = ALERT_FREEZER | ALERT_HUMIDITY;
+constexpr uint8_t ALERT_NOISE_HIGH = 4; // the hourly noise window is above the noise limit
+constexpr uint8_t ALERT_CLIMATE_MASK = ALERT_FREEZER | ALERT_HUMIDITY; // set by AlertEvaluator
+constexpr uint8_t ALERT_MASK_ALL = ALERT_CLIMATE_MASK | ALERT_NOISE_HIGH;
 
 // Alert trigger limits. The release limits follow with a fixed hysteresis, so the settings from the
 // card give a trigger limit only.
@@ -47,7 +49,8 @@ public:
   static constexpr float HUMIDITY_TRIGGER_PCT = 70.0f; // alert above this humidity (mold risk)
   static constexpr float HUMIDITY_RELEASE_PCT = 67.0f; // clear at or below this humidity
 
-  // Returns the active alert mask. `previous` is the mask of the last wake cycle: an active
+  // Returns the active climate alert mask (ALERT_CLIMATE_MASK bits only; the noise bit is never
+  // set here, so combine the result with withClimate()). `previous` is the mask of the last wake cycle: an active
   // alert stays active until a usable sensor passed its release limit and no usable sensor
   // is above it; with no usable reading the alert holds. Invalid, stale and NaN readings are
   // ignored. One bit covers all sensors: a second sensor that enters the alert does not chime.
@@ -93,6 +96,27 @@ public:
     return static_cast<uint8_t>(current & ~previous & ALERT_MASK_ALL);
   }
 
+  // Mask to store and bits to sound for one alert step. The mask is stored in each case, so
+  // unmuting or the end of the quiet hours never replays an old alert.
+  struct Step {
+    uint8_t mask;
+    uint8_t chime;
+  };
+
+  static Step step(bool muted, uint8_t previous, uint8_t current, bool quiet) {
+    return {static_cast<uint8_t>(current & ALERT_MASK_ALL), chimeBits(muted, previous, current, quiet)};
+  }
+
+  // Climate check: the noise bit of the last window stays.
+  static Step climateStep(bool muted, uint8_t previous, uint8_t climate, bool quiet) {
+    return step(muted, previous, withClimate(previous, climate), quiet);
+  }
+
+  // Keeps the bits of `mask` outside the climate alerts and replaces the climate bits.
+  static uint8_t withClimate(uint8_t mask, uint8_t climate) {
+    return static_cast<uint8_t>((mask & ~ALERT_CLIMATE_MASK) | (climate & ALERT_CLIMATE_MASK));
+  }
+
 private:
   struct Tally {
     AlertLimits limits;
@@ -116,6 +140,47 @@ private:
       }
     }
   };
+};
+
+// Loud noise evaluator for the hourly 5 s noise window. It has no hardware dependency. The alert
+// switches on above the limit and off at RELEASE_HYSTERESIS_DB below it. Between the two the
+// previous state holds. A limit of 0 is off. A missing or invalid reading holds the latch, so a
+// failed window never clears an alert and its return never chimes again.
+class NoiseAlertEvaluator {
+public:
+  static constexpr int RELEASE_HYSTERESIS_DB = 5;
+  static constexpr uint8_t LIMIT_OFF = 0;
+  static constexpr uint8_t MIN_LIMIT_DB = 40;
+  static constexpr uint8_t MAX_LIMIT_DB = 100;
+
+  // A limit is usable when it is off or inside the range.
+  static bool limitValid(uint8_t limit_db) {
+    return limit_db == LIMIT_OFF || (limit_db >= MIN_LIMIT_DB && limit_db <= MAX_LIMIT_DB);
+  }
+
+  // Returns `previous` with the ALERT_NOISE_HIGH bit updated. Other bits stay unchanged.
+  static uint8_t evaluate(uint8_t previous, bool reading_valid, int level_db, uint8_t limit_db) {
+    const uint8_t others = static_cast<uint8_t>(previous & ~ALERT_NOISE_HIGH);
+    if (limit_db == LIMIT_OFF || !limitValid(limit_db)) {
+      return others;
+    }
+    if (!reading_valid) {
+      return previous;
+    }
+    if (level_db > static_cast<int>(limit_db)) {
+      return static_cast<uint8_t>(others | ALERT_NOISE_HIGH);
+    }
+    if ((previous & ALERT_NOISE_HIGH) != 0 && level_db > static_cast<int>(limit_db) - RELEASE_HYSTERESIS_DB) {
+      return previous;
+    }
+    return others;
+  }
+
+  // Noise check after a window: the climate bits stay.
+  static AlertEvaluator::Step step(
+      bool muted, uint8_t previous, bool reading_valid, int level_db, uint8_t limit_db, bool quiet) {
+    return AlertEvaluator::step(muted, previous, evaluate(previous, reading_valid, level_db, limit_db), quiet);
+  }
 };
 
 // Daily window in local RTC time in which no chime sounds. The window starts at start and ends
@@ -179,11 +244,14 @@ public:
   static constexpr uint32_t RAMP_MS = 5; // linear fade in and out against clicks
   static constexpr uint32_t SAMPLES_PER_MS = SAMPLE_RATE_HZ / 1000;
 
-  // Freezer: three short high beeps. Humidity: two notes, rising.
+  // Freezer: three short high beeps. Humidity: two notes, rising. Noise: two high beeps, then a
+  // lower note.
   static ChimePattern pattern(uint8_t alert_bit) {
     static const ChimeNote FREEZER[] = {{880, 120}, {0, 80}, {880, 120}, {0, 80}, {880, 120}};
     static const ChimeNote HUMIDITY[] = {{660, 160}, {0, 40}, {880, 240}};
+    static const ChimeNote NOISE[] = {{988, 100}, {0, 60}, {988, 100}, {0, 60}, {660, 260}};
     switch (alert_bit) {
+      case ALERT_NOISE_HIGH: return {NOISE, sizeof(NOISE) / sizeof(NOISE[0])};
       case ALERT_FREEZER: return {FREEZER, sizeof(FREEZER) / sizeof(FREEZER[0])};
       case ALERT_HUMIDITY: return {HUMIDITY, sizeof(HUMIDITY) / sizeof(HUMIDITY[0])};
       default: return {nullptr, 0};
@@ -311,10 +379,11 @@ public:
     if ((alert_bits & ALERT_MASK_ALL) == 0) {
       return false;
     }
-    ChimePattern patterns[2];
+    ChimePattern patterns[3];
     uint8_t count = 0;
     if ((alert_bits & ALERT_FREEZER) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_FREEZER);
     if ((alert_bits & ALERT_HUMIDITY) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_HUMIDITY);
+    if ((alert_bits & ALERT_NOISE_HIGH) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_NOISE_HIGH);
     return playPatterns(hal, patterns, count, volume_pct);
   }
 
