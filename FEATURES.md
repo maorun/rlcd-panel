@@ -155,6 +155,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
   | Key | Default | Range | Used by |
   | --- | --- | --- | --- |
   | `temp_offset_c` | `-1.9` | `-10.0` to `10.0` | `SHTC3` decoder |
+  | `rh_offset_pct` | `0.0` | `-10.0` to `10.0` | `SHTC3` decoder, result clamped to 0 to 100 %RH |
   | `freeze_alert_limit_c` | `0.0` | `-20.0` to `15.0` | freezer alert trigger |
   | `mold_alert_limit_rh` | `70` | `40` to `95` | humidity alert trigger |
   | `chime_volume_pct` | `30` | `0` to `100` | chimes and the unmute beep |
@@ -364,3 +365,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `tools/preview_scenes.h` shows `CYCLES: 12.3`. `docs/display_preview_diagnostics.png` and `docs/display_preview_runtime.png` are regenerated.
 - Host tests use a portable NVS stand-in with a write counter. They cover partial discharges, the milestone write, the charge detection, USB power, invalid readings, jumps, failed and unreadable NVS, the write count over 10 cycles, the RTC round trip with corrupt data, and the text bounds of the line.
 - The check on the board (NVS persistence over a power cycle) is not part of the host tests.
+
+## Humidity calibration offset for the onboard SHTC3
+
+- **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/shtc3_sensor.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`.
+- The new key `rh_offset_pct` (default `0.0`, range `-10.0` to `10.0`) is part of `config.ini`. A value outside the range or a malformed value is rejected, and the previous value stays.
+- `Shtc3Codec::decodeFrame` takes the offset as the last argument (default `0.0`). It adds the offset to the decoded humidity and clamps the result to 0 to 100 %RH.
+- The tile, the sparkline sample and the CSV row use the same onboard reading. They show the corrected value.
+- The offset adds 4 bytes (float) to the config trailer in RTC memory. The state version is 17. The old format gives a clean start. A NaN value or a value outside the range is rejected, even with a valid CRC.
+- Acceptance criteria: host tests cover the default, the edges `-10.0` and `10.0`, out-of-range and malformed values, the clamp at 0 and 100 %RH, the RTC round trip, and the rejection of the old state version.

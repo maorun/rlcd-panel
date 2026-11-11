@@ -163,6 +163,7 @@ Put an optional `config.ini` in the root of the MicroSD card. The board reads it
 ```ini
 # Lines with # or ; are comments
 temp_offset_c=-1.9
+rh_offset_pct=0.0
 freeze_alert_limit_c=0.0
 mold_alert_limit_rh=70
 chime_volume_pct=30

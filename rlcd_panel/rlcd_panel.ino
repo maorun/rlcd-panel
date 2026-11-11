@@ -202,7 +202,8 @@ bool readOnboardShtc3(Shtc3Reading& out) {
   if (received != 6) {
     return false;
   }
-  return Shtc3Codec::decodeFrame(frame, sizeof(frame), out, config().temp_offset_c);
+  return Shtc3Codec::decodeFrame(frame, sizeof(frame), out, config().temp_offset_c,
+                                config().rh_offset_pct);
 }
 
 void updateRtc() {
