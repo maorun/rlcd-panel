@@ -22,12 +22,13 @@ struct PreviewScene {
   bool quiet_hours;
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 5;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 6;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
     {"display_preview_stats", DisplayMode::SENSOR_STATS, false, false},
     {"display_preview_diagnostics", DisplayMode::SYSTEM_DIAGNOSTICS, false, false},
+    {"display_preview_spectrum", DisplayMode::AUDIO_SPECTRUM, false, false},
     {"display_preview_low_battery", DisplayMode::DASHBOARD, true, false},
     {"display_preview_quiet_hours", DisplayMode::DASHBOARD, false, true},
 };
@@ -121,6 +122,21 @@ inline void renderScene(
   info.config_from_sd = true;
   info.loopback.status = LoopbackStatus::PASS;
   info.loopback.level_db = -24;
+  // Fixed sample spectrum: a fan hum near 120 Hz with harmonics and a soft broad high band
+  info.spectrum.valid = true;
+  for (size_t b = 0; b < SpectrumReading::BANDS; ++b) {
+    const float x = static_cast<float>(b);
+    const float hum = 80.0f * expf(-(x - 2.0f) * (x - 2.0f) / 4.0f);
+    const float harmonic = 45.0f * expf(-(x - 9.0f) * (x - 9.0f) / 3.0f);
+    const float hiss = 22.0f + 8.0f * sinf(x * 0.9f);
+    float level = hum + harmonic + (x > 20.0f ? hiss : 12.0f);
+    if (level > 100.0f) {
+      level = 100.0f;
+    }
+    info.spectrum.bars[b] = static_cast<uint8_t>(level);
+    const float peak = level * 1.15f + 4.0f;
+    info.spectrum.peaks[b] = static_cast<uint8_t>(peak > 100.0f ? 100.0f : peak);
+  }
 
   DashboardView::renderMode(
       fb,

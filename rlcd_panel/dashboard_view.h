@@ -1,9 +1,11 @@
 #pragma once
 
+#include <math.h>
 #include <stdio.h>
 #include <string.h>
 #include "battery_monitor.h"
 #include "audio_loopback.h"
+#include "audio_spectrum.h"
 #include "board_pins.h"
 #include "button_handler.h"
 #include "es7210_mic.h"
@@ -25,6 +27,7 @@ struct SystemInfo {
   bool quiet_hours = false; // chimes are suppressed now; the header shows "Q"
   bool config_from_sd = false; // true: settings come from /sdcard/config.ini
   LoopbackResult loopback;     // last speaker to microphone test of this wake cycle
+  SpectrumReading spectrum;    // last spectrum capture; invalid shows "NO DATA"
 };
 
 class DashboardView {
@@ -59,6 +62,15 @@ public:
   static constexpr uint16_t NOISE_SPARKLINE_H = 20;
   static constexpr uint16_t LOOPBACK_Y = 260; // diagnostics: speaker to microphone test line
   static constexpr uint16_t MIC_TEST_Y = 224; // diagnostics: microphone self-test line
+  // Spectrum view: 32 bars of 10 px with a 2 px gap fill x = 8 to 391. A level of 100 gives a bar
+  // of 200 px, from y = 40 to the baseline at y = 240. The labels sit under the baseline.
+  static constexpr uint16_t SPECTRUM_X = 8;
+  static constexpr uint16_t SPECTRUM_BAR_W = 10;
+  static constexpr uint16_t SPECTRUM_BAR_PITCH = 12;
+  static constexpr uint16_t SPECTRUM_TOP_Y = 40;
+  static constexpr uint16_t SPECTRUM_BASE_Y = 240;
+  static constexpr uint16_t SPECTRUM_LABEL_Y = 248;
+  static constexpr uint16_t SPECTRUM_PEAK_H = 2;
 
   static void renderBatteryIcon(
       St7305Framebuffer& fb,
@@ -462,6 +474,65 @@ public:
     drawLine(fb, 10, 276, line);
   }
 
+  // Pixel height of a bar level (0 to 100): 2 px per level step.
+  static uint16_t spectrumBarHeight(uint8_t level) {
+    const uint8_t clamped = level > SpectrumReading::LEVEL_MAX ? SpectrumReading::LEVEL_MAX : level;
+    return static_cast<uint16_t>(clamped * 2);
+  }
+
+  // Draws a label so that its middle sits at center_x, kept inside the screen.
+  static void drawCenteredLabel(St7305Framebuffer& fb, uint16_t center_x, uint16_t y, const char* text) {
+    const int width = static_cast<int>(strlen(text)) * 12 - 2;
+    int x = static_cast<int>(center_x) - width / 2;
+    if (x < 0) {
+      x = 0;
+    }
+    if (x + width > RLCD_WIDTH) {
+      x = RLCD_WIDTH - width;
+    }
+    fb.drawText(static_cast<uint16_t>(x), y, text, 2, true);
+  }
+
+  static void renderSpectrum(
+      St7305Framebuffer& fb,
+      const BatteryReading& battery,
+      const SystemInfo& info,
+      const char* clock_text) {
+    renderHeader(fb, "AUDIO SPECTRUM", battery, clock_text, info.quiet_hours);
+
+    fb.drawHLine(SPECTRUM_X, SPECTRUM_BASE_Y, SpectrumReading::BANDS * SPECTRUM_BAR_PITCH - 2, true);
+    if (!info.spectrum.valid) {
+      drawLine(fb, 10, 120, "NO DATA");
+    } else {
+      for (size_t b = 0; b < SpectrumReading::BANDS; ++b) {
+        const uint16_t x = static_cast<uint16_t>(SPECTRUM_X + b * SPECTRUM_BAR_PITCH);
+        const uint16_t h = spectrumBarHeight(info.spectrum.bars[b]);
+        if (h > 0) {
+          fb.fillRect(x, static_cast<uint16_t>(SPECTRUM_BASE_Y - h), SPECTRUM_BAR_W, h, true);
+        }
+        // The peak marker is a short line above the bar. A peak at the bar top stays visible.
+        const uint16_t ph = spectrumBarHeight(info.spectrum.peaks[b]);
+        if (ph > 0) {
+          const uint16_t top = static_cast<uint16_t>(SPECTRUM_BASE_Y - ph);
+          const uint16_t marker_y = top >= SPECTRUM_TOP_Y + SPECTRUM_PEAK_H + 1
+                                        ? static_cast<uint16_t>(top - SPECTRUM_PEAK_H - 1)
+                                        : SPECTRUM_TOP_Y;
+          fb.fillRect(x, marker_y, SPECTRUM_BAR_W, SPECTRUM_PEAK_H, true);
+        }
+      }
+    }
+
+    // Frequency labels at their log positions: 100 Hz at the left edge, 8 kHz at the right edge.
+    const uint16_t span = static_cast<uint16_t>(SpectrumReading::BANDS * SPECTRUM_BAR_PITCH - 2);
+    const float one_k = logf(1000.0f / SpectrumAnalyzer::MIN_HZ) /
+                        logf(SpectrumAnalyzer::MAX_HZ / SpectrumAnalyzer::MIN_HZ);
+    fb.drawText(SPECTRUM_X, SPECTRUM_LABEL_Y, "100", 2, true);
+    drawCenteredLabel(
+        fb, static_cast<uint16_t>(SPECTRUM_X + lroundf(one_k * span)), SPECTRUM_LABEL_Y, "1K");
+    drawCenteredLabel(fb, static_cast<uint16_t>(SPECTRUM_X + span - 11), SPECTRUM_LABEL_Y, "8K");
+    drawLine(fb, 10, 272, "LOW  FREQUENCY  HIGH");
+  }
+
   static void renderMode(
       St7305Framebuffer& fb,
       DisplayMode mode,
@@ -480,6 +551,9 @@ public:
         break;
       case DisplayMode::SYSTEM_DIAGNOSTICS:
         renderDiagnostics(fb, battery, info, clock_text);
+        break;
+      case DisplayMode::AUDIO_SPECTRUM:
+        renderSpectrum(fb, battery, info, clock_text);
         break;
       case DisplayMode::DASHBOARD:
       default:

@@ -8,6 +8,7 @@
 
 #include "../rlcd_panel/audio_alert.h"
 #include "../rlcd_panel/audio_loopback.h"
+#include "../rlcd_panel/audio_spectrum.h"
 #include "../rlcd_panel/battery_monitor.h"
 #include "../rlcd_panel/board_pins.h"
 #include "../rlcd_panel/button_handler.h"
@@ -603,13 +604,15 @@ void testButtonDebounceAndModeTransitions() {
   assert(!wrapped.update(true, 0x00000010u)); // 24 ms elapsed
   assert(wrapped.update(true, 0x00000016u));  // 30 ms elapsed
 
-  // Each debounced press cycles DASHBOARD -> SENSOR_STATS -> SYSTEM_DIAGNOSTICS -> DASHBOARD.
+  // Each debounced press cycles DASHBOARD -> SENSOR_STATS -> SYSTEM_DIAGNOSTICS -> AUDIO_SPECTRUM
+  // -> DASHBOARD.
   DisplayModeController controller;
   assert(controller.mode() == DisplayMode::DASHBOARD);
   uint32_t t = 0;
-  const DisplayMode expected[4] = {
+  const DisplayMode expected[5] = {
       DisplayMode::SENSOR_STATS,
       DisplayMode::SYSTEM_DIAGNOSTICS,
+      DisplayMode::AUDIO_SPECTRUM,
       DisplayMode::DASHBOARD,
       DisplayMode::SENSOR_STATS};
   controller.update(false, t);
@@ -654,7 +657,10 @@ void testDisplayModesRenderWithoutClipping() {
   const uint32_t now_ms = 0xFFFFFFFFu;
 
   const DisplayMode modes[DISPLAY_MODE_COUNT] = {
-      DisplayMode::DASHBOARD, DisplayMode::SENSOR_STATS, DisplayMode::SYSTEM_DIAGNOSTICS};
+      DisplayMode::DASHBOARD,
+      DisplayMode::SENSOR_STATS,
+      DisplayMode::SYSTEM_DIAGNOSTICS,
+      DisplayMode::AUDIO_SPECTRUM};
   St7305Framebuffer frames[DISPLAY_MODE_COUNT];
   for (uint8_t m = 0; m < DISPLAY_MODE_COUNT; ++m) {
     St7305Framebuffer& fb = frames[m];
@@ -792,9 +798,10 @@ void testDisplayModesRenderWithoutClipping() {
     assert(min_x > 10 + 18 * 12 + 8); // longest title "SYSTEM DIAGNOSTICS" ends at x = 226
   }
 
-  // The three views differ, and empty inputs render without crashing.
+  // The four views differ, and empty inputs render without crashing.
   assert(memcmp(frames[0].data(), frames[1].data(), St7305Framebuffer::BYTE_COUNT) != 0);
   assert(memcmp(frames[1].data(), frames[2].data(), St7305Framebuffer::BYTE_COUNT) != 0);
+  assert(memcmp(frames[2].data(), frames[3].data(), St7305Framebuffer::BYTE_COUNT) != 0);
   BatteryReading no_battery;
   for (uint8_t m = 0; m < DISPLAY_MODE_COUNT; ++m) {
     St7305Framebuffer fb;
@@ -1039,8 +1046,12 @@ void testPowerWakeupAndStateMachine() {
   DisplayModeController ctrl;
   ctrl.setMode(DisplayMode::SYSTEM_DIAGNOSTICS);
   assert(ctrl.mode() == DisplayMode::SYSTEM_DIAGNOSTICS);
+  ctrl.setMode(DisplayMode::AUDIO_SPECTRUM);
+  assert(ctrl.mode() == DisplayMode::AUDIO_SPECTRUM);
+  ctrl.setMode(static_cast<DisplayMode>(4));
+  assert(ctrl.mode() == DisplayMode::AUDIO_SPECTRUM);
   ctrl.setMode(static_cast<DisplayMode>(9));
-  assert(ctrl.mode() == DisplayMode::SYSTEM_DIAGNOSTICS);
+  assert(ctrl.mode() == DisplayMode::AUDIO_SPECTRUM);
 }
 
 } // namespace
@@ -3322,7 +3333,7 @@ void testLongPressDetection() {
   c.updateWithLongPress(false, t);
   t += 40;
   assert(c.updateWithLongPress(false, t) == ButtonEvent::MODE_CHANGED);
-  assert(c.mode() == DisplayMode::DASHBOARD && !c.pressPending());
+  assert(c.mode() == DisplayMode::AUDIO_SPECTRUM && !c.pressPending());
 
   // A hold of 2 s or more calibrates and keeps the mode
   DisplayModeController h;
@@ -4278,6 +4289,342 @@ void testPreviewDiagnosticsShowsLoopback() {
   assert(scene_vs_pass == 0 && scene_vs_none > 0);
 }
 
+// Stereo sine source for the spectrum tests: both channels hold the same tone.
+struct SineMicHal {
+  float freq_hz = 1000.0f;
+  float amplitude = 16000.0f;
+  bool bus_ok = true;
+  bool adc_ok = true;
+  size_t reads_before_fail = static_cast<size_t>(-1);
+  size_t reads = 0;
+  uint64_t frame = 0;
+  int shutdown_calls = 0, end_calls = 0;
+
+  bool beginBus() { return bus_ok; }
+  bool configureAdc() { return adc_ok; }
+  size_t read(int16_t* samples, size_t count) {
+    if (reads++ >= reads_before_fail) {
+      return 0;
+    }
+    for (size_t i = 0; i + 1 < count; i += 2, ++frame) {
+      const float t = static_cast<float>(frame) / static_cast<float>(SpectrumAnalyzer::SAMPLE_RATE_HZ);
+      const int16_t v = static_cast<int16_t>(lrintf(amplitude * sinf(2.0f * 3.14159265f * freq_hz * t)));
+      samples[i] = v;
+      samples[i + 1] = v;
+    }
+    return count;
+  }
+  void shutdownAdc() { ++shutdown_calls; }
+  void endBus() { ++end_calls; }
+};
+
+SpectrumReading analyzeSine(float freq_hz, float amplitude = 16000.0f) {
+  static SpectrumAnalyzer analyzer;
+  SineMicHal hal;
+  hal.freq_hz = freq_hz;
+  hal.amplitude = amplitude;
+  return SpectrumCapture::measure(hal, analyzer);
+}
+
+void testSpectrumBandEdges() {
+  assert(approxEqual(SpectrumAnalyzer::bandEdgeHz(0), 100.0f, 0.01f));
+  assert(approxEqual(SpectrumAnalyzer::bandEdgeHz(SpectrumAnalyzer::BANDS), 8000.0f, 0.5f));
+  for (size_t b = 0; b < SpectrumAnalyzer::BANDS; ++b) {
+    assert(SpectrumAnalyzer::bandEdgeHz(b + 1) > SpectrumAnalyzer::bandEdgeHz(b));
+    const float c = SpectrumAnalyzer::bandCenterHz(b);
+    assert(c > SpectrumAnalyzer::bandEdgeHz(b) && c < SpectrumAnalyzer::bandEdgeHz(b + 1));
+    assert(SpectrumAnalyzer::bandForFrequency(c) == static_cast<int>(b));
+  }
+  // Edges are the lower limit of their band; the frequency just below belongs to the band before.
+  for (size_t b = 1; b < SpectrumAnalyzer::BANDS; ++b) {
+    const float edge = SpectrumAnalyzer::bandEdgeHz(b);
+    assert(SpectrumAnalyzer::bandForFrequency(edge * 1.0001f) == static_cast<int>(b));
+    assert(SpectrumAnalyzer::bandForFrequency(edge * 0.9999f) == static_cast<int>(b) - 1);
+  }
+  // Outside the range there is no band.
+  assert(SpectrumAnalyzer::bandForFrequency(99.0f) == -1);
+  assert(SpectrumAnalyzer::bandForFrequency(8000.0f) == -1);
+  assert(SpectrumAnalyzer::bandForFrequency(20000.0f) == -1);
+  assert(SpectrumAnalyzer::bandForFrequency(0.0f) == -1);
+  assert(SpectrumAnalyzer::bandForFrequency(-5.0f) == -1);
+  assert(SpectrumAnalyzer::bandForFrequency(NAN) == -1);
+  assert(SpectrumAnalyzer::bandForFrequency(100.0f) == 0);
+}
+
+void testSpectrumFft() {
+  // A bin-centered sine gives its peak in the right bin; the FFT of an impulse is flat.
+  static float re[SpectrumAnalyzer::FFT_SIZE];
+  static float im[SpectrumAnalyzer::FFT_SIZE];
+  for (size_t n = 0; n < SpectrumAnalyzer::FFT_SIZE; ++n) {
+    re[n] = sinf(2.0f * 3.14159265f * 32.0f * static_cast<float>(n) / 512.0f);
+    im[n] = 0.0f;
+  }
+  SpectrumAnalyzer::fft(re, im);
+  size_t best = 0;
+  float best_mag = 0.0f;
+  for (size_t k = 0; k <= SpectrumAnalyzer::FFT_SIZE / 2; ++k) {
+    const float m = sqrtf(re[k] * re[k] + im[k] * im[k]);
+    if (m > best_mag) {
+      best_mag = m;
+      best = k;
+    }
+  }
+  assert(best == 32);
+  assert(approxEqual(best_mag, 256.0f, 0.5f));
+
+  for (size_t n = 0; n < SpectrumAnalyzer::FFT_SIZE; ++n) {
+    re[n] = n == 0 ? 1.0f : 0.0f;
+    im[n] = 0.0f;
+  }
+  SpectrumAnalyzer::fft(re, im);
+  for (size_t k = 0; k < SpectrumAnalyzer::FFT_SIZE; ++k) {
+    assert(approxEqual(re[k], 1.0f, 0.001f) && approxEqual(im[k], 0.0f, 0.001f));
+  }
+}
+
+void testSpectrumSinePeaks() {
+  const float tones[] = {250.0f, 1000.0f, 4000.0f};
+  for (const float hz : tones) {
+    const SpectrumReading r = analyzeSine(hz);
+    assert(r.valid);
+    const int want = SpectrumAnalyzer::bandForFrequency(hz);
+    assert(want >= 0);
+    // The tone may sit on a band edge; the highest bar lies in the band of the tone or next to it.
+    const int got = r.loudestBand();
+    assert(got >= 0);
+    assert(got == want || got == want - 1 || got == want + 1);
+    // The tone band stands clearly above bands far away from it.
+    for (size_t b = 0; b < SpectrumReading::BANDS; ++b) {
+      if (abs(static_cast<int>(b) - got) >= 4) {
+        assert(r.bars[b] + 20 < r.bars[got]);
+      }
+      assert(r.peaks[b] >= r.bars[b]);
+      assert(r.bars[b] <= SpectrumReading::LEVEL_MAX && r.peaks[b] <= SpectrumReading::LEVEL_MAX);
+    }
+  }
+  // A tone in the middle of a band lands exactly in that band.
+  for (const size_t band : {size_t(3), size_t(12), size_t(20), size_t(28)}) {
+    const SpectrumReading r = analyzeSine(SpectrumAnalyzer::bandCenterHz(band));
+    assert(r.loudestBand() == static_cast<int>(band));
+  }
+  // A louder tone gives a higher bar.
+  assert(analyzeSine(1000.0f, 20000.0f).bars[SpectrumAnalyzer::bandForFrequency(1000.0f)] >
+         analyzeSine(1000.0f, 500.0f).bars[SpectrumAnalyzer::bandForFrequency(1000.0f)]);
+}
+
+void testSpectrumSilenceAndLevels() {
+  const SpectrumReading silent = analyzeSine(1000.0f, 0.0f);
+  assert(silent.valid);
+  assert(silent.loudestBand() == -1);
+  for (size_t b = 0; b < SpectrumReading::BANDS; ++b) {
+    assert(silent.bars[b] == 0 && silent.peaks[b] == 0);
+  }
+  assert(SpectrumAnalyzer::levelFromMagnitude(0.0f) == 0);
+  assert(SpectrumAnalyzer::levelFromMagnitude(-1.0f) == 0);
+  assert(SpectrumAnalyzer::levelFromMagnitude(NAN) == 0);
+  assert(SpectrumAnalyzer::levelFromMagnitude(0.00009f) == 0);  // below -80 dBFS
+  assert(SpectrumAnalyzer::levelFromMagnitude(0.01f) == 50);    // -40 dBFS
+  assert(SpectrumAnalyzer::levelFromMagnitude(1.0f) == 100);
+  assert(SpectrumAnalyzer::levelFromMagnitude(50.0f) == 100);
+  // A reading without data has no loudest band.
+  assert(SpectrumReading{}.loudestBand() == -1);
+}
+
+void testSpectrumCaptureLifecycle() {
+  static SpectrumAnalyzer analyzer;
+  // A good window: 1 s plus the 100 ms settling time gives 34 full frames at 16 kHz.
+  SineMicHal ok;
+  const SpectrumReading r = SpectrumCapture::measure(ok, analyzer);
+  assert(r.valid && analyzer.frameCount() == 31);
+  assert(ok.shutdown_calls == 1 && ok.end_calls == 1);
+
+  // Each failure path still powers the ADC down and ends the bus.
+  SineMicHal bus;
+  bus.bus_ok = false;
+  assert(!SpectrumCapture::measure(bus, analyzer).valid);
+  assert(bus.shutdown_calls == 1 && bus.end_calls == 1);
+  SineMicHal adc;
+  adc.adc_ok = false;
+  assert(!SpectrumCapture::measure(adc, analyzer).valid);
+  assert(adc.shutdown_calls == 1 && adc.end_calls == 1);
+  SineMicHal shortread;
+  shortread.reads_before_fail = 10;
+  assert(!SpectrumCapture::measure(shortread, analyzer).valid);
+  assert(shortread.shutdown_calls == 1 && shortread.end_calls == 1);
+  SineMicHal zero;
+  assert(!SpectrumCapture::measure(zero, analyzer, 0).valid);
+  assert(zero.shutdown_calls == 1 && zero.end_calls == 1);
+  // A window below one frame gives no reading.
+  SineMicHal tiny;
+  assert(!SpectrumCapture::measure(tiny, analyzer, 10).valid);
+  // Null input and an odd sample count are safe.
+  analyzer.reset();
+  analyzer.addSamples(nullptr, 100);
+  int16_t odd[3] = {1, 2, 3};
+  analyzer.addSamples(odd, 3);
+  assert(analyzer.frameCount() == 0 && !analyzer.result().valid);
+}
+
+void testSpectrumView() {
+  BatteryReading battery;
+  battery.valid = true;
+  battery.percentage = 100;
+  SystemInfo info;
+  info.spectrum.valid = true;
+  // Worst case: every bar and peak at full scale must stay inside the plot area.
+  for (size_t b = 0; b < SpectrumReading::BANDS; ++b) {
+    info.spectrum.bars[b] = 100;
+    info.spectrum.peaks[b] = 100;
+  }
+  St7305Framebuffer full;
+  full.clear(true); // poison: a full redraw must overwrite it
+  DashboardView::renderMode(
+      full, DisplayMode::AUDIO_SPECTRUM, Shtc3Reading{}, battery, nullptr, 0, info, "88:88", 0);
+  for (uint16_t y = DashboardView::HEADER_HEIGHT; y < DashboardView::SPECTRUM_TOP_Y; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      assert(!full.getPixel(x, y));
+    }
+  }
+  // The tallest bar reaches the top of the plot, and the gap between two bars stays white.
+  assert(full.getPixel(DashboardView::SPECTRUM_X, DashboardView::SPECTRUM_BASE_Y - 1));
+  assert(full.getPixel(DashboardView::SPECTRUM_X, DashboardView::SPECTRUM_TOP_Y));
+  assert(!full.getPixel(DashboardView::SPECTRUM_X + DashboardView::SPECTRUM_BAR_W, 120));
+  // Right edge of the last bar: x = 8 + 31 * 12 + 9 = 389, inside the 400 px width.
+  assert(full.getPixel(389, 120) && !full.getPixel(390, 120));
+  assert(!full.getPixel(DashboardView::SPECTRUM_X - 1, 120));
+
+  // Bar height follows the level; a zero level draws no bar; peak marker sits above the bar.
+  info.spectrum.valid = true;
+  for (size_t b = 0; b < SpectrumReading::BANDS; ++b) {
+    info.spectrum.bars[b] = 0;
+    info.spectrum.peaks[b] = 0;
+  }
+  info.spectrum.bars[5] = 50;
+  info.spectrum.peaks[5] = 80;
+  St7305Framebuffer part;
+  DashboardView::renderMode(
+      part, DisplayMode::AUDIO_SPECTRUM, Shtc3Reading{}, battery, nullptr, 0, info, "88:88", 0);
+  const uint16_t x5 = DashboardView::SPECTRUM_X + 5 * DashboardView::SPECTRUM_BAR_PITCH;
+  assert(DashboardView::spectrumBarHeight(50) == 100 && DashboardView::spectrumBarHeight(255) == 200);
+  assert(part.getPixel(x5, DashboardView::SPECTRUM_BASE_Y - 100));
+  assert(!part.getPixel(x5, DashboardView::SPECTRUM_BASE_Y - 101));
+  assert(part.getPixel(x5, DashboardView::SPECTRUM_BASE_Y - 160 - 3));
+  assert(!part.getPixel(x5 + DashboardView::SPECTRUM_BAR_PITCH, DashboardView::SPECTRUM_BASE_Y - 10));
+
+  // An invalid reading shows no bars; the frequency labels stay and the view differs from the full one.
+  St7305Framebuffer none;
+  info.spectrum = SpectrumReading{};
+  DashboardView::renderMode(
+      none, DisplayMode::AUDIO_SPECTRUM, Shtc3Reading{}, battery, nullptr, 0, info, "88:88", 0);
+  assert(!none.getPixel(x5, DashboardView::SPECTRUM_BASE_Y - 10));
+  assert(memcmp(none.data(), full.data(), St7305Framebuffer::BYTE_COUNT) != 0);
+
+  // Labels "100", "1K" and "8K" under the baseline: ink inside the label row, none below it.
+  bool label_ink = false;
+  for (uint16_t y = DashboardView::SPECTRUM_LABEL_Y; y < DashboardView::SPECTRUM_LABEL_Y + 14; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      label_ink = label_ink || none.getPixel(x, y);
+    }
+  }
+  assert(label_ink);
+  // No ink between the label row and the text line below it.
+  for (uint16_t y = DashboardView::SPECTRUM_LABEL_Y + 14; y < 272; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      assert(!none.getPixel(x, y));
+    }
+  }
+  // The "1K" label sits near the log position of 1 kHz (x = 8 + 0.5 * 382 = 199).
+  bool one_k_ink = false;
+  for (uint16_t x = 185; x < 215; ++x) {
+    for (uint16_t y = DashboardView::SPECTRUM_LABEL_Y; y < DashboardView::SPECTRUM_LABEL_Y + 14; ++y) {
+      one_k_ink = one_k_ink || none.getPixel(x, y);
+    }
+  }
+  assert(one_k_ink);
+  // "8K" ends at or before the right screen edge: 2 glyphs, 22 px.
+  bool right_ink = false;
+  for (uint16_t x = 380; x < St7305Framebuffer::WIDTH; ++x) {
+    for (uint16_t y = DashboardView::SPECTRUM_LABEL_Y; y < DashboardView::SPECTRUM_LABEL_Y + 14; ++y) {
+      right_ink = right_ink || none.getPixel(x, y);
+    }
+  }
+  assert(right_ink);
+}
+
+void testSpectrumKeyHandling() {
+  // In the spectrum view a short press captures again and keeps the mode.
+  DisplayModeController c;
+  c.setMode(DisplayMode::AUDIO_SPECTRUM);
+  uint32_t t = 0;
+  assert(c.updateWithLongPress(false, t) == ButtonEvent::NONE);
+  t += 100;
+  assert(c.updateWithLongPress(true, t) == ButtonEvent::NONE);
+  t += 40;
+  assert(c.updateWithLongPress(true, t) == ButtonEvent::NONE); // debounced press, wait for release
+  assert(c.pressPending());
+  t += 100;
+  assert(c.updateWithLongPress(false, t) == ButtonEvent::NONE);
+  t += 40;
+  assert(c.updateWithLongPress(false, t) == ButtonEvent::RECAPTURE);
+  assert(c.mode() == DisplayMode::AUDIO_SPECTRUM);
+  assert(!c.pressPending());
+
+  // A hold of 2 s leaves the view: the next mode is the dashboard.
+  t += 100;
+  c.updateWithLongPress(true, t);
+  t += 40;
+  c.updateWithLongPress(true, t);
+  t += LongPressDetector::LONG_PRESS_MS;
+  assert(c.updateWithLongPress(true, t) == ButtonEvent::MODE_CHANGED);
+  assert(c.mode() == DisplayMode::DASHBOARD);
+
+  // Entry from the diagnostics view: a short press goes to the spectrum view at once on release.
+  DisplayModeController d;
+  d.setMode(DisplayMode::SYSTEM_DIAGNOSTICS);
+  t = 0;
+  d.updateWithLongPress(false, t);
+  t += 100;
+  d.updateWithLongPress(true, t);
+  t += 40;
+  d.updateWithLongPress(true, t);
+  t += 100;
+  d.updateWithLongPress(false, t);
+  t += 40;
+  assert(d.updateWithLongPress(false, t) == ButtonEvent::MODE_CHANGED);
+  assert(d.mode() == DisplayMode::AUDIO_SPECTRUM);
+
+  // Plain update() still cycles through all four modes.
+  DisplayModeController e;
+  for (uint8_t i = 0; i < DISPLAY_MODE_COUNT; ++i) {
+    e.next();
+  }
+  assert(e.mode() == DisplayMode::DASHBOARD);
+  assert(DISPLAY_MODE_COUNT == 4 && static_cast<uint8_t>(DisplayMode::AUDIO_SPECTRUM) == 3);
+}
+
+void testSpectrumStoredViewMode() {
+  PersistentState s;
+  s.mode = DisplayMode::AUDIO_SPECTRUM;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.mode == DisplayMode::AUDIO_SPECTRUM);
+
+  // A stored mode above 3 fails, also behind a valid checksum.
+  for (const uint8_t bad_mode : {uint8_t(4), uint8_t(5), uint8_t(255)}) {
+    uint8_t bad[PowerManager::SERIALIZED_SIZE];
+    memcpy(bad, buf, sizeof(buf));
+    bad[5] = bad_mode; // magic (4) + version (1), then the mode byte
+    const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
+    for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+    PersistentState out;
+    assert(!PowerManager::deserialize(bad, sizeof(bad), out));
+    assert(out.mode == DisplayMode::DASHBOARD);
+  }
+}
+
+
 int main() {
   testSwitchBotManufacturerPositiveTemp();
   testSwitchBotManufacturerNegativeTemp();
@@ -4294,6 +4641,14 @@ int main() {
   testDashboardStaleIndicator();
   testButtonDebounceAndModeTransitions();
   testDisplayModesRenderWithoutClipping();
+  testSpectrumBandEdges();
+  testSpectrumFft();
+  testSpectrumSinePeaks();
+  testSpectrumSilenceAndLevels();
+  testSpectrumCaptureLifecycle();
+  testSpectrumView();
+  testSpectrumKeyHandling();
+  testSpectrumStoredViewMode();
   testSwitchBotPacketCounter();
   testPowerSleepTimerCalculation();
   testPowerStateSerialization();
