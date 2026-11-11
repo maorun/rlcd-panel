@@ -24,12 +24,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Read the CSV logs without removing the MicroSD card. Add a line-based command parser without Arduino dependency (`LIST`, `DUMP <file>`, `INFO`). Accept commands only on USB power, while the board is awake. Reject file names that do not match `climate_v2_YYYYMM.csv`. Mount the card for one command and unmount it after the command. Send each file with a start line, the byte count, and a CRC-32 end line. Add `scripts/dump-logs.sh`, which sends the commands and writes the files into an ignored local directory.
   - Acceptance test: Host tests cover the parser with valid, unknown, too long and path-traversal commands, and the frame with the byte count and the CRC-32. On the board with USB power, `./scripts/dump-logs.sh` copies each monthly file, and the CRC-32 agrees with the file on the card. On battery power, the board ignores the commands and its awake time does not increase.
 
-- [ ] Battery runtime estimator in the diagnostics view
-  - Rank: [Total: 34, Use: 9, Setup: 8, Harmony: 8, Safety: 9, Effort: M]
-  - Location: `rlcd_panel/battery_monitor.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `tools/preview_scenes.h`, `rlcd_panel/rlcd_panel.ino`.
-  - Goal: Show the remaining battery runtime in the diagnostics view. Keep 24 hourly battery voltage samples in `PersistentState` (new state version). Calculate the discharge rate with a least-squares slope across the samples. Show `RUNTIME: ~NN H` or `RUNTIME: ~N D`. Show `RUNTIME: --` on USB power, after a charge, and with fewer than 6 samples. Clear the samples when the voltage increases by 0.10 V or more, because this indicates a charge.
-  - Acceptance test: Host tests cover a linear discharge, a flat curve, a charge step, fewer than 6 samples, NaN and invalid readings, and the RTC round trip with a corrupt record. A new preview scene shows the runtime line without clipping. The estimate on the board is in the range of the measured runtime ±25 % after one full discharge.
-
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
 - [ ] BTHome v2 sensor support

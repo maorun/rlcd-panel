@@ -1486,7 +1486,7 @@ void testHistoryPersistence() {
   assert(rejected.history.slots[0].size() == 0);
 
   // Each corrupt field with a valid CRC is rejected: head, sample range, sampled flag
-  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE - PowerManager::NOISE_HISTORY_SIZE - 1;
+  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE - PowerManager::BATTERY_HISTORY_SIZE - PowerManager::NOISE_HISTORY_SIZE - 1;
   // Sample bytes: low byte at ring_pos + 2, high byte at ring_pos + 3 (little endian)
   const size_t cases[5][2] = {
       {ring_pos + 1, 24}, {ring_pos + 3, 0x7F}, {sampled_pos, 2}, {ring_pos + 3, 0xFF}, {ring_pos + 3, 0x04}};
@@ -1699,10 +1699,10 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 8);
+  assert(PowerManager::STATE_VERSION == 9);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
-  old[4] = 7;
+  old[4] = 8;
   const uint32_t crc = PowerManager::crc32(old, sizeof(old) - 4);
   for (int i = 0; i < 4; ++i) old[sizeof(old) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState clean;
@@ -1753,7 +1753,8 @@ void testPreviewScenesCoverAllDisplayModes() {
   for (uint8_t i = 0; i < PREVIEW_SCENE_COUNT; ++i) {
     frames[i].clear(true); // poison: a full redraw must overwrite it
     renderScene(
-        frames[i], PREVIEW_SCENES[i].mode, PREVIEW_SCENES[i].low_battery, PREVIEW_SCENES[i].quiet_hours);
+        frames[i], PREVIEW_SCENES[i].mode, PREVIEW_SCENES[i].low_battery, PREVIEW_SCENES[i].quiet_hours,
+        PREVIEW_SCENES[i].long_runtime);
     size_t ink = 0;
     for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
       for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
@@ -3162,7 +3163,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 8);
+  assert(PowerManager::STATE_VERSION == 9);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4960,6 +4961,334 @@ void testClapUsbPowerWatch() {
   assert(!wrap.due(0xFFFFF800u) && wrap.due(0x00000400u + 0x1000u));
 }
 
+// ---- Battery runtime estimator ----
+
+static BatteryReading runtimeCell(float voltage_v, bool usb = false) {
+  BatteryReading r;
+  r.valid = true;
+  r.voltage_v = voltage_v;
+  r.percentage = BatteryMonitor::voltageToPercent(voltage_v);
+  r.usb_powered = usb;
+  return r;
+}
+
+void testBatteryRuntimeLinearDischarge() {
+  BatteryHistory h;
+  for (int hour = 0; hour < 12; ++hour) {
+    assert(h.push(4.00f - 0.02f * static_cast<float>(hour)));
+  }
+  double slope = 0.0;
+  assert(h.slope(slope));
+  assert(fabs(slope + 0.02) < 1e-4);
+  // 3.78 V now, 0.58 V above empty at 0.02 V per hour: 29 h
+  const BatteryRuntime r = h.estimate(runtimeCell(3.78f));
+  assert(r.valid && r.hours == 29);
+  char line[32];
+  r.describe(line, sizeof(line));
+  assert(strcmp(line, "RUNTIME: ~29 H") == 0);
+  // The ring keeps 24 samples; the slope stays correct after the wrap
+  for (int hour = 12; hour < 40; ++hour) {
+    h.push(4.20f - 0.01f * static_cast<float>(hour));
+  }
+  assert(h.size() == BatteryHistory::CAPACITY);
+  assert(h.slope(slope) && fabs(slope + 0.01) < 1e-4);
+}
+
+void testBatteryRuntimeDaysFormat() {
+  char line[32];
+  BatteryRuntime r;
+  r.describe(line, sizeof(line));
+  assert(strcmp(line, "RUNTIME: --") == 0);
+  r.valid = true;
+  r.hours = 47;
+  r.describe(line, sizeof(line));
+  assert(strcmp(line, "RUNTIME: ~47 H") == 0);
+  r.hours = 48;
+  r.describe(line, sizeof(line));
+  assert(strcmp(line, "RUNTIME: ~2 D") == 0);
+  r.hours = 100000;
+  r.describe(line, sizeof(line));
+  assert(strcmp(line, "RUNTIME: ~99 D") == 0);
+  // A slow discharge: 1 mV per hour from 3.90 V, 700 h, shown as days
+  BatteryHistory h;
+  for (int hour = 0; hour < 10; ++hour) {
+    h.push(3.91f - 0.001f * static_cast<float>(hour));
+  }
+  const BatteryRuntime slow = h.estimate(runtimeCell(3.90f));
+  assert(slow.valid && slow.hours > 600 && slow.hours < 800);
+  slow.describe(line, sizeof(line));
+  assert(strncmp(line, "RUNTIME: ~", 10) == 0 && line[strlen(line) - 1] == 'D');
+}
+
+void testBatteryRuntimeFlatCurve() {
+  BatteryHistory h;
+  for (int hour = 0; hour < 12; ++hour) {
+    h.push(3.80f);
+  }
+  double slope = 1.0;
+  assert(h.slope(slope) && fabs(slope) < 1e-9);
+  assert(!h.estimate(runtimeCell(3.80f)).valid);
+  // A rising curve below the charge step also gives no estimate
+  BatteryHistory rising;
+  for (int hour = 0; hour < 12; ++hour) {
+    rising.push(3.70f + 0.005f * static_cast<float>(hour));
+  }
+  assert(rising.size() == 12);
+  assert(!rising.estimate(runtimeCell(3.75f)).valid);
+}
+
+void testBatteryRuntimeChargeStepResets() {
+  BatteryHistory h;
+  for (int hour = 0; hour < 10; ++hour) {
+    h.push(3.60f - 0.01f * static_cast<float>(hour));
+  }
+  assert(h.size() == 10);
+  // 3.51 V to 3.62 V is +0.11 V: the old samples drop out
+  assert(h.push(3.62f));
+  assert(h.size() == 1 && h.at(0) == 3620);
+  assert(!h.estimate(runtimeCell(3.62f)).valid);
+  // A rise of 0.09 V keeps the history
+  BatteryHistory keep;
+  keep.push(3.60f);
+  keep.push(3.69f);
+  assert(keep.size() == 2);
+  // A rise of exactly 0.10 V clears it
+  BatteryHistory edge;
+  edge.push(3.60f);
+  edge.push(3.70f);
+  assert(edge.size() == 1);
+  // USB power clears the history and records nothing
+  BatteryHistory usb;
+  for (int hour = 0; hour < 8; ++hour) {
+    usb.push(3.80f - 0.01f * static_cast<float>(hour));
+  }
+  assert(!usb.record(0, runtimeCell(4.30f, true)));
+  assert(usb.size() == 0);
+  assert(!usb.estimate(runtimeCell(4.30f, true)).valid);
+}
+
+void testBatteryRuntimeTooFewSamples() {
+  BatteryHistory h;
+  for (int hour = 0; hour < 5; ++hour) {
+    h.push(3.90f - 0.02f * static_cast<float>(hour));
+    assert(!h.estimate(runtimeCell(3.80f)).valid);
+  }
+  assert(h.size() == 5);
+  h.push(3.80f);
+  assert(h.size() == BatteryHistory::MIN_SAMPLES);
+  assert(h.estimate(runtimeCell(3.80f)).valid);
+}
+
+void testBatteryRuntimeInvalidReadings() {
+  BatteryHistory h;
+  assert(!h.push(NAN));
+  assert(!h.push(INFINITY));
+  assert(!h.push(0.0f));
+  assert(!h.push(-3.7f));
+  assert(!h.push(2.0f));
+  assert(!h.push(9.9f));
+  assert(h.size() == 0);
+  for (int hour = 0; hour < 10; ++hour) {
+    h.push(3.90f - 0.02f * static_cast<float>(hour));
+  }
+  const size_t before = h.size();
+  assert(!h.push(NAN) && h.size() == before);
+  // A missing battery, a NaN voltage and an implausible voltage give no estimate
+  assert(!h.estimate(BatteryReading{}).valid);
+  assert(!h.estimate(runtimeCell(NAN)).valid);
+  assert(!h.estimate(runtimeCell(5.0f)).valid);
+  // record() rejects an invalid reading and keeps the hourly gate open
+  BatteryHistory gate;
+  assert(!gate.record(1000, BatteryReading{}));
+  assert(!gate.has_sampled);
+  assert(gate.record(1000, runtimeCell(3.9f)));
+  assert(!gate.record(1000 + 1000, runtimeCell(3.9f))); // inside the hour
+  assert(gate.record(1000 + BatteryHistory::SAMPLE_INTERVAL_MS, runtimeCell(3.88f)));
+  assert(gate.size() == 2);
+  // The estimate is 0 h at or below the empty voltage, never negative
+  BatteryHistory low;
+  for (int hour = 0; hour < 8; ++hour) {
+    low.push(3.30f - 0.01f * static_cast<float>(hour));
+  }
+  const BatteryRuntime empty = low.estimate(runtimeCell(3.15f));
+  assert(empty.valid && empty.hours == 0);
+}
+
+void testBatteryRuntimeIrregularSpacingAndSlowCharge() {
+  // Samples 90 min apart at 0.03 V each: 0.02 V per hour, not 0.03 V per hour
+  BatteryHistory h;
+  const uint32_t step = BatteryHistory::SAMPLE_INTERVAL_MS * 3 / 2;
+  for (uint32_t i = 0; i < 8; ++i) {
+    assert(h.push(4.00f - 0.03f * static_cast<float>(i), 5000 + i * step));
+  }
+  double slope = 0.0;
+  assert(h.slope(slope) && fabs(slope + 0.02) < 1e-4);
+  // The clock wrap does not change the slope
+  BatteryHistory wrap;
+  for (uint32_t i = 0; i < 8; ++i) {
+    wrap.push(4.00f - 0.02f * static_cast<float>(i), 0xFFFFFFFFu - 3 * BatteryHistory::SAMPLE_INTERVAL_MS + i * BatteryHistory::SAMPLE_INTERVAL_MS);
+  }
+  assert(wrap.slope(slope) && fabs(slope + 0.02) < 1e-4);
+  // A slow charge in steps below 0.10 V per sample still clears the stale discharge samples
+  BatteryHistory slow;
+  for (int i = 0; i < 6; ++i) {
+    slow.push(3.60f - 0.01f * static_cast<float>(i));
+  }
+  slow.push(3.60f);
+  slow.push(3.64f);
+  assert(slow.size() == 8);
+  slow.push(3.68f); // 3.68 V - lowest 3.55 V = 0.13 V
+  assert(slow.size() == 1);
+}
+
+void testBatteryHistoryCorruptStamps() {
+  PersistentState s;
+  for (int hour = 0; hour < 9; ++hour) {
+    s.battery_history.push(3.95f - 0.015f * static_cast<float>(hour), 1000u + hour * 3600000u);
+  }
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE -
+                      PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE -
+                      PowerManager::BATTERY_HISTORY_SIZE;
+  const size_t stamps = base + 2 + BatteryHistory::CAPACITY * 2;
+  // Stamp 3 equals stamp 2: not increasing
+  uint8_t bad[PowerManager::SERIALIZED_SIZE];
+  memcpy(bad, buf, sizeof(bad));
+  memcpy(bad + stamps + 3 * 4, bad + stamps + 2 * 4, 4);
+  const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
+  for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  PersistentState x;
+  assert(!PowerManager::deserialize(bad, sizeof(bad), x));
+}
+
+void testBatteryHistoryPersistence() {
+  PersistentState s;
+  for (int hour = 0; hour < 9; ++hour) {
+    s.battery_history.push(3.95f - 0.015f * static_cast<float>(hour));
+  }
+  s.battery_history.last_sample_ms = 123456;
+  s.battery_history.has_sampled = true;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.battery_history.size() == 9);
+  for (size_t i = 0; i < 9; ++i) {
+    assert(r.battery_history.at(i) == s.battery_history.at(i));
+  }
+  assert(r.battery_history.last_sample_ms == 123456 && r.battery_history.has_sampled);
+  double a = 0.0, b = 0.0;
+  assert(s.battery_history.slope(a) && r.battery_history.slope(b) && a == b);
+
+  // A flipped byte fails the checksum
+  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE -
+                      PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE -
+                      PowerManager::BATTERY_HISTORY_SIZE;
+  uint8_t bad[PowerManager::SERIALIZED_SIZE];
+  memcpy(bad, buf, sizeof(bad));
+  bad[base + 4] ^= 0x01;
+  PersistentState rejected;
+  assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+  assert(rejected.battery_history.size() == 0);
+
+  // Each corrupt field with a valid CRC is rejected: count, head, live sample, sampled flag
+  const size_t sampled_pos = base + PowerManager::BATTERY_HISTORY_SIZE - 1;
+  // Newest sample sits at index head - 1 = 8; low byte at base + 2 + 16
+  const size_t cases[5][2] = {
+      {base, 25}, {base + 1, 24}, {base + 2 + 16 + 1, 0x00}, {base + 2 + 16 + 1, 0xFF}, {sampled_pos, 2}};
+  for (const auto& c : cases) {
+    uint8_t b2[PowerManager::SERIALIZED_SIZE];
+    memcpy(b2, buf, sizeof(b2));
+    b2[c[0]] = static_cast<uint8_t>(c[1]);
+    const uint32_t crc = PowerManager::crc32(b2, sizeof(b2) - 4);
+    for (int i = 0; i < 4; ++i) b2[sizeof(b2) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+    PersistentState x;
+    assert(!PowerManager::deserialize(b2, sizeof(b2), x));
+    assert(x.battery_history.size() == 0);
+  }
+  // The previous state version gives a clean start
+  uint8_t old[PowerManager::SERIALIZED_SIZE];
+  memcpy(old, buf, sizeof(old));
+  old[4] = PowerManager::STATE_VERSION - 1;
+  const uint32_t crc = PowerManager::crc32(old, sizeof(old) - 4);
+  for (int i = 0; i < 4; ++i) old[sizeof(old) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  PersistentState clean;
+  assert(!PowerManager::deserialize(old, sizeof(old), clean));
+}
+
+void testDiagnosticsRuntimeLine() {
+  BatteryReading battery = runtimeCell(3.9f);
+  auto render = [&](St7305Framebuffer& fb, const BatteryRuntime& runtime) {
+    SystemInfo info;
+    info.free_heap_bytes = 8u * 1024 * 1024;
+    info.uptime_ms = 0xFFFFFFFFFFull * 1000;
+    info.runtime = runtime;
+    fb.clear(true);
+    DashboardView::renderDiagnostics(fb, battery, info, "88:88");
+  };
+  auto inkIn = [](const St7305Framebuffer& fb, uint16_t y0, uint16_t y1, uint16_t x0 = 0, uint16_t x1 = 400) {
+    size_t ink = 0;
+    for (uint16_t y = y0; y < y1; ++y) {
+      for (uint16_t x = x0; x < x1; ++x) {
+        ink += fb.getPixel(x, y) ? 1 : 0;
+      }
+    }
+    return ink;
+  };
+  St7305Framebuffer none, hours, days;
+  BatteryRuntime h;
+  h.valid = true;
+  h.hours = 36;
+  BatteryRuntime d;
+  d.valid = true;
+  d.hours = 24 * 10;
+  render(none, BatteryRuntime{});
+  render(hours, h);
+  render(days, d);
+  // The runtime line (y = 104..118) differs between the states and stays inside the screen
+  assert(inkIn(none, 104, 118) > 0);
+  assert(inkIn(hours, 104, 118) != inkIn(none, 104, 118));
+  assert(inkIn(days, 104, 118) != inkIn(hours, 104, 118));
+  // No clipping: the longest text ends before x = 400 and the neighbour lines stay unchanged
+  assert(inkIn(hours, 104, 118, 10 + 14 * 12, 400) == 0);
+  assert(inkIn(hours, 84, 100) == inkIn(none, 84, 100));
+  assert(inkIn(hours, 124, 300) == inkIn(none, 124, 300));
+}
+
+void testTildeGlyphIsDrawn() {
+  St7305Framebuffer fb;
+  fb.clear(false);
+  fb.drawText(0, 0, "~", 2, true);
+  size_t ink = 0;
+  for (uint16_t y = 0; y < 14; ++y) {
+    for (uint16_t x = 0; x < 10; ++x) ink += fb.getPixel(x, y) ? 1 : 0;
+  }
+  assert(ink > 0);
+}
+
+void testPreviewRuntimeScene() {
+  using namespace rlcd_panel::preview;
+  bool found = false;
+  for (uint8_t i = 0; i < PREVIEW_SCENE_COUNT; ++i) {
+    if (!PREVIEW_SCENES[i].long_runtime) continue;
+    found = true;
+    assert(PREVIEW_SCENES[i].mode == DisplayMode::SYSTEM_DIAGNOSTICS);
+    St7305Framebuffer fb, base;
+    renderScene(fb, PREVIEW_SCENES[i].mode, false, false, true);
+    renderScene(base, DisplayMode::SYSTEM_DIAGNOSTICS, false, false, false);
+    size_t diff = 0;
+    for (uint16_t y = 104; y < 118; ++y) {
+      for (uint16_t x = 0; x < 400; ++x) diff += fb.getPixel(x, y) != base.getPixel(x, y);
+    }
+    assert(diff > 0); // days text differs from the hours text
+    for (uint16_t y = 104; y < 118; ++y) {
+      for (uint16_t x = 10 + 14 * 12; x < 400; ++x) assert(!fb.getPixel(x, y));
+    }
+  }
+  assert(found);
+}
+
 int main() {
   testSwitchBotManufacturerPositiveTemp();
   testSwitchBotManufacturerNegativeTemp();
@@ -5075,6 +5404,18 @@ int main() {
   testClapListenerReopenFailurePowersDown();
   testClapListenModeGate();
   testClapUsbPowerWatch();
-  printf("All 88 firmware logic test suites passed.\n");
+  testBatteryRuntimeLinearDischarge();
+  testBatteryRuntimeDaysFormat();
+  testBatteryRuntimeFlatCurve();
+  testBatteryRuntimeChargeStepResets();
+  testBatteryRuntimeTooFewSamples();
+  testBatteryRuntimeInvalidReadings();
+  testBatteryRuntimeIrregularSpacingAndSlowCharge();
+  testBatteryHistoryCorruptStamps();
+  testBatteryHistoryPersistence();
+  testDiagnosticsRuntimeLine();
+  testTildeGlyphIsDrawn();
+  testPreviewRuntimeScene();
+  printf("All 100 firmware logic test suites passed.\n");
   return 0;
 }

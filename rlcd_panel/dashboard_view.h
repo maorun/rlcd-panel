@@ -28,6 +28,7 @@ struct SystemInfo {
   bool config_from_sd = false; // true: settings come from /sdcard/config.ini
   LoopbackResult loopback;     // last speaker to microphone test of this wake cycle
   SpectrumReading spectrum;    // last spectrum capture; invalid shows "NO DATA"
+  BatteryRuntime runtime;      // remaining battery runtime; invalid shows "--"
 };
 
 class DashboardView {
@@ -395,6 +396,10 @@ public:
       snprintf(line, sizeof(line), "BAT: --");
     }
     drawLine(fb, 10, 84, line);
+
+    // Runtime at y = 104, between the battery line (ends y = 98) and the heap line (y = 124).
+    info.runtime.describe(line, sizeof(line));
+    drawLine(fb, 10, 104, line);
 
     snprintf(
         line,

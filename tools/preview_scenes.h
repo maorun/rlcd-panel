@@ -20,14 +20,16 @@ struct PreviewScene {
   DisplayMode mode;
   bool low_battery;
   bool quiet_hours;
+  bool long_runtime = false; // slow discharge: the runtime line shows days
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 6;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 7;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
     {"display_preview_stats", DisplayMode::SENSOR_STATS, false, false},
     {"display_preview_diagnostics", DisplayMode::SYSTEM_DIAGNOSTICS, false, false},
+    {"display_preview_runtime", DisplayMode::SYSTEM_DIAGNOSTICS, false, false, true},
     {"display_preview_spectrum", DisplayMode::AUDIO_SPECTRUM, false, false},
     {"display_preview_low_battery", DisplayMode::DASHBOARD, true, false},
     {"display_preview_quiet_hours", DisplayMode::DASHBOARD, false, true},
@@ -35,7 +37,8 @@ constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
 
 // Renders one mode with the fixed sample data used for all documentation previews.
 inline void renderScene(
-    St7305Framebuffer& fb, DisplayMode mode, bool low_battery, bool quiet_hours = false) {
+    St7305Framebuffer& fb, DisplayMode mode, bool low_battery, bool quiet_hours = false,
+    bool long_runtime = false) {
   Shtc3Reading onboard;
   onboard.valid = true;
   onboard.temperature_c = 21.8f;
@@ -110,7 +113,16 @@ inline void renderScene(
         44.0f + 14.0f * sinf((static_cast<float>(hour) - 6.0f) * 0.2618f) + (hour % 3) * 2.0f)));
   }
 
+  // Preview discharge: 12 hourly samples ending at the current voltage, 20 mV per hour
+  // (36 H left) or 10 mV per hour (3 D left)
+  BatteryHistory battery_history;
+  const float step_v = long_runtime ? 0.01f : 0.02f;
+  for (int hour = 11; hour >= 0; --hour) {
+    battery_history.push(battery.voltage_v + step_v * static_cast<float>(hour));
+  }
+
   SystemInfo info;
+  info.runtime = battery_history.estimate(battery);
   info.free_heap_bytes = 214 * 1024;
   info.uptime_ms = 93784000; // 1 d 02:03:04
   // Calibrated microphone: floor RMS 100, offset 90 dB. RMS 650 is moderate, about 56 DBA.

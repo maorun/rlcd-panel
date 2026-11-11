@@ -110,7 +110,7 @@ int main(int argc, char** argv) {
         return 1;
       }
       St7305Framebuffer fb;
-      preview::renderScene(fb, scene.mode, scene.low_battery, scene.quiet_hours);
+      preview::renderScene(fb, scene.mode, scene.low_battery, scene.quiet_hours, scene.long_runtime);
       if (!exportFramebufferToBmp(fb, path)) {
         return 1;
       }
