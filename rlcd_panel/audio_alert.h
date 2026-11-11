@@ -95,12 +95,14 @@ public:
 
   // Alerts that switched on since the last cycle and may sound. Mute and quiet hours suppress the
   // sound only; the caller still stores the new mask, so unmuting or the end of the quiet hours
-  // never replays an old alert.
-  static uint8_t chimeBits(bool muted, uint8_t previous, uint8_t current, bool quiet) {
+  // never replays an old alert. A cleared bit of `chime_mask` (chime_alert_mask in config.ini)
+  // silences that alert in the same way.
+  static uint8_t chimeBits(bool muted, uint8_t previous, uint8_t current, bool quiet,
+                           uint8_t chime_mask = ALERT_MASK_ALL) {
     if (muted || quiet) {
       return ALERT_NONE;
     }
-    return static_cast<uint8_t>(current & ~previous & ALERT_MASK_ALL);
+    return static_cast<uint8_t>(current & ~previous & chime_mask & ALERT_MASK_ALL);
   }
 
   // Mask to store and bits to sound for one alert step. The mask is stored in each case, so
@@ -110,13 +112,15 @@ public:
     uint8_t chime;
   };
 
-  static Step step(bool muted, uint8_t previous, uint8_t current, bool quiet) {
-    return {static_cast<uint8_t>(current & ALERT_MASK_ALL), chimeBits(muted, previous, current, quiet)};
+  static Step step(bool muted, uint8_t previous, uint8_t current, bool quiet, uint8_t chime_mask = ALERT_MASK_ALL) {
+    return {static_cast<uint8_t>(current & ALERT_MASK_ALL),
+            chimeBits(muted, previous, current, quiet, chime_mask)};
   }
 
   // Climate check: the noise bit of the last window stays.
-  static Step climateStep(bool muted, uint8_t previous, uint8_t climate, bool quiet) {
-    return step(muted, previous, withClimate(previous, climate), quiet);
+  static Step climateStep(bool muted, uint8_t previous, uint8_t climate, bool quiet,
+                          uint8_t chime_mask = ALERT_MASK_ALL) {
+    return step(muted, previous, withClimate(previous, climate), quiet, chime_mask);
   }
 
   // Keeps the bits of `mask` outside the climate alerts and replaces the climate bits.
@@ -185,8 +189,10 @@ public:
 
   // Noise check after a window: the climate bits stay.
   static AlertEvaluator::Step step(
-      bool muted, uint8_t previous, bool reading_valid, int level_db, uint8_t limit_db, bool quiet) {
-    return AlertEvaluator::step(muted, previous, evaluate(previous, reading_valid, level_db, limit_db), quiet);
+      bool muted, uint8_t previous, bool reading_valid, int level_db, uint8_t limit_db, bool quiet,
+      uint8_t chime_mask = ALERT_MASK_ALL) {
+    return AlertEvaluator::step(muted, previous, evaluate(previous, reading_valid, level_db, limit_db), quiet,
+                                chime_mask);
   }
 };
 

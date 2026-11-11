@@ -438,7 +438,7 @@ void chimeOnNoise(bool have_noise, const MicCalibration& cal) {
   const int level_db = have_noise ? cal.splDb(g_noise.rms) : 0;
   applyAlertStep(NoiseAlertEvaluator::step(
       g_state.muted, g_state.alert_mask, have_noise, level_db, config().noise_alert_limit_db,
-      quietHours().isActive(g_rtc_time)));
+      quietHours().isActive(g_rtc_time), config().chime_alert_mask));
 }
 
 // Appends one hourly record to the MicroSD card. A missing card or a failed write never blocks
@@ -543,7 +543,7 @@ void chimeOnAlerts() {
   // Quiet hours suppress the sound only. The mask is stored, so no chime replays later. The noise
   // bit stays as it is: only the hourly noise window changes it.
   applyAlertStep(AlertEvaluator::climateStep(
-      g_state.muted, g_state.alert_mask, climate, quietHours().isActive(g_rtc_time)));
+      g_state.muted, g_state.alert_mask, climate, quietHours().isActive(g_rtc_time), config().chime_alert_mask));
 }
 
 } // namespace

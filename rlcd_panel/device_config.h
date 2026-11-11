@@ -31,6 +31,8 @@ struct DeviceConfig {
   static constexpr uint8_t DEFAULT_NOISE_ALERT_LIMIT_DB = 0; // 0 switches the noise alert off
   static constexpr uint8_t MIN_NOISE_ALERT_LIMIT_DB = 40;
   static constexpr uint8_t MAX_NOISE_ALERT_LIMIT_DB = 100;
+  static constexpr uint8_t DEFAULT_CHIME_ALERT_MASK = 15; // all four alerts may sound
+  static constexpr uint8_t MAX_CHIME_ALERT_MASK = 15;
 
   float temp_offset_c = DEFAULT_TEMP_OFFSET_C;
   float freeze_alert_limit_c = DEFAULT_FREEZE_ALERT_LIMIT_C;
@@ -41,6 +43,7 @@ struct DeviceConfig {
   float mic_spl_offset_db = DEFAULT_MIC_SPL_OFFSET_DB; // added to the microphone calibration offset
   uint8_t log_retention_months = DEFAULT_LOG_RETENTION_MONTHS; // log files older than this are deleted
   uint8_t noise_alert_limit_db = DEFAULT_NOISE_ALERT_LIMIT_DB; // 0 = off, else 40..100 dB
+  uint8_t chime_alert_mask = DEFAULT_CHIME_ALERT_MASK; // bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost
 
   static bool inRange(float v, float lo, float hi) {
     return v >= lo && v <= hi; // false for NaN
@@ -54,7 +57,7 @@ struct DeviceConfig {
            chime_volume_pct <= MAX_CHIME_VOLUME_PCT && quiet_hours_start_hour <= MAX_HOUR &&
            quiet_hours_end_hour <= MAX_HOUR &&
            inRange(mic_spl_offset_db, MIN_MIC_SPL_OFFSET_DB, MAX_MIC_SPL_OFFSET_DB) &&
-           log_retention_months <= MAX_LOG_RETENTION_MONTHS &&
+           log_retention_months <= MAX_LOG_RETENTION_MONTHS && chime_alert_mask <= MAX_CHIME_ALERT_MASK &&
            (noise_alert_limit_db == 0 ||
             (noise_alert_limit_db >= MIN_NOISE_ALERT_LIMIT_DB && noise_alert_limit_db <= MAX_NOISE_ALERT_LIMIT_DB));
   }
@@ -65,7 +68,8 @@ struct DeviceConfig {
            mold_alert_limit_rh == d.mold_alert_limit_rh && chime_volume_pct == d.chime_volume_pct &&
            quiet_hours_start_hour == d.quiet_hours_start_hour &&
            quiet_hours_end_hour == d.quiet_hours_end_hour && mic_spl_offset_db == d.mic_spl_offset_db &&
-           log_retention_months == d.log_retention_months && noise_alert_limit_db == d.noise_alert_limit_db;
+           log_retention_months == d.log_retention_months && noise_alert_limit_db == d.noise_alert_limit_db &&
+           chime_alert_mask == d.chime_alert_mask;
   }
 };
 
@@ -256,6 +260,9 @@ private:
       if (ok) {
         cfg.noise_alert_limit_db = limit;
       }
+    } else if (keyIs(key, key_len, "chime_alert_mask")) {
+      index = 9;
+      ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_CHIME_ALERT_MASK, cfg.chime_alert_mask);
     }
     if (index < 0) {
       return; // unknown key
