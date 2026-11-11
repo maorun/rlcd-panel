@@ -26,12 +26,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Show third-party thermo-hygrometers with the BTHome v2 protocol (Service Data `UUID 0xFCD2`) in the 3 sensor slots. Decode the unencrypted object IDs for temperature (`0x02`), humidity (`0x03`) and battery (`0x01`). Skip encrypted packets and unknown object IDs without a failure. Put BTHome and SwitchBot sensors into the same registry with the same 30 min stale rule.
   - Acceptance test: Host tests cover valid packets, negative temperatures, truncated packets, encrypted packets, unknown object IDs, and a registry with one BTHome sensor and two SwitchBot sensors. A board with a BTHome v2 sensor shows its values in one tile, and the existing SwitchBot tests stay green.
 
-- [ ] MicroSD free space check and log retention
-  - Rank: [Total: 29, Use: 7, Setup: 8, Harmony: 7, Safety: 7, Effort: S]
-  - Location: `rlcd_panel/sd_logger.h`, `rlcd_panel/device_config.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`.
-  - Goal: Prevent a full card from stopping the hourly log. Read the free space after each hourly write. Add the key `log_retention_months` (default `0` = keep all files, range `0` to `120`) to `config.ini`. Delete only `climate_v2_YYYYMM.csv` files that are older than the retention period. Never delete the file of the current month, and never delete other files. Show the free space in MB in the diagnostics view.
-  - Acceptance test: Host tests cover the age calculation across a year change, the default `0`, the out-of-range values, and file names that do not match the pattern. On the board, a card with old test files keeps only the files inside the retention period, and the diagnostics view shows the free space.
-
 ## Priority 3: Audio Expansions (Score 22–27)
 
 - [ ] Sensor dropout chime

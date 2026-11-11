@@ -49,6 +49,7 @@ BLEScan* g_ble_scan = nullptr;
 DisplayModeController g_mode_controller;
 std::atomic<bool> g_scan_running{false};
 PowerConfig g_power_config;
+int32_t g_sd_free_mb = -1; // free MicroSD space in MB of this wake cycle; -1 = card not read
 NoiseReading g_noise; // measured at most once per wake cycle: diagnostics view or hourly SD record
 bool g_noise_attempted = false; // a failed window is not retried in the same wake cycle
 MicCalibration g_mic_cal;       // loaded from NVS in setup(); the default when absent or corrupt
@@ -244,6 +245,7 @@ void renderDashboard() {
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;
   info.runtime = g_state.battery_history.estimate(g_state.battery);
+  info.sd_free_mb = g_sd_free_mb;
 
   DashboardView::renderMode(
       g_framebuffer,
@@ -415,9 +417,14 @@ void logToSdCard() {
     snapshot[i] = g_state.registry.slot(i);
   }
   const MicCalibration cal = activeMicCal();
+  int32_t free_mb = -1;
   const SdLogResult result = SdLogger::append(
       g_rtc_time, g_state.battery, g_onboard_reading, snapshot, MAX_SWITCHBOT_SENSORS, now,
-      have_noise ? &g_noise : nullptr, &cal);
+      have_noise ? &g_noise : nullptr, &cal, config().log_retention_months, &free_mb);
+  g_sd_free_mb = free_mb; // -1 after a failed mount, so the view never shows an old value
+  if (g_mode_controller.mode() == DisplayMode::SYSTEM_DIAGNOSTICS) {
+    renderDashboard(); // the diagnostics view shows the free space after the write
+  }
   g_state.has_logged = true;
   if (result == SdLogResult::OK) {
     g_state.last_log_ms = now;
@@ -453,10 +460,12 @@ void loadConfigFromCard(WakeupCause cause) {
     return;
   }
   DeviceConfig loaded;
-  const SdConfigResult result = SdLogger::loadConfig(loaded);
+  int32_t free_mb = -1;
+  const SdConfigResult result = SdLogger::loadConfig(loaded, &free_mb);
   if (result == SdConfigResult::NO_CARD) {
     return;
   }
+  g_sd_free_mb = free_mb;
   g_state.config = loaded;
   g_state.config_from_sd = result == SdConfigResult::LOADED;
 }

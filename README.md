@@ -169,13 +169,14 @@ chime_volume_pct=30
 quiet_hours_start_hour=22
 quiet_hours_end_hour=7
 mic_spl_offset_db=0.0
+log_retention_months=0
 ```
 
 A value that is missing, malformed, or outside its range keeps the default. The file limit is 4096 bytes. Use LF or CRLF line ends. Equal start and end hours switch the quiet hours off. Wi-Fi credentials never come from the card. The ranges are in `FEATURES.md`.
 
 ## MicroSD Noise Logging
 
-The firmware appends one CSV record per hour to `/climate_v2_YYYYMM.csv` on the MicroSD card. The file has 18 columns: the climate columns plus `noise_rms`, `noise_db` and `noise_band`. The wake cycle that writes the record runs one 5 s noise window first, also after a timer wakeup. With a low battery alert, or if the window fails, the three noise fields stay empty. The old `climate_YYYYMM.csv` files (15 columns) stay unchanged. The code is in `rlcd_panel/sd_logger.h`.
+The firmware appends one CSV record per hour to `/climate_v2_YYYYMM.csv` on the MicroSD card. The file has 18 columns: the climate columns plus `noise_rms`, `noise_db` and `noise_band`. The wake cycle that writes the record runs one 5 s noise window first, also after a timer wakeup. With a low battery alert, or if the window fails, the three noise fields stay empty. The old `climate_YYYYMM.csv` files (15 columns) stay unchanged. `log_retention_months` in `config.ini` deletes monthly files older than the set number of months after each hourly write (`0` keeps all files). The diagnostics view shows `SD FREE: NNN MB`. The code is in `rlcd_panel/sd_logger.h`.
 
 ## Ambient Noise Monitor
 

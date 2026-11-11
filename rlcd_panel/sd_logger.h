@@ -31,10 +31,16 @@ public:
   static constexpr const char* MOUNT_POINT = "/sdcard";
   // "climate_v2_YYYYMM.csv" plus the terminator.
   static constexpr size_t LOG_NAME_SIZE = 22;
+  // Upper bound of the shown free space (about 9.5 TB), so the diagnostics line has a fixed width.
+  static constexpr uint32_t MAX_FREE_MB = 9999999;
+  // Earliest RTC year that the retention accepts. A wrong clock in the future must not delete logs.
+  static constexpr uint16_t MIN_TRUSTED_YEAR = 2025;
+  // Files that one prune pass deletes at most. More old files go in the next hourly pass.
+  static constexpr size_t MAX_PRUNE_PER_PASS = 24;
 
-  // True for a bare log file name "climate_v2_YYYYMM.csv" with year 2000..2099 and month 01..12.
+  // Splits a bare log file name "climate_v2_YYYYMM.csv" into year 2000..2099 and month 01..12.
   // Anything else is false, so a path separator or "." never reaches the card.
-  static bool isLogFileName(const char* name) {
+  static bool parseLogFileName(const char* name, int& year, int& month) {
     static const char PREFIX[] = "climate_v2_";
     static const char SUFFIX[] = ".csv";
     constexpr size_t PREFIX_LEN = sizeof(PREFIX) - 1;
@@ -49,10 +55,58 @@ public:
         return false;
       }
     }
-    const int year = (name[PREFIX_LEN] - '0') * 1000 + (name[PREFIX_LEN + 1] - '0') * 100 +
-                     (name[PREFIX_LEN + 2] - '0') * 10 + (name[PREFIX_LEN + 3] - '0');
-    const int month = (name[PREFIX_LEN + 4] - '0') * 10 + (name[PREFIX_LEN + 5] - '0');
-    return year >= 2000 && year <= 2099 && month >= 1 && month <= 12;
+    const int y = (name[PREFIX_LEN] - '0') * 1000 + (name[PREFIX_LEN + 1] - '0') * 100 +
+                  (name[PREFIX_LEN + 2] - '0') * 10 + (name[PREFIX_LEN + 3] - '0');
+    const int m = (name[PREFIX_LEN + 4] - '0') * 10 + (name[PREFIX_LEN + 5] - '0');
+    if (y < 2000 || y > 2099 || m < 1 || m > 12) {
+      return false;
+    }
+    year = y;
+    month = m;
+    return true;
+  }
+
+  // True for a bare log file name "climate_v2_YYYYMM.csv" with year 2000..2099 and month 01..12.
+  static bool isLogFileName(const char* name) {
+    int year = 0;
+    int month = 0;
+    return parseLogFileName(name, year, month);
+  }
+
+  // Whole months from (year, month) to (now_year, now_month). Negative for a month in the future.
+  // Works across a year change: December 2025 to January 2026 is 1.
+  static int monthsBetween(int year, int month, int now_year, int now_month) {
+    return (now_year * 12 + (now_month - 1)) - (year * 12 + (month - 1));
+  }
+
+  // True when the retention setting deletes old files: 1..MAX_RETENTION_MONTHS. 0 keeps all files,
+  // and an out-of-range value deletes nothing.
+  static bool retentionActive(uint8_t retention_months) {
+    return retention_months >= 1 && retention_months <= DeviceConfig::MAX_LOG_RETENTION_MONTHS;
+  }
+
+  // True when `name` is a log file older than `retention_months`. The file of the current month
+  // (age 0) and a file in the future are never old. A name that does not match the pattern is
+  // never old, so no other file is deleted. A clock that is invalid, flagged by the oscillator-stop
+  // bit, or before MIN_TRUSTED_YEAR deletes nothing.
+  static bool shouldDeleteLog(const char* name, const RtcTime& now, uint8_t retention_months) {
+    int year = 0;
+    int month = 0;
+    if (!retentionActive(retention_months) || !now.valid || now.oscillator_stopped ||
+        now.year < MIN_TRUSTED_YEAR || !parseLogFileName(name, year, month)) {
+      return false;
+    }
+    const int age = monthsBetween(year, month, static_cast<int>(now.year), static_cast<int>(now.month));
+    return age > static_cast<int>(retention_months);
+  }
+
+  // Free space in whole MB from the card totals. -1 (unknown) when the totals are not plausible.
+  static int32_t freeMegabytes(uint64_t total_bytes, uint64_t used_bytes) {
+    if (total_bytes == 0 || used_bytes > total_bytes) {
+      return -1;
+    }
+    const uint64_t mb = (total_bytes - used_bytes) / (1024ULL * 1024ULL);
+    return mb > MAX_FREE_MB ? static_cast<int32_t>(MAX_FREE_MB) : static_cast<int32_t>(mb);
   }
 
   // True when a record is due. Unsigned subtraction survives clock wrap-around.
@@ -216,8 +270,13 @@ public:
       size_t slot_count,
       uint32_t now_ms,
       const NoiseReading* noise,
-      const MicCalibration* noise_cal) {
+      const MicCalibration* noise_cal,
+      uint8_t retention_months = 0,
+      int32_t* free_mb = nullptr) {
     char path[SdLogCodec::MAX_PATH_SIZE];
+    if (free_mb != nullptr) {
+      *free_mb = -1;
+    }
     char row[SdLogCodec::MAX_ROW_SIZE];
     if (SdLogCodec::formatFilename(&time, path, sizeof(path)) == 0) {
       return SdLogResult::NO_TIME;
@@ -231,6 +290,11 @@ public:
       return SdLogResult::MOUNT_FAILED;
     }
     const SdLogResult result = writeRecord(path, row, row_len);
+    // The prune runs also after a failed write, so a full card frees space for the next retry.
+    pruneOldLogs(time, retention_months);
+    if (free_mb != nullptr) {
+      *free_mb = SdLogCodec::freeMegabytes(SD_MMC.totalBytes(), SD_MMC.usedBytes());
+    }
     SD_MMC.end();
     return result;
   }
@@ -248,8 +312,12 @@ public:
   // Reads the optional /sdcard/config.ini into `out`. NO_CARD (mount failed) lets the caller keep
   // its previous settings, so a transient card error never resets them. NO_FILE (card without a
   // usable file, or a file above the size limit) leaves the defaults in `out`.
-  static SdConfigResult loadConfig(DeviceConfig& out) {
+  // `free_mb` (optional) receives the free space of the mounted card in MB, or -1.
+  static SdConfigResult loadConfig(DeviceConfig& out, int32_t* free_mb = nullptr) {
     out = DeviceConfig{};
+    if (free_mb != nullptr) {
+      *free_mb = -1;
+    }
     if (!mount()) {
       return SdConfigResult::NO_CARD;
     }
@@ -270,6 +338,9 @@ public:
     }
     if (file) {
       file.close();
+    }
+    if (free_mb != nullptr) {
+      *free_mb = SdLogCodec::freeMegabytes(SD_MMC.totalBytes(), SD_MMC.usedBytes());
     }
     SD_MMC.end();
     return result;
@@ -295,6 +366,37 @@ private:
       return false;
     }
     return true;
+  }
+
+  // Deletes the log files older than the retention period in the root directory. The names are
+  // collected first and removed after the directory closes. Other files and directories stay.
+  static void pruneOldLogs(const RtcTime& now, uint8_t retention_months) {
+    if (!SdLogCodec::retentionActive(retention_months)) {
+      return;
+    }
+    char names[SdLogCodec::MAX_PRUNE_PER_PASS][SdLogCodec::LOG_NAME_SIZE];
+    size_t count = 0;
+    File dir = SD_MMC.open("/");
+    if (!dir) {
+      return;
+    }
+    if (dir.isDirectory()) {
+      for (File entry = dir.openNextFile(); entry && count < SdLogCodec::MAX_PRUNE_PER_PASS;
+           entry = dir.openNextFile()) {
+        const char* name = entry.name();
+        if (!entry.isDirectory() && name != nullptr && SdLogCodec::shouldDeleteLog(name, now, retention_months)) {
+          memcpy(names[count], name, SdLogCodec::LOG_NAME_SIZE); // the match proves length 21
+          ++count;
+        }
+        entry.close();
+      }
+    }
+    dir.close();
+    for (size_t i = 0; i < count; ++i) {
+      char path[SdLogCodec::LOG_NAME_SIZE + 1];
+      snprintf(path, sizeof(path), "/%s", names[i]);
+      SD_MMC.remove(path);
+    }
   }
 
   static SdLogResult writeRecord(const char* path, const char* row, size_t row_len) {

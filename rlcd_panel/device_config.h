@@ -26,6 +26,8 @@ struct DeviceConfig {
   static constexpr float DEFAULT_MIC_SPL_OFFSET_DB = 0.0f;
   static constexpr float MIN_MIC_SPL_OFFSET_DB = -20.0f;
   static constexpr float MAX_MIC_SPL_OFFSET_DB = 20.0f;
+  static constexpr uint8_t DEFAULT_LOG_RETENTION_MONTHS = 0; // 0 keeps all log files
+  static constexpr uint8_t MAX_LOG_RETENTION_MONTHS = 120;
 
   float temp_offset_c = DEFAULT_TEMP_OFFSET_C;
   float freeze_alert_limit_c = DEFAULT_FREEZE_ALERT_LIMIT_C;
@@ -34,6 +36,7 @@ struct DeviceConfig {
   uint8_t quiet_hours_start_hour = DEFAULT_QUIET_HOURS_START_HOUR;
   uint8_t quiet_hours_end_hour = DEFAULT_QUIET_HOURS_END_HOUR;
   float mic_spl_offset_db = DEFAULT_MIC_SPL_OFFSET_DB; // added to the microphone calibration offset
+  uint8_t log_retention_months = DEFAULT_LOG_RETENTION_MONTHS; // log files older than this are deleted
 
   static bool inRange(float v, float lo, float hi) {
     return v >= lo && v <= hi; // false for NaN
@@ -46,7 +49,8 @@ struct DeviceConfig {
            mold_alert_limit_rh >= MIN_MOLD_ALERT_LIMIT_RH && mold_alert_limit_rh <= MAX_MOLD_ALERT_LIMIT_RH &&
            chime_volume_pct <= MAX_CHIME_VOLUME_PCT && quiet_hours_start_hour <= MAX_HOUR &&
            quiet_hours_end_hour <= MAX_HOUR &&
-           inRange(mic_spl_offset_db, MIN_MIC_SPL_OFFSET_DB, MAX_MIC_SPL_OFFSET_DB);
+           inRange(mic_spl_offset_db, MIN_MIC_SPL_OFFSET_DB, MAX_MIC_SPL_OFFSET_DB) &&
+           log_retention_months <= MAX_LOG_RETENTION_MONTHS;
   }
 
   bool isDefault() const {
@@ -54,7 +58,8 @@ struct DeviceConfig {
     return temp_offset_c == d.temp_offset_c && freeze_alert_limit_c == d.freeze_alert_limit_c &&
            mold_alert_limit_rh == d.mold_alert_limit_rh && chime_volume_pct == d.chime_volume_pct &&
            quiet_hours_start_hour == d.quiet_hours_start_hour &&
-           quiet_hours_end_hour == d.quiet_hours_end_hour && mic_spl_offset_db == d.mic_spl_offset_db;
+           quiet_hours_end_hour == d.quiet_hours_end_hour && mic_spl_offset_db == d.mic_spl_offset_db &&
+           log_retention_months == d.log_retention_months;
   }
 };
 
@@ -78,7 +83,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 4096;
-  static constexpr size_t KEY_COUNT = 7;
+  static constexpr size_t KEY_COUNT = 8;
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
   // Always resets `out` to the defaults first.
@@ -232,6 +237,9 @@ private:
       index = 6;
       ok = parseFloatIn(val, val_len, DeviceConfig::MIN_MIC_SPL_OFFSET_DB, DeviceConfig::MAX_MIC_SPL_OFFSET_DB,
                         cfg.mic_spl_offset_db);
+    } else if (keyIs(key, key_len, "log_retention_months")) {
+      index = 7;
+      ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_LOG_RETENTION_MONTHS, cfg.log_retention_months);
     }
     if (index < 0) {
       return; // unknown key
