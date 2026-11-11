@@ -9,6 +9,7 @@
 #include "board_pins.h"
 #include "button_handler.h"
 #include "climate_math.h"
+#include "device_config.h"
 #include "es7210_mic.h"
 #include "shtc3_sensor.h"
 #include "sparkline.h"
@@ -116,6 +117,34 @@ public:
     char line[ClimateMath::LINE_MAX_CHARS + 1];
     ClimateMath::format(line, sizeof(line), usable, temp_c, humidity_pct);
     fb.drawText(x + 12, y + CLIMATE_LINE_Y_OFFSET, line, 1, true);
+  }
+
+  // Tile title: the configured name, else "ONBOARD SHTC3" (tile 0) or "SENSOR n" (tile n = 1..3).
+  // A name has at most 12 glyphs (142 px at scale 2), so it ends at x + 150 and stays left of the
+  // STALE badge, which starts at x + 151.
+  static void tileTitle(char* out, size_t capacity, const DeviceConfig* config, size_t tile) {
+    const char* name = nullptr;
+    if (config != nullptr) {
+      name = tile == 0 ? config->onboard_name
+                       : (tile <= DeviceConfig::SLOT_COUNT ? config->slot_name[tile - 1] : nullptr);
+    }
+    if (name != nullptr && name[0] != '\0') {
+      snprintf(out, capacity, "%s", name);
+    } else if (tile == 0) {
+      snprintf(out, capacity, "ONBOARD SHTC3");
+    } else {
+      snprintf(out, capacity, "SENSOR %u", static_cast<unsigned>(tile));
+    }
+  }
+
+  // Stats view label of registry slot `slot` (0..2): the configured name, else "S1" to "S3".
+  // The longest line is "<12 glyphs> RSSI -100 DBM" = 26 glyphs = 312 px.
+  static void statsLabel(char* out, size_t capacity, const DeviceConfig* config, size_t slot) {
+    if (config != nullptr && slot < DeviceConfig::SLOT_COUNT && config->slot_name[slot][0] != '\0') {
+      snprintf(out, capacity, "%s", config->slot_name[slot]);
+    } else {
+      snprintf(out, capacity, "S%u", static_cast<unsigned>(slot + 1));
+    }
   }
 
   static void renderTile(
@@ -251,20 +280,23 @@ public:
       const char* clock_text,
       uint32_t now_ms,
       const ClimateHistory* history = nullptr,
-      bool quiet_hours = false) {
+      bool quiet_hours = false,
+      const DeviceConfig* config = nullptr) {
     renderHeader(fb, "RLCD CLIMATE PANEL", battery, clock_text, quiet_hours);
 
     const uint16_t tile_w = 190;
     const uint16_t tile_h = 124;
 
     // Tile 0: Onboard SHTC3 and 18650 Battery
+    char onboard_title[24];
+    tileTitle(onboard_title, sizeof(onboard_title), config, 0);
     renderTile(
         fb,
         6,
         36,
         tile_w,
         tile_h,
-        "ONBOARD SHTC3",
+        onboard_title,
         onboard.valid,
         onboard.temperature_c,
         onboard.humidity_pct,
@@ -281,7 +313,7 @@ public:
       const uint16_t ty = static_cast<uint16_t>(36 + row * 132);
 
       char title[24];
-      snprintf(title, sizeof(title), "SENSOR %u", static_cast<unsigned>(i + 1));
+      tileTitle(title, sizeof(title), config, i + 1);
 
       const bool have_slot = (switchbot_slots != nullptr && i < switchbot_count);
       const SwitchBotReading empty_reading{};
@@ -352,7 +384,8 @@ public:
       uint32_t now_ms,
       bool quiet_hours = false,
       const NoiseHistory* noise_history = nullptr,
-      const ClimateHistory* history = nullptr) {
+      const ClimateHistory* history = nullptr,
+      const DeviceConfig* config = nullptr) {
     renderHeader(fb, "SENSOR STATS", battery, clock_text, quiet_hours);
 
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
@@ -361,16 +394,18 @@ public:
       const SwitchBotReading empty_reading{};
       const SwitchBotReading& sb = have_slot ? switchbot_slots[i] : empty_reading;
 
+      char label[DeviceConfig::NAME_MAX_CHARS + 1];
+      statsLabel(label, sizeof(label), config, i);
       char line[40];
       if (!sb.valid) {
-        snprintf(line, sizeof(line), "S%u NO SIGNAL", static_cast<unsigned>(i + 1));
+        snprintf(line, sizeof(line), "%s NO SIGNAL", label);
         drawLine(fb, 10, y, line);
         continue;
       }
 
       char rssi[24];
       formatRssi(rssi, sizeof(rssi), sb, now_ms);
-      snprintf(line, sizeof(line), "S%u %s", static_cast<unsigned>(i + 1), rssi);
+      snprintf(line, sizeof(line), "%s %s", label, rssi);
       drawLine(fb, 10, y, line);
 
       snprintf(
@@ -644,14 +679,15 @@ public:
       const char* clock_text,
       uint32_t now_ms,
       const ClimateHistory* history = nullptr,
-      const NoiseHistory* noise_history = nullptr) {
+      const NoiseHistory* noise_history = nullptr,
+      const DeviceConfig* config = nullptr) {
     if (battery.empty_protection) {
       renderEmptyBattery(fb, battery);
       return;
     }
     switch (mode) {
       case DisplayMode::SENSOR_STATS:
-        renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms, info.quiet_hours, noise_history, history);
+        renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms, info.quiet_hours, noise_history, history, config);
         break;
       case DisplayMode::SYSTEM_DIAGNOSTICS:
         renderDiagnostics(fb, battery, info, clock_text);
@@ -661,7 +697,7 @@ public:
         break;
       case DisplayMode::DASHBOARD:
       default:
-        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours);
+        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours, config);
         break;
     }
   }

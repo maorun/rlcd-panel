@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] Sensor names from config.ini in the tiles
-  - Rank: [Total: 31, Use: 7, Setup: 7, Harmony: 7, Safety: 10, Effort: M]
-  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`
-  - Goal: Add the `config.ini` keys `onboard_name` and `slot1_name` to `slot3_name` (1 to 12 characters, uppercase letters, digits, space and `-`). Show the name in the tile title and in the stats view instead of the default title. Store the names in the config trailer and increase the state version. Reject a name with a character that the 5x7 font does not have.
-  - Acceptance test: Host tests cover the default titles, a 12-character name, an empty value, a name that is too long, an unsupported character, the title bounds in each tile, and the RTC round trip. `docs/display_preview_dashboard.png` shows sample names.
-
 - [ ] RTC drift measurement at each NTP sync
   - Rank: [Total: 29, Use: 3, Setup: 8, Harmony: 8, Safety: 10, Effort: S]
   - Location: `rlcd_panel/ntp_sync.h`, `rlcd_panel/pcf85063_rtc.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`

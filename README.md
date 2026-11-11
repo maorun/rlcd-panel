@@ -180,9 +180,14 @@ log_retention_months=0
 noise_alert_limit_db=0
 chime_alert_mask=15
 ntp_sync_interval_h=24
+# Optional sensor names: 1 to 12 characters of A-Z, 0-9, space and -
+# onboard_name=BUERO
+# slot1_name=WOHNZIMMER
+# slot2_name=GARTEN
+# slot3_name=KELLER
 ```
 
-A value that is missing, malformed, or outside its range keeps the default. The file limit is 4096 bytes. Use LF or CRLF line ends. Equal start and end hours switch the quiet hours off. Wi-Fi credentials never come from the card. The `slotN_*` offsets belong to the slot position, not to the sensor. The ranges are in `FEATURES.md`.
+A value that is missing, malformed, or outside its range keeps the default. The file limit is 4096 bytes. Use LF or CRLF line ends. Equal start and end hours switch the quiet hours off. Wi-Fi credentials never come from the card. The `slotN_*` offsets and `slotN_name` names belong to the slot position, not to the sensor. A name replaces the tile title and the `S1` to `S3` label in the stats view; a name with a lowercase letter, another symbol or more than 12 characters is rejected. The ranges are in `FEATURES.md`.
 
 ## MicroSD Noise Logging
 
