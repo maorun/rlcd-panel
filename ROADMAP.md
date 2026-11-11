@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] BTHome v2 sensor support
-  - Rank: [Total: 30, Use: 8, Setup: 6, Harmony: 7, Safety: 9, Effort: M]
-  - Location: new `rlcd_panel/bthome_ble.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`.
-  - Goal: Show third-party thermo-hygrometers with the BTHome v2 protocol (Service Data `UUID 0xFCD2`) in the 3 sensor slots. Decode the unencrypted object IDs for temperature (`0x02`), humidity (`0x03`) and battery (`0x01`). Skip encrypted packets and unknown object IDs without a failure. Put BTHome and SwitchBot sensors into the same registry with the same 30 min stale rule.
-  - Acceptance test: Host tests cover valid packets, negative temperatures, truncated packets, encrypted packets, unknown object IDs, and a registry with one BTHome sensor and two SwitchBot sensors. A board with a BTHome v2 sensor shows its values in one tile, and the existing SwitchBot tests stay green.
-
 ## Priority 3: Audio Expansions (Score 22–27)
 
 - [ ] Sensor dropout chime
