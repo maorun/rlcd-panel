@@ -18,9 +18,45 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
+- [ ] Dew point and VPD line in the climate tiles
+  - Rank: [Total: 35, Use: 9, Setup: 7, Harmony: 9, Safety: 10, Effort: S]
+  - Location: new `rlcd_panel/climate_math.h`, `rlcd_panel/dashboard_view.h`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`.
+  - Goal: Show the dew point and the vapor pressure deficit (VPD) in each of the 4 tiles. Calculate the dew point with the Magnus formula (`a = 17.62`, `b = 243.12 C`). Calculate the VPD in kPa from the saturation vapor pressure and the relative humidity. Use the onboard `SHTC3`, SwitchBot and BTHome readings. Show `DP --` and `VPD --` for an invalid, stale or NaN reading. Keep the new line inside the 190 px tile and clear of the sparkline box. Do not change the RTC state.
+  - Acceptance test: Host tests cover reference points (20.0 C at 50 %RH gives a dew point of 9.3 C ±0.1 C and a VPD of 1.17 kPa ±0.01 kPa), 0 %RH, 100 %RH, negative temperatures, NaN and stale input, and the tile bounds. The regenerated `docs/display_preview.png` shows the line in all 4 tiles without clipping.
+
+- [ ] Deep sleep protection for an empty battery
+  - Rank: [Total: 34, Use: 8, Setup: 7, Harmony: 9, Safety: 10, Effort: M]
+  - Location: `rlcd_panel/battery_monitor.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.
+  - Goal: Prevent a deep discharge of the 18650 cell. Below 3.30 V on battery power, draw a full-screen warning `BATTERY EMPTY - CHARGE NOW` once. Then skip the BLE scan, the audio, the MicroSD card and Wi-Fi. Sleep with a 3600 s timer and the `KEY` wakeup. The reflective panel keeps the warning without power. Leave this mode at 3.50 V or more, or on USB power. Keep the latch in RTC memory.
+  - Acceptance test: Host tests cover the entry at 3.29 V, no entry at 3.30 V, the exit hysteresis, USB power, an invalid reading, the skipped modules, the sleep time, and the RTC round trip of the latch. A preview scene shows the warning. On the board with a lab supply, the awake time per hour in this mode is below 1 s.
+
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
+- [ ] 24-hour minimum and maximum records in the stats view
+  - Rank: [Total: 30, Use: 8, Setup: 5, Harmony: 8, Safety: 9, Effort: M]
+  - Location: `rlcd_panel/sparkline.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `tools/preview_scenes.h`.
+  - Goal: Show the lowest and highest temperature and humidity of the last 24 h for each sensor in the `SENSOR STATS` view. Add a 24-sample hourly temperature history next to `HumidityHistory`, with the same hour gate and the same skip rules for invalid and stale readings. Read the humidity range from the existing history. Show `--` for fewer than 2 samples. Increase the RTC state version; the old format gives a clean start.
+  - Acceptance test: Host tests cover the minimum and maximum over 24+ samples, negative temperatures, the encoding limits, skipped samples, fewer than 2 samples, the text bounds in the stats view, and the RTC round trip with corrupt fields. The regenerated `docs/display_preview_stats.png` shows the records without clipping.
+
+- [ ] Configurable NTP sync interval from the MicroSD card
+  - Rank: [Total: 29, Use: 4, Setup: 8, Harmony: 8, Safety: 9, Effort: S]
+  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/ntp_sync.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`.
+  - Goal: Let the user set the time between two successful NTP syncs. Add the key `ntp_sync_interval_h` (default `24`, range `6` to `168`) to `config.ini`. Replace the fixed `NtpSchedule::SYNC_INTERVAL_MS` with this value. Keep the retry backoff after a failure unchanged. Store the value in `PersistentState` and increase the RTC state version.
+  - Acceptance test: Host tests cover the default, the range edges `6` and `168`, out-of-range and malformed values, the schedule decision with 6 h and 168 h, the unchanged backoff, and the RTC round trip. The `FEATURES.md` key table lists the new key.
+
 ## Priority 3: Audio Expansions (Score 22–27)
+
+- [ ] Chime selection for each alert in config.ini
+  - Rank: [Total: 27, Use: 5, Setup: 6, Harmony: 7, Safety: 9, Effort: S]
+  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`.
+  - Goal: Let the user switch off the chime of one alert and keep the others. Add the key `chime_alert_mask` (default `15`, range `0` to `15`) to `config.ini`. Bit 0 is `ALERT_FREEZER`, bit 1 is `ALERT_HUMIDITY`, bit 2 is `ALERT_NOISE_HIGH`, and bit 3 is `ALERT_SENSOR_LOST`. A cleared bit suppresses the sound only. The alert state is still tracked, so setting the bit again does not replay an old alert.
+  - Acceptance test: Host tests cover the default, each single bit, `0`, out-of-range values, the combination with mute and quiet hours, no replay after the bit is set again, and the RTC round trip.
+
+- [ ] Battery charge cycle counter in the diagnostics view
+  - Rank: [Total: 26, Use: 4, Setup: 7, Harmony: 7, Safety: 8, Effort: M]
+  - Location: `rlcd_panel/battery_monitor.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.
+  - Goal: Show the wear of the 18650 cell. Add the battery percentage drops of each discharge. Count one full cycle for each 100 % of discharge. Show `CYCLES: N.N` in the diagnostics view. Store the counter in NVS (`Preferences`), because RTC memory does not survive a cell removal. Write NVS only once at each charge event, so the flash wear stays low.
+  - Acceptance test: Host tests cover partial discharges that add to one cycle, the charge detection, USB power, invalid readings, the NVS write count per charge event, and the text bounds in the diagnostics view. The regenerated `docs/display_preview_diagnostics.png` shows the line without clipping.
 
 ## Rules for ranking
 
