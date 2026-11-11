@@ -255,11 +255,19 @@ void measureNoiseOnce() {
   }
 }
 
+// Registry copy with the slot offsets of config.ini applied. The alerts, the history, the CSV log
+// and the views read this copy; the stored registry keeps the raw readings. Call it only after
+// scanOnce() stopped the scan, or inside g_registry_mux: the BLE callback writes the registry.
+SwitchBotRegistry calibratedRegistry() {
+  return g_state.registry.calibrated(config().slot_temp_offset_c, config().slot_rh_offset_pct);
+}
+
 void renderDashboard() {
   SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
   portENTER_CRITICAL(&g_registry_mux);
+  const SwitchBotRegistry calibrated = calibratedRegistry();
   for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
-    snapshot[i] = g_state.registry.slot(i);
+    snapshot[i] = calibrated.slot(i);
   }
   portEXIT_CRITICAL(&g_registry_mux);
 
@@ -430,7 +438,7 @@ void refreshSensors() {
       nowMs(),
       g_onboard_reading.valid,
       g_onboard_reading.humidity_pct,
-      g_state.registry,
+      calibratedRegistry(),
       g_onboard_reading.temperature_c);
 }
 
@@ -483,8 +491,9 @@ void logToSdCard() {
     }
   }
   SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
+  const SwitchBotRegistry calibrated = calibratedRegistry();
   for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
-    snapshot[i] = g_state.registry.slot(i);
+    snapshot[i] = calibrated.slot(i);
   }
   const MicCalibration cal = activeMicCal();
   if (noise_measured) {
@@ -550,8 +559,9 @@ void loadConfigFromCard(WakeupCause cause) {
 // current.
 void chimeOnAlerts() {
   SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
+  const SwitchBotRegistry calibrated = calibratedRegistry();
   for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
-    snapshot[i] = g_state.registry.slot(i);
+    snapshot[i] = calibrated.slot(i);
   }
   const uint8_t climate = AlertEvaluator::evaluate(
       g_state.alert_mask, g_onboard_reading, snapshot, MAX_SWITCHBOT_SENSORS, nowMs(), alertLimits());

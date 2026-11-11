@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] Calibration offsets for each SwitchBot and BTHome slot
-  - Rank: [Total: 35, Use: 8, Setup: 9, Harmony: 8, Safety: 10, Effort: M]
-  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/bthome_ble.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the `config.ini` keys `slot1_temp_offset_c` to `slot3_temp_offset_c` (range `-5.0` to `5.0`) and `slot1_rh_offset_pct` to `slot3_rh_offset_pct` (range `-10.0` to `10.0`). Apply each offset to the decoded value of its registry slot before the alerts, the history and the CSV log use it. Store the six values in the config trailer and increase the state version.
-  - Acceptance test: Host tests cover the defaults, the range edges, malformed values, the application to the correct slot only, the humidity clamp, the effect on the freezer and mold alerts, and the RTC round trip. A slot without an offset key keeps its raw value.
-
 - [ ] BLE signal strength in the sensor stats view
   - Rank: [Total: 34, Use: 6, Setup: 10, Harmony: 8, Safety: 10, Effort: S]
   - Location: `rlcd_panel/switchbot_ble.h`, `rlcd_panel/bthome_ble.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`

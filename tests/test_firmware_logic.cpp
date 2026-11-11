@@ -1838,7 +1838,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 17);
+  assert(PowerManager::STATE_VERSION == 18);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -2273,7 +2273,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 17);
+  assert(PowerManager::STATE_VERSION == 18);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3852,7 +3852,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 17);
+  assert(PowerManager::STATE_VERSION == 18);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4546,7 +4546,7 @@ void testDeviceConfigRtcRoundTrip() {
       {18, 16},  // chime alert mask above range
       {19, 5},   // NTP sync interval below range
       {19, 169}, // NTP sync interval above range
-      {24, 2},   // unknown flag bit
+      {48, 2},   // unknown flag bit
   };
   for (const Corrupt& c : cases) {
     memcpy(bad, buf, sizeof(bad));
@@ -4633,7 +4633,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 17);
+  assert(PowerManager::STATE_VERSION == 18);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4645,6 +4645,176 @@ void testShtc3HumidityOffset() {
   assert(Shtc3Codec::decodeFrame(frame, sizeof(frame), corrected, -1.9f, 5.0f));
   assert(approxEqual(corrected.humidity_pct, 55.0f, 0.01f));
   assert(HumidityHistory::encode(corrected.humidity_pct) == 550);
+}
+
+void testSlotCalibrationOffsets() {
+  const char* const temp_keys[3] = {"slot1_temp_offset_c", "slot2_temp_offset_c", "slot3_temp_offset_c"};
+  const char* const rh_keys[3] = {"slot1_rh_offset_pct", "slot2_rh_offset_pct", "slot3_rh_offset_pct"};
+
+  // Defaults: no offset, so a slot keeps its raw value
+  const DeviceConfig defaults;
+  for (size_t i = 0; i < 3; ++i) {
+    assert(defaults.slot_temp_offset_c[i] == 0.0f && defaults.slot_rh_offset_pct[i] == 0.0f);
+  }
+  assert(defaults.isDefault() && defaults.valid());
+
+  // Parser: edges, each key sets its own slot only
+  DeviceConfig cfg;
+  char line[64];
+  for (size_t i = 0; i < 3; ++i) {
+    snprintf(line, sizeof(line), "%s=5.0\n%s=-10.0\n", temp_keys[i], rh_keys[i]);
+    const ConfigParseResult r = DeviceConfigParser::parse(line, strlen(line), cfg);
+    assert(r.keys_set == 2 && r.rejected == 0 && !cfg.isDefault() && cfg.valid());
+    for (size_t j = 0; j < 3; ++j) {
+      assert(approxEqual(cfg.slot_temp_offset_c[j], j == i ? 5.0f : 0.0f));
+      assert(approxEqual(cfg.slot_rh_offset_pct[j], j == i ? -10.0f : 0.0f));
+    }
+    snprintf(line, sizeof(line), " %s = -5.0 \r\n%s=10.0\n", temp_keys[i], rh_keys[i]);
+    assert(DeviceConfigParser::parse(line, strlen(line), cfg).keys_set == 2);
+    assert(approxEqual(cfg.slot_temp_offset_c[i], -5.0f) && approxEqual(cfg.slot_rh_offset_pct[i], 10.0f));
+    // The onboard keys stay untouched
+    assert(approxEqual(cfg.temp_offset_c, DeviceConfig::DEFAULT_TEMP_OFFSET_C) && cfg.rh_offset_pct == 0.0f);
+  }
+
+  // Out of range and malformed values keep the previous value
+  for (size_t i = 0; i < 3; ++i) {
+    for (const char* bad : {"=5.1\n", "=-5.1\n", "=abc\n", "=\n", "=1.2.3\n", "=nan\n", "=inf\n", "=1e1\n"}) {
+      snprintf(line, sizeof(line), "%s%s", temp_keys[i], bad);
+      cfg = DeviceConfig{};
+      const ConfigParseResult r = DeviceConfigParser::parse(line, strlen(line), cfg);
+      assert(r.keys_set == 0 && r.rejected == 1 && cfg.slot_temp_offset_c[i] == 0.0f);
+    }
+    for (const char* bad : {"=10.1\n", "=-10.1\n", "=abc\n", "=\n", "=1.2.3\n", "=nan\n", "=inf\n", "=1e1\n"}) {
+      snprintf(line, sizeof(line), "%s%s", rh_keys[i], bad);
+      cfg = DeviceConfig{};
+      const ConfigParseResult r = DeviceConfigParser::parse(line, strlen(line), cfg);
+      assert(r.keys_set == 0 && r.rejected == 1 && cfg.slot_rh_offset_pct[i] == 0.0f);
+    }
+  }
+  {
+    const char* text = "slot2_temp_offset_c=2.0\nslot2_temp_offset_c=9.0\n";
+    DeviceConfigParser::parse(text, strlen(text), cfg);
+    assert(approxEqual(cfg.slot_temp_offset_c[1], 2.0f)); // the rejected line keeps the earlier value
+  }
+  // The validity check rejects a value outside the range or NaN
+  for (size_t i = 0; i < 3; ++i) {
+    cfg = DeviceConfig{};
+    cfg.slot_temp_offset_c[i] = 5.5f;
+    assert(!cfg.valid());
+    cfg.slot_temp_offset_c[i] = NAN;
+    assert(!cfg.valid());
+    cfg = DeviceConfig{};
+    cfg.slot_rh_offset_pct[i] = -10.5f;
+    assert(!cfg.valid());
+    cfg.slot_rh_offset_pct[i] = NAN;
+    assert(!cfg.valid());
+  }
+
+  // Application to the correct slot only (SwitchBot in slot 0 and 1, BTHome in slot 2)
+  SwitchBotRegistry registry;
+  assert(registry.upsert(makeReading(1, 4.0f, 50, 90)));
+  assert(registry.upsert(makeReading(2, 4.0f, 50, 90)));
+  SwitchBotReading bthome;
+  const uint8_t mac[6] = {1, 2, 3, 4, 5, 6};
+  const uint8_t payload[] = {0x40, 0x02, 0x90, 0x01, 0x03, 0x88, 0x13}; // 4.00 C, 50.00 %
+  assert(BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, mac, payload, sizeof(payload), bthome));
+  assert(registry.upsert(bthome));
+  const float temp_off[3] = {1.5f, 0.0f, -2.5f};
+  const float rh_off[3] = {0.0f, -8.0f, 7.0f};
+  const SwitchBotRegistry calibrated = registry.calibrated(temp_off, rh_off);
+  assert(approxEqual(calibrated.slot(0).temperature_c, 5.5f) && calibrated.slot(0).humidity_pct == 50);
+  assert(approxEqual(calibrated.slot(1).temperature_c, 4.0f) && calibrated.slot(1).humidity_pct == 42);
+  assert(approxEqual(calibrated.slot(2).temperature_c, 1.5f) && calibrated.slot(2).humidity_pct == 57);
+  // Everything else and the raw registry stay as they are
+  assert(calibrated.slot(1).battery_pct == 90 && calibrated.slot(1).rssi == -71 &&
+         memcmp(calibrated.slot(1).mac, registry.slot(1).mac, 6) == 0 &&
+         calibrated.slot(1).updated_ms == registry.slot(1).updated_ms);
+  assert(approxEqual(registry.slot(0).temperature_c, 4.0f) && registry.slot(1).humidity_pct == 50);
+  // An empty slot stays empty
+  assert(!calibrated.slot(2).valid == !registry.slot(2).valid);
+  SwitchBotRegistry two;
+  two.upsert(makeReading(1, 4.0f, 50, 90));
+  assert(!two.calibrated(temp_off, rh_off).slot(1).valid && !two.calibrated(temp_off, rh_off).slot(2).valid);
+  // Null offsets and zero offsets keep the raw value
+  const SwitchBotRegistry raw = registry.calibrated(nullptr, nullptr);
+  const float zero[3] = {0.0f, 0.0f, 0.0f};
+  const SwitchBotRegistry zeroed = registry.calibrated(zero, zero);
+  for (size_t i = 0; i < 3; ++i) {
+    assert(raw.slot(i).temperature_c == registry.slot(i).temperature_c && raw.slot(i).humidity_pct == registry.slot(i).humidity_pct);
+    assert(zeroed.slot(i).temperature_c == registry.slot(i).temperature_c && zeroed.slot(i).humidity_pct == registry.slot(i).humidity_pct);
+  }
+
+  // Humidity clamp at 0 and 100 %RH
+  SwitchBotRegistry edge;
+  edge.upsert(makeReading(1, 20.0f, 5, 50));
+  edge.upsert(makeReading(2, 20.0f, 97, 50));
+  const float rh_edge[3] = {-10.0f, 10.0f, 0.0f};
+  const SwitchBotRegistry clamped = edge.calibrated(zero, rh_edge);
+  assert(clamped.slot(0).humidity_pct == 0 && clamped.slot(1).humidity_pct == 100);
+
+  // Effect on the freezer and mold alerts: the alert sees the corrected value
+  auto fresh = [](uint8_t id, float temp, uint8_t hum) {
+    SwitchBotReading r = makeReading(id, temp, hum, 50);
+    r.updated_ms = 1000; // fresh at the evaluation time
+    return r;
+  };
+  SwitchBotRegistry cold;
+  cold.upsert(fresh(1, 0.5f, 60)); // raw 0.5 C: above the freezer limit
+  cold.upsert(fresh(2, 20.0f, 68)); // raw 68 %RH: below the mold limit
+  Shtc3Reading none; // invalid onboard reading
+  auto slots_of = [](const SwitchBotRegistry& rg, SwitchBotReading* out) {
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) out[i] = rg.slot(i);
+  };
+  SwitchBotReading view[MAX_SWITCHBOT_SENSORS];
+  slots_of(cold, view);
+  assert(AlertEvaluator::evaluate(ALERT_NONE, none, view, MAX_SWITCHBOT_SENSORS, 1000) == ALERT_NONE);
+  const float freezer_off[3] = {-1.0f, 0.0f, 0.0f};
+  const float mold_off[3] = {0.0f, 5.0f, 0.0f};
+  slots_of(cold.calibrated(freezer_off, zero), view);
+  assert((AlertEvaluator::evaluate(ALERT_NONE, none, view, MAX_SWITCHBOT_SENSORS, 1000) & ALERT_FREEZER) != 0);
+  slots_of(cold.calibrated(zero, mold_off), view);
+  assert((AlertEvaluator::evaluate(ALERT_NONE, none, view, MAX_SWITCHBOT_SENSORS, 1000) & ALERT_HUMIDITY) != 0);
+  // A negative offset clears an alert that the raw value would set
+  SwitchBotRegistry wet;
+  wet.upsert(fresh(1, 20.0f, 72));
+  slots_of(wet, view);
+  assert((AlertEvaluator::evaluate(ALERT_NONE, none, view, MAX_SWITCHBOT_SENSORS, 1000) & ALERT_HUMIDITY) != 0);
+  const float dry_off[3] = {0.0f, 0.0f, 0.0f};
+  const float rh_dry[3] = {-5.0f, 0.0f, 0.0f};
+  slots_of(wet.calibrated(dry_off, rh_dry), view);
+  assert(AlertEvaluator::evaluate(ALERT_NONE, none, view, MAX_SWITCHBOT_SENSORS, 1000) == ALERT_NONE);
+
+  // The history receives the corrected value
+  ClimateHistory history;
+  assert(history.record(1000, false, 0.0f, wet.calibrated(dry_off, rh_dry)));
+  assert(history.slots[1].size() == 1 && history.slots[1].at(0) == HumidityHistory::encode(67.0f));
+
+  // RTC round trip and rejection of the old state version
+  PersistentState s;
+  for (size_t i = 0; i < 3; ++i) {
+    s.config.slot_temp_offset_c[i] = -5.0f + 2.5f * static_cast<float>(i);
+    s.config.slot_rh_offset_pct[i] = 10.0f - 7.5f * static_cast<float>(i);
+  }
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  for (size_t i = 0; i < 3; ++i) {
+    assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
+    assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
+  }
+  assert(PowerManager::STATE_VERSION == 18);
+  uint8_t old[PowerManager::SERIALIZED_SIZE];
+  memcpy(old, buf, sizeof(old));
+  old[4] = 17;
+  const uint32_t crc = PowerManager::crc32(old, sizeof(old) - 4);
+  for (int i = 0; i < 4; ++i) old[sizeof(old) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(old, sizeof(old), r));
+  // A corrupt offset never reaches the registry: out of range gives a clean start
+  PersistentState bad = s;
+  bad.config.slot_rh_offset_pct[2] = 11.0f;
+  assert(PowerManager::serialize(bad, buf, sizeof(buf)));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r) && r.config.isDefault());
 }
 
 void testDiagnosticsConfigLine() {
@@ -7087,7 +7257,7 @@ void testNoiseAlertStatePersistence() {
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - 8;
+  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - 8 - 24;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -7180,7 +7350,7 @@ void testChimeAlertMask() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   uint8_t badbuf[PowerManager::SERIALIZED_SIZE];
   memcpy(badbuf, buf, sizeof(badbuf));
-  badbuf[PowerManager::SERIALIZED_SIZE - 4 - 7] = 16;
+  badbuf[PowerManager::SERIALIZED_SIZE - 4 - 7 - 24] = 16;
   const uint32_t crc = PowerManager::crc32(badbuf, sizeof(badbuf) - 4);
   for (int i = 0; i < 4; ++i) badbuf[sizeof(badbuf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState out;
@@ -7476,6 +7646,7 @@ int main() {
   testDeviceConfigWiring();
   testDeviceConfigRtcRoundTrip();
   testShtc3HumidityOffset();
+  testSlotCalibrationOffsets();
   testNtpSyncIntervalConfig();
   testDiagnosticsConfigLine();
   testLogRetentionAge();

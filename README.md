@@ -164,6 +164,12 @@ Put an optional `config.ini` in the root of the MicroSD card. The board reads it
 # Lines with # or ; are comments
 temp_offset_c=-1.9
 rh_offset_pct=0.0
+slot1_temp_offset_c=0.0
+slot2_temp_offset_c=0.0
+slot3_temp_offset_c=0.0
+slot1_rh_offset_pct=0.0
+slot2_rh_offset_pct=0.0
+slot3_rh_offset_pct=0.0
 freeze_alert_limit_c=0.0
 mold_alert_limit_rh=70
 chime_volume_pct=30
@@ -176,7 +182,7 @@ chime_alert_mask=15
 ntp_sync_interval_h=24
 ```
 
-A value that is missing, malformed, or outside its range keeps the default. The file limit is 4096 bytes. Use LF or CRLF line ends. Equal start and end hours switch the quiet hours off. Wi-Fi credentials never come from the card. The ranges are in `FEATURES.md`.
+A value that is missing, malformed, or outside its range keeps the default. The file limit is 4096 bytes. Use LF or CRLF line ends. Equal start and end hours switch the quiet hours off. Wi-Fi credentials never come from the card. The `slotN_*` offsets belong to the slot position, not to the sensor. The ranges are in `FEATURES.md`.
 
 ## MicroSD Noise Logging
 
