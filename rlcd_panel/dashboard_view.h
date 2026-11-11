@@ -48,6 +48,7 @@ public:
   static constexpr uint16_t HEADER_QUIET_W = 9;
   static constexpr uint16_t HEADER_QUIET_H = 11;
   static constexpr const char* LOW_BATTERY_TEXT = "! LOW BATTERY - PLEASE CHARGE !";
+  static constexpr const char* EMPTY_BATTERY_TEXT = "BATTERY EMPTY - CHARGE NOW";
   static constexpr uint16_t STALE_BADGE_W = 35;
   static constexpr uint16_t STALE_BADGE_H = 17;
   // Trend curve right of the humidity line ("H: 100 %" ends at x + 106). The box lies fully
@@ -568,6 +569,27 @@ public:
     drawLine(fb, 10, 272, "LOW  FREQUENCY  HIGH");
   }
 
+  // Full-screen warning of the empty battery protection. Two frames, "BATTERY EMPTY" and
+  // "CHARGE NOW" at scale 4 (308 px and 236 px wide), the voltage and the complete warning text at
+  // scale 2 (310 px). The reflective panel keeps the image without power.
+  static void renderEmptyBattery(St7305Framebuffer& fb, const BatteryReading& battery) {
+    fb.clear(false);
+    fb.drawRect(0, 0, RLCD_WIDTH, RLCD_HEIGHT, true);
+    fb.drawRect(1, 1, RLCD_WIDTH - 2, RLCD_HEIGHT - 2, true);
+    fb.drawRect(6, 6, RLCD_WIDTH - 12, RLCD_HEIGHT - 12, true);
+    drawCenteredLabel4(fb, 70, "BATTERY EMPTY");
+    drawCenteredLabel4(fb, 120, "CHARGE NOW");
+    char volt[16];
+    snprintf(volt, sizeof(volt), "%.2f V", static_cast<double>(battery.voltage_v));
+    drawCenteredLabel(fb, RLCD_WIDTH / 2, 190, volt);
+    drawCenteredLabel(fb, RLCD_WIDTH / 2, 230, EMPTY_BATTERY_TEXT);
+  }
+
+  static void drawCenteredLabel4(St7305Framebuffer& fb, uint16_t y, const char* text) {
+    const int width = static_cast<int>(strlen(text)) * 24 - 4;
+    fb.drawText(static_cast<uint16_t>((RLCD_WIDTH - width) / 2), y, text, 4, true);
+  }
+
   static void renderMode(
       St7305Framebuffer& fb,
       DisplayMode mode,
@@ -580,6 +602,10 @@ public:
       uint32_t now_ms,
       const ClimateHistory* history = nullptr,
       const NoiseHistory* noise_history = nullptr) {
+    if (battery.empty_protection) {
+      renderEmptyBattery(fb, battery);
+      return;
+    }
     switch (mode) {
       case DisplayMode::SENSOR_STATS:
         renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms, info.quiet_hours, noise_history);

@@ -21,9 +21,10 @@ struct PreviewScene {
   bool low_battery;
   bool quiet_hours;
   bool long_runtime = false; // slow discharge: the runtime line shows days
+  bool battery_empty = false; // empty battery protection: full-screen warning
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 7;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 8;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
@@ -33,12 +34,13 @@ constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_spectrum", DisplayMode::AUDIO_SPECTRUM, false, false},
     {"display_preview_low_battery", DisplayMode::DASHBOARD, true, false},
     {"display_preview_quiet_hours", DisplayMode::DASHBOARD, false, true},
+    {"display_preview_battery_empty", DisplayMode::DASHBOARD, false, false, false, true},
 };
 
 // Renders one mode with the fixed sample data used for all documentation previews.
 inline void renderScene(
     St7305Framebuffer& fb, DisplayMode mode, bool low_battery, bool quiet_hours = false,
-    bool long_runtime = false) {
+    bool long_runtime = false, bool battery_empty = false) {
   Shtc3Reading onboard;
   onboard.valid = true;
   onboard.temperature_c = 21.8f;
@@ -90,6 +92,12 @@ inline void renderScene(
     battery.voltage_v = 3.38f;
     battery.percentage = 12;
     battery.low_battery = BatteryMonitor::updateLowBattery(battery, false);
+  }
+
+  if (battery_empty) {
+    battery.voltage_v = 3.29f;
+    battery.percentage = BatteryMonitor::voltageToPercent(battery.voltage_v);
+    battery.empty_protection = BatteryMonitor::updateEmptyProtection(battery, false);
   }
 
   // Preview history: 24 hourly samples with a daily rhythm per sensor

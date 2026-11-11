@@ -563,6 +563,28 @@ void setup() {
     cycle.begin(cause);
   }
   g_mode_controller.setMode(g_state.mode);
+
+  // Empty battery protection: check the cell before any module starts. A set latch skips the BLE
+  // scan, the audio, the MicroSD card and Wi-Fi; the board only reads the voltage and sleeps again.
+  const bool was_protected = g_state.battery.empty_protection;
+  const BatteryReading protect_reading = BatteryMonitor::readAveraged();
+  g_state.battery.empty_protection = BatteryMonitor::updateEmptyProtection(protect_reading, was_protected);
+  if (!PowerManager::modulesAllowed(g_state.battery)) {
+    ++g_state.boot_count;
+    g_state.battery = protect_reading;
+    g_state.battery.low_battery = true;
+    g_state.battery.empty_protection = true;
+    if (PowerManager::needsProtectionRender(was_protected, true)) {
+      g_panel.begin();
+      DashboardView::renderEmptyBattery(g_framebuffer, g_state.battery);
+      g_panel.flush(g_framebuffer);
+    }
+    if (!PowerPlatform::saveState(g_state)) {
+      Serial.println("RTC state save failed");
+    }
+    PowerPlatform::enterDeepSleep(PowerManager::planProtectedSleep(digitalRead(PIN_BTN_KEY) == LOW));
+  }
+
   g_mic_cal = MicCalibrationStore::load();
   ++g_state.boot_count;
   loadConfigFromCard(cause);

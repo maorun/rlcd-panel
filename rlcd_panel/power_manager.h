@@ -126,8 +126,10 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 12;
+  static constexpr uint8_t STATE_VERSION = 13;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
+  // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
+  static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
   // Slot layout: valid, mac[6], temperature (float bits), humidity, battery, fahrenheit,
   // rssi (int16), updated_ms, packet_count.
   static constexpr size_t SLOT_SIZE = 1 + 6 + 4 + 1 + 1 + 1 + 2 + 4 + 4;
@@ -180,6 +182,18 @@ public:
     return cause == WakeupCause::POWER_ON || cause == WakeupCause::KEY_BUTTON;
   }
 
+  // While the protection is set, the wake cycle skips the BLE scan, the audio (chimes, microphones,
+  // clap listener), the MicroSD card and Wi-Fi. Only the battery read, the warning and the sleep run.
+  static bool modulesAllowed(const BatteryReading& battery) {
+    return !battery.empty_protection;
+  }
+
+  // The warning is drawn once, when the protection sets. The reflective panel keeps the image
+  // without power, so every later wake cycle with a set latch leaves the display alone.
+  static bool needsProtectionRender(bool was_latched, bool latched) {
+    return latched && !was_latched;
+  }
+
   // Where the board listens for a double clap in this wake cycle. USB power: listen
   // continuously, also after a timer wakeup. Battery: listen in the KEY grace window only, which
   // runs after a KEY wakeup or a power-on. A timer wakeup on battery keeps the microphones off.
@@ -229,6 +243,15 @@ public:
     return plan;
   }
 
+  // Sleep plan of the empty battery protection: fixed one hour timer, KEY wakeup unless the button
+  // is still held.
+  static WakeupPlan planProtectedSleep(bool key_pressed) {
+    WakeupPlan plan;
+    plan.timer_us = PROTECTED_SLEEP_US;
+    plan.enable_key_wakeup = !key_pressed;
+    return plan;
+  }
+
   static uint32_t crc32(const uint8_t* data, size_t len) {
     uint32_t crc = 0xFFFFFFFFu;
     for (size_t i = 0; i < len; ++i) {
@@ -252,7 +275,7 @@ public:
     out[pos++] = STATE_VERSION;
     out[pos++] = static_cast<uint8_t>(state.mode);
     out[pos++] = static_cast<uint8_t>((state.battery.valid ? 1 : 0) | (state.battery.usb_powered ? 2 : 0) |
-                                     (state.battery.low_battery ? 4 : 0));
+                                     (state.battery.low_battery ? 4 : 0) | (state.battery.empty_protection ? 8 : 0));
     out[pos++] = static_cast<uint8_t>(state.battery.percentage);
     putFloat(out, pos, state.battery.voltage_v);
     putU32(out, pos, state.boot_count);
@@ -352,12 +375,13 @@ public:
     }
     s.mode = static_cast<DisplayMode>(mode);
     const uint8_t flags = data[pos++];
-    if ((flags & ~7u) != 0) {
+    if ((flags & ~15u) != 0) {
       return false;
     }
     s.battery.valid = (flags & 1) != 0;
     s.battery.usb_powered = (flags & 2) != 0;
     s.battery.low_battery = (flags & 4) != 0;
+    s.battery.empty_protection = (flags & 8) != 0;
     s.battery.percentage = static_cast<int8_t>(data[pos++]);
     s.battery.voltage_v = getFloat(data, pos);
     if (s.battery.percentage < -1 || s.battery.percentage > 100 ||

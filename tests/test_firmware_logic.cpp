@@ -1247,7 +1247,7 @@ void testPowerStateSerialization() {
   const size_t slot0_off = PowerManager::HEADER_SIZE;
   const Patch patches[] = {
       {5, 9},                       // mode
-      {6, 8},                       // battery flags (unknown bit)
+      {6, 16},                      // battery flags (unknown bit)
       {7, 101},                     // battery percentage
       {11, 0x7F},                   // battery voltage exponent byte -> huge value
       {slot0_off, 2},               // slot valid flag
@@ -1998,7 +1998,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 12);
+  assert(PowerManager::STATE_VERSION == 13);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -2053,7 +2053,7 @@ void testPreviewScenesCoverAllDisplayModes() {
     frames[i].clear(true); // poison: a full redraw must overwrite it
     renderScene(
         frames[i], PREVIEW_SCENES[i].mode, PREVIEW_SCENES[i].low_battery, PREVIEW_SCENES[i].quiet_hours,
-        PREVIEW_SCENES[i].long_runtime);
+        PREVIEW_SCENES[i].long_runtime, PREVIEW_SCENES[i].battery_empty);
     size_t ink = 0;
     for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
       for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
@@ -2080,7 +2080,8 @@ void testPreviewScenesCoverAllDisplayModes() {
   uint8_t low_index = PREVIEW_SCENE_COUNT;
   uint8_t dash_index = PREVIEW_SCENE_COUNT;
   for (uint8_t i = 0; i < PREVIEW_SCENE_COUNT; ++i) {
-    if (PREVIEW_SCENES[i].mode == DisplayMode::DASHBOARD && !PREVIEW_SCENES[i].quiet_hours) {
+    if (PREVIEW_SCENES[i].mode == DisplayMode::DASHBOARD && !PREVIEW_SCENES[i].quiet_hours &&
+        !PREVIEW_SCENES[i].battery_empty) {
       (PREVIEW_SCENES[i].low_battery ? low_index : dash_index) = i;
     }
   }
@@ -3576,7 +3577,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 12);
+  assert(PowerManager::STATE_VERSION == 13);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6431,7 +6432,137 @@ void testNoiseAlertStepWiring() {
   assert(st.mask == ALERT_FREEZER && st.chime == ALERT_NONE);
 }
 
+void testEmptyBatteryProtectionLatch() {
+  BatteryReading r;
+  r.valid = true;
+  r.usb_powered = false;
+  // Trigger below 3.30 V, no trigger at 3.30 V
+  r.voltage_v = 3.29f;
+  assert(BatteryMonitor::updateEmptyProtection(r, false));
+  r.voltage_v = 3.30f;
+  assert(!BatteryMonitor::updateEmptyProtection(r, false));
+  r.voltage_v = 3.60f;
+  assert(!BatteryMonitor::updateEmptyProtection(r, false));
+  // Hysteresis: a set latch holds below 3.50 V and ends at 3.50 V
+  r.voltage_v = 3.40f;
+  assert(BatteryMonitor::updateEmptyProtection(r, true));
+  r.voltage_v = 3.49f;
+  assert(BatteryMonitor::updateEmptyProtection(r, true));
+  r.voltage_v = 3.50f;
+  assert(!BatteryMonitor::updateEmptyProtection(r, true));
+  // USB power ends the protection at any voltage
+  r.voltage_v = 3.10f;
+  r.usb_powered = true;
+  assert(!BatteryMonitor::updateEmptyProtection(r, true));
+  assert(!BatteryMonitor::updateEmptyProtection(r, false));
+  // An invalid reading never sets the latch and holds a set latch
+  BatteryReading bad;
+  assert(!BatteryMonitor::updateEmptyProtection(bad, false));
+  assert(BatteryMonitor::updateEmptyProtection(bad, true));
+  const BatteryReading none = BatteryMonitor::decodeMillivolts(0);
+  assert(!none.valid && !BatteryMonitor::updateEmptyProtection(none, false));
+}
+
+void testEmptyBatteryProtectionPlan() {
+  BatteryReading b;
+  b.valid = true;
+  assert(PowerManager::modulesAllowed(b));
+  b.empty_protection = true;
+  assert(!PowerManager::modulesAllowed(b));
+  // The warning is drawn once, when the latch sets
+  assert(PowerManager::needsProtectionRender(false, true));
+  assert(!PowerManager::needsProtectionRender(true, true));
+  assert(!PowerManager::needsProtectionRender(false, false));
+  assert(!PowerManager::needsProtectionRender(true, false));
+  // One hour timer and KEY wakeup, unless the button is held
+  assert(PowerManager::PROTECTED_SLEEP_US == 3600ULL * 1000000ULL);
+  WakeupPlan plan = PowerManager::planProtectedSleep(false);
+  assert(plan.timer_us == 3600000000ULL && plan.enable_key_wakeup);
+  plan = PowerManager::planProtectedSleep(true);
+  assert(plan.timer_us == 3600000000ULL && !plan.enable_key_wakeup);
+}
+
+void testEmptyBatteryProtectionRtcRoundTrip() {
+  PersistentState s;
+  s.battery.valid = true;
+  s.battery.voltage_v = 3.25f;
+  s.battery.percentage = 0;
+  s.battery.low_battery = true;
+  s.battery.empty_protection = true;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::restore(WakeupCause::TIMER, buf, sizeof(buf), r));
+  assert(r.battery.empty_protection && r.battery.low_battery);
+  assert(PowerManager::restore(WakeupCause::KEY_BUTTON, buf, sizeof(buf), r));
+  assert(r.battery.empty_protection);
+  // A power-on keeps no state: the latch starts off
+  assert(!PowerManager::restore(WakeupCause::POWER_ON, buf, sizeof(buf), r));
+  assert(!r.battery.empty_protection);
+  // The flag is independent of the other battery flags
+  s.battery.low_battery = false;
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.battery.empty_protection && !r.battery.low_battery);
+  s.battery.empty_protection = false;
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(!r.battery.empty_protection);
+  // An unknown flag bit is rejected
+  s.battery.empty_protection = true;
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  buf[6] |= 16;
+  const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
+  for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+}
+
+void testEmptyBatteryProtectionRendering() {
+  using namespace rlcd_panel::preview;
+  uint8_t index = PREVIEW_SCENE_COUNT;
+  for (uint8_t i = 0; i < PREVIEW_SCENE_COUNT; ++i) {
+    if (PREVIEW_SCENES[i].battery_empty) {
+      index = i;
+    }
+  }
+  assert(index < PREVIEW_SCENE_COUNT);
+  St7305Framebuffer warn;
+  warn.clear(true);
+  renderScene(warn, PREVIEW_SCENES[index].mode, false, false, false, true);
+  // Frame at the border, white interior, ink in the title band, no dashboard header bar
+  assert(warn.getPixel(0, 0));
+  assert(!warn.getPixel(3, 3));
+  assert(!warn.getPixel(20, 20));
+  size_t title_ink = 0;
+  for (uint16_t y = 70; y < 100; ++y) {
+    for (uint16_t x = 40; x < 360; ++x) {
+      title_ink += warn.getPixel(x, y) ? 1 : 0;
+    }
+  }
+  assert(title_ink > 200);
+  // Every display mode shows the warning while the latch is set
+  St7305Framebuffer a, b;
+  BatteryReading bat;
+  bat.valid = true;
+  bat.voltage_v = 3.2f;
+  bat.empty_protection = true;
+  Shtc3Reading onboard;
+  SystemInfo info;
+  DashboardView::renderMode(a, DisplayMode::DASHBOARD, onboard, bat, nullptr, 0, info, "12:00", 0);
+  DashboardView::renderMode(b, DisplayMode::SYSTEM_DIAGNOSTICS, onboard, bat, nullptr, 0, info, "12:00", 0);
+  for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      assert(a.getPixel(x, y) == b.getPixel(x, y));
+      assert(a.getPixel(x, y) == warn.getPixel(x, y) || y >= 180);
+    }
+  }
+}
+
 int main() {
+  testEmptyBatteryProtectionLatch();
+  testEmptyBatteryProtectionPlan();
+  testEmptyBatteryProtectionRtcRoundTrip();
+  testEmptyBatteryProtectionRendering();
   testSwitchBotManufacturerPositiveTemp();
   testSwitchBotManufacturerNegativeTemp();
   testSwitchBotInvalidPacketsRejected();
