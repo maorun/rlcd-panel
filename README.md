@@ -167,9 +167,13 @@ mic_spl_offset_db=0.0
 
 A value that is missing, malformed, or outside its range keeps the default. The file limit is 4096 bytes. Use LF or CRLF line ends. Equal start and end hours switch the quiet hours off. Wi-Fi credentials never come from the card. The ranges are in `FEATURES.md`.
 
+## MicroSD Noise Logging
+
+The firmware appends one CSV record per hour to `/climate_v2_YYYYMM.csv` on the MicroSD card. The file has 18 columns: the climate columns plus `noise_rms`, `noise_db` and `noise_band`. The wake cycle that writes the record runs one 5 s noise window first, also after a timer wakeup. With a low battery alert, or if the window fails, the three noise fields stay empty. The old `climate_YYYYMM.csv` files (15 columns) stay unchanged. The code is in `rlcd_panel/sd_logger.h`.
+
 ## Ambient Noise Monitor
 
-The onboard `ES7210` ADC and the dual microphone array measure the ambient noise level. The diagnostics view (third `KEY` view) shows `QUIET`, `MODERATE` or `LOUD` and the level in dBFS. The firmware measures a 5 s window after a `KEY` wakeup or a power-on, only while this view is on screen. A timer wakeup does not measure, and the microphones stay off. The levels are relative to full scale, not calibrated sound pressure levels. The code is in `rlcd_panel/es7210_mic.h`.
+The onboard `ES7210` ADC and the dual microphone array measure the ambient noise level. The diagnostics view (third `KEY` view) shows `QUIET`, `MODERATE` or `LOUD` and the level in dBFS. The firmware measures a 5 s window after a `KEY` wakeup or a power-on, only while this view is on screen. A timer wakeup measures only when the hourly CSV record is due (see "MicroSD Noise Logging"); otherwise the microphones stay off. The levels are relative to full scale, not calibrated sound pressure levels. The code is in `rlcd_panel/es7210_mic.h`.
 
 ## Time Synchronization (optional)
 

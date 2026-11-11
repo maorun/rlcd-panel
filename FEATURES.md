@@ -38,8 +38,8 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 ## MicroSD offline climate telemetry logger
 
 - **Code:** `rlcd_panel/sd_logger.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`.
-- `SdLogCodec` has no Arduino dependency. It writes the CSV header, one row per record, and the file name `/sdcard/climate_YYYYMM.csv`.
-- A row has the timestamp, battery (percent, volt, USB), the onboard `SHTC3` (T, RH), and 3 SwitchBot slots (T, RH, battery). A missing, invalid, stale or NaN source gives empty fields, so each row has 15 columns.
+- `SdLogCodec` has no Arduino dependency. It writes the CSV header, one row per record, and the file name `/sdcard/climate_v2_YYYYMM.csv`.
+- A row has the timestamp, battery (percent, volt, USB), the onboard `SHTC3` (T, RH), and 3 SwitchBot slots (T, RH, battery). A missing, invalid, stale or NaN source gives empty fields, so each row has 18 columns (see "MicroSD noise logging").
 - Every codec function returns 0 for a null pointer, an empty buffer, a small buffer or an invalid time.
 - `SdLogger` (Arduino only) calls `SD_MMC.setPins(38, 21, 39)` before `SD_MMC.begin("/sdcard", true)`. It checks the card type, appends one record, and unmounts. A new file gets the header first. A failed header write removes the new file.
 - The board logs once per hour, also after a deep sleep wake. The log runs after the render, so a slow or missing card never delays the display.
@@ -95,6 +95,16 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The board measures only when the diagnostics view is on screen and the wakeup is not a timer wakeup. It draws the view first, measures, then redraws. The measurement runs once per wake cycle, also after a failure. The microphones stay off in the other views, so they cost no battery.
 - The band stays in RTC memory (bits 3 and 4 of the audio byte). The state version stays 5: an old state decodes as `QUIET`, and a band value of 3 is rejected.
 - Host tests cover the RMS of silence, sine, DC and full scale, the band limits and hysteresis, the sampler power-down paths, the diagnostics line (all states, no clipping), and the RTC round trip.
+
+## MicroSD noise logging with hourly measurement
+
+- **Code:** `rlcd_panel/sd_logger.h`, `rlcd_panel/es7210_mic.h`, `rlcd_panel/rlcd_panel.ino`.
+- The CSV format is version 2. The header has 18 columns: the 15 climate columns plus `noise_rms`, `noise_db` and `noise_band`. The file name is `/sdcard/climate_v2_YYYYMM.csv`, so the new header never mixes with rows of the old 15-column files. The old files stay unchanged on the card.
+- `noise_rms` is the 16-bit PCM RMS of the window. `noise_db` is the dB SPL value from the active `MicCalibration` (stored calibration plus the `config.ini` offset). `noise_band` is `QUIET`, `MODERATE` or `LOUD`. An invalid reading gives three empty fields.
+- `SdLogCodec::noiseMeasureWanted()` is the gate. The wake cycle runs one 5 s `NoiseSampler` window only when a record is due, the RTC time is valid, and no low battery alert is active. This also applies after a timer wakeup. Each other timer wakeup keeps the microphones off.
+- The window runs before the record is written. After a low battery skip or a failed window, the row is still written with empty noise fields, and the record is not repeated. A missing card skips the window (a card that mounts but rejects the write still costs one window per 10 min retry), so the 10 min retry costs no microphone power. KEY presses during the window are not seen. A due record in the diagnostics view redraws the view with the new level.
+- `NoiseSampler` powers down the ADC and closes I2S on every exit path (bus failure, ADC failure, short read, zero window).
+- Host tests cover the 18-column header, rows with valid and invalid noise data, the calibration offset, all band labels, the file name bounds, the gate (due, not due, invalid time, low battery, retry schedule), and the ADC power-down on each exit path.
 
 ## GitHub Actions CI for host tests and firmware compile
 

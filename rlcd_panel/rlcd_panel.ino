@@ -38,7 +38,7 @@ BLEScan* g_ble_scan = nullptr;
 DisplayModeController g_mode_controller;
 std::atomic<bool> g_scan_running{false};
 PowerConfig g_power_config;
-NoiseReading g_noise; // measured at most once per wake cycle, only for the diagnostics view
+NoiseReading g_noise; // measured at most once per wake cycle: diagnostics view or hourly SD record
 bool g_noise_attempted = false; // a failed window is not retried in the same wake cycle
 MicCalibration g_mic_cal;       // loaded from NVS in setup(); the default when absent or corrupt
 bool g_mic_cal_busy = false;    // the 10 s calibration window runs
@@ -187,8 +187,8 @@ bool syncNtpTime(bool key_wakeup) {
   return result == NtpResult::OK;
 }
 
-// Measures one 5 s noise window, at most once per wake cycle. The microphones stay off in the
-// other views and on timer wakeups, so they cost no battery there. The ADC is powered down again
+// Measures one 5 s noise window, at most once per wake cycle. The diagnostics view and the hourly
+// SD record request it. The microphones stay off otherwise, so they cost no battery there. The ADC is powered down again
 // before this function returns. The band is stored for the hysteresis of the next window.
 void measureNoiseOnce() {
   if (g_noise_attempted) {
@@ -327,18 +327,36 @@ void refreshSensors() {
 }
 
 // Appends one hourly record to the MicroSD card. A missing card or a failed write never blocks
-// the cycle; the next attempt follows after a short retry interval.
+// the cycle; the next attempt follows after a short retry interval. The wake cycle that writes the
+// record, also a timer wakeup, runs one 5 s noise window first. It is skipped with a low battery
+// alert, and then the noise fields stay empty. All other wake cycles keep the microphones off.
+// The window outlasts the 3 s KEY grace window start: KEY presses during it are not seen. A failed
+// window gives a row with empty noise fields; the record is not repeated.
 void logToSdCard() {
   const uint32_t now = nowMs();
-  if (!SdLogCodec::logDue(g_state.has_logged, g_state.last_log_ms, now) || !g_rtc_time.valid) {
+  const bool due = SdLogCodec::logDue(g_state.has_logged, g_state.last_log_ms, now);
+  if (!due || !g_rtc_time.valid) {
     return;
+  }
+  bool have_noise = false;
+  // The card check comes last: a missing card must not cost a 5 s window on each 10 min retry.
+  if (SdLogCodec::noiseMeasureWanted(
+          g_state.has_logged, g_state.last_log_ms, now, g_rtc_time.valid, g_state.battery) &&
+      SdLogger::cardPresent()) {
+    measureNoiseOnce();
+    have_noise = g_noise.valid;
+    if (g_mode_controller.mode() == DisplayMode::SYSTEM_DIAGNOSTICS) {
+      renderDashboard(); // the diagnostics view shows the new level
+    }
   }
   SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
   for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
     snapshot[i] = g_state.registry.slot(i);
   }
+  const MicCalibration cal = activeMicCal();
   const SdLogResult result = SdLogger::append(
-      g_rtc_time, g_state.battery, g_onboard_reading, snapshot, MAX_SWITCHBOT_SENSORS, now);
+      g_rtc_time, g_state.battery, g_onboard_reading, snapshot, MAX_SWITCHBOT_SENSORS, now,
+      have_noise ? &g_noise : nullptr, &cal);
   g_state.has_logged = true;
   if (result == SdLogResult::OK) {
     g_state.last_log_ms = now;

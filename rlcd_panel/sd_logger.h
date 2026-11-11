@@ -9,6 +9,7 @@
 #include "battery_monitor.h"
 #include "board_pins.h"
 #include "device_config.h"
+#include "es7210_mic.h"
 #include "pcf85063_rtc.h"
 #include "shtc3_sensor.h"
 #include "switchbot_ble.h"
@@ -34,6 +35,16 @@ public:
     return !has_logged || static_cast<uint32_t>(now_ms - last_log_ms) >= LOG_INTERVAL_MS;
   }
 
+  // True when the wake cycle runs the 5 s noise window for the hourly record: a record is due,
+  // the RTC time is valid (a row needs it), and no low battery alert is active. Any other wake
+  // cycle keeps the microphones off. An invalid battery reading raises no alert.
+  static bool noiseMeasureWanted(
+      bool has_logged, uint32_t last_log_ms, uint32_t now_ms, bool time_valid,
+      const BatteryReading& battery) {
+    const bool low_battery = battery.valid && battery.low_battery;
+    return time_valid && logDue(has_logged, last_log_ms, now_ms) && !low_battery;
+  }
+
   // Clock value to store after a failed write, so the next attempt is due after the retry
   // interval and a missing card does not mount on every wake cycle.
   static uint32_t retryStamp(uint32_t now_ms) {
@@ -47,7 +58,8 @@ public:
         "timestamp,battery_pct,battery_v,usb,onboard_temp_c,onboard_rh,"
         "s1_temp_c,s1_rh,s1_battery_pct,"
         "s2_temp_c,s2_rh,s2_battery_pct,"
-        "s3_temp_c,s3_rh,s3_battery_pct\n";
+        "s3_temp_c,s3_rh,s3_battery_pct,"
+        "noise_rms,noise_db,noise_band\n";
     const size_t len = sizeof(HEADER) - 1;
     if (out == nullptr || capacity < len + 1) {
       return 0;
@@ -56,7 +68,8 @@ public:
     return len;
   }
 
-  // Writes "/sdcard/climate_YYYYMM.csv". Returns the length, or 0 for a null buffer, a small
+  // Writes "/sdcard/climate_v2_YYYYMM.csv". The v2 name keeps the 18-column format apart from
+  // the old 15-column files. Returns the length, or 0 for a null buffer, a small
   // buffer, a null or invalid time.
   static size_t formatFilename(const RtcTime* time, char* out, size_t capacity) {
     if (out == nullptr || capacity == 0) {
@@ -68,7 +81,7 @@ public:
       return 0;
     }
     const int n = snprintf(
-        out, capacity, "%s/climate_%04u%02u.csv", MOUNT_POINT,
+        out, capacity, "%s/climate_v2_%04u%02u.csv", MOUNT_POINT,
         static_cast<unsigned>(time->year), static_cast<unsigned>(time->month));
     if (n <= 0 || static_cast<size_t>(n) >= capacity) {
       out[0] = '\0';
@@ -78,8 +91,9 @@ public:
   }
 
   // Writes one CSV record, including the newline. A missing, invalid or stale sensor gives
-  // empty fields, so every row has the same column count. Returns the length, or 0 on a null
-  // or small buffer, or a null or invalid time.
+  // empty fields, so every row has the same column count. A null or invalid `noise` gives empty
+  // noise fields; the dB value uses `noise_cal` (the default calibration when null). Returns the
+  // length, or 0 on a null or small buffer, or a null or invalid time.
   static size_t formatRow(
       const RtcTime* time,
       const BatteryReading* battery,
@@ -87,6 +101,8 @@ public:
       const SwitchBotReading* slots,
       size_t slot_count,
       uint32_t now_ms,
+      const NoiseReading* noise,
+      const MicCalibration* noise_cal,
       char* out,
       size_t capacity) {
     if (out == nullptr || capacity == 0) {
@@ -131,6 +147,13 @@ public:
         pos += snprintf(out + pos, capacity - pos, ",,,");
       }
     }
+    if (noise != nullptr && noise->valid) {
+      const MicCalibration cal = noise_cal != nullptr ? *noise_cal : MicCalibration{};
+      pos += snprintf(out + pos, capacity - pos, ",%u,%d,%s", static_cast<unsigned>(noise->rms),
+                      cal.splDb(noise->rms), NoiseClassifier::label(noise->band));
+    } else {
+      pos += snprintf(out + pos, capacity - pos, ",,,");
+    }
     pos += snprintf(out + pos, capacity - pos, "\n");
     if (pos >= capacity) {
       out[0] = '\0';
@@ -166,14 +189,16 @@ public:
       const Shtc3Reading& onboard,
       const SwitchBotReading* slots,
       size_t slot_count,
-      uint32_t now_ms) {
+      uint32_t now_ms,
+      const NoiseReading* noise,
+      const MicCalibration* noise_cal) {
     char path[SdLogCodec::MAX_PATH_SIZE];
     char row[SdLogCodec::MAX_ROW_SIZE];
     if (SdLogCodec::formatFilename(&time, path, sizeof(path)) == 0) {
       return SdLogResult::NO_TIME;
     }
     const size_t row_len =
-        SdLogCodec::formatRow(&time, &battery, &onboard, slots, slot_count, now_ms, row, sizeof(row));
+        SdLogCodec::formatRow(&time, &battery, &onboard, slots, slot_count, now_ms, noise, noise_cal, row, sizeof(row));
     if (row_len == 0) {
       return SdLogResult::NO_TIME;
     }
@@ -183,6 +208,16 @@ public:
     const SdLogResult result = writeRecord(path, row, row_len);
     SD_MMC.end();
     return result;
+  }
+
+  // True when a card mounts. The wake cycle checks this before the noise window, so a missing card
+  // does not cost a 5 s microphone window on every 10 min retry.
+  static bool cardPresent() {
+    if (!mount()) {
+      return false;
+    }
+    SD_MMC.end();
+    return true;
   }
 
   // Reads the optional /sdcard/config.ini into `out`. NO_CARD (mount failed) lets the caller keep
