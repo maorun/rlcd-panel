@@ -26,6 +26,7 @@
 #include "st7305_framebuffer.h"
 #include "st7305_panel.h"
 #include "switchbot_ble.h"
+#include "bthome_ble.h"
 
 using namespace rlcd_panel;
 
@@ -86,7 +87,35 @@ uint32_t nowMs() {
 }
 
 class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
+  // BTHome v2 packets carry no MAC address, so the BLE address identifies the sensor.
+  static void handleBtHome(BLEAdvertisedDevice& advertisedDevice) {
+    // getNative() returns the address in big-endian order on the Bluedroid stack. Keep this order
+    // with another BLE stack, because the slot identity uses the MAC bytes.
+    const String svc = advertisedDevice.getServiceData();
+    SwitchBotReading reading;
+    if (!BtHomeBleParser::parseServiceData(
+            BTHOME_SERVICE_UUID,
+            advertisedDevice.getAddress().getNative(),
+            reinterpret_cast<const uint8_t*>(svc.c_str()),
+            svc.length(),
+            reading)) {
+      return;
+    }
+    reading.rssi = advertisedDevice.getRSSI();
+    reading.updated_ms = nowMs();
+
+    portENTER_CRITICAL(&g_registry_mux);
+    g_state.registry.upsert(reading);
+    portEXIT_CRITICAL(&g_registry_mux);
+  }
+
   void onResult(BLEAdvertisedDevice advertisedDevice) override {
+    if (advertisedDevice.haveServiceData() &&
+        advertisedDevice.getServiceDataUUID().equals(BLEUUID(BTHOME_SERVICE_UUID))) {
+      handleBtHome(advertisedDevice);
+      return;
+    }
+
     if (!advertisedDevice.haveManufacturerData()) {
       return;
     }

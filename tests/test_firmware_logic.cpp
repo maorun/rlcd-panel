@@ -12,6 +12,7 @@
 #include "../rlcd_panel/audio_spectrum.h"
 #include "../rlcd_panel/battery_monitor.h"
 #include "../rlcd_panel/board_pins.h"
+#include "../rlcd_panel/bthome_ble.h"
 #include "../rlcd_panel/button_handler.h"
 #include "../rlcd_panel/clap_detector.h"
 #include "../rlcd_panel/dashboard_view.h"
@@ -147,6 +148,154 @@ void testSwitchBotServiceBatteryAndRegistry() {
   fourth.valid = true;
   fourth.mac[5] = 4;
   assert(!reg.upsert(fourth));
+}
+
+const uint8_t BTHOME_MAC[6] = {0xA4, 0xC1, 0x38, 0x11, 0x22, 0x33};
+
+void testBtHomeValidPackets() {
+  // Device info 0x40 (v2, unencrypted), battery 87 %, temperature 21.55 C, humidity 45.67 %.
+  const uint8_t pkt[] = {0x40, 0x01, 87, 0x02, 0x6B, 0x08, 0x03, 0xD7, 0x11};
+  SwitchBotReading r;
+  assert(BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, pkt, sizeof(pkt), r));
+  assert(r.valid);
+  assert(approxEqual(r.temperature_c, 21.55f, 0.001f));
+  assert(r.humidity_pct == 46);
+  assert(r.battery_pct == 87);
+  assert(memcmp(r.mac, BTHOME_MAC, 6) == 0);
+
+  // Without battery: -1 so the registry keeps the previous value.
+  const uint8_t no_batt[] = {0x40, 0x02, 0x4B, 0x08, 0x03, 0x97, 0x11};
+  assert(BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, no_batt, sizeof(no_batt), r));
+  assert(r.battery_pct == -1);
+
+  // 1 % humidity object 0x2E.
+  const uint8_t h8[] = {0x40, 0x02, 0xD0, 0x07, 0x2E, 55};
+  assert(BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, h8, sizeof(h8), r));
+  assert(approxEqual(r.temperature_c, 20.0f, 0.001f));
+  assert(r.humidity_pct == 55);
+
+  // Known object (packet id 0x00) before the values is skipped.
+  const uint8_t with_id[] = {0x40, 0x00, 0x09, 0x02, 0xD0, 0x07, 0x03, 0x10, 0x27};
+  assert(BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, with_id, sizeof(with_id), r));
+  assert(r.humidity_pct == 100);
+}
+
+void testBtHomeNegativeTemperature() {
+  // -5.25 C = -525 = 0xFDF3, humidity 80.00 %.
+  const uint8_t pkt[] = {0x40, 0x02, 0xF3, 0xFD, 0x03, 0x40, 0x1F};
+  SwitchBotReading r;
+  assert(BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, pkt, sizeof(pkt), r));
+  assert(approxEqual(r.temperature_c, -5.25f, 0.001f));
+  assert(r.humidity_pct == 80);
+}
+
+void testBtHomeInvalidPackets() {
+  SwitchBotReading r;
+  const uint8_t good[] = {0x40, 0x02, 0xD0, 0x07, 0x03, 0x10, 0x27};
+  assert(!BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, nullptr, 7, r));
+  assert(!BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, nullptr, good, sizeof(good), r));
+  assert(!BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, good, 0, r));
+  assert(!BtHomeBleParser::parseServiceData(0xFD3D, BTHOME_MAC, good, sizeof(good), r));
+  assert(!r.valid);
+
+  // Truncated at every length below the full packet.
+  for (size_t len = 0; len < sizeof(good); ++len) {
+    assert(!BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, good, len, r));
+  }
+
+  // Encrypted flag (bit 0), also with otherwise valid objects.
+  const uint8_t encrypted[] = {0x41, 0x02, 0xD0, 0x07, 0x03, 0x10, 0x27};
+  assert(!BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, encrypted, sizeof(encrypted), r));
+  assert(!r.valid);
+
+  // Wrong BTHome version (v1 = 0x20, v3 = 0x60).
+  const uint8_t v1[] = {0x20, 0x02, 0xD0, 0x07, 0x03, 0x10, 0x27};
+  const uint8_t v3[] = {0x60, 0x02, 0xD0, 0x07, 0x03, 0x10, 0x27};
+  assert(!BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, v1, sizeof(v1), r));
+  assert(!BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, v3, sizeof(v3), r));
+
+  // Humidity above 100 % is rejected, so the reading lacks humidity.
+  const uint8_t bad_rh[] = {0x40, 0x02, 0xD0, 0x07, 0x03, 0x11, 0x27};
+  assert(!BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, bad_rh, sizeof(bad_rh), r));
+
+  // Temperature outside -50 to 100 C (0x7FFF = 327.67 C) is rejected.
+  const uint8_t hot[] = {0x40, 0x02, 0xFF, 0x7F, 0x03, 0x10, 0x27};
+  assert(!BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, hot, sizeof(hot), r));
+
+  // Battery above 100 % is ignored. Humidity object 0x2E above 100 % is rejected.
+  const uint8_t bad_batt[] = {0x40, 0x01, 101, 0x02, 0xD0, 0x07, 0x03, 0x10, 0x27};
+  assert(BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, bad_batt, sizeof(bad_batt), r));
+  assert(r.battery_pct == -1);
+  const uint8_t bad_rh8[] = {0x40, 0x02, 0xD0, 0x07, 0x2E, 101};
+  assert(!BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, bad_rh8, sizeof(bad_rh8), r));
+
+  // Temperature only.
+  const uint8_t temp_only[] = {0x40, 0x02, 0xD0, 0x07};
+  assert(!BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, temp_only, sizeof(temp_only), r));
+}
+
+void testBtHomeUnknownObjectIds() {
+  SwitchBotReading r;
+  // Known values first, then an unknown object ID 0xFE: the parse stops and keeps the decoded values.
+  const uint8_t tail_unknown[] = {0x40, 0x02, 0xD0, 0x07, 0x03, 0x10, 0x27, 0xFE, 0x01, 0x02};
+  assert(BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, tail_unknown, sizeof(tail_unknown), r));
+  assert(approxEqual(r.temperature_c, 20.0f, 0.001f));
+  assert(r.humidity_pct == 100);
+
+  // Unknown object ID before the values: the following bytes cannot be located, so the packet is skipped.
+  const uint8_t head_unknown[] = {0x40, 0xFE, 0x01, 0x02, 0xD0, 0x07, 0x03, 0x10, 0x27};
+  assert(!BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, head_unknown, sizeof(head_unknown), r));
+
+  // Known object without use here (illuminance 0x05, 3 bytes) is stepped over.
+  const uint8_t lux[] = {0x40, 0x05, 0x01, 0x02, 0x03, 0x02, 0xD0, 0x07, 0x03, 0x10, 0x27};
+  assert(BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, lux, sizeof(lux), r));
+  assert(approxEqual(r.temperature_c, 20.0f, 0.001f));
+}
+
+void testBtHomeCombinedRegistry() {
+  SwitchBotRegistry reg;
+
+  SwitchBotReading sb1;
+  sb1.valid = true;
+  sb1.mac[5] = 1;
+  sb1.temperature_c = 18.0f;
+  sb1.humidity_pct = 40;
+  sb1.updated_ms = 1000;
+  assert(reg.upsert(sb1));
+
+  const uint8_t pkt[] = {0x40, 0x01, 77, 0x02, 0x4B, 0x08, 0x03, 0x97, 0x11};
+  SwitchBotReading bt;
+  assert(BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, pkt, sizeof(pkt), bt));
+  bt.updated_ms = 2000;
+  assert(reg.upsert(bt));
+
+  SwitchBotReading sb2;
+  sb2.valid = true;
+  sb2.mac[5] = 2;
+  sb2.temperature_c = 19.0f;
+  sb2.humidity_pct = 41;
+  sb2.updated_ms = 3000;
+  assert(reg.upsert(sb2));
+  assert(reg.activeCount() == 3);
+  assert(memcmp(reg.slot(1).mac, BTHOME_MAC, 6) == 0);
+  assert(reg.slot(1).battery_pct == 77);
+
+  // A new BTHome packet without battery updates the same slot and keeps the battery.
+  const uint8_t next[] = {0x40, 0x02, 0x10, 0x09, 0x03, 0x10, 0x0E};
+  assert(BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, next, sizeof(next), bt));
+  bt.updated_ms = 4000;
+  assert(reg.upsert(bt));
+  assert(reg.activeCount() == 3);
+  assert(approxEqual(reg.slot(1).temperature_c, 23.2f, 0.001f));
+  assert(reg.slot(1).battery_pct == 77);
+  assert(reg.slot(1).packet_count == 2);
+
+  // Same 30 min stale rule for both sensor types.
+  const uint32_t timeout = SENSOR_STALE_TIMEOUT_MS;
+  assert(!reg.slot(1).isStale(4000 + timeout));
+  assert(reg.slot(1).isStale(4000 + timeout + 1));
+  assert(!reg.slot(0).isStale(1000 + timeout));
+  assert(reg.slot(0).isStale(1000 + timeout + 1));
 }
 
 void testSt7305FramebufferPixelMapping() {
@@ -5829,6 +5978,11 @@ int main() {
   testPcf85063InvalidValues();
   testDashboardHeaderClock();
   testSwitchBotStaleDetection();
+  testBtHomeValidPackets();
+  testBtHomeNegativeTemperature();
+  testBtHomeInvalidPackets();
+  testBtHomeUnknownObjectIds();
+  testBtHomeCombinedRegistry();
   testDashboardStaleIndicator();
   testButtonDebounceAndModeTransitions();
   testDisplayModesRenderWithoutClipping();

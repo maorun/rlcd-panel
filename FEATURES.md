@@ -260,3 +260,16 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - A full card still fails the write of the record. The prune runs after that failed write, so the retry after 10 min finds free space. A card that is full of files inside the retention period needs manual cleanup; the diagnostics view then shows `SD FREE: 0 MB` after a successful mount.
 - `tools/preview_scenes.h` shows `SD FREE: 7421 MB` in `docs/display_preview_diagnostics.png`.
 - Host tests cover the month age across a year change, retention `0`, `1`, `3` and `120`, out-of-range values, the current and a future month, names that do not match the pattern, the `config.ini` key with valid, malformed and out-of-range values, the RTC round trip, the free-space maths, and the diagnostics line (unmounted, normal, zero and widest value without clipping). The directory walk and the free-space read on the real card are not tested on hardware yet.
+
+## BTHome v2 sensor support
+
+- `BtHomeBleParser` (`rlcd_panel/bthome_ble.h`) decodes BTHome v2 Service Data (`UUID 0xFCD2`) from third-party thermo-hygrometers. The sensor MAC address comes from the BLE address, because the packet carries none.
+- Supported objects: battery (`0x01`, 1 %), temperature (`0x02`, signed 0.01 °C), humidity (`0x03`, 0.01 %, and `0x2E`, 1 %). The parser steps over other objects of known length.
+- The parser rejects encrypted packets, other BTHome versions, and packets without temperature or humidity. An unknown object ID ends the parse, and the values decoded before it stay valid.
+- BTHome and SwitchBot sensors share the 3 slots of `SwitchBotRegistry` and the 30 min stale rule. A packet without battery keeps the last battery value.
+- The parser rejects temperatures outside -50 to 100 °C. The `packet_count` counts each advertisement, also repeats with the same packet ID, as for SwitchBot.
+- The dashboard titles the three sensor tiles `SENSOR 1` to `SENSOR 3`.
+- The registry assigns slots in first-seen order (FIFO). The first three distinct MAC addresses take the slots, and a fourth sensor gets no slot. The registry does not filter by sensor type. A SwitchBot or BTHome sender in range can take a slot.
+- Risk: other BTHome or SwitchBot senders near the panel can fill the 3 slots before your own sensors appear. Pair the panel only in a place with few foreign senders. There is no config filter for MAC addresses yet.
+- The firmware reads only the first Service Data entry of an advertisement. A BTHome entry behind another Service Data UUID is missed.
+- A sensor with a rotating random BLE address changes its MAC address. Each new address takes a free slot, and the sensor can use up the 3 slots over time.

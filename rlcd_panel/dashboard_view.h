@@ -159,7 +159,7 @@ public:
 
     if (is_stale) {
       // Inverted "STALE" badge (5 glyphs at scale 1 = 29 px wide) in the title band, right of the
-      // title ("SWITCHBOT 3" ends at x + 138) and above the divider line at y + 24.
+      // title ("SENSOR 3" ends at x + 102) and above the divider line at y + 24.
       const uint16_t bx = static_cast<uint16_t>(x + w - STALE_BADGE_W - 4);
       const uint16_t by = static_cast<uint16_t>(y + 4);
       fb.fillRect(bx, by, STALE_BADGE_W, STALE_BADGE_H, true);
@@ -250,7 +250,7 @@ public:
         false,
         history != nullptr ? &history->slots[ClimateHistory::ONBOARD] : nullptr);
 
-    // Tiles 1..3: SwitchBot Outdoor Meters (WoIOSensor)
+    // Tiles 1..3: SwitchBot Outdoor Meters (WoIOSensor) and BTHome v2 sensors
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       const uint16_t col = static_cast<uint16_t>((i + 1) % 2);
       const uint16_t row = static_cast<uint16_t>((i + 1) / 2);
@@ -258,7 +258,7 @@ public:
       const uint16_t ty = static_cast<uint16_t>(36 + row * 132);
 
       char title[24];
-      snprintf(title, sizeof(title), "SWITCHBOT %u", static_cast<unsigned>(i + 1));
+      snprintf(title, sizeof(title), "SENSOR %u", static_cast<unsigned>(i + 1));
 
       const bool have_slot = (switchbot_slots != nullptr && i < switchbot_count);
       const SwitchBotReading empty_reading{};
