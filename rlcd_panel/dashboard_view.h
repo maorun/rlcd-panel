@@ -48,6 +48,7 @@ public:
   static constexpr uint16_t SPARKLINE_H = 16;
   static constexpr uint16_t SPARKLINE_RIGHT_MARGIN = 6;
   static constexpr uint16_t SPARKLINE_Y_OFFSET = 66;
+  static constexpr uint16_t MIC_TEST_Y = 224; // diagnostics: microphone self-test line
 
   static void renderBatteryIcon(
       St7305Framebuffer& fb,
@@ -374,6 +375,7 @@ public:
     drawLine(fb, 10, 164, line);
 
     // Widest line: "NOISE: MODERATE 140 DBA" = 23 glyphs = 276 px; "... -96 DBFS" = 24 = 288 px.
+    // Without a usable channel the reading is invalid, so no band is shown.
     if (info.noise.valid && info.mic_cal.calibrated) {
       snprintf(
           line,
@@ -392,6 +394,28 @@ public:
       snprintf(line, sizeof(line), "NOISE: --");
     }
     drawLine(fb, 10, 204, line);
+
+    // Microphone self-test at y = 224, between the noise line (ends y = 218) and the status line.
+    // Widest: "MIC1: SILENT MIC2: SILENT" = 25 glyphs = 300 px; with an imbalance the OK line
+    // "MIC1: OK MIC2: OK IMB 255 DB" = 28 glyphs = 336 px. Both end inside the 400 px width.
+    if (info.noise.mic.valid) {
+      const int n = snprintf(
+          line,
+          sizeof(line),
+          "MIC1: %s MIC2: %s",
+          MicSelfTest::label(info.noise.mic.channel[0]),
+          MicSelfTest::label(info.noise.mic.channel[1]));
+      if (info.noise.mic.imbalanced() && n > 0 && static_cast<size_t>(n) < sizeof(line)) {
+        snprintf(
+            line + n,
+            sizeof(line) - static_cast<size_t>(n),
+            " IMB %u DB",
+            static_cast<unsigned>(info.noise.mic.imbalance_db));
+      }
+    } else {
+      snprintf(line, sizeof(line), "MIC: --");
+    }
+    drawLine(fb, 10, MIC_TEST_Y, line);
 
     snprintf(
         line,

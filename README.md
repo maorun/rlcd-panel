@@ -175,6 +175,10 @@ The firmware appends one CSV record per hour to `/climate_v2_YYYYMM.csv` on the 
 
 The onboard `ES7210` ADC and the dual microphone array measure the ambient noise level. The diagnostics view (third `KEY` view) shows `QUIET`, `MODERATE` or `LOUD` and the level in dBFS. The firmware measures a 5 s window after a `KEY` wakeup or a power-on, only while this view is on screen. A timer wakeup measures only when the hourly CSV record is due (see "MicroSD Noise Logging"); otherwise the microphones stay off. The levels are relative to full scale, not calibrated sound pressure levels. The code is in `rlcd_panel/es7210_mic.h`.
 
+### Microphone Self-Test
+
+The same 5 s window checks each microphone. The diagnostics view shows `MIC1: OK MIC2: OK` or the fault of a channel: `SILENT` (all samples zero), `STUCK` (constant signal), `DC` (offset above 12.5 % of full scale) or `CLIP` (full scale peaks). A level difference of more than 10 dB adds ` IMB <n> DB`. With one failed channel the noise level comes from the working microphone. If both channels fail, the view shows `NOISE: --` and no noise band, and the CSV noise fields stay empty. The limits are not verified on hardware.
+
 ## Time Synchronization (optional)
 
 The firmware can set the `PCF85063A` clock over Wi-Fi and NTP once per day. Copy `rlcd_panel/wifi_config.example.h` to `rlcd_panel/wifi_config.h` and enter your SSID and password. Git ignores this file. The default time zone is CET/CEST. Without the file, the radio stays off and the clock keeps its time. If the network fails, the firmware keeps the RTC unchanged and retries with a growing delay (15 min to 6 h). The radio switches off right after each attempt. The code is in `rlcd_panel/ntp_sync.h`.

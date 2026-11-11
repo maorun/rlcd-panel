@@ -104,6 +104,8 @@ inline void renderScene(
   // Calibrated microphone: floor RMS 100, offset 90 dB. RMS 650 is moderate, about 56 DBA.
   MicCalibration::fromFloor(100, MicCalibration::DEFAULT_SPL_OFFSET_DB, info.mic_cal);
   info.noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 650, info.mic_cal);
+  // Both microphones pass the self-test (MIC1: OK MIC2: OK)
+  info.noise.mic.valid = true;
   info.quiet_hours = quiet_hours;
   info.config_from_sd = true;
 
