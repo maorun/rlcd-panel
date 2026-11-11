@@ -17,12 +17,14 @@
 
 namespace rlcd_panel {
 
-// Alert kinds as bit mask. The mask is persisted in RTC memory (three bits).
+// Alert kinds as bit mask. The mask is persisted in RTC memory (four bits).
 constexpr uint8_t ALERT_NONE = 0;
 constexpr uint8_t ALERT_FREEZER = 1;  // a sensor reads below the freezer limit
 constexpr uint8_t ALERT_HUMIDITY = 2; // a sensor reads above the mold risk limit
 constexpr uint8_t ALERT_NOISE_HIGH = 4; // the hourly noise window is above the noise limit
-constexpr uint8_t ALERT_CLIMATE_MASK = ALERT_FREEZER | ALERT_HUMIDITY; // set by AlertEvaluator
+constexpr uint8_t ALERT_SENSOR_LOST = 8; // a known external sensor sends no more packets
+constexpr uint8_t ALERT_CLIMATE_MASK =
+    ALERT_FREEZER | ALERT_HUMIDITY | ALERT_SENSOR_LOST; // set by AlertEvaluator
 constexpr uint8_t ALERT_MASK_ALL = ALERT_CLIMATE_MASK | ALERT_NOISE_HIGH;
 
 // Alert trigger limits. The release limits follow with a fixed hysteresis, so the settings from the
@@ -54,6 +56,8 @@ public:
   // alert stays active until a usable sensor passed its release limit and no usable sensor
   // is above it; with no usable reading the alert holds. Invalid, stale and NaN readings are
   // ignored. One bit covers all sensors: a second sensor that enters the alert does not chime.
+  // ALERT_SENSOR_LOST does not latch: it is on while one valid slot is stale and off when each valid
+  // slot sends again. A slot that was never valid does not set it.
   static uint8_t evaluate(
       uint8_t previous,
       const Shtc3Reading& onboard,
@@ -73,6 +77,9 @@ public:
       }
     }
     uint8_t mask = ALERT_NONE;
+    if (SwitchBotRegistry::anyStale(slots, slot_count, now_ms)) {
+      mask |= ALERT_SENSOR_LOST;
+    }
     // Without a usable reading the latch holds: a sensor that drops out must not clear an alert,
     // or its return would chime again.
     const bool cold_hold = tally.cold_hold || !tally.have_temperature;
@@ -245,15 +252,17 @@ public:
   static constexpr uint32_t SAMPLES_PER_MS = SAMPLE_RATE_HZ / 1000;
 
   // Freezer: three short high beeps. Humidity: two notes, rising. Noise: two high beeps, then a
-  // lower note.
+  // lower note. Sensor lost: one low note.
   static ChimePattern pattern(uint8_t alert_bit) {
     static const ChimeNote FREEZER[] = {{880, 120}, {0, 80}, {880, 120}, {0, 80}, {880, 120}};
     static const ChimeNote HUMIDITY[] = {{660, 160}, {0, 40}, {880, 240}};
     static const ChimeNote NOISE[] = {{988, 100}, {0, 60}, {988, 100}, {0, 60}, {660, 260}};
+    static const ChimeNote SENSOR_LOST[] = {{440, 400}};
     switch (alert_bit) {
       case ALERT_NOISE_HIGH: return {NOISE, sizeof(NOISE) / sizeof(NOISE[0])};
       case ALERT_FREEZER: return {FREEZER, sizeof(FREEZER) / sizeof(FREEZER[0])};
       case ALERT_HUMIDITY: return {HUMIDITY, sizeof(HUMIDITY) / sizeof(HUMIDITY[0])};
+      case ALERT_SENSOR_LOST: return {SENSOR_LOST, sizeof(SENSOR_LOST) / sizeof(SENSOR_LOST[0])};
       default: return {nullptr, 0};
     }
   }
@@ -379,11 +388,12 @@ public:
     if ((alert_bits & ALERT_MASK_ALL) == 0) {
       return false;
     }
-    ChimePattern patterns[3];
+    ChimePattern patterns[4];
     uint8_t count = 0;
     if ((alert_bits & ALERT_FREEZER) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_FREEZER);
     if ((alert_bits & ALERT_HUMIDITY) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_HUMIDITY);
     if ((alert_bits & ALERT_NOISE_HIGH) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_NOISE_HIGH);
+    if ((alert_bits & ALERT_SENSOR_LOST) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_SENSOR_LOST);
     return playPatterns(hal, patterns, count, volume_pct);
   }
 

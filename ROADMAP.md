@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 
-- [ ] Sensor dropout chime
-  - Rank: [Total: 27, Use: 6, Setup: 6, Harmony: 7, Safety: 8, Effort: S]
-  - Location: `rlcd_panel/audio_alert.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/rlcd_panel.ino`.
-  - Goal: Tell the user when a known external sensor stops sending, for example because its battery is empty. Add the alert bit `ALERT_SENSOR_LOST`. Set it when a valid slot becomes stale. Play one low 440 Hz note when the alert switches on. Obey the mute flag and quiet hours. Clear the bit when each valid slot sends again.
-  - Acceptance test: Host tests cover the change from fresh to stale, a slot that was never valid, the recovery, the mute and quiet hours suppression, and the RTC round trip of the new bit. On the board, the chime sounds once when a sensor gets its battery removed for more than 30 min.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.
