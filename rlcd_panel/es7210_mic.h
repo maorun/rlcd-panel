@@ -28,11 +28,52 @@ enum class NoiseBand : uint8_t {
   LOUD = 2,
 };
 
-// One measurement result of a sampling window.
+// Self-test result of one microphone channel (MIC1 = left slot, MIC2 = right slot).
+enum class MicStatus : uint8_t {
+  OK = 0,
+  SILENT = 1, // all samples are zero: dead microphone or missing I2S clock
+  STUCK = 2,  // peak to peak below the limit: a constant or almost constant signal
+  DC = 3,     // mean offset above the limit
+  CLIP = 4,   // the peak reaches full scale
+};
+
+// Self-test of both channels for one sampling window. `valid` is false without a finished window.
+// The imbalance is only set when both channels are OK, because a failed channel has no usable level.
+struct MicSelfTest {
+  static constexpr uint8_t CHANNELS = 2;
+  static constexpr int IMBALANCE_LIMIT_DB = 10; // a larger level difference is reported
+
+  bool valid = false;
+  MicStatus channel[CHANNELS] = {MicStatus::OK, MicStatus::OK};
+  uint8_t imbalance_db = 0; // level difference of the two channels, whole dB (both OK only)
+
+  bool channelOk(uint8_t index) const {
+    return valid && index < CHANNELS && channel[index] == MicStatus::OK;
+  }
+  // Both channels failed: the window has no usable level, so no noise band can be shown.
+  bool bothFailed() const { return valid && !channelOk(0) && !channelOk(1); }
+  bool imbalanced() const { return imbalance_db > IMBALANCE_LIMIT_DB; }
+
+  static const char* label(MicStatus status) {
+    switch (status) {
+      case MicStatus::SILENT: return "SILENT";
+      case MicStatus::STUCK: return "STUCK";
+      case MicStatus::DC: return "DC";
+      case MicStatus::CLIP: return "CLIP";
+      case MicStatus::OK:
+      default: return "OK";
+    }
+  }
+};
+
+// One measurement result of a sampling window. `valid` is true when at least one channel is OK.
+// `rms` is the level of the usable channels only, so a dead microphone does not halve the level.
+// When both channels fail, `valid` is false but `mic` still holds the failure for the view.
 struct NoiseReading {
   bool valid = false;
-  uint16_t rms = 0; // average RMS of the window, 16-bit PCM units (0..32767)
+  uint16_t rms = 0; // RMS of the usable channels of the window, 16-bit PCM units (0..32767)
   NoiseBand band = NoiseBand::QUIET;
+  MicSelfTest mic;  // per-channel self-test of the same window
 };
 
 // Decoupled acoustic energy calculator. It has no hardware dependency, so the host tests build it.
@@ -68,6 +109,119 @@ public:
 private:
   uint64_t sum_squares_ = 0; // 2^63 samples of full scale would be needed to overflow
   uint64_t count_ = 0;
+};
+
+// Per-channel statistics of a window: RMS, DC mean, peak values and full scale count. They decide
+// the self-test status of the channel.
+class MicChannelStats {
+public:
+  static constexpr int STUCK_PEAK_TO_PEAK_LIMIT = 2; // a peak to peak below 2 steps is stuck
+  static constexpr int DC_MEAN_LIMIT = 4096;          // 12.5 % of full scale
+  static constexpr uint32_t CLIP_MIN_SAMPLES = 8;     // a single glitch is not clipping
+
+  void add(int16_t sample) {
+    if (count_ == 0 || sample < min_) {
+      min_ = sample;
+    }
+    if (count_ == 0 || sample > max_) {
+      max_ = sample;
+    }
+    if (sample == INT16_MAX || sample == INT16_MIN) {
+      ++full_scale_count_;
+    }
+    sum_ += sample;
+    rms_.add(&sample, 1);
+    ++count_;
+  }
+
+  uint64_t sampleCount() const { return count_; }
+  uint16_t rms() const { return rms_.rms(); }
+  int32_t peakToPeak() const { return count_ == 0 ? 0 : static_cast<int32_t>(max_) - min_; }
+  double mean() const {
+    return count_ == 0 ? 0.0 : static_cast<double>(sum_) / static_cast<double>(count_);
+  }
+
+  MicStatus status() const {
+    if (count_ == 0 || (min_ == 0 && max_ == 0)) {
+      return MicStatus::SILENT;
+    }
+    if (peakToPeak() < STUCK_PEAK_TO_PEAK_LIMIT) {
+      return MicStatus::STUCK;
+    }
+    if (full_scale_count_ >= CLIP_MIN_SAMPLES) {
+      return MicStatus::CLIP;
+    }
+    const double m = mean();
+    if (m > DC_MEAN_LIMIT || m < -DC_MEAN_LIMIT) {
+      return MicStatus::DC;
+    }
+    return MicStatus::OK;
+  }
+
+private:
+  RmsAccumulator rms_;
+  int64_t sum_ = 0;
+  int16_t min_ = 0;
+  int16_t max_ = 0;
+  uint32_t full_scale_count_ = 0;
+  uint64_t count_ = 0;
+};
+
+// Splits interleaved stereo samples (MIC1, MIC2) into the two channel statistics. The channel
+// follows a running sample index, so a chunk with an odd length does not swap the channels.
+class StereoAnalyzer {
+public:
+  void add(const int16_t* samples, size_t count) {
+    for (size_t i = 0; samples != nullptr && i < count; ++i, ++index_) {
+      channel_[index_ & 1].add(samples[i]);
+    }
+  }
+
+  // Advances the channel position over samples that the caller drops (the settling time).
+  void skip(size_t count) { index_ += count; }
+
+  const MicChannelStats& channel(uint8_t index) const { return channel_[index & 1]; }
+
+  MicSelfTest selfTest() const {
+    MicSelfTest t;
+    t.valid = channel_[0].sampleCount() > 0 && channel_[1].sampleCount() > 0;
+    if (!t.valid) {
+      return t;
+    }
+    for (uint8_t c = 0; c < MicSelfTest::CHANNELS; ++c) {
+      t.channel[c] = channel_[c].status();
+    }
+    if (t.channelOk(0) && t.channelOk(1)) {
+      // An OK channel has a peak to peak of at least 2, so its RMS is at least 1.
+      const float a = static_cast<float>(channel_[0].rms() < 1 ? 1 : channel_[0].rms());
+      const float b = static_cast<float>(channel_[1].rms() < 1 ? 1 : channel_[1].rms());
+      const long db = lroundf(fabsf(20.0f * log10f(a / b)));
+      t.imbalance_db = static_cast<uint8_t>(db > 255 ? 255 : db);
+    }
+    return t;
+  }
+
+  // Level of the usable channels: both together, or the one channel that is OK. False (rms 0)
+  // when both channels failed.
+  bool usableRms(const MicSelfTest& t, uint16_t& rms) const {
+    rms = 0;
+    if (t.channelOk(0) && t.channelOk(1)) {
+      // RMS of both channels together: sqrt of the mean of the two mean squares.
+      const double a = channel_[0].rms(), b = channel_[1].rms();
+      const double v = sqrt((a * a + b * b) / 2.0);
+      rms = v >= 32767.0 ? 32767 : static_cast<uint16_t>(lround(v));
+      return true;
+    }
+    if (t.channelOk(0) || t.channelOk(1)) {
+      rms = channel_[t.channelOk(0) ? 0 : 1].rms();
+      return true;
+    }
+    return false;
+  }
+
+private:
+  MicChannelStats channel_[2];
+  size_t index_ = 0;
 };
 
 constexpr int DBFS_FLOOR_DB = -96; // level of a silent window (16-bit)
@@ -417,9 +571,9 @@ public:
       const MicCalibration& cal = MicCalibration{}) {
     NoiseReading result;
     if (hal.beginBus() && hal.configureAdc()) {
-      RmsAccumulator acc;
-      if (collect(hal, acc, window_ms)) {
-        result = NoiseClassifier::makeReading(previous, acc.rms(), cal);
+      StereoAnalyzer analyzer;
+      if (collect(hal, analyzer, window_ms)) {
+        result = evaluate(analyzer, previous, cal);
       }
     }
     hal.shutdownAdc();
@@ -428,8 +582,24 @@ public:
   }
 
 private:
+  // Reading of a finished window. The level covers the usable channels only. When both channels
+  // fail the reading stays invalid (no band), but it keeps the self-test for the view.
+  static NoiseReading evaluate(
+      const StereoAnalyzer& analyzer, NoiseBand previous, const MicCalibration& cal) {
+    NoiseReading r;
+    r.mic = analyzer.selfTest();
+    uint16_t rms = 0;
+    if (analyzer.usableRms(r.mic, rms)) {
+      const NoiseReading level = NoiseClassifier::makeReading(previous, rms, cal);
+      r.valid = true;
+      r.rms = level.rms;
+      r.band = level.band;
+    }
+    return r;
+  }
+
   template <typename Hal>
-  static bool collect(Hal& hal, RmsAccumulator& acc, uint32_t window_ms) {
+  static bool collect(Hal& hal, StereoAnalyzer& acc, uint32_t window_ms) {
     int16_t chunk[CHUNK_SAMPLES];
     const uint64_t settle = static_cast<uint64_t>(SETTLE_FRAMES) * CHANNELS;
     const uint64_t wanted =
@@ -448,6 +618,7 @@ private:
       if (seen < settle) {
         skip = static_cast<size_t>(settle - seen < n ? settle - seen : n);
       }
+      acc.skip(skip);
       acc.add(chunk + skip, n - skip);
       seen += n;
     }

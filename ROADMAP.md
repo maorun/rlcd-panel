@@ -22,15 +22,6 @@ No open item.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-### Microphone self-test in the diagnostics view
-
-- **Rank:** Feature model. Total 29/40 (use 3, setup 9, harmony 8, safety 9). Effort S.
-- **Area:** Audio / Diagnostics.
-- **Code:** `rlcd_panel/es7210_mic.h`, `rlcd_panel/dashboard_view.h`, `tests/test_firmware_logic.cpp`.
-- **Problem:** `NoiseSampler` averages both microphones into one value. A dead microphone, a stuck channel, or a missing I2S clock gives a low reading, and the view shows `QUIET` as if the room is quiet.
-- **Goal:** Accumulate RMS, DC mean, and the peak per channel during the existing window. Classify each channel as `OK`, `SILENT` (all samples zero), `STUCK` (peak to peak below a small limit), `DC` (mean offset above a limit), or `CLIP` (peak at full scale). Report a channel imbalance above 10 dB. Show `MIC1: OK MIC2: SILENT` in the diagnostics view. Do not show a noise band when both channels fail.
-- **Acceptance test:** Host tests feed synthetic stereo buffers: two good channels, one zero channel, a constant channel, a DC offset, a clipped channel, and an imbalance. The tests also check the line width in the view.
-
 ### Speaker to microphone loopback test
 
 - **Rank:** Feature model. Total 29/40 (use 2, setup 9, harmony 10, safety 8). Effort M.

@@ -1,8 +1,10 @@
 #include <assert.h>
+#include <algorithm>
 #include <initializer_list>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <vector>
 
 #include "../rlcd_panel/audio_alert.h"
 #include "../rlcd_panel/battery_monitor.h"
@@ -2012,7 +2014,7 @@ void testAudioStatePersistence() {
   assert(!d.muted && d.alert_mask == ALERT_NONE);
 }
 
-// Fake ADC for the sampler: serves a constant-amplitude square wave, counts the power calls.
+// Fake ADC for the sampler: serves a constant-amplitude square wave on both channels, counts the power calls.
 struct FakeMicHal {
   bool bus_ok = true;
   bool adc_ok = true;
@@ -2028,7 +2030,8 @@ struct FakeMicHal {
       return 0;
     }
     for (size_t i = 0; i < count; ++i) {
-      samples[i] = (i & 1) ? static_cast<int16_t>(-amplitude) : amplitude;
+      // Square wave per channel: the sign alternates per stereo frame, so the mean is zero
+      samples[i] = ((i / 2) & 1) ? static_cast<int16_t>(-amplitude) : amplitude;
     }
     return count;
   }
@@ -2174,7 +2177,9 @@ void testNoiseSamplerPowersDownOnEveryPath() {
     }
   } settle;
   r = NoiseSampler::measure(settle, NoiseBand::QUIET, 1000);
-  assert(r.valid && r.rms == 0 && r.band == NoiseBand::QUIET);
+  // The window after the settling time is silent: both channels are SILENT, so there is no band
+  assert(!r.valid && r.mic.valid && r.mic.bothFailed());
+  assert(r.mic.channel[0] == MicStatus::SILENT && r.mic.channel[1] == MicStatus::SILENT);
 }
 
 void testSdLogNoiseColumns() {
@@ -2361,7 +2366,7 @@ void testDiagnosticsNoiseIndicator() {
 
   // No clipping with the widest text: blank right and bottom margins, and the line ends
   // inside the screen ("NOISE: MODERATE -96 DBFS" = 288 px from x = 10)
-  const NoiseReading widest = {true, 0, NoiseBand::MODERATE}; // -96 DB: widest number
+  const NoiseReading widest = {true, 0, NoiseBand::MODERATE, MicSelfTest{}}; // -96 DB: widest number
   St7305Framebuffer wide;
   render(wide, widest);
   St7305Framebuffer* frames[] = {&none, &quiet, &moderate, &loud, &wide};
@@ -2394,6 +2399,303 @@ void testDiagnosticsNoiseIndicator() {
   DashboardView::renderMode(a, DisplayMode::SENSOR_STATS, onboard, battery, nullptr, 0, info, "88:88", 0);
   DashboardView::renderMode(b, DisplayMode::SENSOR_STATS, onboard, battery, nullptr, 0, SystemInfo{}, "88:88", 0);
   assert(memcmp(a.data(), b.data(), RLCD_BUFFER_SIZE) == 0);
+}
+
+// Stereo buffer generator: fills `frames` interleaved frames from one function per channel.
+template <typename F0, typename F1>
+std::vector<int16_t> makeStereo(size_t frames, F0 mic1, F1 mic2) {
+  std::vector<int16_t> buf(frames * 2);
+  for (size_t i = 0; i < frames; ++i) {
+    buf[2 * i] = mic1(i);
+    buf[2 * i + 1] = mic2(i);
+  }
+  return buf;
+}
+
+int16_t squareWave(size_t i, int16_t amplitude) {
+  return ((i / 4) & 1) ? static_cast<int16_t>(-amplitude) : amplitude;
+}
+
+MicSelfTest analyzeStereo(const std::vector<int16_t>& buf) {
+  StereoAnalyzer a;
+  a.add(buf.data(), buf.size());
+  return a.selfTest();
+}
+
+void testMicSelfTestClassification() {
+  const size_t N = 4000;
+  auto good = [](size_t i) { return squareWave(i, 1000); };
+  auto zero = [](size_t) { return static_cast<int16_t>(0); };
+  auto constant = [](size_t) { return static_cast<int16_t>(700); };
+  auto dc = [](size_t i) { return static_cast<int16_t>(8000 + squareWave(i, 500)); };
+  auto negative_dc = [](size_t i) { return static_cast<int16_t>(-8000 + squareWave(i, 500)); };
+  auto clipped = [](size_t i) { return (i / 4) & 1 ? INT16_MIN : INT16_MAX; };
+
+  // No samples: not valid
+  assert(!StereoAnalyzer{}.selfTest().valid);
+
+  // Two good channels
+  MicSelfTest t = analyzeStereo(makeStereo(N, good, good));
+  assert(t.valid && t.channel[0] == MicStatus::OK && t.channel[1] == MicStatus::OK);
+  assert(t.channelOk(0) && t.channelOk(1) && !t.bothFailed());
+  assert(t.imbalance_db == 0 && !t.imbalanced());
+
+  // One zero channel
+  t = analyzeStereo(makeStereo(N, good, zero));
+  assert(t.channel[0] == MicStatus::OK && t.channel[1] == MicStatus::SILENT);
+  assert(!t.bothFailed());
+  t = analyzeStereo(makeStereo(N, zero, good));
+  assert(t.channel[0] == MicStatus::SILENT && t.channel[1] == MicStatus::OK);
+
+  // A constant channel (peak to peak 0) is STUCK, not SILENT
+  t = analyzeStereo(makeStereo(N, constant, good));
+  assert(t.channel[0] == MicStatus::STUCK && t.channel[1] == MicStatus::OK);
+  // A peak to peak of 1 is still stuck, a peak to peak of 2 passes
+  t = analyzeStereo(makeStereo(N, [](size_t i) { return static_cast<int16_t>(i & 1); }, good));
+  assert(t.channel[0] == MicStatus::STUCK);
+  t = analyzeStereo(makeStereo(N, [](size_t i) { return static_cast<int16_t>((i & 1) * 2); }, good));
+  assert(t.channel[0] == MicStatus::OK);
+
+  // DC offset above the limit, in both directions
+  t = analyzeStereo(makeStereo(N, dc, good));
+  assert(t.channel[0] == MicStatus::DC && t.channel[1] == MicStatus::OK);
+  t = analyzeStereo(makeStereo(N, good, negative_dc));
+  assert(t.channel[1] == MicStatus::DC);
+  // A mean just inside the limit passes
+  t = analyzeStereo(makeStereo(
+      N, [](size_t i) { return static_cast<int16_t>(MicChannelStats::DC_MEAN_LIMIT + squareWave(i, 500)); }, good));
+  assert(t.channel[0] == MicStatus::OK);
+  // A mean just above the limit is DC
+  t = analyzeStereo(makeStereo(
+      N, [](size_t i) { return static_cast<int16_t>(MicChannelStats::DC_MEAN_LIMIT + 1 + squareWave(i, 500)); }, good));
+  assert(t.channel[0] == MicStatus::DC);
+
+  // Clipped channel: the peak reaches full scale
+  t = analyzeStereo(makeStereo(N, good, clipped));
+  assert(t.channel[0] == MicStatus::OK && t.channel[1] == MicStatus::CLIP);
+  // A single full scale glitch is not clipping
+  t = analyzeStereo(makeStereo(N, [](size_t i) { return i == 100 ? INT16_MAX : squareWave(i, 1000); }, good));
+  assert(t.channel[0] == MicStatus::OK);
+
+  // Both channels failing
+  t = analyzeStereo(makeStereo(N, zero, constant));
+  assert(t.bothFailed() && t.channel[0] == MicStatus::SILENT && t.channel[1] == MicStatus::STUCK);
+
+  // Labels
+  assert(strcmp(MicSelfTest::label(MicStatus::OK), "OK") == 0);
+  assert(strcmp(MicSelfTest::label(MicStatus::SILENT), "SILENT") == 0);
+  assert(strcmp(MicSelfTest::label(MicStatus::STUCK), "STUCK") == 0);
+  assert(strcmp(MicSelfTest::label(MicStatus::DC), "DC") == 0);
+  assert(strcmp(MicSelfTest::label(MicStatus::CLIP), "CLIP") == 0);
+
+  // Chunks of odd size keep the channel order
+  const std::vector<int16_t> buf = makeStereo(N, good, zero);
+  StereoAnalyzer odd;
+  for (size_t pos = 0; pos < buf.size();) {
+    const size_t n = std::min<size_t>(7, buf.size() - pos);
+    odd.add(buf.data() + pos, n);
+    pos += n;
+  }
+  assert(odd.selfTest().channel[0] == MicStatus::OK && odd.selfTest().channel[1] == MicStatus::SILENT);
+  // Skipped samples (settling) keep the channel order, also for an odd skip count
+  StereoAnalyzer skipped;
+  skipped.skip(1);
+  skipped.add(buf.data() + 1, buf.size() - 1); // starts with MIC2: swapped without skip()
+  assert(skipped.selfTest().channel[0] == MicStatus::OK && skipped.selfTest().channel[1] == MicStatus::SILENT);
+}
+
+void testMicSelfTestImbalance() {
+  const size_t N = 4000;
+  auto level = [](int16_t amp) { return [amp](size_t i) { return squareWave(i, amp); }; };
+
+  // Equal levels, and a 6 dB difference (factor 2), are inside the limit
+  MicSelfTest t = analyzeStereo(makeStereo(N, level(1000), level(1000)));
+  assert(t.imbalance_db == 0 && !t.imbalanced());
+  t = analyzeStereo(makeStereo(N, level(2000), level(1000)));
+  assert(t.imbalance_db == 6 && !t.imbalanced());
+  // Exactly 10 dB is not above the limit
+  t = analyzeStereo(makeStereo(N, level(3162), level(1000)));
+  assert(t.imbalance_db == 10 && !t.imbalanced());
+  // 20 dB (factor 10) is reported, in both directions
+  t = analyzeStereo(makeStereo(N, level(10000), level(1000)));
+  assert(t.imbalance_db == 20 && t.imbalanced());
+  t = analyzeStereo(makeStereo(N, level(1000), level(10000)));
+  assert(t.imbalance_db == 20 && t.imbalanced());
+  assert(t.channel[0] == MicStatus::OK && t.channel[1] == MicStatus::OK);
+  // A failed channel has no level to compare: no imbalance
+  t = analyzeStereo(makeStereo(N, level(1000), [](size_t) { return static_cast<int16_t>(0); }));
+  assert(t.imbalance_db == 0 && !t.imbalanced());
+}
+
+void testNoiseSamplerWithSelfTest() {
+  // A sampler HAL that serves a caller-defined stereo signal
+  struct SignalHal : FakeMicHal {
+    int16_t (*mic1)(size_t) = nullptr;
+    int16_t (*mic2)(size_t) = nullptr;
+    size_t frame = 0;
+    size_t read(int16_t* samples, size_t count) {
+      for (size_t i = 0; i + 1 < count + 1; i += 2) {
+        samples[i] = mic1(frame);
+        if (i + 1 < count) samples[i + 1] = mic2(frame);
+        ++frame;
+      }
+      return count;
+    }
+  };
+  auto good = [](size_t i) { return squareWave(i, 1000); };
+  auto quiet = [](size_t i) { return squareWave(i, 10); };
+  auto zero = [](size_t) { return static_cast<int16_t>(0); };
+
+  // Two good channels: the level is the combined RMS and both channels are OK
+  SignalHal both;
+  both.mic1 = good; both.mic2 = good;
+  NoiseReading r = NoiseSampler::measure(both, NoiseBand::QUIET, 1000);
+  assert(r.valid && r.rms == 1000 && r.mic.valid);
+  assert(r.mic.channel[0] == MicStatus::OK && r.mic.channel[1] == MicStatus::OK);
+  assert(both.shutdown_calls == 1 && both.end_calls == 1);
+
+  // One dead channel: the level is that of the working microphone, not halved
+  SignalHal one;
+  one.mic1 = zero; one.mic2 = good;
+  r = NoiseSampler::measure(one, NoiseBand::QUIET, 1000);
+  assert(r.valid && r.rms == 1000 && r.band == NoiseBand::MODERATE);
+  assert(r.mic.channel[0] == MicStatus::SILENT && r.mic.channel[1] == MicStatus::OK);
+
+  // Both dead: no usable level, no band, but the failure is reported
+  SignalHal dead;
+  dead.mic1 = zero; dead.mic2 = zero;
+  r = NoiseSampler::measure(dead, NoiseBand::LOUD, 1000);
+  assert(!r.valid && r.rms == 0 && r.mic.valid && r.mic.bothFailed());
+  assert(dead.shutdown_calls == 1 && dead.end_calls == 1);
+
+  // Imbalance reaches the reading
+  SignalHal imb;
+  imb.mic1 = good; imb.mic2 = quiet;
+  r = NoiseSampler::measure(imb, NoiseBand::QUIET, 1000);
+  assert(r.valid && r.mic.imbalanced() && r.mic.imbalance_db == 40);
+
+  // A failed read gives no self-test at all
+  FakeMicHal cut;
+  cut.reads_before_fail = 10;
+  r = NoiseSampler::measure(cut, NoiseBand::QUIET);
+  assert(!r.valid && !r.mic.valid);
+}
+
+void testDiagnosticsMicSelfTestLine() {
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+
+  auto render = [&](St7305Framebuffer& fb, const NoiseReading& noise) {
+    SystemInfo info;
+    info.free_heap_bytes = 8u * 1024 * 1024;
+    info.uptime_ms = 0xFFFFFFFFFFull * 1000;
+    info.noise = noise;
+    fb.clear(true);
+    DashboardView::renderDiagnostics(fb, battery, info, "88:88");
+  };
+  auto inkIn = [](const St7305Framebuffer& fb, uint16_t y0, uint16_t y1, uint16_t x0 = 0) {
+    size_t ink = 0;
+    for (uint16_t y = y0; y < y1; ++y) {
+      for (uint16_t x = x0; x < St7305Framebuffer::WIDTH; ++x) {
+        ink += fb.getPixel(x, y) ? 1 : 0;
+      }
+    }
+    return ink;
+  };
+  auto same = [](const St7305Framebuffer& a, const St7305Framebuffer& b, uint16_t y0, uint16_t y1) {
+    for (uint16_t y = y0; y < y1; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        if (a.getPixel(x, y) != b.getPixel(x, y)) return false;
+      }
+    }
+    return true;
+  };
+  auto reading = [](MicStatus c1, MicStatus c2, uint8_t imbalance = 0, bool usable = true) {
+    NoiseReading r = NoiseClassifier::makeReading(NoiseBand::QUIET, 650);
+    r.valid = usable;
+    r.mic.valid = true;
+    r.mic.channel[0] = c1;
+    r.mic.channel[1] = c2;
+    r.mic.imbalance_db = imbalance;
+    return r;
+  };
+  const uint16_t Y0 = DashboardView::MIC_TEST_Y, Y1 = Y0 + 14;
+
+  // The line is at y = 224 and has ink for every state, also without a window ("MIC: --")
+  St7305Framebuffer none, ok, silent, stuck, dc, clip, imb, both_failed;
+  render(none, NoiseReading{});
+  render(ok, reading(MicStatus::OK, MicStatus::OK));
+  render(silent, reading(MicStatus::OK, MicStatus::SILENT));
+  render(stuck, reading(MicStatus::STUCK, MicStatus::OK));
+  render(dc, reading(MicStatus::DC, MicStatus::OK));
+  render(clip, reading(MicStatus::OK, MicStatus::CLIP));
+  render(imb, reading(MicStatus::OK, MicStatus::OK, 20));
+  render(both_failed, reading(MicStatus::SILENT, MicStatus::SILENT, 0, false));
+  St7305Framebuffer* all[] = {&none, &ok, &silent, &stuck, &dc, &clip, &imb, &both_failed};
+  for (St7305Framebuffer* fb : all) {
+    assert(inkIn(*fb, Y0, Y1) > 20);
+  }
+  // Every status gives a different line
+  assert(!same(ok, silent, Y0, Y1) && !same(ok, stuck, Y0, Y1) && !same(ok, dc, Y0, Y1));
+  assert(!same(ok, clip, Y0, Y1) && !same(silent, stuck, Y0, Y1) && !same(none, ok, Y0, Y1));
+  assert(!same(ok, imb, Y0, Y1)); // the imbalance is appended to the line
+  assert(same(silent, silent, Y0, Y1));
+
+  // Width: "MIC1: OK MIC2: OK" = 17 glyphs; "MIC1: SILENT MIC2: SILENT" = 25 glyphs = 300 px
+  //        "MIC1: OK MIC2: OK IMB 255 DB" = 28 glyphs = 336 px
+  assert(inkIn(ok, Y0, Y1, 10 + 17 * 12) == 0);
+  assert(inkIn(ok, Y0, Y1, 10 + 17 * 12 - 12) > 0);
+  assert(inkIn(both_failed, Y0, Y1, 10 + 25 * 12) == 0);
+  assert(inkIn(both_failed, Y0, Y1, 10 + 25 * 12 - 12) > 0);
+  St7305Framebuffer widest;
+  render(widest, reading(MicStatus::OK, MicStatus::OK, 255));
+  assert(inkIn(widest, Y0, Y1, 10 + 28 * 12) == 0);
+  assert(inkIn(widest, Y0, Y1, 10 + 28 * 12 - 12) > 0);
+  assert(10 + 28 * 12 <= St7305Framebuffer::WIDTH);
+  St7305Framebuffer wide_labels;
+  render(wide_labels, reading(MicStatus::SILENT, MicStatus::SILENT, 0, false));
+  St7305Framebuffer* frames[] = {&none, &ok, &silent, &stuck, &dc, &clip, &imb, &both_failed, &widest};
+  for (St7305Framebuffer* fb : frames) {
+    // Blank right margin, and the line stays clear of the noise line above and the status below
+    for (uint16_t y = DashboardView::HEADER_HEIGHT; y < St7305Framebuffer::HEIGHT; ++y) {
+      for (uint16_t x = St7305Framebuffer::WIDTH - 8; x < St7305Framebuffer::WIDTH; ++x) {
+        assert(!fb->getPixel(x, y));
+      }
+    }
+    assert(inkIn(*fb, 220, Y0) == 0 && inkIn(*fb, Y1 + 1, 244) == 0);
+  }
+
+  // The noise line does not depend on the self-test when the window is usable
+  assert(same(ok, silent, 204, 218));
+  assert(same(ok, imb, 204, 218));
+  // Both channels failed: no noise band. The noise line shows "NOISE: --", as without a window
+  assert(same(both_failed, none, 204, 218));
+  assert(!same(both_failed, ok, 204, 218));
+  // The same RMS with a failed channel keeps its band when the other channel works
+  assert(same(silent, ok, 204, 218));
+  // The failed state differs from "no window" only in the self-test line
+  assert(!same(both_failed, none, Y0, Y1));
+
+  // Other views ignore the self-test
+  SystemInfo info;
+  info.noise = reading(MicStatus::SILENT, MicStatus::SILENT, 0, false);
+  St7305Framebuffer a, b;
+  Shtc3Reading onboard;
+  DashboardView::renderMode(a, DisplayMode::SENSOR_STATS, onboard, battery, nullptr, 0, info, "88:88", 0);
+  DashboardView::renderMode(b, DisplayMode::SENSOR_STATS, onboard, battery, nullptr, 0, SystemInfo{}, "88:88", 0);
+  assert(memcmp(a.data(), b.data(), RLCD_BUFFER_SIZE) == 0);
+}
+
+void testPreviewDiagnosticsShowsSelfTest() {
+  St7305Framebuffer fb;
+  preview::renderScene(fb, DisplayMode::SYSTEM_DIAGNOSTICS, false);
+  size_t ink = 0;
+  for (uint16_t y = DashboardView::MIC_TEST_Y; y < DashboardView::MIC_TEST_Y + 14; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) ink += fb.getPixel(x, y) ? 1 : 0;
+  }
+  assert(ink > 100); // "MIC1: OK MIC2: OK", not the "MIC: --" placeholder
 }
 
 void testNoiseStatePersistence() {
@@ -2918,7 +3220,7 @@ void testApplyCalibrationWindow() {
   auto bad_save = [&](const MicCalibration&) { ++saves; return false; };
 
   // Success: new record, offset from the build default, band reset to the new limits
-  assert(applyCalibrationWindow(NoiseReading{true, 100, NoiseBand::QUIET}, active, reading, band, ok_save));
+  assert(applyCalibrationWindow(NoiseReading{true, 100, NoiseBand::QUIET, MicSelfTest{}}, active, reading, band, ok_save));
   assert(saves == 1 && saved.noise_floor_rms == 100 && saved.spl_offset_db == MIC_SPL_OFFSET_DB);
   assert(active.noise_floor_rms == 100 && active.calibrated);
   assert(reading.valid && reading.rms == 100 && reading.band == NoiseBand::QUIET);
@@ -2926,7 +3228,7 @@ void testApplyCalibrationWindow() {
 
   // The stored offset is replaced by the build default
   active.spl_offset_db = 120;
-  assert(applyCalibrationWindow(NoiseReading{true, 80, NoiseBand::QUIET}, active, reading, band, ok_save));
+  assert(applyCalibrationWindow(NoiseReading{true, 80, NoiseBand::QUIET, MicSelfTest{}}, active, reading, band, ok_save));
   assert(active.spl_offset_db == MIC_SPL_OFFSET_DB);
 
   // Failures change nothing: no reading, a loud room, a failed save
@@ -2936,11 +3238,11 @@ void testApplyCalibrationWindow() {
   saves = 0;
   assert(!applyCalibrationWindow(NoiseReading{}, active, reading, band, ok_save));
   assert(!applyCalibrationWindow(
-      NoiseReading{true, static_cast<uint16_t>(MicCalibration::MAX_FLOOR_RMS + 1), NoiseBand::LOUD},
+      NoiseReading{true, static_cast<uint16_t>(MicCalibration::MAX_FLOOR_RMS + 1), NoiseBand::LOUD, MicSelfTest{}},
       active, reading, band, ok_save));
-  assert(!applyCalibrationWindow(NoiseReading{true, 0, NoiseBand::QUIET}, active, reading, band, ok_save));
+  assert(!applyCalibrationWindow(NoiseReading{true, 0, NoiseBand::QUIET, MicSelfTest{}}, active, reading, band, ok_save));
   assert(saves == 0);
-  assert(!applyCalibrationWindow(NoiseReading{true, 100, NoiseBand::QUIET}, active, reading, band, bad_save));
+  assert(!applyCalibrationWindow(NoiseReading{true, 100, NoiseBand::QUIET, MicSelfTest{}}, active, reading, band, bad_save));
   assert(saves == 1);
   assert(active.noise_floor_rms == before.noise_floor_rms && !reading.valid && band == NoiseBand::MODERATE);
 }
@@ -3007,7 +3309,7 @@ void testDiagnosticsCalibrationLines() {
   MicCalibration hot;
   assert(MicCalibration::fromFloor(100, 200, hot));
   const NoiseReading loud = NoiseClassifier::makeReading(NoiseBand::QUIET, 32767, hot);
-  const NoiseReading silent = {true, 0, NoiseBand::MODERATE};
+  const NoiseReading silent = {true, 0, NoiseBand::MODERATE, MicSelfTest{}};
   St7305Framebuffer failed_fb;
   render(failed_fb, reading, cal, false, true);
   assert(!same(failed_fb, dba, 244, 258) && !same(failed_fb, busy, 244, 258));
@@ -3029,7 +3331,7 @@ void testDiagnosticsCalibrationLines() {
     }
     // The noise line stays clear of the uptime line above and the status line stays clear of it
     assert(inkIn(*fb, 182, 202) == 0);
-    assert(inkIn(*fb, 222, 242) == 0);
+    assert(inkIn(*fb, 220, 224) == 0 && inkIn(*fb, 239, 244) == 0);
   }
   assert(inkIn(wide_dba, 204, 218, 10 + 23 * 12) == 0);
   assert(inkIn(wide_dbfs, 204, 218, 10 + 24 * 12) == 0);
@@ -3405,6 +3707,11 @@ int main() {
   testNoiseSamplerPowersDownOnEveryPath();
   testNoiseHardwareConstants();
   testDiagnosticsNoiseIndicator();
+  testMicSelfTestClassification();
+  testMicSelfTestImbalance();
+  testNoiseSamplerWithSelfTest();
+  testDiagnosticsMicSelfTestLine();
+  testPreviewDiagnosticsShowsSelfTest();
   testMicSplConversionAndClamp();
   testDerivedBandLimitsWithHysteresis();
   testLongPressDetection();
