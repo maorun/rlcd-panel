@@ -8,6 +8,7 @@
 
 #ifdef ARDUINO
 #include <Arduino.h>
+#include <Preferences.h>
 #endif
 
 namespace rlcd_panel {
@@ -308,5 +309,189 @@ private:
   uint8_t head_ = 0;
   uint8_t count_ = 0;
 };
+
+// Wear counter of the cell. Every percentage point of discharge adds to `pending_pct`; 100 points
+// are one full cycle. The total lives in NVS (it survives a cell removal, RTC memory does not) and
+// is written once per charge event: when USB power starts after a discharge, or when the total
+// crosses a whole cycle. The unwritten part and the tracking state sit in RTC memory.
+// A drop of more than MAX_STEP_PCT between two readings (cell swap, bad sample) only moves the
+// baseline. A rise of up to RISE_HYSTERESIS_PCT on battery power is ADC noise and keeps the
+// baseline, so a jittering reading is not counted twice.
+class CycleTracker {
+public:
+  static constexpr int8_t MAX_STEP_PCT = 40;
+  static constexpr int8_t RISE_HYSTERESIS_PCT = 3;
+  static constexpr uint32_t MAX_TOTAL_PCT = 999990; // 9999.9 cycles
+  static constexpr uint32_t STATE_MAGIC = 0x43594331; // "CYC1"
+
+  // Fixed-layout copy for RTC memory. `check` guards against blank or damaged memory.
+  struct RtcState {
+    uint32_t magic = 0;
+    uint32_t pending_pct = 0;
+    int8_t last_pct = -1;
+    uint8_t flags = 0; // bit 0: charging, bit 1: write retry
+    uint16_t reserved = 0;
+    uint32_t check = 0;
+  };
+
+  uint32_t storedPct() const { return stored_pct_; }
+  uint32_t pendingPct() const { return pending_pct_; }
+  uint32_t totalPct() const {
+    const uint32_t t = stored_pct_ + pending_pct_;
+    return t > MAX_TOTAL_PCT ? MAX_TOTAL_PCT : t;
+  }
+  bool storeKnown() const { return store_known_; }
+
+  // Cycles in tenths (0.1 cycle = 10 percentage points); negative when the NVS total is unknown.
+  int32_t cycleTenths() const {
+    return store_known_ ? static_cast<int32_t>(totalPct() / 10) : -1;
+  }
+
+  // "CYCLES: N.N", or "CYCLES: --" for a negative value. Widest: "CYCLES: 9999.9" = 14 glyphs
+  // = 168 px at scale 2.
+  static void describe(int32_t tenths, char* out, size_t capacity) {
+    if (tenths < 0) {
+      snprintf(out, capacity, "CYCLES: --");
+    } else {
+      snprintf(out, capacity, "CYCLES: %ld.%ld", static_cast<long>(tenths / 10),
+               static_cast<long>(tenths % 10));
+    }
+  }
+
+  // Sets the NVS total; `known` is false when NVS could not be read.
+  void setStored(uint32_t pct, bool known) {
+    stored_pct_ = pct > MAX_TOTAL_PCT ? MAX_TOTAL_PCT : pct;
+    store_known_ = known;
+  }
+
+  // Adds the reading. Returns true when the caller must write totalPct() to NVS now, then call
+  // commit(). An invalid reading changes nothing.
+  bool update(const BatteryReading& reading) {
+    if (!reading.valid || reading.percentage < 0 || reading.percentage > 100) {
+      return false;
+    }
+    if (reading.usb_powered) {
+      const bool event = pending_pct_ > 0 && (!charging_ || retry_);
+      charging_ = true;
+      last_pct_ = -1; // a charging cell has no discharge baseline
+      if (event && !store_known_) {
+        retry_ = true; // the write is owed: do it as soon as NVS reads again
+      }
+      return event && store_known_;
+    }
+    charging_ = false;
+    if (last_pct_ < 0) {
+      last_pct_ = reading.percentage;
+      return retry_ && pending_pct_ > 0 && store_known_;
+    }
+    const int drop = last_pct_ - reading.percentage;
+    if (drop > 0) {
+      if (drop <= MAX_STEP_PCT) {
+        pending_pct_ += static_cast<uint32_t>(drop);
+      }
+      last_pct_ = reading.percentage;
+    } else if (-drop > RISE_HYSTERESIS_PCT) {
+      // A charger without a USB host reads as battery power: the rise is a charge event too.
+      last_pct_ = reading.percentage;
+      retry_ = retry_ || pending_pct_ > 0;
+    }
+    if (!store_known_) {
+      return false;
+    }
+    const bool milestone = (stored_pct_ + pending_pct_) / 100 > stored_pct_ / 100;
+    return milestone || (retry_ && pending_pct_ > 0);
+  }
+
+  // Result of the NVS write that update() requested. On failure the pending points stay and each
+  // following wake cycle retries until a write succeeds (a failed write costs no flash wear).
+  void commit(bool saved) {
+    if (saved) {
+      stored_pct_ = totalPct();
+      pending_pct_ = 0;
+      retry_ = false;
+    } else {
+      retry_ = true;
+    }
+  }
+
+  // One wake cycle: reads the NVS total, adds `reading` and writes once when update() asks for it.
+  // `Store` provides `bool load(uint32_t&)` and `bool save(uint32_t)` (CycleStore on the board).
+  template <typename Store>
+  void step(const BatteryReading& reading, Store& store) {
+    uint32_t stored = 0;
+    const bool known = store.load(stored);
+    setStored(stored, known);
+    if (update(reading)) {
+      commit(store.save(totalPct()));
+    }
+  }
+
+  RtcState toRtc() const {
+    RtcState r;
+    r.magic = STATE_MAGIC;
+    r.pending_pct = pending_pct_;
+    r.last_pct = last_pct_;
+    r.flags = static_cast<uint8_t>((charging_ ? 1 : 0) | (retry_ ? 2 : 0));
+    r.check = checkOf(r);
+    return r;
+  }
+
+  // Restores the tracking state; false (state unchanged) for blank or damaged memory.
+  bool fromRtc(const RtcState& r) {
+    if (r.magic != STATE_MAGIC || r.check != checkOf(r) || (r.flags & ~3u) != 0 ||
+        r.last_pct < -1 || r.last_pct > 100 || r.pending_pct > MAX_TOTAL_PCT) {
+      return false;
+    }
+    pending_pct_ = r.pending_pct;
+    last_pct_ = r.last_pct;
+    charging_ = (r.flags & 1) != 0;
+    retry_ = (r.flags & 2) != 0;
+    return true;
+  }
+
+private:
+  static uint32_t checkOf(const RtcState& r) {
+    return (r.magic ^ 0xA5C3F00Fu) + r.pending_pct * 31u + static_cast<uint8_t>(r.last_pct) * 7u +
+           r.flags * 131u;
+  }
+
+  uint32_t stored_pct_ = 0;
+  uint32_t pending_pct_ = 0;
+  int8_t last_pct_ = -1;
+  bool charging_ = false;
+  bool retry_ = false;
+  bool store_known_ = false;
+};
+
+#ifdef ARDUINO
+// NVS storage of the discharge total in percentage points. A missing key reads as 0 (new cell);
+// an unreadable namespace reports unknown.
+class CycleStore {
+public:
+  bool load(uint32_t& pct) const {
+    Preferences prefs;
+    if (!prefs.begin(NAMESPACE, false)) { // read-write open creates the namespace on first use
+      return false;
+    }
+    pct = prefs.getUInt(KEY, 0);
+    prefs.end();
+    return true;
+  }
+
+  bool save(uint32_t pct) const {
+    Preferences prefs;
+    if (!prefs.begin(NAMESPACE, false)) {
+      return false;
+    }
+    const bool ok = prefs.putUInt(KEY, pct) == sizeof(uint32_t);
+    prefs.end();
+    return ok;
+  }
+
+private:
+  static constexpr const char* NAMESPACE = "rlcd";
+  static constexpr const char* KEY = "cycle_count";
+};
+#endif
 
 } // namespace rlcd_panel

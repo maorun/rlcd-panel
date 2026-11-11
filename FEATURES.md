@@ -352,3 +352,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `HWCDC::isPlugged()` calls `usb_serial_jtag_is_connected()`. The call reports SOF traffic of an active USB host, not the VBUS level. A charger without a host data connection with an installed cell still shows `POWER: BATTERY`, unless the voltage is 4.25 V or more.
 - The SOF watchdog can lag the real state for a few milliseconds after a wake. A short false reading shows `POWER: BATTERY` for one wake cycle at most.
 - The hardware check on the board connected to a Mac is not part of the host tests.
+
+## Battery charge cycle counter in the diagnostics view
+
+- **Code:** `rlcd_panel/battery_monitor.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.
+- The diagnostics view shows `CYCLES: N.N` (line at y = 64). `CYCLES: --` shows when NVS is unreadable. The widest text `CYCLES: 9999.9` has 14 glyphs = 168 px.
+- `CycleTracker` adds each percentage drop between two wake cycles on battery power. 100 points of discharge are one cycle. The total clamps at 9999.9 cycles.
+- The total is stored in NVS (`Preferences`, namespace `rlcd`, key `cycle_count`, percentage points), because RTC memory does not survive a cell removal. The unwritten points and the tracking state stay in RTC memory (`RTC_DATA_ATTR`, checksummed), separate from `PersistentState`.
+- NVS is written once per charge event (USB power starts after a discharge) and at each whole-cycle milestone. A failed write keeps the points; each following wake cycle retries until a write succeeds. A rise of more than 3 points on battery power (a charger without a USB host) also counts as a charge event.
+- An invalid reading changes nothing. A drop of more than 40 points between two readings (cell swap) only moves the baseline. A rise of up to 3 points on battery power is ADC noise and keeps the baseline. A rise on USB power resets the baseline. A charge event with unreadable NVS stays owed until NVS reads again.
+- `tools/preview_scenes.h` shows `CYCLES: 12.3`. `docs/display_preview_diagnostics.png` and `docs/display_preview_runtime.png` are regenerated.
+- Host tests use a portable NVS stand-in with a write counter. They cover partial discharges, the milestone write, the charge detection, USB power, invalid readings, jumps, failed and unreadable NVS, the write count over 10 cycles, the RTC round trip with corrupt data, and the text bounds of the line.
+- The check on the board (NVS persistence over a power cycle) is not part of the host tests.

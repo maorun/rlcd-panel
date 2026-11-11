@@ -41,6 +41,9 @@ struct SerialSink {
 
 St7305Framebuffer g_framebuffer;
 St7305Panel g_panel;
+// Cycle counter tracking state; separate from g_state so a rejected state restore keeps it.
+RTC_DATA_ATTR CycleTracker::RtcState g_cycle_rtc;
+CycleTracker g_cycles;
 PersistentState g_state; // registry, battery, and view mode; saved to RTC memory before sleep
 portMUX_TYPE g_registry_mux = portMUX_INITIALIZER_UNLOCKED;
 Pcf85063Rtc g_rtc;
@@ -276,6 +279,7 @@ void renderDashboard() {
   info.spectrum = g_spectrum;
   info.runtime = g_state.battery_history.estimate(g_state.battery);
   info.sd_free_mb = g_sd_free_mb;
+  info.cycle_tenths = g_cycles.cycleTenths();
 
   DashboardView::renderMode(
       g_framebuffer,
@@ -402,6 +406,14 @@ void scanOnce() {
   }
 }
 
+// Adds the discharge of this wake cycle. NVS is written only when update() reports a charge event
+// or a whole cycle. The tracking state goes to RTC memory; the NVS total is the reference.
+void updateCycles() {
+  CycleStore store;
+  g_cycles.step(g_state.battery, store);
+  g_cycle_rtc = g_cycles.toRtc();
+}
+
 void refreshSensors() {
   readOnboardShtc3(g_onboard_reading);
   // After a reset of the RTC state the latch starts off: a cell at 16..19 % raises no alert until
@@ -410,6 +422,7 @@ void refreshSensors() {
   g_state.battery = BatteryMonitor::read();
   g_state.battery.low_battery = BatteryMonitor::updateLowBattery(g_state.battery, was_low);
   g_state.battery_history.record(nowMs(), g_state.battery);
+  updateCycles();
   updateRtc();
   // One sample per hour and sensor; the gate lives in the persisted state.
   g_state.history.record(
@@ -568,6 +581,7 @@ void setup() {
     cycle.begin(cause);
   }
   g_mode_controller.setMode(g_state.mode);
+  g_cycles.fromRtc(g_cycle_rtc); // blank memory after a power-on keeps the empty tracker
 
   // Empty battery protection: check the cell before any module starts. A set latch skips the BLE
   // scan, the audio, the MicroSD card and Wi-Fi; the board only reads the voltage and sleeps again.
@@ -579,6 +593,7 @@ void setup() {
     g_state.battery = protect_reading;
     g_state.battery.low_battery = true;
     g_state.battery.empty_protection = true;
+    updateCycles(); // the last discharge steps before the protection count too
     if (PowerManager::needsProtectionRender(was_protected, true)) {
       g_panel.begin();
       DashboardView::renderEmptyBattery(g_framebuffer, g_state.battery);

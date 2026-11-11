@@ -30,6 +30,7 @@ struct SystemInfo {
   LoopbackResult loopback;     // last speaker to microphone test of this wake cycle
   SpectrumReading spectrum;    // last spectrum capture; invalid shows "NO DATA"
   BatteryRuntime runtime;      // remaining battery runtime; invalid shows "--"
+  int32_t cycle_tenths = -1;   // battery charge cycles in tenths; negative (unknown) shows "--"
   int32_t sd_free_mb = -1;     // free MicroSD space in MB; negative (unmounted, unknown) shows "--"
 };
 
@@ -442,6 +443,11 @@ public:
       snprintf(line, sizeof(line), "BAT: --");
     }
     drawLine(fb, 10, 84, line);
+
+    // Cycle counter at y = 64, between the power line (ends y = 58) and the battery line (y = 84).
+    // Widest: "CYCLES: 9999.9" = 14 glyphs = 168 px.
+    CycleTracker::describe(info.cycle_tenths, line, sizeof(line));
+    drawLine(fb, 10, 64, line);
 
     // Runtime at y = 104, between the battery line (ends y = 98) and the heap line (y = 124).
     info.runtime.describe(line, sizeof(line));

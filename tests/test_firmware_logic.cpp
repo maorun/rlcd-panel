@@ -4860,6 +4860,283 @@ void testDiagnosticsSdFreeLine() {
   }
 }
 
+// ---- Battery charge cycle counter ----
+
+// Portable stand-in for NVS: counts the writes and can fail them.
+struct FakeCycleNvs {
+  uint32_t value = 0;
+  bool readable = true;
+  bool fail_writes = false;
+  int writes = 0;
+};
+
+// One wake cycle through CycleTracker::step, the path the sketch runs.
+struct FakeCycleStore {
+  FakeCycleNvs& nvs;
+  bool load(uint32_t& pct) const {
+    pct = nvs.value;
+    return nvs.readable;
+  }
+  bool save(uint32_t pct) {
+    if (nvs.fail_writes) {
+      return false;
+    }
+    nvs.value = pct;
+    ++nvs.writes;
+    return true;
+  }
+};
+
+void cycleWake(CycleTracker& t, FakeCycleNvs& nvs, int8_t pct, bool usb) {
+  BatteryReading r;
+  r.valid = pct >= 0;
+  r.percentage = pct;
+  r.voltage_v = r.valid ? 3.9f : 0.0f;
+  r.usb_powered = usb;
+  FakeCycleStore store{nvs};
+  t.step(r, store);
+}
+
+void testCycleTrackerPartialDischarges() {
+  CycleTracker t;
+  FakeCycleNvs nvs;
+  // 100 -> 60 -> 20 on battery: 80 points, no NVS write yet
+  cycleWake(t, nvs, 100, false);
+  cycleWake(t, nvs, 60, false);
+  cycleWake(t, nvs, 20, false);
+  assert(t.totalPct() == 80 && t.cycleTenths() == 8 && nvs.writes == 0);
+  // Charge event: one write with the 80 points
+  cycleWake(t, nvs, 90, true);
+  assert(nvs.writes == 1 && nvs.value == 80 && t.pendingPct() == 0);
+  // A second partial discharge crosses 100 points (80 + 25): milestone write, 1.05 cycles
+  cycleWake(t, nvs, 80, false);
+  assert(nvs.writes == 1);
+  cycleWake(t, nvs, 55, false);
+  assert(nvs.writes == 2 && nvs.value == 105 && t.cycleTenths() == 10);
+}
+
+void testCycleTrackerMilestoneWrite() {
+  CycleTracker t;
+  FakeCycleNvs nvs;
+  cycleWake(t, nvs, 100, false);
+  cycleWake(t, nvs, 70, false);
+  cycleWake(t, nvs, 40, false);
+  cycleWake(t, nvs, 10, false);
+  assert(nvs.writes == 0 && t.totalPct() == 90);
+  cycleWake(t, nvs, 0, false); // 100 points
+  assert(nvs.writes == 1 && nvs.value == 100 && t.cycleTenths() == 10);
+  char line[32];
+  CycleTracker::describe(t.cycleTenths(), line, sizeof(line));
+  assert(strcmp(line, "CYCLES: 1.0") == 0);
+}
+
+void testCycleTrackerChargeDetection() {
+  CycleTracker t;
+  FakeCycleNvs nvs;
+  cycleWake(t, nvs, 80, false);
+  cycleWake(t, nvs, 70, false);
+  // Many USB cycles in a row: one write only
+  for (int i = 0; i < 20; ++i) {
+    cycleWake(t, nvs, 75 + i / 4, true);
+  }
+  assert(nvs.writes == 1 && nvs.value == 10);
+  // After the charge the baseline restarts: 95 -> 90 adds 5, the charge itself adds nothing
+  cycleWake(t, nvs, 95, false);
+  cycleWake(t, nvs, 90, false);
+  assert(t.pendingPct() == 5 && nvs.writes == 1);
+  // USB power without a discharge since the last write: no write
+  cycleWake(t, nvs, 100, true);
+  assert(nvs.writes == 2);
+  cycleWake(t, nvs, 100, false);
+  cycleWake(t, nvs, 100, true);
+  assert(nvs.writes == 2);
+}
+
+void testCycleTrackerUsbAndInvalidReadings() {
+  CycleTracker t;
+  FakeCycleNvs nvs;
+  cycleWake(t, nvs, 90, false);
+  cycleWake(t, nvs, -1, false); // no battery: nothing changes
+  cycleWake(t, nvs, -1, true);
+  assert(t.pendingPct() == 0 && nvs.writes == 0);
+  cycleWake(t, nvs, 80, false);
+  assert(t.pendingPct() == 10); // the invalid readings kept the baseline
+  BatteryReading bad;
+  bad.valid = true;
+  bad.percentage = 101;
+  assert(!t.update(bad));
+  bad.percentage = -1;
+  assert(!t.update(bad));
+  // A jump of more than 40 points (cell swap) only moves the baseline
+  cycleWake(t, nvs, 30, false);
+  assert(t.pendingPct() == 10);
+  // A rise of 3 points is ADC noise: the baseline stays, the return adds nothing twice
+  cycleWake(t, nvs, 33, false);
+  cycleWake(t, nvs, 30, false);
+  assert(t.pendingPct() == 10);
+  // A larger rise (charge) writes the 10 points and moves the baseline up
+  cycleWake(t, nvs, 60, false);
+  assert(nvs.writes == 1 && nvs.value == 10 && t.pendingPct() == 0);
+  cycleWake(t, nvs, 55, false);
+  assert(t.pendingPct() == 5);
+}
+
+void testCycleTrackerNvsFailures() {
+  CycleTracker t;
+  FakeCycleNvs nvs;
+  nvs.fail_writes = true;
+  cycleWake(t, nvs, 100, false);
+  cycleWake(t, nvs, 70, false);
+  cycleWake(t, nvs, 40, false);
+  cycleWake(t, nvs, 50, true); // write fails, the points stay
+  assert(nvs.writes == 0 && t.pendingPct() == 60);
+  nvs.fail_writes = false;
+  cycleWake(t, nvs, 52, true); // retry on the next cycle
+  assert(nvs.writes == 1 && nvs.value == 60 && t.pendingPct() == 0);
+  cycleWake(t, nvs, 52, true);
+  assert(nvs.writes == 1);
+  // Unreadable NVS: unknown total shows "--" and nothing is written
+  CycleTracker u;
+  FakeCycleNvs bad;
+  bad.readable = false;
+  cycleWake(u, bad, 90, false);
+  cycleWake(u, bad, 10, false);
+  cycleWake(u, bad, 50, true);
+  assert(bad.writes == 0 && u.cycleTenths() < 0);
+  char line[32];
+  CycleTracker::describe(u.cycleTenths(), line, sizeof(line));
+  assert(strcmp(line, "CYCLES: --") == 0);
+}
+
+void testCycleTrackerWriteCountPerDischarge() {
+  CycleTracker t;
+  FakeCycleNvs nvs;
+  // 10 full discharge/charge rounds in 1 % steps: at most 2 writes per round (milestone + charge)
+  cycleWake(t, nvs, 100, false);
+  for (int round = 0; round < 10; ++round) {
+    for (int p = 99; p >= 0; --p) {
+      cycleWake(t, nvs, static_cast<int8_t>(p), false);
+    }
+    for (int i = 0; i < 12; ++i) {
+      cycleWake(t, nvs, static_cast<int8_t>(i * 9), true);
+    }
+    cycleWake(t, nvs, 100, false);
+  }
+  assert(nvs.writes <= 20);
+  assert(nvs.value >= 990 && nvs.value <= 1000);
+}
+
+void testCycleTrackerChargerWithoutHost() {
+  CycleTracker t;
+  FakeCycleNvs nvs;
+  cycleWake(t, nvs, 80, false);
+  cycleWake(t, nvs, 60, false);
+  // The charger shows no USB host: a rise above the 3 point noise limit is the charge event
+  cycleWake(t, nvs, 70, false);
+  assert(nvs.writes == 1 && nvs.value == 20 && t.pendingPct() == 0);
+  cycleWake(t, nvs, 80, false);
+  assert(nvs.writes == 1);
+  // A rise of 3 points is noise and writes nothing
+  cycleWake(t, nvs, 70, false);
+  cycleWake(t, nvs, 73, false);
+  assert(nvs.writes == 1);
+}
+
+void testCycleTrackerChargeEventWithUnreadableNvs() {
+  CycleTracker t;
+  FakeCycleNvs nvs;
+  cycleWake(t, nvs, 90, false);
+  cycleWake(t, nvs, 60, false);
+  nvs.readable = false;
+  cycleWake(t, nvs, 70, true); // charge event, NVS unreadable: the write is owed
+  assert(nvs.writes == 0 && t.pendingPct() == 30);
+  nvs.readable = true;
+  cycleWake(t, nvs, 75, true); // still on USB power: the owed write happens now
+  assert(nvs.writes == 1 && nvs.value == 30 && t.pendingPct() == 0);
+  cycleWake(t, nvs, 80, true);
+  assert(nvs.writes == 1);
+}
+
+void testCycleTrackerRtcRoundTrip() {
+  CycleTracker a;
+  FakeCycleNvs nvs;
+  cycleWake(a, nvs, 90, false);
+  cycleWake(a, nvs, 70, false);
+  CycleTracker b;
+  assert(b.fromRtc(a.toRtc()));
+  assert(b.pendingPct() == 20);
+  cycleWake(b, nvs, 60, false);
+  assert(b.pendingPct() == 30);
+  // Blank, damaged or invalid memory is rejected and leaves the tracker unchanged
+  CycleTracker c;
+  CycleTracker::RtcState blank;
+  assert(!c.fromRtc(blank));
+  CycleTracker::RtcState broken = a.toRtc();
+  broken.pending_pct ^= 1;
+  assert(!c.fromRtc(broken));
+  broken = a.toRtc();
+  broken.last_pct = 120;
+  broken.check = 0;
+  assert(!c.fromRtc(broken));
+  assert(c.pendingPct() == 0);
+}
+
+void testCycleDescribeFormat() {
+  char line[32];
+  CycleTracker::describe(0, line, sizeof(line));
+  assert(strcmp(line, "CYCLES: 0.0") == 0);
+  CycleTracker::describe(123, line, sizeof(line));
+  assert(strcmp(line, "CYCLES: 12.3") == 0);
+  CycleTracker::describe(99999, line, sizeof(line));
+  assert(strcmp(line, "CYCLES: 9999.9") == 0 && strlen(line) == 14);
+  // The total clamps at 9999.9 cycles
+  CycleTracker t;
+  t.setStored(5000000, true);
+  assert(t.cycleTenths() == 99999);
+}
+
+void testDiagnosticsCycleLineBounds() {
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  const int32_t values[] = {-1, 0, 123, 99999};
+  St7305Framebuffer fbs[4];
+  for (size_t i = 0; i < 4; ++i) {
+    SystemInfo info;
+    info.cycle_tenths = values[i];
+    DashboardView::renderDiagnostics(fbs[i], battery, info, "12:00");
+  }
+  const uint16_t Y0 = 64;
+  const uint16_t Y1 = 64 + 14;
+  bool ink = false;
+  for (size_t i = 1; i < 4; ++i) {
+    for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        if (fbs[i].getPixel(x, y) != fbs[0].getPixel(x, y)) {
+          assert(y >= Y0 && y < Y1); // only the cycle line changes
+        }
+      }
+    }
+  }
+  // "CYCLES: 9999.9" = 14 glyphs = 168 px: no ink right of x = 10 + 14 * 12, none in the margin
+  for (size_t i = 0; i < 4; ++i) {
+    for (uint16_t y = Y0; y < Y1; ++y) {
+      for (uint16_t x = 10 + 14 * 12; x < St7305Framebuffer::WIDTH; ++x) {
+        assert(!fbs[i].getPixel(x, y));
+      }
+      for (uint16_t x = 0; x < 10; ++x) {
+        assert(!fbs[i].getPixel(x, y));
+      }
+      for (uint16_t x = 10; x < 10 + 14 * 12; ++x) {
+        ink = ink || fbs[3].getPixel(x, y);
+      }
+    }
+  }
+  assert(ink);
+  assert(memcmp(fbs[1].data(), fbs[3].data(), St7305Framebuffer::BYTE_COUNT) != 0);
+}
+
 // ---- Speaker to microphone loopback ----
 
 std::vector<int16_t> sineBuffer(float freq_hz, float amplitude, size_t frames) {
@@ -7002,6 +7279,17 @@ void testEmptyBatteryProtectionRendering() {
 }
 
 int main() {
+  testCycleTrackerPartialDischarges();
+  testCycleTrackerMilestoneWrite();
+  testCycleTrackerChargeDetection();
+  testCycleTrackerUsbAndInvalidReadings();
+  testCycleTrackerNvsFailures();
+  testCycleTrackerWriteCountPerDischarge();
+  testCycleTrackerChargerWithoutHost();
+  testCycleTrackerChargeEventWithUnreadableNvs();
+  testCycleTrackerRtcRoundTrip();
+  testCycleDescribeFormat();
+  testDiagnosticsCycleLineBounds();
   testEmptyBatteryProtectionLatch();
   testEmptyBatteryProtectionPlan();
   testEmptyBatteryProtectionRtcRoundTrip();

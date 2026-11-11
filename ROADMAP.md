@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 
-- [ ] Battery charge cycle counter in the diagnostics view
-  - Rank: [Total: 26, Use: 4, Setup: 7, Harmony: 7, Safety: 8, Effort: M]
-  - Location: `rlcd_panel/battery_monitor.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.
-  - Goal: Show the wear of the 18650 cell. Add the battery percentage drops of each discharge. Count one full cycle for each 100 % of discharge. Show `CYCLES: N.N` in the diagnostics view. Store the counter in NVS (`Preferences`), because RTC memory does not survive a cell removal. Write NVS only once at each charge event, so the flash wear stays low.
-  - Acceptance test: Host tests cover partial discharges that add to one cycle, the charge detection, USB power, invalid readings, the NVS write count per charge event, and the text bounds in the diagnostics view. The regenerated `docs/display_preview_diagnostics.png` shows the line without clipping.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.
