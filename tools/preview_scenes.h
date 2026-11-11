@@ -2,10 +2,12 @@
 
 #include <math.h>
 #include <stdint.h>
+#include <string.h>
 
 #include "../rlcd_panel/battery_monitor.h"
 #include "../rlcd_panel/button_handler.h"
 #include "../rlcd_panel/dashboard_view.h"
+#include "../rlcd_panel/device_config.h"
 #include "../rlcd_panel/shtc3_sensor.h"
 #include "../rlcd_panel/st7305_framebuffer.h"
 #include "../rlcd_panel/switchbot_ble.h"
@@ -165,6 +167,13 @@ inline void renderScene(
     info.spectrum.peaks[b] = static_cast<uint8_t>(peak > 100.0f ? 100.0f : peak);
   }
 
+  // Sample sensor names for the tile titles and the stats view
+  DeviceConfig config;
+  strcpy(config.onboard_name, "BUERO");
+  strcpy(config.slot_name[0], "WOHNZIMMER");
+  strcpy(config.slot_name[1], "GARTEN");
+  strcpy(config.slot_name[2], "KELLER");
+
   DashboardView::renderMode(
       fb,
       mode,
@@ -176,7 +185,8 @@ inline void renderScene(
       "14:32",
       now_ms,
       &history,
-      &noise_history);
+      &noise_history,
+      &config);
 }
 
 } // namespace preview

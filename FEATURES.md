@@ -402,3 +402,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `DeviceConfig` holds no Wi-Fi setting, so the reply sends no credential.
 - `./scripts/dump-logs.sh --config [port]` sends `CONFIG`, checks the CRC-32 and prints the lines.
 - Acceptance criteria: host tests cover the parser for `CONFIG`, the rejection of `CONFIG` with arguments, the line format of each key, the CRC-32 of the output, the source line, no card access, the stop on a short write, and the parse of the output by `DeviceConfigParser` back to the same values (edge values and defaults).
+
+## Sensor names from config.ini in the tiles
+
+- **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`.
+- The new `config.ini` keys `onboard_name` and `slot1_name` to `slot3_name` set a name for each sensor. A name has 1 to 12 characters: `A` to `Z`, `0` to `9`, space and `-`. All of them have a glyph in the 5x7 font. A lowercase letter, another symbol, an empty value and a name with more than 12 characters are rejected, and the previous name stays. A sensor without a name keeps the default title.
+- `DashboardView::tileTitle()` gives the tile title: the name, else `ONBOARD SHTC3` or `SENSOR n`. The widest name (12 glyphs at scale 2) ends at x + 150 in its tile and stays left of the `STALE` badge, which starts at x + 151.
+- `DashboardView::statsLabel()` gives the label in the sensor stats view: the name, else `S1` to `S3`. The longest line (`<12 glyphs> RSSI -100 DBM`) is 312 px wide.
+- A name belongs to the slot position, not to the sensor MAC, like the calibration offsets. `DeviceConfigText::format` writes a name only when it is set, so the `CONFIG` console reply of a default config stays unchanged.
+- The four names add 52 bytes (`PowerManager::NAMES_SIZE`) to the config trailer in RTC memory. The state version is 20. The old format gives a clean start. A stored name with an unsupported character or without a terminator is rejected, even with a valid CRC.
+- Acceptance criteria: host tests cover the default titles, a 12-character name, an empty value, a name that is too long, an unsupported character, the title bounds in each tile (also with the `STALE` badge), the stats view label, the config text round trip and the RTC round trip. `docs/display_preview_dashboard.png` shows the sample names.

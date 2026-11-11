@@ -301,7 +301,8 @@ void renderDashboard() {
       clock_text,
       nowMs(),
       &g_state.history,
-      &g_state.noise_history);
+      &g_state.noise_history,
+      &g_state.config);
   g_panel.flush(g_framebuffer);
 }
 

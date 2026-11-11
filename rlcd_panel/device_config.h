@@ -48,6 +48,14 @@ struct DeviceConfig {
   static constexpr uint8_t MIN_NTP_SYNC_INTERVAL_H = 6;
   static constexpr uint8_t MAX_NTP_SYNC_INTERVAL_H = 168;
 
+  static constexpr size_t NAME_MAX_CHARS = 12; // longest sensor name; a name buffer adds the terminator
+
+  // Display names of the onboard sensor and of the three registry slots (keys onboard_name and
+  // slot1_name to slot3_name). Empty means the default title. A name holds 1 to 12 characters of
+  // A-Z, 0-9, space and '-': all of them have a glyph in the 5x7 font.
+  char onboard_name[NAME_MAX_CHARS + 1] = {0};
+  char slot_name[SLOT_COUNT][NAME_MAX_CHARS + 1] = {{0}, {0}, {0}};
+
   float temp_offset_c = DEFAULT_TEMP_OFFSET_C;
   float rh_offset_pct = DEFAULT_RH_OFFSET_PCT; // added to the onboard humidity, result clamped to 0..100 %RH
   // Offsets of the three registry slots (keys slot1_* to slot3_*), added to the decoded value of the
@@ -71,9 +79,38 @@ struct DeviceConfig {
     return v >= lo && v <= hi; // false for NaN
   }
 
+  // True for 1 to 12 characters of A-Z, 0-9, space and '-'.
+  static bool validName(const char* s, size_t n) {
+    if (s == nullptr || n == 0 || n > NAME_MAX_CHARS) {
+      return false;
+    }
+    for (size_t i = 0; i < n; ++i) {
+      const char c = s[i];
+      if (!((c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == ' ' || c == '-')) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // A stored name is empty or valid, and ends with a terminator inside the buffer.
+  static bool storedNameOk(const char (&name)[NAME_MAX_CHARS + 1]) {
+    size_t n = 0;
+    while (n < sizeof(name) && name[n] != '\0') {
+      ++n;
+    }
+    return n < sizeof(name) && (n == 0 || validName(name, n));
+  }
+
   // True when every field lies inside its range. Used for the RTC record check.
   bool valid() const {
+    if (!storedNameOk(onboard_name)) {
+      return false;
+    }
     for (size_t i = 0; i < SLOT_COUNT; ++i) {
+      if (!storedNameOk(slot_name[i])) {
+        return false;
+      }
       if (!inRange(slot_temp_offset_c[i], MIN_SLOT_TEMP_OFFSET_C, MAX_SLOT_TEMP_OFFSET_C) ||
           !inRange(slot_rh_offset_pct[i], MIN_SLOT_RH_OFFSET_PCT, MAX_SLOT_RH_OFFSET_PCT)) {
         return false;
@@ -94,7 +131,13 @@ struct DeviceConfig {
 
   bool isDefault() const {
     const DeviceConfig d;
+    if (strcmp(onboard_name, d.onboard_name) != 0) {
+      return false;
+    }
     for (size_t i = 0; i < SLOT_COUNT; ++i) {
+      if (strcmp(slot_name[i], d.slot_name[i]) != 0) {
+        return false;
+      }
       if (slot_temp_offset_c[i] != d.slot_temp_offset_c[i] || slot_rh_offset_pct[i] != d.slot_rh_offset_pct[i]) {
         return false;
       }
@@ -240,6 +283,33 @@ private:
     return true;
   }
 
+  // Keys onboard_name (index 18) and slot1_name to slot3_name (index 19..21). The value is already
+  // trimmed. A rejected value keeps the earlier name. Returns false for any other key.
+  static bool parseNameKey(const char* key, size_t key_len, const char* val, size_t val_len, DeviceConfig& cfg,
+                           bool& ok, int& index) {
+    static const char* const slot_keys[DeviceConfig::SLOT_COUNT] = {"slot1_name", "slot2_name", "slot3_name"};
+    char* target = nullptr;
+    if (keyIs(key, key_len, "onboard_name")) {
+      index = 18;
+      target = cfg.onboard_name;
+    }
+    for (size_t i = 0; target == nullptr && i < DeviceConfig::SLOT_COUNT; ++i) {
+      if (keyIs(key, key_len, slot_keys[i])) {
+        index = static_cast<int>(19 + i);
+        target = cfg.slot_name[i];
+      }
+    }
+    if (target == nullptr) {
+      return false;
+    }
+    ok = DeviceConfig::validName(val, val_len);
+    if (ok) {
+      memcpy(target, val, val_len);
+      target[val_len] = '\0';
+    }
+    return true;
+  }
+
   // Keys slot1_temp_offset_c to slot3_temp_offset_c (index 12..14) and slot1_rh_offset_pct to
   // slot3_rh_offset_pct (index 15..17). Returns false for any other key.
   static bool parseSlotKey(const char* key, size_t key_len, const char* val, size_t val_len, DeviceConfig& cfg,
@@ -334,6 +404,8 @@ private:
                         cfg.rh_offset_pct);
     } else if (parseSlotKey(key, key_len, val, val_len, cfg, ok, index)) {
       // index and ok set by parseSlotKey
+    } else if (parseNameKey(key, key_len, val, val_len, cfg, ok, index)) {
+      // index and ok set by parseNameKey
     }
     if (index < 0) {
       return; // unknown key
@@ -382,6 +454,12 @@ public:
       char key[32];
       snprintf(key, sizeof(key), "slot%u_rh_offset_pct", static_cast<unsigned>(i + 1));
       ok = putFloat(out, cap, pos, key, cfg.slot_rh_offset_pct[i]);
+    }
+    ok = ok && (cfg.onboard_name[0] == '\0' || putLine(out, cap, pos, "onboard_name", cfg.onboard_name));
+    for (size_t i = 0; ok && i < DeviceConfig::SLOT_COUNT; ++i) {
+      char key[16];
+      snprintf(key, sizeof(key), "slot%u_name", static_cast<unsigned>(i + 1));
+      ok = cfg.slot_name[i][0] == '\0' || putLine(out, cap, pos, key, cfg.slot_name[i]);
     }
     if (!ok) {
       out[0] = '\0';

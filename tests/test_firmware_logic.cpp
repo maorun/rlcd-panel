@@ -1053,7 +1053,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 19);
+  assert(PowerManager::STATE_VERSION == 20);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -1940,7 +1940,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 19);
+  assert(PowerManager::STATE_VERSION == 20);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -2375,7 +2375,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 19);
+  assert(PowerManager::STATE_VERSION == 20);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3954,7 +3954,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 19);
+  assert(PowerManager::STATE_VERSION == 20);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4735,7 +4735,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 19);
+  assert(PowerManager::STATE_VERSION == 20);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4905,7 +4905,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 19);
+  assert(PowerManager::STATE_VERSION == 20);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -4917,6 +4917,196 @@ void testSlotCalibrationOffsets() {
   bad.config.slot_rh_offset_pct[2] = 11.0f;
   assert(PowerManager::serialize(bad, buf, sizeof(buf)));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r) && r.config.isDefault());
+}
+
+void testSensorNames() {
+  const char* const keys[4] = {"onboard_name", "slot1_name", "slot2_name", "slot3_name"};
+  auto nameOf = [](DeviceConfig& c, size_t k) -> const char* { return k == 0 ? c.onboard_name : c.slot_name[k - 1]; };
+
+  // Defaults: no name, default titles
+  const DeviceConfig defaults;
+  for (size_t k = 0; k < 4; ++k) {
+    DeviceConfig d;
+    assert(nameOf(d, k)[0] == '\0');
+  }
+  assert(defaults.isDefault() && defaults.valid());
+  char title[24];
+  DashboardView::tileTitle(title, sizeof(title), nullptr, 0);
+  assert(strcmp(title, "ONBOARD SHTC3") == 0);
+  DashboardView::tileTitle(title, sizeof(title), &defaults, 0);
+  assert(strcmp(title, "ONBOARD SHTC3") == 0);
+  for (size_t t = 1; t <= 3; ++t) {
+    DashboardView::tileTitle(title, sizeof(title), &defaults, t);
+    char expect[16];
+    snprintf(expect, sizeof(expect), "SENSOR %u", static_cast<unsigned>(t));
+    assert(strcmp(title, expect) == 0);
+  }
+
+  // Valid names: 12 characters, digits, space, minus; spaces and CRLF around the value are trimmed
+  char line[96];
+  for (size_t k = 0; k < 4; ++k) {
+    DeviceConfig cfg;
+    snprintf(line, sizeof(line), "%s=KUECHE 1-2 O\n", keys[k]);
+    ConfigParseResult r = DeviceConfigParser::parse(line, strlen(line), cfg);
+    assert(r.keys_set == 1 && r.rejected == 0 && strcmp(nameOf(cfg, k), "KUECHE 1-2 O") == 0);
+    for (size_t other = 0; other < 4; ++other) {
+      assert(other == k || nameOf(cfg, other)[0] == '\0');
+    }
+    snprintf(line, sizeof(line), "%s = WOHNZIMMER-1 \r\n", keys[k]);
+    r = DeviceConfigParser::parse(line, strlen(line), cfg);
+    assert(r.keys_set == 1 && r.rejected == 0 && strcmp(nameOf(cfg, k), "WOHNZIMMER-1") == 0);
+    snprintf(line, sizeof(line), "%s=A\n", keys[k]);
+    r = DeviceConfigParser::parse(line, strlen(line), cfg);
+    assert(r.keys_set == 1 && strcmp(nameOf(cfg, k), "A") == 0);
+    snprintf(line, sizeof(line), "%s=ABCDEFGHIJKL\n", keys[k]);
+    r = DeviceConfigParser::parse(line, strlen(line), cfg);
+    assert(r.keys_set == 1 && strcmp(nameOf(cfg, k), "ABCDEFGHIJKL") == 0 && cfg.valid() && !cfg.isDefault());
+  }
+
+  // Empty, too long, unsupported characters: rejected, the earlier value stays
+  for (size_t k = 0; k < 4; ++k) {
+    for (const char* bad : {"=\n", "=   \n", "=ABCDEFGHIJKLM\n", "=abc\n", "=A_B\n", "=A.B\n", "=A:B\n", "=A%B\n",
+                            "=A/B\n", "=\xC3\x84RGER\n", "=A\tB\n", "=A=B\n"}) {
+      DeviceConfig cfg;
+      snprintf(line, sizeof(line), "%s=KEEP\n%s%s", keys[k], keys[k], bad);
+      const ConfigParseResult r = DeviceConfigParser::parse(line, strlen(line), cfg);
+      assert(r.keys_set == 1 && r.rejected == 1 && strcmp(nameOf(cfg, k), "KEEP") == 0);
+    }
+  }
+  assert(DeviceConfig::validName("A B-1", 5));
+  assert(!DeviceConfig::validName("", 0) && !DeviceConfig::validName("ABCDEFGHIJKLM", 13));
+  assert(!DeviceConfig::validName("a", 1) && !DeviceConfig::validName("A!", 2));
+
+  // Titles take the name; a missing config object keeps the default
+  DeviceConfig named;
+  strcpy(named.onboard_name, "FLUR");
+  strcpy(named.slot_name[0], "WWWWWWWWWWWW");
+  strcpy(named.slot_name[2], "KELLER 2");
+  DashboardView::tileTitle(title, sizeof(title), &named, 0);
+  assert(strcmp(title, "FLUR") == 0);
+  DashboardView::tileTitle(title, sizeof(title), &named, 1);
+  assert(strcmp(title, "WWWWWWWWWWWW") == 0);
+  DashboardView::tileTitle(title, sizeof(title), &named, 2);
+  assert(strcmp(title, "SENSOR 2") == 0);
+  DashboardView::tileTitle(title, sizeof(title), &named, 3);
+  assert(strcmp(title, "KELLER 2") == 0);
+
+  // Title bounds: the widest name stays left of the stale badge and inside the tile
+  Shtc3Reading onboard;
+  onboard.valid = true;
+  onboard.temperature_c = 21.0f;
+  onboard.humidity_pct = 50.0f;
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    slots[i].valid = true;
+    slots[i].temperature_c = 18.0f;
+    slots[i].humidity_pct = 55;
+    slots[i].battery_pct = 90;
+    slots[i].updated_ms = 100000;
+  }
+  DeviceConfig wide;
+  strcpy(wide.onboard_name, "WWWWWWWWWWWW");
+  for (size_t i = 0; i < 3; ++i) {
+    strcpy(wide.slot_name[i], "WWWWWWWWWWWW");
+  }
+  St7305Framebuffer plain, with_names, stale;
+  DashboardView::render(plain, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", 100000);
+  DashboardView::render(with_names, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", 100000, nullptr, false, &wide);
+  assert(memcmp(plain.data(), with_names.data(), RLCD_BUFFER_SIZE) != 0);
+  St7305Framebuffer same;
+  DashboardView::render(same, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", 100000, nullptr, false, &defaults);
+  assert(memcmp(plain.data(), same.data(), RLCD_BUFFER_SIZE) == 0);
+  slots[0].updated_ms = 100000 - SENSOR_STALE_TIMEOUT_MS - 1;
+  slots[1].updated_ms = 100000 - SENSOR_STALE_TIMEOUT_MS - 1;
+  slots[2].updated_ms = 100000 - SENSOR_STALE_TIMEOUT_MS - 1;
+  DashboardView::render(stale, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", 100000, nullptr, false, &wide);
+  const uint16_t tile_x[4] = {6, 204, 6, 204};
+  const uint16_t tile_y[4] = {36, 36, 168, 168};
+  const uint16_t tile_w = 190;
+  // Title glyphs end at x + 8 + 12 * 12 - 2 = x + 150; the badge starts at x + w - 35 - 4 = x + 151.
+  assert(8 + 12 * 12 - 2 < tile_w - DashboardView::STALE_BADGE_W - 4);
+  for (size_t t = 0; t < 4; ++t) {
+    bool ink_in_title = false;
+    for (uint16_t dy = 6; dy < 6 + 14; ++dy) {
+      for (uint16_t dx = 8; dx <= 150; ++dx) {
+        ink_in_title = ink_in_title || with_names.getPixel(tile_x[t] + dx, tile_y[t] + dy);
+      }
+      // Fresh tile: right of the last glyph the title band stays empty up to the tile border
+      for (uint16_t dx = 151; dx < tile_w - 1; ++dx) {
+        assert(!with_names.getPixel(tile_x[t] + dx, tile_y[t] + dy));
+      }
+    }
+    assert(ink_in_title);
+    // Stale tile (slots only): the badge area holds the badge, the glyphs stay left of it
+    if (t > 0) {
+      bool badge = false;
+      for (uint16_t dx = 151; dx < tile_w - 4; ++dx) {
+        badge = badge || stale.getPixel(tile_x[t] + dx, tile_y[t] + 6);
+      }
+      assert(badge);
+    }
+  }
+
+  // Stats view: the name replaces "S1" to "S3"; the longest line fits the 400 px width
+  St7305Framebuffer stats_plain, stats_named, stats_default;
+  SwitchBotReading live[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    live[i].valid = true;
+    live[i].rssi = -100;
+    live[i].updated_ms = 100000;
+  }
+  DashboardView::renderSensorStats(stats_plain, battery, live, MAX_SWITCHBOT_SENSORS, "12:00", 100000);
+  DashboardView::renderSensorStats(stats_default, battery, live, MAX_SWITCHBOT_SENSORS, "12:00", 100000, false, nullptr,
+                                   nullptr, &defaults);
+  DashboardView::renderSensorStats(stats_named, battery, live, MAX_SWITCHBOT_SENSORS, "12:00", 100000, false, nullptr,
+                                   nullptr, &wide);
+  assert(memcmp(stats_plain.data(), stats_default.data(), RLCD_BUFFER_SIZE) == 0);
+  assert(memcmp(stats_plain.data(), stats_named.data(), RLCD_BUFFER_SIZE) != 0);
+  char stats_line[48];
+  DashboardView::statsLabel(stats_line, sizeof(stats_line), &wide, 0);
+  assert(strcmp(stats_line, "WWWWWWWWWWWW") == 0);
+  DashboardView::statsLabel(stats_line, sizeof(stats_line), &defaults, 2);
+  assert(strcmp(stats_line, "S3") == 0);
+  DashboardView::statsLabel(stats_line, sizeof(stats_line), nullptr, 1);
+  assert(strcmp(stats_line, "S2") == 0);
+  assert((12 + 1 + 13) * 12 <= static_cast<int>(RLCD_WIDTH)); // name + " RSSI -100 DBM"
+
+  // Config text writes the names back and the parser reads them
+  DeviceConfig round = wide;
+  strcpy(round.slot_name[1], "A-B 1");
+  char text[DeviceConfigText::MAX_SIZE];
+  const size_t n = DeviceConfigText::format(round, text, sizeof(text));
+  assert(n > 0);
+  DeviceConfig back;
+  const ConfigParseResult pr = DeviceConfigParser::parse(text, n, back);
+  assert(pr.rejected == 0 && strcmp(back.onboard_name, "WWWWWWWWWWWW") == 0 && strcmp(back.slot_name[1], "A-B 1") == 0);
+  assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
+
+  // RTC round trip, state version 20, and rejection of a corrupt name
+  assert(PowerManager::STATE_VERSION == 20);
+  PersistentState s;
+  s.config = round;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(strcmp(r.config.onboard_name, "WWWWWWWWWWWW") == 0 && strcmp(r.config.slot_name[0], "WWWWWWWWWWWW") == 0);
+  assert(strcmp(r.config.slot_name[1], "A-B 1") == 0 && strcmp(r.config.slot_name[2], "WWWWWWWWWWWW") == 0);
+  PersistentState empty;
+  assert(PowerManager::serialize(empty, buf, sizeof(buf)));
+  assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.onboard_name[0] == '\0' && r.config.isDefault());
+  PersistentState bad = s;
+  bad.config.slot_name[1][0] = 'a';
+  assert(PowerManager::serialize(bad, buf, sizeof(buf)));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r) && r.config.isDefault());
+  bad = s;
+  memset(bad.config.onboard_name, 'A', sizeof(bad.config.onboard_name)); // no terminator
+  assert(PowerManager::serialize(bad, buf, sizeof(buf)));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
 }
 
 void testDiagnosticsConfigLine() {
@@ -7494,7 +7684,7 @@ void testNoiseAlertStatePersistence() {
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - 8 - 24;
+  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::NAMES_SIZE - 8 - 24;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -7587,7 +7777,7 @@ void testChimeAlertMask() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   uint8_t badbuf[PowerManager::SERIALIZED_SIZE];
   memcpy(badbuf, buf, sizeof(badbuf));
-  badbuf[PowerManager::SERIALIZED_SIZE - 4 - 7 - 24] = 16;
+  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::NAMES_SIZE - 7 - 24] = 16;
   const uint32_t crc = PowerManager::crc32(badbuf, sizeof(badbuf) - 4);
   for (int i = 0; i < 4; ++i) badbuf[sizeof(badbuf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState out;
@@ -7885,6 +8075,7 @@ int main() {
   testDeviceConfigRtcRoundTrip();
   testShtc3HumidityOffset();
   testSlotCalibrationOffsets();
+  testSensorNames();
   testNtpSyncIntervalConfig();
   testDiagnosticsConfigLine();
   testLogRetentionAge();
@@ -7953,6 +8144,6 @@ testSerialConfigNegativeSmallOffset();
   testSerialListAndInfo();
   testSerialRejectKeepsCardUnmounted();
   testSerialConsoleUsbGate();
-  printf("All 123 firmware logic test suites passed.\n");
+  printf("All 124 firmware logic test suites passed.\n");
   return 0;
 }
