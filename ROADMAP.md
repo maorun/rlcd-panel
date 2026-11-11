@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] Humidity calibration offset for the onboard SHTC3
-  - Rank: [Total: 36, Use: 7, Setup: 10, Harmony: 9, Safety: 10, Effort: S]
-  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/shtc3_sensor.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the `config.ini` key `rh_offset_pct` (default `0.0`, range `-10.0` to `10.0`). Add the offset to each onboard humidity reading after the decode, and clamp the result to 0 to 100 %RH. Store the value in the config trailer of `PersistentState` and increase the state version. The PCB self-heating changes the relative humidity also, so the temperature offset alone does not calibrate the sensor.
-  - Acceptance test: Host tests cover the default, the edges `-10.0` and `10.0`, out-of-range and malformed values, the clamp at 0 and 100 %RH, the RTC round trip, and the rejection of the old state version. The dashboard tile, the sparkline sample and the CSV row show the corrected value.
-
 - [ ] Calibration offsets for each SwitchBot and BTHome slot
   - Rank: [Total: 35, Use: 8, Setup: 9, Harmony: 8, Safety: 10, Effort: M]
   - Location: `rlcd_panel/device_config.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/bthome_ble.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`

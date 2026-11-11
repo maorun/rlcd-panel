@@ -1838,7 +1838,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 16);
+  assert(PowerManager::STATE_VERSION == 17);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -2273,7 +2273,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 16);
+  assert(PowerManager::STATE_VERSION == 17);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3852,7 +3852,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 16);
+  assert(PowerManager::STATE_VERSION == 17);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4546,7 +4546,7 @@ void testDeviceConfigRtcRoundTrip() {
       {18, 16},  // chime alert mask above range
       {19, 5},   // NTP sync interval below range
       {19, 169}, // NTP sync interval above range
-      {20, 2},   // unknown flag bit
+      {24, 2},   // unknown flag bit
   };
   for (const Corrupt& c : cases) {
     memcpy(bad, buf, sizeof(bad));
@@ -4560,7 +4560,7 @@ void testDeviceConfigRtcRoundTrip() {
   const float nan_value = NAN;
   const float far_value = 99.0f;
   for (const float f : {nan_value, far_value}) {
-    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12)}) {
+    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(20)}) {
       memcpy(bad, buf, sizeof(bad));
       memcpy(bad + cfg_pos + off, &f, 4);
       const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
@@ -4574,6 +4574,77 @@ void testDeviceConfigRtcRoundTrip() {
   const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
   for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(bad, sizeof(bad), r) && r.config.isDefault());
+}
+
+void testShtc3HumidityOffset() {
+  // 0x8000 -> 50.0 %RH
+  auto makeFrame = [](uint16_t raw_rh, uint8_t* frame) {
+    frame[0] = 0x66; frame[1] = 0x66;
+    frame[3] = static_cast<uint8_t>(raw_rh >> 8); frame[4] = static_cast<uint8_t>(raw_rh & 0xFF);
+    frame[2] = Shtc3Codec::computeCrc8(frame, 2);
+    frame[5] = Shtc3Codec::computeCrc8(frame + 3, 2);
+  };
+  uint8_t frame[6];
+  makeFrame(0x8000, frame);
+  Shtc3Reading out;
+  // Default: no humidity offset
+  assert(DeviceConfig{}.rh_offset_pct == 0.0f && DeviceConfig{}.isDefault());
+  assert(Shtc3Codec::decodeFrame(frame, sizeof(frame), out));
+  assert(approxEqual(out.humidity_pct, 50.0f, 0.01f));
+  // Edges
+  assert(Shtc3Codec::decodeFrame(frame, sizeof(frame), out, -1.9f, 10.0f));
+  assert(approxEqual(out.humidity_pct, 60.0f, 0.01f) && approxEqual(out.temperature_c, 23.1f, 0.1f));
+  assert(Shtc3Codec::decodeFrame(frame, sizeof(frame), out, -1.9f, -10.0f));
+  assert(approxEqual(out.humidity_pct, 40.0f, 0.01f));
+  // Clamp at 0 and 100 %RH
+  makeFrame(0x0000, frame);
+  assert(Shtc3Codec::decodeFrame(frame, sizeof(frame), out, -1.9f, -10.0f));
+  assert(out.humidity_pct == 0.0f);
+  makeFrame(0xFFFF, frame);
+  assert(Shtc3Codec::decodeFrame(frame, sizeof(frame), out, -1.9f, 10.0f));
+  assert(out.humidity_pct == 100.0f);
+  makeFrame(0xF000, frame); // 93.75 %RH
+  assert(Shtc3Codec::decodeFrame(frame, sizeof(frame), out, -1.9f, 10.0f));
+  assert(out.humidity_pct == 100.0f);
+
+  // Parser: edges, out of range and malformed values
+  DeviceConfig cfg;
+  auto parse = [&](const char* text) { return DeviceConfigParser::parse(text, strlen(text), cfg); };
+  assert(parse("rh_offset_pct=10.0\n").keys_set == 1 && approxEqual(cfg.rh_offset_pct, 10.0f));
+  assert(!cfg.isDefault() && cfg.valid());
+  assert(parse("rh_offset_pct = -10.0\r\n").keys_set == 1 && approxEqual(cfg.rh_offset_pct, -10.0f));
+  assert(parse("rh_offset_pct=-3.5\n").keys_set == 1 && approxEqual(cfg.rh_offset_pct, -3.5f));
+  for (const char* bad : {"rh_offset_pct=10.1\n", "rh_offset_pct=-10.1\n", "rh_offset_pct=abc\n",
+                          "rh_offset_pct=\n", "rh_offset_pct=1.2.3\n", "rh_offset_pct=nan\n",
+                          "rh_offset_pct=inf\n", "rh_offset_pct=1e1\n"}) {
+    cfg = DeviceConfig{};
+    const ConfigParseResult r = parse(bad);
+    assert(r.keys_set == 0 && r.rejected == 1 && cfg.rh_offset_pct == 0.0f);
+  }
+  cfg.rh_offset_pct = 10.5f;
+  assert(!cfg.valid());
+  cfg.rh_offset_pct = NAN;
+  assert(!cfg.valid());
+
+  // RTC round trip and rejection of the old state version
+  PersistentState s;
+  s.config.rh_offset_pct = -4.25f;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
+  assert(PowerManager::STATE_VERSION == 17);
+  buf[4] = 16;
+  const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
+  for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+
+  // The corrected value reaches the tile, the sparkline sample and the CSV row
+  makeFrame(0x8000, frame);
+  Shtc3Reading corrected;
+  assert(Shtc3Codec::decodeFrame(frame, sizeof(frame), corrected, -1.9f, 5.0f));
+  assert(approxEqual(corrected.humidity_pct, 55.0f, 0.01f));
+  assert(HumidityHistory::encode(corrected.humidity_pct) == 550);
 }
 
 void testDiagnosticsConfigLine() {
@@ -7016,7 +7087,7 @@ void testNoiseAlertStatePersistence() {
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - 4;
+  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - 8;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -7109,7 +7180,7 @@ void testChimeAlertMask() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   uint8_t badbuf[PowerManager::SERIALIZED_SIZE];
   memcpy(badbuf, buf, sizeof(badbuf));
-  badbuf[PowerManager::SERIALIZED_SIZE - 4 - 3] = 16;
+  badbuf[PowerManager::SERIALIZED_SIZE - 4 - 7] = 16;
   const uint32_t crc = PowerManager::crc32(badbuf, sizeof(badbuf) - 4);
   for (int i = 0; i < 4; ++i) badbuf[sizeof(badbuf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState out;
@@ -7404,6 +7475,7 @@ int main() {
   testDeviceConfigFileSizeLimit();
   testDeviceConfigWiring();
   testDeviceConfigRtcRoundTrip();
+  testShtc3HumidityOffset();
   testNtpSyncIntervalConfig();
   testDiagnosticsConfigLine();
   testLogRetentionAge();

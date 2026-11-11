@@ -12,6 +12,9 @@ struct DeviceConfig {
   static constexpr float DEFAULT_TEMP_OFFSET_C = -1.9f;
   static constexpr float MIN_TEMP_OFFSET_C = -10.0f;
   static constexpr float MAX_TEMP_OFFSET_C = 10.0f;
+  static constexpr float DEFAULT_RH_OFFSET_PCT = 0.0f;
+  static constexpr float MIN_RH_OFFSET_PCT = -10.0f;
+  static constexpr float MAX_RH_OFFSET_PCT = 10.0f;
   static constexpr float DEFAULT_FREEZE_ALERT_LIMIT_C = 0.0f;
   static constexpr float MIN_FREEZE_ALERT_LIMIT_C = -20.0f;
   static constexpr float MAX_FREEZE_ALERT_LIMIT_C = 15.0f;
@@ -38,6 +41,7 @@ struct DeviceConfig {
   static constexpr uint8_t MAX_NTP_SYNC_INTERVAL_H = 168;
 
   float temp_offset_c = DEFAULT_TEMP_OFFSET_C;
+  float rh_offset_pct = DEFAULT_RH_OFFSET_PCT; // added to the onboard humidity, result clamped to 0..100 %RH
   float freeze_alert_limit_c = DEFAULT_FREEZE_ALERT_LIMIT_C;
   uint8_t mold_alert_limit_rh = DEFAULT_MOLD_ALERT_LIMIT_RH;
   uint8_t chime_volume_pct = DEFAULT_CHIME_VOLUME_PCT;
@@ -56,6 +60,7 @@ struct DeviceConfig {
   // True when every field lies inside its range. Used for the RTC record check.
   bool valid() const {
     return inRange(temp_offset_c, MIN_TEMP_OFFSET_C, MAX_TEMP_OFFSET_C) &&
+           inRange(rh_offset_pct, MIN_RH_OFFSET_PCT, MAX_RH_OFFSET_PCT) &&
            inRange(freeze_alert_limit_c, MIN_FREEZE_ALERT_LIMIT_C, MAX_FREEZE_ALERT_LIMIT_C) &&
            mold_alert_limit_rh >= MIN_MOLD_ALERT_LIMIT_RH && mold_alert_limit_rh <= MAX_MOLD_ALERT_LIMIT_RH &&
            chime_volume_pct <= MAX_CHIME_VOLUME_PCT && quiet_hours_start_hour <= MAX_HOUR &&
@@ -69,7 +74,7 @@ struct DeviceConfig {
 
   bool isDefault() const {
     const DeviceConfig d;
-    return temp_offset_c == d.temp_offset_c && freeze_alert_limit_c == d.freeze_alert_limit_c &&
+    return temp_offset_c == d.temp_offset_c && rh_offset_pct == d.rh_offset_pct && freeze_alert_limit_c == d.freeze_alert_limit_c &&
            mold_alert_limit_rh == d.mold_alert_limit_rh && chime_volume_pct == d.chime_volume_pct &&
            quiet_hours_start_hour == d.quiet_hours_start_hour &&
            quiet_hours_end_hour == d.quiet_hours_end_hour && mic_spl_offset_db == d.mic_spl_offset_db &&
@@ -273,6 +278,10 @@ private:
       index = 10;
       ok = parseIntIn(val, val_len, DeviceConfig::MIN_NTP_SYNC_INTERVAL_H, DeviceConfig::MAX_NTP_SYNC_INTERVAL_H,
                       cfg.ntp_sync_interval_h);
+    } else if (keyIs(key, key_len, "rh_offset_pct")) {
+      index = 11;
+      ok = parseFloatIn(val, val_len, DeviceConfig::MIN_RH_OFFSET_PCT, DeviceConfig::MAX_RH_OFFSET_PCT,
+                        cfg.rh_offset_pct);
     }
     if (index < 0) {
       return; // unknown key

@@ -33,12 +33,15 @@ public:
   }
 
   // Decode 6-byte SHTC3 response: [T_MSB, T_LSB, T_CRC, RH_MSB, RH_LSB, RH_CRC]
-  // Applies temperature calibration offset (default: DEFAULT_TEMP_OFFSET_C = -1.9 C).
+  // Applies temperature calibration offset (default: DEFAULT_TEMP_OFFSET_C = -1.9 C) and a
+  // humidity offset (default 0), with the humidity clamped to 0..100 %RH. The offset must be a
+  // finite value; DeviceConfig::valid() and the config parser guarantee this.
   static bool decodeFrame(
       const uint8_t* frame,
       size_t len,
       Shtc3Reading& out,
-      float temp_offset_c = DEFAULT_TEMP_OFFSET_C) {
+      float temp_offset_c = DEFAULT_TEMP_OFFSET_C,
+      float rh_offset_pct = 0.0f) {
     if (frame == nullptr || len < 6) {
       return false;
     }
@@ -57,7 +60,8 @@ public:
     const float uncalibrated_temp =
         -45.0f + (175.0f * static_cast<float>(raw_temp)) / 65536.0f;
     out.temperature_c = uncalibrated_temp + temp_offset_c;
-    out.humidity_pct = (100.0f * static_cast<float>(raw_rh)) / 65536.0f;
+    float rh = (100.0f * static_cast<float>(raw_rh)) / 65536.0f + rh_offset_pct;
+    out.humidity_pct = rh < 0.0f ? 0.0f : (rh > 100.0f ? 100.0f : rh);
     out.valid = true;
     return true;
   }
