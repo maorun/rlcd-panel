@@ -18,6 +18,7 @@ struct BatteryReading {
   int8_t percentage = -1; // 0..100%, or -1 if invalid
   bool usb_powered = false;
   bool low_battery = false; // latched alert with hysteresis, see BatteryMonitor::updateLowBattery
+  bool empty_protection = false; // latched deep sleep protection, see BatteryMonitor::updateEmptyProtection
 };
 
 class BatteryMonitor {
@@ -34,6 +35,12 @@ public:
   static constexpr int8_t LOW_PCT_CLEAR  = 20;
   static constexpr float  LOW_V_SET      = 3.40f;
   static constexpr float  LOW_V_CLEAR    = 3.50f;
+
+  // Deep sleep protection against a deep discharge of the cell: set below 3.30 V on battery power,
+  // cleared at 3.50 V or more or on USB power. The gap prevents flicker while the unloaded cell
+  // recovers its voltage in sleep.
+  static constexpr float PROTECT_V_SET   = 3.30f;
+  static constexpr float PROTECT_V_CLEAR = 3.50f;
 
   static int8_t voltageToPercent(float voltage_v) {
     if (voltage_v <= 0.5f) {
@@ -72,11 +79,38 @@ public:
     return was_low && !above_clear;
   }
 
+  // Returns the new protection state for `reading`. `was_latched` is the state of the previous
+  // wake cycle. USB power ends the protection. An invalid reading (no battery or a failed ADC
+  // read) never sets it and holds a set latch, because a bad sample must not wake the modules.
+  static bool updateEmptyProtection(const BatteryReading& reading, bool was_latched) {
+    if (!reading.valid) {
+      return was_latched;
+    }
+    if (reading.usb_powered) {
+      return false;
+    }
+    if (reading.voltage_v < PROTECT_V_SET) {
+      return true;
+    }
+    return was_latched && reading.voltage_v < PROTECT_V_CLEAR;
+  }
+
 #ifdef ARDUINO
   static BatteryReading read() {
     // analogReadMilliVolts utilizes ESP32-S3 eFuse factory calibration curve
     const uint32_t raw_mv = analogReadMilliVolts(PIN_BAT_ADC);
     return decodeMillivolts(raw_mv);
+  }
+
+  // Mean of four ADC samples 5 ms apart. The protection check uses it, so one load dip cannot
+  // latch the warning.
+  static BatteryReading readAveraged() {
+    uint32_t sum_mv = 0;
+    for (int i = 0; i < 4; ++i) {
+      sum_mv += analogReadMilliVolts(PIN_BAT_ADC);
+      delay(5);
+    }
+    return decodeMillivolts(sum_mv / 4);
   }
 #endif
 };

@@ -304,3 +304,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Each of the 4 tiles shows one scale-1 line, for example `DP 9.3C VPD 1.2K` (`K` is kPa). The line sits at `y + 86`, between the sparkline box and the battery line, and ends inside the 190 px tile. A stale or invalid tile shows `DP -- VPD --`.
 - The values are calculated for each render. No RTC state changes and the state version stays the same.
 - Host tests cover the reference point, 0 and 100 %RH, -10 C and -20 C, NaN, infinite and out-of-range input, the text format, the line position in all 4 tiles, and the dashes for a stale and a missing sensor.
+
+## Deep sleep protection for an empty battery
+
+- **Code:** `rlcd_panel/battery_monitor.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.
+- `BatteryMonitor::updateEmptyProtection` sets `BatteryReading::empty_protection` below 3.30 V on battery power. 3.30 V sets nothing. The latch clears at 3.50 V or more, or on USB power. An invalid reading never sets the latch and holds a set latch.
+- `setup()` reads the cell before any module starts. While the latch is set, the wake cycle skips the BLE scan, the audio, the MicroSD card, Wi-Fi and the NTP sync. It only saves the RTC state and sleeps.
+- `DashboardView::renderEmptyBattery` draws the full-screen warning `BATTERY EMPTY - CHARGE NOW` once, in the cycle that sets the latch. The reflective panel keeps the image without power, so later cycles leave the display alone.
+- `PowerManager::planProtectedSleep` sleeps 3600 s (`PROTECTED_SLEEP_US`) with the `KEY` wakeup. The `KEY` wakeup stays off while the button is held. A `KEY` wakeup checks the voltage again.
+- The latch uses bit 3 (value 8) of the battery flags byte in RTC memory. The state version is 13. The old format gives a clean start. A power-on clears the latch and checks the cell again.
+- The preview scene `display_preview_battery_empty` shows the warning at 3.29 V.
+- Host tests cover 3.29 V and 3.30 V, the hysteresis at 3.49 V and 3.50 V, USB power, an invalid reading, the module gate, the render-once rule, the 3600 s plan, the RTC round trip with a corrupt flag bit, and the preview scene.
+- Not verified: the awake time per hour on the board with a lab supply.

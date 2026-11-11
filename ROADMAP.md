@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] Deep sleep protection for an empty battery
-  - Rank: [Total: 34, Use: 8, Setup: 7, Harmony: 9, Safety: 10, Effort: M]
-  - Location: `rlcd_panel/battery_monitor.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.
-  - Goal: Prevent a deep discharge of the 18650 cell. Below 3.30 V on battery power, draw a full-screen warning `BATTERY EMPTY - CHARGE NOW` once. Then skip the BLE scan, the audio, the MicroSD card and Wi-Fi. Sleep with a 3600 s timer and the `KEY` wakeup. The reflective panel keeps the warning without power. Leave this mode at 3.50 V or more, or on USB power. Keep the latch in RTC memory.
-  - Acceptance test: Host tests cover the entry at 3.29 V, no entry at 3.30 V, the exit hysteresis, USB power, an invalid reading, the skipped modules, the sleep time, and the RTC round trip of the latch. A preview scene shows the warning. On the board with a lab supply, the awake time per hour in this mode is below 1 s.
-
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
 - [ ] 24-hour minimum and maximum records in the stats view
