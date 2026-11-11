@@ -22,15 +22,7 @@ No open item.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-### 24-hour noise history in the stats view
-
-- **Rank:** Feature model. Total 28/40 (use 6, setup 4, harmony 9, safety 9). Effort S.
-- **Area:** Visuals / Audio.
-- **Code:** `rlcd_panel/sparkline.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `tools/preview_scenes.h`.
-- **Dependency:** "MicroSD noise logging" gives one hourly noise value.
-- **Problem:** The display shows only the last noise reading. The noise trend over the day is visible only in the CSV file.
-- **Goal:** Store 24 hourly noise values (one byte each, dB) in RTC memory and increase the state version. Draw a noise sparkline with the minimum and maximum of the last 24 h in the sensor stats view. Skip invalid hours. Add the curve to the preview scenes.
-- **Acceptance test:** Host tests cover the FIFO over 24+ samples, invalid samples, the pixel bounds, the RTC round trip with a corrupt field, and the old state version that gives a clean start. The preview generator renders the stats view with the curve.
+No open item.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 

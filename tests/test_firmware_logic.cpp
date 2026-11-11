@@ -1474,7 +1474,7 @@ void testHistoryPersistence() {
   assert(rejected.history.slots[0].size() == 0);
 
   // Each corrupt field with a valid CRC is rejected: head, sample range, sampled flag
-  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE - 1;
+  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE - PowerManager::NOISE_HISTORY_SIZE - 1;
   // Sample bytes: low byte at ring_pos + 2, high byte at ring_pos + 3 (little endian)
   const size_t cases[5][2] = {
       {ring_pos + 1, 24}, {ring_pos + 3, 0x7F}, {sampled_pos, 2}, {ring_pos + 3, 0xFF}, {ring_pos + 3, 0x04}};
@@ -1489,6 +1489,235 @@ void testHistoryPersistence() {
     PersistentState x;
     assert(!PowerManager::deserialize(b, sizeof(b), x));
   }
+}
+
+void testNoiseHistoryFifo() {
+  NoiseHistory h;
+  assert(h.size() == 0 && h.validCount() == 0);
+  uint8_t lo = 7;
+  uint8_t hi = 7;
+  assert(!h.range(lo, hi));
+  assert(h.at(0) == NoiseHistory::INVALID);
+
+  // 30 samples: the 6 oldest drop out and the order stays oldest first
+  for (int i = 0; i < 30; ++i) {
+    h.push(static_cast<uint8_t>(30 + i));
+  }
+  assert(h.size() == NoiseHistory::CAPACITY);
+  for (size_t i = 0; i < NoiseHistory::CAPACITY; ++i) {
+    assert(h.at(i) == 36 + i);
+  }
+  assert(h.at(NoiseHistory::CAPACITY) == NoiseHistory::INVALID);
+  assert(h.range(lo, hi) && lo == 36 && hi == 59);
+
+  // Invalid hours keep their place but stay out of the range
+  NoiseHistory g;
+  g.push(50);
+  g.pushInvalid();
+  g.push(40);
+  g.pushInvalid();
+  assert(g.size() == 4 && g.validCount() == 2);
+  assert(g.range(lo, hi) && lo == 40 && hi == 50);
+  assert(g.at(1) == NoiseHistory::INVALID && !NoiseHistory::isValid(g.at(3)));
+
+  // Only invalid hours give no range
+  NoiseHistory bad;
+  bad.pushInvalid();
+  bad.pushInvalid();
+  assert(!bad.range(lo, hi) && bad.validCount() == 0);
+
+  // Encoding clamps; a raw value above 140 that is not the sentinel is clamped
+  assert(NoiseHistory::encode(-5) == 0);
+  assert(NoiseHistory::encode(75) == 75);
+  assert(NoiseHistory::encode(300) == NoiseHistory::MAX_DB);
+  NoiseHistory c;
+  c.push(200);
+  assert(c.at(0) == NoiseHistory::MAX_DB);
+
+  // Restore rejects a bad ring
+  uint8_t raw[NoiseHistory::CAPACITY] = {};
+  NoiseHistory r;
+  assert(r.restore(24, 23, raw));
+  assert(!r.restore(25, 0, raw));
+  assert(!r.restore(0, 24, raw));
+  assert(!r.restore(0, 0, nullptr));
+  raw[5] = 141;
+  assert(!r.restore(3, 3, raw));
+  raw[5] = NoiseHistory::INVALID;
+  assert(r.restore(3, 3, raw));
+  r.clear();
+  assert(r.size() == 0);
+}
+
+void testNoiseSparklineBounds() {
+  // Every pixel stays inside the box, also with invalid hours and full range values
+  NoiseHistory h;
+  for (int i = 0; i < 24; ++i) {
+    if (i % 5 == 2) {
+      h.pushInvalid();
+    } else {
+      h.push(i % 2 == 0 ? 0 : NoiseHistory::MAX_DB);
+    }
+  }
+  const uint16_t bx = 20, by = 30, bw = 60, bh = 14;
+  St7305Framebuffer fb;
+  fb.clear(false);
+  assert(Sparkline::renderNoise(fb, bx, by, bw, bh, h));
+  size_t ink = 0;
+  for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      if (fb.getPixel(x, y)) {
+        ++ink;
+        assert(x >= bx && x < bx + bw && y >= by && y < by + bh);
+      }
+    }
+  }
+  assert(ink > 20);
+
+  // No valid sample or an empty box draws nothing
+  NoiseHistory none;
+  none.pushInvalid();
+  St7305Framebuffer blank;
+  blank.clear(false);
+  assert(!Sparkline::renderNoise(blank, bx, by, bw, bh, none));
+  assert(!Sparkline::renderNoise(blank, bx, by, 0, bh, h));
+  assert(!Sparkline::renderNoise(blank, bx, by, bw, 0, h));
+  for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      assert(!blank.getPixel(x, y));
+    }
+  }
+
+  // A flat curve gets the minimum span, also at the ends of the range
+  NoiseHistory flat;
+  flat.push(0);
+  flat.push(0);
+  Sparkline::Scale scale;
+  assert(Sparkline::computeNoiseScale(flat, scale));
+  assert(scale.lo == 0 && scale.hi == Sparkline::NOISE_MIN_SPAN);
+  NoiseHistory loud;
+  loud.push(NoiseHistory::MAX_DB);
+  assert(Sparkline::computeNoiseScale(loud, scale));
+  assert(scale.hi == NoiseHistory::MAX_DB && scale.hi - scale.lo == Sparkline::NOISE_MIN_SPAN);
+
+  // A gap breaks the line: the invalid hour between two samples leaves its column empty
+  NoiseHistory gap;
+  gap.push(30);
+  gap.pushInvalid();
+  gap.push(60);
+  St7305Framebuffer gf;
+  gf.clear(false);
+  assert(Sparkline::renderNoise(gf, 0, 0, 100, 20, gap));
+  const uint16_t col_mid = Sparkline::sampleColumn(1, 3, 100);
+  for (uint16_t y = 0; y < 20; ++y) {
+    assert(!gf.getPixel(col_mid, y));
+  }
+}
+
+void testNoiseHistoryStatsView() {
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  Shtc3Reading onboard;
+  BatteryReading battery;
+  SystemInfo info;
+  NoiseHistory h;
+  for (int i = 0; i < 24; ++i) {
+    h.push(static_cast<uint8_t>(40 + i));
+  }
+  St7305Framebuffer with, without, invalid_only;
+  DashboardView::renderMode(
+      with, DisplayMode::SENSOR_STATS, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info, "12:34", 0,
+      nullptr, &h);
+  DashboardView::renderMode(
+      without, DisplayMode::SENSOR_STATS, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info, "12:34", 0);
+  NoiseHistory inv;
+  inv.pushInvalid();
+  DashboardView::renderMode(
+      invalid_only, DisplayMode::SENSOR_STATS, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info, "12:34",
+      0, nullptr, &inv);
+  // No valid hour: the view equals the view without a history
+  assert(memcmp(invalid_only.data(), without.data(), St7305Framebuffer::BYTE_COUNT) == 0);
+  assert(memcmp(with.data(), without.data(), St7305Framebuffer::BYTE_COUNT) != 0);
+  // The trend only changes pixels in the noise band, between the sensor blocks and the battery line
+  for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      if (with.getPixel(x, y) != without.getPixel(x, y)) {
+        assert(y >= DashboardView::NOISE_SPARKLINE_Y - 2 && y < 268);
+        assert(x < DashboardView::NOISE_SPARKLINE_X + DashboardView::NOISE_SPARKLINE_W);
+      }
+    }
+  }
+}
+
+void testNoiseHistoryPersistence() {
+  PersistentState s;
+  for (int i = 0; i < 30; ++i) {
+    if (i % 7 == 3) {
+      s.noise_history.pushInvalid();
+    } else {
+      s.noise_history.push(static_cast<uint8_t>(35 + i));
+    }
+  }
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.noise_history.size() == 24);
+  for (size_t i = 0; i < 24; ++i) {
+    assert(r.noise_history.at(i) == s.noise_history.at(i));
+  }
+  assert(r.noise_history.head() == s.noise_history.head());
+
+  // Corrupt fields behind a valid checksum are rejected
+  const size_t pos = PowerManager::HEADER_SIZE + MAX_SWITCHBOT_SENSORS * PowerManager::SLOT_SIZE +
+      PowerManager::HISTORY_SIZE;
+  const struct { size_t offset; uint8_t value; } patches[] = {
+      {0, 25},  // count above capacity
+      {1, 24},  // head outside the ring
+      {2, 141}, // sample above 140 dB that is not the invalid marker
+  };
+  for (const auto& p : patches) {
+    uint8_t bad[PowerManager::SERIALIZED_SIZE];
+    memcpy(bad, buf, sizeof(bad));
+    bad[pos + p.offset] = p.value;
+    const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
+    for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+    PersistentState rejected;
+    assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+    assert(rejected.noise_history.size() == 0);
+  }
+
+  // The previous state version gives a clean start
+  assert(PowerManager::STATE_VERSION == 8);
+  uint8_t old[PowerManager::SERIALIZED_SIZE];
+  memcpy(old, buf, sizeof(old));
+  old[4] = 7;
+  const uint32_t crc = PowerManager::crc32(old, sizeof(old) - 4);
+  for (int i = 0; i < 4; ++i) old[sizeof(old) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  PersistentState clean;
+  assert(!PowerManager::deserialize(old, sizeof(old), clean));
+  assert(clean.noise_history.size() == 0 && clean.boot_count == 0);
+}
+
+void testPreviewStatsShowNoiseCurve() {
+  using namespace rlcd_panel::preview;
+  St7305Framebuffer stats;
+  stats.clear(true);
+  renderScene(stats, DisplayMode::SENSOR_STATS, false, false);
+  size_t ink = 0;
+  for (uint16_t y = DashboardView::NOISE_SPARKLINE_Y; y < DashboardView::NOISE_SPARKLINE_Y + DashboardView::NOISE_SPARKLINE_H; ++y) {
+    for (uint16_t x = DashboardView::NOISE_SPARKLINE_X; x < DashboardView::NOISE_SPARKLINE_X + DashboardView::NOISE_SPARKLINE_W; ++x) {
+      ink += stats.getPixel(x, y) ? 1 : 0;
+    }
+  }
+  assert(ink > 20);
+  // The trend text line has ink
+  size_t text_ink = 0;
+  for (uint16_t y = DashboardView::NOISE_TREND_Y; y < DashboardView::NOISE_TREND_Y + 12; ++y) {
+    for (uint16_t x = 10; x < 200; ++x) {
+      text_ink += stats.getPixel(x, y) ? 1 : 0;
+    }
+  }
+  assert(text_ink > 20);
 }
 
 void testPreviewScenesCoverAllDisplayModes() {
@@ -2907,7 +3136,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 7);
+  assert(PowerManager::STATE_VERSION == 8);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4077,6 +4306,11 @@ int main() {
   testSparklineBoundsAndClipping();
   testDashboardSparklineInsideTiles();
   testHistoryPersistence();
+  testNoiseHistoryFifo();
+  testNoiseSparklineBounds();
+  testNoiseHistoryStatsView();
+  testNoiseHistoryPersistence();
+  testPreviewStatsShowNoiseCurve();
   testPreviewScenesCoverAllDisplayModes();
   testSdLogCodec();
   testSdLogNoiseColumns();

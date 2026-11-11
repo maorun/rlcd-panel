@@ -100,6 +100,114 @@ private:
   uint8_t count_ = 0; // valid samples, at most CAPACITY
 };
 
+// Circular FIFO of the last 24 hourly noise levels. A sample is one byte in dB (0 to 140). The value
+// 0xFF marks an hour without a valid reading, so the time axis keeps its spacing. It needs 26 bytes
+// with the two counters.
+class NoiseHistory {
+public:
+  static constexpr size_t CAPACITY = 24;
+  static constexpr uint8_t MAX_DB = 140;
+  static constexpr uint8_t INVALID = 0xFF;
+
+  // Clamps a dB value to 0..MAX_DB.
+  static uint8_t encode(int db) {
+    return static_cast<uint8_t>(db < 0 ? 0 : (db > MAX_DB ? MAX_DB : db));
+  }
+
+  // Appends a sample. The oldest sample drops out when the buffer is full. A value above MAX_DB,
+  // which is not INVALID, is clamped.
+  void push(uint8_t value) {
+    samples_[head_] = (value == INVALID) ? INVALID : encode(value);
+    head_ = static_cast<uint8_t>((head_ + 1) % CAPACITY);
+    if (count_ < CAPACITY) {
+      ++count_;
+    }
+  }
+
+  // Appends an hour without a valid reading.
+  void pushInvalid() {
+    push(INVALID);
+  }
+
+  size_t size() const {
+    return count_;
+  }
+
+  // Index 0 is the oldest sample, size() - 1 the newest. Returns INVALID for an index out of range.
+  uint8_t at(size_t index) const {
+    if (index >= count_) {
+      return INVALID;
+    }
+    return samples_[(head_ + CAPACITY - count_ + index) % CAPACITY];
+  }
+
+  static bool isValid(uint8_t sample) {
+    return sample <= MAX_DB;
+  }
+
+  // Number of valid samples.
+  size_t validCount() const {
+    size_t n = 0;
+    for (size_t i = 0; i < count_; ++i) {
+      if (isValid(at(i))) {
+        ++n;
+      }
+    }
+    return n;
+  }
+
+  // Minimum and maximum of the valid samples. Returns false when there is none.
+  bool range(uint8_t& lo, uint8_t& hi) const {
+    bool found = false;
+    for (size_t i = 0; i < count_; ++i) {
+      const uint8_t v = at(i);
+      if (!isValid(v)) {
+        continue;
+      }
+      if (!found || v < lo) lo = v;
+      if (!found || v > hi) hi = v;
+      found = true;
+    }
+    return found;
+  }
+
+  void clear() {
+    *this = NoiseHistory{};
+  }
+
+  uint8_t head() const {
+    return head_;
+  }
+
+  // Restores the raw ring from persisted bytes. Returns false for an inconsistent ring.
+  bool restore(uint8_t count, uint8_t head, const uint8_t* samples) {
+    if (count > CAPACITY || head >= CAPACITY || samples == nullptr) {
+      return false;
+    }
+    for (size_t i = 0; i < CAPACITY; ++i) {
+      if (!isValid(samples[i]) && samples[i] != INVALID) {
+        return false;
+      }
+    }
+    count_ = count;
+    head_ = head;
+    for (size_t i = 0; i < CAPACITY; ++i) {
+      samples_[i] = samples[i];
+    }
+    return true;
+  }
+
+  // Raw ring slot, for serialization only.
+  uint8_t rawSample(size_t slot) const {
+    return slot < CAPACITY ? samples_[slot] : INVALID;
+  }
+
+private:
+  uint8_t samples_[CAPACITY] = {};
+  uint8_t head_ = 0;  // next write position
+  uint8_t count_ = 0; // valid ring entries, at most CAPACITY
+};
+
 // Four histories (onboard SHTC3 + three SwitchBot slots) with one shared hourly sample gate.
 struct ClimateHistory {
   static constexpr size_t ONBOARD = 0;
@@ -230,6 +338,70 @@ public:
       line(fb, x, y, w, h, px, py, cx, cy, black);
       px = cx;
       py = cy;
+    }
+    return true;
+  }
+
+  // A flatter noise curve than 10 dB would amplify the measurement noise into full-height swings.
+  static constexpr int16_t NOISE_MIN_SPAN = 10;
+
+  // Value range of the valid noise samples. A flat curve gets a span of NOISE_MIN_SPAN centered on the
+  // value, shifted to stay inside 0..MAX_DB. Returns false when there is no valid sample.
+  static bool computeNoiseScale(const NoiseHistory& history, Scale& out) {
+    uint8_t lo = 0;
+    uint8_t hi = 0;
+    if (!history.range(lo, hi)) {
+      return false;
+    }
+    if (hi - lo < NOISE_MIN_SPAN) {
+      const int center = (static_cast<int>(lo) + hi) / 2;
+      int lo_v = center - NOISE_MIN_SPAN / 2;
+      if (lo_v < 0) lo_v = 0;
+      if (lo_v > NoiseHistory::MAX_DB - NOISE_MIN_SPAN) lo_v = NoiseHistory::MAX_DB - NOISE_MIN_SPAN;
+      out.lo = static_cast<int16_t>(lo_v);
+      out.hi = static_cast<int16_t>(lo_v + NOISE_MIN_SPAN);
+    } else {
+      out.lo = lo;
+      out.hi = hi;
+    }
+    return true;
+  }
+
+  // Draws the noise curve into the box (x, y, w, h). Every pixel stays inside the box. An invalid
+  // hour leaves a gap: the curve does not join the samples on both sides, and a lone sample is one
+  // pixel. Returns false and draws nothing without a valid sample or for an empty box.
+  static bool renderNoise(
+      St7305Framebuffer& fb,
+      uint16_t x,
+      uint16_t y,
+      uint16_t w,
+      uint16_t h,
+      const NoiseHistory& history,
+      bool black = true) {
+    Scale scale;
+    if (w == 0 || h == 0 || !computeNoiseScale(history, scale)) {
+      return false;
+    }
+    const size_t n = history.size();
+    bool have_prev = false;
+    int px = 0;
+    int py = 0;
+    for (size_t i = 0; i < n; ++i) {
+      const uint8_t v = history.at(i);
+      if (!NoiseHistory::isValid(v)) {
+        have_prev = false;
+        continue;
+      }
+      const int cx = sampleColumn(i, n, w);
+      const int cy = valueToRow(v, scale, h);
+      if (have_prev) {
+        line(fb, x, y, w, h, px, py, cx, cy, black);
+      } else {
+        plot(fb, x, y, w, h, cx, cy, black);
+      }
+      px = cx;
+      py = cy;
+      have_prev = true;
     }
     return true;
   }
