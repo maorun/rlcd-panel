@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 namespace rlcd_panel {
@@ -342,6 +343,77 @@ private:
     } else if (result.rejected < 255) {
       ++result.rejected;
     }
+  }
+};
+
+// Writes a DeviceConfig as config.ini text: one "key=value" line for each setting, in the key order
+// of the parser. Floats print with at most two decimals and at least one, so DeviceConfigParser
+// reads the text back to the same values. The text holds no Wi-Fi setting: DeviceConfig has none.
+class DeviceConfigText {
+public:
+  static constexpr size_t MAX_SIZE = 768;
+
+  // Returns the text length, or 0 with an empty string when `cap` is too small.
+  static size_t format(const DeviceConfig& cfg, char* out, size_t cap) {
+    if (out == nullptr || cap == 0) {
+      return 0;
+    }
+    out[0] = '\0';
+    size_t pos = 0;
+    bool ok = true;
+    ok = ok && putFloat(out, cap, pos, "temp_offset_c", cfg.temp_offset_c);
+    ok = ok && putFloat(out, cap, pos, "rh_offset_pct", cfg.rh_offset_pct);
+    ok = ok && putFloat(out, cap, pos, "freeze_alert_limit_c", cfg.freeze_alert_limit_c);
+    ok = ok && putInt(out, cap, pos, "mold_alert_limit_rh", cfg.mold_alert_limit_rh);
+    ok = ok && putInt(out, cap, pos, "chime_volume_pct", cfg.chime_volume_pct);
+    ok = ok && putInt(out, cap, pos, "quiet_hours_start_hour", cfg.quiet_hours_start_hour);
+    ok = ok && putInt(out, cap, pos, "quiet_hours_end_hour", cfg.quiet_hours_end_hour);
+    ok = ok && putFloat(out, cap, pos, "mic_spl_offset_db", cfg.mic_spl_offset_db);
+    ok = ok && putInt(out, cap, pos, "log_retention_months", cfg.log_retention_months);
+    ok = ok && putInt(out, cap, pos, "noise_alert_limit_db", cfg.noise_alert_limit_db);
+    ok = ok && putInt(out, cap, pos, "chime_alert_mask", cfg.chime_alert_mask);
+    ok = ok && putInt(out, cap, pos, "ntp_sync_interval_h", cfg.ntp_sync_interval_h);
+    for (size_t i = 0; ok && i < DeviceConfig::SLOT_COUNT; ++i) {
+      char key[32];
+      snprintf(key, sizeof(key), "slot%u_temp_offset_c", static_cast<unsigned>(i + 1));
+      ok = putFloat(out, cap, pos, key, cfg.slot_temp_offset_c[i]);
+    }
+    for (size_t i = 0; ok && i < DeviceConfig::SLOT_COUNT; ++i) {
+      char key[32];
+      snprintf(key, sizeof(key), "slot%u_rh_offset_pct", static_cast<unsigned>(i + 1));
+      ok = putFloat(out, cap, pos, key, cfg.slot_rh_offset_pct[i]);
+    }
+    if (!ok) {
+      out[0] = '\0';
+      return 0;
+    }
+    return pos;
+  }
+
+private:
+  static bool putLine(char* out, size_t cap, size_t& pos, const char* key, const char* value) {
+    const int n = snprintf(out + pos, cap - pos, "%s=%s\n", key, value);
+    if (n < 0 || static_cast<size_t>(n) >= cap - pos) {
+      return false;
+    }
+    pos += static_cast<size_t>(n);
+    return true;
+  }
+
+  static bool putInt(char* out, size_t cap, size_t& pos, const char* key, uint8_t value) {
+    char text[8];
+    snprintf(text, sizeof(text), "%u", static_cast<unsigned>(value));
+    return putLine(out, cap, pos, key, text);
+  }
+
+  static bool putFloat(char* out, size_t cap, size_t& pos, const char* key, float value) {
+    char text[16];
+    snprintf(text, sizeof(text), "%.2f", static_cast<double>(value));
+    size_t len = strlen(text);
+    if (len >= 2 && text[len - 1] == '0' && text[len - 2] != '.') {
+      text[--len] = '\0'; // "-1.90" -> "-1.9", "0.00" -> "0.0"
+    }
+    return putLine(out, cap, pos, key, text);
   }
 };
 

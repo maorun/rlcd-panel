@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "device_config.h"
 #include "sd_logger.h"
 
 namespace rlcd_panel {
@@ -29,7 +30,7 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
@@ -51,7 +52,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO" and "DUMP climate_v2_YYYYMM.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG" and "DUMP climate_v2_YYYYMM.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -86,11 +87,15 @@ public:
     while (cmd_len < len && line[cmd_len] != ' ') {
       ++cmd_len;
     }
-    if (matches(line, cmd_len, "LIST") || matches(line, cmd_len, "INFO")) {
+    const bool is_list = matches(line, cmd_len, "LIST");
+    const bool is_info = matches(line, cmd_len, "INFO");
+    const bool is_config = matches(line, cmd_len, "CONFIG");
+    if (is_list || is_info || is_config) {
       if (cmd_len != len) {
-        return SerialParseStatus::UNKNOWN;
+        return SerialParseStatus::UNKNOWN; // these commands take no argument
       }
-      out.kind = line[0] == 'L' ? SerialCommandKind::LIST : SerialCommandKind::INFO;
+      out.kind = is_list ? SerialCommandKind::LIST
+                         : (is_info ? SerialCommandKind::INFO : SerialCommandKind::CONFIG);
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "DUMP")) {
@@ -181,6 +186,9 @@ private:
 //   LIST -> "FILE <name> <bytes>" per file, then "END LIST <count>"
 //   INFO -> "INFO total=<bytes> used=<bytes> files=<count>"
 //   DUMP -> "BEGIN <name> <bytes>", exactly <bytes> raw bytes, then "CRC32 <8 hex digits>"
+//   CONFIG -> "key=value" per DeviceConfig setting, "SOURCE <SD|DEFAULT>", then "CRC32 <8 hex
+//   digits>" over all lines before it. showConfig() sends it from the RTC copy: no card access,
+//   so execute() ignores CONFIG.
 //   Any failure -> "ERR <NO_CARD|NOT_FOUND|READ_FAILED>". A read error after BEGIN pads the
 //   payload with zero bytes to the announced count, then sends "ERR READ_FAILED" in place of the
 //   CRC32 line, so the host stays in step with the frame and sees the error.
@@ -194,8 +202,26 @@ public:
     send(sink, text);
   }
 
+  // Sends the active configuration. The card stays untouched.
+  static void showConfig(Sink& sink, const DeviceConfig& config, bool from_sd) {
+    char text[DeviceConfigText::MAX_SIZE + 16];
+    size_t len = DeviceConfigText::format(config, text, DeviceConfigText::MAX_SIZE);
+    if (len == 0) {
+      return;
+    }
+    len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "SOURCE %s\n", from_sd ? "SD" : "DEFAULT"));
+    SerialCrc32 crc;
+    crc.update(reinterpret_cast<const uint8_t*>(text), len);
+    if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+      return;
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
   static void execute(Storage& storage, Sink& sink, const SerialCommand& command) {
-    if (command.kind == SerialCommandKind::NONE) {
+    if (command.kind == SerialCommandKind::NONE || command.kind == SerialCommandKind::CONFIG) {
       return;
     }
     if (!storage.mount()) {
@@ -207,6 +233,7 @@ public:
       case SerialCommandKind::INFO: info(storage, sink); break;
       case SerialCommandKind::DUMP: dump(storage, sink, command.file); break;
       case SerialCommandKind::NONE:
+      case SerialCommandKind::CONFIG:
       default: break;
     }
     storage.unmount();

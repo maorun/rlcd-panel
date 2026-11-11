@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] Serial console command to show the active configuration
-  - Rank: [Total: 31, Use: 4, Setup: 9, Harmony: 8, Safety: 10, Effort: S]
-  - Location: `rlcd_panel/serial_console.h`, `rlcd_panel/device_config.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the command `CONFIG` to the USB serial console. Send one `key=value` line for each setting in `DeviceConfig`, in the format of `config.ini`, then the source (`SD` or `DEFAULT`) and a `CRC32` line. The command reads the RTC copy only and does not mount the card. Send no Wi-Fi credentials.
-  - Acceptance test: Host tests cover the parser for `CONFIG`, the rejection of `CONFIG` with arguments, the line format for each key, the CRC-32 of the output, and the parse of the output by `DeviceConfigParser` back to the same values. The command runs on USB power only.
-
 - [ ] Sensor names from config.ini in the tiles
   - Rank: [Total: 31, Use: 7, Setup: 7, Harmony: 7, Safety: 10, Effort: M]
   - Location: `rlcd_panel/device_config.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`
