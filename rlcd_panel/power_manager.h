@@ -126,17 +126,18 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 13;
+  static constexpr uint8_t STATE_VERSION = 14;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
   // Slot layout: valid, mac[6], temperature (float bits), humidity, battery, fahrenheit,
   // rssi (int16), updated_ms, packet_count.
   static constexpr size_t SLOT_SIZE = 1 + 6 + 4 + 1 + 1 + 1 + 2 + 4 + 4;
-  // History ring: count, head, 24 samples (int16). Trailer: last sample time, sampled flag.
+  // History ring (humidity, then temperature, per slot): count, head, 24 samples (int16). Trailer: last sample time, sampled flag.
   static constexpr size_t HISTORY_RING_SIZE = 1 + 1 + HumidityHistory::CAPACITY * 2;
+  // Each slot has a humidity ring and a temperature ring of the same layout.
   static constexpr size_t HISTORY_SIZE =
-      ClimateHistory::SLOT_COUNT * HISTORY_RING_SIZE + 4 + 1;
+      ClimateHistory::SLOT_COUNT * 2 * HISTORY_RING_SIZE + 4 + 1;
   // Noise history: count, head, 24 samples (one byte, 0xFF is an invalid hour).
   static constexpr size_t NOISE_HISTORY_SIZE = 1 + 1 + NoiseHistory::CAPACITY;
   // Battery history: count, head, 24 samples (uint16 millivolts), 24 stamps (uint32), last
@@ -310,6 +311,14 @@ public:
         out[pos++] = static_cast<uint8_t>(bits & 0xFF);
         out[pos++] = static_cast<uint8_t>(bits >> 8);
       }
+      const TemperatureHistory& t = state.history.temperatures[i];
+      out[pos++] = static_cast<uint8_t>(t.size());
+      out[pos++] = t.head();
+      for (size_t k = 0; k < TemperatureHistory::CAPACITY; ++k) {
+        const uint16_t bits = static_cast<uint16_t>(t.rawSample(k));
+        out[pos++] = static_cast<uint8_t>(bits & 0xFF);
+        out[pos++] = static_cast<uint8_t>(bits >> 8);
+      }
     }
     putU32(out, pos, state.history.last_sample_ms);
     out[pos++] = state.history.has_sampled ? 1 : 0;
@@ -433,6 +442,17 @@ public:
         pos += 2;
       }
       if (!s.history.slots[i].restore(count, head, samples)) {
+        return false;
+      }
+      const uint8_t temp_count = data[pos++];
+      const uint8_t temp_head = data[pos++];
+      int16_t temp_samples[TemperatureHistory::CAPACITY];
+      for (size_t k = 0; k < TemperatureHistory::CAPACITY; ++k) {
+        temp_samples[k] = static_cast<int16_t>(
+            static_cast<uint16_t>(data[pos]) | (static_cast<uint16_t>(data[pos + 1]) << 8));
+        pos += 2;
+      }
+      if (!s.history.temperatures[i].restore(temp_count, temp_head, temp_samples)) {
         return false;
       }
     }

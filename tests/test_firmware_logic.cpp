@@ -1557,14 +1557,258 @@ void testClimateHistorySampleGate() {
   assert(q.record(1000 + 1000, false, 50.0f, stale_reg)); // fresh slot is recorded
   assert(q.slots[1].size() == 1 && q.slots[1].at(0) == 620);
   assert(q.slots[0].size() == 0); // the onboard sensor was not valid
-  // Temperature is never recorded: only the humidity value reaches the history
+  // The SwitchBot temperature goes to its own history, not to the humidity ring
   assert(q.slots[1].at(0) != 180);
+  assert(q.temperatures[1].size() == 1 && q.temperatures[1].at(0) == 180);
 
   // A wrapped 32-bit clock still counts the interval
   ClimateHistory w;
   assert(w.record(0xFFFFFFFFu - 10, true, 10.0f, reg));
   assert(!w.sampleDue(0xFFFFFFFFu - 10 + 5));
   assert(w.sampleDue(static_cast<uint32_t>(0xFFFFFFFFu - 10 + hour)));
+}
+
+void testTemperatureHistoryEncoding() {
+  assert(TemperatureHistory::encode(0.0f) == 0);
+  assert(TemperatureHistory::encode(21.54f) == 215);
+  assert(TemperatureHistory::encode(-15.0f) == -150);
+  assert(TemperatureHistory::encode(-0.04f) == 0);
+  assert(TemperatureHistory::encode(-0.06f) == -1);
+  assert(TemperatureHistory::encode(100.0f) == TemperatureHistory::MAX_VALUE);
+  assert(TemperatureHistory::encode(-100.0f) == TemperatureHistory::MIN_VALUE);
+  assert(TemperatureHistory::encode(500.0f) == TemperatureHistory::MAX_VALUE);
+  assert(TemperatureHistory::encode(-500.0f) == TemperatureHistory::MIN_VALUE);
+  assert(TemperatureHistory::encode(NAN) == 0);
+  TemperatureHistory t;
+  assert(!t.pushCelsius(NAN));
+  assert(!t.pushCelsius(100.5f));
+  assert(!t.pushCelsius(-100.5f));
+  assert(t.size() == 0);
+  assert(t.pushCelsius(-100.0f) && t.pushCelsius(100.0f));
+  assert(t.size() == 2 && t.at(0) == -1000 && t.at(1) == 1000);
+}
+
+void testTemperatureHistoryRange() {
+  TemperatureHistory t;
+  int16_t lo = 7;
+  int16_t hi = 7;
+  // Fewer than 2 samples: no range, outputs untouched
+  assert(!t.range(lo, hi) && lo == 7 && hi == 7);
+  t.pushCelsius(12.3f);
+  assert(!t.range(lo, hi) && lo == 7 && hi == 7);
+  t.pushCelsius(12.3f);
+  assert(t.range(lo, hi) && lo == 123 && hi == 123);
+
+  // 30 samples from -15 degC up to +5 degC: the first 6 drop out of the 24-hour window
+  TemperatureHistory w;
+  for (int i = 0; i < 30; ++i) {
+    w.pushCelsius(-15.0f + 20.0f * static_cast<float>(i) / 29.0f);
+  }
+  assert(w.size() == 24);
+  assert(w.range(lo, hi));
+  assert(lo == w.at(0) && hi == w.at(23));
+  assert(lo > -150 && hi == 50); // the coldest samples are gone, the warmest stays
+
+  // A cold sample inside the window is the minimum; once it drops out the minimum rises
+  TemperatureHistory c;
+  c.pushCelsius(-15.0f);
+  for (int i = 0; i < 23; ++i) c.pushCelsius(3.0f);
+  assert(c.range(lo, hi) && lo == -150 && hi == 30);
+  c.pushCelsius(5.0f);
+  assert(c.range(lo, hi) && lo == 30 && hi == 50);
+
+  // Humidity range: same rules
+  HumidityHistory h;
+  int16_t hlo = 0;
+  int16_t hhi = 0;
+  assert(!h.range(hlo, hhi));
+  h.pushPercent(41.0f);
+  assert(!h.range(hlo, hhi));
+  h.pushPercent(63.4f);
+  h.pushPercent(0.0f);
+  h.pushPercent(100.0f);
+  assert(h.range(hlo, hhi) && hlo == 0 && hhi == 1000);
+}
+
+void testTemperatureHistoryRecordGate() {
+  SwitchBotRegistry reg;
+  const uint32_t hour = ClimateHistory::SAMPLE_INTERVAL_MS;
+  ClimateHistory c;
+  assert(c.record(1000, true, 45.0f, reg, -4.5f));
+  assert(c.temperatures[0].size() == 1 && c.temperatures[0].at(0) == -45);
+  assert(!c.record(1000 + hour - 1, true, 46.0f, reg, -4.0f)); // same hourly gate
+  assert(c.temperatures[0].size() == 1);
+  assert(c.record(1000 + hour, true, 46.0f, reg, -4.0f));
+  assert(c.temperatures[0].size() == 2);
+
+  // Invalid onboard reading or NaN temperature: skipped
+  ClimateHistory q;
+  assert(!q.record(5000, false, 50.0f, reg, 20.0f));
+  assert(q.temperatures[0].size() == 0);
+  assert(q.record(5000, true, 50.0f, reg, NAN)); // humidity alone still counts
+  assert(q.slots[0].size() == 1 && q.temperatures[0].size() == 0);
+  assert(!q.record(5000 + hour, true, NAN, reg, 150.0f)); // both out of range
+  assert(q.temperatures[0].size() == 0 && q.sampleDue(5000 + hour));
+
+  // Stale SwitchBot slot: skipped; fresh slot: recorded with its temperature
+  SwitchBotRegistry stale_reg;
+  SwitchBotReading sb;
+  sb.valid = true;
+  sb.temperature_c = -12.5f;
+  sb.humidity_pct = 70;
+  sb.mac[5] = 2;
+  sb.updated_ms = 1000;
+  stale_reg.upsert(sb);
+  ClimateHistory s;
+  assert(!s.record(1000 + hour, false, 50.0f, stale_reg));
+  assert(s.temperatures[1].size() == 0);
+  assert(s.record(2000, false, 50.0f, stale_reg));
+  assert(s.temperatures[1].size() == 1 && s.temperatures[1].at(0) == -125);
+  assert(s.temperatures[0].size() == 0);
+}
+
+void testRecordsStatsView() {
+  char text[48];
+  ClimateHistory h;
+  // No history, empty history, one sample: both ranges show "--"
+  DashboardView::formatRecords(text, sizeof(text), nullptr, 1);
+  assert(strcmp(text, "24H T-- H--") == 0);
+  DashboardView::formatRecords(text, sizeof(text), &h, 1);
+  assert(strcmp(text, "24H T-- H--") == 0);
+  h.temperatures[1].pushCelsius(-15.0f);
+  h.slots[1].pushPercent(41.0f);
+  DashboardView::formatRecords(text, sizeof(text), &h, 1);
+  assert(strcmp(text, "24H T-- H--") == 0);
+  // Slot out of range
+  DashboardView::formatRecords(text, sizeof(text), &h, ClimateHistory::SLOT_COUNT);
+  assert(strcmp(text, "24H T-- H--") == 0);
+
+  // Temperature has 2 samples, humidity only one: the ranges decide independently
+  h.temperatures[1].pushCelsius(5.0f);
+  DashboardView::formatRecords(text, sizeof(text), &h, 1);
+  assert(strcmp(text, "24H T-15.0 TO 5.0 H--") == 0);
+  h.slots[1].pushPercent(63.4f);
+  DashboardView::formatRecords(text, sizeof(text), &h, 1);
+  assert(strcmp(text, "24H T-15.0 TO 5.0 H41-63") == 0);
+
+  // Widest possible text fits the width with the left margin and the 8 px right margin
+  ClimateHistory wide;
+  wide.temperatures[3].pushCelsius(-100.0f);
+  wide.temperatures[3].pushCelsius(-100.0f);
+  wide.slots[3].pushPercent(100.0f);
+  wide.slots[3].pushPercent(100.0f);
+  DashboardView::formatRecords(text, sizeof(text), &wide, 3);
+  assert(strcmp(text, "24H T-100.0 TO -100.0 H100-100") == 0);
+  assert(10 + strlen(text) * 12 <= RLCD_WIDTH - 8);
+  ClimateHistory widest;
+  widest.temperatures[3].pushCelsius(-100.0f);
+  widest.temperatures[3].pushCelsius(100.0f);
+  widest.slots[3].pushPercent(0.0f);
+  widest.slots[3].pushPercent(100.0f);
+  DashboardView::formatRecords(text, sizeof(text), &widest, 3);
+  assert(strcmp(text, "24H T-100.0 TO 100.0 H0-100") == 0);
+  assert(10 + strlen(text) * 12 <= RLCD_WIDTH - 8);
+
+  // Rendering: the records line draws pixels and stays inside the screen
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    slots[i].valid = true;
+    slots[i].mac[5] = static_cast<uint8_t>(i + 1);
+  }
+  Shtc3Reading onboard;
+  BatteryReading battery;
+  SystemInfo info;
+  St7305Framebuffer with, without;
+  DashboardView::renderMode(
+      with, DisplayMode::SENSOR_STATS, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info, "12:34", 0,
+      &widest);
+  DashboardView::renderMode(
+      without, DisplayMode::SENSOR_STATS, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info, "12:34", 0);
+  assert(memcmp(with.data(), without.data(), St7305Framebuffer::BYTE_COUNT) != 0);
+  // The records line of S3 (slot 3) sits at y 34 + 2 * 72 + 54 = 232 and is 7 px per glyph row at
+  // scale 2 (14 px high). It has ink inside its text width, a blank left margin and a blank tail.
+  const uint16_t line_y = 34 + 2 * DashboardView::SENSOR_BLOCK_PITCH + 54;
+  const uint16_t text_end = static_cast<uint16_t>(10 + strlen(text) * 12);
+  bool ink = false;
+  for (uint16_t y = line_y; y < line_y + 14; ++y) {
+    for (uint16_t x = 0; x < 10; ++x) {
+      assert(!with.getPixel(x, y));
+    }
+    for (uint16_t x = 10; x < text_end; ++x) {
+      ink = ink || with.getPixel(x, y);
+    }
+    for (uint16_t x = text_end; x < RLCD_WIDTH; ++x) {
+      assert(!with.getPixel(x, y));
+    }
+  }
+  assert(ink);
+  // The line stays clear of the noise line below it (NOISE_TREND_Y)
+  assert(line_y + 14 <= DashboardView::NOISE_TREND_Y);
+}
+
+void testRecordsPersistence() {
+  PersistentState s;
+  for (int i = 0; i < 30; ++i) {
+    s.history.temperatures[0].pushCelsius(-15.0f + static_cast<float>(i) * 0.7f);
+  }
+  s.history.temperatures[2].push(TemperatureHistory::MIN_VALUE);
+  s.history.temperatures[2].push(TemperatureHistory::MAX_VALUE);
+  s.history.temperatures[3].push(-1);
+  s.history.slots[2].push(500);
+  s.history.last_sample_ms = 7000;
+  s.history.has_sampled = true;
+
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.history.temperatures[0].size() == 24);
+  assert(r.history.temperatures[0].head() == s.history.temperatures[0].head());
+  for (size_t i = 0; i < 24; ++i) {
+    assert(r.history.temperatures[0].at(i) == s.history.temperatures[0].at(i));
+  }
+  assert(r.history.temperatures[1].size() == 0);
+  assert(r.history.temperatures[2].size() == 2 && r.history.temperatures[2].at(0) == -1000 &&
+         r.history.temperatures[2].at(1) == 1000);
+  assert(r.history.temperatures[3].size() == 1 && r.history.temperatures[3].at(0) == -1);
+  assert(r.history.slots[2].size() == 1 && r.history.slots[2].at(0) == 500);
+  assert(r.history.last_sample_ms == 7000 && r.history.has_sampled);
+
+  // Ring layout per slot: humidity ring, then temperature ring
+  const size_t ring0 = PowerManager::HEADER_SIZE + MAX_SWITCHBOT_SENSORS * PowerManager::SLOT_SIZE;
+  const size_t temp0 = ring0 + PowerManager::HISTORY_RING_SIZE;
+  auto reseal = [](uint8_t* b) {
+    const uint32_t crc = PowerManager::crc32(b, PowerManager::SERIALIZED_SIZE - 4);
+    for (int i = 0; i < 4; ++i) {
+      b[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+    }
+  };
+  // Corrupt temperature count, head and sample (above +100 degC, below -100 degC) are rejected
+  const size_t cases[4][2] = {{temp0, 25}, {temp0 + 1, 24}, {temp0 + 3, 0x7F}, {temp0 + 3, 0x80}};
+  for (const auto& c : cases) {
+    uint8_t b[PowerManager::SERIALIZED_SIZE];
+    memcpy(b, buf, sizeof(b));
+    b[c[0]] = static_cast<uint8_t>(c[1]);
+    reseal(b);
+    PersistentState out;
+    out.boot_count = 99;
+    assert(!PowerManager::deserialize(b, sizeof(b), out));
+    assert(out.boot_count == 0 && out.history.temperatures[0].size() == 0);
+  }
+  // Without the checksum fix, a changed byte is rejected as well
+  uint8_t flipped[PowerManager::SERIALIZED_SIZE];
+  memcpy(flipped, buf, sizeof(flipped));
+  flipped[temp0 + 2] ^= 0x01;
+  PersistentState out;
+  assert(!PowerManager::deserialize(flipped, sizeof(flipped), out));
+
+  // The previous state version starts clean
+  uint8_t old[PowerManager::SERIALIZED_SIZE];
+  memcpy(old, buf, sizeof(old));
+  old[4] = 13;
+  reseal(old);
+  assert(PowerManager::STATE_VERSION == 14);
+  assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
 void testSparklineAutoScale() {
@@ -1998,7 +2242,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 13);
+  assert(PowerManager::STATE_VERSION == 14);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3577,7 +3821,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 13);
+  assert(PowerManager::STATE_VERSION == 14);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6602,6 +6846,11 @@ int main() {
   testLowBatteryBanner();
   testHumidityHistoryFifo();
   testClimateHistorySampleGate();
+  testTemperatureHistoryEncoding();
+  testTemperatureHistoryRange();
+  testTemperatureHistoryRecordGate();
+  testRecordsStatsView();
+  testRecordsPersistence();
   testSparklineAutoScale();
   testSparklineBoundsAndClipping();
   testDashboardSparklineInsideTiles();

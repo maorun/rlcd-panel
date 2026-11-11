@@ -412,7 +412,11 @@ void refreshSensors() {
   updateRtc();
   // One sample per hour and sensor; the gate lives in the persisted state.
   g_state.history.record(
-      nowMs(), g_onboard_reading.valid, g_onboard_reading.humidity_pct, g_state.registry);
+      nowMs(),
+      g_onboard_reading.valid,
+      g_onboard_reading.humidity_pct,
+      g_state.registry,
+      g_onboard_reading.temperature_c);
 }
 
 // Stores the new mask and plays the chimes of the step. The amplifier is off again before this

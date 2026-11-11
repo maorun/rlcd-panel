@@ -11,11 +11,13 @@ namespace rlcd_panel {
 
 // Circular FIFO of the last 24 hourly relative humidity samples of one sensor. A sample is an
 // int16_t in 0.1 %RH steps (50 bytes with the two counters), so four sensors fit the RTC memory easily.
+// `range` gives the 24 h minimum and maximum for the stats view.
 class HumidityHistory {
 public:
   static constexpr size_t CAPACITY = 24;
   static constexpr int16_t MIN_VALUE = 0;    // 0.0 %RH
   static constexpr int16_t MAX_VALUE = 1000; // 100.0 %RH
+  static constexpr size_t MIN_RANGE_SAMPLES = 2;
 
   // Converts %RH to 0.1 %RH steps. Rounds to nearest and clamps to the valid range.
   static int16_t encode(float humidity_pct) {
@@ -63,8 +65,130 @@ public:
     return samples_[(head_ + CAPACITY - count_ + index) % CAPACITY];
   }
 
+  // Lowest and highest sample of the buffer. Returns false for fewer than MIN_RANGE_SAMPLES samples:
+  // one value is no range.
+  bool range(int16_t& lo, int16_t& hi) const {
+    if (count_ < MIN_RANGE_SAMPLES) {
+      return false;
+    }
+    lo = hi = at(0);
+    for (size_t i = 1; i < count_; ++i) {
+      const int16_t v = at(i);
+      lo = v < lo ? v : lo;
+      hi = v > hi ? v : hi;
+    }
+    return true;
+  }
+
   void clear() {
     *this = HumidityHistory{};
+  }
+
+  uint8_t head() const {
+    return head_;
+  }
+
+  // Restores the raw ring from persisted bytes. Returns false for an inconsistent ring.
+  bool restore(uint8_t count, uint8_t head, const int16_t* samples) {
+    if (count > CAPACITY || head >= CAPACITY || samples == nullptr) {
+      return false;
+    }
+    for (size_t i = 0; i < CAPACITY; ++i) {
+      if (samples[i] < MIN_VALUE || samples[i] > MAX_VALUE) {
+        return false;
+      }
+    }
+    count_ = count;
+    head_ = head;
+    for (size_t i = 0; i < CAPACITY; ++i) {
+      samples_[i] = samples[i];
+    }
+    return true;
+  }
+
+  // Raw ring slot, for serialization only.
+  int16_t rawSample(size_t slot) const {
+    return slot < CAPACITY ? samples_[slot] : 0;
+  }
+
+private:
+  int16_t samples_[CAPACITY] = {};
+  uint8_t head_ = 0;  // next write position
+  uint8_t count_ = 0; // valid samples, at most CAPACITY
+};
+
+// Circular FIFO of the last 24 hourly temperature samples of one sensor, in 0.1 degC steps from
+// -100.0 to +100.0 degC (the range the RTC restore accepts for a registry slot). It follows
+// HumidityHistory: 50 bytes with the two counters.
+class TemperatureHistory {
+public:
+  static constexpr size_t CAPACITY = 24;
+  static constexpr int16_t MIN_VALUE = -1000; // -100.0 degC
+  static constexpr int16_t MAX_VALUE = 1000;  // +100.0 degC
+  static constexpr size_t MIN_RANGE_SAMPLES = 2;
+
+  // Converts degC to 0.1 degC steps. Rounds to nearest (away from zero) and clamps to the valid range.
+  static int16_t encode(float temperature_c) {
+    if (!(temperature_c == temperature_c)) {
+      return 0; // NaN
+    }
+    const float scaled = temperature_c * 10.0f;
+    if (scaled <= MIN_VALUE) {
+      return MIN_VALUE;
+    }
+    if (scaled >= MAX_VALUE) {
+      return MAX_VALUE;
+    }
+    return static_cast<int16_t>(lroundf(scaled));
+  }
+
+  // Appends a sample. The oldest sample drops out when the buffer is full.
+  void push(int16_t value) {
+    samples_[head_] = value;
+    head_ = static_cast<uint8_t>((head_ + 1) % CAPACITY);
+    if (count_ < CAPACITY) {
+      ++count_;
+    }
+  }
+
+  // Ignores NaN and values outside -100..+100 degC: a bad reading must not appear as a real sample.
+  // Returns true when it stored the sample.
+  bool pushCelsius(float temperature_c) {
+    if (!(temperature_c >= -100.0f && temperature_c <= 100.0f)) {
+      return false;
+    }
+    push(encode(temperature_c));
+    return true;
+  }
+
+  size_t size() const {
+    return count_;
+  }
+
+  // Index 0 is the oldest sample, size() - 1 the newest. Returns 0 for an index out of range.
+  int16_t at(size_t index) const {
+    if (index >= count_) {
+      return 0;
+    }
+    return samples_[(head_ + CAPACITY - count_ + index) % CAPACITY];
+  }
+
+  // Lowest and highest sample. Returns false for fewer than MIN_RANGE_SAMPLES samples.
+  bool range(int16_t& lo, int16_t& hi) const {
+    if (count_ < MIN_RANGE_SAMPLES) {
+      return false;
+    }
+    lo = hi = at(0);
+    for (size_t i = 1; i < count_; ++i) {
+      const int16_t v = at(i);
+      lo = v < lo ? v : lo;
+      hi = v > hi ? v : hi;
+    }
+    return true;
+  }
+
+  void clear() {
+    *this = TemperatureHistory{};
   }
 
   uint8_t head() const {
@@ -215,6 +339,7 @@ struct ClimateHistory {
   static constexpr uint32_t SAMPLE_INTERVAL_MS = 3600UL * 1000UL;
 
   HumidityHistory slots[SLOT_COUNT];
+  TemperatureHistory temperatures[SLOT_COUNT];
   uint32_t last_sample_ms = 0;
   bool has_sampled = false;
 
@@ -225,9 +350,14 @@ struct ClimateHistory {
 
   // Records one hourly sample for every valid, fresh sensor when due. A stale slot keeps its last
   // value in the registry, so recording it would draw a false flat line. Returns true when it pushed at
-  // least one sample. With no valid sensor the gate stays open, so the next wake cycle retries.
+  // least one sample. With no valid sensor the gate stays open, so the next wake cycle retries. The
+  // default NAN temperature skips the onboard temperature sample.
   bool record(
-      uint32_t now_ms, bool onboard_valid, float onboard_humidity_pct, const SwitchBotRegistry& registry) {
+      uint32_t now_ms,
+      bool onboard_valid,
+      float onboard_humidity_pct,
+      const SwitchBotRegistry& registry,
+      float onboard_temperature_c = NAN) {
     if (!sampleDue(now_ms)) {
       return false;
     }
@@ -235,10 +365,16 @@ struct ClimateHistory {
     if (onboard_valid && slots[ONBOARD].pushPercent(onboard_humidity_pct)) {
       pushed = true;
     }
+    if (onboard_valid && temperatures[ONBOARD].pushCelsius(onboard_temperature_c)) {
+      pushed = true;
+    }
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       const SwitchBotReading& r = registry.slot(i);
       if (r.valid && !r.isStale(now_ms)) {
         if (slots[1 + i].pushPercent(static_cast<float>(r.humidity_pct))) {
+          pushed = true;
+        }
+        if (temperatures[1 + i].pushCelsius(r.temperature_c)) {
           pushed = true;
         }
       }

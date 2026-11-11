@@ -316,3 +316,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The preview scene `display_preview_battery_empty` shows the warning at 3.29 V.
 - Host tests cover 3.29 V and 3.30 V, the hysteresis at 3.49 V and 3.50 V, USB power, an invalid reading, the module gate, the render-once rule, the 3600 s plan, the RTC round trip with a corrupt flag bit, and the preview scene.
 - Not verified: the awake time per hour on the board with a lab supply.
+
+## 24-hour minimum and maximum records in the stats view
+
+- **Code:** `rlcd_panel/sparkline.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.
+- `TemperatureHistory` is a circular FIFO of 24 hourly temperature samples for each sensor slot. A sample is an `int16_t` in 0.1 C steps from -100.0 C to +100.0 C. `encode()` rounds and clamps. `pushCelsius()` ignores NaN and values outside the range.
+- `ClimateHistory::record` adds the temperature next to the humidity, with the same hourly gate. An invalid onboard reading and a stale SwitchBot slot add no sample.
+- `HumidityHistory::range` and `TemperatureHistory::range` return the lowest and highest sample. They return `false` for fewer than 2 samples.
+- The stats view shows one line below each sensor block, for example `24H T-15.0 TO 5.0 H58-86`. The text gives the lowest and highest temperature in C, then the lowest and highest humidity in %RH. Each part shows `--` for fewer than 2 samples. The 5x7 font has no `/`, so the line uses `TO`. The longest text has 30 glyphs (360 px) and keeps the 8 px right margin.
+- The sensor blocks in the stats view now have a pitch of 72 px (`SENSOR_BLOCK_PITCH`), so the new lines fit above the noise line. The onboard sensor has no block in this view, so it shows no record line.
+- Each slot adds 50 bytes to the RTC state. The state version is 14. The old format gives a clean start. A ring with a count or head out of range, or a sample outside -100.0 C to +100.0 C, gives a clean start.
+- Host tests cover the minimum and maximum over 24+ samples, the drop of the oldest sample, negative temperatures (-15 C to 5 C), the encoding limits, skipped and stale samples, fewer than 2 samples, the text bounds, the RTC round trip with corrupt fields, and the old state version. `docs/display_preview_stats.png` shows the records.
