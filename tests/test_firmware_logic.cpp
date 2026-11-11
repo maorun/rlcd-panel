@@ -961,6 +961,108 @@ void testButtonDebounceAndModeTransitions() {
   }
 }
 
+SwitchBotReading makeReading(uint8_t id, float temp, uint8_t hum, int8_t batt);
+
+void testBleSignalStrength() {
+  // clampRssi keeps dBm in the int8_t range.
+  assert(SwitchBotBleParser::clampRssi(-30) == -30);
+  assert(SwitchBotBleParser::clampRssi(-100) == -100);
+  assert(SwitchBotBleParser::clampRssi(-500) == -128);
+  assert(SwitchBotBleParser::clampRssi(500) == 127);
+
+  // A valid packet updates the RSSI of its slot; a rejected packet leaves it.
+  SwitchBotRegistry registry;
+  SwitchBotReading a = makeReading(1, 20.0f, 50, 80);
+  a.rssi = -60;
+  assert(registry.upsert(a));
+  assert(registry.slot(0).rssi == -60);
+  a.rssi = -75;
+  assert(registry.upsert(a));
+  assert(registry.slot(0).rssi == -75);
+  SwitchBotReading rejected = a;
+  rejected.valid = false;
+  rejected.rssi = -10;
+  assert(!registry.upsert(rejected));
+  assert(registry.slot(0).rssi == -75);
+
+  // Text: dBm value, dashes for a stale or empty slot.
+  char text[24];
+  SwitchBotReading r;
+  r.valid = true;
+  r.updated_ms = 1000;
+  r.rssi = -30;
+  DashboardView::formatRssi(text, sizeof(text), r, 2000);
+  assert(strcmp(text, "RSSI -30 DBM") == 0);
+  r.rssi = -100;
+  DashboardView::formatRssi(text, sizeof(text), r, 2000);
+  assert(strcmp(text, "RSSI -100 DBM") == 0);
+  DashboardView::formatRssi(text, sizeof(text), r, 1000 + SENSOR_STALE_TIMEOUT_MS + 1);
+  assert(strcmp(text, "RSSI --") == 0);
+  DashboardView::formatRssi(text, sizeof(text), SwitchBotReading{}, 2000);
+  assert(strcmp(text, "RSSI --") == 0);
+
+  // Rendered line: ink in its rows, none between the first and the second line of a block.
+  Shtc3Reading onboard;
+  BatteryReading battery;
+  SystemInfo info;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    slots[i] = makeReading(static_cast<uint8_t>(i + 1), 20.0f, 50, 80);
+    slots[i].rssi = -100;
+    slots[i].updated_ms = 1000;
+  }
+  slots[2].updated_ms = 0; // stale at now_ms below
+  const uint32_t now_ms = SENSOR_STALE_TIMEOUT_MS + 5;
+  slots[0].updated_ms = slots[1].updated_ms = now_ms - 1000;
+  St7305Framebuffer fb;
+  DashboardView::renderMode(
+      fb, DisplayMode::SENSOR_STATS, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info, "88:88", now_ms);
+  size_t width_fresh = 0;
+  for (uint16_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    const uint16_t y0 = static_cast<uint16_t>(34 + i * DashboardView::SENSOR_BLOCK_PITCH);
+    size_t ink = 0;
+    uint16_t max_x = 0;
+    for (uint16_t y = y0; y < y0 + 14; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        if (fb.getPixel(x, y)) {
+          ++ink;
+          max_x = x > max_x ? x : max_x;
+        }
+      }
+    }
+    assert(ink > 20);
+    assert(max_x < St7305Framebuffer::WIDTH - 1);
+    if (i == 0) {
+      width_fresh = max_x;
+    }
+    if (i == 2) {
+      assert(max_x < width_fresh); // "RSSI --" is shorter than "RSSI -100 DBM"
+    }
+    for (uint16_t y = y0 + 14; y < y0 + 18; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        assert(!fb.getPixel(x, y));
+      }
+    }
+  }
+
+  // RTC round trip keeps the RSSI and gives the previous state version a clean start.
+  PersistentState s;
+  s.registry.upsert(a);
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState back;
+  assert(PowerManager::deserialize(buf, sizeof(buf), back));
+  assert(back.registry.slot(0).rssi == -75);
+  assert(PowerManager::STATE_VERSION == 19);
+  uint8_t old[PowerManager::SERIALIZED_SIZE];
+  memcpy(old, buf, sizeof(buf));
+  old[4] = 18;
+  const uint32_t crc = PowerManager::crc32(old, sizeof(old) - 4);
+  for (int k = 0; k < 4; ++k) old[sizeof(old) - 4 + k] = static_cast<uint8_t>(crc >> (8 * k));
+  PersistentState clean;
+  assert(!PowerManager::deserialize(old, sizeof(old), clean));
+}
+
 void testDisplayModesRenderWithoutClipping() {
   Shtc3Reading onboard;
   onboard.valid = true;
@@ -1838,7 +1940,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 18);
+  assert(PowerManager::STATE_VERSION == 19);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -2273,7 +2375,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 18);
+  assert(PowerManager::STATE_VERSION == 19);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3852,7 +3954,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 18);
+  assert(PowerManager::STATE_VERSION == 19);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4633,7 +4735,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 18);
+  assert(PowerManager::STATE_VERSION == 19);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4803,7 +4905,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 18);
+  assert(PowerManager::STATE_VERSION == 19);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -7559,6 +7661,7 @@ int main() {
   testDashboardStaleIndicator();
   testButtonDebounceAndModeTransitions();
   testDisplayModesRenderWithoutClipping();
+  testBleSignalStrength();
   testSpectrumBandEdges();
   testSpectrumFft();
   testSpectrumSinePeaks();

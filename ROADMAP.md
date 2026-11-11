@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] BLE signal strength in the sensor stats view
-  - Rank: [Total: 34, Use: 6, Setup: 10, Harmony: 8, Safety: 10, Effort: S]
-  - Location: `rlcd_panel/switchbot_ble.h`, `rlcd_panel/bthome_ble.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`
-  - Goal: Store the RSSI of the last valid advertisement for each registry slot (`int8_t`, dBm). Show `RSSI -NN DBM` in each sensor block of the stats view. Show `RSSI --` for a stale or empty slot. The user can then find a good position for the panel and for each sensor.
-  - Acceptance test: Host tests cover the RSSI update on a valid packet, no update on a rejected packet, the text for -30 dBm and -100 dBm, the dashes for a stale slot, the line bounds in each block, and the RTC round trip. `docs/display_preview_stats.png` shows the line.
-
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
 - [ ] Serial console command to show the active configuration
