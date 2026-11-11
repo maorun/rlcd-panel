@@ -22,15 +22,6 @@ No open item.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-### 24-hour humidity trend sparklines in the sensor stats view
-
-- **Rank:** Feature model. Total 32/40 (use 8, setup 7, harmony 9, safety 8). Effort S.
-- **Area:** Visuals / Climate.
-- **Code:** `rlcd_panel/sparkline.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`.
-- **Problem:** The sensor stats view renders a 24-hour temperature trend sparkline. The user prefers a humidity trend instead.
-- **Goal:** Replace the 24-hour temperature trend sparklines with 24-hour relative humidity trend sparklines (%RH) for the onboard SHTC3 sensor and up to three SwitchBot slots. Adapt `ClimateHistory`, the history buffer, scale calculation, and tile rendering. Update the preview generator and test suite.
-- **Acceptance test:** Host tests cover 0 to 100 %RH scaling, minimum span handling, invalid sample skipping, RTC round trip, and bit-exact preview rendering.
-
 ### MicroSD noise logging with hourly measurement
 
 - **Rank:** Feature model. Total 30/40 (use 7, setup 6, harmony 10, safety 7). Effort M.
