@@ -1850,7 +1850,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 11);
+  assert(PowerManager::STATE_VERSION == 12);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -2076,13 +2076,14 @@ void testAlertThresholds() {
   assert(AlertEvaluator::evaluate(ALERT_NONE, makeOnboard(21.0f, 70.5f), slots, 3, now) == ALERT_HUMIDITY);
   assert(AlertEvaluator::evaluate(ALERT_NONE, makeOnboard(21.0f, 70.0f), slots, 3, now) == ALERT_NONE);
   // Both at once
-  assert(AlertEvaluator::evaluate(ALERT_NONE, makeOnboard(-5.0f, 90.0f), slots, 3, now) == ALERT_CLIMATE_MASK);
+  assert(AlertEvaluator::evaluate(ALERT_NONE, makeOnboard(-5.0f, 90.0f), slots, 3, now) == (ALERT_FREEZER | ALERT_HUMIDITY));
   // A SwitchBot slot triggers too (freezer sensor)
   slots[1] = makeReading(1, -18.0f, 40, 80);
   slots[1].updated_ms = now;
   assert(AlertEvaluator::evaluate(ALERT_NONE, none, slots, 3, now) == ALERT_FREEZER);
   // A stale slot is ignored
-  assert(AlertEvaluator::evaluate(ALERT_NONE, none, slots, 3, now + SENSOR_STALE_TIMEOUT_MS + 1) == ALERT_NONE);
+  assert((AlertEvaluator::evaluate(ALERT_NONE, none, slots, 3, now + SENSOR_STALE_TIMEOUT_MS + 1) &
+          (ALERT_FREEZER | ALERT_HUMIDITY)) == ALERT_NONE);
   // Invalid onboard and NaN readings are ignored
   assert(AlertEvaluator::evaluate(ALERT_NONE, none, nullptr, 0, now) == ALERT_NONE);
   assert(AlertEvaluator::evaluate(ALERT_NONE, makeOnboard(NAN, NAN), nullptr, 0, now) == ALERT_NONE);
@@ -2093,17 +2094,130 @@ void testAlertThresholds() {
   assert(AlertEvaluator::evaluate(ALERT_HUMIDITY, makeOnboard(21.0f, 68.0f), nullptr, 0, now) == ALERT_HUMIDITY);
   assert(AlertEvaluator::evaluate(ALERT_HUMIDITY, makeOnboard(21.0f, 67.0f), nullptr, 0, now) == ALERT_NONE);
   // Latch: with no usable reading an active alert holds, so a dropout does not clear and re-chime
-  assert(AlertEvaluator::evaluate(ALERT_CLIMATE_MASK, none, nullptr, 0, now) == ALERT_CLIMATE_MASK);
-  assert(AlertEvaluator::evaluate(ALERT_FREEZER, none, slots, 3, now + SENSOR_STALE_TIMEOUT_MS + 1) == ALERT_FREEZER);
+  assert(AlertEvaluator::evaluate(ALERT_FREEZER | ALERT_HUMIDITY, none, nullptr, 0, now) == (ALERT_FREEZER | ALERT_HUMIDITY));
+  assert(AlertEvaluator::evaluate(ALERT_FREEZER, none, slots, 3, now + SENSOR_STALE_TIMEOUT_MS + 1) ==
+         (ALERT_FREEZER | ALERT_SENSOR_LOST));
   assert(AlertEvaluator::evaluate(ALERT_NONE, none, nullptr, 0, now) == ALERT_NONE);
+}
+
+void testSensorLostAlert() {
+  const uint32_t t0 = 5000;
+  const uint32_t stale = t0 + SENSOR_STALE_TIMEOUT_MS + 1;
+  const Shtc3Reading none;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  slots[0] = makeReading(1, 21.0f, 50, 80);
+  slots[0].updated_ms = t0;
+  slots[1] = makeReading(2, 20.0f, 50, 80);
+  slots[1].updated_ms = t0;
+  // Fresh slots: no alert, exactly at the timeout the slot is still fresh
+  assert(AlertEvaluator::evaluate(ALERT_NONE, none, slots, 3, t0 + 1000) == ALERT_NONE);
+  assert(AlertEvaluator::evaluate(ALERT_NONE, none, slots, 3, t0 + SENSOR_STALE_TIMEOUT_MS) == ALERT_NONE);
+  // Fresh to stale: the bit switches on and sounds once
+  uint8_t mask = AlertEvaluator::evaluate(ALERT_NONE, none, slots, 3, stale);
+  assert(mask == ALERT_SENSOR_LOST);
+  assert(AlertEvaluator::chimeBits(false, ALERT_NONE, mask, false) == ALERT_SENSOR_LOST);
+  // Stays on without a repeated chime
+  const uint8_t again = AlertEvaluator::evaluate(mask, none, slots, 3, stale + 60000);
+  assert(again == ALERT_SENSOR_LOST);
+  assert(AlertEvaluator::chimeBits(false, mask, again, false) == ALERT_NONE);
+  // One slot recovers, the other stays stale: the bit stays on
+  slots[0].updated_ms = stale;
+  assert(AlertEvaluator::evaluate(mask, none, slots, 3, stale + 1000) == ALERT_SENSOR_LOST);
+  // Each valid slot sends again: the bit clears; a later dropout chimes again
+  slots[1].updated_ms = stale;
+  mask = AlertEvaluator::evaluate(mask, none, slots, 3, stale + 1000);
+  assert(mask == ALERT_NONE);
+  const uint32_t stale2 = stale + SENSOR_STALE_TIMEOUT_MS + 2000;
+  const uint8_t next = AlertEvaluator::evaluate(mask, none, slots, 3, stale2);
+  assert(AlertEvaluator::chimeBits(false, mask, next, false) == ALERT_SENSOR_LOST);
+  // Wrap-around of the 32-bit clock
+  SwitchBotReading wrap[1];
+  wrap[0] = makeReading(1, 21.0f, 50, 80);
+  wrap[0].updated_ms = 0xFFFFFF00u;
+  assert(AlertEvaluator::evaluate(ALERT_NONE, none, wrap, 1, 1000) == ALERT_NONE);
+  assert(AlertEvaluator::evaluate(ALERT_NONE, none, wrap, 1, 0xFFFFFF00u + SENSOR_STALE_TIMEOUT_MS + 1) ==
+         ALERT_SENSOR_LOST);
+  // A slot that was never valid does not trigger, however old the clock is
+  SwitchBotReading empty[MAX_SWITCHBOT_SENSORS];
+  assert(AlertEvaluator::evaluate(ALERT_NONE, none, empty, 3, 0xF0000000u) == ALERT_NONE);
+  assert(AlertEvaluator::evaluate(ALERT_NONE, none, nullptr, 0, stale) == ALERT_NONE);
+  // A dropout sets the bit next to a climate alert; a climate alert alone keeps its bit
+  const uint8_t both = AlertEvaluator::evaluate(ALERT_NONE, makeOnboard(-3.0f, 50.0f), slots, 3, stale2);
+  assert(both == (ALERT_FREEZER | ALERT_SENSOR_LOST));
+  assert(AlertEvaluator::chimeBits(false, ALERT_FREEZER, both, false) == ALERT_SENSOR_LOST);
+  // The noise bit of the last window stays; a recovery clears only the dropout bit
+  const AlertEvaluator::Step keep = AlertEvaluator::climateStep(false, ALERT_NOISE_HIGH | ALERT_SENSOR_LOST,
+                                                                ALERT_NONE, false);
+  assert(keep.mask == ALERT_NOISE_HIGH && keep.chime == ALERT_NONE);
+  // A noise window keeps the dropout bit
+  const AlertEvaluator::Step noise = NoiseAlertEvaluator::step(false, ALERT_SENSOR_LOST, true, 90, 80, false);
+  assert(noise.mask == (ALERT_NOISE_HIGH | ALERT_SENSOR_LOST) && noise.chime == ALERT_NOISE_HIGH);
+  // The dropout chime differs from the noise chime and sounds after it when both switch on together
+  assert(ChimeSynth::pattern(ALERT_SENSOR_LOST).notes != ChimeSynth::pattern(ALERT_NOISE_HIGH).notes);
+  // Mute and quiet hours suppress the sound; the mask is still stored by the caller
+  assert(AlertEvaluator::chimeBits(true, ALERT_NONE, ALERT_SENSOR_LOST, false) == ALERT_NONE);
+  assert(AlertEvaluator::chimeBits(false, ALERT_NONE, ALERT_SENSOR_LOST, true) == ALERT_NONE);
+  // No replay after unmute: the stored bit is not new any more
+  assert(AlertEvaluator::chimeBits(false, ALERT_SENSOR_LOST, ALERT_SENSOR_LOST, false) == ALERT_NONE);
+
+  // The chime is one low 440 Hz note
+  const ChimePattern p = ChimeSynth::pattern(ALERT_SENSOR_LOST);
+  assert(p.notes != nullptr && p.count == 1 && p.notes[0].freq_hz == 440);
+  assert(p.notes[0].freq_hz < ChimeSynth::pattern(ALERT_FREEZER).notes[0].freq_hz);
+  struct Hal {
+    int samples = 0, amp_on = 0, amp_off = 0, ends = 0;
+    bool beginBus() { return true; }
+    bool configureCodec() { return true; }
+    void setAmplifier(bool on) { on ? ++amp_on : ++amp_off; }
+    bool write(const int16_t*, size_t n) { samples += static_cast<int>(n); return true; }
+    void drain() {}
+    void shutdownCodec() {}
+    void endBus() { ++ends; }
+  };
+  Hal hal;
+  assert(AudioSequencer::play(hal, ALERT_SENSOR_LOST, 30));
+  assert(static_cast<uint32_t>(hal.samples) == ChimeSynth::totalSamples(p));
+  assert(hal.amp_on == 1 && hal.amp_off == 1 && hal.ends == 1);
+  Hal silent;
+  assert(!AudioSequencer::play(silent, ALERT_SENSOR_LOST, 0) && silent.amp_on == 0);
+
+  // RTC round trip of the bit, alone and with every other audio field
+  PersistentState s;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  PersistentState r;
+  const uint8_t masks[] = {ALERT_SENSOR_LOST, ALERT_MASK_ALL, ALERT_FREEZER | ALERT_SENSOR_LOST,
+                           ALERT_NOISE_HIGH | ALERT_SENSOR_LOST};
+  const NoiseBand bands[] = {NoiseBand::QUIET, NoiseBand::MODERATE, NoiseBand::LOUD};
+  for (uint8_t m : masks) {
+    for (NoiseBand band : bands) {
+      s.alert_mask = m;
+      s.noise_band = band;
+      s.muted = true;
+      assert(PowerManager::serialize(s, buf, sizeof(buf)));
+      assert(PowerManager::deserialize(buf, sizeof(buf), r));
+      assert(r.alert_mask == m && r.noise_band == band && r.muted);
+    }
+  }
+  // State encoding: audio byte = muted | mask << 1 | band << 5
+  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1;
+  s.muted = false;
+  s.alert_mask = ALERT_SENSOR_LOST;
+  s.noise_band = NoiseBand::MODERATE;
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  assert(ALERT_SENSOR_LOST == 8 && buf[audio_pos] == ((ALERT_SENSOR_LOST << 1) | (1 << 5)));
+  // Bit 7 stays reserved
+  buf[audio_pos] = 0x80;
+  const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
+  for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
 }
 
 void testChimeMuteAndEdge() {
   // New alerts sound; an alert that stays active does not repeat
   assert(AlertEvaluator::chimeBits(false, ALERT_NONE, ALERT_FREEZER, false) == ALERT_FREEZER);
   assert(AlertEvaluator::chimeBits(false, ALERT_FREEZER, ALERT_FREEZER, false) == ALERT_NONE);
-  assert(AlertEvaluator::chimeBits(false, ALERT_FREEZER, ALERT_CLIMATE_MASK, false) == ALERT_HUMIDITY);
-  assert(AlertEvaluator::chimeBits(false, ALERT_CLIMATE_MASK, ALERT_NONE, false) == ALERT_NONE);
+  assert(AlertEvaluator::chimeBits(false, ALERT_FREEZER, ALERT_FREEZER | ALERT_HUMIDITY, false) == ALERT_HUMIDITY);
+  assert(AlertEvaluator::chimeBits(false, ALERT_MASK_ALL, ALERT_NONE, false) == ALERT_NONE);
   // Mute suppresses every chime
   assert(AlertEvaluator::chimeBits(true, ALERT_NONE, ALERT_CLIMATE_MASK, false) == ALERT_NONE);
 
@@ -2131,7 +2245,7 @@ void testChimeMuteAndEdge() {
 
   // Playback: amplifier on only while samples flow, off afterwards, bus closed
   Hal hal;
-  assert(AudioSequencer::play(hal, ALERT_CLIMATE_MASK, 30));
+  assert(AudioSequencer::play(hal, ALERT_FREEZER | ALERT_HUMIDITY, 30));
   const uint32_t expected = ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_FREEZER)) +
                             ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_HUMIDITY));
   assert(static_cast<uint32_t>(hal.samples) == expected);
@@ -2249,7 +2363,7 @@ void testQuietHoursSuppressChimeButLatchState() {
   assert(!w.isActive(morning));
   assert(AlertEvaluator::chimeBits(false, mask, current, w.isActive(morning)) == ALERT_NONE);
   // A new second alert after the window sounds, the latched one does not
-  current = ALERT_CLIMATE_MASK;
+  current = ALERT_FREEZER | ALERT_HUMIDITY;
   assert(AlertEvaluator::chimeBits(false, mask, current, false) == ALERT_HUMIDITY);
   // Without a quiet flag the default behaviour stays
   assert(AlertEvaluator::chimeBits(false, ALERT_NONE, ALERT_FREEZER, false) == ALERT_FREEZER);
@@ -2393,7 +2507,7 @@ void testAudioStatePersistence() {
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(!r.muted && r.alert_mask == ALERT_HUMIDITY);
   // A reserved bit with a valid CRC is rejected
-  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1] = 0x40;
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1] = 0x80;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -3123,7 +3237,7 @@ void testNoiseStatePersistence() {
   // Band value 3 does not exist and is rejected even with a valid CRC
   const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  buf[audio_pos] = static_cast<uint8_t>(3 << 4);
+  buf[audio_pos] = static_cast<uint8_t>(3 << 5);
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -3314,7 +3428,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 11);
+  assert(PowerManager::STATE_VERSION == 12);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -3916,12 +4030,12 @@ void testDeviceConfigWiring() {
   lim.humidity_trigger_pct = 50.0f;
   Shtc3Reading onboard = makeOnboard(4.0f, 52.0f);
   assert(AlertEvaluator::evaluate(ALERT_NONE, onboard, nullptr, 0, 0) == ALERT_NONE);
-  assert(AlertEvaluator::evaluate(ALERT_NONE, onboard, nullptr, 0, 0, lim) == ALERT_CLIMATE_MASK);
+  assert(AlertEvaluator::evaluate(ALERT_NONE, onboard, nullptr, 0, 0, lim) == (ALERT_FREEZER | ALERT_HUMIDITY));
   // Between trigger and release limit an active alert holds
   onboard = makeOnboard(5.5f, 48.0f);
-  assert(AlertEvaluator::evaluate(ALERT_CLIMATE_MASK, onboard, nullptr, 0, 0, lim) == ALERT_CLIMATE_MASK);
+  assert(AlertEvaluator::evaluate((ALERT_FREEZER | ALERT_HUMIDITY), onboard, nullptr, 0, 0, lim) == (ALERT_FREEZER | ALERT_HUMIDITY));
   onboard = makeOnboard(6.5f, 46.0f);
-  assert(AlertEvaluator::evaluate(ALERT_CLIMATE_MASK, onboard, nullptr, 0, 0, lim) == ALERT_NONE);
+  assert(AlertEvaluator::evaluate((ALERT_FREEZER | ALERT_HUMIDITY), onboard, nullptr, 0, 0, lim) == ALERT_NONE);
 
   // Quiet hours window from the two hours
   const DeviceConfig q = parseText("quiet_hours_start_hour=1\nquiet_hours_end_hour=5\n");
@@ -6058,7 +6172,8 @@ void testNoiseAlertChimeSuppression() {
   assert(AudioSequencer::play(all, ALERT_MASK_ALL, 30));
   assert(all.samples == static_cast<int>(ChimeSynth::totalSamples(noise) +
                                         ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_FREEZER)) +
-                                        ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_HUMIDITY))));
+                                        ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_HUMIDITY)) +
+                                        ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_SENSOR_LOST))));
   // Volume 0 stays silent
   Hal silent;
   assert(!AudioSequencer::play(silent, ALERT_NOISE_HIGH, 0) && silent.samples == 0);
@@ -6130,7 +6245,7 @@ void testNoiseAlertStatePersistence() {
   // A reserved audio bit is rejected
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
-  bad[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1] = 0x40;
+  bad[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1] = 0x80;
   const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
   for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
@@ -6222,6 +6337,7 @@ int main() {
   testSdLogSchedule();
   testAlertThresholds();
   testChimeMuteAndEdge();
+  testSensorLostAlert();
   testQuietHoursWindowEdges();
   testQuietHoursSameDayAndEmptyWindow();
   testQuietHoursNeedsValidRtc();

@@ -156,6 +156,17 @@ public:
     return true;
   }
 
+  // True when one valid slot of `slots` is stale. An empty slot never counts: a sensor that was
+  // never seen cannot drop out.
+  static bool anyStale(const SwitchBotReading* slots, size_t count, uint32_t now_ms) {
+    for (size_t i = 0; slots != nullptr && i < count; ++i) {
+      if (slots[i].isStale(now_ms)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   size_t activeCount() const {
     size_t count = 0;
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {

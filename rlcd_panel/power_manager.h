@@ -126,7 +126,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 11;
+  static constexpr uint8_t STATE_VERSION = 12;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Slot layout: valid, mac[6], temperature (float bits), humidity, battery, fahrenheit,
   // rssi (int16), updated_ms, packet_count.
@@ -142,7 +142,7 @@ public:
   static constexpr size_t BATTERY_HISTORY_SIZE = 1 + 1 + BatteryHistory::CAPACITY * (2 + 4) + 4 + 1;
   // SD log trailer: last log time, logged flag.
   static constexpr size_t SD_LOG_SIZE = 4 + 1;
-  // Audio trailer: one byte, bit 0 muted, bits 1..3 alert mask, bits 4..5 noise band.
+  // Audio trailer: one byte, bit 0 muted, bits 1..4 alert mask, bits 5..6 noise band.
   static constexpr size_t AUDIO_SIZE = 1;
   // NTP trailer: last attempt time, flags (bit 0 attempted, bit 1 last ok), failure count.
   static constexpr size_t NTP_SIZE = 4 + 1 + 1;
@@ -310,7 +310,7 @@ public:
     putU32(out, pos, state.last_log_ms);
     out[pos++] = state.has_logged ? 1 : 0;
     out[pos++] = static_cast<uint8_t>((state.muted ? 1 : 0) | ((state.alert_mask & ALERT_MASK_ALL) << 1) |
-        (static_cast<uint8_t>(state.noise_band) << 4));
+        (static_cast<uint8_t>(state.noise_band) << 5));
     putU32(out, pos, state.ntp.last_attempt_ms);
     out[pos++] = static_cast<uint8_t>((state.ntp.has_attempted ? 1 : 0) | (state.ntp.last_ok ? 2 : 0));
     out[pos++] = state.ntp.failures;
@@ -455,8 +455,8 @@ public:
     }
     s.has_logged = logged == 1;
     const uint8_t audio = data[pos++];
-    const uint8_t band = static_cast<uint8_t>((audio >> 4) & 3);
-    if ((audio & ~0x3Fu) != 0 || band > static_cast<uint8_t>(NoiseBand::LOUD)) {
+    const uint8_t band = static_cast<uint8_t>((audio >> 5) & 3);
+    if ((audio & ~0x7Fu) != 0 || band > static_cast<uint8_t>(NoiseBand::LOUD)) {
       return false;
     }
     s.muted = (audio & 1) != 0;

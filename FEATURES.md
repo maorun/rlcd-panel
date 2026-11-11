@@ -56,7 +56,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `AudioSequencer` plays the chime through a hardware layer. It switches the amplifier on only while samples play. It switches the amplifier off on every exit path, also after a codec failure, so deep sleep draws no speaker current.
 - `Es8311Hal` (Arduino only) writes the ES8311 register sequence over I2C (`0x18`), starts I2S with MCLK (`GPIO8`, `9`, `10`, `16`, `45`), and sets `PA_CTRL` (`GPIO46`) with `pinMode()` before `digitalWrite()`.
 - A press of the `BOOT` button in the 3 s grace window toggles the mute flag. Unmuting plays a short confirmation beep. Mute suppresses the sound only; the alert state is still tracked, so unmuting does not replay an old alert.
-- `muted` and `alert_mask` stay in RTC memory (state version 4, one byte). The old format gives a clean start. A reserved bit with a valid CRC is rejected.
+- `muted` and `alert_mask` stay in RTC memory (state version 4, one byte; the layout changed in state versions 11 and 12, see "Sensor dropout chime"). The old format gives a clean start. A reserved bit with a valid CRC is rejected.
 - One alert bit covers all sensors of its kind. A second sensor that enters the alert while another one stays in it does not chime. With no usable reading an active alert holds, so a sensor dropout does not clear it.
 - The mute toggle works only in the 3 s grace window, which follows a `KEY` wakeup or a power-on. A timer wakeup skips the window. A reset of the RTC state (corrupt data or a format change) clears the mute flag.
 - The amplifier pin is held low through deep sleep with `gpio_hold_en`.
@@ -93,7 +93,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The sampler powers down the ADC and closes I2S on every exit path. `Es7210Hal` (Arduino only) writes the ES7210 register sequence over I2C (`0x40`) and starts I2S receive with MCLK (`GPIO9`, `10`, `16`, `45`). The shutdown sequence turns off the ADCs, the microphone bias and the analog supply. A failed write repeats the sequence once. The register values come from the Espressif reference driver and are not verified on hardware.
 - The diagnostics view shows `NOISE: <BAND> <dB> DB`, or `NOISE: --` without a reading. The line is at most 264 px wide.
 - The board measures only when the diagnostics view is on screen and the wakeup is not a timer wakeup. It draws the view first, measures, then redraws. The measurement runs once per wake cycle, also after a failure. The microphones stay off in the other views, so they cost no battery.
-- The band stays in RTC memory (bits 3 and 4 of the audio byte). The state version stays 5: an old state decodes as `QUIET`, and a band value of 3 is rejected.
+- The band stays in RTC memory (bits 5 and 6 of the audio byte since state version 12; bits 4 and 5 in version 11; bits 3 and 4 before). The state version stayed 5 when the band came: an old state decodes as `QUIET`, and a band value of 3 is rejected.
 - Host tests cover the RMS of silence, sine, DC and full scale, the band limits and hysteresis, the sampler power-down paths, the diagnostics line (all states, no clipping), and the RTC round trip.
 
 ## MicroSD noise logging with hourly measurement
@@ -167,7 +167,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Equal start and end hours switch the quiet hours off. A lone CR is no line end: use LF or CRLF. The SPL offset has whole dB steps, so a fraction below 0.5 dB has no effect.
 - A card that does not mount keeps the previous settings on a `KEY` wakeup. A card without a usable file gives the defaults.
 - The release limits keep a fixed hysteresis: `+1.0 C` for the freezer alert and `-3 %RH` for the humidity alert. The extra SPL offset applies in memory only. A new microphone calibration never stores it.
-- The accepted values are part of `PersistentState` in RTC memory (state version 11). A corrupt or out-of-range record gives a clean start.
+- The accepted values are part of `PersistentState` in RTC memory (state version 12). A corrupt or out-of-range record gives a clean start.
 - The diagnostics view shows `CONFIG: SD` or `CONFIG: DEFAULT`.
 - Host tests cover valid values, comments, spaces, CRLF, missing keys, out-of-range and malformed values, duplicate keys, a file above 4 KB, the wiring into each consumer, and the RTC round trip with corrupt records.
 
@@ -254,7 +254,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - **Code:** `rlcd_panel/sd_logger.h`, `rlcd_panel/device_config.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.
 - The diagnostics view shows `SD FREE: NNN MB` at y = 144. It shows `SD FREE: --` while the free space is unknown, for example when the card does not mount. The value is capped at 9999999 MB, so the line stays inside the screen.
 - The free space comes from `SD_MMC.totalBytes()` and `SD_MMC.usedBytes()` while the card is mounted: after each hourly write, and when `config.ini` loads. The value lives for one wake cycle only. A timer wakeup without a write does not mount the card and shows `--`.
-- The new key `log_retention_months` (default `0` = keep all files, range `0` to `120`) is part of `config.ini` and of the RTC state (state version 10, the old format gives a clean start). A value outside the range is rejected and the default stays.
+- The new key `log_retention_months` (default `0` = keep all files, range `0` to `120`) is part of `config.ini` and of the RTC state (state version 12, the old format gives a clean start). A value outside the range is rejected and the default stays.
 - After each hourly write, also after a failed write, the logger deletes the files `climate_v2_YYYYMM.csv` that are more than `log_retention_months` months older than the current RTC month (`SdLogCodec::shouldDeleteLog`). The age counts whole calendar months, also across a year change. Retention `3` in January 2026 keeps October 2025 and deletes September 2025.
 - The file of the current month, files from a future month, `config.ini`, the old v1 files and every other name stay. An invalid RTC time, a set oscillator-stop flag or a year before 2025 deletes nothing (`SdLogCodec::MIN_TRUSTED_YEAR`). A wrong clock that still reads a later valid year deletes by that clock; the NTP sync keeps the clock right.
 - One pass deletes at most 24 files (`SdLogCodec::MAX_PRUNE_PER_PASS`); the next hourly pass deletes the rest. The logger collects the names first and deletes after the directory closes.
@@ -283,5 +283,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The wake cycle uses only the existing hourly window of `logToSdCard()`. The microphones are not powered on more often, so the awake time per hour on battery power does not increase. The check runs after the window ended and before the SD write. The chime never plays while the microphones record. A skipped window (low battery alert, no card) leaves the latch as it is until the next window.
 - The chime has its own pattern: two short 988 Hz beeps, then a 660 Hz note. It sounds once, when the bit switches on. Mute and quiet hours suppress the sound only. The mask is stored, so unmuting or the end of the quiet hours never replays the alert.
 - `AlertEvaluator` now sets the climate bits only. `AlertEvaluator::withClimate()` keeps the noise bit of the last window, so the climate check does not clear it.
-- The alert mask uses 3 bits in RTC memory (bits 1 to 3 of the audio byte). The noise band moves to bits 4 and 5. The limit adds one byte to the config trailer. The state version is 11. The old format gives a clean start.
+- The alert mask uses 3 bits in RTC memory (bits 1 to 3 of the audio byte). The noise band moves to bits 4 and 5 (see "Sensor dropout chime" for the later layout). The limit adds one byte to the config trailer. The state version is 11. The old format gives a clean start.
 - Host tests cover the edges (`40`, `100`, `39`, `101`), the release at `-5 dB`, the default `0`, an invalid reading, mute and quiet hours suppression, the `config.ini` key, and the RTC round trip with corrupt records.
+
+## Sensor dropout chime
+
+- `ALERT_SENSOR_LOST` (`rlcd_panel/audio_alert.h`, value 8) is the fourth alert bit. It joins `ALERT_CLIMATE_MASK`, so `AlertEvaluator::withClimate()` keeps the noise bit of the last window. `AlertEvaluator::evaluate` sets it when one valid sensor slot is stale, that is, no packet arrived for more than 30 min (`SENSOR_STALE_TIMEOUT_MS`). `SwitchBotRegistry::anyStale` makes the check with wrap-safe 32-bit maths.
+- A slot that was never valid does not set the bit. The bit clears when each valid slot sends again. It does not latch: a second dropout after a recovery chimes again.
+- The chime is one low 440 Hz note of 400 ms. It sounds once, when the bit switches on. The bit stays on without a repeat. A second stale sensor does not chime again, as for the other alerts.
+- Mute and quiet hours suppress the sound only. The wake cycle still stores the bit, so unmuting or the end of the quiet hours never replays an old alert.
+- The audio byte in RTC memory is now: bit 0 muted, bits 1 to 4 alert mask, bits 5 and 6 noise band. The state version is 12. The old format gives a clean start. Bit 7 stays reserved. A set bit 7 is rejected, even with a valid CRC.
+- Limit: a sensor that is removed for good keeps its slot, so the bit stays on until a power-on clears the RTC state. The chime does not repeat in this time.
+- Host tests cover the change from fresh to stale (also at the exact timeout and over the clock wrap), a slot that was never valid, the recovery of one and of each slot, the mute and quiet hours suppression, the 440 Hz pattern and its playback, and the RTC round trip with the audio byte encoding.

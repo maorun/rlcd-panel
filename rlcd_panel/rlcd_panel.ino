@@ -524,10 +524,11 @@ void loadConfigFromCard(WakeupCause cause) {
   g_state.config_from_sd = result == SdConfigResult::LOADED;
 }
 
-// Evaluates the climate thresholds and sounds a chime for each alert that switched on. The mask
-// is stored even while muted or in quiet hours, so unmuting or the end of the quiet hours never
-// replays an old alert. The amplifier is off again
-// before this function returns, so deep sleep draws no speaker current.
+// Evaluates the climate thresholds and the sensor dropout, and sounds a chime for each alert that
+// switched on. A valid sensor slot that went stale sets ALERT_SENSOR_LOST. The mask is stored even
+// while muted or in quiet hours, so unmuting or the end of the quiet hours never replays an old
+// alert. The amplifier is off again before this function returns, so deep sleep draws no speaker
+// current.
 void chimeOnAlerts() {
   SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
   for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
