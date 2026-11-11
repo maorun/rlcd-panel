@@ -104,9 +104,14 @@ inline void renderScene(
   ClimateHistory history;
   const float base[ClimateHistory::SLOT_COUNT] = {45.0f, 58.0f, 72.0f, 40.0f};
   const float swing[ClimateHistory::SLOT_COUNT] = {4.0f, 9.0f, 14.0f, 1.0f};
+  // Outdoor sensors swing below freezing, so the stats view shows negative records
+  const float tbase[ClimateHistory::SLOT_COUNT] = {21.0f, 4.0f, -5.0f, 6.0f};
+  const float tswing[ClimateHistory::SLOT_COUNT] = {1.5f, 6.0f, 10.0f, 0.0f};
   for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
     for (int hour = 0; hour < 24; ++hour) {
       history.slots[s].pushPercent(base[s] + swing[s] * sinf(static_cast<float>(hour) * 0.2618f));
+      history.temperatures[s].pushCelsius(
+          tbase[s] + tswing[s] * sinf(static_cast<float>(hour - 6) * 0.2618f));
     }
   }
 

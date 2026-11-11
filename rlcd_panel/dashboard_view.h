@@ -63,6 +63,7 @@ public:
   static constexpr uint16_t CLIMATE_LINE_H = 7;
   // Sensor stats: noise trend line "NOISE 140-140 DB" (16 glyphs, 192 px) and its curve box right of
   // it, above the "ONBOARD BAT" line at y = 270.
+  static constexpr uint16_t SENSOR_BLOCK_PITCH = 72; // 4 text lines of 18 px
   static constexpr uint16_t NOISE_TREND_Y = 248;
   static constexpr uint16_t NOISE_SPARKLINE_X = 216;
   static constexpr uint16_t NOISE_SPARKLINE_Y = 246;
@@ -311,6 +312,25 @@ public:
     return true;
   }
 
+  // Formats the 24 h records of one history slot: "24H T-15.0 TO 5.0 H41-63" (lowest, highest degC; lowest-
+  // highest %RH; the 5x7 font has no slash, and "TO" keeps a negative highest value unambiguous). Each range shows "--" for fewer than 2 samples. The longest text is
+  // "24H T-100.0 TO -100.0 H100-100" (30 glyphs, 360 px), so it always fits the 400 px width.
+  static void formatRecords(char* out, size_t capacity, const ClimateHistory* history, size_t slot) {
+    char temp[28] = "--";
+    char hum[12] = "--";
+    if (history != nullptr && slot < ClimateHistory::SLOT_COUNT) {
+      int16_t lo = 0;
+      int16_t hi = 0;
+      if (history->temperatures[slot].range(lo, hi)) {
+        snprintf(temp, sizeof(temp), "%.1f TO %.1f", lo / 10.0, hi / 10.0);
+      }
+      if (history->slots[slot].range(lo, hi)) {
+        snprintf(hum, sizeof(hum), "%d-%d", (lo + 5) / 10, (hi + 5) / 10);
+      }
+    }
+    snprintf(out, capacity, "24H T%s H%s", temp, hum);
+  }
+
   static void renderSensorStats(
       St7305Framebuffer& fb,
       const BatteryReading& battery,
@@ -319,11 +339,12 @@ public:
       const char* clock_text,
       uint32_t now_ms,
       bool quiet_hours = false,
-      const NoiseHistory* noise_history = nullptr) {
+      const NoiseHistory* noise_history = nullptr,
+      const ClimateHistory* history = nullptr) {
     renderHeader(fb, "SENSOR STATS", battery, clock_text, quiet_hours);
 
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
-      const uint16_t y = static_cast<uint16_t>(34 + i * 78);
+      const uint16_t y = static_cast<uint16_t>(34 + i * SENSOR_BLOCK_PITCH);
       const bool have_slot = (switchbot_slots != nullptr && i < switchbot_count);
       const SwitchBotReading empty_reading{};
       const SwitchBotReading& sb = have_slot ? switchbot_slots[i] : empty_reading;
@@ -364,6 +385,9 @@ public:
           static_cast<unsigned long>(sb.packet_count),
           age);
       drawLine(fb, 10, static_cast<uint16_t>(y + 36), line);
+
+      formatRecords(line, sizeof(line), history, 1 + i);
+      drawLine(fb, 10, static_cast<uint16_t>(y + 54), line);
     }
 
     // Noise trend of the last 24 h with the minimum and maximum. Hours without a reading are skipped;
@@ -608,7 +632,7 @@ public:
     }
     switch (mode) {
       case DisplayMode::SENSOR_STATS:
-        renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms, info.quiet_hours, noise_history);
+        renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms, info.quiet_hours, noise_history, history);
         break;
       case DisplayMode::SYSTEM_DIAGNOSTICS:
         renderDiagnostics(fb, battery, info, clock_text);

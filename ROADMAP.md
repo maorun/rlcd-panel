@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] 24-hour minimum and maximum records in the stats view
-  - Rank: [Total: 30, Use: 8, Setup: 5, Harmony: 8, Safety: 9, Effort: M]
-  - Location: `rlcd_panel/sparkline.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `tools/preview_scenes.h`.
-  - Goal: Show the lowest and highest temperature and humidity of the last 24 h for each sensor in the `SENSOR STATS` view. Add a 24-sample hourly temperature history next to `HumidityHistory`, with the same hour gate and the same skip rules for invalid and stale readings. Read the humidity range from the existing history. Show `--` for fewer than 2 samples. Increase the RTC state version; the old format gives a clean start.
-  - Acceptance test: Host tests cover the minimum and maximum over 24+ samples, negative temperatures, the encoding limits, skipped samples, fewer than 2 samples, the text bounds in the stats view, and the RTC round trip with corrupt fields. The regenerated `docs/display_preview_stats.png` shows the records without clipping.
-
 - [ ] Configurable NTP sync interval from the MicroSD card
   - Rank: [Total: 29, Use: 4, Setup: 8, Harmony: 8, Safety: 9, Effort: S]
   - Location: `rlcd_panel/device_config.h`, `rlcd_panel/ntp_sync.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`.
