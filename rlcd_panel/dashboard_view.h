@@ -8,6 +8,7 @@
 #include "audio_spectrum.h"
 #include "board_pins.h"
 #include "button_handler.h"
+#include "climate_math.h"
 #include "es7210_mic.h"
 #include "shtc3_sensor.h"
 #include "sparkline.h"
@@ -55,6 +56,10 @@ public:
   static constexpr uint16_t SPARKLINE_H = 16;
   static constexpr uint16_t SPARKLINE_RIGHT_MARGIN = 6;
   static constexpr uint16_t SPARKLINE_Y_OFFSET = 66;
+  // Dew point and VPD line (scale 1, 7 px high) between the sparkline box (ends at y + 82) and the
+  // battery line (starts at y + 96). The widest text has 19 glyphs = 113 px, inside the 190 px tile.
+  static constexpr uint16_t CLIMATE_LINE_Y_OFFSET = 86;
+  static constexpr uint16_t CLIMATE_LINE_H = 7;
   // Sensor stats: noise trend line "NOISE 140-140 DB" (16 glyphs, 192 px) and its curve box right of
   // it, above the "ONBOARD BAT" line at y = 270.
   static constexpr uint16_t NOISE_TREND_Y = 248;
@@ -98,6 +103,18 @@ public:
     }
   }
 
+  // Dew point and VPD line; shows "DP -- VPD --" for a stale, invalid or NaN reading.
+  static void renderClimateLine(
+      St7305Framebuffer& fb, uint16_t x, uint16_t y, uint16_t h, bool usable, float temp_c,
+      float humidity_pct) {
+    if (h <= CLIMATE_LINE_Y_OFFSET + CLIMATE_LINE_H) {
+      return;
+    }
+    char line[ClimateMath::LINE_MAX_CHARS + 1];
+    ClimateMath::format(line, sizeof(line), usable, temp_c, humidity_pct);
+    fb.drawText(x + 12, y + CLIMATE_LINE_Y_OFFSET, line, 1, true);
+  }
+
   static void renderTile(
       St7305Framebuffer& fb,
       uint16_t x,
@@ -118,6 +135,7 @@ public:
 
     if (!valid) {
       fb.drawText(x + 12, y + 56, "NO SIGNAL", 2, true);
+      renderClimateLine(fb, x, y, h, false, 0.0f, 0.0f);
       return;
     }
 
@@ -128,6 +146,8 @@ public:
     char line_rh[24];
     snprintf(line_rh, sizeof(line_rh), "H: %.0f %%", humidity_pct);
     fb.drawText(x + 12, y + 68, line_rh, 2, true);
+
+    renderClimateLine(fb, x, y, h, !is_stale, temp_c, humidity_pct);
 
     // A curve needs two samples. One sample would draw a single dot.
     if (history != nullptr && history->size() >= 2 && w > SPARKLINE_W + SPARKLINE_RIGHT_MARGIN &&

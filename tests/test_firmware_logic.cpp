@@ -15,6 +15,7 @@
 #include "../rlcd_panel/bthome_ble.h"
 #include "../rlcd_panel/button_handler.h"
 #include "../rlcd_panel/clap_detector.h"
+#include "../rlcd_panel/climate_math.h"
 #include "../rlcd_panel/dashboard_view.h"
 #include "../rlcd_panel/device_config.h"
 #include "../rlcd_panel/es7210_mic.h"
@@ -627,6 +628,150 @@ void testSwitchBotStaleDetection() {
   assert(!empty.isStale(0xFFFFFFFFu));
 }
 
+void testClimateMathReferencePoints() {
+  const ClimateDerived ref = ClimateMath::compute(20.0f, 50.0f);
+  assert(ref.valid);
+  assert(approxEqual(ref.dew_point_c, 9.3f, 0.1f));
+  assert(approxEqual(ref.vpd_kpa, 1.17f, 0.01f));
+
+  // 100 %RH: dew point equals the temperature, no deficit
+  const ClimateDerived sat = ClimateMath::compute(20.0f, 100.0f);
+  assert(sat.valid);
+  assert(approxEqual(sat.dew_point_c, 20.0f, 0.05f));
+  assert(approxEqual(sat.vpd_kpa, 0.0f, 0.001f));
+
+  // 0 %RH: the dew point does not exist
+  assert(!ClimateMath::compute(20.0f, 0.0f).valid);
+
+  const ClimateDerived cold = ClimateMath::compute(-10.0f, 50.0f);
+  assert(cold.valid);
+  assert(approxEqual(cold.dew_point_c, -18.5f, 0.2f));
+  assert(approxEqual(cold.vpd_kpa, 0.14f, 0.01f));
+  const ClimateDerived colder = ClimateMath::compute(-20.0f, 50.0f);
+  assert(colder.valid);
+  assert(approxEqual(colder.dew_point_c, -27.8f, 0.2f));
+  assert(approxEqual(colder.vpd_kpa, 0.063f, 0.005f));
+  assert(colder.dew_point_c < -20.0f);
+
+  // The dew point never exceeds the temperature
+  assert(ClimateMath::compute(30.0f, 80.0f).dew_point_c < 30.0f);
+}
+
+void testClimateMathInvalidInput() {
+  const float nan_v = NAN;
+  assert(!ClimateMath::compute(nan_v, 50.0f).valid);
+  assert(!ClimateMath::compute(20.0f, nan_v).valid);
+  assert(!ClimateMath::compute(INFINITY, 50.0f).valid);
+  assert(!ClimateMath::compute(20.0f, 100.1f).valid);
+  assert(!ClimateMath::compute(20.0f, -1.0f).valid);
+  assert(!ClimateMath::compute(-60.0f, 50.0f).valid);
+  assert(!ClimateMath::compute(80.0f, 50.0f).valid);
+
+  char buf[ClimateMath::LINE_MAX_CHARS + 1];
+  ClimateMath::format(buf, sizeof(buf), true, 20.0f, 50.0f);
+  assert(strcmp(buf, "DP 9.3C VPD 1.2K") == 0);
+  ClimateMath::format(buf, sizeof(buf), false, 20.0f, 50.0f); // invalid or stale
+  assert(strcmp(buf, "DP -- VPD --") == 0);
+  ClimateMath::format(buf, sizeof(buf), true, nan_v, 50.0f);
+  assert(strcmp(buf, "DP -- VPD --") == 0);
+  ClimateMath::format(buf, sizeof(buf), true, -45.0f, 100.0f); // longest text
+  assert(strlen(buf) <= ClimateMath::LINE_MAX_CHARS);
+  ClimateMath::format(nullptr, 0, true, 20.0f, 50.0f); // no crash
+}
+
+void testDashboardClimateLine() {
+  Shtc3Reading onboard;
+  onboard.valid = true;
+  onboard.temperature_c = 20.0f;
+  onboard.humidity_pct = 50.0f;
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.85f;
+  battery.percentage = 65;
+  const uint32_t now_ms = 100000;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    slots[i].valid = true;
+    slots[i].temperature_c = 20.0f;
+    slots[i].humidity_pct = 50;
+    slots[i].battery_pct = 90;
+    slots[i].updated_ms = now_ms;
+  }
+  ClimateHistory history;
+  for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
+    for (int h = 0; h < 24; ++h) {
+      history.slots[s].pushPercent(40.0f + static_cast<float>(h));
+    }
+  }
+
+  St7305Framebuffer fb;
+  DashboardView::render(fb, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, nullptr, now_ms, &history);
+
+  const uint16_t tile_x[4] = {6, 204, 6, 204};
+  const uint16_t tile_y[4] = {36, 36, 168, 168};
+  const uint16_t line_h = 7;
+  for (size_t t = 0; t < 4; ++t) {
+    const uint16_t ly = tile_y[t] + DashboardView::CLIMATE_LINE_Y_OFFSET;
+    // The line sits below the sparkline box and above the battery line, inside the tile
+    assert(ly >= tile_y[t] + DashboardView::SPARKLINE_Y_OFFSET + DashboardView::SPARKLINE_H);
+    assert(ly + line_h <= tile_y[t] + 96);
+    size_t set = 0;
+    for (uint16_t y = ly; y < ly + line_h; ++y) {
+      for (uint16_t x = tile_x[t] + 1; x < tile_x[t] + 189; ++x) {
+        if (fb.getPixel(x, y)) {
+          ++set;
+          // The text starts at x + 12 and ends within the tile border
+          assert(x >= tile_x[t] + 12);
+        }
+      }
+    }
+    assert(set > 0);
+    // The border column stays clear of text
+    for (uint16_t y = ly; y < ly + line_h; ++y) {
+      assert(fb.getPixel(tile_x[t] + 189, y)); // right border is a line, not text overflow
+    }
+  }
+
+  // The text matches the helper: a render with the line text drawn alone gives the same pixels
+  St7305Framebuffer ref;
+  ref.clear(false);
+  char line[ClimateMath::LINE_MAX_CHARS + 1];
+  ClimateMath::format(line, sizeof(line), true, 20.0f, 50.0f);
+  ref.drawText(6 + 12, 36 + DashboardView::CLIMATE_LINE_Y_OFFSET, line, 1, true);
+  for (uint16_t y = 0; y < line_h; ++y) {
+    for (uint16_t x = 0; x < 120; ++x) {
+      assert(
+          fb.getPixel(18 + x, 36 + DashboardView::CLIMATE_LINE_Y_OFFSET + y) ==
+          ref.getPixel(18 + x, 36 + DashboardView::CLIMATE_LINE_Y_OFFSET + y));
+    }
+  }
+
+  // Stale sensor 1 and NaN humidity on sensor 2 show "DP -- VPD --"; the onboard tile is unchanged
+  slots[0].updated_ms = now_ms - SENSOR_STALE_TIMEOUT_MS - 1;
+  St7305Framebuffer dash;
+  DashboardView::render(dash, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, nullptr, now_ms, &history);
+  St7305Framebuffer dashes;
+  dashes.clear(false);
+  dashes.drawText(204 + 12, 36 + DashboardView::CLIMATE_LINE_Y_OFFSET, "DP -- VPD --", 1, true);
+  for (uint16_t y = 0; y < line_h; ++y) {
+    for (uint16_t x = 0; x < 100; ++x) {
+      const uint16_t py = 36 + DashboardView::CLIMATE_LINE_Y_OFFSET + y;
+      assert(dash.getPixel(216 + x, py) == dashes.getPixel(216 + x, py));
+      assert(dash.getPixel(18 + x, py) == fb.getPixel(18 + x, py));
+    }
+  }
+
+  // An invalid tile ("NO SIGNAL") shows the dashes, too
+  St7305Framebuffer none;
+  DashboardView::render(none, onboard, battery, nullptr, 0, nullptr, now_ms);
+  for (uint16_t y = 0; y < line_h; ++y) {
+    for (uint16_t x = 0; x < 100; ++x) {
+      const uint16_t py = 36 + DashboardView::CLIMATE_LINE_Y_OFFSET + y;
+      assert(none.getPixel(216 + x, py) == dashes.getPixel(216 + x, py));
+    }
+  }
+}
+
 void testDashboardStaleIndicator() {
   Shtc3Reading onboard;
   onboard.valid = true;
@@ -681,12 +826,15 @@ void testDashboardStaleIndicator() {
   assert(diffInRect(204, 36 + 132, 190, 124) == 0);
   assert(diffInRect(0, 0, 400, 28) == 0);
 
-  // The stale indicator stays inside the tile border, in the title band above the divider line
+  // The stale indicator stays inside the tile border, in the title band above the divider line.
+  // The dew point line below the sparkline also changes ("DP --" for stale data).
+  const uint16_t dp_y0 = 168 + DashboardView::CLIMATE_LINE_Y_OFFSET;
   size_t outside = 0;
   for (uint16_t y = 0; y < 300; ++y) {
     for (uint16_t x = 0; x < 400; ++x) {
       if (fresh.getPixel(x, y) != mixed.getPixel(x, y) &&
-          (x <= 6 || x >= 195 || y <= 168 || y >= 168 + 24)) {
+          (x <= 6 || x >= 195 || y <= 168 || y >= 168 + 24) &&
+          !(y >= dp_y0 && y < dp_y0 + 7U && x > 6 && x < 195)) {
         ++outside;
       }
     }
@@ -6301,6 +6449,9 @@ int main() {
   testBtHomeInvalidPackets();
   testBtHomeUnknownObjectIds();
   testBtHomeCombinedRegistry();
+  testClimateMathReferencePoints();
+  testClimateMathInvalidInput();
+  testDashboardClimateLine();
   testDashboardStaleIndicator();
   testButtonDebounceAndModeTransitions();
   testDisplayModesRenderWithoutClipping();
@@ -6444,6 +6595,6 @@ int main() {
   testSerialListAndInfo();
   testSerialRejectKeepsCardUnmounted();
   testSerialConsoleUsbGate();
-  printf("All 120 firmware logic test suites passed.\n");
+  printf("All 123 firmware logic test suites passed.\n");
   return 0;
 }

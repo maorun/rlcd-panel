@@ -295,3 +295,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The audio byte in RTC memory is now: bit 0 muted, bits 1 to 4 alert mask, bits 5 and 6 noise band. The state version is 12. The old format gives a clean start. Bit 7 stays reserved. A set bit 7 is rejected, even with a valid CRC.
 - Limit: a sensor that is removed for good keeps its slot, so the bit stays on until a power-on clears the RTC state. The chime does not repeat in this time.
 - Host tests cover the change from fresh to stale (also at the exact timeout and over the clock wrap), a slot that was never valid, the recovery of one and of each slot, the mute and quiet hours suppression, the 440 Hz pattern and its playback, and the RTC round trip with the audio byte encoding.
+
+## Dew point and VPD line in the climate tiles
+
+- **Code:** `rlcd_panel/climate_math.h`, `rlcd_panel/dashboard_view.h`, `tests/test_firmware_logic.cpp`.
+- `ClimateMath::compute` calculates the dew point with the Magnus formula (`a = 17.62`, `b = 243.12 C`). It calculates the vapor pressure deficit (VPD) in kPa as `0.61078 * exp(a * T / (T + b)) * (1 - RH / 100)`. At 20.0 C and 50 %RH the result is 9.3 C and 1.17 kPa.
+- The result is invalid for NaN, infinite and out-of-range input (temperature outside -45 C to 60 C, humidity at or below 0 %RH or above 100 %RH). At 0 %RH the dew point does not exist.
+- Each of the 4 tiles shows one scale-1 line, for example `DP 9.3C VPD 1.2K` (`K` is kPa). The line sits at `y + 86`, between the sparkline box and the battery line, and ends inside the 190 px tile. A stale or invalid tile shows `DP -- VPD --`.
+- The values are calculated for each render. No RTC state changes and the state version stays the same.
+- Host tests cover the reference point, 0 and 100 %RH, -10 C and -20 C, NaN, infinite and out-of-range input, the text format, the line position in all 4 tiles, and the dashes for a stale and a missing sensor.
