@@ -50,6 +50,13 @@ public:
   static constexpr uint16_t SPARKLINE_H = 16;
   static constexpr uint16_t SPARKLINE_RIGHT_MARGIN = 6;
   static constexpr uint16_t SPARKLINE_Y_OFFSET = 66;
+  // Sensor stats: noise trend line "NOISE 140-140 DB" (16 glyphs, 192 px) and its curve box right of
+  // it, above the "ONBOARD BAT" line at y = 270.
+  static constexpr uint16_t NOISE_TREND_Y = 248;
+  static constexpr uint16_t NOISE_SPARKLINE_X = 216;
+  static constexpr uint16_t NOISE_SPARKLINE_Y = 246;
+  static constexpr uint16_t NOISE_SPARKLINE_W = 170;
+  static constexpr uint16_t NOISE_SPARKLINE_H = 20;
   static constexpr uint16_t LOOPBACK_Y = 260; // diagnostics: speaker to microphone test line
   static constexpr uint16_t MIC_TEST_Y = 224; // diagnostics: microphone self-test line
 
@@ -276,7 +283,8 @@ public:
       size_t switchbot_count,
       const char* clock_text,
       uint32_t now_ms,
-      bool quiet_hours = false) {
+      bool quiet_hours = false,
+      const NoiseHistory* noise_history = nullptr) {
     renderHeader(fb, "SENSOR STATS", battery, clock_text, quiet_hours);
 
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
@@ -321,6 +329,23 @@ public:
           static_cast<unsigned long>(sb.packet_count),
           age);
       drawLine(fb, 10, static_cast<uint16_t>(y + 36), line);
+    }
+
+    // Noise trend of the last 24 h with the minimum and maximum. Hours without a reading are skipped;
+    // with no valid hour the line stays off.
+    uint8_t noise_lo = 0;
+    uint8_t noise_hi = 0;
+    if (noise_history != nullptr && noise_history->range(noise_lo, noise_hi)) {
+      char noise_line[24];
+      snprintf(
+          noise_line,
+          sizeof(noise_line),
+          "NOISE %u-%u DB",
+          static_cast<unsigned>(noise_lo),
+          static_cast<unsigned>(noise_hi));
+      drawLine(fb, 10, NOISE_TREND_Y, noise_line);
+      Sparkline::renderNoise(
+          fb, NOISE_SPARKLINE_X, NOISE_SPARKLINE_Y, NOISE_SPARKLINE_W, NOISE_SPARKLINE_H, *noise_history);
     }
 
     // Raw voltage readings: only the onboard cell is measured; SwitchBot packets carry a percentage.
@@ -447,10 +472,11 @@ public:
       const SystemInfo& info,
       const char* clock_text,
       uint32_t now_ms,
-      const ClimateHistory* history = nullptr) {
+      const ClimateHistory* history = nullptr,
+      const NoiseHistory* noise_history = nullptr) {
     switch (mode) {
       case DisplayMode::SENSOR_STATS:
-        renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms, info.quiet_hours);
+        renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms, info.quiet_hours, noise_history);
         break;
       case DisplayMode::SYSTEM_DIAGNOSTICS:
         renderDiagnostics(fb, battery, info, clock_text);

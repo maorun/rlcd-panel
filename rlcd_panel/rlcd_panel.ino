@@ -240,7 +240,8 @@ void renderDashboard() {
       info,
       clock_text,
       nowMs(),
-      &g_state.history);
+      &g_state.history,
+      &g_state.noise_history);
   g_panel.flush(g_framebuffer);
 }
 
@@ -362,11 +363,13 @@ void logToSdCard() {
     return;
   }
   bool have_noise = false;
+  bool noise_measured = false;
   // The card check comes last: a missing card must not cost a 5 s window on each 10 min retry.
   if (SdLogCodec::noiseMeasureWanted(
           g_state.has_logged, g_state.last_log_ms, now, g_rtc_time.valid, g_state.battery) &&
       SdLogger::cardPresent()) {
     measureNoiseOnce();
+    noise_measured = true;
     have_noise = g_noise.valid;
     if (g_mode_controller.mode() == DisplayMode::SYSTEM_DIAGNOSTICS) {
       renderDashboard(); // the diagnostics view shows the new level
@@ -383,6 +386,15 @@ void logToSdCard() {
   g_state.has_logged = true;
   if (result == SdLogResult::OK) {
     g_state.last_log_ms = now;
+    // One value per written record, so the curve has one sample per hour. A failed window is an
+    // invalid hour. A skipped window (low battery, no card) adds nothing.
+    if (noise_measured) {
+      if (have_noise) {
+        g_state.noise_history.push(NoiseHistory::encode(cal.splDb(g_noise.rms)));
+      } else {
+        g_state.noise_history.pushInvalid();
+      }
+    }
   } else {
     g_state.last_log_ms = SdLogCodec::retryStamp(now);
     Serial.printf("SD log failed: %u\n", static_cast<unsigned>(result));

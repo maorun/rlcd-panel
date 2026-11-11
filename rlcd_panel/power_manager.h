@@ -78,6 +78,7 @@ struct PersistentState {
   BatteryReading battery;
   SwitchBotRegistry registry;
   ClimateHistory history; // hourly humidity samples for the trend curves
+  NoiseHistory noise_history; // hourly noise levels (dB) for the stats view
   uint32_t last_log_ms = 0;  // clock value of the last MicroSD record
   bool has_logged = false;   // false until the first MicroSD attempt, success or failure
   bool muted = false;        // true: alerts stay silent
@@ -96,7 +97,7 @@ struct WakeupPlan {
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 7;
+  static constexpr uint8_t STATE_VERSION = 8;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Slot layout: valid, mac[6], temperature (float bits), humidity, battery, fahrenheit,
   // rssi (int16), updated_ms, packet_count.
@@ -105,6 +106,8 @@ public:
   static constexpr size_t HISTORY_RING_SIZE = 1 + 1 + HumidityHistory::CAPACITY * 2;
   static constexpr size_t HISTORY_SIZE =
       ClimateHistory::SLOT_COUNT * HISTORY_RING_SIZE + 4 + 1;
+  // Noise history: count, head, 24 samples (one byte, 0xFF is an invalid hour).
+  static constexpr size_t NOISE_HISTORY_SIZE = 1 + 1 + NoiseHistory::CAPACITY;
   // SD log trailer: last log time, logged flag.
   static constexpr size_t SD_LOG_SIZE = 4 + 1;
   // Audio trailer: one byte, bit 0 muted, bits 1..2 alert mask, bits 3..4 noise band.
@@ -117,7 +120,7 @@ public:
   // Header: magic, version, mode, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + 4;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -229,6 +232,11 @@ public:
     }
     putU32(out, pos, state.history.last_sample_ms);
     out[pos++] = state.history.has_sampled ? 1 : 0;
+    out[pos++] = static_cast<uint8_t>(state.noise_history.size());
+    out[pos++] = state.noise_history.head();
+    for (size_t k = 0; k < NoiseHistory::CAPACITY; ++k) {
+      out[pos++] = state.noise_history.rawSample(k);
+    }
     putU32(out, pos, state.last_log_ms);
     out[pos++] = state.has_logged ? 1 : 0;
     out[pos++] = static_cast<uint8_t>((state.muted ? 1 : 0) | ((state.alert_mask & ALERT_MASK_ALL) << 1) |
@@ -338,6 +346,15 @@ public:
       return false;
     }
     s.history.has_sampled = sampled == 1;
+    const uint8_t noise_count = data[pos++];
+    const uint8_t noise_head = data[pos++];
+    uint8_t noise_samples[NoiseHistory::CAPACITY];
+    for (size_t k = 0; k < NoiseHistory::CAPACITY; ++k) {
+      noise_samples[k] = data[pos++];
+    }
+    if (!s.noise_history.restore(noise_count, noise_head, noise_samples)) {
+      return false;
+    }
     s.last_log_ms = getU32(data, pos);
     const uint8_t logged = data[pos++];
     if (logged > 1) {

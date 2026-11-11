@@ -98,6 +98,17 @@ inline void renderScene(
     }
   }
 
+  // Preview noise: 24 hourly levels, quiet at night and louder by day, with two hours without a reading
+  NoiseHistory noise_history;
+  for (int hour = 0; hour < 24; ++hour) {
+    if (hour == 9 || hour == 10) {
+      noise_history.pushInvalid();
+      continue;
+    }
+    noise_history.push(NoiseHistory::encode(static_cast<int>(
+        44.0f + 14.0f * sinf((static_cast<float>(hour) - 6.0f) * 0.2618f) + (hour % 3) * 2.0f)));
+  }
+
   SystemInfo info;
   info.free_heap_bytes = 214 * 1024;
   info.uptime_ms = 93784000; // 1 d 02:03:04
@@ -121,7 +132,8 @@ inline void renderScene(
       info,
       "14:32",
       now_ms,
-      &history);
+      &history,
+      &noise_history);
 }
 
 } // namespace preview
