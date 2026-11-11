@@ -162,11 +162,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
   | `quiet_hours_end_hour` | `7` | `0` to `23` | quiet hours end |
   | `mic_spl_offset_db` | `0.0` | `-20.0` to `20.0` | added to the microphone SPL offset |
   | `log_retention_months` | `0` | `0` to `120` | delete log files older than this; `0` keeps all |
+| `noise_alert_limit_db` | `0` | `0` (off) or `40` to `100` | loud noise alert trigger |
 
 - Equal start and end hours switch the quiet hours off. A lone CR is no line end: use LF or CRLF. The SPL offset has whole dB steps, so a fraction below 0.5 dB has no effect.
 - A card that does not mount keeps the previous settings on a `KEY` wakeup. A card without a usable file gives the defaults.
 - The release limits keep a fixed hysteresis: `+1.0 C` for the freezer alert and `-3 %RH` for the humidity alert. The extra SPL offset applies in memory only. A new microphone calibration never stores it.
-- The accepted values are part of `PersistentState` in RTC memory (state version 10). A corrupt or out-of-range record gives a clean start.
+- The accepted values are part of `PersistentState` in RTC memory (state version 11). A corrupt or out-of-range record gives a clean start.
 - The diagnostics view shows `CONFIG: SD` or `CONFIG: DEFAULT`.
 - Host tests cover valid values, comments, spaces, CRLF, missing keys, out-of-range and malformed values, duplicate keys, a file above 4 KB, the wiring into each consumer, and the RTC round trip with corrupt records.
 
@@ -273,3 +274,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Risk: other BTHome or SwitchBot senders near the panel can fill the 3 slots before your own sensors appear. Pair the panel only in a place with few foreign senders. There is no config filter for MAC addresses yet.
 - The firmware reads only the first Service Data entry of an advertisement. A BTHome entry behind another Service Data UUID is missed.
 - A sensor with a rotating random BLE address changes its MAC address. Each new address takes a free slot, and the sensor can use up the 3 slots over time.
+
+## Loud noise alert chime
+
+- The new key `noise_alert_limit_db` (default `0` = off, range `40` to `100` dB SPL) is part of `config.ini`. A value from `1` to `39`, above `100`, or malformed is rejected, and the previous value stays.
+- `NoiseAlertEvaluator` (`rlcd_panel/audio_alert.h`) sets the alert bit `ALERT_NOISE_HIGH` when the SPL of the hourly 5 s noise window is above the limit. The alert releases when the level is `5 dB` or more below the limit. Between the two values the previous state holds.
+- A limit of `0`, or a limit outside the range, switches the alert off and clears the bit. A failed window (`NoiseReading::valid` is false) holds the latch, so it neither switches the alert on nor off and gives no second chime.
+- The wake cycle uses only the existing hourly window of `logToSdCard()`. The microphones are not powered on more often, so the awake time per hour on battery power does not increase. The check runs after the window ended and before the SD write. The chime never plays while the microphones record. A skipped window (low battery alert, no card) leaves the latch as it is until the next window.
+- The chime has its own pattern: two short 988 Hz beeps, then a 660 Hz note. It sounds once, when the bit switches on. Mute and quiet hours suppress the sound only. The mask is stored, so unmuting or the end of the quiet hours never replays the alert.
+- `AlertEvaluator` now sets the climate bits only. `AlertEvaluator::withClimate()` keeps the noise bit of the last window, so the climate check does not clear it.
+- The alert mask uses 3 bits in RTC memory (bits 1 to 3 of the audio byte). The noise band moves to bits 4 and 5. The limit adds one byte to the config trailer. The state version is 11. The old format gives a clean start.
+- Host tests cover the edges (`40`, `100`, `39`, `101`), the release at `-5 dB`, the default `0`, an invalid reading, mute and quiet hours suppression, the `config.ini` key, and the RTC round trip with corrupt records.

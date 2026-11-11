@@ -415,6 +415,28 @@ void refreshSensors() {
       nowMs(), g_onboard_reading.valid, g_onboard_reading.humidity_pct, g_state.registry);
 }
 
+// Stores the new mask and plays the chimes of the step. The amplifier is off again before this
+// function returns.
+void applyAlertStep(const AlertEvaluator::Step& step) {
+  g_state.alert_mask = step.mask;
+  if (step.chime != ALERT_NONE) {
+    Es8311Hal hal;
+    if (!AudioSequencer::play(hal, step.chime, config().chime_volume_pct)) {
+      Serial.println("Chime failed");
+    }
+  }
+}
+
+// Checks the hourly noise window against the limit of config.ini. It runs after the window ended,
+// so the chime never plays while the microphones record. A failed window holds the latch. The
+// microphones are not powered on for this check.
+void chimeOnNoise(bool have_noise, const MicCalibration& cal) {
+  const int level_db = have_noise ? cal.splDb(g_noise.rms) : 0;
+  applyAlertStep(NoiseAlertEvaluator::step(
+      g_state.muted, g_state.alert_mask, have_noise, level_db, config().noise_alert_limit_db,
+      quietHours().isActive(g_rtc_time)));
+}
+
 // Appends one hourly record to the MicroSD card. A missing card or a failed write never blocks
 // the cycle; the next attempt follows after a short retry interval. The wake cycle that writes the
 // record, also a timer wakeup, runs one 5 s noise window first. It is skipped with a low battery
@@ -446,6 +468,9 @@ void logToSdCard() {
     snapshot[i] = g_state.registry.slot(i);
   }
   const MicCalibration cal = activeMicCal();
+  if (noise_measured) {
+    chimeOnNoise(have_noise, cal); // after the window: the chime never overlaps the recording
+  }
   int32_t free_mb = -1;
   const SdLogResult result = SdLogger::append(
       g_rtc_time, g_state.battery, g_onboard_reading, snapshot, MAX_SWITCHBOT_SENSORS, now,
@@ -508,18 +533,12 @@ void chimeOnAlerts() {
   for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
     snapshot[i] = g_state.registry.slot(i);
   }
-  const uint8_t current = AlertEvaluator::evaluate(
+  const uint8_t climate = AlertEvaluator::evaluate(
       g_state.alert_mask, g_onboard_reading, snapshot, MAX_SWITCHBOT_SENSORS, nowMs(), alertLimits());
-  // Quiet hours suppress the sound only. The mask below is stored, so no chime replays later.
-  const bool quiet = quietHours().isActive(g_rtc_time);
-  const uint8_t bits = AlertEvaluator::chimeBits(g_state.muted, g_state.alert_mask, current, quiet);
-  g_state.alert_mask = current;
-  if (bits != ALERT_NONE) {
-    Es8311Hal hal;
-    if (!AudioSequencer::play(hal, bits, config().chime_volume_pct)) {
-      Serial.println("Chime failed");
-    }
-  }
+  // Quiet hours suppress the sound only. The mask is stored, so no chime replays later. The noise
+  // bit stays as it is: only the hourly noise window changes it.
+  applyAlertStep(AlertEvaluator::climateStep(
+      g_state.muted, g_state.alert_mask, climate, quietHours().isActive(g_rtc_time)));
 }
 
 } // namespace
