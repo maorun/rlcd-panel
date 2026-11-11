@@ -148,7 +148,7 @@ arduino-cli compile rlcd_panel
 
 ## Audio Alerts
 
-The onboard `ES8311` DAC and speaker play a short chime when a sensor crosses a limit: a freezer alert below 0 °C (three beeps) and a mold risk alert above 70 %RH (two rising notes). A chime sounds once when the alert switches on. The alerts release at 1 °C and 67 %RH. Press `BOOT` during the 3 s window after a wakeup to mute or unmute the chime. The window opens after a `KEY` wakeup or a power-on, not after a timer wakeup. The mute flag stays in RTC memory and resets with it. Quiet hours from 22:00 to 07:00 local RTC time suppress the chime. The alert state stays tracked, so an alert does not chime when the window ends. A `Q` badge in the header shows active quiet hours. Without a valid RTC time the chime sounds. The power amplifier (`GPIO46`) is off outside playback. The code is in `rlcd_panel/audio_alert.h`.
+The onboard `ES8311` DAC and speaker play a short chime when a sensor crosses a limit: a freezer alert below 0 °C (three beeps) and a mold risk alert above 70 %RH (two rising notes). A chime sounds once when the alert switches on. The alerts release at 1 °C and 67 %RH. Press `BOOT` during the 3 s window after a wakeup to mute or unmute the chime. In the diagnostics view the toggle happens on release, because a long press starts the loopback test. The window opens after a `KEY` wakeup or a power-on, not after a timer wakeup. The mute flag stays in RTC memory and resets with it. Quiet hours from 22:00 to 07:00 local RTC time suppress the chime. The alert state stays tracked, so an alert does not chime when the window ends. A `Q` badge in the header shows active quiet hours. Without a valid RTC time the chime sounds. The power amplifier (`GPIO46`) is off outside playback. The code is in `rlcd_panel/audio_alert.h`.
 
 ## Settings from the MicroSD Card
 
@@ -178,6 +178,10 @@ The onboard `ES7210` ADC and the dual microphone array measure the ambient noise
 ### Microphone Self-Test
 
 The same 5 s window checks each microphone. The diagnostics view shows `MIC1: OK MIC2: OK` or the fault of a channel: `SILENT` (all samples zero), `STUCK` (constant signal), `DC` (offset above 12.5 % of full scale) or `CLIP` (full scale peaks). A level difference of more than 10 dB adds ` IMB <n> DB`. With one failed channel the noise level comes from the working microphone. If both channels fail, the view shows `NOISE: --` and no noise band, and the CSV noise fields stay empty. The limits are not verified on hardware.
+
+### Speaker to Microphone Loopback Test
+
+A `BOOT` long press (2 s) in the diagnostics view plays a 1 kHz tone for 500 ms at the chime volume and records it with the `ES7210` microphones. The view then shows `AUDIO LOOP: PASS <dB>` (tone level in dBFS) or `AUDIO LOOP: FAIL`. A short `BOOT` press still toggles the mute flag. The test is skipped while muted, during quiet hours and with chime volume `0` (`AUDIO LOOP: SKIP ...`). The amplifier and both codecs are off after each test. The limits (-60 dBFS, 50 % tone share) are not verified on hardware and do not follow the chime volume: a very low volume can fail the test. The code is in `rlcd_panel/audio_loopback.h`.
 
 ## Time Synchronization (optional)
 

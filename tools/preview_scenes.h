@@ -108,6 +108,8 @@ inline void renderScene(
   info.noise.mic.valid = true;
   info.quiet_hours = quiet_hours;
   info.config_from_sd = true;
+  info.loopback.status = LoopbackStatus::PASS;
+  info.loopback.level_db = -24;
 
   DashboardView::renderMode(
       fb,

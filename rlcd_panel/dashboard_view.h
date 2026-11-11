@@ -3,6 +3,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "battery_monitor.h"
+#include "audio_loopback.h"
 #include "board_pins.h"
 #include "button_handler.h"
 #include "es7210_mic.h"
@@ -23,6 +24,7 @@ struct SystemInfo {
   bool mic_cal_failed = false; // the last calibration of this wake cycle was rejected
   bool quiet_hours = false; // chimes are suppressed now; the header shows "Q"
   bool config_from_sd = false; // true: settings come from /sdcard/config.ini
+  LoopbackResult loopback;     // last speaker to microphone test of this wake cycle
 };
 
 class DashboardView {
@@ -48,6 +50,7 @@ public:
   static constexpr uint16_t SPARKLINE_H = 16;
   static constexpr uint16_t SPARKLINE_RIGHT_MARGIN = 6;
   static constexpr uint16_t SPARKLINE_Y_OFFSET = 66;
+  static constexpr uint16_t LOOPBACK_Y = 260; // diagnostics: speaker to microphone test line
   static constexpr uint16_t MIC_TEST_Y = 224; // diagnostics: microphone self-test line
 
   static void renderBatteryIcon(
@@ -426,8 +429,12 @@ public:
                                                  : (info.mic_cal.calibrated ? "OK" : "DEFAULT")));
     drawLine(fb, 10, 244, line);
 
+    // Loopback line at y = 260, between the calibration line (ends y = 258) and the config line.
+    info.loopback.describe(line, sizeof(line));
+    drawLine(fb, 10, LOOPBACK_Y, line);
+
     snprintf(line, sizeof(line), "CONFIG: %s", info.config_from_sd ? "SD" : "DEFAULT");
-    drawLine(fb, 10, 272, line);
+    drawLine(fb, 10, 276, line);
   }
 
   static void renderMode(

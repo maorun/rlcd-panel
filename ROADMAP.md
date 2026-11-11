@@ -22,15 +22,6 @@ No open item.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-### Speaker to microphone loopback test
-
-- **Rank:** Feature model. Total 29/40 (use 2, setup 9, harmony 10, safety 8). Effort M.
-- **Area:** Audio / Diagnostics.
-- **Code:** `rlcd_panel/audio_loopback.h` (new), `rlcd_panel/audio_alert.h`, `rlcd_panel/es7210_mic.h`, `rlcd_panel/rlcd_panel.ino`.
-- **Problem:** The user cannot verify the speaker path (`ES8311`, amplifier, speaker) and the microphone path (`ES7210`) together. A silent chime gives no signal.
-- **Goal:** On a `BOOT` long press in the diagnostics view, play a 1 kHz tone for 500 ms at the configured volume and record it at the same time over the shared I2S bus. Detect the tone with a Goertzel filter. Report `AUDIO LOOP: PASS <dB>` or `AUDIO LOOP: FAIL`. Switch off the amplifier and power down both codecs on each exit path. Skip the test while muted or during quiet hours.
-- **Acceptance test:** Host tests cover the Goertzel detector with a 1 kHz sine, a 2 kHz sine, silence and white noise, the pass limit, the amplifier off order on success and on each failure, and the mute skip.
-
 ### 24-hour noise history in the stats view
 
 - **Rank:** Feature model. Total 28/40 (use 6, setup 4, harmony 9, safety 9). Effort S.
