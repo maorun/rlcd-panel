@@ -8,6 +8,7 @@
 
 #include "battery_monitor.h"
 #include "board_pins.h"
+#include "device_config.h"
 #include "pcf85063_rtc.h"
 #include "shtc3_sensor.h"
 #include "switchbot_ble.h"
@@ -149,6 +150,12 @@ enum class SdLogResult : uint8_t {
   WRITE_FAILED,
 };
 
+enum class SdConfigResult : uint8_t {
+  LOADED = 0,  // the file was parsed
+  NO_FILE,     // card mounted, but no usable file
+  NO_CARD,     // the card did not mount
+};
+
 // Runtime driver. Each call mounts the card, appends one record, and unmounts again, so a
 // removed card needs no cleanup and the card never stays powered up longer than needed.
 class SdLogger {
@@ -174,6 +181,36 @@ public:
       return SdLogResult::MOUNT_FAILED;
     }
     const SdLogResult result = writeRecord(path, row, row_len);
+    SD_MMC.end();
+    return result;
+  }
+
+  // Reads the optional /sdcard/config.ini into `out`. NO_CARD (mount failed) lets the caller keep
+  // its previous settings, so a transient card error never resets them. NO_FILE (card without a
+  // usable file, or a file above the size limit) leaves the defaults in `out`.
+  static SdConfigResult loadConfig(DeviceConfig& out) {
+    out = DeviceConfig{};
+    if (!mount()) {
+      return SdConfigResult::NO_CARD;
+    }
+    // Static: the 4 KB buffer would use half of the 8 KB loop task stack. setup() runs once per
+    // wake cycle, so one shared buffer is safe.
+    static char buf[DeviceConfigParser::MAX_FILE_SIZE + 1];
+    SdConfigResult result = SdConfigResult::NO_FILE;
+    File file = SD_MMC.open("/config.ini", FILE_READ);
+    if (file && !file.isDirectory()) {
+      // One byte above the limit shows an oversized file; the parser then rejects it whole.
+      const size_t n = file.read(reinterpret_cast<uint8_t*>(buf), sizeof(buf));
+      const size_t expected = file.size() < sizeof(buf) ? static_cast<size_t>(file.size()) : sizeof(buf);
+      if (n != expected) {
+        result = SdConfigResult::NO_CARD; // a short read is a card error: keep the old settings
+      } else if (DeviceConfigParser::parse(buf, n, out).file_ok) {
+        result = SdConfigResult::LOADED;
+      }
+    }
+    if (file) {
+      file.close();
+    }
     SD_MMC.end();
     return result;
   }

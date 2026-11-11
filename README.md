@@ -150,6 +150,23 @@ arduino-cli compile rlcd_panel
 
 The onboard `ES8311` DAC and speaker play a short chime when a sensor crosses a limit: a freezer alert below 0 °C (three beeps) and a mold risk alert above 70 %RH (two rising notes). A chime sounds once when the alert switches on. The alerts release at 1 °C and 67 %RH. Press `BOOT` during the 3 s window after a wakeup to mute or unmute the chime. The window opens after a `KEY` wakeup or a power-on, not after a timer wakeup. The mute flag stays in RTC memory and resets with it. Quiet hours from 22:00 to 07:00 local RTC time suppress the chime. The alert state stays tracked, so an alert does not chime when the window ends. A `Q` badge in the header shows active quiet hours. Without a valid RTC time the chime sounds. The power amplifier (`GPIO46`) is off outside playback. The code is in `rlcd_panel/audio_alert.h`.
 
+## Settings from the MicroSD Card
+
+Put an optional `config.ini` in the root of the MicroSD card. The board reads it on power-on and on a `KEY` wakeup. Timer wakeups use the stored copy. The diagnostics view shows `CONFIG: SD` or `CONFIG: DEFAULT`.
+
+```ini
+# Lines with # or ; are comments
+temp_offset_c=-1.9
+freeze_alert_limit_c=0.0
+mold_alert_limit_rh=70
+chime_volume_pct=30
+quiet_hours_start_hour=22
+quiet_hours_end_hour=7
+mic_spl_offset_db=0.0
+```
+
+A value that is missing, malformed, or outside its range keeps the default. The file limit is 4096 bytes. Use LF or CRLF line ends. Equal start and end hours switch the quiet hours off. Wi-Fi credentials never come from the card. The ranges are in `FEATURES.md`.
+
 ## Ambient Noise Monitor
 
 The onboard `ES7210` ADC and the dual microphone array measure the ambient noise level. The diagnostics view (third `KEY` view) shows `QUIET`, `MODERATE` or `LOUD` and the level in dBFS. The firmware measures a 5 s window after a `KEY` wakeup or a power-on, only while this view is on screen. A timer wakeup does not measure, and the microphones stay off. The levels are relative to full scale, not calibrated sound pressure levels. The code is in `rlcd_panel/es7210_mic.h`.

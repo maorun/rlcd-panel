@@ -1,4 +1,5 @@
 #include <assert.h>
+#include <initializer_list>
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
@@ -8,6 +9,7 @@
 #include "../rlcd_panel/board_pins.h"
 #include "../rlcd_panel/button_handler.h"
 #include "../rlcd_panel/dashboard_view.h"
+#include "../rlcd_panel/device_config.h"
 #include "../rlcd_panel/es7210_mic.h"
 #include "../rlcd_panel/ntp_sync.h"
 #include "../rlcd_panel/pcf85063_rtc.h"
@@ -1437,7 +1439,7 @@ void testHistoryPersistence() {
   assert(rejected.history.slots[0].size() == 0);
 
   // Each corrupt field with a valid CRC is rejected: head, sample range, sampled flag
-  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE - 1;
+  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE - 1;
   const size_t cases[3][2] = {{ring_pos + 1, 24}, {ring_pos + 3, 0x7F}, {sampled_pos, 2}};
   for (const auto& c : cases) {
     uint8_t b[PowerManager::SERIALIZED_SIZE];
@@ -1617,7 +1619,7 @@ void testSdLogSchedule() {
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(r.last_log_ms == 123456 && r.has_logged);
-  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - 1] = 2;
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - 1] = 2;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -1961,7 +1963,7 @@ void testAudioStatePersistence() {
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(!r.muted && r.alert_mask == ALERT_HUMIDITY);
   // A reserved bit with a valid CRC is rejected
-  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::NTP_SIZE - 1] = 0x20;
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1] = 0x20;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -2249,7 +2251,7 @@ void testNoiseStatePersistence() {
     assert(r.noise_band == band && r.muted && r.alert_mask == ALERT_HUMIDITY);
   }
   // Band value 3 does not exist and is rejected even with a valid CRC
-  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::NTP_SIZE - 1;
+  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   buf[audio_pos] = static_cast<uint8_t>(3 << 3);
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
@@ -2442,13 +2444,13 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 5);
+  assert(PowerManager::STATE_VERSION == 6);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
   // Reserved flag bit, success without attempt, and too many failures are rejected
-  const size_t flags_pos = PowerManager::SERIALIZED_SIZE - 4 - 2;
+  const size_t flags_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - 2;
   const uint8_t bad_flags[3][2] = {{4, 0}, {2, 0}, {1, NtpSchedule::MAX_FAILURES + 1}};
   for (const auto& b : bad_flags) {
     assert(PowerManager::serialize(s, buf, sizeof(buf)));
@@ -2887,6 +2889,314 @@ void testDiagnosticsCalibrationLines() {
   assert(memcmp(a.data(), b.data(), RLCD_BUFFER_SIZE) == 0);
 }
 
+DeviceConfig parseText(const char* text, ConfigParseResult* result = nullptr) {
+  DeviceConfig cfg;
+  const ConfigParseResult r = DeviceConfigParser::parse(text, strlen(text), cfg);
+  if (result != nullptr) {
+    *result = r;
+  }
+  return cfg;
+}
+
+void testDeviceConfigDefaultsAndValidValues() {
+  const DeviceConfig d;
+  assert(approxEqual(d.temp_offset_c, -1.9f) && approxEqual(d.freeze_alert_limit_c, 0.0f));
+  assert(d.mold_alert_limit_rh == 70 && d.chime_volume_pct == 30);
+  assert(d.quiet_hours_start_hour == 22 && d.quiet_hours_end_hour == 7);
+  assert(approxEqual(d.mic_spl_offset_db, 0.0f) && d.valid() && d.isDefault());
+  assert(approxEqual(Shtc3Codec::DEFAULT_TEMP_OFFSET_C, DeviceConfig::DEFAULT_TEMP_OFFSET_C));
+
+  ConfigParseResult r;
+  DeviceConfig c = parseText(
+      "temp_offset_c=-2.5\nfreeze_alert_limit_c=3.5\nmold_alert_limit_rh=80\n"
+      "chime_volume_pct=55\nquiet_hours_start_hour=23\nquiet_hours_end_hour=6\n"
+      "mic_spl_offset_db=-4.5\n",
+      &r);
+  assert(r.file_ok && r.keys_set == 7 && r.rejected == 0);
+  assert(approxEqual(c.temp_offset_c, -2.5f) && approxEqual(c.freeze_alert_limit_c, 3.5f));
+  assert(c.mold_alert_limit_rh == 80 && c.chime_volume_pct == 55);
+  assert(c.quiet_hours_start_hour == 23 && c.quiet_hours_end_hour == 6);
+  assert(approxEqual(c.mic_spl_offset_db, -4.5f) && c.valid() && !c.isDefault());
+
+  // Range limits are inclusive
+  c = parseText("temp_offset_c=-10\nfreeze_alert_limit_c=15\nmold_alert_limit_rh=40\nchime_volume_pct=0\n"
+                "quiet_hours_start_hour=0\nquiet_hours_end_hour=23\nmic_spl_offset_db=+20.0\n", &r);
+  assert(r.keys_set == 7 && r.rejected == 0);
+  assert(approxEqual(c.temp_offset_c, -10.0f) && approxEqual(c.freeze_alert_limit_c, 15.0f));
+  assert(c.mold_alert_limit_rh == 40 && c.chime_volume_pct == 0);
+  assert(c.quiet_hours_start_hour == 0 && c.quiet_hours_end_hour == 23);
+  assert(approxEqual(c.mic_spl_offset_db, 20.0f));
+}
+
+void testDeviceConfigCommentsSpacesAndLineEnds() {
+  ConfigParseResult r;
+  DeviceConfig c = parseText(
+      "# comment\n; other comment\n\n   \n  temp_offset_c =  1.5  \n\tchime_volume_pct\t=\t10\t\n"
+      "  # indented comment\nunknown_key=5\nwifi_ssid=secret\nwifi_password=secret\n", &r);
+  assert(r.file_ok && r.keys_set == 2 && r.rejected == 0);
+  assert(approxEqual(c.temp_offset_c, 1.5f) && c.chime_volume_pct == 10);
+  assert(c.mold_alert_limit_rh == 70); // not in the file: the default
+
+  // A lone CR is no line end: the file is one malformed line
+  c = parseText("chime_volume_pct=10\rmold_alert_limit_rh=60\r", &r);
+  assert(r.keys_set == 0 && r.rejected == 1 && c.isDefault());
+
+  // CRLF line ends and a file without a final newline
+  c = parseText("temp_offset_c=2.0\r\nmold_alert_limit_rh=60\r\n# note\r\nchime_volume_pct=45", &r);
+  assert(r.keys_set == 3 && r.rejected == 0);
+  assert(approxEqual(c.temp_offset_c, 2.0f) && c.mold_alert_limit_rh == 60 && c.chime_volume_pct == 45);
+
+  // A UTF-8 byte order mark does not hide the first key
+  c = parseText("\xEF\xBB\xBF" "chime_volume_pct=12\n", &r);
+  assert(r.keys_set == 1 && c.chime_volume_pct == 12);
+
+  // The card never supplies Wi-Fi credentials: the parser has no such field and counts no key
+  parseText("wifi_ssid=net\nwifi_password=pw\nRLCD_WIFI_SSID=net\n", &r);
+  assert(r.file_ok && r.keys_set == 0 && r.rejected == 0);
+  // Key names are case sensitive
+  c = parseText("Chime_Volume_Pct=99\n", &r);
+  assert(r.keys_set == 0 && c.chime_volume_pct == 30);
+}
+
+void testDeviceConfigMissingMalformedAndOutOfRange() {
+  ConfigParseResult r;
+  DeviceConfig c = parseText("", &r);
+  assert(r.file_ok && r.keys_set == 0 && c.isDefault());
+
+  // Out of range: the default stays
+  c = parseText("temp_offset_c=10.5\nfreeze_alert_limit_c=-20.1\nmold_alert_limit_rh=39\n"
+                "chime_volume_pct=101\nquiet_hours_start_hour=24\nquiet_hours_end_hour=-1\n"
+                "mic_spl_offset_db=20.5\n", &r);
+  assert(r.file_ok && r.keys_set == 0 && r.rejected == 7 && c.isDefault());
+  c = parseText("mold_alert_limit_rh=96\n", &r);
+  assert(r.rejected == 1 && c.mold_alert_limit_rh == 70);
+
+  // Malformed values: the default stays
+  const char* bad[] = {"temp_offset_c=abc\n", "temp_offset_c=\n", "temp_offset_c=1.2.3\n",
+                       "temp_offset_c=1e1\n", "temp_offset_c=nan\n", "temp_offset_c=inf\n",
+                       "temp_offset_c=--1\n", "temp_offset_c=1.\n", "temp_offset_c=.5\n",
+                       "temp_offset_c=1 2\n", "chime_volume_pct=30.5\n", "chime_volume_pct=0x10\n",
+                       "chime_volume_pct=12abc\n", "chime_volume_pct=1234567890123456789\n",
+                       "chime_volume_pct\n", "=5\n"};
+  for (const char* text : bad) {
+    c = parseText(text, &r);
+    assert(r.file_ok && r.keys_set == 0 && c.isDefault());
+  }
+
+  // One bad line does not spoil the valid lines around it
+  c = parseText("temp_offset_c=1.0\nchime_volume_pct=500\nmold_alert_limit_rh=65\n", &r);
+  assert(r.keys_set == 2 && r.rejected == 1);
+  assert(approxEqual(c.temp_offset_c, 1.0f) && c.chime_volume_pct == 30 && c.mold_alert_limit_rh == 65);
+}
+
+void testDeviceConfigDuplicateKeysLastWins() {
+  ConfigParseResult r;
+  DeviceConfig c = parseText("chime_volume_pct=10\nchime_volume_pct=20\nchime_volume_pct=75\n", &r);
+  assert(r.keys_set == 1 && c.chime_volume_pct == 75);
+  // An invalid later line does not replace an earlier valid value
+  c = parseText("chime_volume_pct=10\nchime_volume_pct=999\n", &r);
+  assert(r.keys_set == 1 && r.rejected == 1 && c.chime_volume_pct == 10);
+}
+
+void testDeviceConfigFileSizeLimit() {
+  static char big[DeviceConfigParser::MAX_FILE_SIZE + 2];
+  // A file of exactly 4096 bytes is read
+  memset(big, '#', sizeof(big));
+  const char* line = "chime_volume_pct=77\n";
+  memcpy(big, line, strlen(line));
+  big[DeviceConfigParser::MAX_FILE_SIZE - 1] = '\n';
+  DeviceConfig c;
+  ConfigParseResult r = DeviceConfigParser::parse(big, DeviceConfigParser::MAX_FILE_SIZE, c);
+  assert(r.file_ok && r.keys_set == 1 && c.chime_volume_pct == 77);
+  // One byte more: the whole file is rejected, even though the first line is valid
+  r = DeviceConfigParser::parse(big, DeviceConfigParser::MAX_FILE_SIZE + 1, c);
+  assert(!r.file_ok && r.keys_set == 0 && c.isDefault());
+  // A null buffer with a size is rejected; an empty null buffer is an empty file
+  c.chime_volume_pct = 99;
+  r = DeviceConfigParser::parse(nullptr, 5, c);
+  assert(!r.file_ok && c.isDefault());
+  r = DeviceConfigParser::parse(nullptr, 0, c);
+  assert(r.file_ok && c.isDefault());
+}
+
+void testDeviceConfigWiring() {
+  // Temperature offset reaches the SHTC3 decoder
+  uint8_t frame[6] = {0x64, 0x8C, 0, 0x80, 0x00, 0};
+  frame[2] = Shtc3Codec::computeCrc8(frame, 2);
+  frame[5] = Shtc3Codec::computeCrc8(frame + 3, 2);
+  Shtc3Reading a, b;
+  assert(Shtc3Codec::decodeFrame(frame, sizeof(frame), a, 0.0f));
+  assert(Shtc3Codec::decodeFrame(frame, sizeof(frame), b, parseText("temp_offset_c=2.5\n").temp_offset_c));
+  assert(approxEqual(b.temperature_c - a.temperature_c, 2.5f));
+
+  // Alert limits move the trigger and keep a fixed hysteresis
+  const AlertLimits def;
+  // One source of truth for the defaults
+  assert(def.freezer_trigger_c == DeviceConfig::DEFAULT_FREEZE_ALERT_LIMIT_C);
+  assert(def.humidity_trigger_pct == static_cast<float>(DeviceConfig::DEFAULT_MOLD_ALERT_LIMIT_RH));
+  assert(def.freezer_trigger_c == AlertEvaluator::FREEZER_TRIGGER_C);
+  assert(def.humidity_trigger_pct == AlertEvaluator::HUMIDITY_TRIGGER_PCT);
+  assert(QuietHoursWindow{}.start_hour == DeviceConfig::DEFAULT_QUIET_HOURS_START_HOUR);
+  assert(QuietHoursWindow{}.end_hour == DeviceConfig::DEFAULT_QUIET_HOURS_END_HOUR);
+  assert(ChimeSynth::DEFAULT_VOLUME_PCT == DeviceConfig::DEFAULT_CHIME_VOLUME_PCT);
+  assert(approxEqual(def.freezerReleaseC(), AlertEvaluator::FREEZER_RELEASE_C));
+  assert(approxEqual(def.humidityReleasePct(), AlertEvaluator::HUMIDITY_RELEASE_PCT));
+  AlertLimits lim;
+  lim.freezer_trigger_c = 5.0f;
+  lim.humidity_trigger_pct = 50.0f;
+  Shtc3Reading onboard = makeOnboard(4.0f, 52.0f);
+  assert(AlertEvaluator::evaluate(ALERT_NONE, onboard, nullptr, 0, 0) == ALERT_NONE);
+  assert(AlertEvaluator::evaluate(ALERT_NONE, onboard, nullptr, 0, 0, lim) == ALERT_MASK_ALL);
+  // Between trigger and release limit an active alert holds
+  onboard = makeOnboard(5.5f, 48.0f);
+  assert(AlertEvaluator::evaluate(ALERT_MASK_ALL, onboard, nullptr, 0, 0, lim) == ALERT_MASK_ALL);
+  onboard = makeOnboard(6.5f, 46.0f);
+  assert(AlertEvaluator::evaluate(ALERT_MASK_ALL, onboard, nullptr, 0, 0, lim) == ALERT_NONE);
+
+  // Quiet hours window from the two hours
+  const DeviceConfig q = parseText("quiet_hours_start_hour=1\nquiet_hours_end_hour=5\n");
+  const QuietHoursWindow w = QuietHoursWindow::fromHours(q.quiet_hours_start_hour, q.quiet_hours_end_hour);
+  assert(w.isInQuietHours(1, 0) && w.isInQuietHours(4, 59) && !w.isInQuietHours(5, 0) && !w.isInQuietHours(23, 0));
+  assert(!QuietHoursWindow::fromHours(8, 8).isInQuietHours(8, 0)); // equal hours: never quiet
+
+  // Volume 0 stays silent
+  struct NullHal {
+    int writes = 0;
+    bool beginBus() { return true; }
+    bool configureCodec() { return true; }
+    void setAmplifier(bool) {}
+    bool write(const int16_t*, size_t) { ++writes; return true; }
+    void drain() {}
+    void shutdownCodec() {}
+    void endBus() {}
+  } silent, loud;
+  assert(!AudioSequencer::play(silent, ALERT_FREEZER, 0) && silent.writes == 0);
+  assert(AudioSequencer::play(loud, ALERT_FREEZER, parseText("chime_volume_pct=80\n").chime_volume_pct) &&
+         loud.writes > 0);
+
+  // SPL offset adds to the stored calibration, with a clamp, and leaves the stored record alone
+  MicCalibration cal;
+  assert(MicCalibration::fromFloor(100, 90, cal));
+  const MicCalibration shifted = cal.withExtraOffset(-4.5f);
+  assert(shifted.spl_offset_db == 86 || shifted.spl_offset_db == 85);
+  assert(shifted.splDb(650) == cal.splDb(650) - (90 - shifted.spl_offset_db));
+  assert(cal.spl_offset_db == 90 && shifted.calibrated && shifted.noise_floor_rms == 100);
+  MicCalibration low;
+  low.spl_offset_db = 5;
+  assert(low.withExtraOffset(-20.0f).spl_offset_db == 0);
+  MicCalibration high;
+  high.spl_offset_db = 195;
+  assert(high.withExtraOffset(20.0f).spl_offset_db == 200);
+  assert(cal.withExtraOffset(NAN).spl_offset_db == 90);
+}
+
+void testDeviceConfigRtcRoundTrip() {
+  assert(PowerManager::needsConfigLoad(WakeupCause::POWER_ON));
+  assert(PowerManager::needsConfigLoad(WakeupCause::KEY_BUTTON));
+  assert(!PowerManager::needsConfigLoad(WakeupCause::TIMER));
+  assert(!PowerManager::needsConfigLoad(WakeupCause::OTHER));
+
+  PersistentState s;
+  s.config = parseText(
+      "temp_offset_c=-3.25\nfreeze_alert_limit_c=-5\nmold_alert_limit_rh=85\nchime_volume_pct=60\n"
+      "quiet_hours_start_hour=21\nquiet_hours_end_hour=8\nmic_spl_offset_db=7.5\n");
+  s.config_from_sd = true;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.config_from_sd);
+  assert(approxEqual(r.config.temp_offset_c, -3.25f) && approxEqual(r.config.freeze_alert_limit_c, -5.0f));
+  assert(r.config.mold_alert_limit_rh == 85 && r.config.chime_volume_pct == 60);
+  assert(r.config.quiet_hours_start_hour == 21 && r.config.quiet_hours_end_hour == 8);
+  assert(approxEqual(r.config.mic_spl_offset_db, 7.5f));
+
+  // A default state restores as the defaults and as "not from SD"
+  PersistentState d;
+  assert(PowerManager::serialize(d, buf, sizeof(buf)));
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.config.isDefault() && !r.config_from_sd);
+
+  // A corrupt record is rejected, with a bad checksum and with a valid checksum
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE;
+  uint8_t bad[PowerManager::SERIALIZED_SIZE];
+  memcpy(bad, buf, sizeof(bad));
+  bad[cfg_pos + 8] ^= 0x40;
+  assert(!PowerManager::deserialize(bad, sizeof(bad), r));
+  assert(r.config.isDefault());
+
+  struct Corrupt { size_t offset; uint8_t value; };
+  const Corrupt cases[] = {
+      {8, 90},   // mold limit 90 is valid: control case below handles it
+      {8, 39},   // mold limit below range
+      {8, 96},   // mold limit above range
+      {9, 101},  // volume above range
+      {10, 24},  // quiet start hour above range
+      {11, 24},  // quiet end hour above range
+      {16, 2},   // unknown flag bit
+  };
+  for (const Corrupt& c : cases) {
+    memcpy(bad, buf, sizeof(bad));
+    bad[cfg_pos + c.offset] = c.value;
+    const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
+    for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+    const bool accepted = PowerManager::deserialize(bad, sizeof(bad), r);
+    assert(accepted == (c.offset == 8 && c.value == 90));
+  }
+  // A float that is NaN or outside the range is rejected
+  const float nan_value = NAN;
+  const float far_value = 99.0f;
+  for (const float f : {nan_value, far_value}) {
+    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12)}) {
+      memcpy(bad, buf, sizeof(bad));
+      memcpy(bad + cfg_pos + off, &f, 4);
+      const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
+      for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+      assert(!PowerManager::deserialize(bad, sizeof(bad), r));
+    }
+  }
+  // The old state version (without the config trailer) gives a clean start
+  memcpy(bad, buf, sizeof(bad));
+  bad[4] = PowerManager::STATE_VERSION - 1;
+  const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
+  for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(bad, sizeof(bad), r) && r.config.isDefault());
+}
+
+void testDiagnosticsConfigLine() {
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  St7305Framebuffer sd, def;
+  SystemInfo info;
+  info.config_from_sd = true;
+  sd.clear(true);
+  DashboardView::renderDiagnostics(sd, battery, info, "12:00");
+  info.config_from_sd = false;
+  def.clear(true);
+  DashboardView::renderDiagnostics(def, battery, info, "12:00");
+  size_t diff = 0;
+  size_t ink_below = 0;
+  for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      if (sd.getPixel(x, y) != def.getPixel(x, y)) {
+        ++diff;
+        assert(y >= 270); // only the config line differs
+      }
+      if (y >= 270 && def.getPixel(x, y)) ++ink_below;
+    }
+  }
+  assert(diff > 0 && ink_below > 0);
+  // "CONFIG: DEFAULT" is 15 glyphs = 180 px and stays inside the screen
+  for (uint16_t y = 270; y < St7305Framebuffer::HEIGHT; ++y) {
+    for (uint16_t x = 10 + 15 * 12; x < St7305Framebuffer::WIDTH; ++x) {
+      assert(!def.getPixel(x, y));
+    }
+  }
+}
+
 int main() {
   testSwitchBotManufacturerPositiveTemp();
   testSwitchBotManufacturerNegativeTemp();
@@ -2945,6 +3255,14 @@ int main() {
   testNtpScheduleAndOfflineFallback();
   testNtpSystemClockRestore();
   testNtpStatePersistence();
-  printf("All 52 firmware logic test suites passed.\n");
+  testDeviceConfigDefaultsAndValidValues();
+  testDeviceConfigCommentsSpacesAndLineEnds();
+  testDeviceConfigMissingMalformedAndOutOfRange();
+  testDeviceConfigDuplicateKeysLastWins();
+  testDeviceConfigFileSizeLimit();
+  testDeviceConfigWiring();
+  testDeviceConfigRtcRoundTrip();
+  testDiagnosticsConfigLine();
+  printf("All 60 firmware logic test suites passed.\n");
   return 0;
 }

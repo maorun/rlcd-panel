@@ -22,15 +22,6 @@ No open item.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-### Configurable thresholds and settings from the MicroSD card
-
-- **Rank:** Feature model. Total 30/40 (use 6, setup 9, harmony 8, safety 7). Effort M.
-- **Area:** Storage / Setup.
-- **Code:** `rlcd_panel/device_config.h` (new), `rlcd_panel/sd_logger.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/shtc3_sensor.h`, `rlcd_panel/es7210_mic.h`, `rlcd_panel/rlcd_panel.ino`.
-- **Problem:** The SHTC3 offset (`-1.9 °C`), the alert limits (0 °C, 70 %RH), the chime volume (30 %), the quiet hours, and the microphone SPL offset are compile-time constants. A change needs a new flash.
-- **Goal:** Read an optional `/sdcard/config.ini` with `key=value` lines on power-on and on a `KEY` wakeup. Add a host-testable parser without Arduino dependency. Clamp each value to a safe range, and keep the default for a missing, malformed, or out-of-range value. Ignore unknown keys. Limit the file size to 4 KB. Do not read Wi-Fi credentials from the card. Copy the accepted values to RTC memory, so a timer wakeup does not mount the card. Show `CONFIG: SD` or `CONFIG: DEFAULT` in the diagnostics view.
-- **Acceptance test:** Host tests cover valid values, comments, spaces, CRLF line ends, missing keys, out-of-range values, duplicate keys (last value wins), a file larger than 4 KB, and the RTC round trip with a corrupt record.
-
 ### MicroSD noise logging with hourly measurement
 
 - **Rank:** Feature model. Total 30/40 (use 7, setup 6, harmony 10, safety 7). Effort M.

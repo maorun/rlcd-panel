@@ -9,6 +9,7 @@
 #include "battery_monitor.h"
 #include "board_pins.h"
 #include "button_handler.h"
+#include "device_config.h"
 #include "ntp_sync.h"
 #include "sparkline.h"
 #include "switchbot_ble.h"
@@ -83,6 +84,8 @@ struct PersistentState {
   uint8_t alert_mask = ALERT_NONE; // alerts active in the last wake cycle (hysteresis latch)
   NoiseBand noise_band = NoiseBand::QUIET; // band of the last noise window (hysteresis latch)
   NtpSyncState ntp;          // NTP attempt time, result and backoff
+  DeviceConfig config;       // settings from /sdcard/config.ini; a timer wakeup reuses them
+  bool config_from_sd = false; // true: the card supplied `config`; false: the defaults apply
 };
 
 struct WakeupPlan {
@@ -93,7 +96,7 @@ struct WakeupPlan {
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 5;
+  static constexpr uint8_t STATE_VERSION = 6;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Slot layout: valid, mac[6], temperature (float bits), humidity, battery, fahrenheit,
   // rssi (int16), updated_ms, packet_count.
@@ -108,10 +111,13 @@ public:
   static constexpr size_t AUDIO_SIZE = 1;
   // NTP trailer: last attempt time, flags (bit 0 attempted, bit 1 last ok), failure count.
   static constexpr size_t NTP_SIZE = 4 + 1 + 1;
+  // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
+  // quiet end hour, SPL offset (float), flags (bit 0 loaded from the card).
+  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1;
   // Header: magic, version, mode, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + 4;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -131,6 +137,12 @@ public:
 
   static bool needsScan(WakeupCause cause) {
     return cause != WakeupCause::KEY_BUTTON;
+  }
+
+  // The card is read on power-on and on a KEY wakeup only. A timer wakeup reuses the RTC copy,
+  // so the card stays unmounted in the normal cycle.
+  static bool needsConfigLoad(WakeupCause cause) {
+    return cause == WakeupCause::POWER_ON || cause == WakeupCause::KEY_BUTTON;
   }
 
   // Microseconds until the next scan is due: interval minus the time since the last scan start.
@@ -224,6 +236,14 @@ public:
     putU32(out, pos, state.ntp.last_attempt_ms);
     out[pos++] = static_cast<uint8_t>((state.ntp.has_attempted ? 1 : 0) | (state.ntp.last_ok ? 2 : 0));
     out[pos++] = state.ntp.failures;
+    putFloat(out, pos, state.config.temp_offset_c);
+    putFloat(out, pos, state.config.freeze_alert_limit_c);
+    out[pos++] = state.config.mold_alert_limit_rh;
+    out[pos++] = state.config.chime_volume_pct;
+    out[pos++] = state.config.quiet_hours_start_hour;
+    out[pos++] = state.config.quiet_hours_end_hour;
+    putFloat(out, pos, state.config.mic_spl_offset_db);
+    out[pos++] = state.config_from_sd ? 1 : 0;
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -345,6 +365,18 @@ public:
     }
     s.ntp.has_attempted = (ntp_flags & 1) != 0;
     s.ntp.last_ok = (ntp_flags & 2) != 0;
+    s.config.temp_offset_c = getFloat(data, pos);
+    s.config.freeze_alert_limit_c = getFloat(data, pos);
+    s.config.mold_alert_limit_rh = data[pos++];
+    s.config.chime_volume_pct = data[pos++];
+    s.config.quiet_hours_start_hour = data[pos++];
+    s.config.quiet_hours_end_hour = data[pos++];
+    s.config.mic_spl_offset_db = getFloat(data, pos);
+    const uint8_t config_flags = data[pos++];
+    if ((config_flags & ~1u) != 0 || !s.config.valid()) {
+      return false; // a corrupt record never reaches the alert limits
+    }
+    s.config_from_sd = (config_flags & 1) != 0;
     out = s;
     return true;
   }

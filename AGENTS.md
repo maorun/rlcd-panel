@@ -14,6 +14,7 @@
 - `rlcd_panel/st7305_panel.h`: ESP32-S3 hardware SPI driver for the `ST7305` RLCD controller.
 - `rlcd_panel/shtc3_sensor.h`: Sensirion `SHTC3` CRC-8 (`0x31`) and raw frame decoder.
 - `rlcd_panel/power_manager.h`: Header-only deep sleep manager: wakeup timer maths, wakeup cause decoding, wake cycle state machine, and checksummed RTC-memory state (registry, battery, view mode).
+- `rlcd_panel/device_config.h`: Header-only `config.ini` parser (`DeviceConfigParser`, `DeviceConfig`) for the settings from the MicroSD card: ranges, defaults, 4096-byte limit. The values live in `PersistentState` (RTC memory); only a power-on and a `KEY` wakeup mount the card. Never read Wi-Fi credentials from the card.
 - `rlcd_panel/ntp_sync.h`: Wi-Fi NTP sync: epoch-to-calendar and CET/CEST converter, `PCF85063A` register encoding, sync schedule with backoff, and the ESP32 `NtpClient`. Optional credentials come from the ignored `rlcd_panel/wifi_config.h` (template: `wifi_config.example.h`).
 - `rlcd_panel/es7210_mic.h`: Header-only ambient noise monitor: RMS accumulator, noise band classifier with hysteresis, 5 s `NoiseSampler`, and the ESP32 `Es7210Hal` (`ES7210` over I²C `0x40`, I²S receive).
 - `rlcd_panel/dashboard_view.h`: Decoupled 4-tile climate dashboard renderer shared between firmware and preview generator.
