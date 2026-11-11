@@ -9,20 +9,20 @@
 
 namespace rlcd_panel {
 
-// Circular FIFO of the last 24 hourly temperature samples of one sensor. A sample is an int16_t
-// in 0.1 C steps (50 bytes with the two counters), so four sensors fit the RTC memory easily.
-class TemperatureHistory {
+// Circular FIFO of the last 24 hourly relative humidity samples of one sensor. A sample is an
+// int16_t in 0.1 %RH steps (50 bytes with the two counters), so four sensors fit the RTC memory easily.
+class HumidityHistory {
 public:
   static constexpr size_t CAPACITY = 24;
-  static constexpr int16_t MIN_VALUE = -1000; // -100.0 C
-  static constexpr int16_t MAX_VALUE = 1000;  // +100.0 C
+  static constexpr int16_t MIN_VALUE = 0;    // 0.0 %RH
+  static constexpr int16_t MAX_VALUE = 1000; // 100.0 %RH
 
-  // Converts degrees Celsius to 0.1 C steps. Rounds to nearest and clamps to the valid range.
-  static int16_t encode(float temperature_c) {
-    if (!(temperature_c == temperature_c)) {
+  // Converts %RH to 0.1 %RH steps. Rounds to nearest and clamps to the valid range.
+  static int16_t encode(float humidity_pct) {
+    if (!(humidity_pct == humidity_pct)) {
       return 0; // NaN
     }
-    const float scaled = temperature_c * 10.0f;
+    const float scaled = humidity_pct * 10.0f;
     if (scaled <= MIN_VALUE) {
       return MIN_VALUE;
     }
@@ -41,12 +41,14 @@ public:
     }
   }
 
-  // Ignores NaN: a bad reading must not appear as a real 0.0 C sample.
-  void pushCelsius(float temperature_c) {
-    if (temperature_c != temperature_c) {
-      return;
+  // Ignores NaN, negative and above 100 %RH: a bad reading must not appear as a real sample.
+  // Returns true when it stored the sample.
+  bool pushPercent(float humidity_pct) {
+    if (!(humidity_pct >= 0.0f && humidity_pct <= 100.0f)) {
+      return false;
     }
-    push(encode(temperature_c));
+    push(encode(humidity_pct));
+    return true;
   }
 
   size_t size() const {
@@ -62,7 +64,7 @@ public:
   }
 
   void clear() {
-    *this = TemperatureHistory{};
+    *this = HumidityHistory{};
   }
 
   uint8_t head() const {
@@ -104,7 +106,7 @@ struct ClimateHistory {
   static constexpr size_t SLOT_COUNT = 1 + MAX_SWITCHBOT_SENSORS;
   static constexpr uint32_t SAMPLE_INTERVAL_MS = 3600UL * 1000UL;
 
-  TemperatureHistory slots[SLOT_COUNT];
+  HumidityHistory slots[SLOT_COUNT];
   uint32_t last_sample_ms = 0;
   bool has_sampled = false;
 
@@ -117,20 +119,20 @@ struct ClimateHistory {
   // value in the registry, so recording it would draw a false flat line. Returns true when it pushed at
   // least one sample. With no valid sensor the gate stays open, so the next wake cycle retries.
   bool record(
-      uint32_t now_ms, bool onboard_valid, float onboard_temp_c, const SwitchBotRegistry& registry) {
+      uint32_t now_ms, bool onboard_valid, float onboard_humidity_pct, const SwitchBotRegistry& registry) {
     if (!sampleDue(now_ms)) {
       return false;
     }
     bool pushed = false;
-    if (onboard_valid && onboard_temp_c == onboard_temp_c) {
-      slots[ONBOARD].pushCelsius(onboard_temp_c);
+    if (onboard_valid && slots[ONBOARD].pushPercent(onboard_humidity_pct)) {
       pushed = true;
     }
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       const SwitchBotReading& r = registry.slot(i);
       if (r.valid && !r.isStale(now_ms)) {
-        slots[1 + i].pushCelsius(r.temperature_c);
-        pushed = true;
+        if (slots[1 + i].pushPercent(static_cast<float>(r.humidity_pct))) {
+          pushed = true;
+        }
       }
     }
     if (pushed) {
@@ -144,8 +146,8 @@ struct ClimateHistory {
 // Auto-scaling and 1-bpp line renderer for a compact trend curve.
 class Sparkline {
 public:
-  // A flatter curve than 1.0 C would amplify sensor noise into full-height swings.
-  static constexpr int16_t MIN_SPAN = 10;
+  // A flatter curve than 5.0 %RH would amplify sensor noise into full-height swings.
+  static constexpr int16_t MIN_SPAN = 50;
 
   struct Scale {
     int16_t lo = 0;
@@ -153,8 +155,8 @@ public:
   };
 
   // Computes the value range for a history. A flat line or a single sample gets a span of
-  // MIN_SPAN centered on the value. Returns false for an empty history.
-  static bool computeScale(const TemperatureHistory& history, Scale& out) {
+  // MIN_SPAN centered on the value, shifted to stay inside 0..100 %RH. Returns false for an empty history.
+  static bool computeScale(const HumidityHistory& history, Scale& out) {
     if (history.size() == 0) {
       return false;
     }
@@ -167,8 +169,11 @@ public:
     }
     if (hi - lo < MIN_SPAN) {
       const int center = (static_cast<int>(lo) + hi) / 2;
-      out.lo = static_cast<int16_t>(center - MIN_SPAN / 2);
-      out.hi = static_cast<int16_t>(center + MIN_SPAN / 2);
+      int lo_v = center - MIN_SPAN / 2;
+      if (lo_v < HumidityHistory::MIN_VALUE) lo_v = HumidityHistory::MIN_VALUE;
+      if (lo_v > HumidityHistory::MAX_VALUE - MIN_SPAN) lo_v = HumidityHistory::MAX_VALUE - MIN_SPAN;
+      out.lo = static_cast<int16_t>(lo_v);
+      out.hi = static_cast<int16_t>(lo_v + MIN_SPAN);
     } else {
       out.lo = lo;
       out.hi = hi;
@@ -196,7 +201,7 @@ public:
       return 0;
     }
     const size_t back = count - 1 - index;
-    const size_t span = TemperatureHistory::CAPACITY - 1;
+    const size_t span = HumidityHistory::CAPACITY - 1;
     const size_t offset = (back * (w - 1) + span / 2) / span;
     return static_cast<uint16_t>((w - 1) - offset);
   }
@@ -209,7 +214,7 @@ public:
       uint16_t y,
       uint16_t w,
       uint16_t h,
-      const TemperatureHistory& history,
+      const HumidityHistory& history,
       bool black = true) {
     Scale scale;
     if (w == 0 || h == 0 || !computeScale(history, scale)) {

@@ -1156,8 +1156,8 @@ void testLowBatteryBanner() {
   assert(r.battery.low_battery);
 }
 
-void testTemperatureHistoryFifo() {
-  TemperatureHistory h;
+void testHumidityHistoryFifo() {
+  HumidityHistory h;
   assert(h.size() == 0);
   assert(h.at(0) == 0);
   for (int i = 0; i < 24; ++i) {
@@ -1184,12 +1184,25 @@ void testTemperatureHistoryFifo() {
   }
   assert(h.at(0) == 976 && h.at(23) == 999);
 
-  // Encoding: 0.1 C steps, rounding, clamping
-  assert(TemperatureHistory::encode(21.84f) == 218);
-  assert(TemperatureHistory::encode(-5.06f) == -51);
-  assert(TemperatureHistory::encode(500.0f) == TemperatureHistory::MAX_VALUE);
-  assert(TemperatureHistory::encode(-500.0f) == TemperatureHistory::MIN_VALUE);
-  assert(TemperatureHistory::encode(NAN) == 0);
+  // Encoding: 0.1 %RH steps, rounding, clamping to 0..100 %RH
+  assert(HumidityHistory::encode(0.0f) == 0);
+  assert(HumidityHistory::encode(45.54f) == 455);
+  assert(HumidityHistory::encode(100.0f) == 1000);
+  assert(HumidityHistory::encode(100.0f) == HumidityHistory::MAX_VALUE);
+  assert(HumidityHistory::encode(250.0f) == HumidityHistory::MAX_VALUE);
+  assert(HumidityHistory::encode(-5.06f) == HumidityHistory::MIN_VALUE);
+  assert(HumidityHistory::encode(NAN) == 0);
+
+  // pushPercent skips NaN, negative and above 100 %RH, and keeps the borders 0 and 100
+  HumidityHistory p;
+  assert(!p.pushPercent(NAN));
+  assert(!p.pushPercent(-0.1f));
+  assert(!p.pushPercent(100.1f));
+  assert(!p.pushPercent(INFINITY));
+  assert(!p.pushPercent(-INFINITY));
+  assert(p.size() == 0);
+  assert(p.pushPercent(0.0f) && p.pushPercent(100.0f) && p.pushPercent(55.5f));
+  assert(p.size() == 3 && p.at(0) == 0 && p.at(1) == 1000 && p.at(2) == 555);
 }
 
 void testClimateHistorySampleGate() {
@@ -1198,33 +1211,40 @@ void testClimateHistorySampleGate() {
   const uint32_t hour = ClimateHistory::SAMPLE_INTERVAL_MS;
 
   // No valid sensor: nothing recorded, gate stays open
-  assert(!c.record(1000, false, 0.0f, reg));
+  assert(!c.record(1000, false, 50.0f, reg));
   assert(c.sampleDue(1000));
 
-  assert(c.record(1000, true, 20.0f, reg));
-  assert(c.slots[0].size() == 1 && c.slots[0].at(0) == 200);
+  assert(c.record(1000, true, 45.0f, reg));
+  assert(c.slots[0].size() == 1 && c.slots[0].at(0) == 450);
   assert(c.slots[1].size() == 0);
-  assert(!c.record(1000 + hour - 1, true, 21.0f, reg)); // not due
+  assert(!c.record(1000 + hour - 1, true, 46.0f, reg)); // not due
   assert(c.slots[0].size() == 1);
-  assert(c.record(1000 + hour, true, 21.0f, reg));
+  assert(c.record(1000 + hour, true, 46.0f, reg));
   assert(c.slots[0].size() == 2);
 
-  // NaN is ignored; a stale SwitchBot slot is not recorded
+  // NaN, negative and above 100 %RH are ignored; the gate stays open
   ClimateHistory q;
   assert(!q.record(5000, true, NAN, reg));
-  assert(q.slots[0].size() == 0);
+  assert(!q.record(5000, true, -3.0f, reg));
+  assert(!q.record(5000, true, 140.0f, reg));
+  assert(q.slots[0].size() == 0 && q.sampleDue(5000));
+  // A stale SwitchBot slot is not recorded; a fresh one is recorded without the onboard sensor
   SwitchBotRegistry stale_reg;
   SwitchBotReading sb;
   sb.valid = true;
   sb.temperature_c = 18.0f;
+  sb.humidity_pct = 62;
   sb.mac[5] = 1;
   sb.updated_ms = 1000;
   stale_reg.upsert(sb);
   const uint32_t late = 1000 + 3600UL * 1000UL;
-  assert(!q.record(late, false, 0.0f, stale_reg)); // slot is stale at `late`
+  assert(!q.record(late, false, 50.0f, stale_reg)); // slot is stale at `late`
   assert(q.slots[1].size() == 0);
-  assert(q.record(1000 + 1000, false, 0.0f, stale_reg)); // fresh slot is recorded
-  assert(q.slots[1].size() == 1 && q.slots[1].at(0) == 180);
+  assert(q.record(1000 + 1000, false, 50.0f, stale_reg)); // fresh slot is recorded
+  assert(q.slots[1].size() == 1 && q.slots[1].at(0) == 620);
+  assert(q.slots[0].size() == 0); // the onboard sensor was not valid
+  // Temperature is never recorded: only the humidity value reaches the history
+  assert(q.slots[1].at(0) != 180);
 
   // A wrapped 32-bit clock still counts the interval
   ClimateHistory w;
@@ -1234,49 +1254,58 @@ void testClimateHistorySampleGate() {
 }
 
 void testSparklineAutoScale() {
-  TemperatureHistory h;
+  HumidityHistory h;
   Sparkline::Scale s;
   assert(!Sparkline::computeScale(h, s)); // empty
 
   // Single sample: span of MIN_SPAN centered on the value
-  h.push(200);
+  h.push(500);
   assert(Sparkline::computeScale(h, s));
   assert(s.hi - s.lo == Sparkline::MIN_SPAN);
-  assert(s.lo < 200 && s.hi > 200);
-  assert(Sparkline::valueToRow(200, s, 16) == 7 || Sparkline::valueToRow(200, s, 16) == 8);
+  assert(s.lo < 500 && s.hi > 500);
+  assert(Sparkline::valueToRow(500, s, 16) == 7 || Sparkline::valueToRow(500, s, 16) == 8);
 
   // Flat line: same span, every sample on the same row (no divide by zero)
   for (int i = 0; i < 23; ++i) {
-    h.push(200);
+    h.push(500);
   }
   assert(Sparkline::computeScale(h, s));
   assert(s.hi - s.lo == Sparkline::MIN_SPAN);
+  assert(Sparkline::MIN_SPAN == 50); // 5.0 %RH
 
   // Small range below MIN_SPAN is widened, not stretched to full height
-  TemperatureHistory small;
-  small.push(200);
-  small.push(203);
+  HumidityHistory small;
+  small.push(500);
+  small.push(520);
   assert(Sparkline::computeScale(small, s));
   assert(s.hi - s.lo == Sparkline::MIN_SPAN);
-  assert(Sparkline::valueToRow(203, s, 16) < Sparkline::valueToRow(200, s, 16));
+  assert(Sparkline::valueToRow(520, s, 16) < Sparkline::valueToRow(500, s, 16));
 
   // Full range: min on the bottom row, max on the top row
-  TemperatureHistory full;
-  full.push(TemperatureHistory::MIN_VALUE);
-  full.push(TemperatureHistory::MAX_VALUE);
+  HumidityHistory full;
+  full.push(HumidityHistory::MIN_VALUE);
+  full.push(HumidityHistory::MAX_VALUE);
   assert(Sparkline::computeScale(full, s));
-  assert(s.lo == TemperatureHistory::MIN_VALUE && s.hi == TemperatureHistory::MAX_VALUE);
+  assert(s.lo == HumidityHistory::MIN_VALUE && s.hi == HumidityHistory::MAX_VALUE);
   assert(Sparkline::valueToRow(s.lo, s, 16) == 15);
   assert(Sparkline::valueToRow(s.hi, s, 16) == 0);
+  assert(s.lo == 0 && s.hi == 1000);
   assert(Sparkline::valueToRow(s.hi + 100, s, 16) == 0); // clamp
   assert(Sparkline::valueToRow(0, s, 1) == 0);
 
-  // Negative values near the bottom of the range
-  TemperatureHistory neg;
-  neg.push(-205);
-  neg.push(-200);
-  assert(Sparkline::computeScale(neg, s));
-  assert(s.hi - s.lo == Sparkline::MIN_SPAN);
+  // A flat curve at the dry border stays inside 0..100 %RH
+  HumidityHistory dry;
+  dry.push(0);
+  dry.push(10);
+  assert(Sparkline::computeScale(dry, s));
+  assert(s.lo == 0 && s.hi == Sparkline::MIN_SPAN);
+  // A flat curve at the wet border stays inside 0..100 %RH
+  HumidityHistory wet;
+  wet.push(1000);
+  wet.push(990);
+  assert(Sparkline::computeScale(wet, s));
+  assert(s.hi == 1000 && s.lo == 1000 - Sparkline::MIN_SPAN);
+  assert(Sparkline::valueToRow(1000, s, 16) == 0 && Sparkline::valueToRow(990, s, 16) > 0);
 
   // Columns: newest sample at the right edge, oldest of a full window at column 0
   assert(Sparkline::sampleColumn(23, 24, 80) == 79);
@@ -1289,16 +1318,16 @@ void testSparklineAutoScale() {
 
 void testSparklineBoundsAndClipping() {
   // Rising ramp over the full range, with a frame of set pixels around the box to detect leaks
-  TemperatureHistory h;
+  HumidityHistory h;
   for (int i = 0; i < 24; ++i) {
-    h.push(static_cast<int16_t>(i * 20 - 200));
+    h.push(static_cast<int16_t>(i * 40));
   }
   const uint16_t bx = 100, by = 100, bw = 80, bh = 16;
   St7305Framebuffer fb;
   fb.clear(false);
   assert(!Sparkline::render(fb, bx, by, 0, bh, h));
   assert(!Sparkline::render(fb, bx, by, bw, 0, h));
-  assert(!Sparkline::render(fb, bx, by, bw, bh, TemperatureHistory{}));
+  assert(!Sparkline::render(fb, bx, by, bw, bh, HumidityHistory{}));
   assert(Sparkline::render(fb, bx, by, bw, bh, h));
 
   int inside = 0;
@@ -1348,7 +1377,7 @@ void testDashboardSparklineInsideTiles() {
   ClimateHistory history;
   for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
     for (int i = 0; i < 24; ++i) {
-      history.slots[s].push(static_cast<int16_t>(i % 2 == 0 ? -300 : 400));
+      history.slots[s].push(static_cast<int16_t>(i % 2 == 0 ? 100 : 900));
     }
   }
 
@@ -1389,7 +1418,7 @@ void testDashboardSparklineInsideTiles() {
   // A single sample draws no curve
   ClimateHistory one;
   for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
-    one.slots[s].push(200);
+    one.slots[s].push(500);
   }
   St7305Framebuffer single;
   DashboardView::render(single, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, nullptr, 100, &one);
@@ -1405,7 +1434,9 @@ void testHistoryPersistence() {
   for (int i = 0; i < 30; ++i) {
     s.history.slots[0].push(static_cast<int16_t>(100 + i));
   }
-  s.history.slots[3].push(-45);
+  s.history.slots[3].push(455);
+  s.history.slots[2].push(0);    // dry border survives the round trip
+  s.history.slots[2].push(1000); // wet border survives the round trip
   s.history.last_sample_ms = 5000;
   s.history.has_sampled = true;
 
@@ -1417,8 +1448,9 @@ void testHistoryPersistence() {
   for (size_t i = 0; i < 24; ++i) {
     assert(r.history.slots[0].at(i) == s.history.slots[0].at(i));
   }
-  assert(r.history.slots[3].size() == 1 && r.history.slots[3].at(0) == -45);
+  assert(r.history.slots[3].size() == 1 && r.history.slots[3].at(0) == 455);
   assert(r.history.slots[1].size() == 0);
+  assert(r.history.slots[2].size() == 2 && r.history.slots[2].at(0) == 0 && r.history.slots[2].at(1) == 1000);
   assert(r.history.last_sample_ms == 5000 && r.history.has_sampled);
   assert(PowerManager::timestampsConsistent(r, 5000));
   // The history timestamp alone never forces a clean start; the sample gate handles a clock reset
@@ -1440,7 +1472,9 @@ void testHistoryPersistence() {
 
   // Each corrupt field with a valid CRC is rejected: head, sample range, sampled flag
   const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE - 1;
-  const size_t cases[3][2] = {{ring_pos + 1, 24}, {ring_pos + 3, 0x7F}, {sampled_pos, 2}};
+  // Sample bytes: low byte at ring_pos + 2, high byte at ring_pos + 3 (little endian)
+  const size_t cases[5][2] = {
+      {ring_pos + 1, 24}, {ring_pos + 3, 0x7F}, {sampled_pos, 2}, {ring_pos + 3, 0xFF}, {ring_pos + 3, 0x04}};
   for (const auto& c : cases) {
     uint8_t b[PowerManager::SERIALIZED_SIZE];
     memcpy(b, buf, sizeof(b));
@@ -2444,7 +2478,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 6);
+  assert(PowerManager::STATE_VERSION == 7);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -3219,7 +3253,7 @@ int main() {
   testPowerWakeupAndStateMachine();
   testLowBatteryHysteresis();
   testLowBatteryBanner();
-  testTemperatureHistoryFifo();
+  testHumidityHistoryFifo();
   testClimateHistorySampleGate();
   testSparklineAutoScale();
   testSparklineBoundsAndClipping();

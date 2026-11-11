@@ -86,7 +86,7 @@ public:
       int8_t battery_pct,
       float battery_voltage_v = -1.0f,
       bool is_stale = false,
-      const TemperatureHistory* history = nullptr) {
+      const HumidityHistory* history = nullptr) {
     fb.drawRect(x, y, w, h, true);
     fb.drawHLine(x, y + 24, w, true);
     fb.drawText(x + 8, y + 6, title, 2, true);

@@ -10,6 +10,7 @@
 - `rlcd_panel/board_pins.h`: Hardware GPIO constants and I²C addresses for `ESP32-S3-RLCD-4.2`.
 - `rlcd_panel/battery_monitor.h`: 18650 Li-ion battery voltage and percentage decoder (`GPIO4` ADC1_CH3 with 3.0× divider).
 - `rlcd_panel/switchbot_ble.h`: Header-only BLE parser (`Company ID 0x0969` Manufacturer Data + `UUID 0xFD3D` Service Data) and 3-slot sensor registry.
+- `rlcd_panel/sparkline.h`: Header-only 24-hour relative humidity trend: `HumidityHistory` (24 hourly samples, 0.1 %RH steps, 0 to 100 %RH), `ClimateHistory` (onboard + 3 SwitchBot slots, hourly gate) and the `Sparkline` scaler and renderer (`MIN_SPAN` 5.0 %RH).
 - `rlcd_panel/st7305_framebuffer.h`: Header-only 400×300 1-bpp framebuffer (`15,000` bytes) with `ST7305` 2×4 block pixel packing and 5×7 text primitives.
 - `rlcd_panel/st7305_panel.h`: ESP32-S3 hardware SPI driver for the `ST7305` RLCD controller.
 - `rlcd_panel/shtc3_sensor.h`: Sensirion `SHTC3` CRC-8 (`0x31`) and raw frame decoder.

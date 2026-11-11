@@ -77,7 +77,7 @@ struct PersistentState {
   DisplayMode mode = DisplayMode::DASHBOARD;
   BatteryReading battery;
   SwitchBotRegistry registry;
-  ClimateHistory history; // hourly temperature samples for the trend curves
+  ClimateHistory history; // hourly humidity samples for the trend curves
   uint32_t last_log_ms = 0;  // clock value of the last MicroSD record
   bool has_logged = false;   // false until the first MicroSD attempt, success or failure
   bool muted = false;        // true: alerts stay silent
@@ -96,13 +96,13 @@ struct WakeupPlan {
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 6;
+  static constexpr uint8_t STATE_VERSION = 7;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Slot layout: valid, mac[6], temperature (float bits), humidity, battery, fahrenheit,
   // rssi (int16), updated_ms, packet_count.
   static constexpr size_t SLOT_SIZE = 1 + 6 + 4 + 1 + 1 + 1 + 2 + 4 + 4;
   // History ring: count, head, 24 samples (int16). Trailer: last sample time, sampled flag.
-  static constexpr size_t HISTORY_RING_SIZE = 1 + 1 + TemperatureHistory::CAPACITY * 2;
+  static constexpr size_t HISTORY_RING_SIZE = 1 + 1 + HumidityHistory::CAPACITY * 2;
   static constexpr size_t HISTORY_SIZE =
       ClimateHistory::SLOT_COUNT * HISTORY_RING_SIZE + 4 + 1;
   // SD log trailer: last log time, logged flag.
@@ -218,10 +218,10 @@ public:
       putU32(out, pos, r.packet_count);
     }
     for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
-      const TemperatureHistory& h = state.history.slots[i];
+      const HumidityHistory& h = state.history.slots[i];
       out[pos++] = static_cast<uint8_t>(h.size());
       out[pos++] = h.head();
-      for (size_t k = 0; k < TemperatureHistory::CAPACITY; ++k) {
+      for (size_t k = 0; k < HumidityHistory::CAPACITY; ++k) {
         const uint16_t bits = static_cast<uint16_t>(h.rawSample(k));
         out[pos++] = static_cast<uint8_t>(bits & 0xFF);
         out[pos++] = static_cast<uint8_t>(bits >> 8);
@@ -322,8 +322,8 @@ public:
     for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
       const uint8_t count = data[pos++];
       const uint8_t head = data[pos++];
-      int16_t samples[TemperatureHistory::CAPACITY];
-      for (size_t k = 0; k < TemperatureHistory::CAPACITY; ++k) {
+      int16_t samples[HumidityHistory::CAPACITY];
+      for (size_t k = 0; k < HumidityHistory::CAPACITY; ++k) {
         samples[k] = static_cast<int16_t>(
             static_cast<uint16_t>(data[pos]) | (static_cast<uint16_t>(data[pos + 1]) << 8));
         pos += 2;

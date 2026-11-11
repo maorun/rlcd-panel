@@ -80,7 +80,7 @@ The panel renders three views. The `KEY` button on `GPIO18` (active low, interna
 
 ![Dashboard view](docs/display_preview_dashboard.png)
 
-Four climate tiles: the onboard `SHTC3` and up to three SwitchBot sensors. Each tile shows temperature, humidity, battery, and a 24-hour temperature sparkline. A `STALE` badge marks a SwitchBot sensor without a recent packet. The header shows the title, the clock, and the battery level of the panel. This is the default view after a power-on.
+Four climate tiles: the onboard `SHTC3` and up to three SwitchBot sensors. Each tile shows temperature, humidity, battery, and a 24-hour humidity (%RH) sparkline. A `STALE` badge marks a SwitchBot sensor without a recent packet. The header shows the title, the clock, and the battery level of the panel. This is the default view after a power-on.
 
 ### Mode 1: Sensor Stats
 

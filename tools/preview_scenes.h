@@ -90,11 +90,11 @@ inline void renderScene(
 
   // Preview history: 24 hourly samples with a daily rhythm per sensor
   ClimateHistory history;
-  const float base[ClimateHistory::SLOT_COUNT] = {21.8f, 19.4f, 13.8f, 16.2f};
-  const float swing[ClimateHistory::SLOT_COUNT] = {1.2f, 2.5f, 5.0f, 0.2f};
+  const float base[ClimateHistory::SLOT_COUNT] = {45.0f, 58.0f, 72.0f, 40.0f};
+  const float swing[ClimateHistory::SLOT_COUNT] = {4.0f, 9.0f, 14.0f, 1.0f};
   for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
     for (int hour = 0; hour < 24; ++hour) {
-      history.slots[s].pushCelsius(base[s] + swing[s] * sinf(static_cast<float>(hour) * 0.2618f));
+      history.slots[s].pushPercent(base[s] + swing[s] * sinf(static_cast<float>(hour) * 0.2618f));
     }
   }
 
