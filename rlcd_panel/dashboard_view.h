@@ -332,6 +332,17 @@ public:
     snprintf(out, capacity, "24H T%s H%s", temp, hum);
   }
 
+  // "RSSI -NN DBM" for a live slot, "RSSI --" for an empty or stale slot.
+  static void formatRssi(char* out, size_t capacity, const SwitchBotReading& sb, uint32_t now_ms) {
+    // A packet stamped shortly after now_ms counts as fresh, like the age display.
+    const bool future = (now_ms - sb.updated_ms) >= 0xFFFF0000u;
+    if (!sb.valid || (!future && sb.isStale(now_ms))) {
+      snprintf(out, capacity, "RSSI --");
+      return;
+    }
+    snprintf(out, capacity, "RSSI %d DBM", static_cast<int>(sb.rssi));
+  }
+
   static void renderSensorStats(
       St7305Framebuffer& fb,
       const BatteryReading& battery,
@@ -357,7 +368,9 @@ public:
         continue;
       }
 
-      snprintf(line, sizeof(line), "S%u RSSI %d DBM", static_cast<unsigned>(i + 1), sb.rssi);
+      char rssi[24];
+      formatRssi(rssi, sizeof(rssi), sb, now_ms);
+      snprintf(line, sizeof(line), "S%u %s", static_cast<unsigned>(i + 1), rssi);
       drawLine(fb, 10, y, line);
 
       snprintf(

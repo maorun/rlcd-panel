@@ -384,3 +384,11 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `calibratedRegistry()` in `rlcd_panel.ino` feeds the dashboard views, the freezer and mold alerts, the hourly history and the CSV log. Each of them shows the corrected value.
 - The six floats add 24 bytes to the config trailer in RTC memory. The state version is 18. The old format gives a clean start. A NaN value or a value outside the range is rejected, even with a valid CRC.
 - Acceptance criteria: host tests cover the defaults, the range edges, malformed values, the application to the correct slot only (SwitchBot and BTHome), the humidity clamp, the effect on the freezer and mold alerts, the history sample and the RTC round trip. A slot without an offset key keeps its raw value.
+
+## BLE signal strength in the sensor stats view
+
+- **Code:** `rlcd_panel/switchbot_ble.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`. `rlcd_panel/bthome_ble.h` needs no change: BTHome and SwitchBot packets use the same registry slots and the same scan callback path. `tools/preview_scenes.h` already holds sample RSSI values.
+- `SwitchBotReading::rssi` is now `int8_t` (dBm). `SwitchBotBleParser::clampRssi()` limits the value of the BLE stack to -128 to 127 dBm. A valid packet updates the RSSI of its slot. A rejected packet leaves it unchanged.
+- The sensor stats view shows `RSSI -NN DBM` in the first line of each sensor block. `DashboardView::formatRssi()` prints `RSSI --` for a stale slot (no packet for 30 minutes) and for an empty reading. A slot that never received a packet keeps the existing `S1 NO SIGNAL` line.
+- The RSSI uses one byte in the RTC slot record instead of two. The state version is 19. The old format gives a clean start.
+- Acceptance criteria: host tests cover the RSSI update on a valid packet, no update on a rejected packet, the text for -30 dBm and -100 dBm, the dashes for a stale slot, the line bounds in each block, and the RTC round trip. `docs/display_preview_stats.png` shows the line.

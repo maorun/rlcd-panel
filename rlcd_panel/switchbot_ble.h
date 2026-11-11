@@ -22,7 +22,7 @@ struct SwitchBotReading {
   uint8_t humidity_pct = 0;
   int8_t battery_pct = -1; // -1 if not present in the packet
   bool fahrenheit_mode = false;
-  int rssi = 0;
+  int8_t rssi = 0; // dBm of the last valid advertisement
   uint32_t updated_ms = 0;
   uint32_t packet_count = 0; // advertisements received from this sensor since power-on
 
@@ -34,6 +34,11 @@ struct SwitchBotReading {
 
 class SwitchBotBleParser {
 public:
+  // Clamps a dBm value from the BLE stack to the int8_t range of the registry.
+  static int8_t clampRssi(int dbm) {
+    return static_cast<int8_t>(dbm < -128 ? -128 : (dbm > 127 ? 127 : dbm));
+  }
+
   // Decode Manufacturer Specific Data buffer starting with the 2-byte little-endian Company ID (0x69, 0x09)
   // followed by the 11+ byte WoIOSensor payload:
   //   Payload[0..5]: Device MAC (6 bytes)

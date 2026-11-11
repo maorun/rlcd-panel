@@ -126,13 +126,13 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 18;
+  static constexpr uint8_t STATE_VERSION = 19;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
   // Slot layout: valid, mac[6], temperature (float bits), humidity, battery, fahrenheit,
-  // rssi (int16), updated_ms, packet_count.
-  static constexpr size_t SLOT_SIZE = 1 + 6 + 4 + 1 + 1 + 1 + 2 + 4 + 4;
+  // rssi (int8), updated_ms, packet_count.
+  static constexpr size_t SLOT_SIZE = 1 + 6 + 4 + 1 + 1 + 1 + 1 + 4 + 4;
   // History ring (humidity, then temperature, per slot): count, head, 24 samples (int16). Trailer: last sample time, sampled flag.
   static constexpr size_t HISTORY_RING_SIZE = 1 + 1 + HumidityHistory::CAPACITY * 2;
   // Each slot has a humidity ring and a temperature ring of the same layout.
@@ -294,11 +294,7 @@ public:
       out[pos++] = r.humidity_pct;
       out[pos++] = static_cast<uint8_t>(r.battery_pct);
       out[pos++] = r.fahrenheit_mode ? 1 : 0;
-      int rssi = r.rssi;
-      rssi = rssi < -32768 ? -32768 : (rssi > 32767 ? 32767 : rssi);
-      const uint16_t rssi_bits = static_cast<uint16_t>(static_cast<int16_t>(rssi));
-      out[pos++] = static_cast<uint8_t>(rssi_bits & 0xFF);
-      out[pos++] = static_cast<uint8_t>(rssi_bits >> 8);
+      out[pos++] = static_cast<uint8_t>(r.rssi);
       putU32(out, pos, r.updated_ms);
       putU32(out, pos, r.packet_count);
     }
@@ -426,10 +422,7 @@ public:
       r.humidity_pct = data[pos++];
       r.battery_pct = static_cast<int8_t>(data[pos++]);
       const uint8_t fahrenheit = data[pos++];
-      const uint16_t rssi_bits =
-          static_cast<uint16_t>(data[pos]) | (static_cast<uint16_t>(data[pos + 1]) << 8);
-      pos += 2;
-      r.rssi = static_cast<int16_t>(rssi_bits);
+      r.rssi = static_cast<int8_t>(data[pos++]);
       r.updated_ms = getU32(data, pos);
       r.packet_count = getU32(data, pos);
       if (!(r.temperature_c >= -100.0f && r.temperature_c <= 100.0f) || r.humidity_pct > 100 ||

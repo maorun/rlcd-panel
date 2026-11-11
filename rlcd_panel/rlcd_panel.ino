@@ -104,7 +104,7 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
             reading)) {
       return;
     }
-    reading.rssi = advertisedDevice.getRSSI();
+    reading.rssi = SwitchBotBleParser::clampRssi(advertisedDevice.getRSSI());
     reading.updated_ms = nowMs();
 
     portENTER_CRITICAL(&g_registry_mux);
@@ -145,7 +145,7 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
       }
     }
 
-    reading.rssi = advertisedDevice.getRSSI();
+    reading.rssi = SwitchBotBleParser::clampRssi(advertisedDevice.getRSSI());
     // Keep this timestamp at or before the nowMs() read in renderDashboard() so a fresh reading
     // never appears to lie in the future (unsigned subtraction would flag it stale).
     reading.updated_ms = nowMs();
