@@ -137,18 +137,20 @@ enum class ButtonEvent : uint8_t {
   NONE,
   MODE_CHANGED,
   CALIBRATE, // long press in the diagnostics view; the mode stays
+  RECAPTURE, // short press in the spectrum view; the mode stays
 };
 
 enum class DisplayMode : uint8_t {
   DASHBOARD = 0,
   SENSOR_STATS = 1,
   SYSTEM_DIAGNOSTICS = 2,
+  AUDIO_SPECTRUM = 3,
 };
 
-constexpr uint8_t DISPLAY_MODE_COUNT = 3;
+constexpr uint8_t DISPLAY_MODE_COUNT = 4;
 
 // Display mode state machine: every debounced press cycles DASHBOARD -> SENSOR_STATS ->
-// SYSTEM_DIAGNOSTICS -> DASHBOARD.
+// SYSTEM_DIAGNOSTICS -> AUDIO_SPECTRUM -> DASHBOARD.
 class DisplayModeController {
 public:
   DisplayMode mode() const {
@@ -178,11 +180,13 @@ public:
   // mode at once: a release before 2 s changes it (short press), a hold of 2 s or more returns
   // CALIBRATE and keeps the mode. In the other views every press changes the mode at once. A
   // button that is already down at the first call raises no event, so the press that woke the
-  // board cannot start a calibration.
+  // board cannot start a calibration. In the spectrum view a short press returns RECAPTURE and
+  // keeps the mode, and a hold of 2 s or more changes the mode. The press that woke the board
+  // changes the mode through next(), so it never starts a capture.
   ButtonEvent updateWithLongPress(bool raw_pressed, uint32_t now_ms) {
     const bool edge = button_.update(raw_pressed, now_ms);
     if (edge) {
-      if (mode_ != DisplayMode::SYSTEM_DIAGNOSTICS) {
+      if (mode_ != DisplayMode::SYSTEM_DIAGNOSTICS && mode_ != DisplayMode::AUDIO_SPECTRUM) {
         next();
         return ButtonEvent::MODE_CHANGED;
       }
@@ -190,9 +194,16 @@ public:
     }
     switch (long_press_.update(button_.pressed(), now_ms)) {
       case LongPressDetector::Result::SHORT:
+        if (mode_ == DisplayMode::AUDIO_SPECTRUM) {
+          return ButtonEvent::RECAPTURE;
+        }
         next();
         return ButtonEvent::MODE_CHANGED;
       case LongPressDetector::Result::LONG:
+        if (mode_ == DisplayMode::AUDIO_SPECTRUM) {
+          next();
+          return ButtonEvent::MODE_CHANGED;
+        }
         return ButtonEvent::CALIBRATE;
       case LongPressDetector::Result::NONE:
       default:

@@ -74,7 +74,7 @@ Der ESP32-S3 befindet sich nun im ROM Download Mode (`0x0`) und akzeptiert Flash
 
 ## Display Views
 
-The panel renders three views. The `KEY` button on `GPIO18` (active low, internal pull-up) cycles them in this fixed order: **Dashboard → Sensor Stats → System Diagnostics → Dashboard**. The source of truth is `DisplayMode` in `rlcd_panel/button_handler.h`, the pin is `PIN_BTN_KEY` in `rlcd_panel/board_pins.h`. All images below are bit-exact renderings from `./scripts/generate-display-preview.sh` with fixed sample data.
+The panel renders four views. The `KEY` button on `GPIO18` (active low, internal pull-up) cycles them in this fixed order: **Dashboard → Sensor Stats → System Diagnostics → Audio Spectrum → Dashboard**. The source of truth is `DisplayMode` in `rlcd_panel/button_handler.h`, the pin is `PIN_BTN_KEY` in `rlcd_panel/board_pins.h`. All images below are bit-exact renderings from `./scripts/generate-display-preview.sh` with fixed sample data.
 
 ### Mode 0: Dashboard
 
@@ -94,6 +94,12 @@ One text block per SwitchBot sensor with `RSSI`, `MAC` address, received packet 
 
 Power source (battery or USB), battery voltage and percentage, free heap, and uptime.
 
+### Mode 3: Audio Spectrum
+
+![Audio Spectrum view](docs/display_preview_spectrum.png)
+
+32 bars show the sound spectrum from 100 Hz to 8 kHz on a log axis, with a peak marker above each bar and the labels `100`, `1K` and `8K`. The view captures 1 s of audio on entry. A short `KEY` press in this view captures again. A hold of 2 s changes the view. Timer wakeups keep the microphones off, so a timer redraw of this view shows `NO DATA`.
+
 ### Low Battery Alert
 
 ![Low battery alert on the dashboard](docs/display_preview_low_battery.png)
@@ -107,7 +113,7 @@ If the battery is low, an inverted warning banner replaces the header bar in eve
 3. A press while the board sleeps wakes it through `ext0` on `GPIO18`. This press also moves to the next view.
 4. The selected view stays in RTC memory across deep sleep, so the timer wakeups redraw the same view.
 
-To render a single view by hand, run `render_display_preview <out.bmp> [mode 0..2] [low]` (source: `tools/render_display_preview.cpp`). The scene list for all previews is `PREVIEW_SCENES` in `tools/preview_scenes.h`.
+To render a single view by hand, run `render_display_preview <out.bmp> [mode 0..3] [low]` (source: `tools/render_display_preview.cpp`). The scene list for all previews is `PREVIEW_SCENES` in `tools/preview_scenes.h`.
 
 ## Power Management
 

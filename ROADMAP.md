@@ -26,15 +26,6 @@ No open item.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 
-### Audio frequency spectrum visualizer
-
-- **Rank:** Feature model. Total 27/40 (use 4, setup 7, harmony 8, safety 8). Effort M.
-- **Area:** Audio / Visuals.
-- **Code:** `rlcd_panel/audio_spectrum.h` (new), `rlcd_panel/button_handler.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `tools/preview_scenes.h`.
-- **Problem:** The noise band shows the level only. The user cannot see the source type, for example a fan hum at 100 Hz or a high whine.
-- **Goal:** Add a fourth display mode `AUDIO_SPECTRUM` after `SYSTEM_DIAGNOSTICS` and set `DISPLAY_MODE_COUNT` to 4. Reject a stored view mode above 3 in the RTC state. Capture 1 s of audio on entry to the view. Run a 512-point radix-2 FFT with a Hann window on the mono mix. Group the bins into 32 logarithmic bands from 100 Hz to 8 kHz. Draw 32 bars with a peak marker and frequency labels (`100`, `1K`, `8K`). Each `KEY` press in this view captures again, before the next mode change. Keep the microphones off on timer wakeups.
-- **Acceptance test:** Host tests feed sines at 250 Hz, 1 kHz and 4 kHz and check that the highest bar is in the correct band. The tests also cover silence (all bars at zero), the band edges, the pixel bounds, and the mode cycle with 4 modes. The preview generator renders the view with a fixed sample spectrum.
-
 ### Acoustic double-clap detection in the awake window
 
 - **Rank:** Feature model. Total 22/40 (use 5, setup 3, harmony 8, safety 6). Effort L.

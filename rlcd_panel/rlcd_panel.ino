@@ -9,6 +9,7 @@
 
 #include "audio_alert.h"
 #include "audio_loopback.h"
+#include "audio_spectrum.h"
 #include "board_pins.h"
 #include "battery_monitor.h"
 #include "button_handler.h"
@@ -46,6 +47,9 @@ bool g_mic_cal_busy = false;    // the 10 s calibration window runs
 bool g_mic_cal_failed = false;  // the last calibration of this wake cycle was rejected
 LoopbackResult g_loopback;      // last loopback test of this wake cycle
 BootButtonController g_boot_button;
+SpectrumAnalyzer g_spectrum_analyzer; // about 7 KB of buffers: static, not on the task stack
+SpectrumReading g_spectrum;           // last capture of this wake cycle; not kept in deep sleep
+bool g_spectrum_attempted = false;    // the view captured once since it was entered
 
 const DeviceConfig& config() {
   return g_state.config;
@@ -229,6 +233,7 @@ void renderDashboard() {
   info.mic_cal_failed = g_mic_cal_failed;
   info.quiet_hours = quietHours().isActive(g_rtc_time);
   info.loopback = g_loopback;
+  info.spectrum = g_spectrum;
 
   DashboardView::renderMode(
       g_framebuffer,
@@ -254,6 +259,24 @@ void measureNoiseAndRedraw(bool measure) {
     measureNoiseOnce();
     renderDashboard();
   }
+}
+
+// Captures 1 s of audio for the spectrum view and redraws it. `capture` is false on timer
+// wakeups, so the microphones stay off there. The first call after entry to the view captures; a
+// KEY press in the view forces a new capture. The ADC is powered down again before the capture
+// returns. The capture outlasts the 3 s grace window start: KEY presses during it are not seen.
+void captureSpectrumAndRedraw(bool capture, bool force = false) {
+  if (!capture || g_mode_controller.mode() != DisplayMode::AUDIO_SPECTRUM ||
+      (g_spectrum_attempted && !force)) {
+    return;
+  }
+  g_spectrum_attempted = true;
+  Es7210Hal hal;
+  g_spectrum = SpectrumCapture::measure(hal, g_spectrum_analyzer);
+  if (!g_spectrum.valid) {
+    Serial.println("Spectrum capture failed");
+  }
+  renderDashboard();
 }
 
 // Measures the noise floor of a quiet room for 10 s and stores it in NVS. The floor is measured
@@ -501,6 +524,7 @@ void setup() {
     renderDashboard();
   }
   measureNoiseAndRedraw(cause != WakeupCause::TIMER);
+  captureSpectrumAndRedraw(cause != WakeupCause::TIMER);
 
   // Grace window after a KEY wakeup or a power-on: further KEY presses redraw without a new
   // wakeup. A timer wakeup skips it to save battery.
@@ -534,6 +558,12 @@ void setup() {
       case ButtonEvent::MODE_CHANGED:
         renderDashboard();
         measureNoiseAndRedraw(true);
+        g_spectrum_attempted = false; // a new entry to the view captures again
+        g_spectrum = SpectrumReading{}; // old bars never show while the new capture runs
+        captureSpectrumAndRedraw(true);
+        break;
+      case ButtonEvent::RECAPTURE:
+        captureSpectrumAndRedraw(true, true);
         break;
       case ButtonEvent::CALIBRATE:
         calibrateMicrophone();
