@@ -29,6 +29,17 @@ public:
     return SATURATION_PRESSURE_KPA_AT_0C * expf((MAGNUS_A * temp_c) / (temp_c + MAGNUS_B_C));
   }
 
+  // Absolute humidity in g/m3 from the Magnus vapor pressure: 216.7 * e[hPa] / (T[K]). Returns -1
+  // for NaN, infinite or out-of-range input (0 %RH gives 0 g/m3).
+  static float absoluteHumidityGm3(float temp_c, float humidity_pct) {
+    if (!isfinite(temp_c) || !isfinite(humidity_pct) || temp_c < MIN_TEMP_C || temp_c > MAX_TEMP_C ||
+        humidity_pct < 0.0f || humidity_pct > 100.0f) {
+      return -1.0f;
+    }
+    const float vapor_hpa = saturationPressureKpa(temp_c) * 10.0f * (humidity_pct / 100.0f);
+    return 216.7f * vapor_hpa / (temp_c + 273.15f);
+  }
+
   // Returns an invalid result for NaN, infinite or out-of-range input. 0 %RH gives no dew point
   // (the logarithm diverges), so it is invalid as well.
   static ClimateDerived compute(float temp_c, float humidity_pct) {

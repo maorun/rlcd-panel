@@ -292,6 +292,7 @@ void renderDashboard() {
   info.mic_cal_busy = g_mic_cal_busy;
   info.mic_cal_failed = g_mic_cal_failed;
   info.quiet_hours = quietHours().isActive(g_rtc_time);
+  info.ventilate = (g_state.alert_mask & ALERT_VENTILATE) != 0;
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;
   info.runtime = g_state.battery_history.estimate(g_state.battery);
@@ -562,6 +563,7 @@ AlertLimits alertLimits() {
   AlertLimits limits;
   limits.freezer_trigger_c = config().freeze_alert_limit_c;
   limits.humidity_trigger_pct = static_cast<float>(config().mold_alert_limit_rh);
+  limits.outdoor_slot = config().outdoor_slot;
   return limits;
 }
 

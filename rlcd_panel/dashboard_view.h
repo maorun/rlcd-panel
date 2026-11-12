@@ -28,6 +28,7 @@ struct SystemInfo {
   bool mic_cal_busy = false; // the calibration window is running
   bool mic_cal_failed = false; // the last calibration of this wake cycle was rejected
   bool quiet_hours = false; // chimes are suppressed now; the header shows "Q"
+  bool ventilate = false;   // ventilation advice is active; the dashboard header shows the banner
   bool config_from_sd = false; // true: settings come from /sdcard/config.ini
   uint8_t config_rejected = 0; // rejected config.ini lines; above 0 shows "(N ERR)"
   LoopbackResult loopback;     // last speaker to microphone test of this wake cycle
@@ -53,6 +54,7 @@ public:
   static constexpr uint16_t HEADER_QUIET_W = 9;
   static constexpr uint16_t HEADER_QUIET_H = 11;
   static constexpr const char* LOW_BATTERY_TEXT = "! LOW BATTERY - PLEASE CHARGE !";
+  static constexpr const char* VENTILATE_TEXT = "VENTILATE";
   static constexpr const char* EMPTY_BATTERY_TEXT = "BATTERY EMPTY - CHARGE NOW";
   static constexpr uint16_t STALE_BADGE_W = 35;
   static constexpr uint16_t STALE_BADGE_H = 17;
@@ -233,16 +235,19 @@ public:
       const char* title,
       const BatteryReading& battery,
       const char* clock_text,
-      bool quiet_hours = false) {
+      bool quiet_hours = false,
+      bool ventilate = false) {
     fb.clear(false);
 
-    if (battery.low_battery) {
-      // Inverted banner: white bar with a double black frame and centered text. The text is
-      // 31 glyphs at scale 2 = 370 px wide, inside the 400 px width.
+    // Inverted banner: white bar with a double black frame and centered text. The low battery
+    // text is 31 glyphs at scale 2 = 370 px wide, inside the 400 px width. The low battery banner
+    // wins over the ventilation advice.
+    const char* banner = battery.low_battery ? LOW_BATTERY_TEXT : (ventilate ? VENTILATE_TEXT : nullptr);
+    if (banner != nullptr) {
       fb.drawRect(0, 0, RLCD_WIDTH, HEADER_HEIGHT, true);
       fb.drawRect(1, 1, RLCD_WIDTH - 2, HEADER_HEIGHT - 2, true);
-      const uint16_t text_w = static_cast<uint16_t>(strlen(LOW_BATTERY_TEXT) * 12 - 2);
-      fb.drawText(static_cast<uint16_t>((RLCD_WIDTH - text_w) / 2), 7, LOW_BATTERY_TEXT, 2, true);
+      const uint16_t text_w = static_cast<uint16_t>(strlen(banner) * 12 - 2);
+      fb.drawText(static_cast<uint16_t>((RLCD_WIDTH - text_w) / 2), 7, banner, 2, true);
       return;
     }
 
@@ -289,8 +294,9 @@ public:
       uint32_t now_ms,
       const ClimateHistory* history = nullptr,
       bool quiet_hours = false,
-      const DeviceConfig* config = nullptr) {
-    renderHeader(fb, "RLCD CLIMATE PANEL", battery, clock_text, quiet_hours);
+      const DeviceConfig* config = nullptr,
+      bool ventilate = false) {
+    renderHeader(fb, "RLCD CLIMATE PANEL", battery, clock_text, quiet_hours, ventilate);
 
     const uint16_t tile_w = 190;
     const uint16_t tile_h = 124;
@@ -752,7 +758,7 @@ public:
         break;
       case DisplayMode::DASHBOARD:
       default:
-        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours, config);
+        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours, config, info.ventilate);
         break;
     }
   }

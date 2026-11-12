@@ -6,6 +6,7 @@
 
 #include "battery_monitor.h"
 #include "board_pins.h"
+#include "climate_math.h"
 #include "pcf85063_rtc.h"
 #include "shtc3_sensor.h"
 #include "switchbot_ble.h"
@@ -18,15 +19,16 @@
 
 namespace rlcd_panel {
 
-// Alert kinds as bit mask. The mask is persisted in RTC memory (five bits).
+// Alert kinds as bit mask. The mask is persisted in RTC memory (six bits).
 constexpr uint8_t ALERT_NONE = 0;
 constexpr uint8_t ALERT_FREEZER = 1;  // a sensor reads below the freezer limit
 constexpr uint8_t ALERT_HUMIDITY = 2; // a sensor reads above the mold risk limit
 constexpr uint8_t ALERT_NOISE_HIGH = 4; // the hourly noise window is above the noise limit
 constexpr uint8_t ALERT_SENSOR_LOST = 8; // a known external sensor sends no more packets
 constexpr uint8_t ALERT_CHARGE_FULL = 16; // the cell is full on USB power (set by chargeStep)
+constexpr uint8_t ALERT_VENTILATE = 32; // the outdoor air is drier than the humid indoor air
 constexpr uint8_t ALERT_CLIMATE_MASK =
-    ALERT_FREEZER | ALERT_HUMIDITY | ALERT_SENSOR_LOST; // set by AlertEvaluator
+    ALERT_FREEZER | ALERT_HUMIDITY | ALERT_SENSOR_LOST | ALERT_VENTILATE; // set by AlertEvaluator
 constexpr uint8_t ALERT_MASK_ALL = ALERT_CLIMATE_MASK | ALERT_NOISE_HIGH | ALERT_CHARGE_FULL;
 
 // Alert trigger limits. The release limits follow with a fixed hysteresis, so the settings from the
@@ -35,8 +37,14 @@ struct AlertLimits {
   static constexpr float FREEZER_HYSTERESIS_C = 1.0f;
   static constexpr float HUMIDITY_HYSTERESIS_PCT = 3.0f;
 
+  // Ventilation advice: the indoor air must hold this much more water than the outdoor air to
+  // trigger, and less than the release difference to release.
+  static constexpr float VENTILATE_TRIGGER_GM3 = 2.0f;
+  static constexpr float VENTILATE_RELEASE_GM3 = 1.0f;
+
   float freezer_trigger_c = 0.0f;
   float humidity_trigger_pct = 70.0f;
+  uint8_t outdoor_slot = 0; // 0 = off, 1 to 3 = registry slot of the outdoor sensor
 
   float freezerReleaseC() const { return freezer_trigger_c + FREEZER_HYSTERESIS_C; }
   float humidityReleasePct() const { return humidity_trigger_pct - HUMIDITY_HYSTERESIS_PCT; }
@@ -81,6 +89,9 @@ public:
     uint8_t mask = ALERT_NONE;
     if (SwitchBotRegistry::anyStale(slots, slot_count, now_ms)) {
       mask |= ALERT_SENSOR_LOST;
+    }
+    if (ventilate(previous, onboard, slots, slot_count, now_ms, limits)) {
+      mask |= ALERT_VENTILATE;
     }
     // Without a usable reading the latch holds: a sensor that drops out must not clear an alert,
     // or its return would chime again.
@@ -140,6 +151,34 @@ public:
   }
 
 private:
+  // Ventilation advice: the indoor humidity is above the mold limit and the outdoor air holds at
+  // least VENTILATE_TRIGGER_GM3 less water. An active advice holds until the difference falls below
+  // VENTILATE_RELEASE_GM3 or the indoor humidity is HUMIDITY_HYSTERESIS_PCT below the limit. An
+  // off, empty, stale or invalid outdoor slot and an invalid indoor reading give no advice and clear
+  // the latch: unlike the other alerts, the advice is only true while both readings are fresh.
+  static bool ventilate(uint8_t previous, const Shtc3Reading& onboard, const SwitchBotReading* slots,
+                        size_t slot_count, uint32_t now_ms, const AlertLimits& limits) {
+    if (limits.outdoor_slot == 0 || limits.outdoor_slot > slot_count || slots == nullptr || !onboard.valid) {
+      return false;
+    }
+    const SwitchBotReading& outdoor = slots[limits.outdoor_slot - 1];
+    if (!outdoor.valid || outdoor.isStale(now_ms)) {
+      return false;
+    }
+    const float indoor_gm3 = ClimateMath::absoluteHumidityGm3(onboard.temperature_c, onboard.humidity_pct);
+    const float outdoor_gm3 =
+        ClimateMath::absoluteHumidityGm3(outdoor.temperature_c, static_cast<float>(outdoor.humidity_pct));
+    if (indoor_gm3 < 0.0f || outdoor_gm3 < 0.0f) {
+      return false;
+    }
+    const float difference = indoor_gm3 - outdoor_gm3;
+    if (onboard.humidity_pct > limits.humidity_trigger_pct && difference >= AlertLimits::VENTILATE_TRIGGER_GM3) {
+      return true;
+    }
+    return (previous & ALERT_VENTILATE) != 0 && onboard.humidity_pct > limits.humidityReleasePct() &&
+           difference >= AlertLimits::VENTILATE_RELEASE_GM3;
+  }
+
   struct Tally {
     AlertLimits limits;
     bool cold_trigger = false;
@@ -269,19 +308,21 @@ public:
   static constexpr uint32_t SAMPLES_PER_MS = SAMPLE_RATE_HZ / 1000;
 
   // Freezer: three short high beeps. Humidity: two notes, rising. Noise: two high beeps, then a
-  // lower note. Sensor lost: one low note. Charge full: two notes, falling.
+  // lower note. Sensor lost: one low note. Charge full: two notes, falling. Ventilate: three notes, rising.
   static ChimePattern pattern(uint8_t alert_bit) {
     static const ChimeNote FREEZER[] = {{880, 120}, {0, 80}, {880, 120}, {0, 80}, {880, 120}};
     static const ChimeNote HUMIDITY[] = {{660, 160}, {0, 40}, {880, 240}};
     static const ChimeNote NOISE[] = {{988, 100}, {0, 60}, {988, 100}, {0, 60}, {660, 260}};
     static const ChimeNote SENSOR_LOST[] = {{440, 400}};
     static const ChimeNote CHARGE_FULL[] = {{988, 160}, {0, 40}, {660, 260}};
+    static const ChimeNote VENTILATE[] = {{784, 120}, {0, 40}, {1047, 120}, {0, 40}, {1319, 200}};
     switch (alert_bit) {
       case ALERT_NOISE_HIGH: return {NOISE, sizeof(NOISE) / sizeof(NOISE[0])};
       case ALERT_FREEZER: return {FREEZER, sizeof(FREEZER) / sizeof(FREEZER[0])};
       case ALERT_HUMIDITY: return {HUMIDITY, sizeof(HUMIDITY) / sizeof(HUMIDITY[0])};
       case ALERT_SENSOR_LOST: return {SENSOR_LOST, sizeof(SENSOR_LOST) / sizeof(SENSOR_LOST[0])};
       case ALERT_CHARGE_FULL: return {CHARGE_FULL, sizeof(CHARGE_FULL) / sizeof(CHARGE_FULL[0])};
+      case ALERT_VENTILATE: return {VENTILATE, sizeof(VENTILATE) / sizeof(VENTILATE[0])};
       default: return {nullptr, 0};
     }
   }
@@ -407,13 +448,14 @@ public:
     if ((alert_bits & ALERT_MASK_ALL) == 0) {
       return false;
     }
-    ChimePattern patterns[5];
+    ChimePattern patterns[6];
     uint8_t count = 0;
     if ((alert_bits & ALERT_FREEZER) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_FREEZER);
     if ((alert_bits & ALERT_HUMIDITY) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_HUMIDITY);
     if ((alert_bits & ALERT_NOISE_HIGH) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_NOISE_HIGH);
     if ((alert_bits & ALERT_SENSOR_LOST) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_SENSOR_LOST);
     if ((alert_bits & ALERT_CHARGE_FULL) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_CHARGE_FULL);
+    if ((alert_bits & ALERT_VENTILATE) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_VENTILATE);
     return playPatterns(hal, patterns, count, volume_pct);
   }
 

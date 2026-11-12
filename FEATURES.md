@@ -164,9 +164,10 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
   | `mic_spl_offset_db` | `0.0` | `-20.0` to `20.0` | added to the microphone SPL offset |
   | `log_retention_months` | `0` | `0` to `120` | delete log files older than this; `0` keeps all |
 | `noise_alert_limit_db` | `0` | `0` (off) or `40` to `100` | loud noise alert trigger |
-| `chime_alert_mask` | `31` | `0` to `31` | chime per alert (bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full) |
+| `chime_alert_mask` | `63` | `0` to `63` | chime per alert (bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full, 5 ventilate) |
   | `ntp_sync_interval_h` | `24` | `6` to `168` | hours between two successful NTP syncs |
   | `wake_interval_s` | `60` | `30` to `900` | seconds between two scans on battery power; USB power keeps `60` |
+  | `outdoor_slot` | `0` | `0` (off) to `3` | registry slot of the outdoor sensor for the ventilation advice |
 
 - Equal start and end hours switch the quiet hours off. A lone CR is no line end: use LF or CRLF. The SPL offset has whole dB steps, so a fraction below 0.5 dB has no effect.
 - A card that does not mount keeps the previous settings on a `KEY` wakeup. A card without a usable file gives the defaults.
@@ -476,3 +477,16 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The CSV format is version 4. The header has 21 columns: the 19 columns of version 3 plus `noise_l10` and `noise_l90` (dB, calibrated offset applied). The file name is `/sdcard/climate_v4_YYYYMM.csv`. A failed or skipped window gives empty fields. A window without percentiles gives empty L10 and L90 fields only. The old `climate_v3_YYYYMM.csv` and `climate_v2_YYYYMM.csv` files stay unchanged. `LIST`, `DUMP`, the retention rule and `scripts/dump-logs.sh` accept all three names.
 - The diagnostics view shows `L10/L90: NN/NN DBA` (calibrated) or `L10/L90: -NN/-NN DBFS` (uncalibrated) in small text right of the `SD FREE` line, and `L10/L90: --` without percentiles. The 5x7 font gets the glyph `/`.
 - Host tests cover a steady tone (L10 equals L90), a single loud block, five and six loud blocks, a ramp of 50 blocks, a 250 ms and a 6 s window, one usable channel, a failed window, the `DBA` and `DBFS` text, the 21 column header and row, the empty fields, the console file name check, the retention rule and the line bounds.
+
+## Ventilation advice from indoor and outdoor absolute humidity
+
+- **Code:** `rlcd_panel/climate_math.h`, `rlcd_panel/device_config.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.
+- **Preview:** `docs/display_preview_ventilate.png` shows the banner on the dashboard.
+- `ClimateMath::absoluteHumidityGm3` calculates the water content in g/m³ from the Magnus vapor pressure. It returns `-1` for an invalid input.
+- The new `config.ini` key `outdoor_slot` (default `0` is off, range `0` to `3`) selects the registry slot of the outdoor sensor. The onboard sensor is the indoor reference.
+- `AlertEvaluator` sets `ALERT_VENTILATE` (bit 5) when the onboard humidity is above `mold_alert_limit_rh` and the outdoor air holds at least 2.0 g/m³ less water. The advice releases when the difference falls below 1.0 g/m³ or the onboard humidity is 3 %RH below the limit. Between the two limits the previous state holds.
+- An off, empty, stale or invalid outdoor slot and an invalid onboard reading give no advice and clear it.
+- The dashboard shows the banner `VENTILATE` in the header bar, in the same style as the low battery banner. The low battery banner wins. The banner hides the title, the clock and the battery indicator while the advice is active. The other views keep their header.
+- The alert has its own chime (three rising notes) and sounds once for each trigger. Mute, quiet hours and a cleared bit 5 of `chime_alert_mask` suppress the sound only. The mask is stored, so no chime replays later.
+- `chime_alert_mask` now has the range `0` to `63` (default `63`). A card with `31` silences the ventilation chime.
+- RTC state version 27: a latch byte stores bit 5 before the audio byte, and the config trailer stores `outdoor_slot` after `wake_interval_s`. A corrupt or out-of-range record gives a clean start.
