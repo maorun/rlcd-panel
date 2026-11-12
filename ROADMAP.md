@@ -32,12 +32,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] Serial console command CALIB with suggested offsets
-  - Rank: [Total: 32, Use: 3, Setup: 10, Harmony: 9, Safety: 10, Effort: M]
-  - Location: `rlcd_panel/serial_console.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the console command `CALIB N` (`N` is the reference sensor: `0` onboard, `1` to `3` a slot). Use only the hourly samples of `ClimateHistory` where the reference and the compared sensor are both valid. For each other sensor with at least 6 common hours, calculate the mean temperature difference and the mean humidity difference to the reference. Print one line for each sensor with the count of common hours, the active offsets and the two mean differences. Then print the suggested lines, for example `slot2_temp_offset_c=-0.4` and `slot2_rh_offset_pct=2.1`, so the user can paste them into `config.ini`. Clamp each suggested value to the key range. Do not write to the MicroSD card. Run the command on USB power only. End the output with the `CRC32` line, as the other commands do.
-  - Acceptance test: Host tests cover the parser for `CALIB 0` to `CALIB 3`, a missing argument, `CALIB 4` and extra text. Tests cover a constant difference, gaps in one history, fewer than 6 common hours (`SKIP` line), an empty reference, the suggested value with an active offset, the clamp at the key range, the onboard key names `temp_offset_c` and `rh_offset_pct`, the line format with the CRC-32, and the USB power gate.
-
 - [ ] Trend arrows for temperature and humidity in the climate tiles
   - Rank: [Total: 29, Use: 8, Setup: 2, Harmony: 9, Safety: 10, Effort: S]
   - Location: `rlcd_panel/sparkline.h`, `rlcd_panel/dashboard_view.h`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`

@@ -8342,6 +8342,148 @@ void testSerialConfigStopsOnShortWrite() {
   assert(sink.out.size() == 10 && sink.out.find("CRC32") == std::string::npos);
 }
 
+namespace {
+void fillCalib(ClimateHistory& h, size_t sensor, int hours, float temp, float rh) {
+  for (int i = 0; i < hours; ++i) {
+    h.temperatures[sensor].pushCelsius(temp);
+    h.slots[sensor].pushPercent(rh);
+  }
+}
+
+std::string calibOutput(uint8_t reference, const ClimateHistory& h, const DeviceConfig& cfg) {
+  FakeSink sink;
+  TestRunner::showCalib(sink, reference, h, cfg);
+  return sink.out;
+}
+
+bool calibCrcOk(const std::string& out) {
+  const size_t at = out.rfind("CRC32 ");
+  if (at == std::string::npos) {
+    return false;
+  }
+  SerialCrc32 crc;
+  crc.update(reinterpret_cast<const uint8_t*>(out.data()), at);
+  char expect[24];
+  snprintf(expect, sizeof(expect), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+  return out.substr(at) == expect;
+}
+} // namespace
+
+void testSerialCalibParser() {
+  SerialCommand cmd;
+  for (int n = 0; n <= 3; ++n) {
+    assert(parseText(std::string("CALIB ") + static_cast<char>('0' + n), cmd) == SerialParseStatus::OK);
+    assert(cmd.kind == SerialCommandKind::CALIB && cmd.reference == n);
+  }
+  assert(parseText("CALIB", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("CALIB ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("CALIB 4", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("CALIB 1 x", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("CALIB 10", cmd) == SerialParseStatus::BAD_ARG);
+  assert(std::string(SerialConsole::errorLine(SerialParseStatus::BAD_ARG)) == "ERR BAD_ARG\n");
+}
+
+void testSerialCalibConstantDifference() {
+  ClimateHistory h;
+  fillCalib(h, 0, 10, 21.0f, 50.0f);
+  fillCalib(h, 2, 10, 21.4f, 52.1f);
+  const std::string out = calibOutput(0, h, DeviceConfig{});
+  assert(out.find("REFERENCE onboard\n") == 0);
+  assert(out.find("SENSOR slot2 hours=10 temp_offset=0.0 rh_offset=0.0 temp_diff=0.4 rh_diff=2.1\n") != std::string::npos);
+  assert(out.find("slot2_temp_offset_c=-0.4\nslot2_rh_offset_pct=-2.1\n") != std::string::npos);
+  assert(out.find("SKIP slot1 hours=0\n") != std::string::npos);
+  assert(out.find("SKIP slot3 hours=0\n") != std::string::npos);
+  assert(out.find("SENSOR slot1") == std::string::npos);
+  assert(calibCrcOk(out) && out.size() > 6 && out.substr(out.size() - 15, 6) == "CRC32 ");
+}
+
+void testSerialCalibGapsAndFewHours() {
+  ClimateHistory h;
+  fillCalib(h, 1, 24, 20.0f, 40.0f);
+  fillCalib(h, 2, 8, 21.0f, 45.0f); // gap: only 8 hours
+  fillCalib(h, 3, 5, 21.0f, 45.0f); // below 6 hours
+  const std::string out = calibOutput(1, h, DeviceConfig{});
+  assert(out.find("SENSOR slot2 hours=8 ") != std::string::npos);
+  assert(out.find("SKIP slot3 hours=5\n") != std::string::npos);
+  assert(out.find("slot3_temp_offset_c") == std::string::npos);
+  assert(out.find("SKIP onboard hours=0\n") != std::string::npos);
+  // Exactly 6 hours still counts
+  ClimateHistory six;
+  fillCalib(six, 0, 6, 20.0f, 40.0f);
+  fillCalib(six, 1, 6, 20.0f, 40.0f);
+  assert(calibOutput(0, six, DeviceConfig{}).find("SENSOR slot1 hours=6 ") != std::string::npos);
+}
+
+void testSerialCalibEmptyReference() {
+  ClimateHistory h;
+  fillCalib(h, 1, 24, 20.0f, 40.0f);
+  const std::string out = calibOutput(0, h, DeviceConfig{});
+  assert(out.find("SENSOR") == std::string::npos && out.find("_offset") == std::string::npos);
+  assert(out.find("SKIP slot1 hours=0\n") != std::string::npos && calibCrcOk(out));
+}
+
+void testSerialCalibActiveOffsetAndClamp() {
+  ClimateHistory h;
+  fillCalib(h, 0, 12, 20.0f, 50.0f);
+  fillCalib(h, 1, 12, 20.5f, 49.0f);
+  DeviceConfig cfg;
+  cfg.slot_temp_offset_c[0] = 0.3f;
+  cfg.slot_rh_offset_pct[0] = -1.5f;
+  const std::string out = calibOutput(0, h, cfg);
+  assert(out.find("SENSOR slot1 hours=12 temp_offset=0.3 rh_offset=-1.5 temp_diff=0.5 rh_diff=-1.0\n") != std::string::npos);
+  // new = active - diff
+  assert(out.find("slot1_temp_offset_c=-0.2\nslot1_rh_offset_pct=-0.5\n") != std::string::npos);
+  // Clamp at the slot range (+-5 C, +-10 %RH)
+  ClimateHistory big;
+  fillCalib(big, 0, 8, 10.0f, 20.0f);
+  fillCalib(big, 1, 8, 30.0f, 5.0f);
+  const std::string clamped = calibOutput(0, big, DeviceConfig{});
+  assert(clamped.find("slot1_temp_offset_c=-5.0\nslot1_rh_offset_pct=10.0\n") != std::string::npos);
+}
+
+void testSerialCalibOnboardKeyNames() {
+  ClimateHistory h;
+  fillCalib(h, 2, 10, 20.0f, 50.0f);
+  fillCalib(h, 0, 10, 21.0f, 52.0f);
+  DeviceConfig cfg;
+  cfg.temp_offset_c = -1.9f;
+  cfg.rh_offset_pct = 1.0f;
+  const std::string out = calibOutput(2, h, cfg);
+  assert(out.find("REFERENCE slot2\n") == 0);
+  assert(out.find("SENSOR onboard hours=10 temp_offset=-1.9 rh_offset=1.0 temp_diff=1.0 rh_diff=2.0\n") != std::string::npos);
+  assert(out.find("\ntemp_offset_c=-2.9\nrh_offset_pct=-1.0\n") != std::string::npos);
+  assert(out.find("slot2_") == std::string::npos);
+  // Onboard range is +-10: clamp there
+  ClimateHistory wide;
+  fillCalib(wide, 2, 8, 0.0f, 50.0f);
+  fillCalib(wide, 0, 8, 20.0f, 50.0f);
+  assert(calibOutput(2, wide, DeviceConfig{}).find("\ntemp_offset_c=-10.0\n") != std::string::npos);
+}
+
+void testSerialCalibShortWriteAndNoCard() {
+  ClimateHistory h;
+  fillCalib(h, 0, 10, 20.0f, 50.0f);
+  fillCalib(h, 1, 10, 20.0f, 50.0f);
+  FakeSink sink;
+  sink.limit = 5;
+  TestRunner::showCalib(sink, 0, h, DeviceConfig{});
+  assert(sink.out.size() == 5 && sink.out.find("CRC32") == std::string::npos);
+  // execute() ignores CALIB: no mount, no output
+  FakeConsoleStorage storage;
+  FakeSink quiet;
+  SerialCommand cmd;
+  assert(parseText("CALIB 0", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, quiet, cmd);
+  assert(storage.mounts == 0 && quiet.out.empty());
+  // The USB power gate is the one of the other commands
+  BatteryReading battery;
+  battery.valid = true;
+  battery.usb_powered = false;
+  assert(!PowerManager::serialConsoleAllowed(battery));
+  battery.usb_powered = true;
+  assert(PowerManager::serialConsoleAllowed(battery));
+}
+
 void testSerialConsoleUsbGate() {
   BatteryReading usb;
   usb.valid = true;
@@ -10251,6 +10393,13 @@ testSerialConfigNegativeSmallOffset();
   testSerialListAndInfo();
   testSerialRejectKeepsCardUnmounted();
   testSerialConsoleUsbGate();
+  testSerialCalibParser();
+  testSerialCalibConstantDifference();
+  testSerialCalibGapsAndFewHours();
+  testSerialCalibEmptyReference();
+  testSerialCalibActiveOffsetAndClamp();
+  testSerialCalibOnboardKeyNames();
+  testSerialCalibShortWriteAndNoCard();
   testDailySummaryStatistics();
   testDailySummaryRowFormat();
   testDailySummaryFileNames();

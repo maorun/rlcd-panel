@@ -490,3 +490,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The alert has its own chime (three rising notes) and sounds once for each trigger. Mute, quiet hours and a cleared bit 5 of `chime_alert_mask` suppress the sound only. The mask is stored, so no chime replays later.
 - `chime_alert_mask` now has the range `0` to `63` (default `63`). A card with `31` silences the ventilation chime.
 - RTC state version 27: a latch byte stores bit 5 before the audio byte, and the config trailer stores `outdoor_slot` after `wake_interval_s`. A corrupt or out-of-range record gives a clean start.
+
+## Serial console command CALIB with suggested offsets
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`.
+- The console command `CALIB N` (`N` is `0` for the onboard sensor or `1` to `3` for a slot) compares each other sensor with the reference. A missing argument, `CALIB 4` and extra text give `ERR BAD_ARG`.
+- The command pairs the hourly samples of `ClimateHistory` by age. Only hours with a temperature and a humidity sample in both histories count.
+- A sensor with at least 6 common hours gets one line `SENSOR <name> hours=<n> temp_offset=<x> rh_offset=<x> temp_diff=<x> rh_diff=<x>`. The offsets are the active `config.ini` values. The differences are the mean values (sensor minus reference). A sensor with fewer hours gets `SKIP <name> hours=<n>`.
+- The suggested lines follow, for example `slot2_temp_offset_c=-0.4` and `slot2_rh_offset_pct=2.1`. Each value is the active offset minus the mean difference, clamped to the key range. The onboard sensor uses the keys `temp_offset_c` and `rh_offset_pct`.
+- The answer comes from the RTC copy of the histories and the configuration. The command does not mount or write the MicroSD card, so the clap listener keeps running. The command runs on USB power only. The output ends with the `CRC32` line over all lines before it.
+- Host tests cover the parser, a constant difference, a gap, fewer than 6 hours, an empty reference, an active offset, the clamp, the onboard key names, the CRC-32 line and the USB power gate.
