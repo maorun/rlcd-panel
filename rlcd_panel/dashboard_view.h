@@ -79,6 +79,8 @@ public:
   static constexpr uint16_t EVENTS_ERR_X = 264; // short "EV: N" right of "CONFIG: SD (255 ERR)"; 9 glyphs end at x = 372
   static constexpr uint16_t LOOPBACK_Y = 260; // diagnostics: speaker to microphone test line
   static constexpr uint16_t MIC_TEST_Y = 224; // diagnostics: microphone self-test line
+  static constexpr uint16_t PERCENTILE_X = 240; // diagnostics: "L10/L90" text (scale 1) right of "SD FREE"
+  static constexpr uint16_t PERCENTILE_Y = 148; // same line as "SD FREE:" (y = 144); 21 glyphs end at x = 366
   // Spectrum view: 32 bars of 10 px with a 2 px gap fill x = 8 to 391. A level of 100 gives a bar
   // of 200 px, from y = 40 to the baseline at y = 240. The labels sit under the baseline.
   static constexpr uint16_t SPECTRUM_X = 8;
@@ -342,6 +344,21 @@ public:
     }
   }
 
+  // "L10/L90: 60/40 DBA" (calibrated) or "L10/L90: -30/-50 DBFS", "L10/L90: --" without percentiles.
+  // Widest: "L10/L90: -96/-96 DBFS" = 21 glyphs.
+  static void formatNoisePercentiles(
+      char* out, size_t capacity, const NoiseReading& noise, const MicCalibration& cal) {
+    if (!noise.valid || !noise.levels_valid) {
+      snprintf(out, capacity, "L10/L90: --");
+    } else if (cal.calibrated) {
+      snprintf(out, capacity, "L10/L90: %d/%d DBA", cal.splDb(noise.l10_rms), cal.splDb(noise.l90_rms));
+    } else {
+      snprintf(
+          out, capacity, "L10/L90: %d/%d DBFS", NoiseClassifier::dbfs(noise.l10_rms),
+          NoiseClassifier::dbfs(noise.l90_rms));
+    }
+  }
+
   // Draws one scale-2 text line; returns false (and draws nothing) when it would not fit the screen.
   static bool drawLine(St7305Framebuffer& fb, uint16_t x, uint16_t y, const char* text) {
     if (static_cast<uint32_t>(x) + strlen(text) * 12 > RLCD_WIDTH) {
@@ -527,6 +544,11 @@ public:
       snprintf(line, sizeof(line), "SD FREE: --");
     }
     drawLine(fb, 10, 144, line);
+
+    // Percentile levels of the window in small text (6 px per glyph, at most 126 px). "SD FREE: 9999999 MB"
+    // ends at x = 238, so the text starts right of it.
+    formatNoisePercentiles(line, sizeof(line), info.noise, info.mic_cal);
+    fb.drawText(PERCENTILE_X, PERCENTILE_Y, line, 1, true);
 
     const uint64_t total_s = info.uptime_ms / 1000;
     snprintf(

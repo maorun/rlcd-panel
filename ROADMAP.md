@@ -28,12 +28,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 
-- [ ] L10 and L90 noise levels in the hourly window
-  - Rank: [Total: 23, Use: 4, Setup: 3, Harmony: 8, Safety: 8, Effort: M]
-  - Location: `rlcd_panel/es7210_mic.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Split the 5 s `NoiseSampler` window into 50 blocks of 100 ms. Calculate the calibrated level of each block. Report L10 (the level that 10 % of the blocks exceed) and L90 (the background level that 90 % of the blocks exceed). Show `L10/L90: NN/NN DBA` in the diagnostics view. Add the columns `noise_l10` and `noise_l90` to the CSV (format version 4, new file name `climate_v4_YYYYMM.csv`). Include the new file in `LIST`, `DUMP` and the retention rule. Do not keep the microphones on longer than the existing window.
-  - Acceptance test: Host tests cover a steady tone (L10 equals L90), a single loud block, a ramp of 50 blocks, a failed window with empty fields, the uncalibrated `DBFS` text, the CSV header and row with 21 columns, the console file name check, and the line bounds. The old CSV files stay unchanged.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.
