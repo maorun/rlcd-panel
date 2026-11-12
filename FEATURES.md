@@ -6,7 +6,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 
 - **Code:** `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`.
 - The board runs one wake cycle, then enters deep sleep: restore state, scan BLE for 4 s, read sensors, render, save state, sleep.
-- The sleep timer starts the next scan 60 s after the start of the last scan. The timer subtracts the awake time and clamps to 1 s to 1 h.
+- The sleep timer starts the next scan `wake_interval_s` seconds after the start of the last scan (default 60 s, range 30 s to 900 s, set in `config.ini`). `PowerManager::powerConfig` passes the value to `PowerConfig::sleep_interval_s` on battery power. USB power keeps the default 60 s. The hourly log, the histories and the NTP schedule use RTC stamps, so the interval does not move them. Only a power-on and a `KEY` wakeup read the card, so a new value takes effect after one of them. The runtime estimate fits the sample stamps, so wake times off the hour grid do not distort it. The timer subtracts the awake time and clamps to 1 s to 1 h.
 - The registry, battery reading, view mode, and boot count stay in RTC memory (`RTC_DATA_ATTR`). A magic number, a version, and a CRC-32 protect them. Corrupt or blank data gives a clean start with an immediate scan.
 - The `KEY` button (`GPIO18`) wakes the board through `ext0`. A press cycles the display mode without a new scan. The board stays awake for 3 s after a render, so more presses redraw at once.
 - Timestamps use the RTC-backed system clock, because `millis()` restarts after deep sleep.
@@ -166,6 +166,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 | `noise_alert_limit_db` | `0` | `0` (off) or `40` to `100` | loud noise alert trigger |
 | `chime_alert_mask` | `31` | `0` to `31` | chime per alert (bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full) |
   | `ntp_sync_interval_h` | `24` | `6` to `168` | hours between two successful NTP syncs |
+  | `wake_interval_s` | `60` | `30` to `900` | seconds between two scans on battery power; USB power keeps `60` |
 
 - Equal start and end hours switch the quiet hours off. A lone CR is no line end: use LF or CRLF. The SPL offset has whole dB steps, so a fraction below 0.5 dB has no effect.
 - A card that does not mount keeps the previous settings on a `KEY` wakeup. A card without a usable file gives the defaults.

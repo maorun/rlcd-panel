@@ -675,6 +675,7 @@ void setup() {
     g_mode_controller.next();
   }
   refreshSensors();
+  g_power_config = PowerManager::powerConfig(config(), g_state.battery);
   renderDashboard();
   chimeOnAlerts();
   chimeOnChargeFull();
