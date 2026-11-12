@@ -1053,7 +1053,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 21);
+  assert(PowerManager::STATE_VERSION == 22);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -1940,7 +1940,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 21);
+  assert(PowerManager::STATE_VERSION == 22);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -2375,7 +2375,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 21);
+  assert(PowerManager::STATE_VERSION == 22);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -2575,7 +2575,7 @@ void testSdLogSchedule() {
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(r.last_log_ms == 123456 && r.has_logged);
-  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - 1] = 2;
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - 5 - 1] = 2; // has_logged precedes the 5-byte daily stamp
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -3954,7 +3954,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 21);
+  assert(PowerManager::STATE_VERSION == 22);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4735,7 +4735,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 21);
+  assert(PowerManager::STATE_VERSION == 22);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4905,7 +4905,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 21);
+  assert(PowerManager::STATE_VERSION == 22);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -5087,7 +5087,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 21);
+  assert(PowerManager::STATE_VERSION == 22);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -8190,6 +8190,354 @@ void testEmptyBatteryProtectionRendering() {
   }
 }
 
+// ---- Daily climate summary file ----
+
+namespace {
+
+// Pushes the tenths of a value to a temperature or humidity history through the public API.
+ClimateHistory dailyHistory() {
+  ClimateHistory h;
+  h.temperatures[0].pushCelsius(20.0f);
+  h.temperatures[0].pushCelsius(22.5f);
+  h.temperatures[0].pushCelsius(21.0f);
+  h.slots[0].pushPercent(40.0f);
+  h.slots[0].pushPercent(50.0f);
+  h.slots[0].pushPercent(45.0f);
+  h.temperatures[1].pushCelsius(-3.5f); // one sample is enough for a summary
+  h.slots[1].pushPercent(80.0f);
+  return h;
+}
+
+RtcTime localTime(uint16_t y, uint8_t mo, uint8_t d, uint8_t h, uint8_t mi = 5) {
+  RtcTime t;
+  t.valid = true;
+  t.year = y;
+  t.month = mo;
+  t.day = d;
+  t.hour = h;
+  t.minute = mi;
+  return t;
+}
+
+} // namespace
+
+void testDailySummaryStatistics() {
+  HumidityHistory rh;
+  int16_t lo = 0, hi = 0, mean = 0;
+  assert(!rh.summary(lo, hi, mean)); // no sample
+  rh.pushPercent(40.0f);
+  assert(rh.summary(lo, hi, mean) && lo == 400 && hi == 400 && mean == 400); // one sample
+  rh.pushPercent(50.0f);
+  rh.pushPercent(45.1f);
+  assert(rh.summary(lo, hi, mean) && lo == 400 && hi == 500 && mean == 450);
+  TemperatureHistory t;
+  assert(!t.summary(lo, hi, mean));
+  t.pushCelsius(-1.0f);
+  t.pushCelsius(-2.0f);
+  t.pushCelsius(0.5f);
+  assert(t.summary(lo, hi, mean) && lo == -20 && hi == 5 && mean == -8); // -25/3 = -8.33
+  t.pushCelsius(NAN); // rejected sample: no change
+  assert(t.size() == 3);
+}
+
+void testDailySummaryRowFormat() {
+  const ClimateHistory h = dailyHistory();
+  NoiseHistory noise;
+  noise.push(40);
+  noise.push(55);
+  noise.pushInvalid();
+  char buf[SdLogCodec::MAX_ROW_SIZE];
+  const size_t len = SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, buf, sizeof(buf));
+  assert(len == strlen(buf));
+  const std::string expected = std::string("2026-03-08,20.0,22.5,21.2,40.0,50.0,45.0,-3.5,-3.5,-3.5,80.0,80.0,80.0") +
+                               std::string(12, ',') + ",40,55\n";
+  assert(expected == buf);
+
+  // Header and row have the same column count, 27.
+  char header[SdLogCodec::DAILY_HEADER_SIZE];
+  const size_t hl = SdLogCodec::formatDailyHeader(header, sizeof(header));
+  assert(hl == strlen(header) && header[hl - 1] == '\n');
+  assert(strncmp(header, "date,onboard_temp_min_c,", 24) == 0);
+  assert(strstr(header, ",noise_min_db,noise_max_db\n") != nullptr);
+  assert(std::count(header, header + hl, ',') == 26 && std::count(buf, buf + len, ',') == 26);
+
+  // Sensors without samples and no valid noise: empty fields, same column count.
+  NoiseHistory silent;
+  silent.pushInvalid();
+  const size_t empty_len = SdLogCodec::formatDailyRow(2026, 12, 31, ClimateHistory{}, silent, buf, sizeof(buf));
+  assert(empty_len > 0 && std::string(buf) == "2026-12-31" + std::string(26, ',') + "\n");
+
+  // Bad arguments.
+  assert(SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, nullptr, 256) == 0);
+  assert(SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, buf, SdLogCodec::MAX_ROW_SIZE - 1) == 0 && buf[0] == '\0');
+  assert(SdLogCodec::formatDailyRow(1999, 3, 8, h, noise, buf, sizeof(buf)) == 0);
+  assert(SdLogCodec::formatDailyRow(2026, 13, 8, h, noise, buf, sizeof(buf)) == 0);
+  assert(SdLogCodec::formatDailyRow(2026, 3, 0, h, noise, buf, sizeof(buf)) == 0);
+  assert(SdLogCodec::formatDailyHeader(nullptr, 600) == 0);
+  assert(SdLogCodec::formatDailyHeader(header, hl) == 0); // no room for the terminator
+
+  // Worst case: every value at its widest still fits the row buffer.
+  ClimateHistory wide;
+  for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
+    wide.temperatures[i].pushCelsius(-100.0f);
+    wide.temperatures[i].pushCelsius(100.0f);
+    wide.slots[i].pushPercent(100.0f);
+  }
+  NoiseHistory loud;
+  loud.push(140);
+  assert(SdLogCodec::formatDailyRow(2099, 12, 31, wide, loud, buf, sizeof(buf)) > 0);
+
+  // The hourly format is unchanged.
+  char hourly[SdLogCodec::MAX_ROW_SIZE];
+  assert(SdLogCodec::formatHeader(hourly, sizeof(hourly)) > 0);
+  assert(std::count(hourly, hourly + strlen(hourly), ',') == 17);
+}
+
+void testDailySummaryFileNames() {
+  char path[SdLogCodec::MAX_PATH_SIZE];
+  assert(SdLogCodec::formatDailyFilename(2026, path, sizeof(path)) > 0);
+  assert(strcmp(path, "/sdcard/daily_v1_2026.csv") == 0);
+  assert(SdLogCodec::formatDailyFilename(1999, path, sizeof(path)) == 0 && path[0] == '\0');
+  assert(SdLogCodec::formatDailyFilename(2100, path, sizeof(path)) == 0);
+  assert(SdLogCodec::formatDailyFilename(2026, path, 10) == 0);
+  assert(SdLogCodec::formatDailyFilename(2026, nullptr, 32) == 0);
+
+  int year = 0;
+  assert(SdLogCodec::parseDailyFileName("daily_v1_2026.csv", year) && year == 2026);
+  assert(!SdLogCodec::parseDailyFileName(nullptr, year));
+  assert(!SdLogCodec::parseDailyFileName("daily_v1_1999.csv", year));
+  assert(!SdLogCodec::parseDailyFileName("daily_v1_2100.csv", year));
+  assert(!SdLogCodec::parseDailyFileName("daily_v1_26.csv", year));
+  assert(!SdLogCodec::parseDailyFileName("daily_v1_202a.csv", year));
+  assert(!SdLogCodec::parseDailyFileName("daily_v2_2026.csv", year));
+  assert(!SdLogCodec::parseDailyFileName("daily_v1_2026.txt", year));
+  assert(!SdLogCodec::parseDailyFileName("../daily_v1_2026.csv", year));
+  // The hourly check does not accept the daily name; the console check accepts both.
+  assert(!SdLogCodec::isLogFileName("daily_v1_2026.csv"));
+  assert(SdLogCodec::isDailyFileName("daily_v1_2026.csv"));
+  assert(SdLogCodec::isConsoleFileName("daily_v1_2026.csv"));
+  assert(SdLogCodec::isConsoleFileName("climate_v2_202611.csv"));
+  assert(!SdLogCodec::isConsoleFileName("daily_v1_2026.csv/.."));
+  assert(!SdLogCodec::isConsoleFileName("config.ini"));
+  assert(!SdLogCodec::isConsoleFileName(nullptr));
+}
+
+void testDailySummaryRetention() {
+  const RtcTime now = localTime(2027, 6, 15, 12);
+  // Year file counts as December of its year: 2025 is 18 months old, 2026 is 6 months old.
+  assert(SdLogCodec::shouldDeleteFile("daily_v1_2025.csv", now, 12));
+  assert(!SdLogCodec::shouldDeleteFile("daily_v1_2026.csv", now, 12));
+  assert(!SdLogCodec::shouldDeleteFile("daily_v1_2027.csv", now, 12));
+  assert(!SdLogCodec::shouldDeleteFile("daily_v1_2025.csv", now, 0));  // keep all
+  assert(!SdLogCodec::shouldDeleteFile("daily_v1_2025.csv", RtcTime{}, 12));
+  RtcTime stopped = now;
+  stopped.oscillator_stopped = true;
+  assert(!SdLogCodec::shouldDeleteFile("daily_v1_2025.csv", stopped, 12));
+  assert(!SdLogCodec::shouldDeleteFile("daily_v1_2025.csv", localTime(2024, 1, 1, 0), 12)); // untrusted clock
+  assert(!SdLogCodec::shouldDeleteFile("notes_2025.csv", now, 12));
+  // The hourly rule is the same as before.
+  assert(SdLogCodec::shouldDeleteFile("climate_v2_202401.csv", now, 12));
+  assert(!SdLogCodec::shouldDeleteFile("climate_v2_202701.csv", now, 12));
+}
+
+namespace {
+
+struct DailyRun {
+  int writes = 0;
+  int marks = 0;
+  std::vector<std::string> dates;
+  std::vector<int> hours;
+};
+
+// Walks hourly UTC steps with the given zone and plays the wake cycle gate.
+DailyRun runDailyGate(int64_t start_utc, int hours, const TimeZone& tz, DailyLogState& state, int fail_first = 0) {
+  DailyRun run;
+  int failures_left = fail_first;
+  for (int i = 0; i < hours; ++i) {
+    RtcTime local;
+    assert(NtpTime::utcToLocal(start_utc + int64_t{i} * 3600 + 300, tz, local)); // :05 after the hour
+    const DailyAction action = DailyPlanner::decide(state, local, true);
+    if (action == DailyAction::MARK) {
+      state.markDone(local);
+      ++run.marks;
+    } else if (action == DailyAction::WRITE) {
+      if (failures_left > 0) {
+        --failures_left; // failed write: no stamp, the next hourly write retries
+        continue;
+      }
+      uint16_t y = 0;
+      uint8_t m = 0, d = 0;
+      DailyPlanner::previousDay(local, y, m, d);
+      char date[16];
+      snprintf(date, sizeof(date), "%04u-%02u-%02u", static_cast<unsigned>(y), static_cast<unsigned>(m),
+               static_cast<unsigned>(d));
+      run.dates.push_back(date);
+      run.hours.push_back(local.hour);
+      state.markDone(local);
+      ++run.writes;
+    }
+  }
+  return run;
+}
+
+} // namespace
+
+void testDailySummaryMidnightGateCetAndCest() {
+  const TimeZone tz{3600, true};
+  // CET to CEST on 2026-03-29, CEST to CET on 2026-10-25. Start 2026-03-27 12:00 UTC.
+  for (const int64_t start : {NtpTime::daysFromCivil(2026, 3, 27) * 86400 + 12 * 3600,
+                              NtpTime::daysFromCivil(2026, 10, 23) * 86400 + 12 * 3600}) {
+    DailyLogState state;
+    const DailyRun run = runDailyGate(start, 4 * 24, tz, state);
+    assert(run.marks == 1);  // the first cycle only stamps the day
+    assert(run.writes == 4); // one row for each midnight that follows, none twice
+    for (size_t i = 0; i < run.hours.size(); ++i) {
+      assert(run.hours[i] == 0); // the first hourly write after local midnight
+    }
+    for (size_t i = 1; i < run.dates.size(); ++i) {
+      assert(run.dates[i] != run.dates[i - 1]);
+    }
+  }
+  // The row dates are the days that ended: 2026-03-27 (Fri) to 2026-03-30.
+  DailyLogState state;
+  const DailyRun cest = runDailyGate(NtpTime::daysFromCivil(2026, 3, 27) * 86400 + 12 * 3600, 4 * 24, tz, state);
+  assert(cest.dates.size() == 4);
+  assert(cest.dates[0] == "2026-03-27" && cest.dates[1] == "2026-03-28" && cest.dates[2] == "2026-03-29" &&
+         cest.dates[3] == "2026-03-30");
+  // The 23 h day: 2026-03-29 has hours 0, 1, 3, ... local. The write still comes at hour 0 of 03-30.
+  DailyLogState oct;
+  const DailyRun fall = runDailyGate(NtpTime::daysFromCivil(2026, 10, 23) * 86400 + 12 * 3600, 4 * 24, tz, oct);
+  assert(fall.dates.size() == 4 && fall.dates[2] == "2026-10-25" && fall.dates[3] == "2026-10-26");
+}
+
+void testDailySummaryOneRowPerDay() {
+  DailyLogState state;
+  const RtcTime day1 = localTime(2026, 5, 10, 14);
+  assert(DailyPlanner::decide(state, day1, true) == DailyAction::MARK);
+  state.markDone(day1);
+  assert(DailyPlanner::decide(state, localTime(2026, 5, 10, 23), true) == DailyAction::NONE);
+  const RtcTime midnight = localTime(2026, 5, 11, 0);
+  assert(DailyPlanner::decide(state, midnight, true) == DailyAction::WRITE);
+  state.markDone(midnight);
+  assert(DailyPlanner::decide(state, midnight, true) == DailyAction::NONE);
+  assert(DailyPlanner::decide(state, localTime(2026, 5, 11, 1), true) == DailyAction::NONE);
+  // A clock that runs back, or an untrusted clock, writes nothing.
+  assert(DailyPlanner::decide(state, localTime(2026, 5, 9, 12), true) == DailyAction::NONE);
+  RtcTime invalid = localTime(2026, 5, 12, 0);
+  invalid.valid = false;
+  assert(DailyPlanner::decide(state, invalid, true) == DailyAction::NONE);
+  RtcTime stopped = localTime(2026, 5, 12, 0);
+  stopped.oscillator_stopped = true;
+  assert(DailyPlanner::decide(state, stopped, true) == DailyAction::NONE);
+  assert(DailyPlanner::decide(state, localTime(2020, 5, 12, 0), true) == DailyAction::NONE);
+  // Stale histories (no sample for 24 h) give no row, but the day is stamped.
+  assert(DailyPlanner::decide(state, localTime(2026, 5, 12, 0), false) == DailyAction::MARK);
+  // An impossible date from a bad RTC read writes nothing.
+  assert(DailyPlanner::decide(state, localTime(2026, 2, 31, 0), true) == DailyAction::NONE);
+  assert(NtpTime::isValidDate(2028, 2, 29) && !NtpTime::isValidDate(2027, 2, 29) && !NtpTime::isValidDate(2026, 4, 31));
+  // Year change: the row of 2026-12-31 belongs to the file of 2026.
+  uint16_t y = 0;
+  uint8_t m = 0, d = 0;
+  DailyPlanner::previousDay(localTime(2027, 1, 1, 0), y, m, d);
+  assert(y == 2026 && m == 12 && d == 31);
+  DailyPlanner::previousDay(localTime(2028, 3, 1, 0), y, m, d); // leap year
+  assert(y == 2028 && m == 2 && d == 29);
+  // History freshness.
+  ClimateHistory h;
+  assert(!h.freshWithin24h(5000));
+  h.has_sampled = true;
+  h.last_sample_ms = 1000;
+  assert(h.freshWithin24h(1000 + 3600UL * 1000UL) && !h.freshWithin24h(1000 + 24UL * 3600UL * 1000UL));
+}
+
+void testDailySummaryFailedWriteRetries() {
+  const TimeZone tz{3600, true};
+  DailyLogState state;
+  // Without a failure each midnight gives one row.
+  const DailyRun run = runDailyGate(NtpTime::daysFromCivil(2026, 6, 1) * 86400 + 12 * 3600, 2 * 24, tz, state, 0);
+  assert(run.writes == 2 && run.marks == 1);
+  // Two failed writes at 00:05 and 01:05, the third try at 02:05 succeeds. The row is written once.
+  DailyLogState retry;
+  const DailyRun r = runDailyGate(NtpTime::daysFromCivil(2026, 6, 1) * 86400 + 12 * 3600, 30, tz, retry, 2);
+  assert(r.marks == 1);
+  assert(r.writes == 1); // midnight 06-02 failed twice and succeeded at 02:05; 06-03 midnight is outside
+  assert(r.hours.size() == 1 && r.hours[0] == 2); // CEST: UTC+2, local hour 2 is the third try
+  assert(r.dates[0] == "2026-06-01");
+  // After the success nothing repeats that day.
+  assert(DailyPlanner::decide(retry, localTime(2026, 6, 2, 3), true) == DailyAction::NONE);
+}
+
+void testDailySummaryStateRoundTrip() {
+  PersistentState s;
+  s.daily.has_date = true;
+  s.daily.year = 2026;
+  s.daily.month = 7;
+  s.daily.day = 9;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.daily.has_date && r.daily.year == 2026 && r.daily.month == 7 && r.daily.day == 9);
+  PersistentState fresh;
+  assert(PowerManager::serialize(fresh, buf, sizeof(buf)));
+  assert(PowerManager::deserialize(buf, sizeof(buf), r) && !r.daily.has_date);
+
+  // Corrupt stamp fields with a valid CRC are rejected.
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  const size_t daily_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE -
+                           PowerManager::AUDIO_SIZE - 5;
+  assert(buf[daily_pos] == 1 && buf[daily_pos + 1] == (2026 & 0xFF));
+  const size_t bad[5][3] = {{daily_pos, 2, 0}, {daily_pos + 3, 13, 0}, {daily_pos + 3, 0, 0}, {daily_pos + 4, 32, 0}, {daily_pos + 3, 2, 31}};
+  for (const auto& c : bad) {
+    uint8_t b[PowerManager::SERIALIZED_SIZE];
+    memcpy(b, buf, sizeof(b));
+    b[c[0]] = static_cast<uint8_t>(c[1]);
+    if (c[2] != 0) {
+      b[daily_pos + 4] = static_cast<uint8_t>(c[2]); // 31 February
+    }
+    const uint32_t cc = PowerManager::crc32(b, sizeof(b) - 4);
+    for (int i = 0; i < 4; ++i) {
+      b[sizeof(b) - 4 + i] = static_cast<uint8_t>(cc >> (8 * i));
+    }
+    PersistentState rejected;
+    assert(!PowerManager::deserialize(b, sizeof(b), rejected));
+  }
+}
+
+void testDailySummaryConsole() {
+  SerialCommand cmd;
+  assert(parseText("DUMP daily_v1_2026.csv", cmd) == SerialParseStatus::OK);
+  assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "daily_v1_2026.csv") == 0);
+  assert(parseText("DUMP daily_v1_2026.csv\r\n", cmd) == SerialParseStatus::OK);
+  assert(parseText("DUMP daily_v1_1999.csv", cmd) == SerialParseStatus::BAD_NAME);
+  assert(parseText("DUMP daily_v2_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
+  assert(parseText("DUMP daily_v1_2026.csv ", cmd) == SerialParseStatus::BAD_NAME);
+  assert(parseText("DUMP ../daily_v1_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
+  assert(parseText("DUMP daily_v1_2026", cmd) == SerialParseStatus::BAD_NAME);
+  assert(parseText("DUMP climate_v2_202611.csv", cmd) == SerialParseStatus::OK); // unchanged
+
+  FakeConsoleStorage storage;
+  storage.add("climate_v2_202611.csv", "hourly\n");
+  storage.add("daily_v1_2026.csv", "date\n2026-11-11\n");
+  FakeSink list_sink;
+  SerialCommand list;
+  list.kind = SerialCommandKind::LIST;
+  TestRunner::execute(storage, list_sink, list);
+  assert(list_sink.out ==
+         "FILE climate_v2_202611.csv 7\nFILE daily_v1_2026.csv 16\nEND LIST 2\n");
+
+  FakeSink dump_sink;
+  SerialCommand dump;
+  dump.kind = SerialCommandKind::DUMP;
+  snprintf(dump.file, sizeof(dump.file), "%s", "daily_v1_2026.csv");
+  TestRunner::execute(storage, dump_sink, dump);
+  SerialCrc32 crc;
+  crc.update(reinterpret_cast<const uint8_t*>("date\n2026-11-11\n"), 16);
+  char tail[24];
+  snprintf(tail, sizeof(tail), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+  assert(dump_sink.out == std::string("BEGIN daily_v1_2026.csv 16\ndate\n2026-11-11\n") + tail);
+}
+
 int main() {
   testCycleTrackerPartialDischarges();
   testCycleTrackerMilestoneWrite();
@@ -8398,6 +8746,15 @@ testSerialConfigNegativeSmallOffset();
   testSerialListAndInfo();
   testSerialRejectKeepsCardUnmounted();
   testSerialConsoleUsbGate();
-  printf("All 134 firmware logic test suites passed.\n");
+  testDailySummaryStatistics();
+  testDailySummaryRowFormat();
+  testDailySummaryFileNames();
+  testDailySummaryRetention();
+  testDailySummaryMidnightGateCetAndCest();
+  testDailySummaryOneRowPerDay();
+  testDailySummaryFailedWriteRetries();
+  testDailySummaryStateRoundTrip();
+  testDailySummaryConsole();
+  printf("All 143 firmware logic test suites passed.\n");
   return 0;
 }

@@ -12,6 +12,7 @@
 #include "clap_detector.h"
 #include "device_config.h"
 #include "ntp_sync.h"
+#include "sd_logger.h"
 #include "sparkline.h"
 #include "switchbot_ble.h"
 
@@ -83,6 +84,7 @@ struct PersistentState {
   BatteryHistory battery_history; // hourly cell voltage for the runtime estimate
   uint32_t last_log_ms = 0;  // clock value of the last MicroSD record
   bool has_logged = false;   // false until the first MicroSD attempt, success or failure
+  DailyLogState daily;       // local day of the last handled daily summary
   bool muted = false;        // true: alerts stay silent
   uint8_t alert_mask = ALERT_NONE; // alerts active in the last wake cycle (hysteresis latch)
   NoiseBand noise_band = NoiseBand::QUIET; // band of the last noise window (hysteresis latch)
@@ -127,7 +129,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 21;
+  static constexpr uint8_t STATE_VERSION = 22;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -144,8 +146,8 @@ public:
   // Battery history: count, head, 24 samples (uint16 millivolts), 24 stamps (uint32), last
   // sample time, sampled flag.
   static constexpr size_t BATTERY_HISTORY_SIZE = 1 + 1 + BatteryHistory::CAPACITY * (2 + 4) + 4 + 1;
-  // SD log trailer: last log time, logged flag.
-  static constexpr size_t SD_LOG_SIZE = 4 + 1;
+  // SD log trailer: last log time, logged flag, then the daily summary stamp: flag, year (uint16), month, day.
+  static constexpr size_t SD_LOG_SIZE = 4 + 1 + 1 + 2 + 1 + 1;
   // Audio trailer: one byte, bit 0 muted, bits 1..4 alert mask, bits 5..6 noise band.
   static constexpr size_t AUDIO_SIZE = 1;
   // NTP trailer: last attempt time, flags (bit 0 attempted, bit 1 last ok), failure count, then the
@@ -341,6 +343,11 @@ public:
     out[pos++] = state.battery_history.has_sampled ? 1 : 0;
     putU32(out, pos, state.last_log_ms);
     out[pos++] = state.has_logged ? 1 : 0;
+    out[pos++] = state.daily.has_date ? 1 : 0;
+    out[pos++] = static_cast<uint8_t>(state.daily.year & 0xFF);
+    out[pos++] = static_cast<uint8_t>(state.daily.year >> 8);
+    out[pos++] = state.daily.month;
+    out[pos++] = state.daily.day;
     out[pos++] = static_cast<uint8_t>((state.muted ? 1 : 0) | ((state.alert_mask & ALERT_MASK_ALL) << 1) |
         (static_cast<uint8_t>(state.noise_band) << 5));
     putU32(out, pos, state.ntp.last_attempt_ms);
@@ -521,6 +528,24 @@ public:
       return false;
     }
     s.has_logged = logged == 1;
+    const uint8_t daily_flag = data[pos++];
+    const uint16_t daily_year = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    pos += 2;
+    const uint8_t daily_month = data[pos++];
+    const uint8_t daily_day = data[pos++];
+    if (daily_flag > 1) {
+      return false;
+    }
+    if (daily_flag == 1) {
+      if (daily_year < 2000 || daily_year > 2099 || daily_month < 1 || daily_month > 12 || daily_day < 1 ||
+          !NtpTime::isValidDate(daily_year, daily_month, daily_day)) {
+        return false;
+      }
+      s.daily.has_date = true;
+      s.daily.year = daily_year;
+      s.daily.month = daily_month;
+      s.daily.day = daily_day;
+    }
     const uint8_t audio = data[pos++];
     const uint8_t band = static_cast<uint8_t>((audio >> 5) & 3);
     if ((audio & ~0x7Fu) != 0 || band > static_cast<uint8_t>(NoiseBand::LOUD)) {

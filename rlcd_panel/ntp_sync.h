@@ -103,6 +103,17 @@ public:
     return true;
   }
 
+  // True for a real calendar date, for example not 31 February.
+  static bool isValidDate(int32_t year, uint8_t month, uint8_t day) {
+    if (month < 1 || month > 12 || day < 1) {
+      return false;
+    }
+    int32_t y = 0;
+    uint8_t m = 0, d = 0;
+    civilFromDays(daysFromCivil(year, month, day), y, m, d);
+    return y == year && m == month && d == day;
+  }
+
   // Day of month of the last Sunday.
   static uint8_t lastSunday(int32_t year, uint8_t month) {
     static const uint8_t days[12] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};

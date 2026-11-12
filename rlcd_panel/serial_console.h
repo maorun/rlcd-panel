@@ -37,7 +37,7 @@ enum class SerialParseStatus : uint8_t {
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_NAME, // DUMP without a name, or a name that is not climate_v2_YYYYMM.csv
+  BAD_NAME, // DUMP without a name, or a name that is not climate_v2_YYYYMM.csv or daily_v1_YYYY.csv
 };
 
 struct SerialCommand {
@@ -52,7 +52,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG" and "DUMP climate_v2_YYYYMM.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG" and "DUMP climate_v2_YYYYMM.csv" or "DUMP daily_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -110,7 +110,7 @@ public:
       char copy[SdLogCodec::LOG_NAME_SIZE];
       memcpy(copy, name, name_len);
       copy[name_len] = '\0';
-      if (!SdLogCodec::isLogFileName(copy)) {
+      if (!SdLogCodec::isConsoleFileName(copy)) {
         return SerialParseStatus::BAD_NAME;
       }
       memcpy(out.file, copy, name_len + 1);
@@ -290,7 +290,7 @@ private:
 
   static void dump(Storage& storage, Sink& sink, const char* name) {
     uint32_t size = 0;
-    if (!SdLogCodec::isLogFileName(name) || !storage.openLog(name, size)) {
+    if (!SdLogCodec::isConsoleFileName(name) || !storage.openLog(name, size)) {
       send(sink, "ERR NOT_FOUND\n");
       return;
     }
@@ -357,7 +357,7 @@ public:
       const char* name = entry.name();
       const char* slash = strrchr(name, '/');
       name = slash != nullptr ? slash + 1 : name;
-      if (!entry.isDirectory() && SdLogCodec::isLogFileName(name) && count < capacity) {
+      if (!entry.isDirectory() && SdLogCodec::isConsoleFileName(name) && count < capacity) {
         memcpy(out[count].name, name, strlen(name) + 1);
         out[count].size = static_cast<uint32_t>(entry.size());
         ++count;

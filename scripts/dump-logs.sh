@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copies the monthly CSV logs from the MicroSD card over USB serial.
+# Copies the monthly CSV logs and the yearly daily summary files from the MicroSD card over USB serial.
 # Usage: ./scripts/dump-logs.sh [port]
 #        ./scripts/dump-logs.sh --config [port]   prints the active configuration (CONFIG command)
 # The board answers on USB power only, while it is awake. Press KEY to wake it first.
@@ -38,9 +38,9 @@ import os, re, subprocess, sys, time, zlib
 
 port, baud, out_dir, timeout_s = sys.argv[1], int(sys.argv[2]), sys.argv[3], float(sys.argv[4])
 mode = sys.argv[5]
-NAME = re.compile(r"^climate_v2_(20\d\d)(0[1-9]|1[0-2])\.csv$")
-FILE_LINE = re.compile(r"^FILE (climate_v2_20\d\d(?:0[1-9]|1[0-2])\.csv) (\d{1,9})$")
-BEGIN_LINE = re.compile(r"^BEGIN (climate_v2_20\d\d(?:0[1-9]|1[0-2])\.csv) (\d{1,9})$")
+NAME = re.compile(r"^(?:climate_v2_20\d\d(?:0[1-9]|1[0-2])|daily_v1_20\d\d)\.csv$")
+FILE_LINE = re.compile(r"^FILE ((?:climate_v2_20\d\d(?:0[1-9]|1[0-2])|daily_v1_20\d\d)\.csv) (\d{1,9})$")
+BEGIN_LINE = re.compile(r"^BEGIN ((?:climate_v2_20\d\d(?:0[1-9]|1[0-2])|daily_v1_20\d\d)\.csv) (\d{1,9})$")
 MAX_FILE_BYTES = 16 * 1024 * 1024
 
 subprocess.run(["stty", "-f" if sys.platform == "darwin" else "-F", port, str(baud), "raw", "-echo"], check=True)

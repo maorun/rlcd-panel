@@ -10,8 +10,10 @@
 #include "board_pins.h"
 #include "device_config.h"
 #include "es7210_mic.h"
+#include "ntp_sync.h"
 #include "pcf85063_rtc.h"
 #include "shtc3_sensor.h"
+#include "sparkline.h"
 #include "switchbot_ble.h"
 
 #if defined(ARDUINO) || defined(ESP_PLATFORM)
@@ -21,6 +23,59 @@
 
 namespace rlcd_panel {
 
+// Local day of the last handled daily summary. It lives in the RTC memory (PersistentState).
+struct DailyLogState {
+  bool has_date = false;
+  uint16_t year = 2000;
+  uint8_t month = 1;
+  uint8_t day = 1;
+
+  // Stamps `today` as handled.
+  void markDone(const RtcTime& today) {
+    has_date = true;
+    year = today.year;
+    month = today.month;
+    day = today.day;
+  }
+};
+
+enum class DailyAction : uint8_t {
+  NONE = 0, // nothing to do in this wake cycle
+  MARK,     // stamp the day without a row (first run, or no fresh history)
+  WRITE,    // write the row of the day that ended, then stamp
+};
+
+// Midnight gate of the daily summary. The RTC holds local time, so CET and CEST need no special case:
+// the first hourly write on a new calendar date is the first one after local midnight.
+class DailyPlanner {
+public:
+  static DailyAction decide(const DailyLogState& state, const RtcTime& now, bool history_fresh) {
+    if (!now.valid || now.oscillator_stopped || now.year < SD_MIN_TRUSTED_YEAR ||
+        !NtpTime::isValidDate(now.year, now.month, now.day)) {
+      return DailyAction::NONE;
+    }
+    if (!state.has_date) {
+      return DailyAction::MARK; // the first run has no complete day behind it
+    }
+    const int64_t today = NtpTime::daysFromCivil(now.year, now.month, now.day);
+    const int64_t last = NtpTime::daysFromCivil(state.year, state.month, state.day);
+    if (today <= last) {
+      return DailyAction::NONE; // same day, or a clock that ran back
+    }
+    return history_fresh ? DailyAction::WRITE : DailyAction::MARK;
+  }
+
+  // Date of the day before `now`.
+  static void previousDay(const RtcTime& now, uint16_t& year, uint8_t& month, uint8_t& day) {
+    int32_t y = 0;
+    NtpTime::civilFromDays(NtpTime::daysFromCivil(now.year, now.month, now.day) - 1, y, month, day);
+    year = static_cast<uint16_t>(y);
+  }
+
+private:
+  static constexpr uint16_t SD_MIN_TRUSTED_YEAR = 2025;
+};
+
 // Decoupled CSV codec. It has no Arduino or SD_MMC dependency, so the host tests build it.
 class SdLogCodec {
 public:
@@ -28,6 +83,8 @@ public:
   static constexpr uint32_t RETRY_INTERVAL_MS = 600000; // after a failed write, retry in 10 min
   static constexpr size_t MAX_PATH_SIZE = 32;
   static constexpr size_t MAX_ROW_SIZE = 256;
+  // Header line of the daily summary file, with the terminator.
+  static constexpr size_t DAILY_HEADER_SIZE = 512;
   static constexpr const char* MOUNT_POINT = "/sdcard";
   // "climate_v2_YYYYMM.csv" plus the terminator.
   static constexpr size_t LOG_NAME_SIZE = 22;
@@ -98,6 +155,151 @@ public:
     }
     const int age = monthsBetween(year, month, static_cast<int>(now.year), static_cast<int>(now.month));
     return age > static_cast<int>(retention_months);
+  }
+
+  // ---- Daily summary file "daily_v1_YYYY.csv" ----
+
+  // Splits a bare daily file name "daily_v1_YYYY.csv" into the year 2000..2099.
+  static bool parseDailyFileName(const char* name, int& year) {
+    static const char PREFIX[] = "daily_v1_";
+    static const char SUFFIX[] = ".csv";
+    constexpr size_t PREFIX_LEN = sizeof(PREFIX) - 1;
+    constexpr size_t SUFFIX_LEN = sizeof(SUFFIX) - 1;
+    if (name == nullptr || strlen(name) != PREFIX_LEN + 4 + SUFFIX_LEN ||
+        memcmp(name, PREFIX, PREFIX_LEN) != 0 || memcmp(name + PREFIX_LEN + 4, SUFFIX, SUFFIX_LEN) != 0) {
+      return false;
+    }
+    int y = 0;
+    for (size_t i = 0; i < 4; ++i) {
+      if (name[PREFIX_LEN + i] < '0' || name[PREFIX_LEN + i] > '9') {
+        return false;
+      }
+      y = y * 10 + (name[PREFIX_LEN + i] - '0');
+    }
+    if (y < 2000 || y > 2099) {
+      return false;
+    }
+    year = y;
+    return true;
+  }
+
+  static bool isDailyFileName(const char* name) {
+    int year = 0;
+    return parseDailyFileName(name, year);
+  }
+
+  // True for each file that the serial console lists and dumps: hourly and daily files.
+  static bool isConsoleFileName(const char* name) {
+    return isLogFileName(name) || isDailyFileName(name);
+  }
+
+  // True when `name` is an hourly or daily file that the retention deletes. A daily file counts as
+  // December of its year, so it stays until the whole year is older than the retention.
+  static bool shouldDeleteFile(const char* name, const RtcTime& now, uint8_t retention_months) {
+    int year = 0;
+    if (!parseDailyFileName(name, year)) {
+      return shouldDeleteLog(name, now, retention_months);
+    }
+    if (!retentionActive(retention_months) || !now.valid || now.oscillator_stopped ||
+        now.year < MIN_TRUSTED_YEAR) {
+      return false;
+    }
+    return monthsBetween(year, 12, static_cast<int>(now.year), static_cast<int>(now.month)) >
+           static_cast<int>(retention_months);
+  }
+
+  // Writes "/sdcard/daily_v1_YYYY.csv". Returns the length, or 0 for a null or small buffer or a
+  // year outside 2000..2099.
+  static size_t formatDailyFilename(uint16_t year, char* out, size_t capacity) {
+    if (out == nullptr || capacity == 0) {
+      return 0;
+    }
+    out[0] = '\0';
+    if (year < 2000 || year > 2099) {
+      return 0;
+    }
+    const int n = snprintf(out, capacity, "%s/daily_v1_%04u.csv", MOUNT_POINT, static_cast<unsigned>(year));
+    if (n <= 0 || static_cast<size_t>(n) >= capacity) {
+      out[0] = '\0';
+      return 0;
+    }
+    return static_cast<size_t>(n);
+  }
+
+  // Header line of the daily file: the date, six columns for each of the four sensors, and the
+  // noise range.
+  static size_t formatDailyHeader(char* out, size_t capacity) {
+    static const char* const SENSORS[] = {"onboard", "s1", "s2", "s3"};
+    if (out == nullptr || capacity == 0) {
+      return 0;
+    }
+    size_t pos = 0;
+    int n = snprintf(out, capacity, "date");
+    for (size_t i = 0; n > 0 && i < sizeof(SENSORS) / sizeof(SENSORS[0]); ++i) {
+      pos += static_cast<size_t>(n);
+      if (pos >= capacity) {
+        break;
+      }
+      n = snprintf(out + pos, capacity - pos,
+                   ",%s_temp_min_c,%s_temp_max_c,%s_temp_mean_c,%s_rh_min,%s_rh_max,%s_rh_mean",
+                   SENSORS[i], SENSORS[i], SENSORS[i], SENSORS[i], SENSORS[i], SENSORS[i]);
+    }
+    if (n > 0) {
+      pos += static_cast<size_t>(n);
+      if (pos < capacity) {
+        n = snprintf(out + pos, capacity - pos, ",noise_min_db,noise_max_db\n");
+        pos += n > 0 ? static_cast<size_t>(n) : capacity;
+      }
+    }
+    if (pos >= capacity) {
+      out[0] = '\0';
+      return 0;
+    }
+    return pos;
+  }
+
+  // Writes one daily row, including the newline: the date, then minimum, maximum and mean of the
+  // temperature and of the humidity for the onboard sensor and the three slots, then the minimum and
+  // maximum noise level. A sensor without samples gives empty fields, so every row has 27 columns.
+  // Returns the length, or 0 for a null or small buffer or an invalid date.
+  static size_t formatDailyRow(
+      uint16_t year, uint8_t month, uint8_t day, const ClimateHistory& history, const NoiseHistory& noise,
+      char* out, size_t capacity) {
+    if (out == nullptr || capacity == 0) {
+      return 0;
+    }
+    out[0] = '\0';
+    if (capacity < MAX_ROW_SIZE || year < 2000 || year > 2099 || month < 1 || month > 12 || day < 1 ||
+        day > 31) {
+      return 0;
+    }
+    size_t pos = static_cast<size_t>(snprintf(
+        out, capacity, "%04u-%02u-%02u", static_cast<unsigned>(year), static_cast<unsigned>(month),
+        static_cast<unsigned>(day)));
+    for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
+      int16_t lo = 0, hi = 0, mean = 0;
+      const bool has_t = history.temperatures[i].summary(lo, hi, mean);
+      pos = appendTenths(out, capacity, pos, has_t, lo);
+      pos = appendTenths(out, capacity, pos, has_t, hi);
+      pos = appendTenths(out, capacity, pos, has_t, mean);
+      const bool has_h = history.slots[i].summary(lo, hi, mean);
+      pos = appendTenths(out, capacity, pos, has_h, lo);
+      pos = appendTenths(out, capacity, pos, has_h, hi);
+      pos = appendTenths(out, capacity, pos, has_h, mean);
+    }
+    uint8_t nlo = 0, nhi = 0;
+    if (noise.range(nlo, nhi)) {
+      pos += static_cast<size_t>(snprintf(out + pos, capacity - pos, ",%u,%u", static_cast<unsigned>(nlo),
+                                          static_cast<unsigned>(nhi)));
+    } else {
+      pos += static_cast<size_t>(snprintf(out + pos, capacity - pos, ",,"));
+    }
+    pos += static_cast<size_t>(snprintf(out + pos, capacity - pos, "\n"));
+    if (pos >= capacity) {
+      out[0] = '\0';
+      return 0;
+    }
+    return pos;
   }
 
   // Free space in whole MB from the card totals. -1 (unknown) when the totals are not plausible.
@@ -240,6 +442,17 @@ public:
     }
     return pos;
   }
+
+private:
+  // Appends ",<value in tenths as x.y>" or "," for a missing value.
+  static size_t appendTenths(char* out, size_t capacity, size_t pos, bool present, int16_t tenths) {
+    if (!present) {
+      return pos + static_cast<size_t>(snprintf(out + pos, capacity - pos, ","));
+    }
+    const int v = tenths < 0 ? -tenths : tenths;
+    return pos + static_cast<size_t>(snprintf(out + pos, capacity - pos, ",%s%d.%d", tenths < 0 ? "-" : "",
+                                              v / 10, v % 10));
+  }
 };
 
 #if defined(ARDUINO) || defined(ESP_PLATFORM)
@@ -295,6 +508,31 @@ public:
     if (free_mb != nullptr) {
       *free_mb = SdLogCodec::freeMegabytes(SD_MMC.totalBytes(), SD_MMC.usedBytes());
     }
+    SD_MMC.end();
+    return result;
+  }
+
+  // Appends the daily row of the day before `now`, with the header for a new file, and returns the
+  // result like append(). The row comes from the 24 h histories. The file is named after the year
+  // of the summarized day, so the row of 31 December goes to the file of that year.
+  static SdLogResult appendDaily(
+      const RtcTime& now, const ClimateHistory& history, const NoiseHistory& noise) {
+    uint16_t year = 0;
+    uint8_t month = 0, day = 0;
+    DailyPlanner::previousDay(now, year, month, day);
+    char path[SdLogCodec::MAX_PATH_SIZE];
+    char row[SdLogCodec::MAX_ROW_SIZE];
+    if (SdLogCodec::formatDailyFilename(year, path, sizeof(path)) == 0) {
+      return SdLogResult::NO_TIME;
+    }
+    const size_t row_len = SdLogCodec::formatDailyRow(year, month, day, history, noise, row, sizeof(row));
+    if (row_len == 0) {
+      return SdLogResult::NO_TIME;
+    }
+    if (!mount()) {
+      return SdLogResult::MOUNT_FAILED;
+    }
+    const SdLogResult result = writeRecord(path, row, row_len, true);
     SD_MMC.end();
     return result;
   }
@@ -368,7 +606,7 @@ private:
     return true;
   }
 
-  // Deletes the log files older than the retention period in the root directory. The names are
+  // Deletes the hourly and daily log files older than the retention period in the root directory. The names are
   // collected first and removed after the directory closes. Other files and directories stay.
   static void pruneOldLogs(const RtcTime& now, uint8_t retention_months) {
     if (!SdLogCodec::retentionActive(retention_months)) {
@@ -384,8 +622,8 @@ private:
       for (File entry = dir.openNextFile(); entry && count < SdLogCodec::MAX_PRUNE_PER_PASS;
            entry = dir.openNextFile()) {
         const char* name = entry.name();
-        if (!entry.isDirectory() && name != nullptr && SdLogCodec::shouldDeleteLog(name, now, retention_months)) {
-          memcpy(names[count], name, SdLogCodec::LOG_NAME_SIZE); // the match proves length 21
+        if (!entry.isDirectory() && name != nullptr && SdLogCodec::shouldDeleteFile(name, now, retention_months)) {
+          memcpy(names[count], name, strlen(name) + 1); // the match proves a length of 17 or 21
           ++count;
         }
         entry.close();
@@ -399,7 +637,7 @@ private:
     }
   }
 
-  static SdLogResult writeRecord(const char* path, const char* row, size_t row_len) {
+  static SdLogResult writeRecord(const char* path, const char* row, size_t row_len, bool daily = false) {
     const char* fs_path = path + strlen(SdLogCodec::MOUNT_POINT); // SD_MMC prefixes the mount
     const bool is_new = !SD_MMC.exists(fs_path);
     File file = SD_MMC.open(fs_path, FILE_APPEND);
@@ -408,8 +646,9 @@ private:
     }
     bool ok = true;
     if (is_new || file.size() == 0) {
-      char header[256];
-      const size_t header_len = SdLogCodec::formatHeader(header, sizeof(header));
+      char header[SdLogCodec::DAILY_HEADER_SIZE];
+      const size_t header_len = daily ? SdLogCodec::formatDailyHeader(header, sizeof(header))
+                                      : SdLogCodec::formatHeader(header, sizeof(header));
       ok = header_len > 0 && file.write(reinterpret_cast<const uint8_t*>(header), header_len) == header_len;
     }
     ok = ok && file.write(reinterpret_cast<const uint8_t*>(row), row_len) == row_len;

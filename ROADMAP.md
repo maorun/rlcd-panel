@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 
-- [ ] Daily climate summary file on the MicroSD card
-  - Rank: [Total: 26, Use: 6, Setup: 4, Harmony: 8, Safety: 8, Effort: M]
-  - Location: `rlcd_panel/sd_logger.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Write one row per day to `/sdcard/daily_v1_YYYY.csv` at the first hourly write after local midnight. The row holds the date, and the minimum, maximum and mean temperature and humidity for each sensor, plus the minimum and maximum noise level. Use the 24-hour histories in RTC memory as the source. Include the file in `LIST` and `DUMP`, and in the retention rule.
-  - Acceptance test: Host tests cover the row format, empty fields for a sensor without samples, the midnight gate with CET and CEST, one row per day only, a failed write with a retry, and the console file name check. The hourly file stays unchanged.
-
 - [ ] Charge complete chime on USB power
   - Rank: [Total: 25, Use: 5, Setup: 3, Harmony: 8, Safety: 9, Effort: S]
   - Location: `rlcd_panel/audio_alert.h`, `rlcd_panel/battery_monitor.h`, `rlcd_panel/device_config.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`

@@ -467,6 +467,8 @@ void chimeOnNoise(bool have_noise, const MicCalibration& cal) {
       quietHours().isActive(g_rtc_time), config().chime_alert_mask));
 }
 
+void logDailySummary(uint32_t now, bool card_ok);
+
 // Appends one hourly record to the MicroSD card. A missing card or a failed write never blocks
 // the cycle; the next attempt follows after a short retry interval. The wake cycle that writes the
 // record, also a timer wakeup, runs one 5 s noise window first. It is skipped with a low battery
@@ -525,6 +527,27 @@ void logToSdCard() {
   } else {
     g_state.last_log_ms = SdLogCodec::retryStamp(now);
     Serial.printf("SD log failed: %u\n", static_cast<unsigned>(result));
+  }
+  logDailySummary(now, result != SdLogResult::MOUNT_FAILED);
+}
+
+// Writes the daily row at the first hourly write after local midnight. The RTC holds local time, so
+// CET and CEST need no case. The 24 h histories in the RTC state are the source. A failed write leaves
+// the day unstamped, and the next hourly write retries. The first run and a stale history only stamp
+// the day. The row covers the last 24 hourly samples, not the calendar day: the first write after
+// midnight ends the day, and a late write after a card gap holds the newest samples. A card that did
+// not mount for the hourly write skips the second mount.
+void logDailySummary(uint32_t now, bool card_ok) {
+  const DailyAction action = DailyPlanner::decide(g_state.daily, g_rtc_time, g_state.history.freshWithin24h(now));
+  if (action == DailyAction::MARK) {
+    g_state.daily.markDone(g_rtc_time);
+  } else if (action == DailyAction::WRITE && card_ok) {
+    const SdLogResult result = SdLogger::appendDaily(g_rtc_time, g_state.history, g_state.noise_history);
+    if (result == SdLogResult::OK) {
+      g_state.daily.markDone(g_rtc_time);
+    } else {
+      Serial.printf("SD daily log failed: %u\n", static_cast<unsigned>(result));
+    }
   }
 }
 

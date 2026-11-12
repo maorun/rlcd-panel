@@ -80,6 +80,25 @@ public:
     return true;
   }
 
+  // Lowest, highest and mean sample, with the mean rounded to the nearest step. Returns false for an
+  // empty buffer. Unlike range(), one sample is enough: a day with one reading still has a summary.
+  bool summary(int16_t& lo, int16_t& hi, int16_t& mean) const {
+    if (count_ == 0) {
+      return false;
+    }
+    lo = hi = at(0);
+    int32_t sum = at(0);
+    for (size_t i = 1; i < count_; ++i) {
+      const int16_t v = at(i);
+      lo = v < lo ? v : lo;
+      hi = v > hi ? v : hi;
+      sum += v;
+    }
+    const int32_t n = count_;
+    mean = static_cast<int16_t>((sum + (sum >= 0 ? n / 2 : -(n / 2))) / n);
+    return true;
+  }
+
   void clear() {
     *this = HumidityHistory{};
   }
@@ -184,6 +203,25 @@ public:
       lo = v < lo ? v : lo;
       hi = v > hi ? v : hi;
     }
+    return true;
+  }
+
+  // Lowest, highest and mean sample, with the mean rounded to the nearest step. Returns false for an
+  // empty buffer. Unlike range(), one sample is enough: a day with one reading still has a summary.
+  bool summary(int16_t& lo, int16_t& hi, int16_t& mean) const {
+    if (count_ == 0) {
+      return false;
+    }
+    lo = hi = at(0);
+    int32_t sum = at(0);
+    for (size_t i = 1; i < count_; ++i) {
+      const int16_t v = at(i);
+      lo = v < lo ? v : lo;
+      hi = v > hi ? v : hi;
+      sum += v;
+    }
+    const int32_t n = count_;
+    mean = static_cast<int16_t>((sum + (sum >= 0 ? n / 2 : -(n / 2))) / n);
     return true;
   }
 
@@ -384,6 +422,11 @@ struct ClimateHistory {
       has_sampled = true;
     }
     return pushed;
+  }
+
+  // True when the last hourly sample is younger than 24 h, so the histories describe the last day.
+  bool freshWithin24h(uint32_t now_ms) const {
+    return has_sampled && static_cast<uint32_t>(now_ms - last_sample_ms) < 24UL * SAMPLE_INTERVAL_MS;
   }
 };
 
