@@ -187,13 +187,37 @@ struct DeviceConfig {
   }
 };
 
+// Rejected lines of the last parse: the total count (saturates at 255) and the 1-based line
+// numbers of the first four. It lives in the RTC state and feeds the diagnostics view and the
+// console command CONFIG.
+struct ConfigRejects {
+  static constexpr size_t MAX_LINES = 4;
+  uint8_t count = 0;
+  uint16_t lines[MAX_LINES] = {0, 0, 0, 0};
+
+  // Number of valid entries in `lines`.
+  size_t recorded() const {
+    return count < MAX_LINES ? count : MAX_LINES;
+  }
+};
+
 // Outcome of one parse. `file_ok` is false for a file above the size limit; the config then keeps
 // all defaults. `keys_set` counts distinct keys with an accepted value. `rejected` counts lines
-// that were malformed or out of range; the previous value of their key stays.
+// that were malformed or out of range (it saturates at 255); the previous value of their key
+// stays. `rejected_lines` holds the 1-based numbers of the first four of them. An unknown key is
+// no error.
 struct ConfigParseResult {
   bool file_ok = false;
   uint8_t keys_set = 0;
   uint8_t rejected = 0;
+  uint16_t rejected_lines[ConfigRejects::MAX_LINES] = {0, 0, 0, 0};
+
+  ConfigRejects rejects() const {
+    ConfigRejects r;
+    r.count = rejected;
+    memcpy(r.lines, rejected_lines, sizeof(r.lines));
+    return r;
+  }
 };
 
 // Parser for the key=value text. Rules:
@@ -220,6 +244,7 @@ public:
     result.file_ok = true;
     uint32_t seen = 0;
     size_t pos = 0;
+    uint16_t line_no = 0;
     if (len >= 3 && static_cast<uint8_t>(data[0]) == 0xEF && static_cast<uint8_t>(data[1]) == 0xBB &&
         static_cast<uint8_t>(data[2]) == 0xBF) {
       pos = 3; // UTF-8 byte order mark from a Windows editor
@@ -229,7 +254,8 @@ public:
       while (end < len && data[end] != '\n') {
         ++end;
       }
-      applyLine(data + pos, end - pos, out, seen, result);
+      ++line_no;
+      applyLine(data + pos, end - pos, line_no, out, seen, result);
       pos = end + 1;
     }
     for (uint32_t m = seen; m != 0; m &= m - 1) {
@@ -422,14 +448,24 @@ private:
     return false;
   }
 
-  static void applyLine(const char* line, size_t n, DeviceConfig& cfg, uint32_t& seen, ConfigParseResult& result) {
+  static void reject(ConfigParseResult& result, uint16_t line_no) {
+    if (result.rejected < ConfigRejects::MAX_LINES) {
+      result.rejected_lines[result.rejected] = line_no;
+    }
+    if (result.rejected < 255) {
+      ++result.rejected;
+    }
+  }
+
+  static void applyLine(const char* line, size_t n, uint16_t line_no, DeviceConfig& cfg, uint32_t& seen,
+                        ConfigParseResult& result) {
     trim(line, n);
     if (n == 0 || line[0] == '#' || line[0] == ';') {
       return;
     }
     const char* eq = static_cast<const char*>(memchr(line, '=', n));
     if (eq == nullptr) {
-      ++result.rejected;
+      reject(result, line_no);
       return;
     }
     const char* key = line;
@@ -501,8 +537,8 @@ private:
     }
     if (ok) {
       seen = seen | (1u << index);
-    } else if (result.rejected < 255) {
-      ++result.rejected;
+    } else {
+      reject(result, line_no);
     }
   }
 };

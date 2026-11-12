@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] Rejected config.ini lines in the diagnostics view and the serial console
-  - Rank: [Total: 31, Use: 3, Setup: 10, Harmony: 8, Safety: 10, Effort: S]
-  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`
-  - Goal: Record the line numbers of the first four rejected lines and the total count of rejected lines in `DeviceConfigParser`. Store them in `PersistentState`. Show `CONFIG: SD (N ERR)` in the diagnostics view when the count is above 0. Add one `REJECTED line=N` line for each recorded line to the output of the console command `CONFIG`. The user can then find a typo in `config.ini` without a guess. Unknown keys are not errors.
-  - Acceptance test: Host tests cover a file with no errors, one malformed value, one out-of-range value, six rejected lines (four line numbers, count 6), CRLF line counts, an unknown key that adds no error, the line bounds of `CONFIG: SD (255 ERR)`, the `CONFIG` output with the CRC-32, and the RTC round trip. `docs/display_preview_diagnostics.png` shows the error count.
-
 - [ ] Wake interval from config.ini
   - Rank: [Total: 31, Use: 6, Setup: 9, Harmony: 8, Safety: 8, Effort: S]
   - Location: `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/battery_monitor.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`

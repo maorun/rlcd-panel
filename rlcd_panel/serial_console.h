@@ -186,7 +186,7 @@ private:
 //   LIST -> "FILE <name> <bytes>" per file, then "END LIST <count>"
 //   INFO -> "INFO total=<bytes> used=<bytes> files=<count>"
 //   DUMP -> "BEGIN <name> <bytes>", exactly <bytes> raw bytes, then "CRC32 <8 hex digits>"
-//   CONFIG -> "key=value" per DeviceConfig setting, "SOURCE <SD|DEFAULT>", then "CRC32 <8 hex
+//   CONFIG -> "key=value" per DeviceConfig setting, "SOURCE <SD|DEFAULT>", "REJECTED line=<n>" for each of the first four rejected lines, then "CRC32 <8 hex
 //   digits>" over all lines before it. showConfig() sends it from the RTC copy: no card access,
 //   so execute() ignores CONFIG.
 //   Any failure -> "ERR <NO_CARD|NOT_FOUND|READ_FAILED>". A read error after BEGIN pads the
@@ -203,13 +203,18 @@ public:
   }
 
   // Sends the active configuration. The card stays untouched.
-  static void showConfig(Sink& sink, const DeviceConfig& config, bool from_sd) {
-    char text[DeviceConfigText::MAX_SIZE + 16];
+  static void showConfig(Sink& sink, const DeviceConfig& config, bool from_sd,
+                         const ConfigRejects& rejects = ConfigRejects{}) {
+    char text[DeviceConfigText::MAX_SIZE + 16 + ConfigRejects::MAX_LINES * 20];
     size_t len = DeviceConfigText::format(config, text, DeviceConfigText::MAX_SIZE);
     if (len == 0) {
       return;
     }
     len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "SOURCE %s\n", from_sd ? "SD" : "DEFAULT"));
+    for (size_t i = 0; from_sd && i < rejects.recorded(); ++i) {
+      len += static_cast<size_t>(
+          snprintf(text + len, sizeof(text) - len, "REJECTED line=%u\n", static_cast<unsigned>(rejects.lines[i])));
+    }
     SerialCrc32 crc;
     crc.update(reinterpret_cast<const uint8_t*>(text), len);
     if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {

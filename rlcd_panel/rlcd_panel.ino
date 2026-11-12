@@ -283,6 +283,7 @@ void renderDashboard() {
   info.noise = g_noise;
   info.mic_cal = activeMicCal();
   info.config_from_sd = g_state.config_from_sd;
+  info.config_rejected = g_state.config_rejects.count;
   info.mic_cal_busy = g_mic_cal_busy;
   info.mic_cal_failed = g_mic_cal_failed;
   info.quiet_hours = quietHours().isActive(g_rtc_time);
@@ -569,14 +570,15 @@ void loadConfigFromCard(WakeupCause cause) {
     return;
   }
   DeviceConfig loaded;
+  ConfigRejects rejects;
   int32_t free_mb = -1;
-  const SdConfigResult result = SdLogger::loadConfig(loaded, &free_mb);
+  const SdConfigResult result = SdLogger::loadConfig(loaded, &free_mb, &rejects);
   if (result == SdConfigResult::NO_CARD) {
     return;
   }
   g_sd_free_mb = free_mb;
   portENTER_CRITICAL(&g_registry_mux);
-  g_state.applyConfig(loaded, result == SdConfigResult::LOADED);
+  g_state.applyConfig(loaded, result == SdConfigResult::LOADED, rejects);
   portEXIT_CRITICAL(&g_registry_mux);
 }
 
@@ -731,7 +733,7 @@ void setup() {
       if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::CONFIG) {
         // The RTC copy answers: no card access, so the clap listener keeps running.
         SerialConsoleRunner<SdLogStorage, SerialSink>::showConfig(console_sink, g_state.config,
-                                                                  g_state.config_from_sd);
+                                                                  g_state.config_from_sd, g_state.config_rejects);
       } else if (status == SerialParseStatus::OK) {
         clap_listener.release(); // keep the I2S bus idle while the card transfers
         SerialConsoleRunner<SdLogStorage, SerialSink>::execute(console_storage, console_sink, command);

@@ -1053,7 +1053,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 24);
+  assert(PowerManager::STATE_VERSION == 25);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -1940,7 +1940,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 24);
+  assert(PowerManager::STATE_VERSION == 25);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -2375,7 +2375,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 24);
+  assert(PowerManager::STATE_VERSION == 25);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3957,7 +3957,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 24);
+  assert(PowerManager::STATE_VERSION == 25);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4738,7 +4738,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 24);
+  assert(PowerManager::STATE_VERSION == 25);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4908,7 +4908,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 24);
+  assert(PowerManager::STATE_VERSION == 25);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -5090,7 +5090,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 24);
+  assert(PowerManager::STATE_VERSION == 25);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -5110,6 +5110,131 @@ void testSensorNames() {
   memset(bad.config.onboard_name, 'A', sizeof(bad.config.onboard_name)); // no terminator
   assert(PowerManager::serialize(bad, buf, sizeof(buf)));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+}
+
+void testConfigRejectedLines() {
+  ConfigParseResult r;
+  // No error: count 0, no line
+  parseText("temp_offset_c=1.0\n# note\n\nmold_alert_limit_rh=65\n", &r);
+  assert(r.rejected == 0 && r.rejects().count == 0 && r.rejects().recorded() == 0 && r.rejected_lines[0] == 0);
+  // One malformed value (line 2)
+  parseText("temp_offset_c=1.0\nchime_volume_pct=abc\n", &r);
+  assert(r.rejected == 1 && r.rejected_lines[0] == 2 && r.rejected_lines[1] == 0 && r.rejects().recorded() == 1);
+  // One out-of-range value (line 3, after a comment and a blank line)
+  parseText("# c\n\nmold_alert_limit_rh=96\n", &r);
+  assert(r.rejected == 1 && r.rejected_lines[0] == 3);
+  // A line without '=' is rejected too
+  parseText("temp_offset_c\n", &r);
+  assert(r.rejected == 1 && r.rejected_lines[0] == 1);
+  // Six rejected lines: count 6, the first four line numbers
+  parseText("chime_volume_pct=x\nchime_volume_pct=y\nok_unknown=1\nchime_volume_pct=z\n"
+            "chime_volume_pct=200\nchime_volume_pct=300\nchime_volume_pct=400\n", &r);
+  assert(r.rejected == 6 && r.rejects().count == 6 && r.rejects().recorded() == 4);
+  assert(r.rejected_lines[0] == 1 && r.rejected_lines[1] == 2 && r.rejected_lines[2] == 4 &&
+         r.rejected_lines[3] == 5);
+  // CRLF line ends count like LF
+  parseText("temp_offset_c=1.0\r\nchime_volume_pct=abc\r\n\r\nmold_alert_limit_rh=1\r\n", &r);
+  assert(r.rejected == 2 && r.rejected_lines[0] == 2 && r.rejected_lines[1] == 4);
+  // A byte order mark does not shift the line numbers
+  parseText("\xEF\xBB\xBF" "chime_volume_pct=abc\n", &r);
+  assert(r.rejected == 1 && r.rejected_lines[0] == 1);
+  // An unknown key adds no error
+  parseText("wifi_ssid=home\nunknown=1\n", &r);
+  assert(r.rejected == 0 && r.rejected_lines[0] == 0);
+  // The count saturates at 255; the line numbers stay the first four
+  std::string many;
+  for (int i = 0; i < 300; ++i) many += "x\n";
+  parseText(many.c_str(), &r);
+  assert(r.rejected == 255 && r.rejected_lines[3] == 4);
+}
+
+void testConfigRejectedRtcRoundTrip() {
+  PersistentState s;
+  ConfigParseResult r;
+  s.config = parseText("chime_volume_pct=x\n\nchime_volume_pct=y\n", &r);
+  s.applyConfig(s.config, true, r.rejects());
+  assert(s.config_rejects.count == 2);
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState back;
+  assert(PowerManager::deserialize(buf, sizeof(buf), back));
+  assert(back.config_rejects.count == 2 && back.config_rejects.lines[0] == 1 &&
+         back.config_rejects.lines[1] == 3 && back.config_rejects.lines[2] == 0);
+  // A new config without errors clears them
+  s.applyConfig(DeviceConfig{}, true, ConfigRejects{});
+  assert(s.config_rejects.count == 0);
+  // A line number of 1000 survives (16 bit)
+  s.config_rejects.count = 1;
+  s.config_rejects.lines[0] = 1000;
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.config_rejects.lines[0] == 1000);
+  // A corrupt record with a valid checksum is rejected: line 0 for a counted entry
+  s.config_rejects.lines[0] = 0;
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), back));
+  // ... and a line number for an uncounted entry
+  s.config_rejects.count = 0;
+  s.config_rejects.lines[0] = 7;
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), back));
+}
+
+void testFramebufferParenthesisGlyphs() {
+  St7305Framebuffer fb;
+  fb.clear(true);
+  fb.drawText(0, 0, "()", 1, true);
+  bool left = false, right = false;
+  for (uint16_t y = 0; y < 7; ++y) {
+    for (uint16_t x = 0; x < 6; ++x) left = left || fb.getPixel(x, y);
+    for (uint16_t x = 6; x < 12; ++x) right = right || fb.getPixel(x, y);
+  }
+  assert(left && right); // both glyphs draw ink
+}
+
+void testDiagnosticsConfigErrorLine() {
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  SystemInfo info;
+  info.config_from_sd = true;
+  St7305Framebuffer ok, err, err255, def;
+  DashboardView::renderDiagnostics(ok, battery, info, "12:00");
+  info.config_rejected = 3;
+  DashboardView::renderDiagnostics(err, battery, info, "12:00");
+  assert(memcmp(ok.data(), err.data(), RLCD_BUFFER_SIZE) != 0);
+  info.config_rejected = 255;
+  DashboardView::renderDiagnostics(err255, battery, info, "12:00");
+  // The error text stays in the config lines: nothing differs above y = 270
+  for (uint16_t y = 0; y < 270; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      assert(ok.getPixel(x, y) == err255.getPixel(x, y));
+    }
+  }
+  // "CONFIG: SD (255 ERR)" is 20 glyphs = 240 px, from x = 10 to x = 250. The short events text
+  // "EV: N" starts at EVENTS_ERR_X = 264, so the gap x = 250 to 263 stays empty.
+  bool ink_left = false;
+  bool ink_events = false;
+  for (uint16_t y = DashboardView::EVENTS_Y; y < DashboardView::EVENTS_Y + 14; ++y) {
+    for (uint16_t x = 10; x < 250; ++x) ink_left = ink_left || err255.getPixel(x, y);
+    for (uint16_t x = 250; x < DashboardView::EVENTS_ERR_X; ++x) assert(!err255.getPixel(x, y));
+    for (uint16_t x = DashboardView::EVENTS_ERR_X; x < St7305Framebuffer::WIDTH; ++x) {
+      ink_events = ink_events || err255.getPixel(x, y);
+    }
+  }
+  assert(ink_left && ink_events);
+  // The events text ends inside the panel: 9 glyphs from x = 264 end at x = 372
+  for (uint16_t y = DashboardView::EVENTS_Y; y < DashboardView::EVENTS_Y + 14; ++y) {
+    for (uint16_t x = 372; x < St7305Framebuffer::WIDTH; ++x) assert(!err255.getPixel(x, y));
+  }
+  // Defaults from a missing file never show the count
+  info.config_from_sd = false;
+  St7305Framebuffer none;
+  DashboardView::renderDiagnostics(none, battery, info, "12:00");
+  info.config_rejected = 0;
+  St7305Framebuffer none0;
+  DashboardView::renderDiagnostics(none0, battery, info, "12:00");
+  assert(memcmp(none.data(), none0.data(), RLCD_BUFFER_SIZE) == 0);
 }
 
 void testDiagnosticsConfigLine() {
@@ -7709,6 +7834,39 @@ void testSerialConfigRunsWithoutMountingCard() {
   assert(storage.mounts == 0 && storage.unmounts == 0 && sink.out.empty());
 }
 
+void testSerialConfigRejectedLines() {
+  ConfigParseResult r;
+  const DeviceConfig cfg = parseText("chime_volume_pct=x\nunknown=1\nmold_alert_limit_rh=1\n", &r);
+  FakeSink sink;
+  TestRunner::showConfig(sink, cfg, true, r.rejects());
+  const std::string& out = sink.out;
+  const size_t source_at = out.find("SOURCE SD\n");
+  const size_t crc_at = out.rfind("CRC32 ");
+  assert(source_at != std::string::npos && crc_at != std::string::npos);
+  assert(out.substr(source_at, crc_at - source_at) == "SOURCE SD\nREJECTED line=1\nREJECTED line=3\n");
+  SerialCrc32 crc;
+  crc.update(reinterpret_cast<const uint8_t*>(out.data()), crc_at);
+  char expected[16];
+  snprintf(expected, sizeof(expected), "%08lx", static_cast<unsigned long>(crc.value()));
+  assert(out.substr(crc_at + 6, 8) == expected && out.size() == crc_at + 6 + 8 + 1);
+  // Four lines at most, even with six rejects
+  ConfigParseResult six;
+  parseText("a\nb\nc\nd\ne\nf\n", &six);
+  FakeSink capped;
+  TestRunner::showConfig(capped, cfg, true, six.rejects());
+  size_t count = 0;
+  for (size_t at = capped.out.find("REJECTED"); at != std::string::npos; at = capped.out.find("REJECTED", at + 1)) ++count;
+  assert(count == 4 && capped.out.find("REJECTED line=5") == std::string::npos);
+  // Defaults never list rejected lines
+  FakeSink defaults;
+  TestRunner::showConfig(defaults, cfg, false, six.rejects());
+  assert(defaults.out.find("REJECTED") == std::string::npos);
+  // No error: no REJECTED line
+  FakeSink clean;
+  TestRunner::showConfig(clean, cfg, true);
+  assert(clean.out.find("REJECTED") == std::string::npos);
+}
+
 void testSerialConfigRoundTrip() {
   const char* ini =
       "temp_offset_c=-3.25\nrh_offset_pct=4.5\nfreeze_alert_limit_c=-7.5\nmold_alert_limit_rh=85\n"
@@ -7932,7 +8090,7 @@ void testNoiseAlertStatePersistence() {
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 8 - 24;
+  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 8 - 24;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -8115,7 +8273,7 @@ void testChimeAlertMask() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   uint8_t badbuf[PowerManager::SERIALIZED_SIZE];
   memcpy(badbuf, buf, sizeof(badbuf));
-  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 7 - 24] = 32;
+  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 7 - 24] = 32;
   const uint32_t crc = PowerManager::crc32(badbuf, sizeof(badbuf) - 4);
   for (int i = 0; i < 4; ++i) badbuf[sizeof(badbuf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState out;
@@ -8981,14 +9139,14 @@ void testSlotMacConfigApply() {
   s.registry.upsert(macReading(MAC_C));
 
   // Same config again (a KEY wakeup): nothing changes
-  s.applyConfig(DeviceConfig{}, true);
+  s.applyConfig(DeviceConfig{}, true, ConfigRejects{});
   assert(s.registry.activeCount() == 3 && s.history.slots[2].size() == 1 && s.config_from_sd);
 
   // Slot 2 gets a new fixed MAC: its reading and its history go, the other slots stay
   const uint8_t new_mac[6] = {9, 9, 9, 9, 9, 9};
   DeviceConfig cfg;
   memcpy(cfg.slot_mac[1], new_mac, 6);
-  s.applyConfig(cfg, true);
+  s.applyConfig(cfg, true, ConfigRejects{});
   assert(!s.registry.slot(1).valid && s.registry.slot(0).valid && s.registry.slot(2).valid);
   assert(s.history.slots[2].size() == 0 && s.history.temperatures[2].size() == 0);
   assert(s.history.slots[1].size() == 1 && s.history.slots[3].size() == 1 && s.history.slots[0].size() == 1);
@@ -8998,13 +9156,13 @@ void testSlotMacConfigApply() {
   // The same fixed MAC again keeps what the slot got in the meantime
   assert(s.registry.upsert(macReading(new_mac)) && s.registry.slot(1).valid);
   s.history.slots[2].pushPercent(40.0f);
-  s.applyConfig(cfg, true);
+  s.applyConfig(cfg, true, ConfigRejects{});
   assert(s.registry.slot(1).valid && s.history.slots[2].size() == 1);
 
   // Slot 1 takes the MAC that slot 3 holds: slot 1 is reset, slot 3 loses its reading too
   DeviceConfig cfg2 = cfg;
   memcpy(cfg2.slot_mac[0], MAC_C, 6);
-  s.applyConfig(cfg2, true);
+  s.applyConfig(cfg2, true, ConfigRejects{});
   assert(!s.registry.slot(0).valid && !s.registry.slot(2).valid && s.registry.slot(1).valid);
   assert(s.history.slots[1].size() == 0 && s.history.slots[3].size() == 0 && s.history.slots[2].size() == 1);
   assert(s.registry.consistent());
@@ -9012,7 +9170,7 @@ void testSlotMacConfigApply() {
   // Clearing a fixed MAC changes it as well
   DeviceConfig cfg3 = cfg2;
   memset(cfg3.slot_mac[1], 0, 6);
-  s.applyConfig(cfg3, false);
+  s.applyConfig(cfg3, false, ConfigRejects{});
   assert(!s.registry.slot(1).valid && !s.registry.isFixed(1) && s.history.slots[2].size() == 0 && !s.config_from_sd);
 }
 
@@ -9021,7 +9179,7 @@ void testSlotMacRtcRoundTrip() {
   DeviceConfig cfg;
   memcpy(cfg.slot_mac[0], MAC_A, 6);
   memcpy(cfg.slot_mac[2], MAC_C, 6);
-  s.applyConfig(cfg, true);
+  s.applyConfig(cfg, true, ConfigRejects{});
   s.registry.upsert(macReading(MAC_A));
   s.registry.upsert(macReading(MAC_B));
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -9034,10 +9192,10 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 24);
+  assert(PowerManager::STATE_VERSION == 25);
 
   // A valid checksum with the same MAC in two keys is rejected
-  const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - 1 - PowerManager::MACS_SIZE;
+  const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
   memcpy(bad + mac_pos + 6, MAC_A, 6);
@@ -9231,6 +9389,10 @@ int main() {
   testSensorNames();
   testNtpSyncIntervalConfig();
   testDiagnosticsConfigLine();
+  testConfigRejectedLines();
+  testConfigRejectedRtcRoundTrip();
+  testFramebufferParenthesisGlyphs();
+  testDiagnosticsConfigErrorLine();
   testLogRetentionAge();
   testLogRetentionDecision();
   testLogRetentionNamePattern();
@@ -9292,6 +9454,7 @@ testSerialConfigLineFormat();
 testSerialConfigFrameAndCrc();
 testSerialConfigRunsWithoutMountingCard();
 testSerialConfigRoundTrip();
+testSerialConfigRejectedLines();
 testSerialConfigStopsOnShortWrite();
 testSerialConfigNegativeSmallOffset();
   testRtcDriftFirstSyncHasNoRate();
