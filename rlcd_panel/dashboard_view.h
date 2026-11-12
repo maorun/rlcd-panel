@@ -72,6 +72,14 @@ public:
   static constexpr uint16_t VENT_BADGE_X_OFFSET = 108;
   static constexpr uint16_t VENT_BADGE_Y_OFFSET = 56;
   static constexpr uint16_t VENT_BADGE_SIZE = 9;
+  // Trend triangle (7 x 7 px, one text row high) 4 px right of the temperature or humidity line. It
+  // sits 3 px below the line top, so it is centered on the 14 px text row. It is skipped when it
+  // would touch the sparkline box ("H: 100 %" ends at x + 106, the box starts at x + 112).
+  static constexpr uint16_t TREND_MARK_SIZE = 7;
+  static constexpr uint16_t TREND_MARK_GAP = 4;
+  static constexpr uint16_t TREND_MARK_Y_INSET = 3;
+  static constexpr uint16_t TEMP_LINE_Y_OFFSET = 40;
+  static constexpr uint16_t HUMIDITY_LINE_Y_OFFSET = 68;
   // Dew point and VPD line (scale 1, 7 px high) between the sparkline box (ends at y + 82) and the
   // battery line (starts at y + 96). The widest text has 19 glyphs = 113 px, inside the 190 px tile.
   static constexpr uint16_t CLIMATE_LINE_Y_OFFSET = 86;
@@ -123,6 +131,31 @@ public:
       }
       fb.fillRect(x + 2, y + 2, fill_w, 8, pixel_color);
     }
+  }
+
+  // Draws a 7 x 7 triangle for RISE (apex up) or FALL (apex down) at the top left (mx, my).
+  // Row widths 1, 3, 3, 5, 5, 7, 7. STEADY and UNKNOWN draw nothing.
+  static void renderTrendMark(St7305Framebuffer& fb, uint16_t mx, uint16_t my, Trend trend) {
+    if (trend != Trend::RISE && trend != Trend::FALL) {
+      return;
+    }
+    for (uint16_t row = 0; row < TREND_MARK_SIZE; ++row) {
+      const uint16_t widest_row = trend == Trend::RISE ? row : static_cast<uint16_t>(TREND_MARK_SIZE - 1 - row);
+      const uint16_t row_w = static_cast<uint16_t>(2 * ((widest_row + 1) / 2) + 1);
+      fb.fillRect(
+          static_cast<uint16_t>(mx + (TREND_MARK_SIZE - row_w) / 2), static_cast<uint16_t>(my + row), row_w, 1, true);
+    }
+  }
+
+  // Trend mark right of a text line at scale 2 that starts at x + 12. `glyphs` is the line length.
+  // `limit_x` is the first column the mark must not reach (0 for no limit).
+  static void renderTrendAfterLine(
+      St7305Framebuffer& fb, uint16_t x, uint16_t line_y, size_t glyphs, uint16_t limit_x, Trend trend) {
+    const uint16_t mx = static_cast<uint16_t>(x + 12 + glyphs * 12 - 2 + TREND_MARK_GAP);
+    if (limit_x != 0 && mx + TREND_MARK_SIZE >= limit_x) {
+      return;
+    }
+    renderTrendMark(fb, mx, static_cast<uint16_t>(line_y + TREND_MARK_Y_INSET), trend);
   }
 
   // Dew point and VPD line; shows "DP -- VPD --" for a stale, invalid or NaN reading.
@@ -179,7 +212,8 @@ public:
       float battery_voltage_v = -1.0f,
       bool is_stale = false,
       const HumidityHistory* history = nullptr,
-      bool ventilate_badge = false) {
+      bool ventilate_badge = false,
+      const TemperatureHistory* temperature_history = nullptr) {
     fb.drawRect(x, y, w, h, true);
     fb.drawHLine(x, y + 24, w, true);
     fb.drawText(x + 8, y + 6, title, 2, true);
@@ -192,11 +226,24 @@ public:
 
     char line_temp[24];
     snprintf(line_temp, sizeof(line_temp), "T: %.1f C", temp_c);
-    fb.drawText(x + 12, y + 40, line_temp, 2, true);
+    fb.drawText(x + 12, y + TEMP_LINE_Y_OFFSET, line_temp, 2, true);
 
     char line_rh[24];
     snprintf(line_rh, sizeof(line_rh), "H: %.0f %%", humidity_pct);
-    fb.drawText(x + 12, y + 68, line_rh, 2, true);
+    fb.drawText(x + 12, y + HUMIDITY_LINE_Y_OFFSET, line_rh, 2, true);
+
+    // Trend marks from the hourly samples; no history and a stale tile give no mark.
+    if (temperature_history != nullptr && !is_stale) {
+      renderTrendAfterLine(
+          fb, x, static_cast<uint16_t>(y + TEMP_LINE_Y_OFFSET), strlen(line_temp), 0,
+          TrendClassifier::temperature(*temperature_history));
+    }
+    if (history != nullptr && !is_stale) {
+      const uint16_t box_x = static_cast<uint16_t>(x + w - SPARKLINE_W - SPARKLINE_RIGHT_MARGIN);
+      renderTrendAfterLine(
+          fb, x, static_cast<uint16_t>(y + HUMIDITY_LINE_Y_OFFSET), strlen(line_rh), box_x,
+          TrendClassifier::humidity(*history));
+    }
 
     renderClimateLine(fb, x, y, h, !is_stale, temp_c, humidity_pct);
 
@@ -335,7 +382,8 @@ public:
         battery.valid ? battery.voltage_v : -1.0f,
         false,
         history != nullptr ? &history->slots[ClimateHistory::ONBOARD] : nullptr,
-        VentilateLatch::isSet(ventilate_tiles, 0));
+        VentilateLatch::isSet(ventilate_tiles, 0),
+        history != nullptr ? &history->temperatures[ClimateHistory::ONBOARD] : nullptr);
 
     // Tiles 1..3: SwitchBot Outdoor Meters (WoIOSensor) and BTHome v2 sensors
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
@@ -365,7 +413,8 @@ public:
           -1.0f,
           sb.isStale(now_ms),
           history != nullptr ? &history->slots[1 + i] : nullptr,
-          VentilateLatch::isSet(ventilate_tiles, 1 + i));
+          VentilateLatch::isSet(ventilate_tiles, 1 + i),
+          history != nullptr ? &history->temperatures[1 + i] : nullptr);
     }
   }
 

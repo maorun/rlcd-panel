@@ -262,6 +262,53 @@ private:
   uint8_t count_ = 0; // valid samples, at most CAPACITY
 };
 
+// Direction of a quantity over the last 3 hours, from the hourly samples of one sensor.
+enum class Trend : uint8_t { UNKNOWN, STEADY, RISE, FALL };
+
+// Compares the newest hourly sample with the sample 3 hours earlier. The trend lags by up to one hour.
+// A change of at least the threshold gives RISE or FALL, a smaller one STEADY. A sample outside the
+// valid range, or fewer than 4 samples, gives UNKNOWN.
+class TrendClassifier {
+public:
+  static constexpr size_t LOOKBACK_HOURS = 3;
+  static constexpr int16_t TEMPERATURE_THRESHOLD = 5; // 0.5 degC in 0.1 degC steps
+  static constexpr int16_t HUMIDITY_THRESHOLD = 30;   // 3.0 %RH in 0.1 %RH steps
+
+  static Trend classifyDelta(int16_t newest, int16_t older, int16_t threshold, int16_t min_value, int16_t max_value) {
+    if (newest < min_value || newest > max_value || older < min_value || older > max_value) {
+      return Trend::UNKNOWN;
+    }
+    const int32_t delta = static_cast<int32_t>(newest) - older;
+    if (delta >= threshold) {
+      return Trend::RISE;
+    }
+    if (delta <= -threshold) {
+      return Trend::FALL;
+    }
+    return Trend::STEADY;
+  }
+
+  static Trend temperature(const TemperatureHistory& history) {
+    const size_t n = history.size();
+    if (n <= LOOKBACK_HOURS) {
+      return Trend::UNKNOWN;
+    }
+    return classifyDelta(
+        history.at(n - 1), history.at(n - 1 - LOOKBACK_HOURS), TEMPERATURE_THRESHOLD,
+        TemperatureHistory::MIN_VALUE, TemperatureHistory::MAX_VALUE);
+  }
+
+  static Trend humidity(const HumidityHistory& history) {
+    const size_t n = history.size();
+    if (n <= LOOKBACK_HOURS) {
+      return Trend::UNKNOWN;
+    }
+    return classifyDelta(
+        history.at(n - 1), history.at(n - 1 - LOOKBACK_HOURS), HUMIDITY_THRESHOLD,
+        HumidityHistory::MIN_VALUE, HumidityHistory::MAX_VALUE);
+  }
+};
+
 // Circular FIFO of the last 24 hourly noise levels. A sample is one byte in dB (0 to 140). The value
 // 0xFF marks an hour without a valid reading, so the time axis keeps its spacing. It needs 26 bytes
 // with the two counters.
