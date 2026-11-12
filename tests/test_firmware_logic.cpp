@@ -1053,7 +1053,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 25);
+  assert(PowerManager::STATE_VERSION == 26);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -1940,7 +1940,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 25);
+  assert(PowerManager::STATE_VERSION == 26);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -2375,7 +2375,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 25);
+  assert(PowerManager::STATE_VERSION == 26);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3957,7 +3957,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 25);
+  assert(PowerManager::STATE_VERSION == 26);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4651,7 +4651,10 @@ void testDeviceConfigRtcRoundTrip() {
       {18, 32},  // chime alert mask above range
       {19, 5},   // NTP sync interval below range
       {19, 169}, // NTP sync interval above range
-      {48, 2},   // unknown flag bit
+      {20, 29},  // wake interval low byte 29 with high byte 0: below range
+      {21, 4},   // wake interval high byte 4: 60 + 1024 above range
+      {50, 2},   // invalid character in the onboard name
+      {PowerManager::CONFIG_SIZE - PowerManager::REJECTS_SIZE - 1, 2}, // unknown flag bit
   };
   for (const Corrupt& c : cases) {
     memcpy(bad, buf, sizeof(bad));
@@ -4665,7 +4668,7 @@ void testDeviceConfigRtcRoundTrip() {
   const float nan_value = NAN;
   const float far_value = 99.0f;
   for (const float f : {nan_value, far_value}) {
-    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(20)}) {
+    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(22)}) {
       memcpy(bad, buf, sizeof(bad));
       memcpy(bad + cfg_pos + off, &f, 4);
       const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
@@ -4738,7 +4741,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 25);
+  assert(PowerManager::STATE_VERSION == 26);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4908,7 +4911,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 25);
+  assert(PowerManager::STATE_VERSION == 26);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -5090,7 +5093,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 25);
+  assert(PowerManager::STATE_VERSION == 26);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -5458,6 +5461,168 @@ void testNtpSyncIntervalConfig() {
   const uint32_t crc2 = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc2 >> (8 * i));
   assert(PowerManager::deserialize(buf, sizeof(buf), bad) && bad.config.ntp_sync_interval_h == 24);
+}
+
+void testWakeIntervalConfig() {
+  // Default and range edges
+  DeviceConfig cfg;
+  assert(cfg.wake_interval_s == 60 && cfg.isDefault() && cfg.valid());
+  assert(cfg.wake_interval_s == PowerConfig::DEFAULT_SLEEP_INTERVAL_S);
+  auto parse = [&](const char* text) {
+    return DeviceConfigParser::parse(text, strlen(text), cfg);
+  };
+  assert(parse("wake_interval_s=30\n").keys_set == 1 && cfg.wake_interval_s == 30);
+  assert(parse("wake_interval_s = 900\r\n").keys_set == 1 && cfg.wake_interval_s == 900);
+  assert(!cfg.isDefault() && cfg.valid());
+  // Out of range and malformed values are rejected; the previous value stays
+  for (const char* bad : {"wake_interval_s=29\n", "wake_interval_s=0\n", "wake_interval_s=901\n",
+                          "wake_interval_s=65536\n", "wake_interval_s=-60\n", "wake_interval_s=60.5\n",
+                          "wake_interval_s=abc\n", "wake_interval_s=\n"}) {
+    cfg = DeviceConfig{};
+    const ConfigParseResult r = parse(bad);
+    assert(r.keys_set == 0 && r.rejected == 1 && cfg.wake_interval_s == 60);
+  }
+  cfg = DeviceConfig{};
+  parse("wake_interval_s=120\nwake_interval_s=5\n");
+  assert(cfg.wake_interval_s == 120);
+  cfg.wake_interval_s = 29;
+  assert(!cfg.valid());
+  cfg.wake_interval_s = 901;
+  assert(!cfg.valid());
+
+  // Text round trip
+  cfg = DeviceConfig{};
+  cfg.wake_interval_s = 900;
+  char text[DeviceConfigText::MAX_SIZE];
+  const size_t n = DeviceConfigText::format(cfg, text, sizeof(text));
+  assert(n > 0);
+  DeviceConfig back;
+  DeviceConfigParser::parse(text, n, back);
+  assert(back.wake_interval_s == 900);
+
+  // Power config: battery takes the configured value, USB power keeps the default
+  BatteryReading battery;
+  battery.valid = true;
+  battery.usb_powered = false;
+  BatteryReading usb = battery;
+  usb.usb_powered = true;
+  for (uint16_t v : {uint16_t(30), uint16_t(60), uint16_t(900)}) {
+    DeviceConfig c;
+    c.wake_interval_s = v;
+    assert(PowerManager::powerConfig(c, battery).sleep_interval_s == v);
+    assert(PowerManager::powerConfig(c, usb).sleep_interval_s == PowerConfig::DEFAULT_SLEEP_INTERVAL_S);
+    assert(PowerManager::powerConfig(c, battery).scan_duration_s == PowerConfig::DEFAULT_SCAN_DURATION_S);
+  }
+  BatteryReading none; // no reading: battery rule
+  DeviceConfig c900;
+  c900.wake_interval_s = 900;
+  assert(PowerManager::powerConfig(c900, none).sleep_interval_s == 900);
+
+  // Wakeup timer maths at both edges and the default
+  for (uint16_t v : {uint16_t(30), uint16_t(60), uint16_t(900)}) {
+    DeviceConfig c;
+    c.wake_interval_s = v;
+    const PowerConfig pc = PowerManager::powerConfig(c, battery);
+    const uint64_t full = static_cast<uint64_t>(v) * 1000000ULL;
+    assert(PowerManager::sleepMicros(pc, 5000, 5000) == full);
+    assert(PowerManager::sleepMicros(pc, 5000 + 4000, 5000) == full - 4000000ULL);
+    assert(PowerManager::sleepMicros(pc, 5000 + v * 1000u, 5000) == PowerManager::MIN_SLEEP_US);
+    assert(PowerManager::sleepMicros(pc, 5000 + v * 1000u - 1, 5000) == PowerManager::MIN_SLEEP_US);
+    assert(PowerManager::planSleep(pc, 5000, 5000, false).timer_us == full);
+    assert(PowerManager::continuousListenAllowed(pc, 5000 + 1000, 5000));
+    assert(pc.sanitized().scan_duration_s == PowerConfig::DEFAULT_SCAN_DURATION_S);
+  }
+
+  // Hourly gate with 900 s: the sample comes on the fourth wake, not earlier. The interval does
+  // not move the 3600 s gate of the history.
+  {
+    BatteryHistory h;
+    const uint32_t start = 100000;
+    battery.voltage_v = 3.9f;
+    assert(h.record(start, battery) && h.has_sampled);
+    for (uint32_t wake = 1; wake <= 3; ++wake) {
+      assert(!h.record(start + wake * 900000u, battery));
+    }
+    assert(h.record(start + 4 * 900000u, battery) && h.size() == 2);
+    ClimateHistory climate;
+    assert(climate.sampleDue(start));
+    SwitchBotRegistry reg;
+    assert(climate.record(start, true, 40.0f, reg, 20.0f));
+    for (uint32_t wake = 1; wake <= 3; ++wake) {
+      assert(!climate.record(start + wake * 900000u, true, 41.0f, reg, 20.0f));
+    }
+    assert(climate.record(start + 4 * 900000u, true, 41.0f, reg, 20.0f));
+  }
+
+  // Runtime estimate with samples off the hour grid: the 900 s wake cycle plus 7 s of awake time
+  // gives a sample every fourth wake, 3628 s apart. The fit uses the stamps, not the sample count.
+  {
+    DeviceConfig c;
+    c.wake_interval_s = 900;
+    const PowerConfig pc = PowerManager::powerConfig(c, battery);
+    BatteryHistory h;
+    BatteryReading now;
+    now.valid = true;
+    double last_v = 0.0;
+    uint32_t wake_ms = 1000;
+    for (int k = 0; h.size() < 8; ++k) {
+      wake_ms = 1000u + static_cast<uint32_t>(k) * (pc.sleep_interval_s * 1000u + 7000u);
+      const double hrs = (wake_ms - 1000u) / 3600000.0;
+      now.voltage_v = static_cast<float>(4.00 - 0.016 * hrs);
+      if (h.record(wake_ms, now)) {
+        last_v = now.voltage_v;
+      }
+    }
+    assert(h.timeAt(1) - h.timeAt(0) == 4u * (900000u + 7000u));
+    const double expected_h = (last_v - BatteryMonitor::V_EMPTY) / 0.016;
+    const BatteryRuntime rt = h.estimate(now);
+    assert(rt.valid && rt.hours + 1 >= expected_h && rt.hours <= expected_h + 1);
+    // The same slope on the hour grid gives the same fit per elapsed hour
+    BatteryHistory g;
+    for (int i = 0; i < 8; ++i) {
+      assert(g.push(4.00f - 0.016f * static_cast<float>(i), 1000u + i * 3600000u));
+    }
+    double slope_off = 0.0, slope_grid = 0.0;
+    assert(h.slope(slope_off) && g.slope(slope_grid));
+    assert(slope_off < -0.0159 && slope_off > -0.0161 && slope_grid < -0.0159 && slope_grid > -0.0161);
+    // Uneven jitter keeps the fit on the stamps, not on the sample count
+    BatteryHistory j;
+    const uint32_t off[8] = {0, 3600000, 7200000 + 600000, 10800000 + 900000, 14400000 + 300000,
+                             18000000 + 900000, 21600000, 25200000 + 450000};
+    for (int i = 0; i < 8; ++i) {
+      const double hrs = off[i] / 3600000.0;
+      assert(j.push(static_cast<float>(4.00 - 0.016 * hrs), 1000u + off[i]));
+    }
+    BatteryReading now3;
+    now3.valid = true;
+    now3.voltage_v = static_cast<float>(4.00 - 0.016 * (off[7] / 3600000.0));
+    const BatteryRuntime rj = j.estimate(now3);
+    const double expected_j = (4.00 - 0.016 * (off[7] / 3600000.0) - BatteryMonitor::V_EMPTY) / 0.016;
+    assert(rj.valid && rj.hours + 1 >= expected_j && rj.hours <= expected_j + 1);
+  }
+
+  // RTC round trip, corrupt values and the version bump
+  PersistentState st;
+  assert(st.config.wake_interval_s == 60);
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  PersistentState r;
+  for (uint16_t v : {uint16_t(30), uint16_t(60), uint16_t(257), uint16_t(900)}) {
+    st.config.wake_interval_s = v;
+    assert(PowerManager::serialize(st, buf, sizeof(buf)));
+    assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.wake_interval_s == v);
+  }
+  PersistentState bad;
+  for (uint16_t v : {uint16_t(29), uint16_t(0), uint16_t(901)}) {
+    st.config.wake_interval_s = v;
+    assert(PowerManager::serialize(st, buf, sizeof(buf)));
+    assert(!PowerManager::deserialize(buf, sizeof(buf), bad));
+  }
+  st.config.wake_interval_s = 600;
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  buf[4] = PowerManager::STATE_VERSION - 1;
+  const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
+  for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), bad));
 }
 
 void testSdFreeMegabytes() {
@@ -7787,12 +7952,13 @@ void testSerialConfigLineFormat() {
     assert(text.find("\nslot" + std::to_string(i) + "_temp_offset_c=0.0\n") != std::string::npos);
     assert(text.find("\nslot" + std::to_string(i) + "_rh_offset_pct=0.0\n") != std::string::npos);
   }
-  // 12 base keys plus six slot keys, one per line, no Wi-Fi key
+  // 13 base keys plus six slot keys, one per line, no Wi-Fi key
   size_t lines = 0;
   for (char c : text) {
     lines += c == '\n' ? 1 : 0;
   }
-  assert(lines == 18);
+  assert(text.find("\nwake_interval_s=60\n") != std::string::npos);
+  assert(lines == 19);
   assert(text.find("wifi") == std::string::npos && text.find("ssid") == std::string::npos &&
          text.find("pass") == std::string::npos);
   // Too small a buffer gives 0 and an empty string
@@ -7883,7 +8049,7 @@ void testSerialConfigRoundTrip() {
   assert(source_at != std::string::npos);
   DeviceConfig back;
   const ConfigParseResult result = DeviceConfigParser::parse(sink.out.data(), source_at, back);
-  assert(result.file_ok && result.rejected == 0 && result.keys_set == 18);
+  assert(result.file_ok && result.rejected == 0 && result.keys_set == 19);
   assert(back.temp_offset_c == original.temp_offset_c && back.rh_offset_pct == original.rh_offset_pct);
   assert(back.freeze_alert_limit_c == original.freeze_alert_limit_c);
   assert(back.mold_alert_limit_rh == 85 && back.chime_volume_pct == 100);
@@ -8090,7 +8256,7 @@ void testNoiseAlertStatePersistence() {
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 8 - 24;
+  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 10 - 24;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -8273,7 +8439,7 @@ void testChimeAlertMask() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   uint8_t badbuf[PowerManager::SERIALIZED_SIZE];
   memcpy(badbuf, buf, sizeof(badbuf));
-  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 7 - 24] = 32;
+  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 9 - 24] = 32;
   const uint32_t crc = PowerManager::crc32(badbuf, sizeof(badbuf) - 4);
   for (int i = 0; i < 4; ++i) badbuf[sizeof(badbuf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState out;
@@ -9192,7 +9358,7 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 25);
+  assert(PowerManager::STATE_VERSION == 26);
 
   // A valid checksum with the same MAC in two keys is rejected
   const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
@@ -9388,6 +9554,7 @@ int main() {
   testSlotCalibrationOffsets();
   testSensorNames();
   testNtpSyncIntervalConfig();
+  testWakeIntervalConfig();
   testDiagnosticsConfigLine();
   testConfigRejectedLines();
   testConfigRejectedRtcRoundTrip();

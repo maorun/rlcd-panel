@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] Wake interval from config.ini
-  - Rank: [Total: 31, Use: 6, Setup: 9, Harmony: 8, Safety: 8, Effort: S]
-  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/battery_monitor.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the `config.ini` key `wake_interval_s` (default `60`, range `30` to `900`). Pass the value to `PowerConfig::sleep_interval_s`. A longer interval gives a longer battery runtime, and a shorter interval gives faster tile updates. Keep the hourly log, the history and the NTP schedule on the RTC clock, so the interval does not move them. On USB power, keep the interval at the default value. Store the value in the config trailer and increase the state version.
-  - Acceptance test: Host tests cover the default, the edges `30` and `900`, out-of-range and malformed values, the wakeup timer maths for each edge, the hourly gate with a 900 s interval, the USB power override, the runtime estimate with samples off the hour grid, and the RTC round trip.
-
 - [ ] Ventilation advice from indoor and outdoor absolute humidity
   - Rank: [Total: 30, Use: 8, Setup: 4, Harmony: 9, Safety: 9, Effort: M]
   - Location: `rlcd_panel/climate_math.h`, `rlcd_panel/device_config.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`

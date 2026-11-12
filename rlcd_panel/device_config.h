@@ -47,6 +47,9 @@ struct DeviceConfig {
   static constexpr uint8_t DEFAULT_NTP_SYNC_INTERVAL_H = 24;
   static constexpr uint8_t MIN_NTP_SYNC_INTERVAL_H = 6;
   static constexpr uint8_t MAX_NTP_SYNC_INTERVAL_H = 168;
+  static constexpr uint16_t DEFAULT_WAKE_INTERVAL_S = 60; // equals PowerConfig::DEFAULT_SLEEP_INTERVAL_S
+  static constexpr uint16_t MIN_WAKE_INTERVAL_S = 30;
+  static constexpr uint16_t MAX_WAKE_INTERVAL_S = 900;
 
   static constexpr size_t MAC_BYTES = 6;
   static constexpr size_t NAME_MAX_CHARS = 12; // longest sensor name; a name buffer adds the terminator
@@ -80,6 +83,7 @@ struct DeviceConfig {
   uint8_t noise_alert_limit_db = DEFAULT_NOISE_ALERT_LIMIT_DB; // 0 = off, else 40..100 dB
   uint8_t chime_alert_mask = DEFAULT_CHIME_ALERT_MASK; // bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full
   uint8_t ntp_sync_interval_h = DEFAULT_NTP_SYNC_INTERVAL_H; // hours between two successful NTP syncs, 6..168
+  uint16_t wake_interval_s = DEFAULT_WAKE_INTERVAL_S; // seconds from one scan start to the next on battery power, 30..900
 
   static bool inRange(float v, float lo, float hi) {
     return v >= lo && v <= hi; // false for NaN
@@ -160,7 +164,8 @@ struct DeviceConfig {
            log_retention_months <= MAX_LOG_RETENTION_MONTHS && chime_alert_mask <= MAX_CHIME_ALERT_MASK &&
            (noise_alert_limit_db == 0 ||
             (noise_alert_limit_db >= MIN_NOISE_ALERT_LIMIT_DB && noise_alert_limit_db <= MAX_NOISE_ALERT_LIMIT_DB)) &&
-           ntp_sync_interval_h >= MIN_NTP_SYNC_INTERVAL_H && ntp_sync_interval_h <= MAX_NTP_SYNC_INTERVAL_H;
+           ntp_sync_interval_h >= MIN_NTP_SYNC_INTERVAL_H && ntp_sync_interval_h <= MAX_NTP_SYNC_INTERVAL_H &&
+           wake_interval_s >= MIN_WAKE_INTERVAL_S && wake_interval_s <= MAX_WAKE_INTERVAL_S;
   }
 
   bool isDefault() const {
@@ -183,7 +188,7 @@ struct DeviceConfig {
            quiet_hours_end_hour == d.quiet_hours_end_hour && mic_spl_offset_db == d.mic_spl_offset_db &&
            log_retention_months == d.log_retention_months && noise_alert_limit_db == d.noise_alert_limit_db &&
            chime_alert_mask == d.chime_alert_mask &&
-           ntp_sync_interval_h == d.ntp_sync_interval_h;
+           ntp_sync_interval_h == d.ntp_sync_interval_h && wake_interval_s == d.wake_interval_s;
   }
 };
 
@@ -335,12 +340,13 @@ private:
     return true;
   }
 
-  static bool parseIntIn(const char* s, size_t n, int lo, int hi, uint8_t& out) {
+  template <typename T>
+  static bool parseIntIn(const char* s, size_t n, int lo, int hi, T& out) {
     double v;
     if (!parseNumber(s, n, v) || !(v >= lo && v <= hi) || v != static_cast<double>(static_cast<int>(v))) {
       return false;
     }
-    out = static_cast<uint8_t>(static_cast<int>(v));
+    out = static_cast<T>(static_cast<int>(v));
     return true;
   }
 
@@ -521,6 +527,10 @@ private:
       index = 10;
       ok = parseIntIn(val, val_len, DeviceConfig::MIN_NTP_SYNC_INTERVAL_H, DeviceConfig::MAX_NTP_SYNC_INTERVAL_H,
                       cfg.ntp_sync_interval_h);
+    } else if (keyIs(key, key_len, "wake_interval_s")) {
+      index = 25;
+      ok = parseIntIn(val, val_len, DeviceConfig::MIN_WAKE_INTERVAL_S, DeviceConfig::MAX_WAKE_INTERVAL_S,
+                      cfg.wake_interval_s);
     } else if (keyIs(key, key_len, "rh_offset_pct")) {
       index = 11;
       ok = parseFloatIn(val, val_len, DeviceConfig::MIN_RH_OFFSET_PCT, DeviceConfig::MAX_RH_OFFSET_PCT,
@@ -570,6 +580,7 @@ public:
     ok = ok && putInt(out, cap, pos, "noise_alert_limit_db", cfg.noise_alert_limit_db);
     ok = ok && putInt(out, cap, pos, "chime_alert_mask", cfg.chime_alert_mask);
     ok = ok && putInt(out, cap, pos, "ntp_sync_interval_h", cfg.ntp_sync_interval_h);
+    ok = ok && putInt(out, cap, pos, "wake_interval_s", cfg.wake_interval_s);
     for (size_t i = 0; ok && i < DeviceConfig::SLOT_COUNT; ++i) {
       char key[32];
       snprintf(key, sizeof(key), "slot%u_temp_offset_c", static_cast<unsigned>(i + 1));
@@ -614,7 +625,7 @@ private:
     return true;
   }
 
-  static bool putInt(char* out, size_t cap, size_t& pos, const char* key, uint8_t value) {
+  static bool putInt(char* out, size_t cap, size_t& pos, const char* key, uint16_t value) {
     char text[8];
     snprintf(text, sizeof(text), "%u", static_cast<unsigned>(value));
     return putLine(out, cap, pos, key, text);

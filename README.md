@@ -117,7 +117,7 @@ To render a single view by hand, run `render_display_preview <out.bmp> [mode 0..
 
 ## Power Management
 
-The firmware sleeps between measurements. Each 60 s cycle scans BLE for 4 s, redraws the display, and enters deep sleep. The reflective LCD keeps the image without power. RTC memory keeps the sensor registry, battery reading, and view mode. Press `KEY` to wake the board and cycle the view. The serial port is not active during deep sleep, so hold `BOOT` while you connect `PWR` or USB to flash (see above).
+The firmware sleeps between measurements. Each cycle scans BLE for 4 s, redraws the display, and enters deep sleep. A cycle starts every 60 s by default. The `config.ini` key `wake_interval_s` (30 to 900) sets this interval on battery power; USB power keeps 60 s. The reflective LCD keeps the image without power. RTC memory keeps the sensor registry, battery reading, and view mode. Press `KEY` to wake the board and cycle the view. The serial port is not active during deep sleep, so hold `BOOT` while you connect `PWR` or USB to flash (see above).
 
 ## Build, Test, Preview, and Flash Commands
 
@@ -180,6 +180,7 @@ log_retention_months=0
 noise_alert_limit_db=0
 chime_alert_mask=31
 ntp_sync_interval_h=24
+wake_interval_s=60
 # Optional sensor names: 1 to 12 characters of A-Z, 0-9, space and -
 # onboard_name=BUERO
 # slot1_name=WOHNZIMMER
