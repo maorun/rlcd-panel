@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] Ventilation advice from indoor and outdoor absolute humidity
-  - Rank: [Total: 30, Use: 8, Setup: 4, Harmony: 9, Safety: 9, Effort: M]
-  - Location: `rlcd_panel/climate_math.h`, `rlcd_panel/device_config.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the `config.ini` key `outdoor_slot` (default `0` is off, range `0` to `3`). Calculate the absolute humidity in g/m³ for the onboard sensor and for the outdoor slot with `ClimateMath`. Show the banner `VENTILATE` when the indoor humidity is above `mold_alert_limit_rh` and the outdoor air holds at least 2.0 g/m³ less water. Release the banner when the difference is below 1.0 g/m³ or the indoor humidity is 3 %RH below the limit. Add the alert `ALERT_VENTILATE` (bit 5 of `chime_alert_mask`, new range `0` to `63`) with one chime per trigger. Mute and quiet hours suppress the chime. A stale outdoor slot gives no advice.
-  - Acceptance test: Host tests cover the absolute humidity at 0 °C, 20 °C and 30 °C against reference values, the trigger and the release with the hysteresis, a stale or empty outdoor slot, `outdoor_slot=0`, the mask bit, mute and quiet hours, the new mask range, the banner bounds, and the RTC round trip. `docs/display_preview_dashboard.png` shows the banner in one scene.
-
 ## Priority 3: Audio Expansions (Score 22–27)
 
 ## Rules for ranking

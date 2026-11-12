@@ -24,9 +24,10 @@ struct PreviewScene {
   bool quiet_hours;
   bool long_runtime = false; // slow discharge: the runtime line shows days
   bool battery_empty = false; // empty battery protection: full-screen warning
+  bool ventilate = false;     // ventilation advice: banner in the dashboard header
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 8;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 9;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
@@ -37,16 +38,17 @@ constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_low_battery", DisplayMode::DASHBOARD, true, false},
     {"display_preview_quiet_hours", DisplayMode::DASHBOARD, false, true},
     {"display_preview_battery_empty", DisplayMode::DASHBOARD, false, false, false, true},
+    {"display_preview_ventilate", DisplayMode::DASHBOARD, false, false, false, false, true},
 };
 
 // Renders one mode with the fixed sample data used for all documentation previews.
 inline void renderScene(
     St7305Framebuffer& fb, DisplayMode mode, bool low_battery, bool quiet_hours = false,
-    bool long_runtime = false, bool battery_empty = false) {
+    bool long_runtime = false, bool battery_empty = false, bool ventilate = false) {
   Shtc3Reading onboard;
   onboard.valid = true;
   onboard.temperature_c = 21.8f;
-  onboard.humidity_pct = 48.0f;
+  onboard.humidity_pct = ventilate ? 74.0f : 48.0f; // the advice needs humid indoor air
 
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
   // Sensor 1: Living room / Balkon
@@ -150,6 +152,7 @@ inline void renderScene(
   info.noise.l10_rms = 1000; // L10 60 DBA
   info.noise.l90_rms = 316;  // L90 50 DBA
   info.quiet_hours = quiet_hours;
+  info.ventilate = ventilate;
   info.config_from_sd = true;
   info.config_rejected = 2; // two rejected config.ini lines
   info.rtc_drift.has_sync = true;

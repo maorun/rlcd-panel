@@ -42,8 +42,10 @@ struct DeviceConfig {
   static constexpr uint8_t DEFAULT_NOISE_ALERT_LIMIT_DB = 0; // 0 switches the noise alert off
   static constexpr uint8_t MIN_NOISE_ALERT_LIMIT_DB = 40;
   static constexpr uint8_t MAX_NOISE_ALERT_LIMIT_DB = 100;
-  static constexpr uint8_t DEFAULT_CHIME_ALERT_MASK = 31; // all five alerts may sound
-  static constexpr uint8_t MAX_CHIME_ALERT_MASK = 31;
+  static constexpr uint8_t DEFAULT_CHIME_ALERT_MASK = 63; // all six alerts may sound
+  static constexpr uint8_t MAX_CHIME_ALERT_MASK = 63;
+  static constexpr uint8_t DEFAULT_OUTDOOR_SLOT = 0; // 0 switches the ventilation advice off
+  static constexpr uint8_t MAX_OUTDOOR_SLOT = 3;
   static constexpr uint8_t DEFAULT_NTP_SYNC_INTERVAL_H = 24;
   static constexpr uint8_t MIN_NTP_SYNC_INTERVAL_H = 6;
   static constexpr uint8_t MAX_NTP_SYNC_INTERVAL_H = 168;
@@ -81,7 +83,8 @@ struct DeviceConfig {
   float mic_spl_offset_db = DEFAULT_MIC_SPL_OFFSET_DB; // added to the microphone calibration offset
   uint8_t log_retention_months = DEFAULT_LOG_RETENTION_MONTHS; // log files older than this are deleted
   uint8_t noise_alert_limit_db = DEFAULT_NOISE_ALERT_LIMIT_DB; // 0 = off, else 40..100 dB
-  uint8_t chime_alert_mask = DEFAULT_CHIME_ALERT_MASK; // bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full
+  uint8_t chime_alert_mask = DEFAULT_CHIME_ALERT_MASK; // bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full, 5 ventilate
+  uint8_t outdoor_slot = DEFAULT_OUTDOOR_SLOT; // registry slot (1..3) of the outdoor sensor for the ventilation advice, 0 = off
   uint8_t ntp_sync_interval_h = DEFAULT_NTP_SYNC_INTERVAL_H; // hours between two successful NTP syncs, 6..168
   uint16_t wake_interval_s = DEFAULT_WAKE_INTERVAL_S; // seconds from one scan start to the next on battery power, 30..900
 
@@ -162,6 +165,7 @@ struct DeviceConfig {
            quiet_hours_end_hour <= MAX_HOUR &&
            inRange(mic_spl_offset_db, MIN_MIC_SPL_OFFSET_DB, MAX_MIC_SPL_OFFSET_DB) &&
            log_retention_months <= MAX_LOG_RETENTION_MONTHS && chime_alert_mask <= MAX_CHIME_ALERT_MASK &&
+           outdoor_slot <= MAX_OUTDOOR_SLOT &&
            (noise_alert_limit_db == 0 ||
             (noise_alert_limit_db >= MIN_NOISE_ALERT_LIMIT_DB && noise_alert_limit_db <= MAX_NOISE_ALERT_LIMIT_DB)) &&
            ntp_sync_interval_h >= MIN_NTP_SYNC_INTERVAL_H && ntp_sync_interval_h <= MAX_NTP_SYNC_INTERVAL_H &&
@@ -187,7 +191,7 @@ struct DeviceConfig {
            quiet_hours_start_hour == d.quiet_hours_start_hour &&
            quiet_hours_end_hour == d.quiet_hours_end_hour && mic_spl_offset_db == d.mic_spl_offset_db &&
            log_retention_months == d.log_retention_months && noise_alert_limit_db == d.noise_alert_limit_db &&
-           chime_alert_mask == d.chime_alert_mask &&
+           chime_alert_mask == d.chime_alert_mask && outdoor_slot == d.outdoor_slot &&
            ntp_sync_interval_h == d.ntp_sync_interval_h && wake_interval_s == d.wake_interval_s;
   }
 };
@@ -531,6 +535,9 @@ private:
       index = 25;
       ok = parseIntIn(val, val_len, DeviceConfig::MIN_WAKE_INTERVAL_S, DeviceConfig::MAX_WAKE_INTERVAL_S,
                       cfg.wake_interval_s);
+    } else if (keyIs(key, key_len, "outdoor_slot")) {
+      index = 26;
+      ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_OUTDOOR_SLOT, cfg.outdoor_slot);
     } else if (keyIs(key, key_len, "rh_offset_pct")) {
       index = 11;
       ok = parseFloatIn(val, val_len, DeviceConfig::MIN_RH_OFFSET_PCT, DeviceConfig::MAX_RH_OFFSET_PCT,
@@ -581,6 +588,7 @@ public:
     ok = ok && putInt(out, cap, pos, "chime_alert_mask", cfg.chime_alert_mask);
     ok = ok && putInt(out, cap, pos, "ntp_sync_interval_h", cfg.ntp_sync_interval_h);
     ok = ok && putInt(out, cap, pos, "wake_interval_s", cfg.wake_interval_s);
+    ok = ok && putInt(out, cap, pos, "outdoor_slot", cfg.outdoor_slot);
     for (size_t i = 0; ok && i < DeviceConfig::SLOT_COUNT; ++i) {
       char key[32];
       snprintf(key, sizeof(key), "slot%u_temp_offset_c", static_cast<unsigned>(i + 1));
