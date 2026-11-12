@@ -7,6 +7,7 @@
 
 #include "device_config.h"
 #include "sd_logger.h"
+#include "sparkline.h"
 
 namespace rlcd_panel {
 
@@ -30,19 +31,21 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
+  BAD_ARG,  // CALIB without a reference, with a reference above 3 or with extra text
   BAD_NAME, // DUMP without a name, or a name that is not climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv or daily_v1_YYYY.csv
 };
 
 struct SerialCommand {
   SerialCommandKind kind = SerialCommandKind::NONE;
   char file[SdLogCodec::LOG_NAME_SIZE] = {0};
+  uint8_t reference = 0; // CALIB: 0 onboard, 1 to 3 a slot
 };
 
 // One log file as the storage reports it.
@@ -52,7 +55,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "CALIB 0..3" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -98,6 +101,15 @@ public:
                          : (is_info ? SerialCommandKind::INFO : SerialCommandKind::CONFIG);
       return SerialParseStatus::OK;
     }
+    if (matches(line, cmd_len, "CALIB")) {
+      // exactly one digit 0 to 3
+      if (len != cmd_len + 2 || line[cmd_len + 1] < '0' || line[cmd_len + 1] > '3') {
+        return SerialParseStatus::BAD_ARG;
+      }
+      out.kind = SerialCommandKind::CALIB;
+      out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
+      return SerialParseStatus::OK;
+    }
     if (matches(line, cmd_len, "DUMP")) {
       if (cmd_len == len || len - cmd_len < 2) {
         return SerialParseStatus::BAD_NAME;
@@ -125,6 +137,7 @@ public:
       case SerialParseStatus::UNKNOWN: return "ERR UNKNOWN\n";
       case SerialParseStatus::TOO_LONG: return "ERR TOO_LONG\n";
       case SerialParseStatus::BAD_NAME: return "ERR BAD_NAME\n";
+      case SerialParseStatus::BAD_ARG: return "ERR BAD_ARG\n";
       case SerialParseStatus::OK:
       case SerialParseStatus::EMPTY:
       default: return "";
@@ -189,6 +202,9 @@ private:
 //   CONFIG -> "key=value" per DeviceConfig setting, "SOURCE <SD|DEFAULT>", "REJECTED line=<n>" for each of the first four rejected lines, then "CRC32 <8 hex
 //   digits>" over all lines before it. showConfig() sends it from the RTC copy: no card access,
 //   so execute() ignores CONFIG.
+//   CALIB N -> "REFERENCE <name>", one "SENSOR <name> hours=<n> temp_offset=<x> rh_offset=<x> temp_diff=<x> rh_diff=<x>" or
+//   "SKIP <name> hours=<n>" per other sensor, the "key=value" lines to paste into config.ini, then "CRC32 <8 hex digits>"
+//   over all lines before it. showCalib() works on the RTC history: no card access, so execute() ignores CALIB.
 //   Any failure -> "ERR <NO_CARD|NOT_FOUND|READ_FAILED>". A read error after BEGIN pads the
 //   payload with zero bytes to the announced count, then sends "ERR READ_FAILED" in place of the
 //   CRC32 line, so the host stays in step with the frame and sees the error.
@@ -225,8 +241,75 @@ public:
     send(sink, line);
   }
 
+  // Sends the mean differences of every sensor to the reference and the offsets that would remove them.
+  // The hourly samples are paired by age (newest with newest), and only the hours with a sample in both
+  // histories count. The samples already contain the active offsets. The card stays untouched.
+  static void showCalib(Sink& sink, uint8_t reference, const ClimateHistory& history, const DeviceConfig& config) {
+    static const char* const names[ClimateHistory::SLOT_COUNT] = {"onboard", "slot1", "slot2", "slot3"};
+    static const char* const prefixes[ClimateHistory::SLOT_COUNT] = {"", "slot1_", "slot2_", "slot3_"};
+    if (reference >= ClimateHistory::SLOT_COUNT) {
+      return;
+    }
+    char text[1024];
+    size_t len = static_cast<size_t>(snprintf(text, sizeof(text), "REFERENCE %s\n", names[reference]));
+    char suggestions[512] = {0};
+    size_t slen = 0;
+    for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
+      if (s == reference) {
+        continue;
+      }
+      const size_t hours = commonHours(history, reference, s);
+      if (hours < MIN_COMMON_HOURS) {
+        len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "SKIP %s hours=%u\n", names[s],
+                                            static_cast<unsigned>(hours)));
+        continue;
+      }
+      int32_t temp_sum = 0;
+      int32_t rh_sum = 0;
+      for (size_t k = 0; k < hours; ++k) {
+        temp_sum += history.temperatures[s].at(history.temperatures[s].size() - 1 - k) -
+                    history.temperatures[reference].at(history.temperatures[reference].size() - 1 - k);
+        rh_sum += history.slots[s].at(history.slots[s].size() - 1 - k) -
+                  history.slots[reference].at(history.slots[reference].size() - 1 - k);
+      }
+      const float temp_mean = static_cast<float>(temp_sum) / static_cast<float>(hours); // 0.1 steps
+      const float rh_mean = static_cast<float>(rh_sum) / static_cast<float>(hours);
+      const float temp_active = s == 0 ? config.temp_offset_c : config.slot_temp_offset_c[s - 1];
+      const float rh_active = s == 0 ? config.rh_offset_pct : config.slot_rh_offset_pct[s - 1];
+      const float temp_min = s == 0 ? DeviceConfig::MIN_TEMP_OFFSET_C : DeviceConfig::MIN_SLOT_TEMP_OFFSET_C;
+      const float temp_max = s == 0 ? DeviceConfig::MAX_TEMP_OFFSET_C : DeviceConfig::MAX_SLOT_TEMP_OFFSET_C;
+      const float rh_min = s == 0 ? DeviceConfig::MIN_RH_OFFSET_PCT : DeviceConfig::MIN_SLOT_RH_OFFSET_PCT;
+      const float rh_max = s == 0 ? DeviceConfig::MAX_RH_OFFSET_PCT : DeviceConfig::MAX_SLOT_RH_OFFSET_PCT;
+      char f[4][12];
+      formatTenths(f[0], sizeof(f[0]), tenths(temp_active));
+      formatTenths(f[1], sizeof(f[1]), tenths(rh_active));
+      formatTenths(f[2], sizeof(f[2]), static_cast<int32_t>(lroundf(temp_mean)));
+      formatTenths(f[3], sizeof(f[3]), static_cast<int32_t>(lroundf(rh_mean)));
+      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len,
+                                          "SENSOR %s hours=%u temp_offset=%s rh_offset=%s temp_diff=%s rh_diff=%s\n",
+                                          names[s], static_cast<unsigned>(hours), f[0], f[1], f[2], f[3]));
+      const int32_t temp_new = clampTenths(lroundf(tenths(temp_active) - temp_mean), temp_min, temp_max);
+      const int32_t rh_new = clampTenths(lroundf(tenths(rh_active) - rh_mean), rh_min, rh_max);
+      formatTenths(f[0], sizeof(f[0]), temp_new);
+      formatTenths(f[1], sizeof(f[1]), rh_new);
+      slen += static_cast<size_t>(snprintf(suggestions + slen, sizeof(suggestions) - slen,
+                                           "%stemp_offset_c=%s\n%srh_offset_pct=%s\n", prefixes[s], f[0],
+                                           prefixes[s], f[1]));
+    }
+    len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "%s", suggestions));
+    SerialCrc32 crc;
+    crc.update(reinterpret_cast<const uint8_t*>(text), len);
+    if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+      return;
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
   static void execute(Storage& storage, Sink& sink, const SerialCommand& command) {
-    if (command.kind == SerialCommandKind::NONE || command.kind == SerialCommandKind::CONFIG) {
+    if (command.kind == SerialCommandKind::NONE || command.kind == SerialCommandKind::CONFIG ||
+        command.kind == SerialCommandKind::CALIB) {
       return;
     }
     if (!storage.mount()) {
@@ -239,12 +322,41 @@ public:
       case SerialCommandKind::DUMP: dump(storage, sink, command.file); break;
       case SerialCommandKind::NONE:
       case SerialCommandKind::CONFIG:
+      case SerialCommandKind::CALIB:
       default: break;
     }
     storage.unmount();
   }
 
+  static constexpr size_t MIN_COMMON_HOURS = 6;
+
 private:
+  // Hours with a temperature and a humidity sample in the reference and in the sensor.
+  static size_t commonHours(const ClimateHistory& h, size_t reference, size_t sensor) {
+    size_t n = h.slots[reference].size();
+    const size_t others[3] = {h.slots[sensor].size(), h.temperatures[reference].size(), h.temperatures[sensor].size()};
+    for (size_t o : others) {
+      n = o < n ? o : n;
+    }
+    return n;
+  }
+
+  static int32_t tenths(float value) {
+    return static_cast<int32_t>(lroundf(value * 10.0f));
+  }
+
+  static int32_t clampTenths(long value, float lo, float hi) {
+    const long lo_t = lroundf(lo * 10.0f);
+    const long hi_t = lroundf(hi * 10.0f);
+    return static_cast<int32_t>(value < lo_t ? lo_t : (value > hi_t ? hi_t : value));
+  }
+
+  // Prints a value in 0.1 steps with one decimal; no "-0.0".
+  static void formatTenths(char* out, size_t size, int32_t value) {
+    const int32_t mag = value < 0 ? -value : value;
+    snprintf(out, size, "%s%ld.%ld", value < 0 ? "-" : "", static_cast<long>(mag / 10), static_cast<long>(mag % 10));
+  }
+
   static bool put(Sink& sink, const uint8_t* data, size_t len) {
     return sink.write(data, len) == len;
   }

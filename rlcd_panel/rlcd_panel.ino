@@ -742,6 +742,10 @@ void setup() {
         // The RTC copy answers: no card access, so the clap listener keeps running.
         SerialConsoleRunner<SdLogStorage, SerialSink>::showConfig(console_sink, g_state.config,
                                                                   g_state.config_from_sd, g_state.config_rejects);
+      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::CALIB) {
+        // The RTC histories answer: no card access, so the clap listener keeps running.
+        SerialConsoleRunner<SdLogStorage, SerialSink>::showCalib(console_sink, command.reference, g_state.history,
+                                                                 g_state.config);
       } else if (status == SerialParseStatus::OK) {
         clap_listener.release(); // keep the I2S bus idle while the card transfers
         SerialConsoleRunner<SdLogStorage, SerialSink>::execute(console_storage, console_sink, command);
