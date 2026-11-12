@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] Fixed MAC address for each sensor slot in config.ini
-  - Rank: [Total: 35, Use: 7, Setup: 10, Harmony: 8, Safety: 10, Effort: M]
-  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/bthome_ble.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the `config.ini` keys `slot1_mac` to `slot3_mac` (format `AA:BB:CC:DD:EE:FF`, empty by default). A slot with a fixed MAC accepts packets from that MAC only. A slot without a fixed MAC keeps the first-come rule, but it never accepts a MAC that another slot has fixed. Thus a sensor of a neighbor cannot take a slot, and the slot order, the names and the calibration offsets stay correct after a power-on. Clear the reading and the 24-hour history of a slot when its fixed MAC changes. Show the last three MAC bytes (`MAC ..:EE:FF`) in each sensor block of the stats view. Store the three values in the config trailer and increase the state version.
-  - Acceptance test: Host tests cover the parser for a valid MAC, lowercase hex, a wrong separator, a short value, an empty value and a duplicate MAC in two keys. Registry tests cover a fixed slot that rejects a foreign MAC, an unfixed slot that rejects a fixed MAC, the first-come rule without fixed MACs, SwitchBot and BTHome packets, the slot reset after a MAC change, and the RTC round trip. `docs/display_preview_stats.png` shows the MAC line.
-
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
 - [ ] Rejected config.ini lines in the diagnostics view and the serial console

@@ -575,8 +575,9 @@ void loadConfigFromCard(WakeupCause cause) {
     return;
   }
   g_sd_free_mb = free_mb;
-  g_state.config = loaded;
-  g_state.config_from_sd = result == SdConfigResult::LOADED;
+  portENTER_CRITICAL(&g_registry_mux);
+  g_state.applyConfig(loaded, result == SdConfigResult::LOADED);
+  portEXIT_CRITICAL(&g_registry_mux);
 }
 
 // Evaluates the climate thresholds and the sensor dropout, and sounds a chime for each alert that

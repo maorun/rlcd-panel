@@ -92,6 +92,46 @@ struct PersistentState {
   RtcDriftState rtc_drift;   // RTC drift of the last NTP sync
   DeviceConfig config;       // settings from /sdcard/config.ini; a timer wakeup reuses them
   bool config_from_sd = false; // true: the card supplied `config`; false: the defaults apply
+
+  // Takes over a new config. A slot whose fixed MAC changed (set, changed or removed) loses its
+  // reading and its 24-hour histories. A slot that holds a MAC another slot has fixed loses them
+  // too. The registry then enforces the fixed MACs. Call it before the BLE scan starts, or inside
+  // the registry lock.
+  void applyConfig(const DeviceConfig& next, bool from_sd) {
+    for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
+      if (memcmp(config.slot_mac[i], next.slot_mac[i], DeviceConfig::MAC_BYTES) != 0) {
+        resetSlot(i);
+      }
+    }
+    config = next;
+    config_from_sd = from_sd;
+    for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
+      registry.setFixedMac(i, config.hasSlotMac(i) ? config.slot_mac[i] : nullptr);
+    }
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (registry.slot(i).valid && breaksFixedMac(i)) {
+        resetSlot(i);
+      }
+    }
+  }
+
+private:
+  // True when the reading of slot `index` breaks a fixed MAC.
+  bool breaksFixedMac(size_t index) const {
+    SwitchBotRegistry probe = registry;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (i != index) {
+        probe.clearSlot(i);
+      }
+    }
+    return !probe.consistent();
+  }
+
+  void resetSlot(size_t index) {
+    registry.clearSlot(index);
+    history.slots[1 + index].clear();
+    history.temperatures[1 + index].clear();
+  }
 };
 
 struct WakeupPlan {
@@ -129,7 +169,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 23;
+  static constexpr uint8_t STATE_VERSION = 24;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -155,9 +195,11 @@ public:
   static constexpr size_t NTP_SIZE = 4 + 1 + 1 + 1 + 4 + 4 + 4;
   // Sensor names: the onboard name and one name for each slot, each with its terminator.
   static constexpr size_t NAMES_SIZE = (1 + DeviceConfig::SLOT_COUNT) * (DeviceConfig::NAME_MAX_CHARS + 1);
+  // Fixed MACs: one 6-byte address for each slot, all zero for no fixed MAC.
+  static constexpr size_t MACS_SIZE = DeviceConfig::SLOT_COUNT * DeviceConfig::MAC_BYTES;
   // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
-  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, RH offset (float), three slot temperature offsets and three slot RH offsets (floats), the sensor names, flags (bit 0 loaded from the card).
-  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 4 + 6 * 4 + NAMES_SIZE + 1;
+  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, RH offset (float), three slot temperature offsets and three slot RH offsets (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card).
+  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 4 + 6 * 4 + NAMES_SIZE + MACS_SIZE + 1;
   // Header: magic, version, mode, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -388,6 +430,8 @@ public:
       memcpy(out + pos, state.config.slot_name[i], DeviceConfig::NAME_MAX_CHARS + 1);
       pos += DeviceConfig::NAME_MAX_CHARS + 1;
     }
+    memcpy(out + pos, state.config.slot_mac, MACS_SIZE);
+    pos += MACS_SIZE;
     out[pos++] = state.config_from_sd ? 1 : 0;
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
@@ -611,9 +655,17 @@ public:
       memcpy(s.config.slot_name[i], data + pos, DeviceConfig::NAME_MAX_CHARS + 1);
       pos += DeviceConfig::NAME_MAX_CHARS + 1;
     }
+    memcpy(s.config.slot_mac, data + pos, MACS_SIZE);
+    pos += MACS_SIZE;
     const uint8_t config_flags = data[pos++];
     if ((config_flags & ~1u) != 0 || !s.config.valid()) {
       return false; // a corrupt record never reaches the alert limits
+    }
+    for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
+      s.registry.setFixedMac(i, s.config.hasSlotMac(i) ? s.config.slot_mac[i] : nullptr);
+    }
+    if (!s.registry.consistent()) {
+      return false; // a stored reading breaks a fixed MAC
     }
     s.config_from_sd = (config_flags & 1) != 0;
     out = s;

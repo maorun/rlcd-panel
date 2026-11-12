@@ -368,6 +368,11 @@ public:
     snprintf(out, capacity, "24H T%s H%s", temp, hum);
   }
 
+  // "MAC ..:EE:FF" style line: the last three MAC bytes. The full address stays in config.ini.
+  static void formatMac(char* out, size_t capacity, const uint8_t* mac) {
+    snprintf(out, capacity, "MAC ..:%02X:%02X:%02X", mac[3], mac[4], mac[5]);
+  }
+
   // "RSSI -NN DBM" for a live slot, "RSSI --" for an empty or stale slot.
   static void formatRssi(char* out, size_t capacity, const SwitchBotReading& sb, uint32_t now_ms) {
     // A packet stamped shortly after now_ms counts as fresh, like the age display.
@@ -404,6 +409,10 @@ public:
       if (!sb.valid) {
         snprintf(line, sizeof(line), "%s NO SIGNAL", label);
         drawLine(fb, 10, y, line);
+        if (config != nullptr && config->hasSlotMac(i)) {
+          formatMac(line, sizeof(line), config->slot_mac[i]);
+          drawLine(fb, 10, static_cast<uint16_t>(y + 18), line);
+        }
         continue;
       }
 
@@ -412,11 +421,7 @@ public:
       snprintf(line, sizeof(line), "%s %s", label, rssi);
       drawLine(fb, 10, y, line);
 
-      snprintf(
-          line,
-          sizeof(line),
-          "MAC %02X:%02X:%02X:%02X:%02X:%02X",
-          sb.mac[0], sb.mac[1], sb.mac[2], sb.mac[3], sb.mac[4], sb.mac[5]);
+      formatMac(line, sizeof(line), sb.mac);
       drawLine(fb, 10, static_cast<uint16_t>(y + 18), line);
 
       // The BLE task can stamp a packet shortly after the caller read now_ms: show 0 s for such a
