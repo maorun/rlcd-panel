@@ -108,6 +108,46 @@ public:
 
 class SwitchBotRegistry {
 public:
+  // Fixes a slot to one MAC (nullptr or an all-zero MAC removes the fix). A fixed slot accepts packets
+  // of this MAC only; an unfixed slot never accepts a MAC that another slot has fixed. This does not
+  // touch the stored reading: the caller clears a slot whose MAC changed (see clearSlot()).
+  void setFixedMac(size_t index, const uint8_t* mac) {
+    if (index >= MAX_SWITCHBOT_SENSORS) {
+      return;
+    }
+    fixed_[index] = mac != nullptr && !isZeroMac(mac);
+    if (fixed_[index]) {
+      memcpy(fixed_mac_[index], mac, 6);
+    } else {
+      memset(fixed_mac_[index], 0, 6);
+    }
+  }
+
+  bool isFixed(size_t index) const {
+    return index < MAX_SWITCHBOT_SENSORS && fixed_[index];
+  }
+
+  const uint8_t* fixedMac(size_t index) const {
+    return isFixed(index) ? fixed_mac_[index] : nullptr;
+  }
+
+  void clearSlot(size_t index) {
+    if (index < MAX_SWITCHBOT_SENSORS) {
+      slots_[index] = SwitchBotReading{};
+    }
+  }
+
+  // True when every stored reading obeys the fixed MACs: a fixed slot holds its own MAC only, and
+  // no unfixed slot holds a MAC that another slot has fixed.
+  bool consistent() const {
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (slots_[i].valid && !accepts(i, slots_[i].mac)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   bool upsert(const SwitchBotReading& reading) {
     if (!reading.valid) {
       return false;
@@ -127,9 +167,18 @@ public:
       }
     }
 
-    // 2. Allocate first free sensor slot
+    // 2. A slot that is fixed to this MAC takes it, also when an earlier slot is free.
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
-      if (!slots_[i].valid) {
+      if (fixed_[i] && memcmp(fixed_mac_[i], reading.mac, 6) == 0) {
+        slots_[i] = reading;
+        slots_[i].packet_count = 1;
+        return true;
+      }
+    }
+
+    // 3. Allocate the first free unfixed slot, unless another slot has fixed this MAC.
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (!slots_[i].valid && accepts(i, reading.mac)) {
         slots_[i] = reading;
         slots_[i].packet_count = 1;
         return true;
@@ -147,9 +196,9 @@ public:
     return slots_[index];
   }
 
-  // Restores one slot from persisted state. Rejects invalid readings and MACs held by another slot.
+  // Restores one slot from persisted state. Rejects invalid readings, MACs held by another slot and MACs the fixed MACs forbid.
   bool restoreSlot(size_t index, const SwitchBotReading& reading) {
-    if (index >= MAX_SWITCHBOT_SENSORS || !reading.valid) {
+    if (index >= MAX_SWITCHBOT_SENSORS || !reading.valid || !accepts(index, reading.mac)) {
       return false;
     }
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
@@ -204,7 +253,32 @@ public:
   }
 
 private:
+  static bool isZeroMac(const uint8_t* mac) {
+    for (size_t i = 0; i < 6; ++i) {
+      if (mac[i] != 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // True when slot `index` may hold `mac`: its own fixed MAC only, or, without a fixed MAC, any MAC
+  // that no other slot has fixed.
+  bool accepts(size_t index, const uint8_t* mac) const {
+    if (fixed_[index]) {
+      return memcmp(fixed_mac_[index], mac, 6) == 0;
+    }
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (i != index && fixed_[i] && memcmp(fixed_mac_[i], mac, 6) == 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   SwitchBotReading slots_[MAX_SWITCHBOT_SENSORS];
+  bool fixed_[MAX_SWITCHBOT_SENSORS] = {false, false, false};
+  uint8_t fixed_mac_[MAX_SWITCHBOT_SENSORS][6] = {{0}, {0}, {0}};
 };
 
 } // namespace rlcd_panel

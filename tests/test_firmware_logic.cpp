@@ -1053,7 +1053,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 23);
+  assert(PowerManager::STATE_VERSION == 24);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -1940,7 +1940,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 23);
+  assert(PowerManager::STATE_VERSION == 24);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -2375,7 +2375,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 23);
+  assert(PowerManager::STATE_VERSION == 24);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3957,7 +3957,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 23);
+  assert(PowerManager::STATE_VERSION == 24);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4738,7 +4738,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 23);
+  assert(PowerManager::STATE_VERSION == 24);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4908,7 +4908,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 23);
+  assert(PowerManager::STATE_VERSION == 24);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -5090,7 +5090,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 23);
+  assert(PowerManager::STATE_VERSION == 24);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -7932,7 +7932,7 @@ void testNoiseAlertStatePersistence() {
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::NAMES_SIZE - 8 - 24;
+  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 8 - 24;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -8115,7 +8115,7 @@ void testChimeAlertMask() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   uint8_t badbuf[PowerManager::SERIALIZED_SIZE];
   memcpy(badbuf, buf, sizeof(badbuf));
-  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::NAMES_SIZE - 7 - 24] = 32;
+  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 7 - 24] = 32;
   const uint32_t crc = PowerManager::crc32(badbuf, sizeof(badbuf) - 4);
   for (int i = 0; i < 4; ++i) badbuf[sizeof(badbuf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState out;
@@ -8816,6 +8816,279 @@ void testDiagnosticsShowsNoiseEvents() {
   assert(ab > 0 && ac > 0 && outside == 0); // only the events text changes, and it differs with a failed window
 }
 
+// ---- Fixed MAC address for each sensor slot (slot1_mac to slot3_mac) ----
+
+SwitchBotReading macReading(const uint8_t (&mac)[6], uint8_t humidity = 50, uint32_t updated_ms = 1000) {
+  SwitchBotReading r;
+  r.valid = true;
+  memcpy(r.mac, mac, 6);
+  r.temperature_c = 20.0f;
+  r.humidity_pct = humidity;
+  r.updated_ms = updated_ms;
+  return r;
+}
+
+const uint8_t MAC_A[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01};
+const uint8_t MAC_B[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x02};
+const uint8_t MAC_C[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x03};
+
+void testSlotMacParser() {
+  ConfigParseResult r;
+  DeviceConfig c = parseText("slot1_mac=AA:BB:CC:DD:EE:FF\n", &r);
+  assert(r.keys_set == 1 && r.rejected == 0 && c.hasSlotMac(0) && !c.hasSlotMac(1) && !c.hasSlotMac(2));
+  const uint8_t expected[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF};
+  assert(memcmp(c.slot_mac[0], expected, 6) == 0);
+  assert(c.valid() && !c.isDefault());
+
+  // Lowercase hex, spaces around the value, slot 2 and 3
+  c = parseText("slot2_mac = aa:bb:cc:dd:ee:0f \nslot3_mac=01:23:45:67:89:aB\n", &r);
+  assert(r.keys_set == 2 && r.rejected == 0 && c.hasSlotMac(1) && c.hasSlotMac(2));
+  assert(c.slot_mac[1][5] == 0x0F && c.slot_mac[2][5] == 0xAB);
+
+  // Wrong separator, short value, long value, bad digit, all zero: rejected, slot stays unfixed
+  const char* const bad[] = {
+      "slot1_mac=AA-BB-CC-DD-EE-FF\n", "slot1_mac=AABBCCDDEEFF\n", "slot1_mac=AA:BB:CC:DD:EE\n",
+      "slot1_mac=AA:BB:CC:DD:EE:F\n",  "slot1_mac=AA:BB:CC:DD:EE:FF:00\n", "slot1_mac=AA:BB:CC:DD:EE:GG\n",
+      "slot1_mac=AA:BB:CC:DD:EE;FF\n",  "slot1_mac=00:00:00:00:00:00\n"};
+  for (const char* text : bad) {
+    c = parseText(text, &r);
+    assert(r.keys_set == 0 && r.rejected == 1 && !c.hasSlotMac(0) && c.isDefault());
+  }
+
+  // Empty value: accepted and clears an earlier value of the same key
+  c = parseText("slot1_mac=\n", &r);
+  assert(r.keys_set == 1 && r.rejected == 0 && !c.hasSlotMac(0) && c.isDefault());
+  c = parseText("slot1_mac=AA:BB:CC:DD:EE:FF\nslot1_mac=\n", &r);
+  assert(r.keys_set == 1 && !c.hasSlotMac(0));
+  // A rejected line keeps the earlier value
+  c = parseText("slot1_mac=AA:BB:CC:DD:EE:FF\nslot1_mac=AA:BB\n", &r);
+  assert(r.rejected == 1 && c.hasSlotMac(0) && c.slot_mac[0][5] == 0xFF);
+
+  // The same MAC in two keys: the second key is rejected, also with another letter case
+  c = parseText("slot1_mac=AA:BB:CC:DD:EE:FF\nslot2_mac=aa:bb:cc:dd:ee:ff\n", &r);
+  assert(r.keys_set == 1 && r.rejected == 1 && c.hasSlotMac(0) && !c.hasSlotMac(1));
+  // The same key may repeat its own MAC
+  c = parseText("slot1_mac=AA:BB:CC:DD:EE:FF\nslot1_mac=AA:BB:CC:DD:EE:FF\n", &r);
+  assert(r.rejected == 0 && c.hasSlotMac(0));
+
+  // Config text writes fixed MACs back and the parser reads them
+  c = parseText("slot1_mac=AA:BB:CC:DD:EE:FF\nslot3_mac=01:02:03:04:05:06\n");
+  char text[DeviceConfigText::MAX_SIZE];
+  const size_t n = DeviceConfigText::format(c, text, sizeof(text));
+  assert(n > 0 && strstr(text, "slot1_mac=AA:BB:CC:DD:EE:FF\n") != nullptr && strstr(text, "slot2_mac") == nullptr);
+  DeviceConfig back;
+  r = DeviceConfigParser::parse(text, n, back);
+  assert(r.rejected == 0 && memcmp(back.slot_mac, c.slot_mac, sizeof(c.slot_mac)) == 0);
+  assert(DeviceConfigText::format(DeviceConfig{}, text, sizeof(text)) > 0 && strstr(text, "_mac") == nullptr);
+
+  // A config with a duplicate fixed MAC is not valid
+  c = DeviceConfig{};
+  memcpy(c.slot_mac[0], MAC_A, 6);
+  memcpy(c.slot_mac[1], MAC_A, 6);
+  assert(!c.valid());
+}
+
+void testSlotMacRegistry() {
+  // First come, first served without fixed MACs
+  {
+    SwitchBotRegistry reg;
+    assert(reg.upsert(macReading(MAC_B)) && reg.upsert(macReading(MAC_A)));
+    assert(memcmp(reg.slot(0).mac, MAC_B, 6) == 0 && memcmp(reg.slot(1).mac, MAC_A, 6) == 0);
+    assert(!reg.isFixed(0) && reg.fixedMac(0) == nullptr);
+  }
+  // A fixed slot rejects a foreign MAC and takes its own MAC, also when earlier slots are free
+  {
+    SwitchBotRegistry reg;
+    reg.setFixedMac(1, MAC_A);
+    assert(reg.isFixed(1) && memcmp(reg.fixedMac(1), MAC_A, 6) == 0);
+    assert(reg.upsert(macReading(MAC_A, 41)));
+    assert(!reg.slot(0).valid && reg.slot(1).valid && reg.slot(1).humidity_pct == 41);
+    assert(reg.upsert(macReading(MAC_A, 42)) && reg.slot(1).humidity_pct == 42 && reg.slot(1).packet_count == 2);
+    // A foreign MAC lands in a free unfixed slot, never in the fixed one
+    assert(reg.upsert(macReading(MAC_B)) && memcmp(reg.slot(0).mac, MAC_B, 6) == 0);
+    assert(reg.upsert(macReading(MAC_C)) && memcmp(reg.slot(2).mac, MAC_C, 6) == 0);
+    assert(memcmp(reg.slot(1).mac, MAC_A, 6) == 0);
+  }
+  // A fixed slot that is empty stays empty for a foreign MAC
+  {
+    SwitchBotRegistry reg;
+    reg.setFixedMac(0, MAC_A);
+    reg.setFixedMac(1, MAC_B);
+    reg.setFixedMac(2, MAC_C);
+    const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
+    assert(!reg.upsert(macReading(other)) && reg.activeCount() == 0);
+    assert(reg.upsert(macReading(MAC_C)) && reg.slot(2).valid && !reg.slot(0).valid);
+  }
+  // An unfixed slot rejects a MAC that another slot has fixed
+  {
+    SwitchBotRegistry reg;
+    reg.setFixedMac(2, MAC_A);
+    assert(reg.upsert(macReading(MAC_B)) && reg.upsert(macReading(MAC_C)));
+    assert(!reg.slot(2).valid && reg.activeCount() == 2);
+    assert(reg.upsert(macReading(MAC_A)) && memcmp(reg.slot(2).mac, MAC_A, 6) == 0);
+    assert(reg.activeCount() == 3);
+    // Only two unfixed slots exist; a third foreign MAC finds no place
+    SwitchBotRegistry full;
+    full.setFixedMac(2, MAC_A);
+    assert(full.upsert(macReading(MAC_B)) && full.upsert(macReading(MAC_C)));
+    const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
+    assert(!full.upsert(macReading(other)));
+  }
+  // BTHome packets follow the same rule
+  {
+    SwitchBotRegistry reg;
+    reg.setFixedMac(0, BTHOME_MAC);
+    reg.setFixedMac(1, MAC_A);
+    const uint8_t pkt[] = {0x40, 0x01, 77, 0x02, 0x4B, 0x08, 0x03, 0x97, 0x11};
+    SwitchBotReading bt;
+    assert(BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, pkt, sizeof(pkt), bt));
+    bt.updated_ms = 2000;
+    assert(reg.upsert(macReading(MAC_B)) && reg.upsert(bt));
+    assert(memcmp(reg.slot(0).mac, BTHOME_MAC, 6) == 0 && memcmp(reg.slot(2).mac, MAC_B, 6) == 0);
+    // A neighbour BTHome sensor cannot take a fixed slot
+    const uint8_t neighbour[6] = {0xA4, 0xC1, 0x38, 0x99, 0x99, 0x99};
+    SwitchBotReading nb;
+    assert(BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, neighbour, pkt, sizeof(pkt), nb));
+    assert(!reg.upsert(nb));
+    // A SwitchBot packet cannot take a slot that is fixed for another MAC
+    SwitchBotRegistry reg2;
+    reg2.setFixedMac(0, MAC_A);
+    assert(reg2.upsert(macReading(MAC_B)) && !reg2.slot(0).valid && reg2.slot(1).valid);
+  }
+  // clearSlot, setFixedMac with nullptr, and consistent()
+  {
+    SwitchBotRegistry reg;
+    reg.upsert(macReading(MAC_A));
+    assert(reg.consistent());
+    reg.setFixedMac(1, MAC_A); // slot 0 holds a MAC that slot 1 has fixed
+    assert(!reg.consistent());
+    reg.clearSlot(0);
+    assert(reg.consistent() && reg.activeCount() == 0);
+    reg.setFixedMac(1, nullptr);
+    assert(!reg.isFixed(1));
+    reg.clearSlot(7); // out of range: no effect
+  }
+}
+
+void testSlotMacConfigApply() {
+  PersistentState s;
+  for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
+    s.history.slots[i].pushPercent(50.0f);
+    s.history.temperatures[i].pushCelsius(20.0f);
+  }
+  s.registry.upsert(macReading(MAC_A));
+  s.registry.upsert(macReading(MAC_B));
+  s.registry.upsert(macReading(MAC_C));
+
+  // Same config again (a KEY wakeup): nothing changes
+  s.applyConfig(DeviceConfig{}, true);
+  assert(s.registry.activeCount() == 3 && s.history.slots[2].size() == 1 && s.config_from_sd);
+
+  // Slot 2 gets a new fixed MAC: its reading and its history go, the other slots stay
+  const uint8_t new_mac[6] = {9, 9, 9, 9, 9, 9};
+  DeviceConfig cfg;
+  memcpy(cfg.slot_mac[1], new_mac, 6);
+  s.applyConfig(cfg, true);
+  assert(!s.registry.slot(1).valid && s.registry.slot(0).valid && s.registry.slot(2).valid);
+  assert(s.history.slots[2].size() == 0 && s.history.temperatures[2].size() == 0);
+  assert(s.history.slots[1].size() == 1 && s.history.slots[3].size() == 1 && s.history.slots[0].size() == 1);
+  assert(s.registry.isFixed(1) && memcmp(s.registry.fixedMac(1), new_mac, 6) == 0);
+  assert(memcmp(s.config.slot_mac[1], new_mac, 6) == 0);
+
+  // The same fixed MAC again keeps what the slot got in the meantime
+  assert(s.registry.upsert(macReading(new_mac)) && s.registry.slot(1).valid);
+  s.history.slots[2].pushPercent(40.0f);
+  s.applyConfig(cfg, true);
+  assert(s.registry.slot(1).valid && s.history.slots[2].size() == 1);
+
+  // Slot 1 takes the MAC that slot 3 holds: slot 1 is reset, slot 3 loses its reading too
+  DeviceConfig cfg2 = cfg;
+  memcpy(cfg2.slot_mac[0], MAC_C, 6);
+  s.applyConfig(cfg2, true);
+  assert(!s.registry.slot(0).valid && !s.registry.slot(2).valid && s.registry.slot(1).valid);
+  assert(s.history.slots[1].size() == 0 && s.history.slots[3].size() == 0 && s.history.slots[2].size() == 1);
+  assert(s.registry.consistent());
+
+  // Clearing a fixed MAC changes it as well
+  DeviceConfig cfg3 = cfg2;
+  memset(cfg3.slot_mac[1], 0, 6);
+  s.applyConfig(cfg3, false);
+  assert(!s.registry.slot(1).valid && !s.registry.isFixed(1) && s.history.slots[2].size() == 0 && !s.config_from_sd);
+}
+
+void testSlotMacRtcRoundTrip() {
+  PersistentState s;
+  DeviceConfig cfg;
+  memcpy(cfg.slot_mac[0], MAC_A, 6);
+  memcpy(cfg.slot_mac[2], MAC_C, 6);
+  s.applyConfig(cfg, true);
+  s.registry.upsert(macReading(MAC_A));
+  s.registry.upsert(macReading(MAC_B));
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(memcmp(r.config.slot_mac, cfg.slot_mac, sizeof(cfg.slot_mac)) == 0);
+  assert(r.registry.isFixed(0) && !r.registry.isFixed(1) && r.registry.isFixed(2));
+  // The restored registry keeps enforcing the fixed MACs
+  const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
+  assert(!r.registry.upsert(macReading(other)));
+  assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
+  assert(PowerManager::STATE_VERSION == 24);
+
+  // A valid checksum with the same MAC in two keys is rejected
+  const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - 1 - PowerManager::MACS_SIZE;
+  uint8_t bad[PowerManager::SERIALIZED_SIZE];
+  memcpy(bad, buf, sizeof(bad));
+  memcpy(bad + mac_pos + 6, MAC_A, 6);
+  uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
+  for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(bad, sizeof(bad), r));
+
+  // A stored reading that breaks a fixed MAC is rejected: slot 2 holds MAC_B, slot 1 fixes it
+  memcpy(bad, buf, sizeof(bad));
+  memcpy(bad + mac_pos, MAC_B, 6);
+  crc = PowerManager::crc32(bad, sizeof(bad) - 4);
+  for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(bad, sizeof(bad), r));
+
+  // The previous state version starts clean
+  memcpy(bad, buf, sizeof(bad));
+  bad[4] = 23;
+  crc = PowerManager::crc32(bad, sizeof(bad) - 4);
+  for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(bad, sizeof(bad), r));
+}
+
+void testSlotMacStatsLine() {
+  char text[24];
+  const uint8_t mac[6] = {0xB0, 0xE9, 0xFE, 0x12, 0x34, 0x56};
+  DashboardView::formatMac(text, sizeof(text), mac);
+  assert(strcmp(text, "MAC ..:12:34:56") == 0);
+  assert(10 + strlen(text) * 12 <= RLCD_WIDTH - 8);
+
+  // A slot without signal but with a fixed MAC shows the MAC line; without a fixed MAC it stays blank
+  Shtc3Reading onboard;
+  BatteryReading battery;
+  SystemInfo info;
+  SwitchBotReading none[MAX_SWITCHBOT_SENSORS] = {};
+  DeviceConfig cfg;
+  memcpy(cfg.slot_mac[0], mac, 6);
+  St7305Framebuffer with, without;
+  DashboardView::renderMode(with, DisplayMode::SENSOR_STATS, onboard, battery, none, MAX_SWITCHBOT_SENSORS, info,
+                            "12:34", 0, nullptr, nullptr, &cfg);
+  DashboardView::renderMode(without, DisplayMode::SENSOR_STATS, onboard, battery, none, MAX_SWITCHBOT_SENSORS, info,
+                            "12:34", 0);
+  size_t ink = 0;
+  for (uint16_t y = 52; y < 66; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      ink += with.getPixel(x, y) ? 1 : 0;
+      assert(!without.getPixel(x, y));
+    }
+  }
+  assert(ink > 20);
+}
+
 int main() {
   testCycleTrackerPartialDischarges();
   testCycleTrackerMilestoneWrite();
@@ -8948,6 +9221,11 @@ int main() {
   testDeviceConfigFileSizeLimit();
   testDeviceConfigWiring();
   testDeviceConfigRtcRoundTrip();
+  testSlotMacParser();
+  testSlotMacRegistry();
+  testSlotMacConfigApply();
+  testSlotMacRtcRoundTrip();
+  testSlotMacStatsLine();
   testShtc3HumidityOffset();
   testSlotCalibrationOffsets();
   testSensorNames();

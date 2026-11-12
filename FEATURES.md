@@ -448,3 +448,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The CSV format is version 3. The header has 19 columns: the 18 columns of version 2 plus `noise_events`. The file name is `/sdcard/climate_v3_YYYYMM.csv`. A failed or skipped window gives an empty `noise_events` field. The old `climate_v2_YYYYMM.csv` files stay unchanged. The serial console and the retention accept both names. `scripts/dump-logs.sh` accepts both names.
 - The diagnostics view shows `EVENTS: N` at the right of the `CONFIG` line (`EVENTS: --` for a failed window).
 - Host tests cover 0, 1 and 10 synthetic transients, a slow rise, a steady tone, the counter limit, the read count of the window, the 19 column header and row, the empty field, and the line bounds.
+
+## Fixed MAC address for each sensor slot
+
+- The new `config.ini` keys `slot1_mac` to `slot3_mac` fix a registry slot to one sensor. The format is `AA:BB:CC:DD:EE:FF`. Upper and lower case hex digits are valid. An empty value, or no key, leaves the slot unfixed.
+- The parser rejects a wrong separator, a short or long value, a non-hex digit, the all-zero MAC, and a MAC that another key already fixes. The previous value of the key stays.
+- A fixed slot accepts packets of its MAC only, also when an earlier slot is free. A slot without a fixed MAC keeps the first-come rule, but it never accepts a MAC that another slot has fixed. This holds for SwitchBot and BTHome packets, because both use `SwitchBotRegistry::upsert`. A sensor of a neighbor cannot take a slot.
+- `PersistentState::applyConfig` takes over a new config. A slot whose fixed MAC is set, changed or removed loses its reading and its 24-hour humidity and temperature histories. A slot that holds a MAC another slot has now fixed loses them too. A KEY wakeup with an unchanged file keeps all data. The call runs before the scan starts and inside the registry lock.
+- The stats view shows `MAC ..:EE:FF` style lines with the last three MAC bytes in each sensor block. A fixed slot without signal shows the line too, so the user sees the configured sensor.
+- `DeviceConfigText` writes the fixed MACs back. The config trailer of the RTC state holds the three MACs, and `STATE_VERSION` is 24. A stored state with a duplicate MAC, or with a reading that breaks a fixed MAC, gets a clean start.
+- Host tests cover the parser (valid, lowercase, wrong separator, short, long, bad digit, zero, empty, duplicate), the registry (fixed slot, unfixed slot, first-come, SwitchBot, BTHome), the reset after a MAC change, the RTC round trip with corrupt records, and the stats line.

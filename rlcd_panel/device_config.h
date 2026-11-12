@@ -48,6 +48,7 @@ struct DeviceConfig {
   static constexpr uint8_t MIN_NTP_SYNC_INTERVAL_H = 6;
   static constexpr uint8_t MAX_NTP_SYNC_INTERVAL_H = 168;
 
+  static constexpr size_t MAC_BYTES = 6;
   static constexpr size_t NAME_MAX_CHARS = 12; // longest sensor name; a name buffer adds the terminator
 
   // Display names of the onboard sensor and of the three registry slots (keys onboard_name and
@@ -55,6 +56,11 @@ struct DeviceConfig {
   // A-Z, 0-9, space and '-': all of them have a glyph in the 5x7 font.
   char onboard_name[NAME_MAX_CHARS + 1] = {0};
   char slot_name[SLOT_COUNT][NAME_MAX_CHARS + 1] = {{0}, {0}, {0}};
+
+  // Fixed MAC address of each registry slot (keys slot1_mac to slot3_mac, format AA:BB:CC:DD:EE:FF).
+  // All zero means no fixed MAC: the slot keeps the first-come rule. A fixed MAC is never all zero
+  // and never appears in two slots.
+  uint8_t slot_mac[SLOT_COUNT][MAC_BYTES] = {{0}, {0}, {0}};
 
   float temp_offset_c = DEFAULT_TEMP_OFFSET_C;
   float rh_offset_pct = DEFAULT_RH_OFFSET_PCT; // added to the onboard humidity, result clamped to 0..100 %RH
@@ -102,8 +108,36 @@ struct DeviceConfig {
     return n < sizeof(name) && (n == 0 || validName(name, n));
   }
 
+  static bool macIsZero(const uint8_t* mac) {
+    for (size_t i = 0; i < MAC_BYTES; ++i) {
+      if (mac[i] != 0) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  bool hasSlotMac(size_t slot) const {
+    return slot < SLOT_COUNT && !macIsZero(slot_mac[slot]);
+  }
+
+  // True when `mac` is a fixed MAC of a slot other than `except` (pass SLOT_COUNT for none).
+  bool macFixedElsewhere(const uint8_t* mac, size_t except) const {
+    for (size_t i = 0; i < SLOT_COUNT; ++i) {
+      if (i != except && hasSlotMac(i) && memcmp(slot_mac[i], mac, MAC_BYTES) == 0) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   // True when every field lies inside its range. Used for the RTC record check.
   bool valid() const {
+    for (size_t i = 0; i < SLOT_COUNT; ++i) {
+      if (hasSlotMac(i) && macFixedElsewhere(slot_mac[i], i)) {
+        return false;
+      }
+    }
     if (!storedNameOk(onboard_name)) {
       return false;
     }
@@ -138,7 +172,8 @@ struct DeviceConfig {
       if (strcmp(slot_name[i], d.slot_name[i]) != 0) {
         return false;
       }
-      if (slot_temp_offset_c[i] != d.slot_temp_offset_c[i] || slot_rh_offset_pct[i] != d.slot_rh_offset_pct[i]) {
+      if (slot_temp_offset_c[i] != d.slot_temp_offset_c[i] || slot_rh_offset_pct[i] != d.slot_rh_offset_pct[i] ||
+          hasSlotMac(i)) {
         return false;
       }
     }
@@ -310,6 +345,58 @@ private:
     return true;
   }
 
+  static int hexDigit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    return -1;
+  }
+
+  // Exactly "AA:BB:CC:DD:EE:FF" (17 characters, upper or lower case hex, ':' only).
+  static bool parseMac(const char* s, size_t n, uint8_t (&out)[DeviceConfig::MAC_BYTES]) {
+    if (n != DeviceConfig::MAC_BYTES * 3 - 1) {
+      return false;
+    }
+    uint8_t mac[DeviceConfig::MAC_BYTES];
+    for (size_t i = 0; i < DeviceConfig::MAC_BYTES; ++i) {
+      const char* p = s + i * 3;
+      const int hi = hexDigit(p[0]);
+      const int lo = hexDigit(p[1]);
+      if (hi < 0 || lo < 0 || (i + 1 < DeviceConfig::MAC_BYTES && p[2] != ':')) {
+        return false;
+      }
+      mac[i] = static_cast<uint8_t>(hi * 16 + lo);
+    }
+    memcpy(out, mac, sizeof(mac));
+    return true;
+  }
+
+  // Keys slot1_mac to slot3_mac (index 22..24). An empty value clears the fixed MAC. A malformed
+  // value, the all-zero MAC and a MAC that another slot has fixed are rejected; the previous value
+  // stays. Returns false for any other key.
+  static bool parseMacKey(const char* key, size_t key_len, const char* val, size_t val_len, DeviceConfig& cfg,
+                          bool& ok, int& index) {
+    static const char* const mac_keys[DeviceConfig::SLOT_COUNT] = {"slot1_mac", "slot2_mac", "slot3_mac"};
+    for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
+      if (!keyIs(key, key_len, mac_keys[i])) {
+        continue;
+      }
+      index = static_cast<int>(22 + i);
+      if (val_len == 0) {
+        memset(cfg.slot_mac[i], 0, DeviceConfig::MAC_BYTES);
+        ok = true;
+        return true;
+      }
+      uint8_t mac[DeviceConfig::MAC_BYTES];
+      ok = parseMac(val, val_len, mac) && !DeviceConfig::macIsZero(mac) && !cfg.macFixedElsewhere(mac, i);
+      if (ok) {
+        memcpy(cfg.slot_mac[i], mac, sizeof(mac));
+      }
+      return true;
+    }
+    return false;
+  }
+
   // Keys slot1_temp_offset_c to slot3_temp_offset_c (index 12..14) and slot1_rh_offset_pct to
   // slot3_rh_offset_pct (index 15..17). Returns false for any other key.
   static bool parseSlotKey(const char* key, size_t key_len, const char* val, size_t val_len, DeviceConfig& cfg,
@@ -406,6 +493,8 @@ private:
       // index and ok set by parseSlotKey
     } else if (parseNameKey(key, key_len, val, val_len, cfg, ok, index)) {
       // index and ok set by parseNameKey
+    } else if (parseMacKey(key, key_len, val, val_len, cfg, ok, index)) {
+      // index and ok set by parseMacKey
     }
     if (index < 0) {
       return; // unknown key
@@ -423,7 +512,7 @@ private:
 // reads the text back to the same values. The text holds no Wi-Fi setting: DeviceConfig has none.
 class DeviceConfigText {
 public:
-  static constexpr size_t MAX_SIZE = 768;
+  static constexpr size_t MAX_SIZE = 896;
 
   // Returns the text length, or 0 with an empty string when `cap` is too small.
   static size_t format(const DeviceConfig& cfg, char* out, size_t cap) {
@@ -460,6 +549,17 @@ public:
       char key[16];
       snprintf(key, sizeof(key), "slot%u_name", static_cast<unsigned>(i + 1));
       ok = cfg.slot_name[i][0] == '\0' || putLine(out, cap, pos, key, cfg.slot_name[i]);
+    }
+    for (size_t i = 0; ok && i < DeviceConfig::SLOT_COUNT; ++i) {
+      if (!cfg.hasSlotMac(i)) {
+        continue;
+      }
+      char key[16];
+      char mac[18];
+      snprintf(key, sizeof(key), "slot%u_mac", static_cast<unsigned>(i + 1));
+      const uint8_t* m = cfg.slot_mac[i];
+      snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X", m[0], m[1], m[2], m[3], m[4], m[5]);
+      ok = putLine(out, cap, pos, key, mac);
     }
     if (!ok) {
       out[0] = '\0';
