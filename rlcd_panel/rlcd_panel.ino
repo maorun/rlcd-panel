@@ -251,6 +251,7 @@ void measureNoiseOnce() {
   g_noise = NoiseSampler::measure(hal, g_state.noise_band, NoiseSampler::WINDOW_MS, activeMicCal());
   if (g_noise.valid) {
     g_state.noise_band = g_noise.band;
+    Serial.printf("Noise window: %u loud events\n", static_cast<unsigned>(g_noise.events));
   } else {
     Serial.println("Noise measurement failed");
   }

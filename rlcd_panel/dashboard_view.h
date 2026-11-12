@@ -73,6 +73,8 @@ public:
   static constexpr uint16_t NOISE_SPARKLINE_Y = 246;
   static constexpr uint16_t NOISE_SPARKLINE_W = 170;
   static constexpr uint16_t NOISE_SPARKLINE_H = 20;
+  static constexpr uint16_t EVENTS_X = 232;   // diagnostics: "EVENTS: N" right of the config text
+  static constexpr uint16_t EVENTS_Y = 276;   // same line as "CONFIG:"; 13 glyphs end at x = 388
   static constexpr uint16_t LOOPBACK_Y = 260; // diagnostics: speaker to microphone test line
   static constexpr uint16_t MIC_TEST_Y = 224; // diagnostics: microphone self-test line
   // Spectrum view: 32 bars of 10 px with a 2 px gap fill x = 8 to 391. A level of 100 gives a bar
@@ -593,6 +595,15 @@ public:
 
     snprintf(line, sizeof(line), "CONFIG: %s", info.config_from_sd ? "SD" : "DEFAULT");
     drawLine(fb, 10, 276, line);
+
+    // Loud transients of the last noise window. Widest: "EVENTS: 65535" = 13 glyphs = 156 px,
+    // from x = 232 to x = 388. "CONFIG: DEFAULT" ends at x = 190. A failed window shows "--".
+    if (info.noise.valid) {
+      snprintf(line, sizeof(line), "EVENTS: %u", static_cast<unsigned>(info.noise.events));
+    } else {
+      snprintf(line, sizeof(line), "EVENTS: --");
+    }
+    drawLine(fb, EVENTS_X, EVENTS_Y, line);
   }
 
   // Pixel height of a bar level (0 to 100): 2 px per level step.

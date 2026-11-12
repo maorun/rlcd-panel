@@ -5,6 +5,7 @@
 #include <stdint.h>
 
 #include "board_pins.h"
+#include "clap_detector.h"
 
 #if defined(ARDUINO) || defined(ESP_PLATFORM)
 #include <Arduino.h>
@@ -74,6 +75,7 @@ struct NoiseReading {
   uint16_t rms = 0; // RMS of the usable channels of the window, 16-bit PCM units (0..32767)
   NoiseBand band = NoiseBand::QUIET;
   MicSelfTest mic;  // per-channel self-test of the same window
+  uint16_t events = 0; // loud transients in the window (ClapDetector front end); 0 when invalid
 };
 
 // Decoupled acoustic energy calculator. It has no hardware dependency, so the host tests build it.
@@ -572,8 +574,12 @@ public:
     NoiseReading result;
     if (hal.beginBus() && hal.configureAdc()) {
       StereoAnalyzer analyzer;
-      if (collect(hal, analyzer, window_ms)) {
+      TransientCounter transients;
+      if (collect(hal, analyzer, transients, window_ms)) {
         result = evaluate(analyzer, previous, cal);
+        if (result.valid) {
+          result.events = transients.count();
+        }
       }
     }
     hal.shutdownAdc();
@@ -599,7 +605,8 @@ private:
   }
 
   template <typename Hal>
-  static bool collect(Hal& hal, StereoAnalyzer& acc, uint32_t window_ms) {
+  static bool collect(
+      Hal& hal, StereoAnalyzer& acc, TransientCounter& transients, uint32_t window_ms) {
     int16_t chunk[CHUNK_SAMPLES];
     const uint64_t settle = static_cast<uint64_t>(SETTLE_FRAMES) * CHANNELS;
     const uint64_t wanted =
@@ -620,6 +627,7 @@ private:
       }
       acc.skip(skip);
       acc.add(chunk + skip, n - skip);
+      transients.add(chunk + skip, n - skip);
       seen += n;
     }
     return true;

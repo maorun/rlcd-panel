@@ -81,6 +81,9 @@ public:
       case State::PEAK:
         if (level < floor_db_ + static_cast<float>(DECAY_DB)) {
           clap = true;
+          if (transients_ < UINT16_MAX) {
+            ++transients_;
+          }
           state_ = State::IDLE;
           base_ms_ = now_ms;
         } else if (now_ms - onset_ms_ >= DECAY_MAX_MS) {
@@ -105,6 +108,13 @@ public:
   // Noise floor in dBFS, for tests and diagnostics.
   float noiseFloorDb() const {
     return floor_db_;
+  }
+
+  // Transients since reset(): each rise of RISE_DB in under RISE_MAX_MS that decays within
+  // DECAY_MAX_MS. Echo and lockout rules of the double clap do not apply. Stops at 65535. A
+  // transient that still runs when the input ends is not counted: the decay confirms it.
+  uint16_t transientCount() const {
+    return transients_;
   }
 
 private:
@@ -184,6 +194,61 @@ private:
   uint32_t second_ms_ = 0;
   bool locked_ = false;
   uint32_t lockout_until_ms_ = 0;
+  uint16_t transients_ = 0;
+};
+
+// Reduces interleaved stereo PCM (16 kHz) to the peak level of each millisecond, in dBFS, and counts
+// the transients with a ClapDetector. The time base is the sample count, so chunks of any size work.
+// ClapListener uses the same reduction for the double clap.
+class TransientCounter {
+public:
+  static constexpr uint32_t SAMPLE_RATE_HZ = 16000;
+  static constexpr size_t CHANNELS = 2;
+  static constexpr size_t FRAMES_PER_MS = SAMPLE_RATE_HZ / 1000;
+  static constexpr uint16_t MAX_COUNT = UINT16_MAX;
+
+  // Adds `count` interleaved samples (microphone 1, microphone 2). A null pointer is ignored.
+  // Returns true when a double clap ended in these samples.
+  bool add(const int16_t* samples, size_t count) {
+    bool clap = false;
+    for (size_t i = 0; samples != nullptr && i + 1 < count; i += CHANNELS) {
+      const int a = abs16(samples[i]);
+      const int b = abs16(samples[i + 1]);
+      const int m = a > b ? a : b;
+      if (m > peak_) {
+        peak_ = m;
+      }
+      if (++frames_in_ms_ == FRAMES_PER_MS) {
+        clap = detector_.update(peakToDb(peak_), ms_++) || clap;
+        peak_ = 0;
+        frames_in_ms_ = 0;
+      }
+    }
+    return clap;
+  }
+
+  // Level of one millisecond from its peak sample: -96 dBFS for silence, 0 dBFS at full scale.
+  static int peakToDb(int peak) {
+    if (peak <= 0) {
+      return -96;
+    }
+    const int db = static_cast<int>(lroundf(20.0f * log10f(static_cast<float>(peak) / 32768.0f)));
+    return db < -96 ? -96 : (db > 0 ? 0 : db);
+  }
+
+  uint16_t count() const {
+    return detector_.transientCount();
+  }
+
+private:
+  static int abs16(int16_t v) {
+    return v < 0 ? -static_cast<int>(v) : static_cast<int>(v);
+  }
+
+  ClapDetector detector_;
+  uint32_t ms_ = 0;
+  size_t frames_in_ms_ = 0;
+  int peak_ = 0;
 };
 
 // Listens for a double clap on a microphone hardware layer. The layer type is the one that
@@ -295,12 +360,7 @@ private:
     if (now < SETTLE_MS) {
       return false;
     }
-    int db = -96;
-    if (peak > 0) {
-      db = static_cast<int>(lroundf(20.0f * log10f(static_cast<float>(peak) / 32768.0f)));
-      db = db < -96 ? -96 : (db > 0 ? 0 : db);
-    }
-    return detector_.update(db, now);
+    return detector_.update(TransientCounter::peakToDb(peak), now);
   }
 
   Hal& hal_;

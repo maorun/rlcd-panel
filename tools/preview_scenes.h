@@ -145,6 +145,7 @@ inline void renderScene(
   info.noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 650, info.mic_cal);
   // Both microphones pass the self-test (MIC1: OK MIC2: OK)
   info.noise.mic.valid = true;
+  info.noise.events = 4; // four loud transients in the last window
   info.quiet_hours = quiet_hours;
   info.config_from_sd = true;
   info.rtc_drift.has_sync = true;
