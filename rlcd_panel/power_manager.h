@@ -92,12 +92,13 @@ struct PersistentState {
   RtcDriftState rtc_drift;   // RTC drift of the last NTP sync
   DeviceConfig config;       // settings from /sdcard/config.ini; a timer wakeup reuses them
   bool config_from_sd = false; // true: the card supplied `config`; false: the defaults apply
+  ConfigRejects config_rejects; // rejected lines of the last config.ini parse
 
   // Takes over a new config. A slot whose fixed MAC changed (set, changed or removed) loses its
   // reading and its 24-hour histories. A slot that holds a MAC another slot has fixed loses them
   // too. The registry then enforces the fixed MACs. Call it before the BLE scan starts, or inside
   // the registry lock.
-  void applyConfig(const DeviceConfig& next, bool from_sd) {
+  void applyConfig(const DeviceConfig& next, bool from_sd, const ConfigRejects& rejects) {
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       if (memcmp(config.slot_mac[i], next.slot_mac[i], DeviceConfig::MAC_BYTES) != 0) {
         resetSlot(i);
@@ -105,6 +106,7 @@ struct PersistentState {
     }
     config = next;
     config_from_sd = from_sd;
+    config_rejects = rejects;
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       registry.setFixedMac(i, config.hasSlotMac(i) ? config.slot_mac[i] : nullptr);
     }
@@ -169,7 +171,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 24;
+  static constexpr uint8_t STATE_VERSION = 25;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -197,9 +199,11 @@ public:
   static constexpr size_t NAMES_SIZE = (1 + DeviceConfig::SLOT_COUNT) * (DeviceConfig::NAME_MAX_CHARS + 1);
   // Fixed MACs: one 6-byte address for each slot, all zero for no fixed MAC.
   static constexpr size_t MACS_SIZE = DeviceConfig::SLOT_COUNT * DeviceConfig::MAC_BYTES;
+  // Rejected config.ini lines: the count (one byte), then four 16-bit line numbers.
+  static constexpr size_t REJECTS_SIZE = 1 + ConfigRejects::MAX_LINES * 2;
   // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
-  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, RH offset (float), three slot temperature offsets and three slot RH offsets (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card).
-  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 4 + 6 * 4 + NAMES_SIZE + MACS_SIZE + 1;
+  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, RH offset (float), three slot temperature offsets and three slot RH offsets (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
+  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 4 + 6 * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
   // Header: magic, version, mode, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -433,6 +437,11 @@ public:
     memcpy(out + pos, state.config.slot_mac, MACS_SIZE);
     pos += MACS_SIZE;
     out[pos++] = state.config_from_sd ? 1 : 0;
+    out[pos++] = state.config_rejects.count;
+    for (size_t i = 0; i < ConfigRejects::MAX_LINES; ++i) {
+      out[pos++] = static_cast<uint8_t>(state.config_rejects.lines[i] & 0xFF);
+      out[pos++] = static_cast<uint8_t>(state.config_rejects.lines[i] >> 8);
+    }
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -658,7 +667,12 @@ public:
     memcpy(s.config.slot_mac, data + pos, MACS_SIZE);
     pos += MACS_SIZE;
     const uint8_t config_flags = data[pos++];
-    if ((config_flags & ~1u) != 0 || !s.config.valid()) {
+    s.config_rejects.count = data[pos++];
+    for (size_t i = 0; i < ConfigRejects::MAX_LINES; ++i) {
+      s.config_rejects.lines[i] = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+      pos += 2;
+    }
+    if ((config_flags & ~1u) != 0 || !s.config.valid() || !rejectsValid(s.config_rejects)) {
       return false; // a corrupt record never reaches the alert limits
     }
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
@@ -669,6 +683,16 @@ public:
     }
     s.config_from_sd = (config_flags & 1) != 0;
     out = s;
+    return true;
+  }
+
+  // A recorded line number is 1 or more; an unused entry is 0.
+  static bool rejectsValid(const ConfigRejects& r) {
+    for (size_t i = 0; i < ConfigRejects::MAX_LINES; ++i) {
+      if ((i < r.recorded()) != (r.lines[i] != 0)) {
+        return false;
+      }
+    }
     return true;
   }
 

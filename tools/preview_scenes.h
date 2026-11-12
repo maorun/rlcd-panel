@@ -148,6 +148,7 @@ inline void renderScene(
   info.noise.events = 4; // four loud transients in the last window
   info.quiet_hours = quiet_hours;
   info.config_from_sd = true;
+  info.config_rejected = 2; // two rejected config.ini lines
   info.rtc_drift.has_sync = true;
   info.rtc_drift.has_drift = true;
   info.rtc_drift.drift_s = 3;

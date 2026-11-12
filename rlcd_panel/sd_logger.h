@@ -553,8 +553,12 @@ public:
   // its previous settings, so a transient card error never resets them. NO_FILE (card without a
   // usable file, or a file above the size limit) leaves the defaults in `out`.
   // `free_mb` (optional) receives the free space of the mounted card in MB, or -1.
-  static SdConfigResult loadConfig(DeviceConfig& out, int32_t* free_mb = nullptr) {
+  // `rejects` (optional) receives the rejected lines of the file; empty without a usable file.
+  static SdConfigResult loadConfig(DeviceConfig& out, int32_t* free_mb = nullptr, ConfigRejects* rejects = nullptr) {
     out = DeviceConfig{};
+    if (rejects != nullptr) {
+      *rejects = ConfigRejects{};
+    }
     if (free_mb != nullptr) {
       *free_mb = -1;
     }
@@ -572,8 +576,14 @@ public:
       const size_t expected = file.size() < sizeof(buf) ? static_cast<size_t>(file.size()) : sizeof(buf);
       if (n != expected) {
         result = SdConfigResult::NO_CARD; // a short read is a card error: keep the old settings
-      } else if (DeviceConfigParser::parse(buf, n, out).file_ok) {
-        result = SdConfigResult::LOADED;
+      } else {
+        const ConfigParseResult parsed = DeviceConfigParser::parse(buf, n, out);
+        if (parsed.file_ok) {
+          result = SdConfigResult::LOADED;
+          if (rejects != nullptr) {
+            *rejects = parsed.rejects();
+          }
+        }
       }
     }
     if (file) {
