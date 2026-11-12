@@ -1053,7 +1053,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 22);
+  assert(PowerManager::STATE_VERSION == 23);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -1940,7 +1940,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 22);
+  assert(PowerManager::STATE_VERSION == 23);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -2375,7 +2375,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 22);
+  assert(PowerManager::STATE_VERSION == 23);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -2724,15 +2724,18 @@ void testSensorLostAlert() {
       assert(r.alert_mask == m && r.noise_band == band && r.muted);
     }
   }
-  // State encoding: audio byte = muted | mask << 1 | band << 5
+  // State encoding: audio byte = muted | mask << 1 | band << 6
   const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1;
   s.muted = false;
   s.alert_mask = ALERT_SENSOR_LOST;
   s.noise_band = NoiseBand::MODERATE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  assert(ALERT_SENSOR_LOST == 8 && buf[audio_pos] == ((ALERT_SENSOR_LOST << 1) | (1 << 5)));
-  // Bit 7 stays reserved
-  buf[audio_pos] = 0x80;
+  assert(ALERT_SENSOR_LOST == 8 && buf[audio_pos] == ((ALERT_SENSOR_LOST << 1) | (1 << 6)));
+  s.alert_mask = ALERT_CHARGE_FULL;
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  assert(ALERT_CHARGE_FULL == 16 && buf[audio_pos] == ((ALERT_CHARGE_FULL << 1) | (1 << 6)));
+  // Band value 3 does not exist
+  buf[audio_pos] = static_cast<uint8_t>(3 << 6);
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -3032,8 +3035,8 @@ void testAudioStatePersistence() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(!r.muted && r.alert_mask == ALERT_HUMIDITY);
-  // A reserved bit with a valid CRC is rejected
-  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1] = 0x80;
+  // No reserved bit is left: the band value 3 with a valid CRC is rejected
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1] = 0xC0;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -3763,7 +3766,7 @@ void testNoiseStatePersistence() {
   // Band value 3 does not exist and is rejected even with a valid CRC
   const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  buf[audio_pos] = static_cast<uint8_t>(3 << 5);
+  buf[audio_pos] = static_cast<uint8_t>(3 << 6);
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -3954,7 +3957,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 22);
+  assert(PowerManager::STATE_VERSION == 23);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4645,7 +4648,7 @@ void testDeviceConfigRtcRoundTrip() {
       {10, 24},  // quiet start hour above range
       {11, 24},  // quiet end hour above range
       {16, 121}, // log retention above range
-      {18, 16},  // chime alert mask above range
+      {18, 32},  // chime alert mask above range
       {19, 5},   // NTP sync interval below range
       {19, 169}, // NTP sync interval above range
       {48, 2},   // unknown flag bit
@@ -4735,7 +4738,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 22);
+  assert(PowerManager::STATE_VERSION == 23);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4905,7 +4908,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 22);
+  assert(PowerManager::STATE_VERSION == 23);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -5087,7 +5090,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 22);
+  assert(PowerManager::STATE_VERSION == 23);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -7653,7 +7656,7 @@ void testSerialConfigLineFormat() {
   assert(text.find("\nmic_spl_offset_db=0.0\n") != std::string::npos);
   assert(text.find("\nlog_retention_months=0\n") != std::string::npos);
   assert(text.find("\nnoise_alert_limit_db=0\n") != std::string::npos);
-  assert(text.find("\nchime_alert_mask=15\n") != std::string::npos);
+  assert(text.find("\nchime_alert_mask=31\n") != std::string::npos);
   assert(text.find("\nntp_sync_interval_h=24\n") != std::string::npos);
   for (int i = 1; i <= 3; ++i) {
     assert(text.find("\nslot" + std::to_string(i) + "_temp_offset_c=0.0\n") != std::string::npos);
@@ -7869,7 +7872,8 @@ void testNoiseAlertChimeSuppression() {
   assert(all.samples == static_cast<int>(ChimeSynth::totalSamples(noise) +
                                         ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_FREEZER)) +
                                         ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_HUMIDITY)) +
-                                        ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_SENSOR_LOST))));
+                                        ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_SENSOR_LOST)) +
+                                        ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_CHARGE_FULL))));
   // Volume 0 stays silent
   Hal silent;
   assert(!AudioSequencer::play(silent, ALERT_NOISE_HIGH, 0) && silent.samples == 0);
@@ -7938,26 +7942,116 @@ void testNoiseAlertStatePersistence() {
     for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
     assert(!PowerManager::deserialize(bad, sizeof(bad), r));
   }
-  // A reserved audio bit is rejected
+  // An invalid band value in the audio byte is rejected
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
-  bad[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1] = 0x80;
+  bad[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1] = 0xC0;
   const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
   for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
 }
 
+void testChargeFullChime() {
+  using E = AlertEvaluator;
+  using B = BatteryMonitor;
+  auto reading = [](int pct, bool usb) {
+    BatteryReading r;
+    r.valid = true;
+    r.percentage = static_cast<int8_t>(pct);
+    r.usb_powered = usb;
+    return r;
+  };
+  // Trigger at 100 % on USB power, not below
+  assert(B::updateChargeFull(reading(100, true), false));
+  assert(!B::updateChargeFull(reading(99, true), false));
+  // 99 % to 100 % noise never replays: the latch holds down to 95 %
+  bool full = B::updateChargeFull(reading(100, true), false);
+  for (int pct : {99, 100, 98, 100, 96, 95}) {
+    full = B::updateChargeFull(reading(pct, true), full);
+    assert(full);
+  }
+  // Release below 95 %, then 100 % triggers again
+  assert(!B::updateChargeFull(reading(94, true), true));
+  // No trigger on battery power, and the latch ends there
+  assert(!B::updateChargeFull(reading(100, false), false));
+  assert(!B::updateChargeFull(reading(100, false), true));
+  // An invalid reading neither sets nor clears the latch
+  BatteryReading bad;
+  assert(!B::updateChargeFull(bad, false) && B::updateChargeFull(bad, true));
+  assert(!B::updateChargeFull(reading(-1, true), false) && B::updateChargeFull(reading(-1, true), true));
+  // A stale percentage of 100 on an invalid reading never sets the latch
+  BatteryReading stale = reading(100, true);
+  stale.valid = false;
+  assert(!B::updateChargeFull(stale, false) && B::updateChargeFull(stale, true));
+
+  // Step: one chime on the edge, none while the bit stays set
+  E::Step st = E::chargeStep(false, ALERT_NONE, reading(100, true), false, 31);
+  assert(st.mask == ALERT_CHARGE_FULL && st.chime == ALERT_CHARGE_FULL);
+  st = E::chargeStep(false, st.mask, reading(99, true), false, 31);
+  assert(st.mask == ALERT_CHARGE_FULL && st.chime == ALERT_NONE);
+  st = E::chargeStep(false, st.mask, reading(100, true), false, 31);
+  assert(st.chime == ALERT_NONE);
+  st = E::chargeStep(false, st.mask, reading(94, true), false, 31);
+  assert(st.mask == ALERT_NONE && st.chime == ALERT_NONE);
+  st = E::chargeStep(false, st.mask, reading(100, true), false, 31);
+  assert(st.chime == ALERT_CHARGE_FULL);
+  // Other bits stay unchanged
+  st = E::chargeStep(false, ALERT_FREEZER | ALERT_NOISE_HIGH, reading(100, true), false, 31);
+  assert(st.mask == (ALERT_FREEZER | ALERT_NOISE_HIGH | ALERT_CHARGE_FULL) && st.chime == ALERT_CHARGE_FULL);
+  st = E::chargeStep(false, ALERT_FREEZER | ALERT_CHARGE_FULL, reading(90, true), false, 31);
+  assert(st.mask == ALERT_FREEZER);
+  // Climate and noise steps keep the charge bit
+  st = E::climateStep(false, ALERT_CHARGE_FULL, ALERT_HUMIDITY, false, 31);
+  assert(st.mask == (ALERT_CHARGE_FULL | ALERT_HUMIDITY) && st.chime == ALERT_HUMIDITY);
+  st = NoiseAlertEvaluator::step(false, ALERT_CHARGE_FULL, true, 90, 80, false, 31);
+  assert(st.mask == (ALERT_CHARGE_FULL | ALERT_NOISE_HIGH) && st.chime == ALERT_NOISE_HIGH);
+  // Mask bit 4: only a set bit sounds
+  assert(E::chargeStep(false, ALERT_NONE, reading(100, true), false, 15).chime == ALERT_NONE);
+  assert(E::chargeStep(false, ALERT_NONE, reading(100, true), false, 15).mask == ALERT_CHARGE_FULL);
+  assert(E::chargeStep(false, ALERT_NONE, reading(100, true), false, ALERT_CHARGE_FULL).chime == ALERT_CHARGE_FULL);
+  // Mute and quiet hours suppress the sound; the mask is stored, so no replay follows
+  const QuietHoursWindow w = QuietHoursWindow::fromHours(22, 7);
+  st = E::chargeStep(true, ALERT_NONE, reading(100, true), false, 31);
+  assert(st.mask == ALERT_CHARGE_FULL && st.chime == ALERT_NONE);
+  assert(E::chargeStep(false, st.mask, reading(100, true), false, 31).chime == ALERT_NONE);
+  st = E::chargeStep(false, ALERT_NONE, reading(100, true), w.isActive(makeRtc(23, 0)), 31);
+  assert(st.mask == ALERT_CHARGE_FULL && st.chime == ALERT_NONE);
+  assert(E::chargeStep(false, ALERT_NONE, reading(100, true), w.isActive(makeRtc(12, 0)), 31).chime ==
+         ALERT_CHARGE_FULL);
+
+  // Pattern: two falling notes, distinct from the other chimes
+  const ChimePattern p = ChimeSynth::pattern(ALERT_CHARGE_FULL);
+  assert(p.notes != nullptr && p.count == 3 && p.notes[0].freq_hz > p.notes[2].freq_hz);
+  assert(p.notes[1].freq_hz == 0 && p.notes[0].freq_hz != 0 && p.notes[2].freq_hz != 0);
+  assert(p.notes != ChimeSynth::pattern(ALERT_HUMIDITY).notes);
+  struct Hal {
+    int samples = 0, amp_on = 0, amp_off = 0, ends = 0;
+    bool beginBus() { return true; }
+    bool configureCodec() { return true; }
+    void setAmplifier(bool on) { on ? ++amp_on : ++amp_off; }
+    bool write(const int16_t*, size_t n) { samples += static_cast<int>(n); return true; }
+    void drain() {}
+    void shutdownCodec() {}
+    void endBus() { ++ends; }
+  };
+  Hal hal;
+  assert(AudioSequencer::play(hal, ALERT_CHARGE_FULL, 30));
+  assert(static_cast<uint32_t>(hal.samples) == ChimeSynth::totalSamples(p));
+  assert(hal.amp_on == 1 && hal.amp_off == 1 && hal.ends == 1);
+  assert(ALERT_MASK_ALL == 31);
+}
+
 void testChimeAlertMask() {
   using E = AlertEvaluator;
   using N = NoiseAlertEvaluator;
-  const uint8_t bits[] = {ALERT_FREEZER, ALERT_HUMIDITY, ALERT_NOISE_HIGH, ALERT_SENSOR_LOST};
+  const uint8_t bits[] = {ALERT_FREEZER, ALERT_HUMIDITY, ALERT_NOISE_HIGH, ALERT_SENSOR_LOST, ALERT_CHARGE_FULL};
   const QuietHoursWindow w = QuietHoursWindow::fromHours(22, 7);
-  // Default: all four chimes are on
+  // Default: all five chimes are on
   ConfigParseResult r;
-  assert(DeviceConfig{}.chime_alert_mask == 15 && parseText("", &r).chime_alert_mask == 15);
-  assert(PersistentState{}.config.chime_alert_mask == 15 && DeviceConfig{}.isDefault());
+  assert(DeviceConfig{}.chime_alert_mask == 31 && parseText("", &r).chime_alert_mask == 31);
+  assert(PersistentState{}.config.chime_alert_mask == 31 && DeviceConfig{}.isDefault());
   for (uint8_t b : bits) {
-    assert(E::chimeBits(false, ALERT_NONE, b, false, 15) == b);
+    assert(E::chimeBits(false, ALERT_NONE, b, false, 31) == b);
   }
   // Each single bit sounds only its own alert
   for (uint8_t m : bits) {
@@ -7979,37 +8073,37 @@ void testChimeAlertMask() {
   st = N::step(false, ALERT_NONE, true, 90, 80, false, ALERT_NOISE_HIGH);
   assert(st.chime == ALERT_NOISE_HIGH);
   // Mute and quiet hours still win over a set bit
-  assert(E::step(true, ALERT_NONE, ALERT_FREEZER, false, 15).chime == ALERT_NONE);
-  assert(E::step(false, ALERT_NONE, ALERT_FREEZER, w.isActive(makeRtc(23, 0)), 15).chime == ALERT_NONE);
-  assert(E::step(false, ALERT_NONE, ALERT_FREEZER, w.isActive(makeRtc(12, 0)), 15).chime == ALERT_FREEZER);
+  assert(E::step(true, ALERT_NONE, ALERT_FREEZER, false, 31).chime == ALERT_NONE);
+  assert(E::step(false, ALERT_NONE, ALERT_FREEZER, w.isActive(makeRtc(23, 0)), 31).chime == ALERT_NONE);
+  assert(E::step(false, ALERT_NONE, ALERT_FREEZER, w.isActive(makeRtc(12, 0)), 31).chime == ALERT_FREEZER);
   // No replay after the bit is set again
   st = E::step(false, ALERT_NONE, ALERT_HUMIDITY, false, 0);
   assert(st.chime == ALERT_NONE);
-  assert(E::step(false, st.mask, ALERT_HUMIDITY, false, 15).chime == ALERT_NONE);
+  assert(E::step(false, st.mask, ALERT_HUMIDITY, false, 31).chime == ALERT_NONE);
   // A new edge after the bit is set again sounds
-  st = E::step(false, st.mask, ALERT_NONE, false, 15);
-  assert(E::step(false, st.mask, ALERT_HUMIDITY, false, 15).chime == ALERT_HUMIDITY);
+  st = E::step(false, st.mask, ALERT_NONE, false, 31);
+  assert(E::step(false, st.mask, ALERT_HUMIDITY, false, 31).chime == ALERT_HUMIDITY);
   // Parser: valid values, range and rejection
-  for (int v = 0; v <= 15; ++v) {
+  for (int v = 0; v <= 31; ++v) {
     char line[40];
     snprintf(line, sizeof(line), "chime_alert_mask=%d\n", v);
     assert(parseText(line, &r).chime_alert_mask == v && r.keys_set == 1 && r.rejected == 0);
   }
-  const char* bad[] = {"chime_alert_mask=16\n", "chime_alert_mask=255\n", "chime_alert_mask=-1\n",
+  const char* bad[] = {"chime_alert_mask=32\n", "chime_alert_mask=255\n", "chime_alert_mask=-1\n",
                        "chime_alert_mask=abc\n", "chime_alert_mask=3.5\n", "chime_alert_mask=\n"};
   for (const char* t : bad) {
     const DeviceConfig c = parseText(t, &r);
-    assert(c.chime_alert_mask == 15 && r.rejected == 1 && r.keys_set == 0);
+    assert(c.chime_alert_mask == 31 && r.rejected == 1 && r.keys_set == 0);
   }
   assert(parseText("chime_alert_mask=5\nchime_alert_mask=99\n", &r).chime_alert_mask == 5 && r.rejected == 1);
   DeviceConfig inv;
-  inv.chime_alert_mask = 16;
+  inv.chime_alert_mask = 32;
   assert(!inv.valid());
   inv.chime_alert_mask = 0;
   assert(inv.valid() && !inv.isDefault());
   // RTC round trip for every value
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
-  for (int v = 0; v <= 15; ++v) {
+  for (int v = 0; v <= 31; ++v) {
     PersistentState s;
     s.config.chime_alert_mask = static_cast<uint8_t>(v);
     PersistentState out;
@@ -8021,7 +8115,7 @@ void testChimeAlertMask() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   uint8_t badbuf[PowerManager::SERIALIZED_SIZE];
   memcpy(badbuf, buf, sizeof(badbuf));
-  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::NAMES_SIZE - 7 - 24] = 16;
+  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::NAMES_SIZE - 7 - 24] = 32;
   const uint32_t crc = PowerManager::crc32(badbuf, sizeof(badbuf) - 4);
   for (int i = 0; i < 4; ++i) badbuf[sizeof(badbuf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState out;
@@ -8652,6 +8746,7 @@ int main() {
   testNoiseAlertStepWiring();
   testNoiseAlertStatePersistence();
   testChimeAlertMask();
+  testChargeFullChime();
   testNtpEpochToCalendar();
   testNtpTimezoneDst();
   testNtpRegisterEncoding();

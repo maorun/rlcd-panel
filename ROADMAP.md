@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 
-- [ ] Charge complete chime on USB power
-  - Rank: [Total: 25, Use: 5, Setup: 3, Harmony: 8, Safety: 9, Effort: S]
-  - Location: `rlcd_panel/audio_alert.h`, `rlcd_panel/battery_monitor.h`, `rlcd_panel/device_config.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the alert `ALERT_CHARGE_FULL` (bit 4 of `chime_alert_mask`, new range `0` to `31`). Play two falling notes once when the cell reaches 100 % on USB power. Release the alert below 95 %. Mute and quiet hours suppress the chime.
-  - Acceptance test: Host tests cover the trigger at 100 %, no replay at 99 % to 100 % noise, the release at 94 %, no trigger on battery power, the mask bit, mute and quiet hours, and the new mask range in `config.ini` and in the RTC trailer.
-
 - [ ] Hourly count of loud transient events
   - Rank: [Total: 22, Use: 4, Setup: 2, Harmony: 8, Safety: 8, Effort: M]
   - Location: `rlcd_panel/clap_detector.h`, `rlcd_panel/es7210_mic.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`

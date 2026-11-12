@@ -597,6 +597,14 @@ void chimeOnAlerts() {
       g_state.muted, g_state.alert_mask, climate, quietHours().isActive(g_rtc_time), config().chime_alert_mask));
 }
 
+// Sounds one chime when the cell reaches 100 % on USB power. The latch releases below 95 % and on
+// battery power. Mute and quiet hours suppress the sound only; the mask is stored.
+void chimeOnChargeFull() {
+  applyAlertStep(AlertEvaluator::chargeStep(
+      g_state.muted, g_state.alert_mask, g_state.battery, quietHours().isActive(g_rtc_time),
+      config().chime_alert_mask));
+}
+
 } // namespace
 
 void setup() {
@@ -665,6 +673,7 @@ void setup() {
   refreshSensors();
   renderDashboard();
   chimeOnAlerts();
+  chimeOnChargeFull();
   logToSdCard(); // after the render: the display shows fresh data even if the card is slow
   // The sync runs after the first render, so a slow or absent network never delays the display.
   // A new time redraws the header clock.
