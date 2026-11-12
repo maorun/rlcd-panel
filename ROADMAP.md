@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 
-- [ ] Hourly count of loud transient events
-  - Rank: [Total: 22, Use: 4, Setup: 2, Harmony: 8, Safety: 8, Effort: M]
-  - Location: `rlcd_panel/clap_detector.h`, `rlcd_panel/es7210_mic.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`
-  - Goal: Count the transients (rise of 20 dB in under 5 ms) in the hourly 5 s noise window with the `ClapDetector` front end. Add the column `noise_events` to the CSV (format version 3, new file name `climate_v3_YYYYMM.csv`). Show `EVENTS: N` in the diagnostics view. Do not keep the microphones on longer than the existing window.
-  - Acceptance test: Host tests cover 0, 1 and 10 synthetic transients, a steady tone with no events, the CSV header and row with 19 columns, an empty field for a failed window, and the line bounds. The old CSV files stay unchanged.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

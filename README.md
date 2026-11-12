@@ -191,7 +191,7 @@ A value that is missing, malformed, or outside its range keeps the default. The 
 
 ## MicroSD Noise Logging
 
-The firmware appends one CSV record per hour to `/climate_v2_YYYYMM.csv` on the MicroSD card. The file has 18 columns: the climate columns plus `noise_rms`, `noise_db` and `noise_band`. The wake cycle that writes the record runs one 5 s noise window first, also after a timer wakeup. With a low battery alert, or if the window fails, the three noise fields stay empty. The old `climate_YYYYMM.csv` files (15 columns) stay unchanged. `log_retention_months` in `config.ini` deletes monthly files older than the set number of months after each hourly write (`0` keeps all files). The diagnostics view shows `SD FREE: NNN MB`. The code is in `rlcd_panel/sd_logger.h`.
+The firmware appends one CSV record per hour to `/climate_v3_YYYYMM.csv` on the MicroSD card. The file has 19 columns: the climate columns plus `noise_rms`, `noise_db`, `noise_band` and `noise_events` (loud transients in the 5 s window). The wake cycle that writes the record runs one 5 s noise window first, also after a timer wakeup. With a low battery alert, or if the window fails, the four noise fields stay empty. The old `climate_YYYYMM.csv` (15 columns) and `climate_v2_YYYYMM.csv` (18 columns) files stay unchanged. The diagnostics view shows `EVENTS: N` for the last noise window. `log_retention_months` in `config.ini` deletes monthly files older than the set number of months after each hourly write (`0` keeps all files). The diagnostics view shows `SD FREE: NNN MB`. The code is in `rlcd_panel/sd_logger.h`.
 
 ## Ambient Noise Monitor
 

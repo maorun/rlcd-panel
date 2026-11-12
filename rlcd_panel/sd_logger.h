@@ -86,7 +86,7 @@ public:
   // Header line of the daily summary file, with the terminator.
   static constexpr size_t DAILY_HEADER_SIZE = 512;
   static constexpr const char* MOUNT_POINT = "/sdcard";
-  // "climate_v2_YYYYMM.csv" plus the terminator.
+  // "climate_v3_YYYYMM.csv" plus the terminator.
   static constexpr size_t LOG_NAME_SIZE = 22;
   // Upper bound of the shown free space (about 9.5 TB), so the diagnostics line has a fixed width.
   static constexpr uint32_t MAX_FREE_MB = 9999999;
@@ -95,15 +95,16 @@ public:
   // Files that one prune pass deletes at most. More old files go in the next hourly pass.
   static constexpr size_t MAX_PRUNE_PER_PASS = 24;
 
-  // Splits a bare log file name "climate_v2_YYYYMM.csv" into year 2000..2099 and month 01..12.
+  // Splits a bare log file name "climate_v3_YYYYMM.csv" (or the old "climate_v2_YYYYMM.csv") into year 2000..2099 and month 01..12.
   // Anything else is false, so a path separator or "." never reaches the card.
   static bool parseLogFileName(const char* name, int& year, int& month) {
-    static const char PREFIX[] = "climate_v2_";
+    static const char PREFIX[] = "climate_v3_";
+    static const char PREFIX_V2[] = "climate_v2_"; // old 18-column files: listed and pruned, never written
     static const char SUFFIX[] = ".csv";
     constexpr size_t PREFIX_LEN = sizeof(PREFIX) - 1;
     constexpr size_t SUFFIX_LEN = sizeof(SUFFIX) - 1;
     if (name == nullptr || strlen(name) != PREFIX_LEN + 6 + SUFFIX_LEN ||
-        memcmp(name, PREFIX, PREFIX_LEN) != 0 ||
+        (memcmp(name, PREFIX, PREFIX_LEN) != 0 && memcmp(name, PREFIX_V2, PREFIX_LEN) != 0) ||
         memcmp(name + PREFIX_LEN + 6, SUFFIX, SUFFIX_LEN) != 0) {
       return false;
     }
@@ -123,7 +124,7 @@ public:
     return true;
   }
 
-  // True for a bare log file name "climate_v2_YYYYMM.csv" with year 2000..2099 and month 01..12.
+  // True for a bare log file name "climate_v3_YYYYMM.csv" or "climate_v2_YYYYMM.csv" with year 2000..2099 and month 01..12.
   static bool isLogFileName(const char* name) {
     int year = 0;
     int month = 0;
@@ -340,7 +341,7 @@ public:
         "s1_temp_c,s1_rh,s1_battery_pct,"
         "s2_temp_c,s2_rh,s2_battery_pct,"
         "s3_temp_c,s3_rh,s3_battery_pct,"
-        "noise_rms,noise_db,noise_band\n";
+        "noise_rms,noise_db,noise_band,noise_events\n";
     const size_t len = sizeof(HEADER) - 1;
     if (out == nullptr || capacity < len + 1) {
       return 0;
@@ -349,8 +350,8 @@ public:
     return len;
   }
 
-  // Writes "/sdcard/climate_v2_YYYYMM.csv". The v2 name keeps the 18-column format apart from
-  // the old 15-column files. Returns the length, or 0 for a null buffer, a small
+  // Writes "/sdcard/climate_v3_YYYYMM.csv". The v3 name keeps the 19-column format apart from
+  // the old v2 files (18 columns), which stay unchanged. Returns the length, or 0 for a null buffer, a small
   // buffer, a null or invalid time.
   static size_t formatFilename(const RtcTime* time, char* out, size_t capacity) {
     if (out == nullptr || capacity == 0) {
@@ -362,7 +363,7 @@ public:
       return 0;
     }
     const int n = snprintf(
-        out, capacity, "%s/climate_v2_%04u%02u.csv", MOUNT_POINT,
+        out, capacity, "%s/climate_v3_%04u%02u.csv", MOUNT_POINT,
         static_cast<unsigned>(time->year), static_cast<unsigned>(time->month));
     if (n <= 0 || static_cast<size_t>(n) >= capacity) {
       out[0] = '\0';
@@ -372,8 +373,8 @@ public:
   }
 
   // Writes one CSV record, including the newline. A missing, invalid or stale sensor gives
-  // empty fields, so every row has the same column count. A null or invalid `noise` gives empty
-  // noise fields; the dB value uses `noise_cal` (the default calibration when null). Returns the
+  // empty fields, so every row has the same column count (19). A null or invalid `noise` gives empty
+  // noise fields, also an empty event count; the dB value uses `noise_cal` (the default calibration when null). Returns the
   // length, or 0 on a null or small buffer, or a null or invalid time.
   static size_t formatRow(
       const RtcTime* time,
@@ -430,10 +431,11 @@ public:
     }
     if (noise != nullptr && noise->valid) {
       const MicCalibration cal = noise_cal != nullptr ? *noise_cal : MicCalibration{};
-      pos += snprintf(out + pos, capacity - pos, ",%u,%d,%s", static_cast<unsigned>(noise->rms),
-                      cal.splDb(noise->rms), NoiseClassifier::label(noise->band));
+      pos += snprintf(out + pos, capacity - pos, ",%u,%d,%s,%u", static_cast<unsigned>(noise->rms),
+                      cal.splDb(noise->rms), NoiseClassifier::label(noise->band),
+                      static_cast<unsigned>(noise->events));
     } else {
-      pos += snprintf(out + pos, capacity - pos, ",,,");
+      pos += snprintf(out + pos, capacity - pos, ",,,,");
     }
     pos += snprintf(out + pos, capacity - pos, "\n");
     if (pos >= capacity) {
