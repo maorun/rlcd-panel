@@ -56,7 +56,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `AudioSequencer` plays the chime through a hardware layer. It switches the amplifier on only while samples play. It switches the amplifier off on every exit path, also after a codec failure, so deep sleep draws no speaker current.
 - `Es8311Hal` (Arduino only) writes the ES8311 register sequence over I2C (`0x18`), starts I2S with MCLK (`GPIO8`, `9`, `10`, `16`, `45`), and sets `PA_CTRL` (`GPIO46`) with `pinMode()` before `digitalWrite()`.
 - A press of the `BOOT` button in the 3 s grace window toggles the mute flag. Unmuting plays a short confirmation beep. Mute suppresses the sound only; the alert state is still tracked, so unmuting does not replay an old alert.
-- `muted` and `alert_mask` stay in RTC memory (state version 4, one byte; the layout changed in state versions 11 and 12, see "Sensor dropout chime"). The old format gives a clean start. A reserved bit with a valid CRC is rejected.
+- `muted` and `alert_mask` stay in RTC memory (state version 4, one byte; the layout changed in state versions 11 and 12, see "Sensor dropout chime"). The old format gives a clean start. The audio byte layout of state version 23 is: bit 0 muted, bits 1 to 5 alert mask, bits 6 and 7 noise band. No reserved bit is left; the band value 3 is rejected, even with a valid CRC.
 - One alert bit covers all sensors of its kind. A second sensor that enters the alert while another one stays in it does not chime. With no usable reading an active alert holds, so a sensor dropout does not clear it.
 - The mute toggle works only in the 3 s grace window, which follows a `KEY` wakeup or a power-on. A timer wakeup skips the window. A reset of the RTC state (corrupt data or a format change) clears the mute flag.
 - The amplifier pin is held low through deep sleep with `gpio_hold_en`.
@@ -164,7 +164,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
   | `mic_spl_offset_db` | `0.0` | `-20.0` to `20.0` | added to the microphone SPL offset |
   | `log_retention_months` | `0` | `0` to `120` | delete log files older than this; `0` keeps all |
 | `noise_alert_limit_db` | `0` | `0` (off) or `40` to `100` | loud noise alert trigger |
-| `chime_alert_mask` | `15` | `0` to `15` | chime per alert (bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost) |
+| `chime_alert_mask` | `31` | `0` to `31` | chime per alert (bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full) |
   | `ntp_sync_interval_h` | `24` | `6` to `168` | hours between two successful NTP syncs |
 
 - Equal start and end hours switch the quiet hours off. A lone CR is no line end: use LF or CRLF. The SPL offset has whole dB steps, so a fraction below 0.5 dB has no effect.
@@ -337,7 +337,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 
 ## Chime selection for each alert in config.ini
 
-- The new key `chime_alert_mask` (default `15`, range `0` to `15`) is part of `config.ini`. Bit 0 is `ALERT_FREEZER`, bit 1 is `ALERT_HUMIDITY`, bit 2 is `ALERT_NOISE_HIGH`, and bit 3 is `ALERT_SENSOR_LOST`. A value above `15` or a malformed value is rejected, and the previous value stays.
+- The new key `chime_alert_mask` (default `31`, range `0` to `31`; `15` before the charge-full chime) is part of `config.ini`. Bit 0 is `ALERT_FREEZER`, bit 1 is `ALERT_HUMIDITY`, bit 2 is `ALERT_NOISE_HIGH`, bit 3 is `ALERT_SENSOR_LOST`, and bit 4 is `ALERT_CHARGE_FULL`. A value above `31` or a malformed value is rejected, and the previous value stays.
 - A cleared bit suppresses the sound of this alert only. The alert state is still stored, so setting the bit again does not replay an old alert. Mute and quiet hours still suppress each chime.
 - `AlertEvaluator::chimeBits`, `step`, `climateStep` and `NoiseAlertEvaluator::step` take the mask as the last argument. The default is all bits set.
 - The mask adds one byte to the config trailer in RTC memory. The state version is 15 (16 since `ntp_sync_interval_h`). The old format gives a clean start. A mask above `15` is rejected, even with a valid CRC.
@@ -431,3 +431,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The stamp (`PersistentState::daily`) uses 5 bytes in the SD log trailer in RTC memory. The state version is 22. The old format gives a clean start. A stamp with a reserved flag or an impossible date is rejected, even with a valid CRC.
 - `LIST` and `DUMP daily_v1_YYYY.csv` accept the daily file (`SdLogCodec::isConsoleFileName`). `scripts/dump-logs.sh` copies it. The retention rule deletes a daily file when its whole year is older than `log_retention_months` (the file counts as December of its year); the current year never goes.
 - Acceptance criteria: host tests cover the statistics, the row format and header, empty fields, the worst-case row, the file names, the retention rule, the midnight gate in CET and CEST (including both DST changes), one row per day, a failed write with a retry, the RTC round trip with corrupt stamps, and the console name check with `LIST` and `DUMP`.
+
+## Charge complete chime on USB power
+
+- **Code:** `rlcd_panel/audio_alert.h`, `rlcd_panel/battery_monitor.h`, `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`.
+- `BatteryMonitor::updateChargeFull` sets the latch at 100 % on USB power and holds it down to 95 % (`CHARGE_FULL_CLEAR_PCT`), so a reading that swings between 99 % and 100 % never chimes again. Battery power clears the latch. An invalid reading holds it.
+- `ALERT_CHARGE_FULL` is bit 4 (value 16) of the alert mask. `ALERT_MASK_ALL` is now 31. `AlertEvaluator::chargeStep` sets or clears this bit and keeps the other bits. The chime sounds on the rising edge only: two falling notes (988 Hz, 660 Hz). `chimeOnChargeFull` in `rlcd_panel.ino` runs after `chimeOnAlerts` in each wake cycle.
+- Mute, quiet hours and a cleared bit 4 of `chime_alert_mask` suppress the sound only. The mask is stored, so no chime replays later. The default of `chime_alert_mask` is `31`; a card with `15` silences this chime.
+- The audio byte in RTC memory holds the mask in bits 1 to 5 and the noise band in bits 6 and 7. The state version is 23. The old format gives a clean start.
+- Acceptance criteria: host tests cover the trigger at 100 %, no replay for 99 % to 100 % noise, the release at 94 %, no trigger on battery power, an invalid reading, the mask bit, mute and quiet hours, the pattern and the playback, the new mask range `0` to `31` in `config.ini`, and the RTC round trip with the new layout.

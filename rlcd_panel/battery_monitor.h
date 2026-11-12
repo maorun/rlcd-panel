@@ -85,6 +85,24 @@ public:
     return was_low && !above_clear;
   }
 
+  // Charge-complete latch. It sets at 100 % on USB power and holds down to CHARGE_FULL_CLEAR_PCT,
+  // so a reading that swings between 99 % and 100 % never chimes again. Battery power clears it.
+  // An invalid reading holds the latch.
+  static constexpr int CHARGE_FULL_SET_PCT = 100;
+  static constexpr int CHARGE_FULL_CLEAR_PCT = 95;
+  static bool updateChargeFull(const BatteryReading& reading, bool was_full) {
+    if (!reading.valid || reading.percentage < 0) {
+      return was_full;
+    }
+    if (!reading.usb_powered) {
+      return false;
+    }
+    if (reading.percentage >= CHARGE_FULL_SET_PCT) {
+      return true;
+    }
+    return was_full && reading.percentage >= CHARGE_FULL_CLEAR_PCT;
+  }
+
   // Returns the new protection state for `reading`. `was_latched` is the state of the previous
   // wake cycle. USB power ends the protection. An invalid reading (no battery or a failed ADC
   // read) never sets it and holds a set latch, because a bad sample must not wake the modules.

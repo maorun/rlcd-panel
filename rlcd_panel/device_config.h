@@ -42,8 +42,8 @@ struct DeviceConfig {
   static constexpr uint8_t DEFAULT_NOISE_ALERT_LIMIT_DB = 0; // 0 switches the noise alert off
   static constexpr uint8_t MIN_NOISE_ALERT_LIMIT_DB = 40;
   static constexpr uint8_t MAX_NOISE_ALERT_LIMIT_DB = 100;
-  static constexpr uint8_t DEFAULT_CHIME_ALERT_MASK = 15; // all four alerts may sound
-  static constexpr uint8_t MAX_CHIME_ALERT_MASK = 15;
+  static constexpr uint8_t DEFAULT_CHIME_ALERT_MASK = 31; // all five alerts may sound
+  static constexpr uint8_t MAX_CHIME_ALERT_MASK = 31;
   static constexpr uint8_t DEFAULT_NTP_SYNC_INTERVAL_H = 24;
   static constexpr uint8_t MIN_NTP_SYNC_INTERVAL_H = 6;
   static constexpr uint8_t MAX_NTP_SYNC_INTERVAL_H = 168;
@@ -72,7 +72,7 @@ struct DeviceConfig {
   float mic_spl_offset_db = DEFAULT_MIC_SPL_OFFSET_DB; // added to the microphone calibration offset
   uint8_t log_retention_months = DEFAULT_LOG_RETENTION_MONTHS; // log files older than this are deleted
   uint8_t noise_alert_limit_db = DEFAULT_NOISE_ALERT_LIMIT_DB; // 0 = off, else 40..100 dB
-  uint8_t chime_alert_mask = DEFAULT_CHIME_ALERT_MASK; // bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost
+  uint8_t chime_alert_mask = DEFAULT_CHIME_ALERT_MASK; // bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full
   uint8_t ntp_sync_interval_h = DEFAULT_NTP_SYNC_INTERVAL_H; // hours between two successful NTP syncs, 6..168
 
   static bool inRange(float v, float lo, float hi) {

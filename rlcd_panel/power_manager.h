@@ -129,7 +129,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 22;
+  static constexpr uint8_t STATE_VERSION = 23;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -148,7 +148,7 @@ public:
   static constexpr size_t BATTERY_HISTORY_SIZE = 1 + 1 + BatteryHistory::CAPACITY * (2 + 4) + 4 + 1;
   // SD log trailer: last log time, logged flag, then the daily summary stamp: flag, year (uint16), month, day.
   static constexpr size_t SD_LOG_SIZE = 4 + 1 + 1 + 2 + 1 + 1;
-  // Audio trailer: one byte, bit 0 muted, bits 1..4 alert mask, bits 5..6 noise band.
+  // Audio trailer: one byte, bit 0 muted, bits 1..5 alert mask, bits 6..7 noise band.
   static constexpr size_t AUDIO_SIZE = 1;
   // NTP trailer: last attempt time, flags (bit 0 attempted, bit 1 last ok), failure count, then the
   // RTC drift: flags (bit 0 synced, bit 1 drift known), last sync (UTC seconds), drift, rate (int32).
@@ -349,7 +349,7 @@ public:
     out[pos++] = state.daily.month;
     out[pos++] = state.daily.day;
     out[pos++] = static_cast<uint8_t>((state.muted ? 1 : 0) | ((state.alert_mask & ALERT_MASK_ALL) << 1) |
-        (static_cast<uint8_t>(state.noise_band) << 5));
+        (static_cast<uint8_t>(state.noise_band) << 6));
     putU32(out, pos, state.ntp.last_attempt_ms);
     out[pos++] = static_cast<uint8_t>((state.ntp.has_attempted ? 1 : 0) | (state.ntp.last_ok ? 2 : 0));
     out[pos++] = state.ntp.failures;
@@ -547,8 +547,8 @@ public:
       s.daily.day = daily_day;
     }
     const uint8_t audio = data[pos++];
-    const uint8_t band = static_cast<uint8_t>((audio >> 5) & 3);
-    if ((audio & ~0x7Fu) != 0 || band > static_cast<uint8_t>(NoiseBand::LOUD)) {
+    const uint8_t band = static_cast<uint8_t>((audio >> 6) & 3);
+    if (band > static_cast<uint8_t>(NoiseBand::LOUD)) {
       return false;
     }
     s.muted = (audio & 1) != 0;
