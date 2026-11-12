@@ -18,9 +18,39 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
+- [ ] Fixed MAC address for each sensor slot in config.ini
+  - Rank: [Total: 35, Use: 7, Setup: 10, Harmony: 8, Safety: 10, Effort: M]
+  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/bthome_ble.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+  - Goal: Add the `config.ini` keys `slot1_mac` to `slot3_mac` (format `AA:BB:CC:DD:EE:FF`, empty by default). A slot with a fixed MAC accepts packets from that MAC only. A slot without a fixed MAC keeps the first-come rule, but it never accepts a MAC that another slot has fixed. Thus a sensor of a neighbor cannot take a slot, and the slot order, the names and the calibration offsets stay correct after a power-on. Clear the reading and the 24-hour history of a slot when its fixed MAC changes. Show the last three MAC bytes (`MAC ..:EE:FF`) in each sensor block of the stats view. Store the three values in the config trailer and increase the state version.
+  - Acceptance test: Host tests cover the parser for a valid MAC, lowercase hex, a wrong separator, a short value, an empty value and a duplicate MAC in two keys. Registry tests cover a fixed slot that rejects a foreign MAC, an unfixed slot that rejects a fixed MAC, the first-come rule without fixed MACs, SwitchBot and BTHome packets, the slot reset after a MAC change, and the RTC round trip. `docs/display_preview_stats.png` shows the MAC line.
+
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
+- [ ] Rejected config.ini lines in the diagnostics view and the serial console
+  - Rank: [Total: 31, Use: 3, Setup: 10, Harmony: 8, Safety: 10, Effort: S]
+  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`
+  - Goal: Record the line numbers of the first four rejected lines and the total count of rejected lines in `DeviceConfigParser`. Store them in `PersistentState`. Show `CONFIG: SD (N ERR)` in the diagnostics view when the count is above 0. Add one `REJECTED line=N` line for each recorded line to the output of the console command `CONFIG`. The user can then find a typo in `config.ini` without a guess. Unknown keys are not errors.
+  - Acceptance test: Host tests cover a file with no errors, one malformed value, one out-of-range value, six rejected lines (four line numbers, count 6), CRLF line counts, an unknown key that adds no error, the line bounds of `CONFIG: SD (255 ERR)`, the `CONFIG` output with the CRC-32, and the RTC round trip. `docs/display_preview_diagnostics.png` shows the error count.
+
+- [ ] Wake interval from config.ini
+  - Rank: [Total: 31, Use: 6, Setup: 9, Harmony: 8, Safety: 8, Effort: S]
+  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/battery_monitor.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+  - Goal: Add the `config.ini` key `wake_interval_s` (default `60`, range `30` to `900`). Pass the value to `PowerConfig::sleep_interval_s`. A longer interval gives a longer battery runtime, and a shorter interval gives faster tile updates. Keep the hourly log, the history and the NTP schedule on the RTC clock, so the interval does not move them. On USB power, keep the interval at the default value. Store the value in the config trailer and increase the state version.
+  - Acceptance test: Host tests cover the default, the edges `30` and `900`, out-of-range and malformed values, the wakeup timer maths for each edge, the hourly gate with a 900 s interval, the USB power override, the runtime estimate with samples off the hour grid, and the RTC round trip.
+
+- [ ] Ventilation advice from indoor and outdoor absolute humidity
+  - Rank: [Total: 30, Use: 8, Setup: 4, Harmony: 9, Safety: 9, Effort: M]
+  - Location: `rlcd_panel/climate_math.h`, `rlcd_panel/device_config.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`
+  - Goal: Add the `config.ini` key `outdoor_slot` (default `0` is off, range `0` to `3`). Calculate the absolute humidity in g/m³ for the onboard sensor and for the outdoor slot with `ClimateMath`. Show the banner `VENTILATE` when the indoor humidity is above `mold_alert_limit_rh` and the outdoor air holds at least 2.0 g/m³ less water. Release the banner when the difference is below 1.0 g/m³ or the indoor humidity is 3 %RH below the limit. Add the alert `ALERT_VENTILATE` (bit 5 of `chime_alert_mask`, new range `0` to `63`) with one chime per trigger. Mute and quiet hours suppress the chime. A stale outdoor slot gives no advice.
+  - Acceptance test: Host tests cover the absolute humidity at 0 °C, 20 °C and 30 °C against reference values, the trigger and the release with the hysteresis, a stale or empty outdoor slot, `outdoor_slot=0`, the mask bit, mute and quiet hours, the new mask range, the banner bounds, and the RTC round trip. `docs/display_preview_dashboard.png` shows the banner in one scene.
+
 ## Priority 3: Audio Expansions (Score 22–27)
+
+- [ ] L10 and L90 noise levels in the hourly window
+  - Rank: [Total: 23, Use: 4, Setup: 3, Harmony: 8, Safety: 8, Effort: M]
+  - Location: `rlcd_panel/es7210_mic.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+  - Goal: Split the 5 s `NoiseSampler` window into 50 blocks of 100 ms. Calculate the calibrated level of each block. Report L10 (the level that 10 % of the blocks exceed) and L90 (the background level that 90 % of the blocks exceed). Show `L10/L90: NN/NN DBA` in the diagnostics view. Add the columns `noise_l10` and `noise_l90` to the CSV (format version 4, new file name `climate_v4_YYYYMM.csv`). Include the new file in `LIST`, `DUMP` and the retention rule. Do not keep the microphones on longer than the existing window.
+  - Acceptance test: Host tests cover a steady tone (L10 equals L90), a single loud block, a ramp of 50 blocks, a failed window with empty fields, the uncalibrated `DBFS` text, the CSV header and row with 21 columns, the console file name check, and the line bounds. The old CSV files stay unchanged.
 
 ## Rules for ranking
 
