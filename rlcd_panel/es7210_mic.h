@@ -76,6 +76,12 @@ struct NoiseReading {
   NoiseBand band = NoiseBand::QUIET;
   MicSelfTest mic;  // per-channel self-test of the same window
   uint16_t events = 0; // loud transients in the window (ClapDetector front end); 0 when invalid
+  // Percentile levels of the 100 ms blocks of the window, as RMS of the usable channels. L10 is the
+  // level that 10 % of the blocks exceed, L90 the background level that 90 % exceed (L10 >= L90).
+  // `levels_valid` is false for a failed window and for a window shorter than one block.
+  bool levels_valid = false;
+  uint16_t l10_rms = 0;
+  uint16_t l90_rms = 0;
 };
 
 // Decoupled acoustic energy calculator. It has no hardware dependency, so the host tests build it.
@@ -549,6 +555,70 @@ constexpr Es7210Reg SHUTDOWN_SEQUENCE[] = {
 
 } // namespace es7210
 
+// Level of each 100 ms block of a window. The class keeps the sum of squares per block and channel
+// (50 blocks, 800 bytes), so the usable channels can be chosen after the window, when the
+// self-test is known. L10 and L90 are order statistics of the block RMS values. The conversion to
+// dB SPL rises with the RMS, so the percentiles of the RMS give the percentiles of the level.
+class BlockLevels {
+public:
+  static constexpr size_t MAX_BLOCKS = 50;      // a 5 s window; blocks of a longer window are ignored
+  static constexpr uint32_t BLOCK_MS = 100;
+  static constexpr size_t BLOCK_FRAMES = 1600; // 100 ms at 16 kHz
+
+  // `blocks` complete blocks are counted (at most MAX_BLOCKS); further samples are ignored.
+  explicit BlockLevels(size_t blocks) : blocks_(blocks > MAX_BLOCKS ? MAX_BLOCKS : blocks) {}
+
+  // Adds interleaved stereo samples that follow the settling time.
+  void add(const int16_t* samples, size_t count) {
+    for (size_t i = 0; samples != nullptr && i < count; ++i, ++pos_) {
+      const size_t block = pos_ / (BLOCK_FRAMES * 2);
+      if (block >= blocks_) {
+        return;
+      }
+      const int64_t v = samples[i];
+      sum_[block][pos_ & 1] += static_cast<uint64_t>(v * v);
+    }
+  }
+
+  size_t blocks() const { return blocks_; }
+
+  // L10 and L90 of the blocks, from the channels that the self-test calls usable. False without a
+  // block or without a usable channel.
+  bool percentiles(const MicSelfTest& t, uint16_t& l10, uint16_t& l90) const {
+    l10 = 0;
+    l90 = 0;
+    const bool use0 = t.channelOk(0), use1 = t.channelOk(1);
+    if (blocks_ == 0 || (!use0 && !use1)) {
+      return false;
+    }
+    uint16_t level[MAX_BLOCKS];
+    for (size_t b = 0; b < blocks_; ++b) {
+      const double m0 = static_cast<double>(sum_[b][0]) / BLOCK_FRAMES;
+      const double m1 = static_cast<double>(sum_[b][1]) / BLOCK_FRAMES;
+      const double mean = use0 && use1 ? (m0 + m1) / 2.0 : (use0 ? m0 : m1);
+      const double v = sqrt(mean);
+      level[b] = v >= 32767.0 ? 32767 : static_cast<uint16_t>(lround(v));
+    }
+    for (size_t i = 1; i < blocks_; ++i) { // insertion sort, ascending
+      const uint16_t key = level[i];
+      size_t j = i;
+      for (; j > 0 && level[j - 1] > key; --j) {
+        level[j] = level[j - 1];
+      }
+      level[j] = key;
+    }
+    // k blocks exceed the level at index n - 1 - k. L10: k = n / 10. L90: k = 9 n / 10.
+    l10 = level[blocks_ - 1 - blocks_ / 10];
+    l90 = level[blocks_ - 1 - (blocks_ * 9) / 10];
+    return true;
+  }
+
+private:
+  uint64_t sum_[MAX_BLOCKS][2] = {};
+  size_t blocks_;
+  size_t pos_ = 0;
+};
+
 // Runs one sampling window against a hardware layer. The layer type provides:
 //   bool beginBus(); bool configureAdc(); size_t read(int16_t* samples, size_t count);
 //   void shutdownAdc(); void endBus();
@@ -562,9 +632,16 @@ public:
   static constexpr uint32_t WINDOW_MS = 5000;
   static constexpr size_t CHUNK_SAMPLES = 256;
   static constexpr uint32_t SETTLE_FRAMES = SAMPLE_RATE_HZ / 10; // the ADC settles for 100 ms
+  static constexpr size_t BLOCK_FRAMES = BlockLevels::BLOCK_FRAMES; // 100 ms block for L10 and L90
+  static_assert(BLOCK_FRAMES == SAMPLE_RATE_HZ / 1000 * BlockLevels::BLOCK_MS, "block size");
+  // BlockLevels takes the channel from the sample position after the settling time, so the
+  // settling sample count must be even to match the StereoAnalyzer channel order.
+  static_assert((SETTLE_FRAMES * CHANNELS) % 2 == 0, "settling samples must keep the channel order");
 
   // Returns an invalid reading when the bus or the ADC fails, or a read stops before the window
-  // ends. `previous` is the band of the last measurement (hysteresis).
+  // ends. `previous` is the band of the last measurement (hysteresis). L10 and L90 use whole 100 ms
+  // blocks: a rest below 100 ms is ignored, and a window above MAX_BLOCKS blocks gives no
+  // percentiles (`levels_valid` false).
   template <typename Hal>
   static NoiseReading measure(
       Hal& hal,
@@ -575,10 +652,14 @@ public:
     if (hal.beginBus() && hal.configureAdc()) {
       StereoAnalyzer analyzer;
       TransientCounter transients;
-      if (collect(hal, analyzer, transients, window_ms)) {
+      BlockLevels blocks(static_cast<size_t>(window_ms / BlockLevels::BLOCK_MS));
+      if (collect(hal, analyzer, transients, blocks, window_ms)) {
         result = evaluate(analyzer, previous, cal);
         if (result.valid) {
           result.events = transients.count();
+          result.levels_valid =
+              window_ms / BlockLevels::BLOCK_MS <= BlockLevels::MAX_BLOCKS &&
+              blocks.percentiles(result.mic, result.l10_rms, result.l90_rms);
         }
       }
     }
@@ -606,7 +687,11 @@ private:
 
   template <typename Hal>
   static bool collect(
-      Hal& hal, StereoAnalyzer& acc, TransientCounter& transients, uint32_t window_ms) {
+      Hal& hal,
+      StereoAnalyzer& acc,
+      TransientCounter& transients,
+      BlockLevels& blocks,
+      uint32_t window_ms) {
     int16_t chunk[CHUNK_SAMPLES];
     const uint64_t settle = static_cast<uint64_t>(SETTLE_FRAMES) * CHANNELS;
     const uint64_t wanted =
@@ -628,6 +713,7 @@ private:
       acc.skip(skip);
       acc.add(chunk + skip, n - skip);
       transients.add(chunk + skip, n - skip);
+      blocks.add(chunk + skip, n - skip);
       seen += n;
     }
     return true;

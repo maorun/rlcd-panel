@@ -146,6 +146,9 @@ inline void renderScene(
   // Both microphones pass the self-test (MIC1: OK MIC2: OK)
   info.noise.mic.valid = true;
   info.noise.events = 4; // four loud transients in the last window
+  info.noise.levels_valid = true;
+  info.noise.l10_rms = 1000; // L10 60 DBA
+  info.noise.l90_rms = 316;  // L90 50 DBA
   info.quiet_hours = quiet_hours;
   info.config_from_sd = true;
   info.config_rejected = 2; // two rejected config.ini lines

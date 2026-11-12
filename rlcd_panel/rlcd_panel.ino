@@ -252,6 +252,11 @@ void measureNoiseOnce() {
   if (g_noise.valid) {
     g_state.noise_band = g_noise.band;
     Serial.printf("Noise window: %u loud events\n", static_cast<unsigned>(g_noise.events));
+    if (g_noise.levels_valid) {
+      Serial.printf(
+          "Noise levels: L10 RMS %u, L90 RMS %u\n", static_cast<unsigned>(g_noise.l10_rms),
+          static_cast<unsigned>(g_noise.l90_rms));
+    }
   } else {
     Serial.println("Noise measurement failed");
   }

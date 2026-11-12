@@ -2478,7 +2478,7 @@ void testSdLogCodec() {
   assert(buf[hl - 1] == '\n');
   size_t header_commas = 0;
   for (size_t i = 0; i < hl; ++i) header_commas += buf[i] == ',';
-  assert(header_commas == 18);
+  assert(header_commas == 20);
   assert(SdLogCodec::formatHeader(nullptr, 100) == 0);
   assert(SdLogCodec::formatHeader(buf, 0) == 0);
   assert(SdLogCodec::formatHeader(buf, hl) == 0); // no room for the terminator
@@ -2488,10 +2488,10 @@ void testSdLogCodec() {
   t.valid = true; t.year = 2026; t.month = 3; t.day = 9; t.hour = 7; t.minute = 5; t.second = 1;
   char path[SdLogCodec::MAX_PATH_SIZE];
   assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) > 0);
-  assert(strcmp(path, "/sdcard/climate_v3_202603.csv") == 0);
+  assert(strcmp(path, "/sdcard/climate_v4_202603.csv") == 0);
   t.month = 12;
   SdLogCodec::formatFilename(&t, path, sizeof(path));
-  assert(strcmp(path, "/sdcard/climate_v3_202612.csv") == 0);
+  assert(strcmp(path, "/sdcard/climate_v4_202612.csv") == 0);
   t.month = 3;
   assert(SdLogCodec::formatFilename(nullptr, path, sizeof(path)) == 0);
   assert(SdLogCodec::formatFilename(&t, nullptr, 32) == 0);
@@ -2521,7 +2521,7 @@ void testSdLogCodec() {
   slots[1].battery_pct = -1; slots[1].updated_ms = 1000;
   const size_t rl = SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 2000, nullptr, nullptr, buf, sizeof(buf));
   assert(rl == strlen(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,87,4.00,0,21.5,45.0,-3.5,80,90,19.0,50,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,87,4.00,0,21.5,45.0,-3.5,80,90,19.0,50,,,,,,,,,,\n") == 0);
 
   // Row with invalid battery, invalid onboard, a stale slot, a NaN slot, and a missing slot
   BatteryReading nobat;
@@ -2530,9 +2530,9 @@ void testSdLogCodec() {
   slots[1].temperature_c = NAN;
   const uint32_t late = SENSOR_STALE_TIMEOUT_MS + 5000;
   SdLogCodec::formatRow(&t, &nobat, &noonboard, slots, 3, late, nullptr, nullptr, buf, sizeof(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,\n") == 0);
   SdLogCodec::formatRow(&t, &nobat, &noonboard, nullptr, 0, 0, nullptr, nullptr, buf, sizeof(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,\n") == 0);
 
   // Every row has as many columns as the header
   size_t row_commas = 0;
@@ -2550,7 +2550,7 @@ void testSdLogCodec() {
   assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, nullptr, nullptr, buf, SdLogCodec::MAX_ROW_SIZE - 1) == 0);
   assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, nullptr, nullptr, buf, SdLogCodec::MAX_ROW_SIZE) > 0);
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, nullptr, nullptr, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,\n") == 0);
 }
 
 void testSdLogSchedule() {
@@ -3219,26 +3219,273 @@ void testNoiseSamplerPowersDownOnEveryPath() {
   assert(r.mic.channel[0] == MicStatus::SILENT && r.mic.channel[1] == MicStatus::SILENT);
 }
 
+// Serves a square wave whose amplitude follows the 100 ms block of the window (after the settling).
+struct BlockMicHal : FakeMicHal {
+  int16_t (*amplitude_of_block)(size_t block) = nullptr;
+  size_t served = 0;
+  size_t read(int16_t* samples, size_t count) {
+    for (size_t i = 0; i < count; ++i, ++served) {
+      const size_t settle = NoiseSampler::SETTLE_FRAMES * 2;
+      const size_t block = served < settle ? 0 : (served - settle) / (NoiseSampler::BLOCK_FRAMES * 2);
+      const int16_t a = amplitude_of_block(block);
+      samples[i] = ((served / 2) & 1) ? static_cast<int16_t>(-a) : a;
+    }
+    return count;
+  }
+};
+
+void testNoisePercentilesSteadyTone() {
+  FakeMicHal hal; // amplitude 1000 in every block
+  const NoiseReading r = NoiseSampler::measure(hal, NoiseBand::QUIET);
+  assert(r.valid && r.levels_valid);
+  assert(r.l10_rms == 1000 && r.l90_rms == 1000);
+  assert(NoiseSampler::BLOCK_FRAMES * 50 == NoiseSampler::SAMPLE_RATE_HZ * 5);
+  // The microphones stay on for the existing window only
+  const size_t total = (NoiseSampler::SETTLE_FRAMES + NoiseSampler::SAMPLE_RATE_HZ * 5) * 2;
+  assert(hal.reads == (total + NoiseSampler::CHUNK_SAMPLES - 1) / NoiseSampler::CHUNK_SAMPLES);
+}
+
+void testNoisePercentilesSingleLoudBlock() {
+  BlockMicHal hal;
+  hal.amplitude_of_block = [](size_t b) -> int16_t { return b == 17 ? 20000 : 500; };
+  const NoiseReading r = NoiseSampler::measure(hal, NoiseBand::QUIET);
+  // One block is 2 % of the window: L10 and L90 ignore it, the window RMS does not
+  assert(r.valid && r.levels_valid && r.l10_rms == 500 && r.l90_rms == 500);
+  assert(r.rms > 2000);
+  // Five loud blocks (10 %) leave L10 at the background; six loud blocks raise it
+  hal = BlockMicHal{};
+  hal.amplitude_of_block = [](size_t b) -> int16_t { return b < 5 ? 20000 : 500; };
+  NoiseReading five = NoiseSampler::measure(hal, NoiseBand::QUIET);
+  assert(five.l10_rms == 500 && five.l90_rms == 500);
+  hal = BlockMicHal{};
+  hal.amplitude_of_block = [](size_t b) -> int16_t { return b < 6 ? 20000 : 500; };
+  NoiseReading six = NoiseSampler::measure(hal, NoiseBand::QUIET);
+  assert(six.l10_rms == 20000 && six.l90_rms == 500);
+}
+
+void testNoisePercentilesRamp() {
+  BlockMicHal hal;
+  hal.amplitude_of_block = [](size_t b) -> int16_t { return static_cast<int16_t>(100 * (b + 1)); };
+  const NoiseReading r = NoiseSampler::measure(hal, NoiseBand::QUIET);
+  // 50 blocks of 100..5000: 5 blocks exceed L10 (4500), 45 blocks exceed L90 (500)
+  assert(r.valid && r.levels_valid && r.l10_rms == 4500 && r.l90_rms == 500);
+  assert(r.l10_rms >= r.l90_rms);
+  // A shorter window has fewer blocks: 1 s gives 10 blocks, L10 is the 9th and L90 the 1st
+  BlockMicHal shortw;
+  shortw.amplitude_of_block = [](size_t b) -> int16_t { return static_cast<int16_t>(100 * (b + 1)); };
+  const NoiseReading s = NoiseSampler::measure(shortw, NoiseBand::QUIET, 1000);
+  assert(s.levels_valid && s.l10_rms == 900 && s.l90_rms == 100);
+}
+
+void testNoisePercentilesWindowLengthAndChannels() {
+  // 250 ms: two whole blocks, the rest of 50 ms is ignored
+  BlockMicHal part;
+  part.amplitude_of_block = [](size_t b) -> int16_t { return b == 0 ? 200 : 800; };
+  NoiseReading r = NoiseSampler::measure(part, NoiseBand::QUIET, 250);
+  assert(r.levels_valid && r.l10_rms == 800 && r.l90_rms == 200);
+  // 6 s: more than 50 blocks give no percentiles, the level stays valid
+  FakeMicHal longw;
+  r = NoiseSampler::measure(longw, NoiseBand::QUIET, 6000);
+  assert(r.valid && !r.levels_valid);
+  // One silent channel: the percentiles use the usable channel only, like the window RMS
+  struct OneChannelHal : FakeMicHal {
+    size_t read(int16_t* samples, size_t count) {
+      for (size_t i = 0; i < count; ++i) {
+        samples[i] = (i & 1) ? static_cast<int16_t>(0) : (((i / 2) & 1) ? -1000 : 1000);
+      }
+      return count;
+    }
+  } one;
+  r = NoiseSampler::measure(one, NoiseBand::QUIET);
+  assert(r.valid && r.mic.channelOk(0) && !r.mic.channelOk(1));
+  assert(r.rms == 1000 && r.levels_valid && r.l10_rms == 1000 && r.l90_rms == 1000);
+}
+
+void testNoisePercentilesFailedWindow() {
+  // Both channels silent after the settling: no level, no percentiles
+  struct SilentHal : FakeMicHal {
+    size_t read(int16_t* samples, size_t count) {
+      for (size_t i = 0; i < count; ++i) samples[i] = 0;
+      return count;
+    }
+  } silent;
+  NoiseReading r = NoiseSampler::measure(silent, NoiseBand::QUIET);
+  assert(!r.valid && !r.levels_valid && r.l10_rms == 0 && r.l90_rms == 0);
+  FakeMicHal bus;
+  bus.bus_ok = false;
+  r = NoiseSampler::measure(bus, NoiseBand::QUIET);
+  assert(!r.levels_valid);
+  FakeMicHal cut;
+  cut.reads_before_fail = 10;
+  r = NoiseSampler::measure(cut, NoiseBand::QUIET);
+  assert(!r.levels_valid);
+  // Fewer samples than one block: no percentile
+  FakeMicHal tiny;
+  r = NoiseSampler::measure(tiny, NoiseBand::QUIET, 50);
+  assert(r.valid && !r.levels_valid);
+  assert(!NoiseReading{}.levels_valid);
+}
+
+void testNoisePercentilesText() {
+  char line[40];
+  NoiseReading r;
+  r.valid = true;
+  r.levels_valid = true;
+  r.l10_rms = 1000; // -30 dBFS
+  r.l90_rms = 100;  // -50 dBFS
+  MicCalibration uncal;
+  DashboardView::formatNoisePercentiles(line, sizeof(line), r, uncal);
+  assert(strcmp(line, "L10/L90: -30/-50 DBFS") == 0);
+  MicCalibration cal;
+  MicCalibration::fromFloor(100, MicCalibration::DEFAULT_SPL_OFFSET_DB, cal);
+  DashboardView::formatNoisePercentiles(line, sizeof(line), r, cal);
+  assert(strcmp(line, "L10/L90: 60/40 DBA") == 0);
+  DashboardView::formatNoisePercentiles(line, sizeof(line), NoiseReading{}, cal);
+  assert(strcmp(line, "L10/L90: --") == 0);
+  r.l10_rms = 32767;
+  r.l90_rms = 32767;
+  MicCalibration loud = cal;
+  loud.spl_offset_db = MicCalibration::MAX_SPL_OFFSET_DB;
+  DashboardView::formatNoisePercentiles(line, sizeof(line), r, loud);
+  assert(strcmp(line, "L10/L90: 140/140 DBA") == 0 && strlen(line) == 20);
+}
+
+void testDiagnosticsPercentileLineBounds() {
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  SystemInfo none, wide;
+  wide.mic_cal.calibrated = true;
+  wide.mic_cal.spl_offset_db = MicCalibration::MAX_SPL_OFFSET_DB;
+  wide.noise.valid = true;
+  wide.noise.levels_valid = true;
+  wide.noise.l10_rms = 32767;
+  wide.noise.l90_rms = 32767;
+  St7305Framebuffer a, b;
+  DashboardView::renderDiagnostics(a, battery, none, "12:00");
+  DashboardView::renderDiagnostics(b, battery, wide, "12:00");
+  const uint16_t X0 = DashboardView::PERCENTILE_X, Y0 = DashboardView::PERCENTILE_Y;
+  size_t ink = 0;
+  for (uint16_t y = Y0; y < Y0 + 7; ++y) {
+    for (uint16_t x = X0; x < St7305Framebuffer::WIDTH; ++x) {
+      ink += b.getPixel(x, y) ? 1 : 0;
+      // "L10/L90: 140/140 DBA" = 20 glyphs of 6 px: the text ends before the margin
+      if (x >= X0 + 20 * 6 || x >= St7305Framebuffer::WIDTH - 8) {
+        assert(!b.getPixel(x, y));
+      }
+    }
+  }
+  assert(ink > 50);
+  // Only the percentile text differs on the lines above the noise line (SD FREE ends at x = 236)
+  for (uint16_t y = 0; y < 204; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      if (y >= Y0 && y < Y0 + 7 && x >= X0) continue;
+      assert(a.getPixel(x, y) == b.getPixel(x, y));
+    }
+  }
+  // The text stays clear of the lines above (SD FREE ends y = 158) and below (uptime at y = 164)
+  assert(X0 >= 10 + 19 * 12);
+  assert(Y0 + 7 <= 164);
+}
+
+void testSdLogPercentileColumns() {
+  char buf[SdLogCodec::MAX_ROW_SIZE];
+  const size_t hl = SdLogCodec::formatHeader(buf, sizeof(buf));
+  assert(hl > 0);
+  size_t header_commas = 0;
+  for (size_t i = 0; i < hl; ++i) header_commas += buf[i] == ',';
+  assert(header_commas == 20); // 21 columns
+  assert(strstr(buf, "s3_battery_pct,noise_rms,noise_db,noise_band,noise_events,noise_l10,noise_l90\n") != nullptr);
+
+  RtcTime t;
+  t.valid = true; t.year = 2026; t.month = 3; t.day = 9; t.hour = 7; t.minute = 5; t.second = 1;
+  char path[SdLogCodec::MAX_PATH_SIZE];
+  assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) == strlen("/sdcard/climate_v4_202603.csv"));
+  assert(strcmp(path, "/sdcard/climate_v4_202603.csv") == 0);
+  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v4_202603.csv")) == 0);
+
+  const MicCalibration cal;
+  NoiseReading noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 1000);
+  noise.levels_valid = true;
+  noise.l10_rms = 1000; // 60 dB
+  noise.l90_rms = 100;  // 40 dB
+  assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal, buf, sizeof(buf)) > 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,1000,60,MODERATE,0,60,40\n") == 0);
+  size_t row_commas = 0;
+  for (size_t i = 0; buf[i] != '\0'; ++i) row_commas += buf[i] == ',';
+  assert(row_commas == header_commas);
+
+  // A window without percentiles keeps the other noise fields and leaves the two new ones empty
+  noise.levels_valid = false;
+  SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal, buf, sizeof(buf));
+  assert(strstr(buf, ",1000,60,MODERATE,0,,\n") != nullptr);
+
+  // A failed window or no window: every noise field is empty
+  const NoiseReading invalid;
+  SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &invalid, &cal, buf, sizeof(buf));
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, nullptr, &cal, buf, sizeof(buf));
+  row_commas = 0;
+  for (size_t i = 0; buf[i] != '\0'; ++i) row_commas += buf[i] == ',';
+  assert(row_commas == header_commas);
+
+  // Worst-case row stays below the buffer limit
+  BatteryReading bat;
+  bat.valid = true; bat.percentage = 100; bat.voltage_v = 4.2f; bat.usb_powered = true;
+  Shtc3Reading onboard = makeOnboard(-20.5f, 100.0f);
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (auto& r : slots) {
+    r.valid = true; r.temperature_c = -40.0f; r.humidity_pct = 100; r.battery_pct = 100; r.updated_ms = 10;
+  }
+  noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 32767);
+  noise.levels_valid = true;
+  noise.l10_rms = 32767;
+  noise.l90_rms = 32767;
+  noise.events = 65535;
+  assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 20, &noise, &cal, buf, sizeof(buf)) > 0);
+  assert(strstr(buf, ",32767,90,LOUD,65535,90,90\n") != nullptr);
+  assert(strlen(buf) < SdLogCodec::MAX_ROW_SIZE);
+}
+
+void testSdLogV4FileNames() {
+  int y = 0, m = 0;
+  assert(SdLogCodec::parseLogFileName("climate_v4_202611.csv", y, m) && y == 2026 && m == 11);
+  assert(SdLogCodec::isLogFileName("climate_v4_200001.csv"));
+  assert(SdLogCodec::isLogFileName("climate_v4_202611.csv")); // old files stay valid
+  assert(SdLogCodec::isLogFileName("climate_v2_202611.csv"));
+  assert(!SdLogCodec::isLogFileName("climate_v5_202611.csv"));
+  assert(!SdLogCodec::isLogFileName("climate_v4_202613.csv"));
+  assert(!SdLogCodec::isLogFileName("climate_v4_202611.csv "));
+  assert(!SdLogCodec::isLogFileName("../climate_v4_202611.csv"));
+  assert(SdLogCodec::isConsoleFileName("climate_v4_202611.csv"));
+  RtcTime now;
+  now.valid = true; now.year = 2026; now.month = 6; now.day = 1;
+  assert(SdLogCodec::shouldDeleteLog("climate_v4_202601.csv", now, 3));
+  assert(!SdLogCodec::shouldDeleteLog("climate_v4_202606.csv", now, 1));
+  assert(!SdLogCodec::shouldDeleteLog("climate_v4_202605.csv", now, 3));
+}
+
 void testSdLogNoiseColumns() {
   char buf[SdLogCodec::MAX_ROW_SIZE];
   const size_t hl = SdLogCodec::formatHeader(buf, sizeof(buf));
   assert(hl > 0);
   size_t header_commas = 0;
   for (size_t i = 0; i < hl; ++i) header_commas += buf[i] == ',';
-  assert(header_commas == 18); // 19 columns
-  assert(strstr(buf, "s3_battery_pct,noise_rms,noise_db,noise_band,noise_events\n") != nullptr);
+  assert(header_commas == 20); // 21 columns
+  assert(strstr(buf, "s3_battery_pct,noise_rms,noise_db,noise_band,noise_events,noise_l10,noise_l90\n") != nullptr);
 
   RtcTime t;
   t.valid = true; t.year = 2026; t.month = 3; t.day = 9; t.hour = 7; t.minute = 5; t.second = 1;
   // The v2 file name never matches the old 15-column file
   char path[SdLogCodec::MAX_PATH_SIZE];
-  assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) == strlen("/sdcard/climate_v3_202603.csv"));
-  assert(strcmp(path, "/sdcard/climate_v3_202603.csv") == 0);
-  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v3_202603.csv")) == 0); // no room for NUL
-  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v3_202603.csv") + 1) > 0);
+  assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) == strlen("/sdcard/climate_v4_202603.csv"));
+  assert(strcmp(path, "/sdcard/climate_v4_202603.csv") == 0);
+  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v4_202603.csv")) == 0); // no room for NUL
+  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v4_202603.csv") + 1) > 0);
   t.year = 2099; t.month = 12;
   assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) > 0);
-  assert(strcmp(path, "/sdcard/climate_v3_209912.csv") == 0);
+  assert(strcmp(path, "/sdcard/climate_v4_209912.csv") == 0);
   assert(strlen(path) < SdLogCodec::MAX_PATH_SIZE);
   t.year = 2026; t.month = 3;
 
@@ -3246,32 +3493,32 @@ void testSdLogNoiseColumns() {
   NoiseReading noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 1000);
   const MicCalibration cal;
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,1000,60,MODERATE,0\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,1000,60,MODERATE,0,,\n") == 0);
   // The calibration offset applies
   MicCalibration cal2;
   cal2.spl_offset_db = 100;
   SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal2, buf, sizeof(buf));
-  assert(strstr(buf, ",1000,70,MODERATE,0\n") != nullptr);
+  assert(strstr(buf, ",1000,70,MODERATE,0,,\n") != nullptr);
   // A null calibration uses the default
   SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, nullptr, buf, sizeof(buf));
-  assert(strstr(buf, ",1000,60,MODERATE,0\n") != nullptr);
+  assert(strstr(buf, ",1000,60,MODERATE,0,,\n") != nullptr);
   // Every band label. The first argument is the previous band (hysteresis); the RMS sets the class.
   noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 10);
   SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal, buf, sizeof(buf));
-  assert(strstr(buf, ",10,") != nullptr && strstr(buf, ",QUIET,0\n") != nullptr);
+  assert(strstr(buf, ",10,") != nullptr && strstr(buf, ",QUIET,0,,\n") != nullptr);
   noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 3500);
   SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal, buf, sizeof(buf));
-  assert(strstr(buf, ",3500,") != nullptr && strstr(buf, ",LOUD,0\n") != nullptr);
+  assert(strstr(buf, ",3500,") != nullptr && strstr(buf, ",LOUD,0,,\n") != nullptr);
   size_t row_commas = 0;
   for (size_t i = 0; buf[i] != '\0'; ++i) row_commas += buf[i] == ',';
   assert(row_commas == header_commas);
 
-  // Invalid or missing noise: three empty fields, same column count
+  // Invalid or missing noise: six empty fields, same column count
   const NoiseReading invalid;
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &invalid, &cal, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,\n") == 0);
   SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, nullptr, &cal, buf, sizeof(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,\n") == 0);
   row_commas = 0;
   for (size_t i = 0; buf[i] != '\0'; ++i) row_commas += buf[i] == ',';
   assert(row_commas == header_commas);
@@ -3286,7 +3533,7 @@ void testSdLogNoiseColumns() {
   }
   noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 32767);
   assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 20, &noise, &cal, buf, sizeof(buf)) > 0);
-  assert(strstr(buf, ",32767,90,LOUD,0\n") != nullptr);
+  assert(strstr(buf, ",32767,90,LOUD,0,,\n") != nullptr);
   // The worst-case row stays below the buffer limit; a smaller buffer is rejected
   assert(strlen(buf) < SdLogCodec::MAX_ROW_SIZE);
   assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 20, &noise, &cal, buf, SdLogCodec::MAX_ROW_SIZE - 1) == 0);
@@ -5666,6 +5913,7 @@ void testDiagnosticsSdFreeLine() {
         if (fb->getPixel(x, y) != unmounted.getPixel(x, y)) {
           ++diff;
           assert(y >= SD_Y && y < SD_Y + SD_H);
+          assert(x < DashboardView::PERCENTILE_X); // the percentile text does not depend on the card
         }
       }
     }
@@ -5673,10 +5921,10 @@ void testDiagnosticsSdFreeLine() {
   }
   assert(memcmp(normal.data(), zero.data(), St7305Framebuffer::BYTE_COUNT) != 0);
   // "SD FREE: 9999999 MB" is 19 glyphs = 226 px: no ink right of x = 10 + 19 * 12 in the line,
-  // and no ink in the 10 px margin on the left
+  // and no ink in the 10 px margin on the left. The L10/L90 text starts at PERCENTILE_X.
   for (const St7305Framebuffer* fb : {&unmounted, &normal, &widest, &zero}) {
     for (uint16_t y = SD_Y; y < SD_Y + SD_H; ++y) {
-      for (uint16_t x = 10 + 19 * 12; x < St7305Framebuffer::WIDTH; ++x) {
+      for (uint16_t x = 10 + 19 * 12; x < DashboardView::PERCENTILE_X; ++x) {
         assert(!fb->getPixel(x, y));
       }
       for (uint16_t x = 0; x < 10; ++x) {
@@ -7701,6 +7949,10 @@ void testSerialParserValidCommands() {
   SerialCommand cmd;
   assert(parseText("LIST", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::LIST);
   assert(parseText("INFO", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::INFO);
+  assert(parseText("DUMP climate_v4_202611.csv", cmd) == SerialParseStatus::OK);
+  assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "climate_v4_202611.csv") == 0);
+  assert(parseText("DUMP climate_v5_202611.csv", cmd) == SerialParseStatus::BAD_NAME);
+  assert(parseText("DUMP ../climate_v4_202611.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP climate_v2_202611.csv", cmd) == SerialParseStatus::OK);
   assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "climate_v2_202611.csv") == 0);
   // CR and LF at the line end are tolerated
@@ -8705,10 +8957,10 @@ void testDailySummaryRowFormat() {
   loud.push(140);
   assert(SdLogCodec::formatDailyRow(2099, 12, 31, wide, loud, buf, sizeof(buf)) > 0);
 
-  // The hourly header has 19 columns (format version 3).
+  // The hourly header has 21 columns (format version 4).
   char hourly[SdLogCodec::MAX_ROW_SIZE];
   assert(SdLogCodec::formatHeader(hourly, sizeof(hourly)) > 0);
-  assert(std::count(hourly, hourly + strlen(hourly), ',') == 18);
+  assert(std::count(hourly, hourly + strlen(hourly), ',') == 20);
 }
 
 void testDailySummaryFileNames() {
@@ -9043,10 +9295,10 @@ void testTransientCounterSaturates() {
 void testSdLogEventsColumn() {
   char buf[SdLogCodec::MAX_ROW_SIZE];
   const size_t hl = SdLogCodec::formatHeader(buf, sizeof(buf));
-  assert(hl > 0 && strstr(buf, ",noise_rms,noise_db,noise_band,noise_events\n") != nullptr);
+  assert(hl > 0 && strstr(buf, ",noise_rms,noise_db,noise_band,noise_events,noise_l10,noise_l90\n") != nullptr);
   size_t header_commas = 0;
   for (size_t i = 0; i < hl; ++i) header_commas += buf[i] == ',';
-  assert(header_commas == 18); // 19 columns
+  assert(header_commas == 20); // 21 columns
 
   RtcTime t;
   t.valid = true; t.year = 2026; t.month = 3; t.day = 9; t.hour = 7; t.minute = 5; t.second = 1;
@@ -9059,7 +9311,7 @@ void testSdLogEventsColumn() {
     noise.events = n;
     assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal, buf, sizeof(buf)) > 0);
     char expected[96];
-    snprintf(expected, sizeof(expected), "2026-03-09 07:05:01,,,,,,,,,,,,,,,1000,60,MODERATE,%u\n", static_cast<unsigned>(n));
+    snprintf(expected, sizeof(expected), "2026-03-09 07:05:01,,,,,,,,,,,,,,,1000,60,MODERATE,%u,,\n", static_cast<unsigned>(n));
     assert(strcmp(buf, expected) == 0);
     size_t row_commas = 0;
     for (size_t i = 0; buf[i] != '\0'; ++i) row_commas += buf[i] == ',';
@@ -9070,9 +9322,9 @@ void testSdLogEventsColumn() {
   NoiseReading failed;
   failed.events = 7;
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &failed, &cal, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,\n") == 0);
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, nullptr, &cal, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,\n") == 0);
 
   // The longest row (all sensors, maximum events) stays inside the line bound
   BatteryReading bat;
@@ -9085,34 +9337,34 @@ void testSdLogEventsColumn() {
   noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 32767);
   noise.events = 65535;
   assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 20, &noise, &cal, buf, sizeof(buf)) > 0);
-  assert(strstr(buf, ",32767,90,LOUD,65535\n") != nullptr);
+  assert(strstr(buf, ",32767,90,LOUD,65535,,\n") != nullptr);
   assert(strlen(buf) < SdLogCodec::MAX_ROW_SIZE);
   assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 20, &noise, &cal, buf, SdLogCodec::MAX_ROW_SIZE - 1) == 0);
 
-  // File names: the v3 name for new rows; the v2 files stay valid names for listing and retention
+  // File names: the v4 name for new rows; the v2 files stay valid names for listing and retention
   char path[SdLogCodec::MAX_PATH_SIZE];
   assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) > 0);
-  assert(strcmp(path, "/sdcard/climate_v3_202603.csv") == 0);
-  assert(SdLogCodec::isLogFileName("climate_v3_202603.csv"));
+  assert(strcmp(path, "/sdcard/climate_v4_202603.csv") == 0);
+  assert(SdLogCodec::isLogFileName("climate_v4_202603.csv"));
   assert(SdLogCodec::isLogFileName("climate_v2_202603.csv"));
-  assert(!SdLogCodec::isLogFileName("climate_v4_202603.csv"));
-  assert(!SdLogCodec::isLogFileName("climate_v3_202613.csv"));
+  assert(!SdLogCodec::isLogFileName("climate_v5_202603.csv"));
+  assert(!SdLogCodec::isLogFileName("climate_v5_202613.csv"));
   assert(SdLogCodec::shouldDeleteLog("climate_v3_202001.csv", rtcAt(2026, 3), 12));
   assert(SdLogCodec::shouldDeleteLog("climate_v2_202001.csv", rtcAt(2026, 3), 12));
-  assert(strlen("climate_v3_202603.csv") + 1 == SdLogCodec::LOG_NAME_SIZE);
+  assert(strlen("climate_v4_202603.csv") + 1 == SdLogCodec::LOG_NAME_SIZE);
   int py = 0, pm = 0;
   assert(SdLogCodec::parseLogFileName("climate_v3_202512.csv", py, pm) && py == 2025 && pm == 12);
   assert(SdLogCodec::parseLogFileName("climate_v2_202512.csv", py, pm) && py == 2025 && pm == 12);
   assert(!SdLogCodec::parseLogFileName("climate_v3_202513.csv", py, pm));
   assert(!SdLogCodec::shouldDeleteLog("climate_v3_202512.csv", rtcAt(2026, 1), 1)); // age 1 of 1
   assert(SdLogCodec::shouldDeleteLog("climate_v3_202511.csv", rtcAt(2026, 1), 1));  // age 2 of 1
-  assert(!SdLogCodec::shouldDeleteLog("climate_v3_202601.csv", rtcAt(2026, 1), 1)); // current month
+  assert(!SdLogCodec::shouldDeleteLog("climate_v4_202601.csv", rtcAt(2026, 1), 1)); // current month
 
-  // Serial console: the v3 name is a valid DUMP target and fits the 40 byte line bound
+  // Serial console: the v4 name is a valid DUMP target and fits the 40 byte line bound
   SerialCommand cmd;
-  assert(parseText("DUMP climate_v3_202603.csv", cmd) == SerialParseStatus::OK);
-  assert(strcmp(cmd.file, "climate_v3_202603.csv") == 0);
-  assert(strlen("DUMP climate_v3_202603.csv") <= SerialConsole::MAX_LINE_SIZE);
+  assert(parseText("DUMP climate_v4_202603.csv", cmd) == SerialParseStatus::OK);
+  assert(strcmp(cmd.file, "climate_v4_202603.csv") == 0);
+  assert(strlen("DUMP climate_v4_202603.csv") <= SerialConsole::MAX_LINE_SIZE);
 }
 
 void testDiagnosticsShowsNoiseEvents() {
@@ -9486,6 +9738,15 @@ int main() {
   testPreviewStatsShowNoiseCurve();
   testPreviewScenesCoverAllDisplayModes();
   testSdLogCodec();
+  testNoisePercentilesSteadyTone();
+  testNoisePercentilesSingleLoudBlock();
+  testNoisePercentilesRamp();
+  testNoisePercentilesWindowLengthAndChannels();
+  testNoisePercentilesFailedWindow();
+  testNoisePercentilesText();
+  testDiagnosticsPercentileLineBounds();
+  testSdLogPercentileColumns();
+  testSdLogV4FileNames();
   testSdLogNoiseColumns();
   testSdLogEventsColumn();
   testDiagnosticsShowsNoiseEvents();
