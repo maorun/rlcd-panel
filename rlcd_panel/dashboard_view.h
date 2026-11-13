@@ -99,6 +99,7 @@ public:
   // the widest label start x = 314.
   static constexpr uint16_t COMFORT_RIGHT_X = 392;
   static constexpr uint16_t COMFORT_Y_OFFSET = 39;
+  static constexpr uint16_t MOLD_Y_OFFSET = 21; // MAC line
   static constexpr uint16_t NOISE_TREND_Y = 248;
   static constexpr uint16_t NOISE_SPARKLINE_X = 216;
   static constexpr uint16_t NOISE_SPARKLINE_Y = 246;
@@ -506,6 +507,33 @@ public:
     fb.drawText(x, static_cast<uint16_t>(y + y_offset), text, 1, true);
   }
 
+  // "MOLD 5H" (hourly samples above the mold limit in the 24 h history, one sample per hour) for a live slot with at least 2 samples,
+  // "MOLD --" for an empty or stale slot or fewer samples. Computed on each render; nothing is stored.
+  // Widest: "MOLD 24H" = 8 glyphs, 48 px.
+  static void formatMold(char* out, size_t capacity, const SwitchBotReading& sb, uint32_t now_ms,
+                         uint32_t stale_timeout_ms, const HumidityHistory* hist, uint8_t limit_rh) {
+    const bool future = (now_ms - sb.updated_ms) >= 0xFFFF0000u;
+    if (!sb.valid || (!future && sb.isStale(now_ms, stale_timeout_ms)) || hist == nullptr ||
+        hist->size() < HumidityHistory::MIN_RANGE_SAMPLES) {
+      snprintf(out, capacity, "MOLD --");
+      return;
+    }
+    snprintf(out, capacity, "MOLD %uH",
+             static_cast<unsigned>(hist->countAbove(static_cast<uint16_t>(limit_rh * 10u))));
+  }
+
+  static void drawMold(
+      St7305Framebuffer& fb, uint16_t y, const SwitchBotReading& sb, uint32_t now_ms,
+      const DeviceConfig* config, const ClimateHistory* history, size_t slot) {
+    char text[12];
+    formatMold(
+        text, sizeof(text), sb, now_ms, staleTimeoutMs(config),
+        history != nullptr ? &history->slots[1 + slot] : nullptr,
+        config != nullptr ? config->mold_alert_limit_rh : DeviceConfig::DEFAULT_MOLD_ALERT_LIMIT_RH);
+    const uint16_t x = static_cast<uint16_t>(COMFORT_RIGHT_X - strlen(text) * 6);
+    fb.drawText(x, static_cast<uint16_t>(y + MOLD_Y_OFFSET), text, 1, true);
+  }
+
   // "MAC ..:EE:FF" style line: the last three MAC bytes. The full address stays in config.ini.
   static void formatMac(char* out, size_t capacity, const uint8_t* mac) {
     snprintf(out, capacity, "MAC ..:%02X:%02X:%02X", mac[3], mac[4], mac[5]);
@@ -549,6 +577,7 @@ public:
         snprintf(line, sizeof(line), "%s NO SIGNAL", label);
         drawLine(fb, 10, y, line);
         drawComfort(fb, y, 3, sb, now_ms, staleTimeoutMs(config)); // first line: the empty slot has no packet line
+        drawMold(fb, y, sb, now_ms, config, history, i);
         if (config != nullptr && config->hasSlotMac(i)) {
           formatMac(line, sizeof(line), config->slot_mac[i]);
           drawLine(fb, 10, static_cast<uint16_t>(y + 18), line);
@@ -584,6 +613,7 @@ public:
           age);
       drawLine(fb, 10, static_cast<uint16_t>(y + 36), line);
       drawComfort(fb, y, COMFORT_Y_OFFSET, sb, now_ms, staleTimeoutMs(config));
+      drawMold(fb, y, sb, now_ms, config, history, i);
 
       formatRecords(line, sizeof(line), history, 1 + i);
       drawLine(fb, 10, static_cast<uint16_t>(y + 54), line);

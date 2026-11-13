@@ -99,6 +99,17 @@ public:
     return true;
   }
 
+  // Number of stored samples strictly above the limit (0.1 %RH steps). A sample at the limit does not count.
+  size_t countAbove(uint16_t limit_tenths) const {
+    size_t n = 0;
+    for (size_t i = 0; i < count_; ++i) {
+      if (at(i) > static_cast<int32_t>(limit_tenths)) {
+        ++n;
+      }
+    }
+    return n;
+  }
+
   void clear() {
     *this = HumidityHistory{};
   }

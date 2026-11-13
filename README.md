@@ -86,7 +86,7 @@ Four climate tiles: the onboard `SHTC3` and up to three SwitchBot sensors. Each 
 
 ![Sensor Stats view](docs/display_preview_stats.png)
 
-One text block per SwitchBot sensor with `RSSI`, `MAC` address, received packet count (`PKT`), and the age of the last packet (`AGE`). The last line shows the onboard battery voltage.
+One text block per SwitchBot sensor with `RSSI`, `MAC` address, received packet count (`PKT`), and the age of the last packet (`AGE`). The `MOLD <N>H` text at the right of the `MAC` line shows the hours of the last 24 hours above `mold_alert_limit_rh` (`MOLD --` for an empty or stale slot or fewer than 2 samples). The last line shows the onboard battery voltage.
 
 ### Mode 2: System Diagnostics
 
