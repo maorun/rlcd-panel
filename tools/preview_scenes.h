@@ -153,6 +153,8 @@ inline void renderScene(
   info.noise.l90_rms = 316;  // L90 50 DBA
   info.quiet_hours = quiet_hours;
   info.ventilate = ventilate;
+  // Tile badges from the default limit (60 %RH): the humid sensor 2 shows the "V" badge.
+  info.ventilate_tiles = VentilateLatch::update(0, onboard, slots, MAX_SWITCHBOT_SENSORS, now_ms, DeviceConfig::DEFAULT_VENTILATE_LIMIT_RH);
   info.config_from_sd = true;
   info.config_rejected = 2; // two rejected config.ini lines
   info.rtc_drift.has_sync = true;

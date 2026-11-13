@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] High-humidity ventilation indicator on sensor tiles
-  - Rank: [Total: 36, Use: 10, Setup: 7, Harmony: 9, Safety: 10, Effort: M]
-  - Location: `rlcd_panel/dashboard_view.h`, `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the `config.ini` key `ventilate_limit_rh` (default `60`, range `50` to `80` %RH). Keep one latch for each tile (onboard and the three slots). Set the latch when the calibrated humidity of the tile is above `ventilate_limit_rh`. Release the latch when the humidity is 2 %RH or more below the limit. Between the two limits, keep the previous state. A stale slot, an empty slot and an invalid reading clear the latch and show no indicator. Draw a small inverted badge (for example the glyph `V` in a 9 x 9 px box) right of the humidity line of the tile. Keep the badge inside the tile and outside the sparkline box. The indicator is independent of the `VENTILATE` header banner and of `mold_alert_limit_rh`, and it has no chime. Store `ventilate_limit_rh` in the config trailer after `outdoor_slot`, store the four latch bits in `PersistentState`, and increase the state version. Thus the user sees which room needs fresh air.
-  - Acceptance test: Host tests cover the parser for the default `60`, the edges `50` and `80`, the out-of-range values `49` and `81`, and a malformed value. Tests cover the trigger above the limit, no trigger at the limit, the hold between the limits, the release at 2 %RH below the limit, a stale slot, an empty slot, an invalid onboard reading, the calibrated humidity as input, the badge bounds inside each tile without clipping and outside the sparkline box, and the RTC round trip with a corrupt record and the old state version. `docs/display_preview_dashboard.png` shows the indicator in at least one tile.
-
 - [ ] Low battery warning for external SwitchBot and BTHome sensors
   - Rank: [Total: 35, Use: 8, Setup: 8, Harmony: 9, Safety: 10, Effort: M]
   - Location: `rlcd_panel/switchbot_ble.h`, `rlcd_panel/bthome_ble.h`, `rlcd_panel/device_config.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`

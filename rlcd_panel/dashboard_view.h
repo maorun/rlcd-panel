@@ -16,6 +16,7 @@
 #include "sparkline.h"
 #include "st7305_framebuffer.h"
 #include "switchbot_ble.h"
+#include "ventilate_latch.h"
 
 namespace rlcd_panel {
 
@@ -29,6 +30,7 @@ struct SystemInfo {
   bool mic_cal_failed = false; // the last calibration of this wake cycle was rejected
   bool quiet_hours = false; // chimes are suppressed now; the header shows "Q"
   bool ventilate = false;   // ventilation advice is active; the dashboard header shows the banner
+  uint8_t ventilate_tiles = 0; // VentilateLatch bits: the tiles that show the "V" badge
   bool config_from_sd = false; // true: settings come from /sdcard/config.ini
   uint8_t config_rejected = 0; // rejected config.ini lines; above 0 shows "(N ERR)"
   LoopbackResult loopback;     // last speaker to microphone test of this wake cycle
@@ -64,6 +66,12 @@ public:
   static constexpr uint16_t SPARKLINE_H = 16;
   static constexpr uint16_t SPARKLINE_RIGHT_MARGIN = 6;
   static constexpr uint16_t SPARKLINE_Y_OFFSET = 66;
+  // Ventilation badge: inverted 9x9 box with a "V" (scale 1). It sits right of the humidity line
+  // ("H: 100 %" ends at x + 106), directly above the sparkline box (starts at y + 66) and below the
+  // temperature line (ends at y + 53), so it touches neither text nor curve.
+  static constexpr uint16_t VENT_BADGE_X_OFFSET = 108;
+  static constexpr uint16_t VENT_BADGE_Y_OFFSET = 56;
+  static constexpr uint16_t VENT_BADGE_SIZE = 9;
   // Dew point and VPD line (scale 1, 7 px high) between the sparkline box (ends at y + 82) and the
   // battery line (starts at y + 96). The widest text has 19 glyphs = 113 px, inside the 190 px tile.
   static constexpr uint16_t CLIMATE_LINE_Y_OFFSET = 86;
@@ -170,7 +178,8 @@ public:
       int8_t battery_pct,
       float battery_voltage_v = -1.0f,
       bool is_stale = false,
-      const HumidityHistory* history = nullptr) {
+      const HumidityHistory* history = nullptr,
+      bool ventilate_badge = false) {
     fb.drawRect(x, y, w, h, true);
     fb.drawHLine(x, y + 24, w, true);
     fb.drawText(x + 8, y + 6, title, 2, true);
@@ -190,6 +199,13 @@ public:
     fb.drawText(x + 12, y + 68, line_rh, 2, true);
 
     renderClimateLine(fb, x, y, h, !is_stale, temp_c, humidity_pct);
+
+    if (ventilate_badge && !is_stale) {
+      const uint16_t bx = static_cast<uint16_t>(x + VENT_BADGE_X_OFFSET);
+      const uint16_t by = static_cast<uint16_t>(y + VENT_BADGE_Y_OFFSET);
+      fb.fillRect(bx, by, VENT_BADGE_SIZE, VENT_BADGE_SIZE, true);
+      fb.drawText(bx + 2, by + 1, "V", 1, false);
+    }
 
     // A curve needs two samples. One sample would draw a single dot.
     if (history != nullptr && history->size() >= 2 && w > SPARKLINE_W + SPARKLINE_RIGHT_MARGIN &&
@@ -295,7 +311,8 @@ public:
       const ClimateHistory* history = nullptr,
       bool quiet_hours = false,
       const DeviceConfig* config = nullptr,
-      bool ventilate = false) {
+      bool ventilate = false,
+      uint8_t ventilate_tiles = 0) {
     renderHeader(fb, "RLCD CLIMATE PANEL", battery, clock_text, quiet_hours, ventilate);
 
     const uint16_t tile_w = 190;
@@ -317,7 +334,8 @@ public:
         battery.percentage,
         battery.valid ? battery.voltage_v : -1.0f,
         false,
-        history != nullptr ? &history->slots[ClimateHistory::ONBOARD] : nullptr);
+        history != nullptr ? &history->slots[ClimateHistory::ONBOARD] : nullptr,
+        VentilateLatch::isSet(ventilate_tiles, 0));
 
     // Tiles 1..3: SwitchBot Outdoor Meters (WoIOSensor) and BTHome v2 sensors
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
@@ -346,7 +364,8 @@ public:
           sb.battery_pct,
           -1.0f,
           sb.isStale(now_ms),
-          history != nullptr ? &history->slots[1 + i] : nullptr);
+          history != nullptr ? &history->slots[1 + i] : nullptr,
+          VentilateLatch::isSet(ventilate_tiles, 1 + i));
     }
   }
 
@@ -758,7 +777,7 @@ public:
         break;
       case DisplayMode::DASHBOARD:
       default:
-        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours, config, info.ventilate);
+        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours, config, info.ventilate, info.ventilate_tiles);
         break;
     }
   }
