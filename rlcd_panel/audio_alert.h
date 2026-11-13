@@ -473,6 +473,17 @@ public:
     return playPatterns(hal, patterns, count, volume_pct);
   }
 
+  // Plays the chime of one alert bit (a single bit, not a mask) once, for the console command BEEP.
+  // The bit needs no entry in chime_alert_mask. Same power-down path as play().
+  template <typename Hal>
+  static bool playTest(Hal& hal, uint8_t alert_bit, uint8_t volume_pct) {
+    const ChimePattern pattern = ChimeSynth::pattern(alert_bit);
+    if (pattern.count == 0) {
+      return false;
+    }
+    return playPatterns(hal, &pattern, 1, volume_pct);
+  }
+
   template <typename Hal>
   static bool playConfirm(Hal& hal, uint8_t volume_pct) {
     const ChimePattern pattern = ChimeSynth::confirmPattern();

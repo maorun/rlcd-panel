@@ -9027,6 +9027,140 @@ void testSerialStatusUsbPowerGate() {
   assert(!PowerManager::serialConsoleAllowed(invalid));
 }
 
+struct FakeBeepHal {
+  std::vector<const char*> calls;
+  bool fail_bus = false, fail_codec = false, fail_write = false;
+  size_t samples = 0;
+  bool beginBus() { calls.push_back("begin"); return !fail_bus; }
+  bool configureCodec() { calls.push_back("codec"); return !fail_codec; }
+  void setAmplifier(bool on) { calls.push_back(on ? "amp_on" : "amp_off"); }
+  bool write(const int16_t*, size_t n) { samples += n; return !fail_write; }
+  void drain() { calls.push_back("drain"); }
+  void shutdownCodec() { calls.push_back("codec_off"); }
+  void endBus() { calls.push_back("end"); }
+  // The shutdown tail is amp_off, codec_off, end, the order of AudioLoopback::run without the ADC.
+  bool shutdownOrderOk() const {
+    const size_t n = calls.size();
+    return n >= 3 && strcmp(calls[n - 3], "amp_off") == 0 && strcmp(calls[n - 2], "codec_off") == 0 &&
+           strcmp(calls[n - 1], "end") == 0;
+  }
+};
+
+void testSerialBeepParser() {
+  SerialCommand cmd;
+  for (char c = '0'; c <= '6'; ++c) {
+    const std::string line = std::string("BEEP ") + c;
+    assert(parseText(line, cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::BEEP);
+    assert(cmd.reference == static_cast<uint8_t>(c - '0'));
+  }
+  assert(parseText("BEEP\r\n", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("BEEP 3\r\n", cmd) == SerialParseStatus::OK && cmd.reference == 3);
+  assert(parseText("BEEP", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("BEEP ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("BEEP 7", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("BEEP 9", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("BEEP 1 2", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("BEEP 12", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("BEEP x", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("BEEP -1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("BEEP  1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("BEEPX", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("beep 1", cmd) == SerialParseStatus::UNKNOWN);
+  assert(std::string(SerialConsole::errorLine(SerialParseStatus::BAD_ARG)) == "ERR BAD_ARG\n");
+}
+
+void testSerialBeepPlaysEachBitOnce() {
+  for (uint8_t bit = 0; bit <= 6; ++bit) {
+    FakeBeepHal hal;
+    FakeSink sink;
+    TestRunner::beep(sink, hal, bit, false, false, 30);
+    const ChimePattern p = ChimeSynth::pattern(static_cast<uint8_t>(1U << bit));
+    uint32_t ms = 0;
+    for (uint8_t i = 0; i < p.count; ++i) ms += p.notes[i].duration_ms;
+    assert(p.count > 0 && ms > 0);
+    assert(sink.out == "OK BEEP " + std::to_string(bit) + " " + std::to_string(ms) + "\n");
+    assert(hal.samples == ChimeSynth::totalSamples(p)); // the pattern of this bit, once
+    // The full call sequence: bring-up, amplifier on, drain, then the shutdown in loopback order.
+    const std::vector<std::string> expected = {"begin", "codec", "amp_on", "drain", "amp_off", "codec_off", "end"};
+    assert(std::vector<std::string>(hal.calls.begin(), hal.calls.end()) == expected);
+  }
+}
+
+void testSerialBeepMutedPathsStaySilent() {
+  struct Case { bool muted, quiet; uint8_t volume; };
+  const Case cases[] = {{true, false, 30}, {false, true, 30}, {false, false, 0}, {true, true, 0}};
+  for (const Case& c : cases) {
+    FakeBeepHal hal;
+    FakeSink sink;
+    TestRunner::beep(sink, hal, 2, c.muted, c.quiet, c.volume);
+    assert(sink.out == "ERR MUTED\n");
+    assert(hal.calls.empty() && hal.samples == 0); // the hardware stays untouched
+  }
+}
+
+void testSerialBeepIgnoresChimeMaskAndKeepsAlertState() {
+  // beep() takes no alert mask and no state: a bit that chime_alert_mask clears still plays,
+  // and the stored alert bits and the latch stay as they were.
+  DeviceConfig config;
+  config.chime_alert_mask = 0;
+  uint8_t alert_mask = ALERT_FREEZER | ALERT_SENSOR_LOST;
+  const uint8_t before = alert_mask;
+  const AlertEvaluator::Step quiet_step = AlertEvaluator::step(false, alert_mask, alert_mask, false, config.chime_alert_mask);
+  assert(quiet_step.chime == ALERT_NONE);
+  FakeBeepHal hal;
+  FakeSink sink;
+  TestRunner::beep(sink, hal, 4, false, false, config.chime_volume_pct);
+  assert(sink.out.rfind("OK BEEP 4 ", 0) == 0);
+  assert(alert_mask == before);
+  // The next real step sounds exactly the new bit, so no alert is replayed or lost.
+  const AlertEvaluator::Step next = AlertEvaluator::step(false, alert_mask, alert_mask | ALERT_HUMIDITY, false);
+  assert(next.chime == ALERT_HUMIDITY && next.mask == (before | ALERT_HUMIDITY));
+}
+
+void testSerialBeepPowersDownOnErrorPaths() {
+  FakeBeepHal bus;
+  bus.fail_bus = true;
+  FakeSink s1;
+  TestRunner::beep(s1, bus, 0, false, false, 30);
+  assert(s1.out == "ERR PLAY_FAILED\n" && bus.shutdownOrderOk());
+  assert(std::vector<std::string>(bus.calls.begin(), bus.calls.end()) ==
+         (std::vector<std::string>{"begin", "amp_off", "codec_off", "end"}));
+  FakeBeepHal codec;
+  codec.fail_codec = true;
+  FakeSink s2;
+  TestRunner::beep(s2, codec, 0, false, false, 30);
+  assert(s2.out == "ERR PLAY_FAILED\n" && codec.shutdownOrderOk());
+  assert(std::vector<std::string>(codec.calls.begin(), codec.calls.end()) ==
+         (std::vector<std::string>{"begin", "codec", "amp_off", "codec_off", "end"}));
+  FakeBeepHal write;
+  write.fail_write = true;
+  FakeSink s3;
+  TestRunner::beep(s3, write, 0, false, false, 30);
+  assert(s3.out == "ERR PLAY_FAILED\n" && write.shutdownOrderOk());
+  assert(std::vector<std::string>(write.calls.begin(), write.calls.end()) ==
+         (std::vector<std::string>{"begin", "codec", "amp_on", "drain", "amp_off", "codec_off", "end"}));
+  // A bit above 6 never reaches the hardware.
+  FakeBeepHal bad;
+  FakeSink s4;
+  TestRunner::beep(s4, bad, 7, false, false, 30);
+  assert(s4.out == "ERR BAD_ARG\n" && bad.calls.empty());
+}
+
+void testSerialBeepNeedsNoCardAndUsbPower() {
+  FakeConsoleStorage storage;
+  FakeSink sink;
+  SerialCommand cmd;
+  assert(parseText("BEEP 1", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, sink, cmd); // BEEP does not mount the card
+  assert(sink.out.empty() && storage.mounts == 0);
+  BatteryReading usb;
+  usb.valid = true;
+  usb.usb_powered = true;
+  assert(PowerManager::serialConsoleAllowed(usb));
+  usb.usb_powered = false;
+  assert(!PowerManager::serialConsoleAllowed(usb));
+}
+
 namespace {
 void fillCalib(ClimateHistory& h, size_t sensor, int hours, float temp, float rh) {
   for (int i = 0; i < hours; ++i) {
@@ -11603,6 +11737,12 @@ testSerialStatusCrcOverAllPriorBytes();
 testSerialStatusNoCardAccess();
 testSerialStatusStopsOnShortWriteAtEachLine();
 testSerialStatusUsbPowerGate();
+testSerialBeepParser();
+testSerialBeepPlaysEachBitOnce();
+testSerialBeepMutedPathsStaySilent();
+testSerialBeepIgnoresChimeMaskAndKeepsAlertState();
+testSerialBeepPowersDownOnErrorPaths();
+testSerialBeepNeedsNoCardAndUsbPower();
 testSerialConfigNegativeSmallOffset();
   testRtcDriftFirstSyncHasNoRate();
   testRtcDriftPositiveNegativeZero();

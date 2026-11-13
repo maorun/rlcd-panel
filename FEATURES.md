@@ -561,3 +561,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Then one line `POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>` and the line `CRC32 <8 hex digits>` over all bytes before it.
 - The command reads the RTC copy (`g_state`) only. It does not mount the card and does not stop the clap listener. It runs on USB power only (`PowerManager::serialConsoleAllowed`). A short serial write ends the reply without the `CRC32` line.
 - `./scripts/dump-logs.sh --status [port]` sends `STATUS`, checks the CRC-32 and prints the lines.
+
+## Serial console command BEEP to test each alert chime
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- The new console command `BEEP N` plays the chime of one alert once. `N` is the alert bit number `0` to `6` (`ALERT_FREEZER`, `ALERT_HUMIDITY`, `ALERT_NOISE_HIGH`, `ALERT_SENSOR_LOST`, `ALERT_CHARGE_FULL`, `ALERT_VENTILATE`, `ALERT_SENSOR_BATTERY`). A missing argument, `BEEP 7`, a non-digit and extra text give `ERR BAD_ARG`.
+- The chime is `ChimeSynth::pattern` of this bit at `chime_volume_pct`. `AudioSequencer::playTest` plays it with the same path as a real alert: the amplifier, the `ES8311` and the I2S bus power down on each path, in this order.
+- Mute, quiet hours and volume `0` give `ERR MUTED`; the hardware stays untouched. A failed playback gives `ERR PLAY_FAILED`.
+- A cleared bit in `chime_alert_mask` does not block the test. The command does not read or change the stored alert bits, so no alert is replayed or lost.
+- Reply after the playback: `OK BEEP <N> <duration ms>` (the sum of the note and pause durations of the pattern).
+- The console stops the clap listener before the playback (`release()`); the next `poll()` reopens it. The command needs no card. It runs on USB power only (`PowerManager::serialConsoleAllowed`).

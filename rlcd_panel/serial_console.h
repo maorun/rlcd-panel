@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "audio_alert.h"
 #include "battery_monitor.h"
 #include "device_config.h"
 #include "sd_logger.h"
@@ -32,21 +33,21 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CALIB without a reference, with a reference above 3 or with extra text
+  BAD_ARG,  // CALIB without a reference, with a reference above 3 or with extra text; BEEP without a bit, above 6 or with extra text
   BAD_NAME, // DUMP without a name, or a name that is not climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv or daily_v1_YYYY.csv
 };
 
 struct SerialCommand {
   SerialCommandKind kind = SerialCommandKind::NONE;
   char file[SdLogCodec::LOG_NAME_SIZE] = {0};
-  uint8_t reference = 0; // CALIB: 0 onboard, 1 to 3 a slot
+  uint8_t reference = 0; // CALIB: 0 onboard, 1 to 3 a slot; BEEP: alert bit number 0 to 6
 };
 
 // One log file as the storage reports it.
@@ -56,7 +57,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..6" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -130,6 +131,15 @@ public:
       }
       memcpy(out.file, copy, name_len + 1);
       out.kind = SerialCommandKind::DUMP;
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "BEEP")) {
+      // exactly one digit 0 to 6 (the bit number of ALERT_FREEZER to ALERT_SENSOR_BATTERY)
+      if (len != cmd_len + 2 || line[cmd_len + 1] < '0' || line[cmd_len + 1] > '6') {
+        return SerialParseStatus::BAD_ARG;
+      }
+      out.kind = SerialCommandKind::BEEP;
+      out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
       return SerialParseStatus::OK;
     }
     return SerialParseStatus::UNKNOWN;
@@ -221,6 +231,8 @@ struct SerialStatusSnapshot {
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 3 (slots, calibrated readings), a missing value gives "--";
 //   then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
+//   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 6), or "ERR MUTED"
+//   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
 //   CALIB N -> "REFERENCE <name>", one "SENSOR <name> hours=<n> temp_offset=<x> rh_offset=<x> temp_diff=<x> rh_diff=<x>" or
 //   "SKIP <name> hours=<n>" per other sensor, the "key=value" lines to paste into config.ini, then "CRC32 <8 hex digits>"
 //   over all lines before it. showCalib() works on the RTC history: no card access, so execute() ignores CALIB.
@@ -403,9 +415,39 @@ public:
     send(sink, line);
   }
 
+  // Plays the chime of alert bit `bit` (0 to 6) once and replies "OK BEEP <bit> <duration ms>". The
+  // reply "ERR MUTED" (mute, quiet hours or volume 0) leaves the hardware untouched, "ERR PLAY_FAILED"
+  // follows a failed playback. The Hal powers down on every path (AudioSequencer). A cleared bit in
+  // chime_alert_mask does not block the test, and no alert state is read or written here.
+  template <typename Hal>
+  static void beep(Sink& sink, Hal& hal, uint8_t bit, bool muted, bool quiet_hours, uint8_t volume_pct) {
+    if (bit > 6) { // defense in depth: the parser already limits the bit to 0 to 6
+      reject(sink, SerialParseStatus::BAD_ARG);
+      return;
+    }
+    if (muted || quiet_hours || volume_pct == 0) {
+      send(sink, "ERR MUTED\n");
+      return;
+    }
+    const uint8_t alert_bit = static_cast<uint8_t>(1U << bit);
+    if (!AudioSequencer::playTest(hal, alert_bit, volume_pct)) {
+      send(sink, "ERR PLAY_FAILED\n");
+      return;
+    }
+    const ChimePattern pattern = ChimeSynth::pattern(alert_bit);
+    uint32_t duration_ms = 0;
+    for (uint8_t i = 0; i < pattern.count; ++i) {
+      duration_ms += pattern.notes[i].duration_ms;
+    }
+    char line[32];
+    snprintf(line, sizeof(line), "OK BEEP %u %lu\n", static_cast<unsigned>(bit), static_cast<unsigned long>(duration_ms));
+    send(sink, line);
+  }
+
   static void execute(Storage& storage, Sink& sink, const SerialCommand& command) {
     if (command.kind == SerialCommandKind::NONE || command.kind == SerialCommandKind::CONFIG ||
-        command.kind == SerialCommandKind::CALIB || command.kind == SerialCommandKind::STATUS) {
+        command.kind == SerialCommandKind::CALIB || command.kind == SerialCommandKind::STATUS ||
+        command.kind == SerialCommandKind::BEEP) {
       return;
     }
     if (!storage.mount()) {
@@ -420,6 +462,7 @@ public:
       case SerialCommandKind::CONFIG:
       case SerialCommandKind::CALIB:
       case SerialCommandKind::STATUS:
+      case SerialCommandKind::BEEP:
       default: break;
     }
     storage.unmount();

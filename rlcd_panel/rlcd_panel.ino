@@ -802,6 +802,12 @@ void setup() {
         snap.muted = g_state.muted;
         snap.now_ms = nowMs();
         SerialConsoleRunner<SdLogStorage, SerialSink>::showStatus(console_sink, snap);
+      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::BEEP) {
+        clap_listener.release(); // the chime uses the same I2S bus; the next poll() reopens it
+        Es8311Hal beep_hal;
+        SerialConsoleRunner<SdLogStorage, SerialSink>::beep(console_sink, beep_hal, command.reference,
+                                                           g_state.muted, quietHours().isActive(g_rtc_time),
+                                                           config().chime_volume_pct);
       } else if (status == SerialParseStatus::OK) {
         clap_listener.release(); // keep the I2S bus idle while the card transfers
         SerialConsoleRunner<SdLogStorage, SerialSink>::execute(console_storage, console_sink, command);
