@@ -487,7 +487,7 @@ void refreshSensors() {
   // After a reset of the RTC state the latch starts off: a cell at 16..19 % raises no alert until
   // it reaches the set threshold.
   const bool was_low = g_state.battery.low_battery;
-  g_state.battery = BatteryMonitor::read();
+  g_state.battery = BatteryMonitor::read(config().battery_offset_mv);
   g_state.battery.low_battery = BatteryMonitor::updateLowBattery(g_state.battery, was_low);
   g_state.battery_history.record(nowMs(), g_state.battery);
   updateCycles();
@@ -721,7 +721,7 @@ void setup() {
   // Empty battery protection: check the cell before any module starts. A set latch skips the BLE
   // scan, the audio, the MicroSD card and Wi-Fi; the board only reads the voltage and sleeps again.
   const bool was_protected = g_state.battery.empty_protection;
-  const BatteryReading protect_reading = BatteryMonitor::readAveraged();
+  const BatteryReading protect_reading = BatteryMonitor::readAveraged(config().battery_offset_mv);
   g_state.battery.empty_protection = BatteryMonitor::updateEmptyProtection(protect_reading, was_protected);
   if (!PowerManager::modulesAllowed(g_state.battery)) {
     ++g_state.boot_count;
@@ -808,7 +808,7 @@ void setup() {
           ((continuous_listen || console_active) &&
            PowerManager::continuousListenAllowed(g_power_config, nowMs(), g_state.last_scan_ms)))) {
     if (console_active && console_watch.due(millis()) &&
-        !console_watch.update(BatteryMonitor::read().usb_powered, millis())) {
+        !console_watch.update(BatteryMonitor::read(config().battery_offset_mv).usb_powered, millis())) {
       console_active = false;
     }
     while (console_active && Serial.available() > 0) {
@@ -875,7 +875,7 @@ void setup() {
       }
     }
     if (continuous_listen && usb_watch.due(millis()) &&
-        !usb_watch.update(BatteryMonitor::read().usb_powered, millis())) {
+        !usb_watch.update(BatteryMonitor::read(config().battery_offset_mv).usb_powered, millis())) {
       continuous_listen = false;
     }
     if (continuous_listen && !clap_listener.available()) {

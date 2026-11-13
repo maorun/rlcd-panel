@@ -670,3 +670,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The count is calculated for each render. No RTC state changes and `STATE_VERSION` stays 33.
 - Thus the user sees how long a room was at risk of mold in the last day.
 - Host tests cover 0, 1 and 24 hours above the limit, a sample at the exact limit, a limit change, fewer than 2 samples, an empty slot, a stale slot, and the text bounds in each block.
+
+## Battery voltage calibration offset in config.ini
+
+- **Code:** `rlcd_panel/battery_monitor.h`, `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- The `config.ini` key `battery_offset_mv` has the default `0` and the range `-300` to `300` mV. A malformed or out-of-range value is rejected and counts in `ConfigRejects`.
+- `BatteryMonitor::decodeMillivolts` adds the offset to the cell voltage. Thus the percentage, the low battery alert, the empty protection, the charge full latch, the USB voltage limit of 4.25 V, the runtime history and the cycle counter use the corrected voltage.
+- The offset corrects the tolerance of the 3.0 divider and of the ADC.
+- `PersistentState` stores the offset in the config trailer (2 bytes, `int16_t`). `STATE_VERSION` is 34.
+- A power-on reads the cell before the card mounts. This first check uses the offset of the RTC copy, or `0` after a clean start.
+- The console command `CONFIG` shows the key `battery_offset_mv`.
+- Thus the user can correct a battery reading that is wrong by a fixed voltage.
+- Host tests cover the parser for the default, the edges, the values `-301` and `301` and a malformed value, the percentage with `+100` and `-100` mV, the low battery, empty protection, USB and charge full limits with an offset, the `CONFIG` line and its parse back, the RTC round trip, a corrupt field and the old state version 33.
