@@ -169,6 +169,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
   | `ntp_sync_interval_h` | `24` | `6` to `168` | hours between two successful NTP syncs |
   | `wake_interval_s` | `60` | `30` to `900` | seconds between two scans on battery power; USB power keeps `60` |
   | `sensor_stale_min` | `30` | `5` to `240` | minutes without a packet until a sensor is stale |
+  | `display_invert` | `0` | `0` or `1` | `1` shows light text on a dark background |
   | `outdoor_slot` | `0` | `0` (off) to `3` | registry slot of the outdoor sensor for the ventilation advice |
 
 - Equal start and end hours switch the quiet hours off. A lone CR is no line end: use LF or CRLF. The SPL offset has whole dB steps, so a fraction below 0.5 dB has no effect.
@@ -582,3 +583,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The CONFIG reply and `DeviceConfigText` list the key `sensor_stale_min`.
 - RTC state version 30: the config trailer stores `sensor_stale_min` (2 bytes) after `wake_interval_s`. A corrupt or out-of-range record gives a clean start.
 - Host tests cover the parser edges, rejected values, the clamp, each call site with 30 min and 60 min, the CONFIG reply and the RTC round trip.
+
+## Inverted display mode from config.ini
+
+- **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/st7305_framebuffer.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/render_display_preview.cpp`, `tools/preview_scenes.h`, `scripts/generate-display-preview.sh`, `tests/test_firmware_logic.cpp`
+- The `config.ini` key `display_invert` (default `0`, values `0` and `1`) selects the contrast. With `1` the panel shows light text on a dark background. A value outside `0` and `1` or a malformed value is rejected and counted in `ConfigRejects`.
+- `St7305Framebuffer::invert()` inverts each of the 15,000 bytes. The firmware calls it after the render and before `St7305Panel::flush`, also for the empty battery screen. No panel command is used, so the host preview stays bit-exact. Inverted badges and banners invert again and stay readable.
+- The reflective LCD has no backlight, so the mode does not change the power draw.
+- The CONFIG reply and `DeviceConfigText` list the key `display_invert`.
+- RTC state version 31: the config trailer stores `display_invert` (1 byte) after `sensor_battery_limit_pct`. A corrupt or out-of-range record gives a clean start.
+- The preview `docs/display_preview_inverted.png` shows the inverted dashboard.
+- Host tests cover the parser (`0`, `1`, out-of-range, malformed), `invert()` on each byte and the double inversion, the inverted preview scene, the CONFIG line and its parse back, and the RTC round trip.

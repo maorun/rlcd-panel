@@ -60,6 +60,8 @@ struct DeviceConfig {
   static constexpr uint16_t DEFAULT_SENSOR_STALE_MIN = 30; // equals SENSOR_STALE_TIMEOUT_MS
   static constexpr uint16_t MIN_SENSOR_STALE_MIN = 5;
   static constexpr uint16_t MAX_SENSOR_STALE_MIN = 240;
+  static constexpr uint8_t DEFAULT_DISPLAY_INVERT = 0; // 1 shows light text on a dark background
+  static constexpr uint8_t MAX_DISPLAY_INVERT = 1;
   static constexpr uint32_t SCAN_DURATION_S = 4; // scan time that adds to the wake interval
 
   static constexpr size_t MAC_BYTES = 6;
@@ -99,6 +101,7 @@ struct DeviceConfig {
   uint8_t ntp_sync_interval_h = DEFAULT_NTP_SYNC_INTERVAL_H; // hours between two successful NTP syncs, 6..168
   uint16_t wake_interval_s = DEFAULT_WAKE_INTERVAL_S; // seconds from one scan start to the next on battery power, 30..900
   uint16_t sensor_stale_min = DEFAULT_SENSOR_STALE_MIN; // minutes without a packet until a sensor is stale, 5..240
+  uint8_t display_invert = DEFAULT_DISPLAY_INVERT; // 1 inverts the framebuffer before each flush, 0..1
 
   // Stale timeout in ms for every SwitchBotReading::isStale call. A value below one wake interval plus
   // the scan duration would mark each sensor stale between two scans, so the sum is the lower bound.
@@ -192,7 +195,8 @@ struct DeviceConfig {
             (noise_alert_limit_db >= MIN_NOISE_ALERT_LIMIT_DB && noise_alert_limit_db <= MAX_NOISE_ALERT_LIMIT_DB)) &&
            ntp_sync_interval_h >= MIN_NTP_SYNC_INTERVAL_H && ntp_sync_interval_h <= MAX_NTP_SYNC_INTERVAL_H &&
            wake_interval_s >= MIN_WAKE_INTERVAL_S && wake_interval_s <= MAX_WAKE_INTERVAL_S &&
-           sensor_stale_min >= MIN_SENSOR_STALE_MIN && sensor_stale_min <= MAX_SENSOR_STALE_MIN;
+           sensor_stale_min >= MIN_SENSOR_STALE_MIN && sensor_stale_min <= MAX_SENSOR_STALE_MIN &&
+           display_invert <= MAX_DISPLAY_INVERT;
   }
 
   bool isDefault() const {
@@ -217,7 +221,7 @@ struct DeviceConfig {
            chime_alert_mask == d.chime_alert_mask && outdoor_slot == d.outdoor_slot &&
            ventilate_limit_rh == d.ventilate_limit_rh && sensor_battery_limit_pct == d.sensor_battery_limit_pct &&
            ntp_sync_interval_h == d.ntp_sync_interval_h && wake_interval_s == d.wake_interval_s &&
-           sensor_stale_min == d.sensor_stale_min;
+           sensor_stale_min == d.sensor_stale_min && display_invert == d.display_invert;
   }
 };
 
@@ -276,7 +280,7 @@ public:
       return result;
     }
     result.file_ok = true;
-    uint32_t seen = 0;
+    uint64_t seen = 0;
     size_t pos = 0;
     uint16_t line_no = 0;
     if (len >= 3 && static_cast<uint8_t>(data[0]) == 0xEF && static_cast<uint8_t>(data[1]) == 0xBB &&
@@ -292,7 +296,7 @@ public:
       applyLine(data + pos, end - pos, line_no, out, seen, result);
       pos = end + 1;
     }
-    for (uint32_t m = seen; m != 0; m &= m - 1) {
+    for (uint64_t m = seen; m != 0; m &= m - 1) {
       ++result.keys_set;
     }
     return result;
@@ -492,7 +496,7 @@ private:
     }
   }
 
-  static void applyLine(const char* line, size_t n, uint16_t line_no, DeviceConfig& cfg, uint32_t& seen,
+  static void applyLine(const char* line, size_t n, uint16_t line_no, DeviceConfig& cfg, uint64_t& seen,
                         ConfigParseResult& result) {
     trim(line, n);
     if (n == 0 || line[0] == '#' || line[0] == ';') {
@@ -564,6 +568,9 @@ private:
       index = 29;
       ok = parseIntIn(val, val_len, DeviceConfig::MIN_SENSOR_STALE_MIN, DeviceConfig::MAX_SENSOR_STALE_MIN,
                       cfg.sensor_stale_min);
+    } else if (keyIs(key, key_len, "display_invert")) {
+      index = 30;
+      ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_DISPLAY_INVERT, cfg.display_invert);
     } else if (keyIs(key, key_len, "outdoor_slot")) {
       index = 26;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_OUTDOOR_SLOT, cfg.outdoor_slot);
@@ -589,7 +596,7 @@ private:
       return; // unknown key
     }
     if (ok) {
-      seen = seen | (1u << index);
+      seen = seen | (1ull << index);
     } else {
       reject(result, line_no);
     }
@@ -625,6 +632,7 @@ public:
     ok = ok && putInt(out, cap, pos, "ntp_sync_interval_h", cfg.ntp_sync_interval_h);
     ok = ok && putInt(out, cap, pos, "wake_interval_s", cfg.wake_interval_s);
     ok = ok && putInt(out, cap, pos, "sensor_stale_min", cfg.sensor_stale_min);
+    ok = ok && putInt(out, cap, pos, "display_invert", cfg.display_invert);
     ok = ok && putInt(out, cap, pos, "outdoor_slot", cfg.outdoor_slot);
     ok = ok && putInt(out, cap, pos, "ventilate_limit_rh", cfg.ventilate_limit_rh);
     ok = ok && putInt(out, cap, pos, "sensor_battery_limit_pct", cfg.sensor_battery_limit_pct);
