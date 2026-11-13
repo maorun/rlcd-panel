@@ -19,7 +19,7 @@
 
 namespace rlcd_panel {
 
-// Alert kinds as bit mask. The mask is persisted in RTC memory (six bits).
+// Alert kinds as bit mask. The mask is persisted in RTC memory (seven bits).
 constexpr uint8_t ALERT_NONE = 0;
 constexpr uint8_t ALERT_FREEZER = 1;  // a sensor reads below the freezer limit
 constexpr uint8_t ALERT_HUMIDITY = 2; // a sensor reads above the mold risk limit
@@ -27,9 +27,11 @@ constexpr uint8_t ALERT_NOISE_HIGH = 4; // the hourly noise window is above the 
 constexpr uint8_t ALERT_SENSOR_LOST = 8; // a known external sensor sends no more packets
 constexpr uint8_t ALERT_CHARGE_FULL = 16; // the cell is full on USB power (set by chargeStep)
 constexpr uint8_t ALERT_VENTILATE = 32; // the outdoor air is drier than the humid indoor air
+constexpr uint8_t ALERT_SENSOR_BATTERY = 64; // an external sensor reports a low battery (set by batteryStep)
 constexpr uint8_t ALERT_CLIMATE_MASK =
     ALERT_FREEZER | ALERT_HUMIDITY | ALERT_SENSOR_LOST | ALERT_VENTILATE; // set by AlertEvaluator
-constexpr uint8_t ALERT_MASK_ALL = ALERT_CLIMATE_MASK | ALERT_NOISE_HIGH | ALERT_CHARGE_FULL;
+constexpr uint8_t ALERT_MASK_ALL =
+    ALERT_CLIMATE_MASK | ALERT_NOISE_HIGH | ALERT_CHARGE_FULL | ALERT_SENSOR_BATTERY;
 
 // Alert trigger limits. The release limits follow with a fixed hysteresis, so the settings from the
 // card give a trigger limit only.
@@ -142,6 +144,15 @@ public:
     const bool full = BatteryMonitor::updateChargeFull(battery, (previous & ALERT_CHARGE_FULL) != 0);
     const uint8_t current =
         static_cast<uint8_t>((previous & ~ALERT_CHARGE_FULL) | (full ? ALERT_CHARGE_FULL : ALERT_NONE));
+    return step(muted, previous, current, quiet, chime_mask);
+  }
+
+  // Battery check of the external sensors: the bit is on while one slot latch is set, so only the
+  // first latch that switches on chimes. The other bits stay.
+  static Step batteryStep(bool muted, uint8_t previous, uint8_t latch_bits, bool quiet,
+                          uint8_t chime_mask = ALERT_MASK_ALL) {
+    const uint8_t current = static_cast<uint8_t>(
+        (previous & ~ALERT_SENSOR_BATTERY) | ((latch_bits & SensorBatteryLatch::ALL_MASK) != 0 ? ALERT_SENSOR_BATTERY : ALERT_NONE));
     return step(muted, previous, current, quiet, chime_mask);
   }
 
@@ -308,7 +319,7 @@ public:
   static constexpr uint32_t SAMPLES_PER_MS = SAMPLE_RATE_HZ / 1000;
 
   // Freezer: three short high beeps. Humidity: two notes, rising. Noise: two high beeps, then a
-  // lower note. Sensor lost: one low note. Charge full: two notes, falling. Ventilate: three notes, rising.
+  // lower note. Sensor lost: one low note. Charge full: two notes, falling. Ventilate: three notes, rising. Sensor battery: two low notes, falling.
   static ChimePattern pattern(uint8_t alert_bit) {
     static const ChimeNote FREEZER[] = {{880, 120}, {0, 80}, {880, 120}, {0, 80}, {880, 120}};
     static const ChimeNote HUMIDITY[] = {{660, 160}, {0, 40}, {880, 240}};
@@ -316,6 +327,7 @@ public:
     static const ChimeNote SENSOR_LOST[] = {{440, 400}};
     static const ChimeNote CHARGE_FULL[] = {{988, 160}, {0, 40}, {660, 260}};
     static const ChimeNote VENTILATE[] = {{784, 120}, {0, 40}, {1047, 120}, {0, 40}, {1319, 200}};
+    static const ChimeNote SENSOR_BATTERY[] = {{523, 160}, {0, 40}, {392, 300}};
     switch (alert_bit) {
       case ALERT_NOISE_HIGH: return {NOISE, sizeof(NOISE) / sizeof(NOISE[0])};
       case ALERT_FREEZER: return {FREEZER, sizeof(FREEZER) / sizeof(FREEZER[0])};
@@ -323,6 +335,7 @@ public:
       case ALERT_SENSOR_LOST: return {SENSOR_LOST, sizeof(SENSOR_LOST) / sizeof(SENSOR_LOST[0])};
       case ALERT_CHARGE_FULL: return {CHARGE_FULL, sizeof(CHARGE_FULL) / sizeof(CHARGE_FULL[0])};
       case ALERT_VENTILATE: return {VENTILATE, sizeof(VENTILATE) / sizeof(VENTILATE[0])};
+      case ALERT_SENSOR_BATTERY: return {SENSOR_BATTERY, sizeof(SENSOR_BATTERY) / sizeof(SENSOR_BATTERY[0])};
       default: return {nullptr, 0};
     }
   }
@@ -448,7 +461,7 @@ public:
     if ((alert_bits & ALERT_MASK_ALL) == 0) {
       return false;
     }
-    ChimePattern patterns[6];
+    ChimePattern patterns[7];
     uint8_t count = 0;
     if ((alert_bits & ALERT_FREEZER) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_FREEZER);
     if ((alert_bits & ALERT_HUMIDITY) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_HUMIDITY);
@@ -456,6 +469,7 @@ public:
     if ((alert_bits & ALERT_SENSOR_LOST) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_SENSOR_LOST);
     if ((alert_bits & ALERT_CHARGE_FULL) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_CHARGE_FULL);
     if ((alert_bits & ALERT_VENTILATE) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_VENTILATE);
+    if ((alert_bits & ALERT_SENSOR_BATTERY) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_SENSOR_BATTERY);
     return playPatterns(hal, patterns, count, volume_pct);
   }
 

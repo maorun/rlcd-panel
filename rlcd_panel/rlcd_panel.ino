@@ -299,6 +299,7 @@ void renderDashboard() {
   info.quiet_hours = quietHours().isActive(g_rtc_time);
   info.ventilate = (g_state.alert_mask & ALERT_VENTILATE) != 0;
   info.ventilate_tiles = g_state.ventilate_tiles;
+  info.sensor_battery_latch = g_state.sensor_battery_latch;
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;
   info.runtime = g_state.battery_history.estimate(g_state.battery, g_scan_saved_ms);
@@ -468,6 +469,7 @@ void refreshSensors() {
       g_onboard_reading.temperature_c);
   // The tile badges have no chime and do not depend on the alert mask. The latch updates before the
   // first render, so the display shows the current state.
+  // The BLE scan is stopped here, so the registry copy needs no g_registry_mux.
   SwitchBotReading tiles[MAX_SWITCHBOT_SENSORS];
   const SwitchBotRegistry calibrated = calibratedRegistry();
   for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
@@ -476,6 +478,9 @@ void refreshSensors() {
   g_state.ventilate_tiles = VentilateLatch::update(
       g_state.ventilate_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
       config().ventilate_limit_rh);
+  // The sensor battery latch updates before the first render. The chime follows in chimeOnSensorBattery().
+  g_state.sensor_battery_latch = SensorBatteryLatch::update(
+      g_state.sensor_battery_latch, tiles, MAX_SWITCHBOT_SENSORS, nowMs(), config().sensor_battery_limit_pct);
 }
 
 // Stores the new mask and plays the chimes of the step. The amplifier is off again before this
@@ -633,6 +638,14 @@ void chimeOnAlerts() {
       g_state.muted, g_state.alert_mask, climate, quietHours().isActive(g_rtc_time), config().chime_alert_mask));
 }
 
+// Sounds one chime when the first external sensor latch switches on. The latch itself updates in
+// refreshSensors(). Mute and quiet hours suppress the sound only; the mask is stored.
+void chimeOnSensorBattery() {
+  applyAlertStep(AlertEvaluator::batteryStep(
+      g_state.muted, g_state.alert_mask, g_state.sensor_battery_latch, quietHours().isActive(g_rtc_time),
+      config().chime_alert_mask));
+}
+
 // Sounds one chime when the cell reaches 100 % on USB power. The latch releases below 95 % and on
 // battery power. Mute and quiet hours suppress the sound only; the mask is stored.
 void chimeOnChargeFull() {
@@ -713,6 +726,7 @@ void setup() {
   renderDashboard();
   chimeOnAlerts();
   chimeOnChargeFull();
+  chimeOnSensorBattery();
   logToSdCard(); // after the render: the display shows fresh data even if the card is slow
   // The sync runs after the first render, so a slow or absent network never delays the display.
   // A new time redraws the header clock.

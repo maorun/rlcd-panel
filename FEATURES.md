@@ -164,7 +164,8 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
   | `mic_spl_offset_db` | `0.0` | `-20.0` to `20.0` | added to the microphone SPL offset |
   | `log_retention_months` | `0` | `0` to `120` | delete log files older than this; `0` keeps all |
 | `noise_alert_limit_db` | `0` | `0` (off) or `40` to `100` | loud noise alert trigger |
-| `chime_alert_mask` | `63` | `0` to `63` | chime per alert (bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full, 5 ventilate) |
+| `chime_alert_mask` | `127` | `0` to `127` | chime per alert (bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full, 5 ventilate, 6 sensor battery) |
+| `sensor_battery_limit_pct` | `10` | `0` to `50` | an external sensor at or below this battery level shows `BAT LOW`; `0` is off |
   | `ntp_sync_interval_h` | `24` | `6` to `168` | hours between two successful NTP syncs |
   | `wake_interval_s` | `60` | `30` to `900` | seconds between two scans on battery power; USB power keeps `60` |
   | `outdoor_slot` | `0` | `0` (off) to `3` | registry slot of the outdoor sensor for the ventilation advice |
@@ -529,3 +530,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `BatteryHistory::estimate` takes the saved time. The awake time `AWAKE_MS` (10 s) shrinks by it, capped so that `MIN_AWAKE_MS` (2 s) remains, and the runtime grows by the same ratio.
 - Host tests cover the stop with all slots reported, one missing slot, a packet without battery field, the 1 s minimum, an empty slot, a stale slot, power-on, `KEY` wakeup, the hourly cycle, USB power, unknown MACs and the runtime estimate with a short scan.
 - The runtime estimate is a model: it scales the discharge slope by the saved time of the last scan. A cycle with a full scan (hourly, power-on) shows the unscaled value, so the value moves between cycles. A `KEY` wakeup runs no scan and keeps the saved time of the last scan. The battery reading for the USB check comes from the last wake cycle, so one cycle after a plug-in keeps the old power state.
+
+## Low battery warning for external SwitchBot and BTHome sensors
+
+- **Code:** `rlcd_panel/switchbot_ble.h`, `rlcd_panel/device_config.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`.
+- **Preview:** `docs/display_preview_dashboard.png` shows `BAT LOW` in the tile `GARTEN`.
+- The new `config.ini` key `sensor_battery_limit_pct` (default `10`, range `0` to `50`, `0` is off) sets the limit. A value outside the range is rejected, and the previous value stays.
+- `SensorBatteryLatch::update` keeps one bit for each registry slot. A bit sets when the reported `battery_pct` is at or below the limit. It releases at the limit plus 5 %. Between the two values the bit holds. SwitchBot and BTHome packets fill the same `battery_pct` field, so one latch serves both sensor types.
+- A packet without a battery field (`battery_pct` is `-1`) and a stale slot do not change the bit. An empty slot clears it. The limit `0` clears all bits.
+- The tile shows the text `BAT LOW` in an inverted box instead of `BAT: N %`. The box is 86 x 18 px at y + 94 and does not touch the border of the tile.
+- The new alert `ALERT_SENSOR_BATTERY` (bit 6, value 64) sounds one chime (two low falling notes, 523 Hz and 392 Hz) when the first latch switches on. A second latch does not chime again. The bit clears when all latches are off. Mute, quiet hours and a cleared bit 6 of `chime_alert_mask` suppress the sound only. The mask is stored, so no chime replays later.
+- `chime_alert_mask` now has the range `0` to `127` (default `127`). A card with `63` silences the new chime.
+- RTC state version 29: the audio block grows to 4 bytes. The first byte holds the ventilation bit and the sensor battery alert bit. A new byte holds the three latch bits. The config trailer stores `sensor_battery_limit_pct` after `ventilate_limit_rh`. A corrupt record, a latch bit above bit 2, a flag value above 3 or a limit above 50 gives a clean start.

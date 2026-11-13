@@ -281,4 +281,47 @@ private:
   uint8_t fixed_mac_[MAX_SWITCHBOT_SENSORS][6] = {{0}, {0}, {0}};
 };
 
+// Per slot low battery latch of the external sensors (config.ini key sensor_battery_limit_pct).
+// Bits 0 to 2 are the registry slots. A bit sets when the reported battery is at or below the
+// limit. It releases at the limit plus RELEASE_MARGIN_PCT or more; between the two it holds. A
+// stale slot and a slot without a reported battery (-1) keep their bit: no new information
+// arrived. An empty slot clears its bit. A limit of 0 switches the latch off and clears all bits.
+// SwitchBot and BTHome packets both fill SwitchBotReading::battery_pct.
+class SensorBatteryLatch {
+public:
+  static constexpr uint8_t ALL_MASK = static_cast<uint8_t>((1u << MAX_SWITCHBOT_SENSORS) - 1u);
+  static constexpr uint8_t LIMIT_OFF = 0;
+  static constexpr uint8_t MAX_LIMIT_PCT = 50;
+  static constexpr uint8_t RELEASE_MARGIN_PCT = 5;
+
+  static uint8_t update(uint8_t previous, const SwitchBotReading* slots, size_t slot_count, uint32_t now_ms,
+                        uint8_t limit_pct) {
+    if (limit_pct == LIMIT_OFF || limit_pct > MAX_LIMIT_PCT || slots == nullptr) {
+      return 0;
+    }
+    uint8_t bits = 0;
+    for (size_t i = 0; i < slot_count && i < MAX_SWITCHBOT_SENSORS; ++i) {
+      const uint8_t mask = static_cast<uint8_t>(1u << i);
+      const SwitchBotReading& r = slots[i];
+      if (!r.valid) {
+        continue;
+      }
+      uint8_t held = static_cast<uint8_t>(previous & mask);
+      if (!r.isStale(now_ms) && r.battery_pct >= 0) {
+        if (r.battery_pct <= static_cast<int>(limit_pct)) {
+          held = mask;
+        } else if (r.battery_pct >= static_cast<int>(limit_pct) + RELEASE_MARGIN_PCT) {
+          held = 0;
+        }
+      }
+      bits |= held;
+    }
+    return bits;
+  }
+
+  static bool isSet(uint8_t bits, size_t slot) {
+    return slot < MAX_SWITCHBOT_SENSORS && (bits & (1u << slot)) != 0;
+  }
+};
+
 } // namespace rlcd_panel
