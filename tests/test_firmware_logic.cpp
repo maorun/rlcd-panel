@@ -7780,6 +7780,163 @@ void testBatteryRuntimeFlatCurve() {
   assert(!rising.estimate(runtimeCell(3.75f)).valid);
 }
 
+// ---- Early BLE scan stop ----
+
+static SwitchBotRegistry scanRegistry(uint32_t updated_ms, int count = 3) {
+  SwitchBotRegistry reg;
+  for (int i = 1; i <= count; ++i) {
+    SwitchBotReading r = makeReading(static_cast<uint8_t>(i), 20.0f, 50, 90);
+    r.updated_ms = updated_ms;
+    assert(reg.upsert(r));
+  }
+  return reg;
+}
+
+static BatteryReading scanBattery(bool usb) {
+  BatteryReading b;
+  b.valid = true;
+  b.voltage_v = 3.9f;
+  b.usb_powered = usb;
+  return b;
+}
+
+void testScanCompletionStopsWhenAllReported() {
+  const SwitchBotRegistry reg = scanRegistry(1000);
+  ScanCompletion sc;
+  sc.begin(false);
+  for (int i = 1; i <= 3; ++i) {
+    assert(!sc.canStop(reg, 2000));
+    sc.onPacket(reg, makeReading(static_cast<uint8_t>(i), 21.0f, 55, 80));
+  }
+  assert(sc.canStop(reg, 2000));
+}
+
+void testScanCompletionOneSlotMissing() {
+  const SwitchBotRegistry reg = scanRegistry(1000);
+  ScanCompletion sc;
+  sc.begin(false);
+  sc.onPacket(reg, makeReading(1, 21.0f, 55, 80));
+  sc.onPacket(reg, makeReading(2, 21.0f, 55, 80));
+  assert(!sc.canStop(reg, 3000));
+}
+
+void testScanCompletionNoBatteryField() {
+  const SwitchBotRegistry reg = scanRegistry(1000);
+  ScanCompletion sc;
+  sc.begin(false);
+  sc.onPacket(reg, makeReading(1, 21.0f, 55, 80));
+  sc.onPacket(reg, makeReading(2, 21.0f, 55, 80));
+  // The packet has no battery field: the kept registry value does not count.
+  sc.onPacket(reg, makeReading(3, 21.0f, 55, -1));
+  assert(!sc.canStop(reg, 3000));
+  sc.onPacket(reg, makeReading(3, 21.0f, 55, 70));
+  assert(sc.canStop(reg, 3000));
+}
+
+void testScanCompletionMinimumElapsed() {
+  const SwitchBotRegistry reg = scanRegistry(1000);
+  ScanCompletion sc;
+  sc.begin(false);
+  for (int i = 1; i <= 3; ++i) {
+    sc.onPacket(reg, makeReading(static_cast<uint8_t>(i), 21.0f, 55, 80));
+  }
+  assert(!sc.canStop(reg, 0));
+  assert(!sc.canStop(reg, 999));
+  assert(sc.canStop(reg, 1000));
+}
+
+void testScanCompletionEmptySlot() {
+  const SwitchBotRegistry reg = scanRegistry(1000, 2);
+  ScanCompletion sc;
+  sc.begin(false);
+  sc.onPacket(reg, makeReading(1, 21.0f, 55, 80));
+  sc.onPacket(reg, makeReading(2, 21.0f, 55, 80));
+  assert(!sc.canStop(reg, 3000));
+  // An empty slot also requires a full scan at the start.
+  assert(ScanCompletion::fullScanRequired(WakeupCause::TIMER, scanBattery(false), reg, 2000, false));
+  // A registry without any sensor never stops early.
+  const SwitchBotRegistry none;
+  ScanCompletion empty;
+  empty.begin(false);
+  assert(!empty.canStop(none, 3000));
+}
+
+void testScanCompletionStaleSlot() {
+  const SwitchBotRegistry reg = scanRegistry(1000);
+  const uint32_t stale_now = 1000 + SENSOR_STALE_TIMEOUT_MS + 1;
+  assert(ScanCompletion::fullScanRequired(WakeupCause::TIMER, scanBattery(false), reg, stale_now, false));
+  assert(!ScanCompletion::fullScanRequired(
+      WakeupCause::TIMER, scanBattery(false), reg, 1000 + SENSOR_STALE_TIMEOUT_MS, false));
+}
+
+void testScanCompletionFullScanCauses() {
+  const SwitchBotRegistry reg = scanRegistry(1000);
+  const BatteryReading bat = scanBattery(false);
+  // A fresh registry on a timer wakeup allows the early stop.
+  assert(!ScanCompletion::fullScanRequired(WakeupCause::TIMER, bat, reg, 2000, false));
+  // Power-on, KEY wakeup and other causes keep the full scan.
+  assert(ScanCompletion::fullScanRequired(WakeupCause::POWER_ON, bat, reg, 2000, false));
+  assert(ScanCompletion::fullScanRequired(WakeupCause::KEY_BUTTON, bat, reg, 2000, false));
+  assert(ScanCompletion::fullScanRequired(WakeupCause::OTHER, bat, reg, 2000, false));
+  // First wake cycle of the hour.
+  assert(ScanCompletion::fullScanRequired(WakeupCause::TIMER, bat, reg, 2000, true));
+  // USB power.
+  assert(ScanCompletion::fullScanRequired(WakeupCause::TIMER, scanBattery(true), reg, 2000, false));
+  // A full scan never stops early, even with every slot reported.
+  ScanCompletion sc;
+  sc.begin(true);
+  for (int i = 1; i <= 3; ++i) {
+    sc.onPacket(reg, makeReading(static_cast<uint8_t>(i), 21.0f, 55, 80));
+  }
+  assert(!sc.canStop(reg, 3000));
+  // begin() clears the packets of the earlier scan.
+  sc.begin(false);
+  assert(!sc.canStop(reg, 3000));
+}
+
+void testScanCompletionIgnoresUnknownMacAndInvalid() {
+  const SwitchBotRegistry reg = scanRegistry(1000, 1);
+  ScanCompletion sc;
+  sc.begin(false);
+  sc.onPacket(reg, makeReading(9, 21.0f, 55, 80));
+  SwitchBotReading invalid = makeReading(1, 21.0f, 55, 80);
+  invalid.valid = false;
+  sc.onPacket(reg, invalid);
+  assert(!sc.canStop(reg, 3000));
+}
+
+void testScanCompletionNewSlotAfterUpsert() {
+  SwitchBotRegistry reg = scanRegistry(1000, 2);
+  ScanCompletion sc;
+  sc.begin(false);
+  const SwitchBotReading fresh = makeReading(3, 21.0f, 55, 80);
+  assert(reg.upsert(fresh));
+  sc.onPacket(reg, fresh);
+  assert(!sc.canStop(reg, 3000));
+  sc.onPacket(reg, makeReading(1, 21.0f, 55, 80));
+  sc.onPacket(reg, makeReading(2, 21.0f, 55, 80));
+  assert(sc.canStop(reg, 3000));
+}
+
+void testBatteryRuntimeShortScan() {
+  BatteryHistory h;
+  for (int hour = 0; hour < 12; ++hour) {
+    assert(h.push(4.00f - 0.02f * static_cast<float>(hour)));
+  }
+  const BatteryReading cell = runtimeCell(3.78f);
+  assert(ScanCompletion::savedMs(4, 1500) == 2500);
+  assert(ScanCompletion::savedMs(4, 4000) == 0);
+  assert(ScanCompletion::savedMs(4, 4500) == 0);
+  // 29 h with the full scan; the awake time falls from 10 s to 7.5 s: 29 * 10 / 7.5 = 38.7 h
+  assert(h.estimate(cell).hours == 29);
+  assert(h.estimate(cell, 0).hours == 29);
+  assert(h.estimate(cell, 2500).hours == 39);
+  // The saved time is capped: the awake time keeps MIN_AWAKE_MS.
+  assert(h.estimate(cell, 60000).hours == 145);
+  // USB power stays invalid.
+  assert(!h.estimate(runtimeCell(3.78f, true), 2500).valid);
+}
+
 void testBatteryRuntimeChargeStepResets() {
   BatteryHistory h;
   for (int hour = 0; hour < 10; ++hour) {
@@ -10734,6 +10891,16 @@ int main() {
   testBatteryRuntimeLinearDischarge();
   testBatteryRuntimeDaysFormat();
   testBatteryRuntimeFlatCurve();
+  testScanCompletionStopsWhenAllReported();
+  testScanCompletionOneSlotMissing();
+  testScanCompletionNoBatteryField();
+  testScanCompletionMinimumElapsed();
+  testScanCompletionEmptySlot();
+  testScanCompletionStaleSlot();
+  testScanCompletionFullScanCauses();
+  testScanCompletionIgnoresUnknownMacAndInvalid();
+  testScanCompletionNewSlotAfterUpsert();
+  testBatteryRuntimeShortScan();
   testBatteryRuntimeChargeStepResets();
   testBatteryRuntimeTooFewSamples();
   testBatteryRuntimeInvalidReadings();

@@ -143,6 +143,81 @@ struct WakeupPlan {
   bool enable_key_wakeup = false;
 };
 
+// Decides when the BLE scan may end before scan_duration_s. The scan stops early when each valid
+// slot received a packet with temperature, humidity and battery in this scan and at least
+// MIN_SCAN_MS of the scan are done. fullScanRequired() lists the cases that keep the full scan:
+// every wakeup except a timer wakeup, USB power, the first wake cycle of each hour, and an empty or
+// stale slot. Thus a new sensor can still fill an empty slot. Call onPacket() inside the registry
+// lock, after the registry took the packet.
+class ScanCompletion {
+public:
+  static constexpr uint32_t MIN_SCAN_MS = 1000;
+
+  static bool fullScanRequired(
+      WakeupCause cause,
+      const BatteryReading& battery,
+      const SwitchBotRegistry& registry,
+      uint32_t now_ms,
+      bool hour_due) {
+    if (cause != WakeupCause::TIMER || (battery.valid && battery.usb_powered) || hour_due) {
+      return true;
+    }
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (!registry.slot(i).valid || registry.slot(i).isStale(now_ms)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // Starts a scan. A full scan never stops early.
+  void begin(bool full_scan) {
+    full_scan_ = full_scan;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      reported_[i] = false;
+    }
+  }
+
+  // Notes a packet. `reading` is the parsed packet, so a battery value kept from an earlier scan
+  // does not count. The packet counts for the slot that holds its MAC.
+  void onPacket(const SwitchBotRegistry& registry, const SwitchBotReading& reading) {
+    if (!reading.valid || reading.battery_pct < 0 || !isfinite(reading.temperature_c)) {
+      return;
+    }
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      const SwitchBotReading& slot = registry.slot(i);
+      if (slot.valid && memcmp(slot.mac, reading.mac, 6) == 0) {
+        reported_[i] = true;
+      }
+    }
+  }
+
+  // True when the scan may stop now. `registry` is the live registry. fullScanRequired() keeps
+  // every scan with an empty slot full, so a stop scan starts with all slots valid and the valid
+  // slots are the sensors to wait for.
+  bool canStop(const SwitchBotRegistry& registry, uint32_t elapsed_ms) const {
+    if (full_scan_ || elapsed_ms < MIN_SCAN_MS) {
+      return false;
+    }
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (!registry.slot(i).valid || !reported_[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  // Scan time saved by a stop at `elapsed_ms`, in ms. Zero for a scan that ran to its end.
+  static uint32_t savedMs(uint32_t scan_duration_s, uint32_t elapsed_ms) {
+    const uint32_t full_ms = scan_duration_s * 1000UL;
+    return elapsed_ms < full_ms ? full_ms - elapsed_ms : 0;
+  }
+
+private:
+  bool full_scan_ = true;
+  bool reported_[MAX_SWITCHBOT_SENSORS] = {};
+};
+
 // Watches the USB power during continuous clap listening. due() is true every RECHECK_MS. The
 // caller then reads the battery and passes the result to update(). One low sample can come from a
 // bad ADC read, so LOST_SAMPLES samples in a row without USB power end the watch. Unsigned

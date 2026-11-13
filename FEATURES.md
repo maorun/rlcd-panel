@@ -519,3 +519,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - It gives `UNKNOWN` for fewer than 4 samples and for a sample outside the valid range.
 - `DashboardView::renderTile` draws a 7 x 7 px triangle with `fillRect` right of the temperature line and right of the humidity line. `STEADY` and `UNKNOWN` draw no mark.
 - The humidity mark is skipped when it would touch the sparkline box. The trend compares sample positions, so a gap in the hourly samples widens the span. Each quantity uses its own buffer. The trend lags by up to one hour. It uses no new RTC memory and no new sensor read.
+
+## Early BLE scan stop when each known sensor has reported
+
+- **Code:** `rlcd_panel/power_manager.h`, `rlcd_panel/battery_monitor.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`.
+- `ScanCompletion` ends the BLE scan before `scan_duration_s` when each valid slot received a packet with temperature, humidity and battery in this scan, and at least 1 s of the scan is done. A kept battery value from an earlier scan does not count.
+- `ScanCompletion::fullScanRequired` keeps the full scan after a power-on, a `KEY` wakeup or any other non-timer wakeup, on USB power, in the first wake cycle of each hour (`hour_due`), and when a slot is empty or stale. Thus a new sensor can still fill an empty slot.
+- `scanOnce` checks `canStop` every 10 ms inside the registry lock and records the saved time in `g_scan_saved_ms` (RTC memory).
+- `BatteryHistory::estimate` takes the saved time. The awake time `AWAKE_MS` (10 s) shrinks by it, capped so that `MIN_AWAKE_MS` (2 s) remains, and the runtime grows by the same ratio.
+- Host tests cover the stop with all slots reported, one missing slot, a packet without battery field, the 1 s minimum, an empty slot, a stale slot, power-on, `KEY` wakeup, the hourly cycle, USB power, unknown MACs and the runtime estimate with a short scan.
+- The runtime estimate is a model: it scales the discharge slope by the saved time of the last scan. A cycle with a full scan (hourly, power-on) shows the unscaled value, so the value moves between cycles. A `KEY` wakeup runs no scan and keeps the saved time of the last scan. The battery reading for the USB check comes from the last wake cycle, so one cycle after a plug-in keeps the old power state.

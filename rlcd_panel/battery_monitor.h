@@ -171,6 +171,9 @@ public:
   static constexpr uint16_t CHARGE_STEP_MV = 100;
   // Slopes flatter than 0.01 mV per hour give no usable runtime.
   static constexpr double MIN_DISCHARGE_V_PER_H = 1e-5;
+  // Awake time of one wake cycle with the default 4 s scan (scan, sensors, render), in ms.
+  static constexpr uint32_t AWAKE_MS = 10000;
+  static constexpr uint32_t MIN_AWAKE_MS = 2000;
 
   static bool plausible(float voltage_v) {
     return voltage_v >= MIN_VALID_MV / 1000.0f && voltage_v <= MAX_VALID_MV / 1000.0f;
@@ -304,7 +307,10 @@ public:
   // plateau and the knee of a Li-ion cell near empty, so the value is an estimate that reads
   // long on the plateau. Invalid on USB power, without a battery,
   // with fewer than MIN_SAMPLES, with a flat or rising curve, and with an implausible voltage.
-  BatteryRuntime estimate(const BatteryReading& reading) const {
+  // `scan_saved_ms` is the scan time that an early stop saved in the last scan. The awake time of
+  // one wake cycle (AWAKE_MS) shrinks by that time and the runtime grows by the same ratio. The
+  // saved time is capped, so the awake time never falls below MIN_AWAKE_MS.
+  BatteryRuntime estimate(const BatteryReading& reading, uint32_t scan_saved_ms = 0) const {
     BatteryRuntime r;
     double slope_v_h = 0.0;
     if (!reading.valid || reading.usb_powered || !plausible(reading.voltage_v) ||
@@ -312,7 +318,9 @@ public:
       return r;
     }
     const double left_v = static_cast<double>(reading.voltage_v) - BatteryMonitor::V_EMPTY;
-    const double hours = left_v > 0.0 ? left_v / -slope_v_h : 0.0;
+    const uint32_t saved_ms = scan_saved_ms > AWAKE_MS - MIN_AWAKE_MS ? AWAKE_MS - MIN_AWAKE_MS : scan_saved_ms;
+    const double scale = static_cast<double>(AWAKE_MS) / static_cast<double>(AWAKE_MS - saved_ms);
+    const double hours = left_v > 0.0 ? left_v / -slope_v_h * scale : 0.0;
     r.valid = true;
     r.hours = hours > 99.0 * 24.0 + 12.0 ? 99u * 24u + 12u : static_cast<uint32_t>(hours + 0.5);
     return r;

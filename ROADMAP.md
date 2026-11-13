@@ -29,12 +29,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 
-- [ ] Early BLE scan stop when each known sensor has reported
-  - Rank: [Total: 24, Use: 6, Setup: 2, Harmony: 8, Safety: 8, Effort: M]
-  - Location: `rlcd_panel/switchbot_ble.h`, `rlcd_panel/bthome_ble.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/battery_monitor.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add `ScanCompletion` to `power_manager.h`. Stop the BLE scan before the end of `scan_duration_s` when each valid slot received a packet with temperature, humidity and battery in this scan, and at least 1 s of the scan is done. Run the full scan after a power-on, after a `KEY` wakeup, when a slot is empty or stale, and at the first wake cycle of each hour, so a new sensor can still fill an empty slot. Count the saved scan time in the battery runtime estimate. Thus the radio stays on for a shorter time on battery power, and the battery runtime increases. On USB power, keep the full scan.
-  - Acceptance test: Host tests cover the stop with all slots reported, one missing slot, one slot with readings but no battery field, the 1 s minimum, an empty slot, a stale slot, the power-on, the `KEY` wakeup, the first wake cycle of the hour, the USB power case, and the runtime estimate with a short scan. The firmware compile check passes.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

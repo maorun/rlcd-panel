@@ -43,6 +43,9 @@ St7305Framebuffer g_framebuffer;
 St7305Panel g_panel;
 // Cycle counter tracking state; separate from g_state so a rejected state restore keeps it.
 RTC_DATA_ATTR CycleTracker::RtcState g_cycle_rtc;
+// Scan time that the last early stop saved (ms). Only the runtime estimate reads it.
+RTC_DATA_ATTR uint32_t g_scan_saved_ms = 0;
+ScanCompletion g_scan_completion;
 CycleTracker g_cycles;
 PersistentState g_state; // registry, battery, and view mode; saved to RTC memory before sleep
 portMUX_TYPE g_registry_mux = portMUX_INITIALIZER_UNLOCKED;
@@ -109,6 +112,7 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
 
     portENTER_CRITICAL(&g_registry_mux);
     g_state.registry.upsert(reading);
+    g_scan_completion.onPacket(g_state.registry, reading);
     portEXIT_CRITICAL(&g_registry_mux);
   }
 
@@ -152,6 +156,7 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
 
     portENTER_CRITICAL(&g_registry_mux);
     g_state.registry.upsert(reading);
+    g_scan_completion.onPacket(g_state.registry, reading);
     portEXIT_CRITICAL(&g_registry_mux);
   }
 };
@@ -296,7 +301,7 @@ void renderDashboard() {
   info.ventilate_tiles = g_state.ventilate_tiles;
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;
-  info.runtime = g_state.battery_history.estimate(g_state.battery);
+  info.runtime = g_state.battery_history.estimate(g_state.battery, g_scan_saved_ms);
   info.rtc_drift = g_state.rtc_drift;
   info.sd_free_mb = g_sd_free_mb;
   info.cycle_tenths = g_cycles.cycleTenths();
@@ -405,12 +410,14 @@ void initBle() {
 }
 
 // Blocks for one scan. The deep sleep cycle needs no concurrent work during the scan.
-void scanOnce() {
+void scanOnce(bool full_scan) {
+  g_scan_saved_ms = 0;
   if (g_ble_scan == nullptr) {
     return;
   }
   const uint32_t duration_s = g_power_config.sanitized().scan_duration_s;
   // Set the flag first: a fast completion callback in the BLE task must not be overwritten.
+  g_scan_completion.begin(full_scan);
   g_scan_running = true;
   if (!g_ble_scan->start(duration_s, onScanComplete, false)) {
     g_scan_running = false;
@@ -419,6 +426,13 @@ void scanOnce() {
   const uint32_t started = millis();
   while (g_scan_running && millis() - started < duration_s * 1000 + SCAN_WATCHDOG_MARGIN_MS) {
     delay(10);
+    portENTER_CRITICAL(&g_registry_mux);
+    const bool stop = g_scan_completion.canStop(g_state.registry, millis() - started);
+    portEXIT_CRITICAL(&g_registry_mux);
+    if (stop) {
+      g_scan_saved_ms = ScanCompletion::savedMs(duration_s, millis() - started);
+      break;
+    }
   }
   if (g_scan_running) {
     g_ble_scan->stop();
@@ -683,7 +697,9 @@ void setup() {
   if (cycle.advance() == PowerPhase::SCAN) {
     g_state.last_scan_ms = nowMs();
     initBle();
-    scanOnce();
+    // The battery reading is from the last wake cycle: one cycle after a plug-in keeps the old power state.
+    scanOnce(ScanCompletion::fullScanRequired(
+        cause, g_state.battery, g_state.registry, nowMs(), g_state.history.sampleDue(nowMs())));
     BLEDevice::deinit(false);
     cycle.advance();
   }
