@@ -23,13 +23,14 @@ public:
   // Returns the new latch bits. `slots` must hold the calibrated readings, and `onboard` the
   // calibrated onboard reading.
   static uint8_t update(uint8_t previous, const Shtc3Reading& onboard, const SwitchBotReading* slots,
-                        size_t slot_count, uint32_t now_ms, uint8_t limit_rh) {
+                        size_t slot_count, uint32_t now_ms, uint8_t limit_rh,
+                        uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS) {
     uint8_t bits = 0;
     if (onboard.valid) {
       bits |= step(previous, 0, onboard.humidity_pct, limit_rh);
     }
     for (size_t i = 0; slots != nullptr && i < slot_count && i < MAX_SWITCHBOT_SENSORS; ++i) {
-      if (slots[i].valid && !slots[i].isStale(now_ms)) {
+      if (slots[i].valid && !slots[i].isStale(now_ms, stale_timeout_ms)) {
         bits |= step(previous, static_cast<uint8_t>(1 + i), static_cast<float>(slots[i].humidity_pct), limit_rh);
       }
     }

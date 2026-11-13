@@ -57,6 +57,10 @@ struct DeviceConfig {
   static constexpr uint16_t DEFAULT_WAKE_INTERVAL_S = 60; // equals PowerConfig::DEFAULT_SLEEP_INTERVAL_S
   static constexpr uint16_t MIN_WAKE_INTERVAL_S = 30;
   static constexpr uint16_t MAX_WAKE_INTERVAL_S = 900;
+  static constexpr uint16_t DEFAULT_SENSOR_STALE_MIN = 30; // equals SENSOR_STALE_TIMEOUT_MS
+  static constexpr uint16_t MIN_SENSOR_STALE_MIN = 5;
+  static constexpr uint16_t MAX_SENSOR_STALE_MIN = 240;
+  static constexpr uint32_t SCAN_DURATION_S = 4; // scan time that adds to the wake interval
 
   static constexpr size_t MAC_BYTES = 6;
   static constexpr size_t NAME_MAX_CHARS = 12; // longest sensor name; a name buffer adds the terminator
@@ -94,6 +98,15 @@ struct DeviceConfig {
   uint8_t sensor_battery_limit_pct = DEFAULT_SENSOR_BATTERY_LIMIT_PCT; // an external sensor at or below this % shows BAT LOW, 0 = off, else 1..50
   uint8_t ntp_sync_interval_h = DEFAULT_NTP_SYNC_INTERVAL_H; // hours between two successful NTP syncs, 6..168
   uint16_t wake_interval_s = DEFAULT_WAKE_INTERVAL_S; // seconds from one scan start to the next on battery power, 30..900
+  uint16_t sensor_stale_min = DEFAULT_SENSOR_STALE_MIN; // minutes without a packet until a sensor is stale, 5..240
+
+  // Stale timeout in ms for every SwitchBotReading::isStale call. A value below one wake interval plus
+  // the scan duration would mark each sensor stale between two scans, so the sum is the lower bound.
+  uint32_t staleTimeoutMs() const {
+    const uint32_t configured = static_cast<uint32_t>(sensor_stale_min) * 60000UL;
+    const uint32_t floor_ms = (static_cast<uint32_t>(wake_interval_s) + SCAN_DURATION_S) * 1000UL;
+    return configured < floor_ms ? floor_ms : configured;
+  }
 
   static bool inRange(float v, float lo, float hi) {
     return v >= lo && v <= hi; // false for NaN
@@ -178,7 +191,8 @@ struct DeviceConfig {
            (noise_alert_limit_db == 0 ||
             (noise_alert_limit_db >= MIN_NOISE_ALERT_LIMIT_DB && noise_alert_limit_db <= MAX_NOISE_ALERT_LIMIT_DB)) &&
            ntp_sync_interval_h >= MIN_NTP_SYNC_INTERVAL_H && ntp_sync_interval_h <= MAX_NTP_SYNC_INTERVAL_H &&
-           wake_interval_s >= MIN_WAKE_INTERVAL_S && wake_interval_s <= MAX_WAKE_INTERVAL_S;
+           wake_interval_s >= MIN_WAKE_INTERVAL_S && wake_interval_s <= MAX_WAKE_INTERVAL_S &&
+           sensor_stale_min >= MIN_SENSOR_STALE_MIN && sensor_stale_min <= MAX_SENSOR_STALE_MIN;
   }
 
   bool isDefault() const {
@@ -202,7 +216,8 @@ struct DeviceConfig {
            log_retention_months == d.log_retention_months && noise_alert_limit_db == d.noise_alert_limit_db &&
            chime_alert_mask == d.chime_alert_mask && outdoor_slot == d.outdoor_slot &&
            ventilate_limit_rh == d.ventilate_limit_rh && sensor_battery_limit_pct == d.sensor_battery_limit_pct &&
-           ntp_sync_interval_h == d.ntp_sync_interval_h && wake_interval_s == d.wake_interval_s;
+           ntp_sync_interval_h == d.ntp_sync_interval_h && wake_interval_s == d.wake_interval_s &&
+           sensor_stale_min == d.sensor_stale_min;
   }
 };
 
@@ -545,6 +560,10 @@ private:
       index = 25;
       ok = parseIntIn(val, val_len, DeviceConfig::MIN_WAKE_INTERVAL_S, DeviceConfig::MAX_WAKE_INTERVAL_S,
                       cfg.wake_interval_s);
+    } else if (keyIs(key, key_len, "sensor_stale_min")) {
+      index = 29;
+      ok = parseIntIn(val, val_len, DeviceConfig::MIN_SENSOR_STALE_MIN, DeviceConfig::MAX_SENSOR_STALE_MIN,
+                      cfg.sensor_stale_min);
     } else if (keyIs(key, key_len, "outdoor_slot")) {
       index = 26;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_OUTDOOR_SLOT, cfg.outdoor_slot);
@@ -605,6 +624,7 @@ public:
     ok = ok && putInt(out, cap, pos, "chime_alert_mask", cfg.chime_alert_mask);
     ok = ok && putInt(out, cap, pos, "ntp_sync_interval_h", cfg.ntp_sync_interval_h);
     ok = ok && putInt(out, cap, pos, "wake_interval_s", cfg.wake_interval_s);
+    ok = ok && putInt(out, cap, pos, "sensor_stale_min", cfg.sensor_stale_min);
     ok = ok && putInt(out, cap, pos, "outdoor_slot", cfg.outdoor_slot);
     ok = ok && putInt(out, cap, pos, "ventilate_limit_rh", cfg.ventilate_limit_rh);
     ok = ok && putInt(out, cap, pos, "sensor_battery_limit_pct", cfg.sensor_battery_limit_pct);

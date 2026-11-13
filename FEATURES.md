@@ -168,6 +168,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 | `sensor_battery_limit_pct` | `10` | `0` to `50` | an external sensor at or below this battery level shows `BAT LOW`; `0` is off |
   | `ntp_sync_interval_h` | `24` | `6` to `168` | hours between two successful NTP syncs |
   | `wake_interval_s` | `60` | `30` to `900` | seconds between two scans on battery power; USB power keeps `60` |
+  | `sensor_stale_min` | `30` | `5` to `240` | minutes without a packet until a sensor is stale |
   | `outdoor_slot` | `0` | `0` (off) to `3` | registry slot of the outdoor sensor for the ventilation advice |
 
 - Equal start and end hours switch the quiet hours off. A lone CR is no line end: use LF or CRLF. The SPL offset has whole dB steps, so a fraction below 0.5 dB has no effect.
@@ -571,3 +572,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - A cleared bit in `chime_alert_mask` does not block the test. The command does not read or change the stored alert bits, so no alert is replayed or lost.
 - Reply after the playback: `OK BEEP <N> <duration ms>` (the sum of the note and pause durations of the pattern).
 - The console stops the clap listener before the playback (`release()`); the next `poll()` reopens it. The command needs no card. It runs on USB power only (`PowerManager::serialConsoleAllowed`).
+
+## Configurable sensor stale timeout in config.ini
+
+- **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/ventilate_latch.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- The `config.ini` key `sensor_stale_min` (default `30`, range `5` to `240` minutes) sets the time without a packet until a sensor is stale. A value outside the range or a malformed value is rejected and counted in `ConfigRejects`.
+- `DeviceConfig::staleTimeoutMs()` returns the timeout in ms. A value below `wake_interval_s` + 4 s scan time is raised to this sum, so a sensor never turns stale between two scans.
+- The timeout replaces the fixed `SENSOR_STALE_TIMEOUT_MS` (still the default argument) in the `STALE` badge and `RSSI --` (and the comfort label), `ALERT_SENSOR_LOST` and `SwitchBotRegistry::anyStale` (`AlertLimits::stale_timeout_ms`), the hourly history gate, the CSV columns, `VentilateLatch`, `SensorBatteryLatch`, `ScanCompletion::fullScanRequired` and the `STALE` state of the console command `STATUS`.
+- The CONFIG reply and `DeviceConfigText` list the key `sensor_stale_min`.
+- RTC state version 30: the config trailer stores `sensor_stale_min` (2 bytes) after `wake_interval_s`. A corrupt or out-of-range record gives a clean start.
+- Host tests cover the parser edges, rejected values, the clamp, each call site with 30 min and 60 min, the CONFIG reply and the RTC round trip.

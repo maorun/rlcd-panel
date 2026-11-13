@@ -369,7 +369,7 @@ public:
           const uint32_t since = static_cast<uint32_t>(snap.now_ms - h.last_sample_ms);
           snprintf(age, sizeof(age), "%lu", static_cast<unsigned long>(since / 1000UL));
           // The history takes one sample per hour: the onboard sensor is stale after one interval plus the timeout.
-          state = since > ClimateHistory::SAMPLE_INTERVAL_MS + SENSOR_STALE_TIMEOUT_MS ? "STALE" : "OK";
+          state = since > ClimateHistory::SAMPLE_INTERVAL_MS + cfg.staleTimeoutMs() ? "STALE" : "OK";
         }
       } else {
         const SwitchBotReading& r = cal.slot(i - 1);
@@ -381,7 +381,7 @@ public:
           }
           snprintf(rssi, sizeof(rssi), "%d", static_cast<int>(r.rssi));
           snprintf(age, sizeof(age), "%lu", static_cast<unsigned long>(static_cast<uint32_t>(snap.now_ms - r.updated_ms) / 1000UL));
-          state = r.isStale(snap.now_ms) ? "STALE"
+          state = r.isStale(snap.now_ms, cfg.staleTimeoutMs()) ? "STALE"
                                          : (SensorBatteryLatch::isSet(snap.sensor_battery_latch, i - 1) ? "BATLOW" : "OK");
         }
       }

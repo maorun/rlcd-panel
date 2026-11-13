@@ -388,7 +388,8 @@ public:
       const NoiseReading* noise,
       const MicCalibration* noise_cal,
       char* out,
-      size_t capacity) {
+      size_t capacity,
+      uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS) {
     if (out == nullptr || capacity == 0) {
       return 0;
     }
@@ -421,7 +422,7 @@ public:
 
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       const SwitchBotReading* r = (slots != nullptr && i < slot_count) ? &slots[i] : nullptr;
-      if (r != nullptr && r->valid && !r->isStale(now_ms) && isfinite(r->temperature_c)) {
+      if (r != nullptr && r->valid && !r->isStale(now_ms, stale_timeout_ms) && isfinite(r->temperature_c)) {
         pos += snprintf(out + pos, capacity - pos, ",%.1f,%u,", static_cast<double>(r->temperature_c),
                         static_cast<unsigned>(r->humidity_pct));
         if (r->battery_pct >= 0) {
@@ -495,7 +496,8 @@ public:
       const NoiseReading* noise,
       const MicCalibration* noise_cal,
       uint8_t retention_months = 0,
-      int32_t* free_mb = nullptr) {
+      int32_t* free_mb = nullptr,
+      uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS) {
     char path[SdLogCodec::MAX_PATH_SIZE];
     if (free_mb != nullptr) {
       *free_mb = -1;
@@ -505,7 +507,8 @@ public:
       return SdLogResult::NO_TIME;
     }
     const size_t row_len =
-        SdLogCodec::formatRow(&time, &battery, &onboard, slots, slot_count, now_ms, noise, noise_cal, row, sizeof(row));
+        SdLogCodec::formatRow(&time, &battery, &onboard, slots, slot_count, now_ms, noise, noise_cal, row, sizeof(row),
+                            stale_timeout_ms);
     if (row_len == 0) {
       return SdLogResult::NO_TIME;
     }
