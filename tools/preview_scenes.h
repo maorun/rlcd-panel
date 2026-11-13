@@ -65,7 +65,7 @@ inline void renderScene(
   slots[1].valid = true;
   slots[1].temperature_c = 13.8f;
   slots[1].humidity_pct = 68;
-  slots[1].battery_pct = 82;
+  slots[1].battery_pct = 8; // at or below the default limit of 10 %: the tile shows BAT LOW
   slots[1].rssi = -71;
   slots[1].packet_count = 388;
   slots[1].mac[0] = 0xB0; slots[1].mac[1] = 0xE9; slots[1].mac[2] = 0xFE;
@@ -155,6 +155,7 @@ inline void renderScene(
   info.ventilate = ventilate;
   // Tile badges from the default limit (60 %RH): the humid sensor 2 shows the "V" badge.
   info.ventilate_tiles = VentilateLatch::update(0, onboard, slots, MAX_SWITCHBOT_SENSORS, now_ms, DeviceConfig::DEFAULT_VENTILATE_LIMIT_RH);
+  info.sensor_battery_latch = SensorBatteryLatch::update(0, slots, MAX_SWITCHBOT_SENSORS, now_ms, DeviceConfig::DEFAULT_SENSOR_BATTERY_LIMIT_PCT);
   info.config_from_sd = true;
   info.config_rejected = 2; // two rejected config.ini lines
   info.rtc_drift.has_sync = true;

@@ -31,6 +31,7 @@ struct SystemInfo {
   bool quiet_hours = false; // chimes are suppressed now; the header shows "Q"
   bool ventilate = false;   // ventilation advice is active; the dashboard header shows the banner
   uint8_t ventilate_tiles = 0; // VentilateLatch bits: the tiles that show the "V" badge
+  uint8_t sensor_battery_latch = 0; // SensorBatteryLatch bits: the slot tiles that show "BAT LOW"
   bool config_from_sd = false; // true: settings come from /sdcard/config.ini
   uint8_t config_rejected = 0; // rejected config.ini lines; above 0 shows "(N ERR)"
   LoopbackResult loopback;     // last speaker to microphone test of this wake cycle
@@ -72,6 +73,9 @@ public:
   static constexpr uint16_t VENT_BADGE_X_OFFSET = 108;
   static constexpr uint16_t VENT_BADGE_Y_OFFSET = 56;
   static constexpr uint16_t VENT_BADGE_SIZE = 9;
+  static constexpr uint16_t BAT_LOW_Y_OFFSET = 96;
+  static constexpr uint16_t BAT_LOW_W = 86;
+  static constexpr uint16_t BAT_LOW_H = 18;
   // Trend triangle (7 x 7 px, one text row high) 4 px right of the temperature or humidity line. It
   // sits 3 px below the line top, so it is centered on the 14 px text row. It is skipped when it
   // would touch the sparkline box ("H: 100 %" ends at x + 106, the box starts at x + 112).
@@ -213,7 +217,8 @@ public:
       bool is_stale = false,
       const HumidityHistory* history = nullptr,
       bool ventilate_badge = false,
-      const TemperatureHistory* temperature_history = nullptr) {
+      const TemperatureHistory* temperature_history = nullptr,
+      bool battery_low = false) {
     fb.drawRect(x, y, w, h, true);
     fb.drawHLine(x, y + 24, w, true);
     fb.drawText(x + 8, y + 6, title, 2, true);
@@ -267,7 +272,11 @@ public:
           true);
     }
 
-    if (battery_pct >= 0) {
+    if (battery_low) {
+      // Inverted "BAT LOW" (7 glyphs at scale 2 = 82 px wide) in place of the battery line.
+      fb.fillRect(x + 10, y + BAT_LOW_Y_OFFSET - 2, BAT_LOW_W, BAT_LOW_H, true);
+      fb.drawText(x + 12, y + BAT_LOW_Y_OFFSET, "BAT LOW", 2, false);
+    } else if (battery_pct >= 0) {
       char line_bat[24];
       if (battery_voltage_v >= 0.0f) {
         snprintf(
@@ -359,7 +368,8 @@ public:
       bool quiet_hours = false,
       const DeviceConfig* config = nullptr,
       bool ventilate = false,
-      uint8_t ventilate_tiles = 0) {
+      uint8_t ventilate_tiles = 0,
+      uint8_t sensor_battery_latch = 0) {
     renderHeader(fb, "RLCD CLIMATE PANEL", battery, clock_text, quiet_hours, ventilate);
 
     const uint16_t tile_w = 190;
@@ -414,7 +424,8 @@ public:
           sb.isStale(now_ms),
           history != nullptr ? &history->slots[1 + i] : nullptr,
           VentilateLatch::isSet(ventilate_tiles, 1 + i),
-          history != nullptr ? &history->temperatures[1 + i] : nullptr);
+          history != nullptr ? &history->temperatures[1 + i] : nullptr,
+          SensorBatteryLatch::isSet(sensor_battery_latch, i));
     }
   }
 
@@ -826,7 +837,7 @@ public:
         break;
       case DisplayMode::DASHBOARD:
       default:
-        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours, config, info.ventilate, info.ventilate_tiles);
+        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours, config, info.ventilate, info.ventilate_tiles, info.sensor_battery_latch);
         break;
     }
   }

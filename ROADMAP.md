@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] Low battery warning for external SwitchBot and BTHome sensors
-  - Rank: [Total: 35, Use: 8, Setup: 8, Harmony: 9, Safety: 10, Effort: M]
-  - Location: `rlcd_panel/switchbot_ble.h`, `rlcd_panel/bthome_ble.h`, `rlcd_panel/device_config.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the `config.ini` key `sensor_battery_limit_pct` (default `10`, range `0` to `50`, `0` is off). Set a latch for each slot when its reported `battery_pct` is at or below the limit. Release the latch at the limit plus 5 %. Show the inverted text `BAT LOW` in the tile of the slot instead of `BAT: N %`. Add the alert `ALERT_SENSOR_BATTERY` (bit 6 of `chime_alert_mask`, new range `0` to `127`, default `127`) with one chime when the first latch switches on. Mute and quiet hours suppress the chime. A packet without a battery field and a stale slot do not change the latch. Store the three latch bits in `PersistentState` and increase the state version. Thus the user replaces a sensor battery before the sensor stops to send data.
-  - Acceptance test: Host tests cover the parser for the default, the edges `0` and `50`, out-of-range and malformed values, the trigger at the limit, the release with the hysteresis, a SwitchBot packet and a BTHome packet, a packet without a battery field, a stale slot, `sensor_battery_limit_pct=0`, the mask bit and the new mask range, mute and quiet hours, the tile text bounds, and the RTC round trip. `docs/display_preview_dashboard.png` shows `BAT LOW` in one scene.
-
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
 
