@@ -12211,6 +12211,82 @@ void testClimateAlertTiles() {
   assert(!PowerManager::deserialize(buf, sizeof(buf), out));
 }
 
+static int runConfigCheck(const char* text, size_t len, char* report, size_t cap) {
+  return DeviceConfigCheck::run(text, len, report, cap);
+}
+
+static void testConfigCheckTool() {
+  char report[DeviceConfigCheck::MAX_REPORT_SIZE];
+
+  // Valid file: exit 0, accepted values, one REJECTED count=0 line, no REJECTED line=.
+  const char valid[] = "# sample\ntemp_offset_c=-1.5\nchime_volume_pct=40\nonboard_name=OFFICE\n";
+  assert(runConfigCheck(valid, sizeof(valid) - 1, report, sizeof(report)) == 0);
+  assert(strstr(report, "temp_offset_c=-1.5\n") != nullptr);
+  assert(strstr(report, "chime_volume_pct=40\n") != nullptr);
+  assert(strstr(report, "onboard_name=OFFICE\n") != nullptr);
+  assert(strstr(report, "REJECTED line=") == nullptr);
+  assert(strstr(report, "REJECTED count=0\n") != nullptr);
+
+  // Malformed value: exit 1, the line number, the key keeps its default.
+  const char malformed[] = "chime_volume_pct=40\nwake_interval_s=abc\n";
+  assert(runConfigCheck(malformed, sizeof(malformed) - 1, report, sizeof(report)) == 1);
+  assert(strstr(report, "chime_volume_pct=40\n") != nullptr);
+  assert(strstr(report, "wake_interval_s=60\n") != nullptr);
+  assert(strstr(report, "REJECTED line=2\n") != nullptr);
+  assert(strstr(report, "REJECTED count=1\n") != nullptr);
+
+  // Out-of-range value: exit 1.
+  const char range[] = "\nchime_volume_pct=101\n";
+  assert(runConfigCheck(range, sizeof(range) - 1, report, sizeof(report)) == 1);
+  assert(strstr(report, "REJECTED line=2\n") != nullptr);
+  assert(strstr(report, "REJECTED count=1\n") != nullptr);
+
+  // More than four rejects: four line numbers, the true count.
+  char many[128];
+  size_t many_len = 0;
+  for (int i = 0; i < 6; ++i) {
+    many_len += static_cast<size_t>(snprintf(many + many_len, sizeof(many) - many_len, "wake_interval_s=x\n"));
+  }
+  assert(runConfigCheck(many, many_len, report, sizeof(report)) == 1);
+  assert(strstr(report, "REJECTED line=4\n") != nullptr);
+  assert(strstr(report, "REJECTED line=5\n") == nullptr);
+  assert(strstr(report, "REJECTED count=6\n") != nullptr);
+
+  // Empty file: exit 0 with the defaults.
+  assert(runConfigCheck("", 0, report, sizeof(report)) == 0);
+  assert(strstr(report, "wake_interval_s=60\n") != nullptr);
+  assert(strstr(report, "REJECTED count=0\n") != nullptr);
+
+  // File at the limit is usable, one byte above gives exit 2 and no values.
+  static char big[DeviceConfigParser::MAX_FILE_SIZE + 1];
+  memset(big, '#', sizeof(big));
+  assert(runConfigCheck(big, DeviceConfigParser::MAX_FILE_SIZE, report, sizeof(report)) == 0);
+  assert(runConfigCheck(big, sizeof(big), report, sizeof(report)) == 2);
+  assert(strstr(report, "ERROR file above 4096 bytes") != nullptr);
+  assert(strstr(report, "REJECTED") == nullptr);
+
+  // A report buffer that is too small never overflows.
+  char tiny[16];
+  assert(runConfigCheck(valid, sizeof(valid) - 1, tiny, sizeof(tiny)) == 0);
+  assert(strlen(tiny) < sizeof(tiny));
+  assert(runConfigCheck(valid, sizeof(valid) - 1, nullptr, 0) == 2);
+
+  // The firmware parser and the check give the same reject count.
+  DeviceConfig cfg;
+  const ConfigParseResult parsed = DeviceConfigParser::parse(malformed, sizeof(malformed) - 1, cfg);
+  assert(parsed.rejected == 1 && parsed.rejected_lines[0] == 2);
+
+  // The longest report (all values, four rejected lines and the count) fits MAX_REPORT_SIZE.
+  char longest[512] = "onboard_name=A\nslot1_name=B\nslot2_name=C\nslot3_name=D\n";
+  strcat(longest, "slot1_mac=AA:BB:CC:DD:EE:FF\nslot2_mac=AA:BB:CC:DD:EE:01\nslot3_mac=AA:BB:CC:DD:EE:02\n");
+  for (int i = 0; i < 5; ++i) {
+    strcat(longest, "wake_interval_s=x\n");
+  }
+  assert(runConfigCheck(longest, strlen(longest), report, sizeof(report)) == 1);
+  assert(strstr(report, "REJECTED count=5\n") != nullptr);
+  assert(strlen(report) < DeviceConfigCheck::MAX_REPORT_SIZE);
+}
+
 int main() {
   testClimateAlertTiles();
   testDisplayInvert();
@@ -12520,6 +12596,7 @@ testSerialConfigNegativeSmallOffset();
   testSensorBatteryLatchRtcRoundTrip();
   testSensorBatteryPreviewScene();
   testSensorStaleMinConfig();
-  printf("All 152 firmware logic test suites passed.\n");
+  testConfigCheckTool();
+  printf("All 153 firmware logic test suites passed.\n");
   return 0;
 }

@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] Host tool to check a config.ini file before the copy to the card
-  - Rank: [Total: 33, Use: 4, Setup: 10, Harmony: 9, Safety: 10, Effort: S]
-  - Location: `tools/check_config.cpp`, `scripts/check-config.sh`, `rlcd_panel/device_config.h`, `.github/workflows/ci.yml`, `README.md`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the host tool `tools/check_config.cpp`. It includes `rlcd_panel/device_config.h`, reads one file, and runs `DeviceConfigParser` with the firmware rules. It prints the accepted values with `DeviceConfigText::format`, then one line `REJECTED line=<N>` for each recorded line and `REJECTED count=<N>`. It exits with `0` for a file without rejected lines, with `1` for rejected lines, and with `2` for a missing file or a file above 4096 bytes. Add `./scripts/check-config.sh <file>`, which compiles the tool with `-std=c++17 -Wall -Wextra -Werror` into a temporary directory and runs it. The tool needs no Arduino header. The CI job `host-tests` builds the tool. Thus the user finds a bad line on the host and not after a reboot of the panel.
-  - Acceptance test: Host tests cover the output function of the tool for a valid file, a file with a malformed value, a file with an out-of-range value, a file above 4096 bytes and an empty file, and the three exit codes. `./scripts/check-config.sh` runs on a sample file in CI.
-
 - [ ] MicroSD card status in the diagnostics view and in STATUS
   - Rank: [Total: 33, Use: 6, Setup: 9, Harmony: 9, Safety: 9, Effort: M]
   - Location: `rlcd_panel/sd_logger.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`

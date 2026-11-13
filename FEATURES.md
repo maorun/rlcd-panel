@@ -627,3 +627,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Manufacturer Data has priority. When an advertisement holds valid Manufacturer Data (`WoIOSensor`), the firmware keeps this path and takes only the battery from the Service Data. The Service Data path runs only when the Manufacturer Data is missing or invalid.
 - The new sensors use the same registry slots, fixed MAC rule, offsets, latches and stale rule as the other sensors.
 - Host tests cover `parseAdvertisement` (Manufacturer Data wins, Service Data gives the battery, fallback to Service Data), a Meter packet at 21.5 °C and 48 %RH, a negative temperature, 0.0 °C with both signs, a Meter Plus packet, the battery value, a tenth of 10, a humidity of 101, a battery of 101 %, an unknown device type, a short and a long payload, a wrong UUID, a `WoIOSensor` packet with both data types, the MAC from the BLE address, and the registry upsert with a fixed MAC.
+
+## Host tool to check a config.ini file
+
+- **Code:** `tools/check_config.cpp`, `scripts/check-config.sh`, `tools/sample_config.ini`, `rlcd_panel/device_config.h`, `.github/workflows/ci.yml`, `README.md`, `tests/test_firmware_logic.cpp`
+- `./scripts/check-config.sh <file>` builds `tools/check_config.cpp` with `-std=c++17 -Wall -Wextra -Werror` in a temporary directory and runs it. The tool needs no Arduino header.
+- `DeviceConfigCheck::run` runs `DeviceConfigParser` with the firmware rules. It writes the accepted values with `DeviceConfigText::format`. Then it writes one line `REJECTED line=<N>` for each recorded line (the first four) and the line `REJECTED count=<N>`.
+- The exit code is `0` for a file without rejected lines. It is `1` for rejected lines. It is `2` for a missing file or a file above 4096 bytes. In the case of exit code `2` the tool writes one `ERROR` line to stderr and no values.
+- The CI job `host-tests` runs the script on `tools/sample_config.ini`. Thus the user finds a bad line on the host and not after a reboot of the panel.
+- Host tests cover a valid file, a malformed value, an out-of-range value, more than four rejected lines, an empty file, a file at the limit and a file above 4096 bytes, a report buffer that is too small, and the exit codes 0, 1 and 2.
