@@ -606,3 +606,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The CONFIG reply and `DeviceConfigText` list the key `climate_alert_tiles`.
 - RTC state version 32: the config trailer stores `climate_alert_tiles` (1 byte) after `display_invert`. A corrupt or out-of-range record and a record of version 31 give a clean start.
 - Host tests cover the parser edges, rejected values, each single tile bit, an outdoor slot outside the mask, the mask `0` with an active alert, a mask change while an alert is active, the unchanged ventilation advice, the CONFIG line and its parse back, and the RTC round trip.
+
+## Serial console command TIME to read and set the RTC
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
+- The console command `TIME` replies `TIME <YYYY-MM-DDTHH:MM:SS> valid=<0|1> osf=<0|1>` with the local time of the `PCF85063A`. `valid=0` shows an invalid or unreadable time. `osf=1` shows the oscillator stop flag.
+- The command `TIME SET <YYYY-MM-DDTHH:MM:SS>` (28 bytes) writes a local time to the RTC and replies `OK TIME`. The write clears the oscillator stop flag. The firmware then reads the clock again and redraws the dashboard.
+- The parser accepts the years 2025 to 2099 and a real calendar date, with the leap year rule. A bad format, an impossible date, 24:00:00 and a year outside the range give `ERR BAD_ARG`. A failed I2C write gives `ERR RTC_FAILED`. In this case the firmware does not redraw.
+- A successful set clears the baseline of `RtcDrift`, as the seed from the compile stamp does. Thus the next NTP sync gives no false drift. The NTP schedule does not change.
+- The commands run on USB power only (`PowerManager::serialConsoleAllowed`). They do not mount the card, so the clap listener keeps running.
+- `./scripts/dump-logs.sh --set-time [port]` sends `TIME SET` with the local time of the host and prints the result. The accuracy is about 1 s. Thus a user without Wi-Fi sets the clock for the hourly log, the quiet hours and the retention rule.
+- Host tests cover the parser, 29 February in a leap year and in a common year, 24:00:00, the years 2024 and 2100, a missing `T`, extra text, the reply format with a valid and an invalid time, the cleared drift baseline, the failed write and the USB power gate.

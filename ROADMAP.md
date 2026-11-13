@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] Serial console command TIME to read and set the RTC
-  - Rank: [Total: 34, Use: 7, Setup: 9, Harmony: 9, Safety: 9, Effort: S]
-  - Location: `rlcd_panel/serial_console.h`, `rlcd_panel/pcf85063_rtc.h`, `rlcd_panel/ntp_sync.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the console command `TIME`. It replies `TIME <YYYY-MM-DDTHH:MM:SS> valid=<0|1> osf=<0|1>` with the local time of the `PCF85063A`. Add `TIME SET <YYYY-MM-DDTHH:MM:SS>` (28 bytes, inside the 40-byte line limit). The command accepts a local time from 2025 to 2099 with a real calendar date. It writes the time to the RTC, clears the oscillator stop flag and replies `OK TIME`. A bad format, an impossible date and a year outside the range give `ERR BAD_ARG`. A failed I2C write gives `ERR RTC_FAILED`. A manual set clears the baseline of `RtcDrift`, as the seed from the compile stamp does, so the next NTP sync gives no false drift. The NTP schedule does not change. The command runs on USB power only and does not mount the card. Add `./scripts/dump-logs.sh --set-time [port]`, which sends the local host time. Thus a user without Wi-Fi sets the clock for the hourly log, the quiet hours and the retention rule.
-  - Acceptance test: Host tests cover the parser for `TIME`, `TIME SET` with a valid time, 29 February in a leap year and in a common year, 24:00:00, the years 2024 and 2100, a missing `T`, extra text, the reply format with a valid and an invalid RTC time, the cleared oscillator stop flag, the cleared drift baseline, the failed write, and the USB power gate. `arduino-cli compile rlcd_panel` passes.
-
 - [ ] SwitchBot Meter and Meter Plus support from Service Data
   - Rank: [Total: 34, Use: 9, Setup: 7, Harmony: 9, Safety: 9, Effort: M]
   - Location: `rlcd_panel/switchbot_ble.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `README.md`

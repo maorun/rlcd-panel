@@ -8,6 +8,7 @@
 #include "audio_alert.h"
 #include "battery_monitor.h"
 #include "device_config.h"
+#include "pcf85063_rtc.h"
 #include "sd_logger.h"
 #include "sparkline.h"
 
@@ -33,14 +34,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CALIB without a reference, with a reference above 3 or with extra text; BEEP without a bit, above 6 or with extra text
+  BAD_ARG,  // CALIB without a reference, with a reference above 3 or with extra text; BEEP without a bit, above 6 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099
   BAD_NAME, // DUMP without a name, or a name that is not climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv or daily_v1_YYYY.csv
 };
 
@@ -48,6 +49,8 @@ struct SerialCommand {
   SerialCommandKind kind = SerialCommandKind::NONE;
   char file[SdLogCodec::LOG_NAME_SIZE] = {0};
   uint8_t reference = 0; // CALIB: 0 onboard, 1 to 3 a slot; BEEP: alert bit number 0 to 6
+  bool time_set = false; // TIME: true for "TIME SET <time>"; `time` then holds the parsed local time
+  RtcTime time;
 };
 
 // One log file as the storage reports it.
@@ -57,7 +60,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..6" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..6", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -142,7 +145,59 @@ public:
       out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
       return SerialParseStatus::OK;
     }
+    if (matches(line, cmd_len, "TIME")) {
+      out.kind = SerialCommandKind::TIME;
+      if (cmd_len == len) {
+        return SerialParseStatus::OK; // read the clock
+      }
+      static const char prefix[] = "TIME SET ";
+      const size_t prefix_len = sizeof(prefix) - 1;
+      if (len != prefix_len + TIME_TEXT_SIZE || memcmp(line, prefix, prefix_len) != 0 ||
+          !parseTime(line + prefix_len, out.time)) {
+        out = SerialCommand{};
+        return SerialParseStatus::BAD_ARG;
+      }
+      out.time_set = true;
+      return SerialParseStatus::OK;
+    }
     return SerialParseStatus::UNKNOWN;
+  }
+
+  // "YYYY-MM-DDTHH:MM:SS" (19 characters): a real calendar date from 2025 to 2099 and a time of day.
+  static constexpr size_t TIME_TEXT_SIZE = 19;
+  static constexpr uint16_t MIN_SET_YEAR = 2025;
+  static constexpr uint16_t MAX_SET_YEAR = 2099;
+
+  static bool parseTime(const char* text, RtcTime& out) {
+    static const char shape[] = "dddd-dd-ddTdd:dd:dd";
+    for (size_t i = 0; i < TIME_TEXT_SIZE; ++i) {
+      const bool digit = text[i] >= '0' && text[i] <= '9';
+      if (shape[i] == 'd' ? !digit : text[i] != shape[i]) {
+        return false;
+      }
+    }
+    auto num = [text](size_t at, size_t n) {
+      unsigned v = 0;
+      for (size_t i = 0; i < n; ++i) {
+        v = v * 10 + static_cast<unsigned>(text[at + i] - '0');
+      }
+      return v;
+    };
+    RtcTime t;
+    t.year = static_cast<uint16_t>(num(0, 4));
+    t.month = static_cast<uint8_t>(num(5, 2));
+    t.day = static_cast<uint8_t>(num(8, 2));
+    t.hour = static_cast<uint8_t>(num(11, 2));
+    t.minute = static_cast<uint8_t>(num(14, 2));
+    t.second = static_cast<uint8_t>(num(17, 2));
+    if (t.year < MIN_SET_YEAR || t.year > MAX_SET_YEAR || t.month < 1 || t.month > 12 || t.day < 1 ||
+        t.day > Pcf85063Codec::daysInMonth(t.year, t.month) || t.hour > 23 || t.minute > 59 || t.second > 59) {
+      return false;
+    }
+    t.weekday = Pcf85063Codec::computeWeekday(t.year, t.month, t.day);
+    t.valid = true;
+    out = t;
+    return true;
   }
 
   static const char* errorLine(SerialParseStatus status) {
@@ -233,6 +288,10 @@ struct SerialStatusSnapshot {
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 6), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
+//   TIME -> "TIME <YYYY-MM-DDTHH:MM:SS> valid=<0|1> osf=<0|1>" with the local time of the RTC (osf: oscillator stop flag);
+//   TIME SET <YYYY-MM-DDTHH:MM:SS> -> "OK TIME" after the write (the write clears the oscillator stop flag and the
+//   RtcDrift baseline), or "ERR RTC_FAILED". A bad format or date or a year outside 2025 to 2099 gives "ERR BAD_ARG"
+//   from the parser. showTime() and setTime() need no card: execute() ignores TIME.
 //   CALIB N -> "REFERENCE <name>", one "SENSOR <name> hours=<n> temp_offset=<x> rh_offset=<x> temp_diff=<x> rh_diff=<x>" or
 //   "SKIP <name> hours=<n>" per other sensor, the "key=value" lines to paste into config.ini, then "CRC32 <8 hex digits>"
 //   over all lines before it. showCalib() works on the RTC history: no card access, so execute() ignores CALIB.
@@ -415,6 +474,37 @@ public:
     send(sink, line);
   }
 
+  // Sends the RTC time as read by the caller. An invalid, unreadable or stopped clock shows valid=0 with the
+  // fields as decoded (the defaults when nothing decodes); osf=1 marks the oscillator stop flag.
+  static void showTime(Sink& sink, const RtcTime& t) {
+    char line[48];
+    snprintf(line, sizeof(line), "TIME %04u-%02u-%02uT%02u:%02u:%02u valid=%u osf=%u\n", static_cast<unsigned>(t.year),
+             static_cast<unsigned>(t.month), static_cast<unsigned>(t.day), static_cast<unsigned>(t.hour),
+             static_cast<unsigned>(t.minute), static_cast<unsigned>(t.second), t.valid ? 1u : 0u,
+             t.oscillator_stopped ? 1u : 0u);
+    send(sink, line);
+  }
+
+  // Writes a parsed local time to the RTC. The write clears the oscillator stop flag. After a successful write the
+  // drift baseline is void, as after the seed from the compile stamp, so the next NTP sync measures no false drift.
+  // A failed write leaves the baseline untouched. The NTP schedule is not touched.
+  // Returns true when the RTC got the new time.
+  template <typename Rtc>
+  static bool setTime(Sink& sink, Rtc& rtc, RtcDriftState& drift, const RtcTime& t) {
+    if (!Pcf85063Codec::isTimeInRange(t) || t.year < SerialConsole::MIN_SET_YEAR ||
+        t.year > SerialConsole::MAX_SET_YEAR) { // defense in depth: the parser already checks the time
+      reject(sink, SerialParseStatus::BAD_ARG);
+      return false;
+    }
+    if (!rtc.setTime(t)) {
+      send(sink, "ERR RTC_FAILED\n");
+      return false;
+    }
+    drift = RtcDriftState{};
+    send(sink, "OK TIME\n");
+    return true;
+  }
+
   // Plays the chime of alert bit `bit` (0 to 6) once and replies "OK BEEP <bit> <duration ms>". The
   // reply "ERR MUTED" (mute, quiet hours or volume 0) leaves the hardware untouched, "ERR PLAY_FAILED"
   // follows a failed playback. The Hal powers down on every path (AudioSequencer). A cleared bit in
@@ -447,7 +537,7 @@ public:
   static void execute(Storage& storage, Sink& sink, const SerialCommand& command) {
     if (command.kind == SerialCommandKind::NONE || command.kind == SerialCommandKind::CONFIG ||
         command.kind == SerialCommandKind::CALIB || command.kind == SerialCommandKind::STATUS ||
-        command.kind == SerialCommandKind::BEEP) {
+        command.kind == SerialCommandKind::BEEP || command.kind == SerialCommandKind::TIME) {
       return;
     }
     if (!storage.mount()) {
@@ -463,6 +553,7 @@ public:
       case SerialCommandKind::CALIB:
       case SerialCommandKind::STATUS:
       case SerialCommandKind::BEEP:
+      case SerialCommandKind::TIME:
       default: break;
     }
     storage.unmount();

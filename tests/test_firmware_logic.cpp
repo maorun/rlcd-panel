@@ -4,6 +4,8 @@
 #include <math.h>
 #include <stdio.h>
 #include <string.h>
+#include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -9170,6 +9172,186 @@ void testSerialBeepNeedsNoCardAndUsbPower() {
 }
 
 namespace {
+struct FakeTimeRtc {
+  bool fail = false;
+  int writes = 0;
+  RtcTime last;
+  bool setTime(const RtcTime& t) {
+    ++writes;
+    if (fail) {
+      return false;
+    }
+    last = t;
+    return true;
+  }
+};
+
+RtcDriftState syncedDrift() {
+  RtcDriftState d;
+  d.has_sync = true;
+  d.has_drift = true;
+  d.last_sync_s = 1800000000;
+  d.drift_s = 5;
+  d.rate_ppm = 40;
+  return d;
+}
+} // namespace
+
+void testSerialTimeParser() {
+  SerialCommand cmd;
+  assert(parseText("TIME", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::TIME && !cmd.time_set);
+  assert(parseText("TIME\r\n", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::TIME && !cmd.time_set);
+  assert(parseText("TIME SET 2026-11-13T14:05:09", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::TIME &&
+         cmd.time_set);
+  assert(std::string("TIME SET 2026-11-13T14:05:09").size() == 28 && 28 <= SerialConsole::MAX_LINE_SIZE);
+  assert(cmd.time.valid && cmd.time.year == 2026 && cmd.time.month == 11 && cmd.time.day == 13 && cmd.time.hour == 14 &&
+         cmd.time.minute == 5 && cmd.time.second == 9);
+  assert(cmd.time.weekday == 5); // 2026-11-13 is a Friday
+  // Range edges.
+  assert(parseText("TIME SET 2025-01-01T00:00:00", cmd) == SerialParseStatus::OK && cmd.time_set);
+  assert(parseText("TIME SET 2099-12-31T23:59:59", cmd) == SerialParseStatus::OK && cmd.time_set);
+  // 29 February: leap year yes, common year and century no.
+  assert(parseText("TIME SET 2028-02-29T12:00:00", cmd) == SerialParseStatus::OK && cmd.time.day == 29);
+  assert(parseText("TIME SET 2027-02-29T12:00:00", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("TIME SET 2026-02-29T12:00:00", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME SET 2100-02-29T12:00:00", cmd) == SerialParseStatus::BAD_ARG);
+  // Impossible values.
+  assert(parseText("TIME SET 2026-04-31T12:00:00", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME SET 2026-13-01T12:00:00", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME SET 2026-00-10T12:00:00", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME SET 2026-01-00T12:00:00", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME SET 2026-11-13T24:00:00", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME SET 2026-11-13T23:60:00", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME SET 2026-11-13T23:59:60", cmd) == SerialParseStatus::BAD_ARG);
+  // Years outside 2025 to 2099.
+  assert(parseText("TIME SET 2024-12-31T23:59:59", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME SET 2100-01-01T00:00:00", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME SET 1999-01-01T00:00:00", cmd) == SerialParseStatus::BAD_ARG);
+  // Format errors.
+  assert(parseText("TIME SET 2026-11-13 14:05:09", cmd) == SerialParseStatus::BAD_ARG); // missing T
+  assert(parseText("TIME SET 2026-11-13X14:05:09", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME SET 2026-11-13T14:05:09 ", cmd) == SerialParseStatus::BAD_ARG); // extra text
+  assert(parseText("TIME SET 2026-11-13T14:05:09Z", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME SET 2026-11-13T14:05", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME SET 2026-1-13T14:05:09", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME SET 2026-11-13T1a:05:09", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME SET 2026/11/13T14:05:09", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME SET", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME SET ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME  SET 2026-11-13T14:05:09", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME NOW", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIME 2026-11-13T14:05:09", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TIMEX", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("time", cmd) == SerialParseStatus::UNKNOWN);
+  assert(std::string(SerialConsole::errorLine(SerialParseStatus::BAD_ARG)) == "ERR BAD_ARG\n");
+}
+
+void testSerialTimeReplyFormat() {
+  RtcTime t;
+  t.valid = true;
+  t.year = 2026;
+  t.month = 11;
+  t.day = 3;
+  t.hour = 4;
+  t.minute = 5;
+  t.second = 6;
+  FakeSink ok;
+  TestRunner::showTime(ok, t);
+  assert(ok.out == "TIME 2026-11-03T04:05:06 valid=1 osf=0\n");
+  // An invalid time (oscillator stopped, decoder gives the default fields) keeps the format.
+  RtcTime bad;
+  bad.oscillator_stopped = true;
+  FakeSink stopped;
+  TestRunner::showTime(stopped, bad);
+  assert(stopped.out == "TIME 2000-01-01T00:00:00 valid=0 osf=1\n");
+  RtcTime unreadable;
+  FakeSink none;
+  TestRunner::showTime(none, unreadable);
+  assert(none.out == "TIME 2000-01-01T00:00:00 valid=0 osf=0\n");
+}
+
+void testSerialTimeSetWritesRtcAndClearsDriftBaseline() {
+  SerialCommand cmd;
+  assert(parseText("TIME SET 2026-11-13T14:05:09", cmd) == SerialParseStatus::OK);
+  FakeTimeRtc rtc;
+  RtcDriftState drift = syncedDrift();
+  FakeSink sink;
+  assert(TestRunner::setTime(sink, rtc, drift, cmd.time));
+  assert(sink.out == "OK TIME\n" && rtc.writes == 1);
+  assert(rtc.last.year == 2026 && rtc.last.hour == 14 && rtc.last.second == 9);
+  // The baseline is void: no sync is on record, so the next sync gives no drift figure.
+  assert(!drift.has_sync && !drift.has_drift && drift.last_sync_s == 0 && drift.drift_s == 0 && drift.rate_ppm == 0);
+  RtcTime before;
+  before.valid = true;
+  RtcTime reference = before;
+  reference.second = 30;
+  assert(!RtcDrift::record(drift, true, before, reference, 1800003600));
+  assert(drift.has_sync && !drift.has_drift);
+  // The same time in the registers has the oscillator stop bit cleared.
+  uint8_t regs[Pcf85063Codec::TIME_REGISTER_COUNT];
+  assert(Pcf85063Codec::encodeRegisters(rtc.last, regs, sizeof(regs)) && (regs[0] & Pcf85063Codec::OSCILLATOR_STOP_MASK) == 0);
+  RtcTime decoded;
+  assert(Pcf85063Codec::decodeRegisters(regs, sizeof(regs), decoded) && !decoded.oscillator_stopped && decoded.valid);
+}
+
+void testSerialTimeSetFailedWriteKeepsBaseline() {
+  SerialCommand cmd;
+  assert(parseText("TIME SET 2026-11-13T14:05:09", cmd) == SerialParseStatus::OK);
+  FakeTimeRtc rtc;
+  rtc.fail = true;
+  RtcDriftState drift = syncedDrift();
+  FakeSink sink;
+  assert(!TestRunner::setTime(sink, rtc, drift, cmd.time));
+  assert(sink.out == "ERR RTC_FAILED\n" && rtc.writes == 1);
+  assert(drift.has_sync && drift.has_drift && drift.last_sync_s == 1800000000 && drift.drift_s == 5);
+  // A time outside the range never reaches the RTC.
+  RtcTime out_of_range = cmd.time;
+  out_of_range.year = 2024;
+  FakeTimeRtc other;
+  FakeSink s2;
+  assert(!TestRunner::setTime(s2, other, drift, out_of_range));
+  assert(s2.out == "ERR BAD_ARG\n" && other.writes == 0 && drift.has_sync);
+}
+
+void testSerialTimeNeedsNoCardAndUsbPower() {
+  FakeConsoleStorage storage;
+  FakeSink sink;
+  SerialCommand cmd;
+  assert(parseText("TIME", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, sink, cmd); // TIME does not mount the card
+  assert(sink.out.empty() && storage.mounts == 0);
+  assert(parseText("TIME SET 2026-11-13T14:05:09", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, sink, cmd);
+  assert(sink.out.empty() && storage.mounts == 0);
+  // Battery power and an invalid reading do not run the console at all.
+  BatteryReading battery;
+  battery.valid = true;
+  battery.usb_powered = true;
+  assert(PowerManager::serialConsoleAllowed(battery));
+  battery.usb_powered = false;
+  assert(!PowerManager::serialConsoleAllowed(battery));
+  BatteryReading invalid;
+  invalid.usb_powered = true;
+  assert(!PowerManager::serialConsoleAllowed(invalid));
+}
+
+void testDumpLogsScriptSetTimeSmokeCheck() {
+  // String smoke check of the script text; the script itself needs a board. The path comes from __FILE__.
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  std::ifstream in(root + "scripts/dump-logs.sh");
+  assert(in.good());
+  std::stringstream ss;
+  ss << in.rdbuf();
+  const std::string script = ss.str();
+  assert(script.find("--set-time") != std::string::npos);
+  assert(script.find("TIME SET ") != std::string::npos);
+  assert(script.find("OK TIME") != std::string::npos);
+  assert(script.find("time.localtime()") != std::string::npos);
+}
+
+namespace {
 void fillCalib(ClimateHistory& h, size_t sensor, int hours, float temp, float rh) {
   for (int i = 0; i < hours; ++i) {
     h.temperatures[sensor].pushCelsius(temp);
@@ -12164,6 +12346,12 @@ testSerialBeepMutedPathsStaySilent();
 testSerialBeepIgnoresChimeMaskAndKeepsAlertState();
 testSerialBeepPowersDownOnErrorPaths();
 testSerialBeepNeedsNoCardAndUsbPower();
+testSerialTimeParser();
+testSerialTimeReplyFormat();
+testSerialTimeSetWritesRtcAndClearsDriftBaseline();
+testSerialTimeSetFailedWriteKeepsBaseline();
+testSerialTimeNeedsNoCardAndUsbPower();
+testDumpLogsScriptSetTimeSmokeCheck();
 testSerialConfigNegativeSmallOffset();
   testRtcDriftFirstSyncHasNoRate();
   testRtcDriftPositiveNegativeZero();
