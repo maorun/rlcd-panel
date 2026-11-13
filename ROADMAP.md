@@ -23,12 +23,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 
-- [ ] Inverted display mode from config.ini
-  - Rank: [Total: 23, Use: 4, Setup: 3, Harmony: 6, Safety: 10, Effort: S]
-  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/st7305_framebuffer.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/render_display_preview.cpp`, `tools/preview_scenes.h`, `scripts/generate-display-preview.sh`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the `config.ini` key `display_invert` (default `0`, values `0` and `1`). With `1`, invert each of the 15,000 framebuffer bytes after the render and before `St7305Panel::flush`, so the panel shows light text on a dark background. Do the inversion in `St7305Framebuffer::invert()`, not with a panel command, so the host preview stays bit-exact. Inverted badges and banners invert again and stay readable. A malformed value is rejected and counts in `ConfigRejects`. Store the flag in the config trailer of `PersistentState` and increase the state version. Show the key in the `CONFIG` reply. The reflective LCD has no backlight, so the mode does not change the power draw. Thus the user selects the better contrast for the light in the room.
-  - Acceptance test: Host tests cover the parser for `0`, `1`, out-of-range and malformed values, `invert()` on each byte and a double inversion back to the original, the `CONFIG` line and its parse back, and the RTC round trip. `./scripts/generate-display-preview.sh` writes the new file `docs/display_preview_inverted.png`, and the other preview files stay bit-exact.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

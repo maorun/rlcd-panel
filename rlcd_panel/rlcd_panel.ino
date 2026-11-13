@@ -274,6 +274,14 @@ SwitchBotRegistry calibratedRegistry() {
   return g_state.registry.calibrated(config().slot_temp_offset_c, config().slot_rh_offset_pct);
 }
 
+// Every flush goes through here, so display_invert applies to each screen.
+void flushFramebuffer() {
+  if (config().display_invert != 0) {
+    g_framebuffer.invert();
+  }
+  g_panel.flush(g_framebuffer);
+}
+
 void renderDashboard() {
   SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
   portENTER_CRITICAL(&g_registry_mux);
@@ -320,7 +328,7 @@ void renderDashboard() {
       &g_state.history,
       &g_state.noise_history,
       &g_state.config);
-  g_panel.flush(g_framebuffer);
+  flushFramebuffer();
 }
 
 // Adds the noise level to the diagnostics view after the first render, so the 5 s window never
@@ -695,7 +703,7 @@ void setup() {
     if (PowerManager::needsProtectionRender(was_protected, true)) {
       g_panel.begin();
       DashboardView::renderEmptyBattery(g_framebuffer, g_state.battery);
-      g_panel.flush(g_framebuffer);
+      flushFramebuffer();
     }
     if (!PowerPlatform::saveState(g_state)) {
       Serial.println("RTC state save failed");

@@ -148,6 +148,13 @@ public:
     }
   }
 
+  // Flips every pixel: each of the BYTE_COUNT bytes is inverted. A second call restores the image.
+  void invert() {
+    for (uint32_t i = 0; i < BYTE_COUNT; ++i) {
+      buffer_[i] = static_cast<uint8_t>(~buffer_[i]);
+    }
+  }
+
   const uint8_t* data() const {
     return buffer_;
   }

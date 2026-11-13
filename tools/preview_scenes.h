@@ -25,9 +25,10 @@ struct PreviewScene {
   bool long_runtime = false; // slow discharge: the runtime line shows days
   bool battery_empty = false; // empty battery protection: full-screen warning
   bool ventilate = false;     // ventilation advice: banner in the dashboard header
+  bool invert = false;        // config.ini display_invert=1: light text on a dark background
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 9;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 10;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
@@ -39,12 +40,14 @@ constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_quiet_hours", DisplayMode::DASHBOARD, false, true},
     {"display_preview_battery_empty", DisplayMode::DASHBOARD, false, false, false, true},
     {"display_preview_ventilate", DisplayMode::DASHBOARD, false, false, false, false, true},
+    {"display_preview_inverted", DisplayMode::DASHBOARD, false, false, false, false, false, true},
 };
 
 // Renders one mode with the fixed sample data used for all documentation previews.
 inline void renderScene(
     St7305Framebuffer& fb, DisplayMode mode, bool low_battery, bool quiet_hours = false,
-    bool long_runtime = false, bool battery_empty = false, bool ventilate = false) {
+    bool long_runtime = false, bool battery_empty = false, bool ventilate = false,
+    bool invert = false) {
   Shtc3Reading onboard;
   onboard.valid = true;
   onboard.temperature_c = 21.8f;
@@ -202,6 +205,9 @@ inline void renderScene(
       &history,
       &noise_history,
       &config);
+  if (invert) {
+    fb.invert(); // the same step as the firmware before St7305Panel::flush
+  }
 }
 
 } // namespace preview
