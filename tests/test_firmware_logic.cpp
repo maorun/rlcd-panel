@@ -833,7 +833,7 @@ void testComfortZone() {
   assert(memcmp(ok_fb.data(), cold_fb.data(), RLCD_BUFFER_SIZE) != 0);
 
   // No RTC state change
-  assert(PowerManager::STATE_VERSION == 31);
+  assert(PowerManager::STATE_VERSION == 32);
 }
 
 void testDashboardClimateLine() {
@@ -1179,7 +1179,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 31);
+  assert(PowerManager::STATE_VERSION == 32);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -2066,7 +2066,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 31);
+  assert(PowerManager::STATE_VERSION == 32);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -2702,7 +2702,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 31);
+  assert(PowerManager::STATE_VERSION == 32);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -4532,7 +4532,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 31);
+  assert(PowerManager::STATE_VERSION == 32);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -5235,7 +5235,8 @@ void testDeviceConfigRtcRoundTrip() {
       {25, 81},  // ventilate limit above range
       {26, 51},  // sensor battery limit above range
       {27, 2},   // display invert above range
-      {56, 2},   // invalid character in the onboard name
+      {28, 16},  // climate alert tiles above range
+      {57, 2},   // invalid character in the onboard name
       {PowerManager::CONFIG_SIZE - PowerManager::REJECTS_SIZE - 1, 2}, // unknown flag bit
   };
   for (const Corrupt& c : cases) {
@@ -5250,7 +5251,7 @@ void testDeviceConfigRtcRoundTrip() {
   const float nan_value = NAN;
   const float far_value = 99.0f;
   for (const float f : {nan_value, far_value}) {
-    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(28)}) {
+    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(29)}) {
       memcpy(bad, buf, sizeof(bad));
       memcpy(bad + cfg_pos + off, &f, 4);
       const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
@@ -5323,7 +5324,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 31);
+  assert(PowerManager::STATE_VERSION == 32);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -5493,7 +5494,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 31);
+  assert(PowerManager::STATE_VERSION == 32);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -5675,7 +5676,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 31);
+  assert(PowerManager::STATE_VERSION == 32);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -8706,8 +8707,9 @@ void testSerialConfigLineFormat() {
   assert(text.find("\nwake_interval_s=60\n") != std::string::npos);
   assert(text.find("\nventilate_limit_rh=60\n") != std::string::npos);
   assert(text.find("\nsensor_battery_limit_pct=10\n") != std::string::npos);
+  assert(text.find("\nclimate_alert_tiles=15\n") != std::string::npos);
   assert(text.find("\ndisplay_invert=0\n") != std::string::npos);
-  assert(lines == 24);
+  assert(lines == 25);
   assert(text.find("wifi") == std::string::npos && text.find("ssid") == std::string::npos &&
          text.find("pass") == std::string::npos);
   // Too small a buffer gives 0 and an empty string
@@ -8798,7 +8800,7 @@ void testSerialConfigRoundTrip() {
   assert(source_at != std::string::npos);
   DeviceConfig back;
   const ConfigParseResult result = DeviceConfigParser::parse(sink.out.data(), source_at, back);
-  assert(result.file_ok && result.rejected == 0 && result.keys_set == 24);
+  assert(result.file_ok && result.rejected == 0 && result.keys_set == 25);
   assert(back.ventilate_limit_rh == 73 && back.sensor_battery_limit_pct == 25);
   assert(back.temp_offset_c == original.temp_offset_c && back.rh_offset_pct == original.rh_offset_pct);
   assert(back.freeze_alert_limit_c == original.freeze_alert_limit_c);
@@ -9479,7 +9481,7 @@ void testNoiseAlertStatePersistence() {
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 16 - 24;
+  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 17 - 24;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -10005,7 +10007,7 @@ void testChimeAlertMask() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   uint8_t badbuf[PowerManager::SERIALIZED_SIZE];
   memcpy(badbuf, buf, sizeof(badbuf));
-  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 15 - 24] = 128;
+  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 16 - 24] = 128;
   const uint32_t crc = PowerManager::crc32(badbuf, sizeof(badbuf) - 4);
   for (int i = 0; i < 4; ++i) badbuf[sizeof(badbuf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState out;
@@ -10924,7 +10926,7 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 31);
+  assert(PowerManager::STATE_VERSION == 32);
 
   // A valid checksum with the same MAC in two keys is rejected
   const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
@@ -11435,7 +11437,7 @@ void testSensorBatteryLatchRtcRoundTrip() {
     }
   }
   // The version is increased
-  assert(PowerManager::STATE_VERSION == 31);
+  assert(PowerManager::STATE_VERSION == 32);
   // Corrupt records: latch bit above bit 2, flag byte above 3, limit above 50, old version
   st.sensor_battery_latch = 1;
   st.alert_mask = ALERT_NONE;
@@ -11658,7 +11660,7 @@ void testSensorStaleMinConfig() {
 
   // RTC round trip, corrupt values and the version bump
   PersistentState st;
-  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 31);
+  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 32);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(5), uint16_t(30), uint16_t(240)}) {
@@ -11743,7 +11745,7 @@ void testDisplayInvert() {
 
   // RTC round trip, corrupt value and version bump
   PersistentState st;
-  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 31);
+  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 32);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(1)}) {
@@ -11762,7 +11764,147 @@ void testDisplayInvert() {
   assert(!PowerManager::deserialize(buf, sizeof(buf), out));
 }
 
+void testClimateAlertTiles() {
+  DeviceConfig cfg;
+  auto parse = [&cfg](const char* text) {
+    cfg = DeviceConfig();
+    return DeviceConfigParser::parse(text, strlen(text), cfg);
+  };
+
+  // Parser: default, edges, out-of-range and malformed values
+  assert(cfg.climate_alert_tiles == 15 && cfg.isDefault() && cfg.valid());
+  assert(parse("climate_alert_tiles=0\n").keys_set == 1 && cfg.climate_alert_tiles == 0 && !cfg.isDefault());
+  assert(parse("climate_alert_tiles = 15\r\n").keys_set == 1 && cfg.climate_alert_tiles == 15 && cfg.isDefault());
+  assert(parse("climate_alert_tiles=5\n").keys_set == 1 && cfg.climate_alert_tiles == 5);
+  for (const char* bad : {"climate_alert_tiles=16\n", "climate_alert_tiles=-1\n", "climate_alert_tiles=256\n",
+                          "climate_alert_tiles=1.5\n", "climate_alert_tiles=abc\n", "climate_alert_tiles=\n"}) {
+    const ConfigParseResult r = parse(bad);
+    assert(r.keys_set == 0 && r.rejected == 1 && r.rejected_lines[0] == 1 && cfg.climate_alert_tiles == 15);
+  }
+  cfg.climate_alert_tiles = 16;
+  assert(!cfg.valid());
+
+  const uint32_t now = 1000;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  auto eval = [&](uint8_t previous, const Shtc3Reading& onboard, uint8_t tiles, uint8_t outdoor = 0) {
+    AlertLimits limits;
+    limits.climate_tiles = tiles;
+    limits.outdoor_slot = outdoor;
+    return AlertEvaluator::evaluate(previous, onboard, slots, MAX_SWITCHBOT_SENSORS, now, limits);
+  };
+  const Shtc3Reading dry = makeOnboard(21.0f, 50.0f);
+
+  // Freezer and mold triggers with each single bit
+  const Shtc3Reading cold = makeOnboard(-3.0f, 50.0f);
+  const Shtc3Reading humid = makeOnboard(21.0f, 85.0f);
+  for (uint8_t bit = 0; bit < 4; ++bit) {
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) slots[i] = SwitchBotReading();
+    const uint8_t tiles = static_cast<uint8_t>(1u << bit);
+    // The one tile of the mask reads cold, every other tile reads cold too
+    Shtc3Reading on = cold;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) slots[i] = ventSlot(-3.0f, 50, now);
+    assert(eval(ALERT_NONE, on, tiles) == ALERT_FREEZER);
+    // Only the tile of the mask reads cold: it alone triggers
+    on = dry;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) slots[i] = ventSlot(21.0f, 50, now);
+    if (bit == 0) on = cold; else slots[bit - 1] = ventSlot(-3.0f, 50, now);
+    assert(eval(ALERT_NONE, on, tiles) == ALERT_FREEZER);
+    // Every other tile reads cold, the one tile of the mask is warm: no alert
+    on = cold;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) slots[i] = ventSlot(-3.0f, 50, now);
+    if (bit == 0) on = dry; else slots[bit - 1] = ventSlot(21.0f, 50, now);
+    assert(eval(ALERT_NONE, on, tiles) == ALERT_NONE);
+    // Mold: the same with humidity
+    on = dry;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) slots[i] = ventSlot(21.0f, 50, now);
+    if (bit == 0) on = humid; else slots[bit - 1] = ventSlot(21.0f, 85, now);
+    assert(eval(ALERT_NONE, on, tiles) == ALERT_HUMIDITY);
+    on = humid;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) slots[i] = ventSlot(21.0f, 85, now);
+    if (bit == 0) on = dry; else slots[bit - 1] = ventSlot(21.0f, 50, now);
+    assert(eval(ALERT_NONE, on, tiles) == ALERT_NONE);
+  }
+
+  // Outdoor slot below 0 C outside the mask does not start the freezer alert
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) slots[i] = SwitchBotReading();
+  slots[1] = ventSlot(-5.0f, 50, now);
+  assert(eval(ALERT_NONE, dry, 15) == ALERT_FREEZER);
+  assert(eval(ALERT_NONE, dry, 0b1011) == ALERT_NONE);
+  assert(eval(ALERT_NONE, dry, 0b1011, 2) == ALERT_NONE); // dry indoor air: no advice
+
+  // Ventilation advice does not use the mask
+  const Shtc3Reading damp = makeOnboard(22.0f, 80.0f);
+  assert((eval(ALERT_NONE, damp, 15, 2) & ALERT_VENTILATE) != 0);
+  assert(eval(ALERT_NONE, damp, 0b0001, 2) == (ALERT_VENTILATE | ALERT_HUMIDITY));
+  assert(eval(ALERT_NONE, damp, 0b1011, 2) == (ALERT_VENTILATE | ALERT_HUMIDITY));
+  assert(eval(ALERT_NONE, damp, 0, 2) == ALERT_VENTILATE);
+
+  // Sensor lost does not use the mask
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) slots[i] = SwitchBotReading();
+  slots[0] = ventSlot(20.0f, 50, 0);
+  const uint32_t late = 31u * 60000u;
+  AlertLimits stale_limits;
+  stale_limits.climate_tiles = 0b0001;
+  assert((AlertEvaluator::evaluate(ALERT_NONE, dry, slots, MAX_SWITCHBOT_SENSORS, late, stale_limits) &
+          ALERT_SENSOR_LOST) != 0);
+  stale_limits.climate_tiles = 0;
+  assert((AlertEvaluator::evaluate(ALERT_NONE, dry, slots, MAX_SWITCHBOT_SENSORS, late, stale_limits) &
+          ALERT_SENSOR_LOST) != 0);
+
+  // Mask 0 clears both active alerts and gives no chime
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) slots[i] = SwitchBotReading();
+  const uint8_t both = ALERT_FREEZER | ALERT_HUMIDITY;
+  const Shtc3Reading cold_humid = makeOnboard(-3.0f, 85.0f);
+  assert(eval(both, cold_humid, 15) == both);
+  assert(eval(both, cold_humid, 0) == ALERT_NONE);
+  assert(eval(ALERT_NONE, cold_humid, 0) == ALERT_NONE);
+  const AlertEvaluator::Step off = AlertEvaluator::climateStep(false, both, eval(both, cold_humid, 0), false);
+  assert(off.mask == ALERT_NONE && off.chime == ALERT_NONE);
+
+  // Mask change while an alert is active: the alert holds without a usable tile, clears with a warm one
+  slots[0] = ventSlot(21.0f, 50, now);
+  assert(eval(ALERT_FREEZER, cold, 0b0001) == ALERT_FREEZER);  // onboard tile still cold
+  assert(eval(ALERT_FREEZER, cold, 0b0010) == ALERT_NONE);     // only the warm slot counts: clears
+  assert(eval(ALERT_FREEZER, cold, 0b0100) == ALERT_FREEZER);  // empty slot 2: no usable reading, holds
+  assert(eval(ALERT_NONE, cold, 0b0100) == ALERT_NONE);        // and a hold does not trigger
+  const AlertEvaluator::Step changed = AlertEvaluator::climateStep(false, ALERT_FREEZER, eval(ALERT_FREEZER, cold, 0b0010), false);
+  assert(changed.mask == ALERT_NONE && changed.chime == ALERT_NONE);
+
+  // CONFIG reply shows the key and the text parses back
+  FakeSink sink;
+  DeviceConfig shown;
+  shown.climate_alert_tiles = 5;
+  TestRunner::showConfig(sink, shown, true);
+  assert(sink.out.find("climate_alert_tiles=5\n") != std::string::npos);
+  char text[DeviceConfigText::MAX_SIZE];
+  assert(DeviceConfigText::format(shown, text, sizeof(text)) > 0);
+  assert(strstr(text, "\nclimate_alert_tiles=5\n") != nullptr);
+  DeviceConfig back;
+  assert(DeviceConfigParser::parse(text, strlen(text), back).rejected == 0 && back.climate_alert_tiles == 5);
+
+  // RTC round trip, corrupt value and the old state version
+  PersistentState st;
+  assert(st.config.climate_alert_tiles == 15 && PowerManager::STATE_VERSION == 32);
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  PersistentState out;
+  for (uint8_t v : {uint8_t(0), uint8_t(5), uint8_t(15)}) {
+    st.config.climate_alert_tiles = v;
+    assert(PowerManager::serialize(st, buf, sizeof(buf)));
+    assert(PowerManager::deserialize(buf, sizeof(buf), out) && out.config.climate_alert_tiles == v);
+  }
+  st.config.climate_alert_tiles = 16;
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), out));
+  st.config.climate_alert_tiles = 5;
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  buf[4] = 31; // state version before this feature
+  const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
+  for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), out));
+}
+
 int main() {
+  testClimateAlertTiles();
   testDisplayInvert();
   testVentilateLatchConfig();
   testVentilateLatchLogic();

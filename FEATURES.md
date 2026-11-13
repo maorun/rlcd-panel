@@ -170,6 +170,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
   | `wake_interval_s` | `60` | `30` to `900` | seconds between two scans on battery power; USB power keeps `60` |
   | `sensor_stale_min` | `30` | `5` to `240` | minutes without a packet until a sensor is stale |
   | `display_invert` | `0` | `0` or `1` | `1` shows light text on a dark background |
+  | `climate_alert_tiles` | `15` | `0` to `15` | tiles of the freezer and mold alerts (bit 0 onboard, bits 1 to 3 slots 1 to 3); `0` switches both alerts off |
   | `outdoor_slot` | `0` | `0` (off) to `3` | registry slot of the outdoor sensor for the ventilation advice |
 
 - Equal start and end hours switch the quiet hours off. A lone CR is no line end: use LF or CRLF. The SPL offset has whole dB steps, so a fraction below 0.5 dB has no effect.
@@ -594,3 +595,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - RTC state version 31: the config trailer stores `display_invert` (1 byte) after `sensor_battery_limit_pct`. A corrupt or out-of-range record gives a clean start.
 - The preview `docs/display_preview_inverted.png` shows the inverted dashboard.
 - Host tests cover the parser (`0`, `1`, out-of-range, malformed), `invert()` on each byte and the double inversion, the inverted preview scene, the CONFIG line and its parse back, and the RTC round trip.
+
+## Tile selection for the freezer and mold alerts in config.ini
+
+- **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- The `config.ini` key `climate_alert_tiles` (default `15`, range `0` to `15`) selects the tiles of the freezer and mold alerts. Bit 0 is the onboard sensor. Bits 1 to 3 are the registry slots. A value outside the range or a malformed value is rejected and counted in `ConfigRejects`.
+- `AlertEvaluator::evaluate` reads only the tiles of the mask for `ALERT_FREEZER` and `ALERT_HUMIDITY` (`AlertLimits::climate_tiles`). A tile outside the mask counts as a tile without a usable reading, so the existing hold rule applies.
+- The mask `0` clears both bits. It gives no chime.
+- `ALERT_VENTILATE`, `ALERT_SENSOR_LOST`, `ALERT_SENSOR_BATTERY`, the ventilation badges and the `BAT LOW` text do not use the mask. Thus an outdoor sensor below 0 C in winter does not start the freezer alert.
+- The CONFIG reply and `DeviceConfigText` list the key `climate_alert_tiles`.
+- RTC state version 32: the config trailer stores `climate_alert_tiles` (1 byte) after `display_invert`. A corrupt or out-of-range record and a record of version 31 give a clean start.
+- Host tests cover the parser edges, rejected values, each single tile bit, an outdoor slot outside the mask, the mask `0` with an active alert, a mask change while an alert is active, the unchanged ventilation advice, the CONFIG line and its parse back, and the RTC round trip.
