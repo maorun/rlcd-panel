@@ -155,6 +155,132 @@ void testSwitchBotServiceBatteryAndRegistry() {
 
 const uint8_t BTHOME_MAC[6] = {0xA4, 0xC1, 0x38, 0x11, 0x22, 0x33};
 
+void testSwitchBotMeterServiceData() {
+  const uint8_t mac[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01};
+  SwitchBotReading r;
+
+  // Meter (0x54): 21.5 C, 48 %RH, battery 87 %
+  const uint8_t meter[6] = {0x54, 0x00, 0x80 | 87, 0x05, 0x80 | 21, 48};
+  assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, meter, sizeof(meter), mac, r));
+  assert(r.valid);
+  assert(fabsf(r.temperature_c - 21.5f) < 0.001f);
+  assert(r.humidity_pct == 48);
+  assert(r.battery_pct == 87);
+  assert(!r.fahrenheit_mode);
+  assert(memcmp(r.mac, mac, 6) == 0);
+
+  // Negative temperature -5.3 C
+  const uint8_t neg[6] = {0x54, 0x00, 50, 0x03, 5, 60};
+  assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, neg, sizeof(neg), mac, r));
+  assert(fabsf(r.temperature_c + 5.3f) < 0.001f);
+
+  // 0.0 C with both sign values gives +0.0 (no negative zero)
+  const uint8_t zero_pos[6] = {0x54, 0x00, 50, 0x00, 0x80, 50};
+  const uint8_t zero_neg[6] = {0x54, 0x00, 50, 0x00, 0x00, 50};
+  assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, zero_pos, 6, mac, r));
+  assert(r.temperature_c == 0.0f && !signbit(r.temperature_c));
+  assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, zero_neg, 6, mac, r));
+  assert(r.temperature_c == 0.0f && !signbit(r.temperature_c));
+
+  // Meter Plus (0x69): 30.9 C, 100 %RH, battery 100 %, unit flag set
+  const uint8_t plus[6] = {0x69, 0x00, 100, 0x09, 0x80 | 30, 0x80 | 100};
+  assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, plus, 6, mac, r));
+  assert(fabsf(r.temperature_c - 30.9f) < 0.001f);
+  assert(r.humidity_pct == 100);
+  assert(r.battery_pct == 100);
+  assert(r.fahrenheit_mode);
+
+  // Rejected packets leave an invalid reading
+  const uint8_t bad_tenth[6] = {0x54, 0x00, 50, 0x0A, 0x80 | 21, 48};
+  const uint8_t bad_rh[6] = {0x54, 0x00, 50, 0x05, 0x80 | 21, 101};
+  const uint8_t bad_type[6] = {0x77, 0x00, 50, 0x05, 0x80 | 21, 48};
+  const uint8_t bad_batt[6] = {0x54, 0x00, 101, 0x05, 0x80 | 21, 48};
+  assert(!SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, bad_tenth, 6, mac, r));
+  assert(!r.valid);
+  assert(!SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, bad_rh, 6, mac, r));
+  assert(!SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, bad_type, 6, mac, r));
+  assert(!SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, bad_batt, 6, mac, r));
+  assert(!SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, meter, 5, mac, r));
+  assert(!SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, meter, 7, mac, r));
+  assert(!SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, meter, 0, mac, r));
+  assert(!SwitchBotBleParser::parseServiceDataReading(0x180F, meter, 6, mac, r));
+  assert(!SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, nullptr, 6, mac, r));
+  assert(!SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, meter, 6, nullptr, r));
+}
+
+void testSwitchBotWoIoSensorBothDataTypes() {
+  // Manufacturer Data (20.0 C, 55 %RH) wins; the Service Data (type 0x54, 10.0 C, 10 %RH) gives the battery.
+  const uint8_t mfg[13] = {0x69, 0x09, 1, 2, 3, 4, 5, 6, 0, 0, 0x00, 0x80 | 20, 55};
+  const uint8_t svc[6] = {0x54, 0x00, 64, 0x00, 0x80 | 10, 10};
+  const uint8_t ble_mac[6] = {9, 9, 9, 9, 9, 9};
+  SwitchBotReading r;
+  assert(SwitchBotBleParser::parseAdvertisement(mfg, sizeof(mfg), svc, sizeof(svc), ble_mac, r));
+  assert(fabsf(r.temperature_c - 20.0f) < 0.001f);
+  assert(r.humidity_pct == 55);
+  assert(r.battery_pct == 64);
+  const uint8_t expected_mac[6] = {1, 2, 3, 4, 5, 6};
+  assert(memcmp(r.mac, expected_mac, 6) == 0);
+
+  // Manufacturer Data without Service Data keeps the battery unknown.
+  assert(SwitchBotBleParser::parseAdvertisement(mfg, sizeof(mfg), nullptr, 0, ble_mac, r));
+  assert(r.battery_pct == -1);
+
+  // A battery above 100 % in the Service Data keeps the WoIOSensor reading without battery.
+  const uint8_t bad_svc[6] = {0x54, 0x00, 101, 0x05, 0x80 | 10, 10};
+  assert(SwitchBotBleParser::parseAdvertisement(mfg, sizeof(mfg), bad_svc, sizeof(bad_svc), ble_mac, r));
+  assert(r.battery_pct == -1 && r.humidity_pct == 55);
+
+  // No Manufacturer Data: the Service Data and the BLE address give the reading.
+  assert(SwitchBotBleParser::parseAdvertisement(nullptr, 0, svc, sizeof(svc), ble_mac, r));
+  assert(fabsf(r.temperature_c - 10.0f) < 0.001f);
+  assert(r.humidity_pct == 10);
+  assert(r.battery_pct == 64);
+  assert(memcmp(r.mac, ble_mac, 6) == 0);
+
+  // Short Manufacturer Data of a Meter does not block the Service Data path.
+  const uint8_t short_mfg[8] = {0x69, 0x09, 7, 7, 7, 7, 7, 7};
+  assert(SwitchBotBleParser::parseAdvertisement(short_mfg, sizeof(short_mfg), svc, sizeof(svc), ble_mac, r));
+  assert(memcmp(r.mac, ble_mac, 6) == 0);
+
+  // Neither part valid.
+  assert(!SwitchBotBleParser::parseAdvertisement(nullptr, 0, nullptr, 0, ble_mac, r));
+  assert(!r.valid);
+}
+
+void testSwitchBotMeterRegistryFixedMac() {
+  const uint8_t mac_a[6] = {0xAA, 0, 0, 0, 0, 1};
+  const uint8_t mac_b[6] = {0xAA, 0, 0, 0, 0, 2};
+  const uint8_t svc[6] = {0x69, 0x00, 70, 0x02, 0x80 | 19, 41};
+
+  SwitchBotRegistry reg;
+  reg.setFixedMac(2, mac_b);
+  SwitchBotReading a;
+  SwitchBotReading b;
+  assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, svc, 6, mac_a, a));
+  assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, svc, 6, mac_b, b));
+  a.updated_ms = 1000;
+  b.updated_ms = 1000;
+  assert(reg.upsert(a));
+  assert(reg.upsert(b));
+  // The fixed MAC owns slot 2; the other MAC takes the first free slot.
+  assert(memcmp(reg.slot(2).mac, mac_b, 6) == 0);
+  assert(memcmp(reg.slot(0).mac, mac_a, 6) == 0);
+  // A repeated MAC reuses its slot; a fourth MAC finds no free slot.
+  assert(reg.upsert(a));
+  assert(reg.activeCount() == 2);
+  const uint8_t mac_c[6] = {0xAA, 0, 0, 0, 0, 3};
+  const uint8_t mac_d[6] = {0xAA, 0, 0, 0, 0, 4};
+  SwitchBotReading c;
+  SwitchBotReading d;
+  assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, svc, 6, mac_c, c));
+  assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, svc, 6, mac_d, d));
+  assert(reg.upsert(c));
+  assert(!reg.upsert(d));
+  assert(reg.activeCount() == 3);
+  assert(!reg.slot(2).isStale(1000 + SENSOR_STALE_TIMEOUT_MS));
+  assert(reg.slot(2).isStale(1001 + SENSOR_STALE_TIMEOUT_MS));
+}
+
 void testBtHomeValidPackets() {
   // Device info 0x40 (v2, unencrypted), battery 87 %, temperature 21.55 C, humidity 45.67 %.
   const uint8_t pkt[] = {0x40, 0x01, 87, 0x02, 0x6B, 0x08, 0x03, 0xD7, 0x11};
@@ -12111,6 +12237,9 @@ int main() {
   testSwitchBotManufacturerNegativeTemp();
   testSwitchBotInvalidPacketsRejected();
   testSwitchBotServiceBatteryAndRegistry();
+  testSwitchBotMeterServiceData();
+  testSwitchBotWoIoSensorBothDataTypes();
+  testSwitchBotMeterRegistryFixedMac();
   testSt7305FramebufferPixelMapping();
   testShtc3Codec();
   testBatteryMonitorDecoding();

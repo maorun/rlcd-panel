@@ -123,30 +123,27 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
       return;
     }
 
-    if (!advertisedDevice.haveManufacturerData()) {
+    const String mfg = advertisedDevice.haveManufacturerData() ? advertisedDevice.getManufacturerData() : String();
+    const bool has_switchbot_svc =
+        advertisedDevice.haveServiceData() &&
+        advertisedDevice.getServiceDataUUID().equals(BLEUUID(SWITCHBOT_SERVICE_UUID));
+    const String svc = has_switchbot_svc ? advertisedDevice.getServiceData() : String();
+    if (mfg.length() == 0 && svc.length() == 0) {
       return;
     }
 
-    const String mfg = advertisedDevice.getManufacturerData();
+    // Manufacturer Data wins (WoIOSensor); the Service Data gives the battery. A Meter or Meter Plus
+    // has no valid Manufacturer Data, so its Service Data and the BLE address give the reading.
+    // getNative() is big-endian on the Bluedroid stack, like the MAC in the WoIOSensor packet.
     SwitchBotReading reading;
-    if (!SwitchBotBleParser::parseManufacturerData(
+    if (!SwitchBotBleParser::parseAdvertisement(
             reinterpret_cast<const uint8_t*>(mfg.c_str()),
             mfg.length(),
+            reinterpret_cast<const uint8_t*>(svc.c_str()),
+            svc.length(),
+            advertisedDevice.getAddress().getNative(),
             reading)) {
       return;
-    }
-
-    if (advertisedDevice.haveServiceData() &&
-        advertisedDevice.getServiceDataUUID().equals(BLEUUID(SWITCHBOT_SERVICE_UUID))) {
-      const String svc = advertisedDevice.getServiceData();
-      int8_t battery_pct = -1;
-      if (SwitchBotBleParser::parseServiceDataBattery(
-              SWITCHBOT_SERVICE_UUID,
-              reinterpret_cast<const uint8_t*>(svc.c_str()),
-              svc.length(),
-              battery_pct)) {
-        reading.battery_pct = battery_pct;
-      }
     }
 
     reading.rssi = SwitchBotBleParser::clampRssi(advertisedDevice.getRSSI());
