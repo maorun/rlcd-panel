@@ -91,6 +91,12 @@ public:
   // Sensor stats: noise trend line "NOISE 140-140 DB" (16 glyphs, 192 px) and its curve box right of
   // it, above the "ONBOARD BAT" line at y = 270.
   static constexpr uint16_t SENSOR_BLOCK_PITCH = 72; // 4 text lines of 18 px
+  // Comfort label in small text (6 px per glyph) right-aligned on the packet line (y + 36, 14 px high):
+  // "COMFORT HUMID" is 13 glyphs = 78 px and ends at x = 392 (8 px right margin). The longest packet
+  // text "PKT 4294967295 AGE 1193 H" (4-digit hours before the 49.7-day wrap) ends at x = 310, left of
+  // the widest label start x = 314.
+  static constexpr uint16_t COMFORT_RIGHT_X = 392;
+  static constexpr uint16_t COMFORT_Y_OFFSET = 39;
   static constexpr uint16_t NOISE_TREND_Y = 248;
   static constexpr uint16_t NOISE_SPARKLINE_X = 216;
   static constexpr uint16_t NOISE_SPARKLINE_Y = 246;
@@ -472,6 +478,25 @@ public:
     snprintf(out, capacity, "24H T%s H%s", temp, hum);
   }
 
+  // "COMFORT OK" for a live slot, "COMFORT --" for an empty, stale or out-of-range slot. Computed on
+  // each render; nothing is stored.
+  static void formatComfort(char* out, size_t capacity, const SwitchBotReading& sb, uint32_t now_ms) {
+    const bool future = (now_ms - sb.updated_ms) >= 0xFFFF0000u;
+    ComfortZone zone = ComfortZone::INVALID;
+    if (sb.valid && (future || !sb.isStale(now_ms))) {
+      zone = ClimateMath::comfort(sb.temperature_c, static_cast<float>(sb.humidity_pct));
+    }
+    snprintf(out, capacity, "COMFORT %s", ClimateMath::comfortLabel(zone));
+  }
+
+  static void drawComfort(
+      St7305Framebuffer& fb, uint16_t y, uint16_t y_offset, const SwitchBotReading& sb, uint32_t now_ms) {
+    char text[16];
+    formatComfort(text, sizeof(text), sb, now_ms);
+    const uint16_t x = static_cast<uint16_t>(COMFORT_RIGHT_X - strlen(text) * 6);
+    fb.drawText(x, static_cast<uint16_t>(y + y_offset), text, 1, true);
+  }
+
   // "MAC ..:EE:FF" style line: the last three MAC bytes. The full address stays in config.ini.
   static void formatMac(char* out, size_t capacity, const uint8_t* mac) {
     snprintf(out, capacity, "MAC ..:%02X:%02X:%02X", mac[3], mac[4], mac[5]);
@@ -513,6 +538,7 @@ public:
       if (!sb.valid) {
         snprintf(line, sizeof(line), "%s NO SIGNAL", label);
         drawLine(fb, 10, y, line);
+        drawComfort(fb, y, 3, sb, now_ms); // first line: the empty slot has no packet line
         if (config != nullptr && config->hasSlotMac(i)) {
           formatMac(line, sizeof(line), config->slot_mac[i]);
           drawLine(fb, 10, static_cast<uint16_t>(y + 18), line);
@@ -547,6 +573,7 @@ public:
           static_cast<unsigned long>(sb.packet_count),
           age);
       drawLine(fb, 10, static_cast<uint16_t>(y + 36), line);
+      drawComfort(fb, y, COMFORT_Y_OFFSET, sb, now_ms);
 
       formatRecords(line, sizeof(line), history, 1 + i);
       drawLine(fb, 10, static_cast<uint16_t>(y + 54), line);

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <math.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stddef.h>
 
@@ -12,6 +13,9 @@ struct ClimateDerived {
   float dew_point_c = 0.0f;
   float vpd_kpa = 0.0f;
 };
+
+// Comfort zone of one room. INVALID stands for NaN, infinite or out-of-range input.
+enum class ComfortZone : uint8_t { INVALID, COLD, WARM, DRY, HUMID, OK };
 
 class ClimateMath {
 public:
@@ -53,6 +57,36 @@ public:
     out.vpd_kpa = saturationPressureKpa(temp_c) * (1.0f - humidity_pct / 100.0f);
     out.valid = isfinite(out.dew_point_c) && isfinite(out.vpd_kpa);
     return out;
+  }
+
+  // Comfort zone: COLD below 18.0 C, WARM above 26.0 C, DRY below 30 %RH, HUMID above 60 %RH, else OK.
+  // The temperature wins over the humidity. The input limits are the ones of compute() (0 %RH is
+  // valid here: the air is DRY).
+  static constexpr float COMFORT_MIN_TEMP_C = 18.0f;
+  static constexpr float COMFORT_MAX_TEMP_C = 26.0f;
+  static constexpr float COMFORT_MIN_RH = 30.0f;
+  static constexpr float COMFORT_MAX_RH = 60.0f;
+  static ComfortZone comfort(float temp_c, float rh_pct) {
+    if (!isfinite(temp_c) || !isfinite(rh_pct) || temp_c < MIN_TEMP_C || temp_c > MAX_TEMP_C ||
+        rh_pct < 0.0f || rh_pct > 100.0f) {
+      return ComfortZone::INVALID;
+    }
+    if (temp_c < COMFORT_MIN_TEMP_C) return ComfortZone::COLD;
+    if (temp_c > COMFORT_MAX_TEMP_C) return ComfortZone::WARM;
+    if (rh_pct < COMFORT_MIN_RH) return ComfortZone::DRY;
+    if (rh_pct > COMFORT_MAX_RH) return ComfortZone::HUMID;
+    return ComfortZone::OK;
+  }
+
+  static const char* comfortLabel(ComfortZone zone) {
+    switch (zone) {
+      case ComfortZone::COLD: return "COLD";
+      case ComfortZone::WARM: return "WARM";
+      case ComfortZone::DRY: return "DRY";
+      case ComfortZone::HUMID: return "HUMID";
+      case ComfortZone::OK: return "OK";
+      default: return "--";
+    }
   }
 
   // Formats "DP 9.3C VPD 1.2K" (VPD in kPa, one digit), or "DP -- VPD --" when not valid.

@@ -311,6 +311,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The values are calculated for each render. No RTC state changes and the state version stays the same.
 - Host tests cover the reference point, 0 and 100 %RH, -10 C and -20 C, NaN, infinite and out-of-range input, the text format, the line position in all 4 tiles, and the dashes for a stale and a missing sensor.
 
+## Comfort zone label for each sensor in the stats view
+
+- **Code:** `rlcd_panel/climate_math.h`, `rlcd_panel/dashboard_view.h`, `tests/test_firmware_logic.cpp`.
+- `ClimateMath::comfort(temp_c, rh_pct)` returns `ComfortZone`: `COLD` below 18.0 C, `WARM` above 26.0 C, `DRY` below 30 %RH, `HUMID` above 60 %RH, else `OK`. The temperature is checked first. The exact edges 18.0 C, 26.0 C, 30 %RH and 60 %RH belong to `OK`. NaN, infinite and out-of-range input (limits of `ClimateMath::compute`, humidity 0 to 100 %RH) gives `INVALID`.
+- Each sensor block of the stats view shows `COMFORT <LABEL>` in scale-1 text, right-aligned to x = 392 (8 px right margin), on the packet line (`y + 39`). An empty slot shows `COMFORT --` in the `NO SIGNAL` line. A stale or invalid slot shows `COMFORT --`.
+- The label is calculated for each render. No RTC state changes and the state version stays 29.
+- `docs/display_preview_stats.png` shows `OK`, `COLD` and `--`.
+- Host tests cover each label, the exact edges, the priority of the temperature, NaN, infinite and out-of-range input, the dashes for a stale and an empty slot, and the text bounds in each block.
+
 ## Deep sleep protection for an empty battery
 
 - **Code:** `rlcd_panel/battery_monitor.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.

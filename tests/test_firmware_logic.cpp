@@ -710,6 +710,132 @@ void testClimateMathInvalidInput() {
   ClimateMath::format(nullptr, 0, true, 20.0f, 50.0f); // no crash
 }
 
+void testComfortZone() {
+  using Z = ComfortZone;
+  assert(ClimateMath::comfort(21.0f, 45.0f) == Z::OK);
+  assert(ClimateMath::comfort(17.9f, 45.0f) == Z::COLD);
+  assert(ClimateMath::comfort(26.1f, 45.0f) == Z::WARM);
+  assert(ClimateMath::comfort(21.0f, 29.9f) == Z::DRY);
+  assert(ClimateMath::comfort(21.0f, 60.1f) == Z::HUMID);
+  // Exact edges belong to the comfort range
+  assert(ClimateMath::comfort(18.0f, 45.0f) == Z::OK);
+  assert(ClimateMath::comfort(26.0f, 45.0f) == Z::OK);
+  assert(ClimateMath::comfort(21.0f, 30.0f) == Z::OK);
+  assert(ClimateMath::comfort(21.0f, 60.0f) == Z::OK);
+  // The temperature wins over the humidity
+  assert(ClimateMath::comfort(10.0f, 80.0f) == Z::COLD);
+  assert(ClimateMath::comfort(10.0f, 10.0f) == Z::COLD);
+  assert(ClimateMath::comfort(30.0f, 10.0f) == Z::WARM);
+  assert(ClimateMath::comfort(30.0f, 80.0f) == Z::WARM);
+  // Limits of ClimateMath::compute
+  assert(ClimateMath::comfort(-45.0f, 50.0f) == Z::COLD);
+  assert(ClimateMath::comfort(60.0f, 50.0f) == Z::WARM);
+  assert(ClimateMath::comfort(21.0f, 0.0f) == Z::DRY);
+  assert(ClimateMath::comfort(21.0f, 100.0f) == Z::HUMID);
+  assert(ClimateMath::comfort(NAN, 50.0f) == Z::INVALID);
+  assert(ClimateMath::comfort(21.0f, NAN) == Z::INVALID);
+  assert(ClimateMath::comfort(INFINITY, 50.0f) == Z::INVALID);
+  assert(ClimateMath::comfort(21.0f, -INFINITY) == Z::INVALID);
+  assert(ClimateMath::comfort(-45.1f, 50.0f) == Z::INVALID);
+  assert(ClimateMath::comfort(60.1f, 50.0f) == Z::INVALID);
+  assert(ClimateMath::comfort(21.0f, -0.1f) == Z::INVALID);
+  assert(ClimateMath::comfort(21.0f, 100.1f) == Z::INVALID);
+  assert(strcmp(ClimateMath::comfortLabel(Z::COLD), "COLD") == 0);
+  assert(strcmp(ClimateMath::comfortLabel(Z::WARM), "WARM") == 0);
+  assert(strcmp(ClimateMath::comfortLabel(Z::DRY), "DRY") == 0);
+  assert(strcmp(ClimateMath::comfortLabel(Z::HUMID), "HUMID") == 0);
+  assert(strcmp(ClimateMath::comfortLabel(Z::OK), "OK") == 0);
+  assert(strcmp(ClimateMath::comfortLabel(Z::INVALID), "--") == 0);
+
+  // Stats view text: live, stale, empty and out-of-range slot
+  const uint32_t now = 10000000;
+  SwitchBotReading sb;
+  sb.valid = true;
+  sb.temperature_c = 13.8f;
+  sb.humidity_pct = 68;
+  sb.updated_ms = now - 1000;
+  char text[24];
+  DashboardView::formatComfort(text, sizeof(text), sb, now);
+  assert(strcmp(text, "COMFORT COLD") == 0);
+  sb.temperature_c = 21.0f;
+  DashboardView::formatComfort(text, sizeof(text), sb, now);
+  assert(strcmp(text, "COMFORT HUMID") == 0);
+  sb.updated_ms = now - SENSOR_STALE_TIMEOUT_MS - 1;
+  DashboardView::formatComfort(text, sizeof(text), sb, now);
+  assert(strcmp(text, "COMFORT --") == 0);
+  const SwitchBotReading empty{};
+  DashboardView::formatComfort(text, sizeof(text), empty, now);
+  assert(strcmp(text, "COMFORT --") == 0);
+  sb.updated_ms = now - 1000;
+  sb.temperature_c = 99.0f;
+  DashboardView::formatComfort(text, sizeof(text), sb, now);
+  assert(strcmp(text, "COMFORT --") == 0);
+
+  // Future stamp (the BLE task stamps a packet after now): live label for under 65 s, dashes beyond
+  sb.temperature_c = 13.8f;
+  sb.humidity_pct = 50;
+  sb.updated_ms = now + 1000;
+  DashboardView::formatComfort(text, sizeof(text), sb, now);
+  assert(strcmp(text, "COMFORT COLD") == 0);
+  sb.updated_ms = now + 70000;
+  DashboardView::formatComfort(text, sizeof(text), sb, now);
+  assert(strcmp(text, "COMFORT --") == 0);
+  sb.updated_ms = now - 1000;
+  sb.humidity_pct = 101; // out of range
+  DashboardView::formatComfort(text, sizeof(text), sb, now);
+  assert(strcmp(text, "COMFORT --") == 0);
+
+  // Text bounds: ink in the label area of every block (live, stale and empty), blank right margin
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    slots[i].valid = true;
+    slots[i].temperature_c = 21.0f;
+    slots[i].humidity_pct = 70; // HUMID: the widest label
+    slots[i].updated_ms = now - 1000;
+  }
+  slots[0].packet_count = 4294967295u; // widest packet text
+  slots[0].updated_ms = now - 1193u * 3600u * 1000u + 1; // age 1193 H is stale: label shows dashes
+  slots[1].updated_ms = now - 1000;
+  slots[2].valid = false; // empty slot: label sits on the NO SIGNAL line
+  St7305Framebuffer fb;
+  DashboardView::renderSensorStats(fb, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now);
+  const uint16_t label_left = DashboardView::COMFORT_RIGHT_X - 13 * 6;
+  const uint16_t label_dy[MAX_SWITCHBOT_SENSORS] = {
+      DashboardView::COMFORT_Y_OFFSET, DashboardView::COMFORT_Y_OFFSET, 3};
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    const uint16_t y0 = static_cast<uint16_t>(34 + i * DashboardView::SENSOR_BLOCK_PITCH);
+    bool ink = false;
+    for (uint16_t y = y0; y < y0 + DashboardView::SENSOR_BLOCK_PITCH; ++y) {
+      for (uint16_t x = DashboardView::COMFORT_RIGHT_X; x < RLCD_WIDTH; ++x) {
+        assert(!fb.getPixel(x, y));
+      }
+    }
+    for (uint16_t y = y0 + label_dy[i]; y < y0 + label_dy[i] + 7; ++y) {
+      for (uint16_t x = label_left; x < DashboardView::COMFORT_RIGHT_X; ++x) {
+        ink = ink || fb.getPixel(x, y);
+      }
+    }
+    assert(ink);
+  }
+  // Widest packet text ends left of the widest label
+  assert(10 + strlen("PKT 4294967295 AGE 1193 H") * 12 <= label_left);
+  // Labels differ between slots: a COLD slot draws other pixels than an OK slot
+  St7305Framebuffer ok_fb, cold_fb;
+  slots[0].updated_ms = now - 1000;
+  slots[0].humidity_pct = 50;
+  DashboardView::renderSensorStats(ok_fb, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now);
+  slots[0].temperature_c = 10.0f;
+  DashboardView::renderSensorStats(cold_fb, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now);
+  assert(memcmp(ok_fb.data(), cold_fb.data(), RLCD_BUFFER_SIZE) != 0);
+
+  // No RTC state change
+  assert(PowerManager::STATE_VERSION == 29);
+}
+
 void testDashboardClimateLine() {
   Shtc3Reading onboard;
   onboard.valid = true;
@@ -11069,6 +11195,7 @@ int main() {
   testBtHomeCombinedRegistry();
   testClimateMathReferencePoints();
   testClimateMathInvalidInput();
+  testComfortZone();
   testDashboardClimateLine();
   testDashboardStaleIndicator();
   testButtonDebounceAndModeTransitions();
