@@ -562,17 +562,17 @@ public:
   }
 
   // Sends the build identity. `date` and `time` are the compiler stamps __DATE__ and __TIME__; an unreadable stamp
-  // gives built=unknown. The text stays below 128 bytes; a longer hash is cut by the format, so no frame is truncated.
+  // gives built=unknown. The fields have length limits, so the frame fits the buffer.
   static void showVersion(Sink& sink, const char* fw, const char* git, const char* core, uint8_t state_version,
                           const char* date, const char* time) {
-    char built[24] = "unknown";
+    char built[40] = "unknown";
     RtcTime stamp;
     if (Pcf85063Codec::fromCompileStamp(date, time, stamp)) {
       snprintf(built, sizeof(built), "%04u-%02u-%02uT%02u:%02u:%02u", static_cast<unsigned>(stamp.year),
                static_cast<unsigned>(stamp.month), static_cast<unsigned>(stamp.day), static_cast<unsigned>(stamp.hour),
                static_cast<unsigned>(stamp.minute), static_cast<unsigned>(stamp.second));
     }
-    char text[128];
+    char text[192];
     const int n = snprintf(text, sizeof(text), "VERSION fw=%.16s git=%.24s core=%.16s state=%u built=%s\n", fw, git,
                            core, static_cast<unsigned>(state_version), built);
     if (n <= 0 || static_cast<size_t>(n) >= sizeof(text)) {
