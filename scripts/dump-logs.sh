@@ -3,6 +3,7 @@
 # Usage: ./scripts/dump-logs.sh [port]
 #        ./scripts/dump-logs.sh --config [port]   prints the active configuration (CONFIG command)
 #        ./scripts/dump-logs.sh --status [port]   prints the live sensor snapshot (STATUS command)
+#        ./scripts/dump-logs.sh --set-time [port] sets the RTC to the local time of this host (TIME SET command; accuracy is about 1 s)
 # The board answers on USB power only, while it is awake. Press KEY to wake it first.
 set -euo pipefail
 umask 077
@@ -19,6 +20,10 @@ if [[ "${1:-}" == "--config" ]]; then
 fi
 if [[ "${1:-}" == "--status" ]]; then
   MODE=status
+  shift
+fi
+if [[ "${1:-}" == "--set-time" ]]; then
+  MODE=set-time
   shift
 fi
 PORT="${1:-}"
@@ -131,6 +136,18 @@ if mode == "status":
         raise SystemExit("Error: incomplete STATUS reply (expected 4 SENSOR lines and 1 POWER line)")
     sys.stdout.write(body.decode("ascii"))
     sys.exit(0)
+if mode == "set-time":
+    # TIME SET takes the local time of this host and answers "OK TIME", "ERR BAD_ARG" or "ERR RTC_FAILED".
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime())
+    command("TIME SET " + stamp)
+    deadline = time.time() + timeout_s
+    while True:
+        text = line(deadline)
+        if text == "OK TIME":
+            print("RTC set to " + stamp)
+            sys.exit(0)
+        if text.startswith("ERR "):
+            raise SystemExit("Error: " + text)
 command("LIST")
 files = []
 skipped = 0

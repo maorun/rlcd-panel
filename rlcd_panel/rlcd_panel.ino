@@ -815,6 +815,22 @@ void setup() {
         snap.muted = g_state.muted;
         snap.now_ms = nowMs();
         SerialConsoleRunner<SdLogStorage, SerialSink>::showStatus(console_sink, snap);
+      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::TIME) {
+        // The RTC answers over I2C: no card access, so the clap listener keeps running.
+        if (command.time_set) {
+          if (SerialConsoleRunner<SdLogStorage, SerialSink>::setTime(console_sink, g_rtc, g_state.rtc_drift,
+                                                                     command.time)) {
+            RtcTime written;
+            if (g_rtc.readTime(written)) {
+              g_rtc_time = written; // a failed re-read keeps the old header clock
+            }
+            renderDashboard(); // the header clock shows the new time
+          }
+        } else {
+          RtcTime now_time;
+          g_rtc.readTime(now_time);
+          SerialConsoleRunner<SdLogStorage, SerialSink>::showTime(console_sink, now_time);
+        }
       } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::BEEP) {
         clap_listener.release(); // the chime uses the same I2S bus; the next poll() reopens it
         Es8311Hal beep_hal;
