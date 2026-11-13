@@ -11,6 +11,7 @@
 #include "climate_math.h"
 #include "device_config.h"
 #include "pcf85063_rtc.h"
+#include "sd_logger.h"
 #include "es7210_mic.h"
 #include "shtc3_sensor.h"
 #include "sparkline.h"
@@ -40,6 +41,7 @@ struct SystemInfo {
   int32_t cycle_tenths = -1;   // battery charge cycles in tenths; negative (unknown) shows "--"
   RtcDriftState rtc_drift;     // RTC drift of the last NTP sync; no figure shows "--"
   int32_t sd_free_mb = -1;     // free MicroSD space in MB; negative (unmounted, unknown) shows "--"
+  SdStatus sd_status = SdStatus::UNKNOWN; // card fault replaces the free space text (OK and UNKNOWN keep it)
 };
 
 class DashboardView {
@@ -658,7 +660,11 @@ public:
 
     // SD space at y = 144, between the heap line (ends y = 138) and the uptime line (y = 164).
     // Widest: "SD FREE: 9999999 MB" = 19 glyphs = 226 px.
-    if (info.sd_free_mb >= 0) {
+    // A card fault replaces the text: "SD: MOUNT ERR" and "SD: WRITE ERR" are 13 glyphs = 156 px.
+    const char* sd_fault = SdStatusCodec::faultText(info.sd_status);
+    if (sd_fault != nullptr) {
+      snprintf(line, sizeof(line), "%s", sd_fault);
+    } else if (info.sd_free_mb >= 0) {
       snprintf(line, sizeof(line), "SD FREE: %ld MB", static_cast<long>(info.sd_free_mb));
     } else {
       snprintf(line, sizeof(line), "SD FREE: --");

@@ -466,21 +466,92 @@ private:
   }
 };
 
-#if defined(ARDUINO) || defined(ESP_PLATFORM)
-
 enum class SdLogResult : uint8_t {
   OK = 0,
   NO_TIME,      // RTC time invalid: no file name
-  MOUNT_FAILED, // no card or unreadable card
+  MOUNT_FAILED, // the card interface did not start
   OPEN_FAILED,
   WRITE_FAILED,
+  NO_CARD,      // no card, or a card that does not mount
 };
 
 enum class SdConfigResult : uint8_t {
   LOADED = 0,  // the file was parsed
   NO_FILE,     // card mounted, but no usable file
-  NO_CARD,     // the card did not mount
+  NO_CARD,     // no card, or a card that does not mount
+  MOUNT_FAILED, // the card interface did not start
 };
+
+// Last known state of the MicroSD card. It lives in the RTC memory (PersistentState).
+enum class SdStatus : uint8_t {
+  UNKNOWN = 0, // no card access since power-on
+  OK,
+  NO_CARD,
+  MOUNT_FAILED,
+  WRITE_FAILED,
+  FULL, // a failed write with 0 MB free space
+};
+
+class SdStatusCodec {
+public:
+  static constexpr uint8_t MAX_VALUE = static_cast<uint8_t>(SdStatus::FULL);
+
+  // Status after an hourly write. NO_TIME is no card result: the stored status stays.
+  // `free_mb` is the free space read after the write, rounded down to whole MB; 0 with a failed write
+  // means a full card (less than 1 MB free counts as full).
+  static SdStatus fromLog(SdLogResult result, int32_t free_mb, SdStatus previous) {
+    switch (result) {
+      case SdLogResult::OK: return SdStatus::OK;
+      case SdLogResult::NO_CARD: return SdStatus::NO_CARD;
+      case SdLogResult::MOUNT_FAILED: return SdStatus::MOUNT_FAILED;
+      case SdLogResult::OPEN_FAILED:
+      case SdLogResult::WRITE_FAILED: return free_mb == 0 ? SdStatus::FULL : SdStatus::WRITE_FAILED;
+      case SdLogResult::NO_TIME: break;
+    }
+    return previous;
+  }
+
+  // Status after a config load: a mounted card is OK, with or without a file. A read-only mount
+  // proves no write, so a stored write fault stays until the next hourly write clears it.
+  static SdStatus fromConfig(SdConfigResult result, SdStatus previous) {
+    switch (result) {
+      case SdConfigResult::LOADED:
+      case SdConfigResult::NO_FILE:
+        return (previous == SdStatus::WRITE_FAILED || previous == SdStatus::FULL) ? previous : SdStatus::OK;
+      case SdConfigResult::NO_CARD: return SdStatus::NO_CARD;
+      case SdConfigResult::MOUNT_FAILED: return SdStatus::MOUNT_FAILED;
+    }
+    return SdStatus::UNKNOWN;
+  }
+
+  // Name for the serial console.
+  static const char* name(SdStatus status) {
+    switch (status) {
+      case SdStatus::UNKNOWN: return "UNKNOWN";
+      case SdStatus::OK: return "OK";
+      case SdStatus::NO_CARD: return "NO_CARD";
+      case SdStatus::MOUNT_FAILED: return "MOUNT_FAILED";
+      case SdStatus::WRITE_FAILED: return "WRITE_FAILED";
+      case SdStatus::FULL: return "FULL";
+    }
+    return "UNKNOWN";
+  }
+
+  // Text of the diagnostics view for a fault, or nullptr while the free space shows (UNKNOWN, OK).
+  static const char* faultText(SdStatus status) {
+    switch (status) {
+      case SdStatus::NO_CARD: return "SD: NO CARD";
+      case SdStatus::MOUNT_FAILED: return "SD: MOUNT ERR";
+      case SdStatus::WRITE_FAILED: return "SD: WRITE ERR";
+      case SdStatus::FULL: return "SD: FULL";
+      case SdStatus::UNKNOWN:
+      case SdStatus::OK: break;
+    }
+    return nullptr;
+  }
+};
+
+#if defined(ARDUINO) || defined(ESP_PLATFORM)
 
 // Runtime driver. Each call mounts the card, appends one record, and unmounts again, so a
 // removed card needs no cleanup and the card never stays powered up longer than needed.
@@ -512,8 +583,9 @@ public:
     if (row_len == 0) {
       return SdLogResult::NO_TIME;
     }
-    if (!mount()) {
-      return SdLogResult::MOUNT_FAILED;
+    const SdStatus mounted = tryMount();
+    if (mounted != SdStatus::OK) {
+      return mounted == SdStatus::NO_CARD ? SdLogResult::NO_CARD : SdLogResult::MOUNT_FAILED;
     }
     const SdLogResult result = writeRecord(path, row, row_len);
     // The prune runs also after a failed write, so a full card frees space for the next retry.
@@ -542,8 +614,9 @@ public:
     if (row_len == 0) {
       return SdLogResult::NO_TIME;
     }
-    if (!mount()) {
-      return SdLogResult::MOUNT_FAILED;
+    const SdStatus mounted = tryMount();
+    if (mounted != SdStatus::OK) {
+      return mounted == SdStatus::NO_CARD ? SdLogResult::NO_CARD : SdLogResult::MOUNT_FAILED;
     }
     const SdLogResult result = writeRecord(path, row, row_len, true);
     SD_MMC.end();
@@ -573,8 +646,9 @@ public:
     if (free_mb != nullptr) {
       *free_mb = -1;
     }
-    if (!mount()) {
-      return SdConfigResult::NO_CARD;
+    const SdStatus mounted = tryMount();
+    if (mounted != SdStatus::OK) {
+      return mounted == SdStatus::NO_CARD ? SdConfigResult::NO_CARD : SdConfigResult::MOUNT_FAILED;
     }
     // Static: the 4 KB buffer would use half of the 8 KB loop task stack. setup() runs once per
     // wake cycle, so one shared buffer is safe.
@@ -586,7 +660,7 @@ public:
       const size_t n = file.read(reinterpret_cast<uint8_t*>(buf), sizeof(buf));
       const size_t expected = file.size() < sizeof(buf) ? static_cast<size_t>(file.size()) : sizeof(buf);
       if (n != expected) {
-        result = SdConfigResult::NO_CARD; // a short read is a card error: keep the old settings
+        result = SdConfigResult::MOUNT_FAILED; // a short read is a card error: keep the old settings
       } else {
         const ConfigParseResult parsed = DeviceConfigParser::parse(buf, n, out);
         if (parsed.file_ok) {
@@ -615,18 +689,23 @@ public:
 private:
   // Pins first, then begin(): required by ESP32 core 3.3.12. 1-bit mode.
   static bool mount() {
+    return tryMount() == SdStatus::OK;
+  }
+
+  // OK, NO_CARD (no card answers) or MOUNT_FAILED (the pins did not apply).
+  static SdStatus tryMount() {
     if (!SD_MMC.setPins(PIN_SDMMC_CLK, PIN_SDMMC_CMD, PIN_SDMMC_D0)) {
-      return false;
+      return SdStatus::MOUNT_FAILED;
     }
     if (!SD_MMC.begin(SdLogCodec::MOUNT_POINT, true)) {
       SD_MMC.end();
-      return false;
+      return SdStatus::NO_CARD;
     }
     if (SD_MMC.cardType() == CARD_NONE) {
       SD_MMC.end();
-      return false;
+      return SdStatus::NO_CARD;
     }
-    return true;
+    return SdStatus::OK;
   }
 
   // Deletes the hourly and daily log files older than the retention period in the root directory. The names are

@@ -1085,7 +1085,7 @@ void testComfortZone() {
   assert(memcmp(ok_fb.data(), cold_fb.data(), RLCD_BUFFER_SIZE) != 0);
 
   // No RTC state change
-  assert(PowerManager::STATE_VERSION == 32);
+  assert(PowerManager::STATE_VERSION == 33);
 }
 
 void testDashboardClimateLine() {
@@ -1431,7 +1431,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 32);
+  assert(PowerManager::STATE_VERSION == 33);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -2318,7 +2318,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 32);
+  assert(PowerManager::STATE_VERSION == 33);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -2954,7 +2954,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 32);
+  assert(PowerManager::STATE_VERSION == 33);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3155,7 +3155,7 @@ void testSdLogSchedule() {
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(r.last_log_ms == 123456 && r.has_logged);
-  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - 5 - 1] = 2; // has_logged precedes the 5-byte daily stamp
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - 10 - 1] = 2; // has_logged precedes the 5-byte daily stamp and the 5-byte SD status
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -4784,7 +4784,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 32);
+  assert(PowerManager::STATE_VERSION == 33);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -5576,7 +5576,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 32);
+  assert(PowerManager::STATE_VERSION == 33);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -5746,7 +5746,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 32);
+  assert(PowerManager::STATE_VERSION == 33);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -5928,7 +5928,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 32);
+  assert(PowerManager::STATE_VERSION == 33);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -9152,12 +9152,12 @@ void testSerialStatusParser() {
 void testSerialStatusEmptyAndMissingValues() {
   StatusFixture f;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 6);
+  assert(lines.size() == 7);
   assert(lines[0] == "SENSOR 0 onboard temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
   assert(lines[1] == "SENSOR 1 slot1 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
   assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
-  assert(lines[4] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
-  assert(lines[5].rfind("CRC32 ", 0) == 0);
+  assert(lines[5] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
+  assert(lines[6].rfind("CRC32 ", 0) == 0);
 }
 
 void testSerialStatusStates() {
@@ -9209,7 +9209,7 @@ void testSerialStatusWorstCaseLineLength() {
   f.snap.alert_mask = 0x7f;
   f.snap.muted = true;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 6 && lines[4].rfind("POWER ", 0) == 0 && lines[5].size() == 14);
+  assert(lines.size() == 7 && lines[4].rfind("SD status=", 0) == 0 && lines[5].rfind("POWER ", 0) == 0 && lines[6].size() == 14);
   for (size_t i = 0; i < 4; ++i) {
     assert(lines[i].rfind("SENSOR ", 0) == 0 && lines[i].find(" state=") != std::string::npos);
   }
@@ -9224,10 +9224,10 @@ void testSerialStatusPowerLine() {
   f.snap.alert_mask = 0x25;
   f.snap.muted = true;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[4] == "POWER src=BAT v=3.62 pct=42 alerts=25 muted=1");
+  assert(lines[5] == "POWER src=BAT v=3.62 pct=42 alerts=25 muted=1");
   f.snap.battery.valid = false;
   lines = statusLines(f.run());
-  assert(lines[4] == "POWER src=BAT v=-- pct=-- alerts=25 muted=1");
+  assert(lines[5] == "POWER src=BAT v=-- pct=-- alerts=25 muted=1");
 }
 
 void testSerialStatusCrcOverAllPriorBytes() {
@@ -10903,7 +10903,7 @@ void testDailySummaryStateRoundTrip() {
   // Corrupt stamp fields with a valid CRC are rejected.
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   const size_t daily_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE -
-                           PowerManager::AUDIO_SIZE - 5;
+                           PowerManager::AUDIO_SIZE - 10; // daily stamp (5) is followed by the SD status (5)
   assert(buf[daily_pos] == 1 && buf[daily_pos + 1] == (2026 & 0xFF));
   const size_t bad[5][3] = {{daily_pos, 2, 0}, {daily_pos + 3, 13, 0}, {daily_pos + 3, 0, 0}, {daily_pos + 4, 32, 0}, {daily_pos + 3, 2, 31}};
   for (const auto& c : bad) {
@@ -11358,7 +11358,7 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 32);
+  assert(PowerManager::STATE_VERSION == 33);
 
   // A valid checksum with the same MAC in two keys is rejected
   const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
@@ -11869,7 +11869,7 @@ void testSensorBatteryLatchRtcRoundTrip() {
     }
   }
   // The version is increased
-  assert(PowerManager::STATE_VERSION == 32);
+  assert(PowerManager::STATE_VERSION == 33);
   // Corrupt records: latch bit above bit 2, flag byte above 3, limit above 50, old version
   st.sensor_battery_latch = 1;
   st.alert_mask = ALERT_NONE;
@@ -12092,7 +12092,7 @@ void testSensorStaleMinConfig() {
 
   // RTC round trip, corrupt values and the version bump
   PersistentState st;
-  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 32);
+  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 33);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(5), uint16_t(30), uint16_t(240)}) {
@@ -12177,7 +12177,7 @@ void testDisplayInvert() {
 
   // RTC round trip, corrupt value and version bump
   PersistentState st;
-  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 32);
+  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 33);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(1)}) {
@@ -12316,7 +12316,7 @@ void testClimateAlertTiles() {
 
   // RTC round trip, corrupt value and the old state version
   PersistentState st;
-  assert(st.config.climate_alert_tiles == 15 && PowerManager::STATE_VERSION == 32);
+  assert(st.config.climate_alert_tiles == 15 && PowerManager::STATE_VERSION == 33);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(5), uint8_t(15)}) {
@@ -12409,6 +12409,158 @@ static void testConfigCheckTool() {
   assert(runConfigCheck(longest, strlen(longest), report, sizeof(report)) == 1);
   assert(strstr(report, "REJECTED count=5\n") != nullptr);
   assert(strlen(report) < DeviceConfigCheck::MAX_REPORT_SIZE);
+}
+
+void testSdCardStatus() {
+  // Logger results map to a status; a failed write with 0 MB free is FULL
+  assert(SdStatusCodec::fromLog(SdLogResult::OK, 500, SdStatus::UNKNOWN) == SdStatus::OK);
+  assert(SdStatusCodec::fromLog(SdLogResult::OK, 0, SdStatus::NO_CARD) == SdStatus::OK);
+  assert(SdStatusCodec::fromLog(SdLogResult::NO_CARD, -1, SdStatus::OK) == SdStatus::NO_CARD);
+  assert(SdStatusCodec::fromLog(SdLogResult::MOUNT_FAILED, -1, SdStatus::OK) == SdStatus::MOUNT_FAILED);
+  assert(SdStatusCodec::fromLog(SdLogResult::WRITE_FAILED, 120, SdStatus::OK) == SdStatus::WRITE_FAILED);
+  assert(SdStatusCodec::fromLog(SdLogResult::OPEN_FAILED, 120, SdStatus::OK) == SdStatus::WRITE_FAILED);
+  assert(SdStatusCodec::fromLog(SdLogResult::WRITE_FAILED, 0, SdStatus::OK) == SdStatus::FULL);
+  assert(SdStatusCodec::fromLog(SdLogResult::OPEN_FAILED, 0, SdStatus::OK) == SdStatus::FULL);
+  assert(SdStatusCodec::fromLog(SdLogResult::WRITE_FAILED, -1, SdStatus::OK) == SdStatus::WRITE_FAILED); // free space unknown
+  assert(SdStatusCodec::fromLog(SdLogResult::NO_TIME, -1, SdStatus::FULL) == SdStatus::FULL); // no card access
+  assert(SdStatusCodec::fromConfig(SdConfigResult::LOADED, SdStatus::UNKNOWN) == SdStatus::OK);
+  assert(SdStatusCodec::fromConfig(SdConfigResult::NO_FILE, SdStatus::NO_CARD) == SdStatus::OK);
+  assert(SdStatusCodec::fromConfig(SdConfigResult::NO_CARD, SdStatus::OK) == SdStatus::NO_CARD);
+  assert(SdStatusCodec::fromConfig(SdConfigResult::MOUNT_FAILED, SdStatus::OK) == SdStatus::MOUNT_FAILED);
+  // A read-only config load keeps a stored write fault
+  assert(SdStatusCodec::fromConfig(SdConfigResult::LOADED, SdStatus::FULL) == SdStatus::FULL);
+  assert(SdStatusCodec::fromConfig(SdConfigResult::NO_FILE, SdStatus::WRITE_FAILED) == SdStatus::WRITE_FAILED);
+  assert(SdStatusCodec::fromConfig(SdConfigResult::NO_CARD, SdStatus::FULL) == SdStatus::NO_CARD);
+
+  // Diagnostics view: fault text in the SD FREE place, bounds and unchanged line for OK and UNKNOWN
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  constexpr uint16_t SD_Y = 144;
+  constexpr uint16_t SD_H = 14;
+  SystemInfo info;
+  info.sd_free_mb = 7421;
+  St7305Framebuffer base;
+  base.clear(true);
+  DashboardView::renderDiagnostics(base, battery, info, "12:00");
+  const struct {
+    SdStatus status;
+    const char* text;
+  } faults[] = {{SdStatus::NO_CARD, "SD: NO CARD"},
+                {SdStatus::MOUNT_FAILED, "SD: MOUNT ERR"},
+                {SdStatus::WRITE_FAILED, "SD: WRITE ERR"},
+                {SdStatus::FULL, "SD: FULL"}};
+  for (SdStatus ok : {SdStatus::UNKNOWN, SdStatus::OK}) {
+    St7305Framebuffer fb;
+    info.sd_status = ok;
+    fb.clear(true);
+    DashboardView::renderDiagnostics(fb, battery, info, "12:00");
+    assert(memcmp(fb.data(), base.data(), St7305Framebuffer::BYTE_COUNT) == 0);
+  }
+  for (const auto& f : faults) {
+    assert(strcmp(SdStatusCodec::faultText(f.status), f.text) == 0);
+    info.sd_status = f.status;
+    St7305Framebuffer fb;
+    fb.clear(true);
+    DashboardView::renderDiagnostics(fb, battery, info, "12:00");
+    // Reference: the same text drawn alone on the SD line of an otherwise equal view
+    St7305Framebuffer expected;
+    info.sd_status = SdStatus::OK;
+    info.sd_free_mb = -1;
+    expected.clear(true);
+    DashboardView::renderDiagnostics(expected, battery, info, "12:00");
+    info.sd_free_mb = 7421;
+    const size_t glyphs = strlen(f.text);
+    size_t diff_vs_base = 0;
+    for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        if (fb.getPixel(x, y) != base.getPixel(x, y)) {
+          ++diff_vs_base;
+          assert(y >= SD_Y && y < SD_Y + SD_H); // only the SD line changes
+          assert(x >= 10 && x < DashboardView::PERCENTILE_X);
+        }
+        if (y >= SD_Y && y < SD_Y + SD_H && x >= 10 + glyphs * 12) {
+          assert(x >= DashboardView::PERCENTILE_X || !fb.getPixel(x, y)); // no ink right of the text
+        }
+        if (y >= SD_Y && y < SD_Y + SD_H && x < 10) {
+          assert(!fb.getPixel(x, y));
+        }
+      }
+    }
+    assert(diff_vs_base > 0);
+    assert(memcmp(fb.data(), expected.data(), St7305Framebuffer::BYTE_COUNT) != 0);
+    // The fault text also shows with an unmounted free space reading
+    St7305Framebuffer fb2;
+    info.sd_status = f.status;
+    info.sd_free_mb = -1;
+    fb2.clear(true);
+    DashboardView::renderDiagnostics(fb2, battery, info, "12:00");
+    assert(memcmp(fb.data(), fb2.data(), St7305Framebuffer::BYTE_COUNT) == 0);
+    info.sd_free_mb = 7421;
+  }
+
+  // STATUS line before the POWER line, for each value
+  const struct {
+    SdStatus status;
+    const char* name;
+  } names[] = {{SdStatus::OK, "OK"},
+               {SdStatus::NO_CARD, "NO_CARD"},
+               {SdStatus::MOUNT_FAILED, "MOUNT_FAILED"},
+               {SdStatus::WRITE_FAILED, "WRITE_FAILED"},
+               {SdStatus::FULL, "FULL"}};
+  for (const auto& n : names) {
+    StatusFixture f;
+    f.snap.sd_status = n.status;
+    f.snap.sd_status_ms = f.snap.now_ms - 125000;
+    const std::vector<std::string> lines = statusLines(f.run());
+    assert(lines.size() == 7);
+    assert(lines[4] == std::string("SD status=") + n.name + " age=125");
+    assert(lines[5].rfind("POWER ", 0) == 0);
+  }
+  StatusFixture unknown;
+  const std::vector<std::string> unknown_lines = statusLines(unknown.run());
+  assert(unknown_lines[4] == "SD status=UNKNOWN age=--");
+
+  // RTC round trip, a corrupt status byte and the old state version
+  assert(PowerManager::STATE_VERSION == 33);
+  PersistentState st;
+  st.setSdStatus(SdStatus::FULL, 4242);
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  PersistentState back;
+  assert(PowerManager::deserialize(buf, sizeof(buf), back));
+  assert(back.sd_status == SdStatus::FULL && back.sd_status_ms == 4242);
+  const size_t sd_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE -
+                        PowerManager::AUDIO_SIZE - 5;
+  assert(buf[sd_pos] == static_cast<uint8_t>(SdStatus::FULL));
+  auto reseal = [](uint8_t* b) {
+    const uint32_t crc = PowerManager::crc32(b, PowerManager::SERIALIZED_SIZE - 4);
+    for (int i = 0; i < 4; ++i) {
+      b[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+    }
+  };
+  uint8_t bad[PowerManager::SERIALIZED_SIZE];
+  memcpy(bad, buf, sizeof(bad));
+  bad[sd_pos] = 6; // above FULL
+  reseal(bad);
+  PersistentState rejected;
+  rejected.boot_count = 7;
+  assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+  assert(rejected.boot_count == 0 && rejected.sd_status == SdStatus::UNKNOWN);
+  uint8_t old[PowerManager::SERIALIZED_SIZE];
+  memcpy(old, buf, sizeof(old));
+  old[4] = 32;
+  reseal(old);
+  assert(!PowerManager::deserialize(old, sizeof(old), rejected));
+  // An old state of the shorter version 32 layout has the wrong length
+  assert(!PowerManager::deserialize(buf, sizeof(buf) - 5, rejected));
+
+  // A wake cycle without card access keeps the stored status
+  PersistentState keep;
+  keep.setSdStatus(SdStatus::NO_CARD, 100);
+  assert(SdStatusCodec::fromLog(SdLogResult::NO_TIME, -1, keep.sd_status) == SdStatus::NO_CARD);
+  assert(keep.sd_status == SdStatus::NO_CARD && keep.sd_status_ms == 100);
 }
 
 int main() {
@@ -12727,6 +12879,7 @@ testSerialConfigNegativeSmallOffset();
   testSensorBatteryPreviewScene();
   testSensorStaleMinConfig();
   testConfigCheckTool();
-  printf("All 153 firmware logic test suites passed.\n");
+  testSdCardStatus();
+  printf("All 154 firmware logic test suites passed.\n");
   return 0;
 }

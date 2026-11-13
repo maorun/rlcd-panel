@@ -336,6 +336,7 @@ void renderDashboard() {
   info.runtime = g_state.battery_history.estimate(g_state.battery, g_scan_saved_ms);
   info.rtc_drift = g_state.rtc_drift;
   info.sd_free_mb = g_sd_free_mb;
+  info.sd_status = g_state.sd_status;
   info.cycle_tenths = g_cycles.cycleTenths();
 
   DashboardView::renderMode(
@@ -581,6 +582,9 @@ void logToSdCard() {
       have_noise ? &g_noise : nullptr, &cal, config().log_retention_months, &free_mb,
       config().staleTimeoutMs());
   g_sd_free_mb = free_mb; // -1 after a failed mount, so the view never shows an old value
+  if (result != SdLogResult::NO_TIME) { // no card access: the stored status stays
+    g_state.setSdStatus(SdStatusCodec::fromLog(result, free_mb, g_state.sd_status), nowMs()); // after the noise window
+  }
   if (g_mode_controller.mode() == DisplayMode::SYSTEM_DIAGNOSTICS) {
     renderDashboard(); // the diagnostics view shows the free space after the write
   }
@@ -600,7 +604,7 @@ void logToSdCard() {
     g_state.last_log_ms = SdLogCodec::retryStamp(now);
     Serial.printf("SD log failed: %u\n", static_cast<unsigned>(result));
   }
-  logDailySummary(now, result != SdLogResult::MOUNT_FAILED);
+  logDailySummary(now, result != SdLogResult::MOUNT_FAILED && result != SdLogResult::NO_CARD);
 }
 
 // Writes the daily row at the first hourly write after local midnight. The RTC holds local time, so
@@ -646,7 +650,8 @@ void loadConfigFromCard(WakeupCause cause) {
   ConfigRejects rejects;
   int32_t free_mb = -1;
   const SdConfigResult result = SdLogger::loadConfig(loaded, &free_mb, &rejects);
-  if (result == SdConfigResult::NO_CARD) {
+  g_state.setSdStatus(SdStatusCodec::fromConfig(result, g_state.sd_status), nowMs());
+  if (result == SdConfigResult::NO_CARD || result == SdConfigResult::MOUNT_FAILED) {
     return;
   }
   g_sd_free_mb = free_mb;
@@ -837,6 +842,8 @@ void setup() {
         snap.sensor_battery_latch = g_state.sensor_battery_latch;
         snap.muted = g_state.muted;
         snap.now_ms = nowMs();
+        snap.sd_status = g_state.sd_status;
+        snap.sd_status_ms = g_state.sd_status_ms;
         SerialConsoleRunner<SdLogStorage, SerialSink>::showStatus(console_sink, snap);
       } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::TIME) {
         // The RTC answers over I2C: no card access, so the clap listener keeps running.
