@@ -27,7 +27,8 @@ public:
   //                   humidity uint16 little-endian (0.01 %), battery mV uint16 little-endian,
   //                   battery uint8 (%), counter uint8, flags uint8.
   // The reading holds the MAC in big-endian order, as the other parsers do. The parser rejects other
-  // lengths, a temperature outside -50 C to 100 C, a humidity above 100 %RH and a battery above 100 %.
+  // lengths, an all-zero MAC, a temperature outside -50 C to 100 C, a humidity above 100 %RH and a
+  // battery above 100 %.
   static bool parseServiceData(
       uint16_t service_uuid,
       const uint8_t* payload,
@@ -58,6 +59,10 @@ public:
       return false;
     }
 
+    static const uint8_t ZERO_MAC[6] = {0, 0, 0, 0, 0, 0};
+    if (memcmp(mac, ZERO_MAC, 6) == 0) {
+      return false; // the registry treats an all-zero MAC as not fixed
+    }
     if (temperature_c < ATC_MIN_TEMPERATURE_C || temperature_c > ATC_MAX_TEMPERATURE_C ||
         humidity_pct > 100.0f || battery_pct > 100) {
       return false;

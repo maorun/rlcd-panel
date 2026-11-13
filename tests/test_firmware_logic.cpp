@@ -432,6 +432,8 @@ void testAtcPvvxRejectsInvalid() {
   assert(!AtcBleParser::parseServiceData(ATC_SERVICE_UUID, buf, 16, r));
   assert(!AtcBleParser::parseServiceData(ATC_SERVICE_UUID, nullptr, 13, r));
   assert(!AtcBleParser::parseServiceData(0xFCD2, buf, 13, r));
+  const uint8_t zero_mac[13] = {0, 0, 0, 0, 0, 0, 0x00, 0xD7, 45, 87, 0x0B, 0x86, 7};
+  assert(!AtcBleParser::parseServiceData(ATC_SERVICE_UUID, zero_mac, sizeof(zero_mac), r));
   assert(AtcBleParser::parseServiceData(ATC_SERVICE_UUID, buf, 13, r));
 
   // ATC limits: -50.0 and 100.0 C pass; -50.1 and 100.1 C fail.
@@ -485,6 +487,22 @@ void testAtcRegistryFixedMac() {
   assert(reg.slot(2).battery_pct == 87);
   assert(!reg.slot(2).isStale(1000 + SENSOR_STALE_TIMEOUT_MS));
   assert(reg.slot(2).isStale(1001 + SENSOR_STALE_TIMEOUT_MS));
+}
+
+void testPvvxRegistryUpdate() {
+  SwitchBotRegistry reg;
+  const uint8_t first[] = {0x33, 0x22, 0x11, 0x38, 0xC1, 0xA4, 0x6B, 0x08, 0xD7, 0x11, 0x86, 0x0B, 87, 7, 0};
+  const uint8_t next[] = {0x33, 0x22, 0x11, 0x38, 0xC1, 0xA4, 0x10, 0x09, 0x10, 0x0E, 0x86, 0x0B, 80, 8, 0};
+  SwitchBotReading r;
+  assert(AtcBleParser::parseServiceData(ATC_SERVICE_UUID, first, sizeof(first), r));
+  assert(reg.upsert(r));
+  assert(AtcBleParser::parseServiceData(ATC_SERVICE_UUID, next, sizeof(next), r));
+  assert(reg.upsert(r));
+  assert(reg.activeCount() == 1);
+  assert(reg.slot(0).packet_count == 2);
+  assert(reg.slot(0).battery_pct == 80);
+  assert(approxEqual(reg.slot(0).temperature_c, 23.2f, 0.001f));
+  assert(reg.slot(0).mac[0] == 0xA4 && reg.slot(0).mac[5] == 0x33);
 }
 
 void testBtHomeCombinedRegistry() {
@@ -12441,6 +12459,7 @@ int main() {
   testAtcPvvxNegativeTemperature();
   testAtcPvvxRejectsInvalid();
   testAtcRegistryFixedMac();
+  testPvvxRegistryUpdate();
   testClimateMathReferencePoints();
   testClimateMathInvalidInput();
   testComfortZone();
