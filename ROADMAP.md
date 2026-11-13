@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] Serial console command STATUS with a live sensor snapshot
-  - Rank: [Total: 34, Use: 6, Setup: 9, Harmony: 9, Safety: 10, Effort: S]
-  - Location: `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the console command `STATUS` without an argument. `STATUS now` gives `ERR UNKNOWN`. Send one line `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>` for the onboard sensor (index `0`) and each slot `1` to `3`. A missing value gives `--`. Then send one line `POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>`. End the reply with `CRC32 <8 hex digits>` over all bytes before this line. Read only the RTC copy (`g_state`). Do not mount the MicroSD card and do not stop the clap listener. Run the command on USB power only (`PowerManager::serialConsoleAllowed`). A short serial write ends the reply without the CRC line. Add `./scripts/dump-logs.sh --status [port]`, which sends `STATUS`, checks the CRC-32 and prints the lines. Thus the user reads all sensor values on the host without a view change.
-  - Acceptance test: Host tests cover the parser for `STATUS`, the rejection of `STATUS` with arguments, each `state` value, the dashes for a missing value and an empty slot, negative temperatures, the `POWER` line on USB and on battery, the CRC-32 line, no card access, the stop on a short write at each line, and the USB power gate. `arduino-cli compile rlcd_panel` passes.
-
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
 - [ ] Configurable sensor stale timeout in config.ini

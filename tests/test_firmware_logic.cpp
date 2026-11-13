@@ -8833,6 +8833,201 @@ void testSerialConfigStopsOnShortWrite() {
 }
 
 namespace {
+struct StatusFixture {
+  SwitchBotRegistry registry;
+  ClimateHistory history;
+  DeviceConfig config;
+  SerialStatusSnapshot snap;
+  StatusFixture() {
+    snap.registry = &registry;
+    snap.history = &history;
+    snap.config = &config;
+    snap.battery.valid = true;
+    snap.battery.usb_powered = true;
+    snap.battery.voltage_v = 4.1f;
+    snap.battery.percentage = 90;
+    snap.now_ms = 10000000;
+  }
+  std::string run() const {
+    FakeSink sink;
+    TestRunner::showStatus(sink, snap);
+    return sink.out;
+  }
+  void addSlot(uint8_t id, float temp, uint8_t rh, int8_t bat, int8_t rssi, uint32_t updated_ms) {
+    SwitchBotReading r;
+    r.valid = true;
+    r.mac[5] = id;
+    r.temperature_c = temp;
+    r.humidity_pct = rh;
+    r.battery_pct = bat;
+    r.rssi = rssi;
+    r.updated_ms = updated_ms;
+    assert(registry.upsert(r));
+  }
+};
+
+std::vector<std::string> statusLines(const std::string& out) {
+  std::vector<std::string> lines;
+  size_t at = 0;
+  while (at < out.size()) {
+    const size_t end = out.find('\n', at);
+    lines.push_back(out.substr(at, end - at));
+    at = end + 1;
+  }
+  return lines;
+}
+} // namespace
+
+void testSerialStatusParser() {
+  SerialCommand cmd;
+  assert(parseText("STATUS", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::STATUS);
+  assert(parseText("STATUS\r\n", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::STATUS);
+  assert(parseText("STATUS now", cmd) == SerialParseStatus::UNKNOWN && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("STATUS ", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("STATUSX", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("status", cmd) == SerialParseStatus::UNKNOWN);
+  assert(std::string(SerialConsole::errorLine(SerialParseStatus::UNKNOWN)) == "ERR UNKNOWN\n");
+}
+
+void testSerialStatusEmptyAndMissingValues() {
+  StatusFixture f;
+  const std::vector<std::string> lines = statusLines(f.run());
+  assert(lines.size() == 6);
+  assert(lines[0] == "SENSOR 0 onboard temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
+  assert(lines[1] == "SENSOR 1 slot1 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
+  assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
+  assert(lines[4] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
+  assert(lines[5].rfind("CRC32 ", 0) == 0);
+}
+
+void testSerialStatusStates() {
+  StatusFixture f;
+  f.config.sensor_battery_limit_pct = 10;
+  std::snprintf(f.config.slot_name[0], sizeof(f.config.slot_name[0]), "LIVING ROOM");
+  f.addSlot(1, -5.4f, 61, 80, -70, f.snap.now_ms - 120000); // OK, negative temperature
+  f.addSlot(2, 21.5f, 45, 8, -85, f.snap.now_ms - 60000);   // BATLOW
+  f.addSlot(3, 19.0f, 50, -1, -90, f.snap.now_ms - SENSOR_STALE_TIMEOUT_MS - 1000); // STALE, no battery
+  f.snap.sensor_battery_latch = 0b110; // slot 3 is stale and latched: STALE wins
+  f.history.record(f.snap.now_ms - 300000, true, 44.6f, f.registry, 22.34f);
+  const std::vector<std::string> lines = statusLines(f.run());
+  assert(lines[0] == "SENSOR 0 onboard temp=22.3 rh=45 bat=-- rssi=-- age=300 state=OK");
+  assert(lines[1] == "SENSOR 1 LIVING_ROOM temp=-5.4 rh=61 bat=80 rssi=-70 age=120 state=OK");
+  assert(lines[2] == "SENSOR 2 slot2 temp=21.5 rh=45 bat=8 rssi=-85 age=60 state=BATLOW");
+  assert(lines[3] == "SENSOR 3 slot3 temp=19.0 rh=50 bat=-- rssi=-90 age=1801 state=STALE");
+}
+
+void testSerialStatusOnboardStaleAndOffset() {
+  StatusFixture f;
+  f.config.slot_temp_offset_c[0] = 1.5f;
+  f.addSlot(1, 20.0f, 50, 70, -60, f.snap.now_ms);
+  const uint32_t hour_ms = ClimateHistory::SAMPLE_INTERVAL_MS;
+  f.history.record(f.snap.now_ms - hour_ms - 1000000, true, 40.0f, f.registry, -0.04f); // 1000 s past the hour
+  std::vector<std::string> lines = statusLines(f.run());
+  assert(lines[0] == "SENSOR 0 onboard temp=0.0 rh=40 bat=-- rssi=-- age=4600 state=OK"); // hourly sample is no stale
+  f.snap.now_ms += SENSOR_STALE_TIMEOUT_MS;
+  lines = statusLines(f.run());
+  assert(lines[0] == "SENSOR 0 onboard temp=0.0 rh=40 bat=-- rssi=-- age=6400 state=STALE");
+  // Boundary: age equal to one interval plus the timeout is OK, one millisecond more is STALE.
+  StatusFixture g;
+  g.history.record(g.snap.now_ms - hour_ms - SENSOR_STALE_TIMEOUT_MS, true, 40.0f, g.registry, 20.0f);
+  assert(statusLines(g.run())[0].find("state=OK") != std::string::npos);
+  g.snap.now_ms += 1;
+  assert(statusLines(g.run())[0].find("state=STALE") != std::string::npos);
+  assert(lines[1].find("temp=21.5 ") != std::string::npos);
+}
+
+void testSerialStatusWorstCaseLineLength() {
+  StatusFixture f;
+  f.config.sensor_battery_limit_pct = 50;
+  std::snprintf(f.config.onboard_name, sizeof(f.config.onboard_name), "ABCDEFGHIJKL");
+  for (size_t i = 0; i < 3; ++i) {
+    std::snprintf(f.config.slot_name[i], sizeof(f.config.slot_name[i]), "ABCDEFGHIJK%u", static_cast<unsigned>(i));
+    f.addSlot(static_cast<uint8_t>(i + 1), -99.9f, 100, 100, -128, 0);
+  }
+  f.snap.now_ms = 0xFFFFFFF0u; // the largest age
+  f.history.record(f.snap.now_ms - 1000, true, 100.0f, f.registry, -99.9f);
+  f.snap.alert_mask = 0x7f;
+  f.snap.muted = true;
+  const std::vector<std::string> lines = statusLines(f.run());
+  assert(lines.size() == 6 && lines[4].rfind("POWER ", 0) == 0 && lines[5].size() == 14);
+  for (size_t i = 0; i < 4; ++i) {
+    assert(lines[i].rfind("SENSOR ", 0) == 0 && lines[i].find(" state=") != std::string::npos);
+  }
+  assert(lines[3].find("age=4294967 state=STALE") != std::string::npos);
+}
+
+void testSerialStatusPowerLine() {
+  StatusFixture f;
+  f.snap.battery.usb_powered = false;
+  f.snap.battery.voltage_v = 3.62f;
+  f.snap.battery.percentage = 42;
+  f.snap.alert_mask = 0x25;
+  f.snap.muted = true;
+  std::vector<std::string> lines = statusLines(f.run());
+  assert(lines[4] == "POWER src=BAT v=3.62 pct=42 alerts=25 muted=1");
+  f.snap.battery.valid = false;
+  lines = statusLines(f.run());
+  assert(lines[4] == "POWER src=BAT v=-- pct=-- alerts=25 muted=1");
+}
+
+void testSerialStatusCrcOverAllPriorBytes() {
+  StatusFixture f;
+  f.addSlot(1, 20.0f, 50, 70, -60, f.snap.now_ms - 1000);
+  const std::string out = f.run();
+  const size_t crc_at = out.rfind("CRC32 ");
+  assert(crc_at != std::string::npos && out.size() == crc_at + 6 + 8 + 1 && out.back() == '\n');
+  SerialCrc32 crc;
+  crc.update(reinterpret_cast<const uint8_t*>(out.data()), crc_at);
+  char expected[16];
+  snprintf(expected, sizeof(expected), "%08lx", static_cast<unsigned long>(crc.value()));
+  assert(out.substr(crc_at + 6, 8) == expected);
+}
+
+void testSerialStatusNoCardAccess() {
+  FakeConsoleStorage storage;
+  FakeSink sink;
+  SerialCommand cmd;
+  assert(parseText("STATUS", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, sink, cmd); // a STATUS command never reaches the card
+  assert(storage.mounts == 0 && storage.unmounts == 0 && sink.out.empty());
+  StatusFixture f;
+  FakeSink status_sink;
+  TestRunner::showStatus(status_sink, f.snap);
+  assert(storage.mounts == 0);
+}
+
+void testSerialStatusStopsOnShortWriteAtEachLine() {
+  StatusFixture f;
+  f.addSlot(1, 20.0f, 50, 70, -60, f.snap.now_ms - 1000);
+  const std::string full = f.run();
+  const size_t body = full.rfind("CRC32 ");
+  for (size_t limit = 0; limit < full.size(); ++limit) {
+    FakeSink sink;
+    sink.limit = limit;
+    TestRunner::showStatus(sink, f.snap);
+    assert(sink.out.size() == limit && sink.out == full.substr(0, limit));
+    assert(sink.out.find('\n', body) == std::string::npos); // never a complete CRC line
+  }
+  FakeSink exact; // the body fits, the CRC line does not
+  exact.limit = body;
+  TestRunner::showStatus(exact, f.snap);
+  assert(exact.out.size() == body && exact.out.find("CRC32") == std::string::npos);
+}
+
+void testSerialStatusUsbPowerGate() {
+  BatteryReading usb;
+  usb.valid = true;
+  usb.usb_powered = true;
+  assert(PowerManager::serialConsoleAllowed(usb));
+  BatteryReading bat = usb;
+  bat.usb_powered = false;
+  assert(!PowerManager::serialConsoleAllowed(bat));
+  BatteryReading invalid;
+  invalid.usb_powered = true;
+  assert(!PowerManager::serialConsoleAllowed(invalid));
+}
+
+namespace {
 void fillCalib(ClimateHistory& h, size_t sensor, int hours, float temp, float rh) {
   for (int i = 0; i < hours; ++i) {
     h.temperatures[sensor].pushCelsius(temp);
@@ -11398,6 +11593,16 @@ testSerialConfigRunsWithoutMountingCard();
 testSerialConfigRoundTrip();
 testSerialConfigRejectedLines();
 testSerialConfigStopsOnShortWrite();
+testSerialStatusParser();
+testSerialStatusEmptyAndMissingValues();
+testSerialStatusStates();
+testSerialStatusOnboardStaleAndOffset();
+testSerialStatusWorstCaseLineLength();
+testSerialStatusPowerLine();
+testSerialStatusCrcOverAllPriorBytes();
+testSerialStatusNoCardAccess();
+testSerialStatusStopsOnShortWriteAtEachLine();
+testSerialStatusUsbPowerGate();
 testSerialConfigNegativeSmallOffset();
   testRtcDriftFirstSyncHasNoRate();
   testRtcDriftPositiveNegativeZero();

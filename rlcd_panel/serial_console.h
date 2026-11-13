@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "battery_monitor.h"
 #include "device_config.h"
 #include "sd_logger.h"
 #include "sparkline.h"
@@ -31,7 +32,7 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
@@ -55,7 +56,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "CALIB 0..3" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -93,12 +94,14 @@ public:
     const bool is_list = matches(line, cmd_len, "LIST");
     const bool is_info = matches(line, cmd_len, "INFO");
     const bool is_config = matches(line, cmd_len, "CONFIG");
-    if (is_list || is_info || is_config) {
+    const bool is_status = matches(line, cmd_len, "STATUS");
+    if (is_list || is_info || is_config || is_status) {
       if (cmd_len != len) {
         return SerialParseStatus::UNKNOWN; // these commands take no argument
       }
       out.kind = is_list ? SerialCommandKind::LIST
-                         : (is_info ? SerialCommandKind::INFO : SerialCommandKind::CONFIG);
+                         : (is_info ? SerialCommandKind::INFO
+                                    : (is_config ? SerialCommandKind::CONFIG : SerialCommandKind::STATUS));
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "CALIB")) {
@@ -188,6 +191,18 @@ private:
   bool done_ = false;
 };
 
+// RTC copy of the values that STATUS reports. The pointers stay valid during the call.
+struct SerialStatusSnapshot {
+  const SwitchBotRegistry* registry = nullptr;
+  const ClimateHistory* history = nullptr;
+  const DeviceConfig* config = nullptr;
+  BatteryReading battery;
+  uint8_t alert_mask = 0;
+  uint8_t sensor_battery_latch = 0; // SensorBatteryLatch bits, one per registry slot
+  bool muted = false;
+  uint32_t now_ms = 0; // RTC-backed clock
+};
+
 // Runs one parsed command. Storage mounts the card for the command and unmounts it on every
 // path. Interfaces:
 //   Storage: bool mount(); void unmount(); size_t listLogs(SerialLogEntry*, size_t cap);
@@ -202,6 +217,10 @@ private:
 //   CONFIG -> "key=value" per DeviceConfig setting, "SOURCE <SD|DEFAULT>", "REJECTED line=<n>" for each of the first four rejected lines, then "CRC32 <8 hex
 //   digits>" over all lines before it. showConfig() sends it from the RTC copy: no card access,
 //   so execute() ignores CONFIG.
+//   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>" for index 0
+//   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 3 (slots, calibrated readings), a missing value gives "--";
+//   then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "CRC32 <8 hex digits>" over all lines
+//   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   CALIB N -> "REFERENCE <name>", one "SENSOR <name> hours=<n> temp_offset=<x> rh_offset=<x> temp_diff=<x> rh_diff=<x>" or
 //   "SKIP <name> hours=<n>" per other sensor, the "key=value" lines to paste into config.ini, then "CRC32 <8 hex digits>"
 //   over all lines before it. showCalib() works on the RTC history: no card access, so execute() ignores CALIB.
@@ -307,9 +326,86 @@ public:
     send(sink, line);
   }
 
+  // Sends a live snapshot of all sensors and of the power state. The card stays untouched.
+  static void showStatus(Sink& sink, const SerialStatusSnapshot& snap) {
+    if (snap.registry == nullptr || snap.history == nullptr || snap.config == nullptr) {
+      return;
+    }
+    static const char* const defaults[ClimateHistory::SLOT_COUNT] = {"onboard", "slot1", "slot2", "slot3"};
+    const DeviceConfig& cfg = *snap.config;
+    const SwitchBotRegistry cal = snap.registry->calibrated(cfg.slot_temp_offset_c, cfg.slot_rh_offset_pct);
+    char text[640];
+    size_t len = 0;
+    for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
+      const char* raw = i == 0 ? cfg.onboard_name : cfg.slot_name[i - 1];
+      char name[DeviceConfig::NAME_MAX_CHARS + 1];
+      snprintf(name, sizeof(name), "%s", raw[0] != '\0' ? raw : defaults[i]);
+      for (char* c = name; *c != '\0'; ++c) {
+        *c = *c == ' ' ? '_' : *c;
+      }
+      char temp[12] = "--", rh[8] = "--", bat[8] = "--", rssi[8] = "--", age[12] = "--";
+      const char* state = "EMPTY";
+      if (i == 0) {
+        const ClimateHistory& h = *snap.history;
+        if (h.temperatures[0].size() > 0) {
+          formatTenths(temp, sizeof(temp), h.temperatures[0].at(h.temperatures[0].size() - 1));
+        }
+        if (h.slots[0].size() > 0) {
+          snprintf(rh, sizeof(rh), "%d", static_cast<int>((h.slots[0].at(h.slots[0].size() - 1) + 5) / 10));
+        }
+        if (h.has_sampled && (h.temperatures[0].size() > 0 || h.slots[0].size() > 0)) {
+          const uint32_t since = static_cast<uint32_t>(snap.now_ms - h.last_sample_ms);
+          snprintf(age, sizeof(age), "%lu", static_cast<unsigned long>(since / 1000UL));
+          // The history takes one sample per hour: the onboard sensor is stale after one interval plus the timeout.
+          state = since > ClimateHistory::SAMPLE_INTERVAL_MS + SENSOR_STALE_TIMEOUT_MS ? "STALE" : "OK";
+        }
+      } else {
+        const SwitchBotReading& r = cal.slot(i - 1);
+        if (r.valid) {
+          formatTenths(temp, sizeof(temp), tenths(r.temperature_c));
+          snprintf(rh, sizeof(rh), "%u", static_cast<unsigned>(r.humidity_pct));
+          if (r.battery_pct >= 0) {
+            snprintf(bat, sizeof(bat), "%d", static_cast<int>(r.battery_pct));
+          }
+          snprintf(rssi, sizeof(rssi), "%d", static_cast<int>(r.rssi));
+          snprintf(age, sizeof(age), "%lu", static_cast<unsigned long>(static_cast<uint32_t>(snap.now_ms - r.updated_ms) / 1000UL));
+          state = r.isStale(snap.now_ms) ? "STALE"
+                                         : (SensorBatteryLatch::isSet(snap.sensor_battery_latch, i - 1) ? "BATLOW" : "OK");
+        }
+      }
+      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len,
+                                          "SENSOR %u %s temp=%s rh=%s bat=%s rssi=%s age=%s state=%s\n",
+                                          static_cast<unsigned>(i), name, temp, rh, bat, rssi, age, state));
+      if (len >= sizeof(text)) {
+        return; // a truncated frame has no valid CRC: send nothing
+      }
+    }
+    char volts[12] = "--", pct[8] = "--";
+    if (snap.battery.valid) {
+      snprintf(volts, sizeof(volts), "%.2f", static_cast<double>(snap.battery.voltage_v));
+      if (snap.battery.percentage >= 0) {
+        snprintf(pct, sizeof(pct), "%d", static_cast<int>(snap.battery.percentage));
+      }
+    }
+    len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "POWER src=%s v=%s pct=%s alerts=%02x muted=%u\n",
+                                        snap.battery.usb_powered ? "USB" : "BAT", volts, pct,
+                                        static_cast<unsigned>(snap.alert_mask), snap.muted ? 1u : 0u));
+    if (len >= sizeof(text)) {
+      return;
+    }
+    SerialCrc32 crc;
+    crc.update(reinterpret_cast<const uint8_t*>(text), len);
+    if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+      return;
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
   static void execute(Storage& storage, Sink& sink, const SerialCommand& command) {
     if (command.kind == SerialCommandKind::NONE || command.kind == SerialCommandKind::CONFIG ||
-        command.kind == SerialCommandKind::CALIB) {
+        command.kind == SerialCommandKind::CALIB || command.kind == SerialCommandKind::STATUS) {
       return;
     }
     if (!storage.mount()) {
@@ -323,6 +419,7 @@ public:
       case SerialCommandKind::NONE:
       case SerialCommandKind::CONFIG:
       case SerialCommandKind::CALIB:
+      case SerialCommandKind::STATUS:
       default: break;
     }
     storage.unmount();
