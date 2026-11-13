@@ -551,3 +551,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The new alert `ALERT_SENSOR_BATTERY` (bit 6, value 64) sounds one chime (two low falling notes, 523 Hz and 392 Hz) when the first latch switches on. A second latch does not chime again. The bit clears when all latches are off. Mute, quiet hours and a cleared bit 6 of `chime_alert_mask` suppress the sound only. The mask is stored, so no chime replays later.
 - `chime_alert_mask` now has the range `0` to `127` (default `127`). A card with `63` silences the new chime.
 - RTC state version 29: the audio block grows to 4 bytes. The first byte holds the ventilation bit and the sensor battery alert bit. A new byte holds the three latch bits. The config trailer stores `sensor_battery_limit_pct` after `ventilate_limit_rh`. A corrupt record, a latch bit above bit 2, a flag value above 3 or a limit above 50 gives a clean start.
+
+## Serial console command STATUS with a live sensor snapshot
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
+- The new console command `STATUS` shows all sensor values on the host without a view change. It takes no argument: `STATUS now` gives `ERR UNKNOWN`.
+- The reply has one line `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>` for index `0` (onboard) and for the slots `1` to `3`. A missing value gives `--`. The name is the configured name, or `onboard` and `slot1` to `slot3`; a space in a name becomes `_`.
+- The slot lines show the calibrated readings. The onboard line shows the newest hourly sample of the RTC history, so its `age` is the time since that sample; `bat` and `rssi` are `--`. `state` is `EMPTY` without a reading, `STALE` after 30 minutes without a packet (the onboard line: 90 minutes, one hourly sample interval plus 30 minutes), `BATLOW` when the `SensorBatteryLatch` bit of the slot is set, else `OK`. `STALE` has priority over `BATLOW`. The onboard `age` uses the shared hourly sample time (`ClimateHistory::last_sample_ms`): when only a slot delivered a sample in that hour, an old onboard value shows a small `age`.
+- Then one line `POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>` and the line `CRC32 <8 hex digits>` over all bytes before it.
+- The command reads the RTC copy (`g_state`) only. It does not mount the card and does not stop the clap listener. It runs on USB power only (`PowerManager::serialConsoleAllowed`). A short serial write ends the reply without the `CRC32` line.
+- `./scripts/dump-logs.sh --status [port]` sends `STATUS`, checks the CRC-32 and prints the lines.

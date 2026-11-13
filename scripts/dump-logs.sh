@@ -2,6 +2,7 @@
 # Copies the monthly CSV logs and the yearly daily summary files from the MicroSD card over USB serial.
 # Usage: ./scripts/dump-logs.sh [port]
 #        ./scripts/dump-logs.sh --config [port]   prints the active configuration (CONFIG command)
+#        ./scripts/dump-logs.sh --status [port]   prints the live sensor snapshot (STATUS command)
 # The board answers on USB power only, while it is awake. Press KEY to wake it first.
 set -euo pipefail
 umask 077
@@ -14,6 +15,10 @@ TIMEOUT_S=20
 MODE=dump
 if [[ "${1:-}" == "--config" ]]; then
   MODE=config
+  shift
+fi
+if [[ "${1:-}" == "--status" ]]; then
+  MODE=status
   shift
 fi
 PORT="${1:-}"
@@ -99,6 +104,31 @@ if mode == "config":
     expected = f"CRC32 {zlib.crc32(bytes(body)) & 0xFFFFFFFF:08x}"
     if text != expected:
         raise SystemExit(f"Error: CRC mismatch ({text} / {expected})")
+    sys.stdout.write(body.decode("ascii"))
+    sys.exit(0)
+if mode == "status":
+    # STATUS answers from the RTC copy: SENSOR lines, one POWER line, then the CRC32 line.
+    STATUS_LINE = re.compile(r"^(?:SENSOR [0-3] \S+ temp=\S+ rh=\S+ bat=\S+ rssi=\S+ age=\S+ state=(?:OK|STALE|EMPTY|BATLOW)"
+                             r"|POWER src=(?:USB|BAT) v=\S+ pct=\S+ alerts=[0-9a-f]{2} muted=[01])$")
+    command("STATUS")
+    deadline = time.time() + timeout_s
+    body = bytearray()
+    while True:
+        text = line(deadline)
+        if text.startswith("ERR "):
+            raise SystemExit("Error: " + text)
+        if text.startswith("CRC32 "):
+            break
+        if STATUS_LINE.match(text):
+            body.extend(text.encode("ascii") + b"\n")
+        else:
+            print(f"Warning: ignored line ({text!r})", file=sys.stderr)
+    expected = f"CRC32 {zlib.crc32(bytes(body)) & 0xFFFFFFFF:08x}"
+    if text != expected:
+        raise SystemExit(f"Error: CRC mismatch ({text} / {expected})")
+    rows = body.decode("ascii").splitlines()
+    if [r.split(" ")[1] for r in rows[:4]] != ["0", "1", "2", "3"] or len(rows) != 5 or not rows[4].startswith("POWER "):
+        raise SystemExit("Error: incomplete STATUS reply (expected 4 SENSOR lines and 1 POWER line)")
     sys.stdout.write(body.decode("ascii"))
     sys.exit(0)
 command("LIST")

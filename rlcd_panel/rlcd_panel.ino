@@ -787,6 +787,21 @@ void setup() {
         // The RTC histories answer: no card access, so the clap listener keeps running.
         SerialConsoleRunner<SdLogStorage, SerialSink>::showCalib(console_sink, command.reference, g_state.history,
                                                                  g_state.config);
+      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::STATUS) {
+        // The RTC copy answers: no card access, so the clap listener keeps running.
+        portENTER_CRITICAL(&g_registry_mux); // the BLE callback writes the registry
+        const SwitchBotRegistry registry_copy = g_state.registry;
+        portEXIT_CRITICAL(&g_registry_mux);
+        SerialStatusSnapshot snap;
+        snap.registry = &registry_copy;
+        snap.history = &g_state.history;
+        snap.config = &g_state.config;
+        snap.battery = g_state.battery;
+        snap.alert_mask = g_state.alert_mask;
+        snap.sensor_battery_latch = g_state.sensor_battery_latch;
+        snap.muted = g_state.muted;
+        snap.now_ms = nowMs();
+        SerialConsoleRunner<SdLogStorage, SerialSink>::showStatus(console_sink, snap);
       } else if (status == SerialParseStatus::OK) {
         clap_listener.release(); // keep the I2S bus idle while the card transfers
         SerialConsoleRunner<SdLogStorage, SerialSink>::execute(console_storage, console_sink, command);
