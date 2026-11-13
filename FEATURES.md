@@ -170,6 +170,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
   | `wake_interval_s` | `60` | `30` to `900` | seconds between two scans on battery power; USB power keeps `60` |
   | `sensor_stale_min` | `30` | `5` to `240` | minutes without a packet until a sensor is stale |
   | `display_invert` | `0` | `0` or `1` | `1` shows light text on a dark background |
+  | `slot_release_h` | `0` | `0` to `168` | hours without a packet until a slot without a fixed MAC is released; `0` is off |
   | `climate_alert_tiles` | `15` | `0` to `15` | tiles of the freezer and mold alerts (bit 0 onboard, bits 1 to 3 slots 1 to 3); `0` switches both alerts off |
   | `outdoor_slot` | `0` | `0` (off) to `3` | registry slot of the outdoor sensor for the ventilation advice |
 
@@ -701,3 +702,17 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `DeviceConfigParser::KEYS` is the table of all 33 keys. `KEY_COUNT` is its size.
 - The host test `testConfigExampleTemplateInSync` reads the file. It checks that the parse gives no rejected line, that the result equals the defaults of `DeviceConfig`, and that each key of `KEYS` appears in the file. It also checks that the parser knows each key of `KEYS`.
 - The test fails when a key is missing in the file, when a value is not the default, when the file has more than 4096 bytes, and when a line is rejected. A new key in the parser needs an entry in `KEYS` and in the template.
+
+## Automatic release of a dead sensor slot
+
+- **Code:** `rlcd_panel/switchbot_ble.h`, `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `docs/config.example.ini`, `tests/test_firmware_logic.cpp`
+- The `config.ini` key `slot_release_h` has the default `0` (off) and the range `0` to `168` hours. A malformed or out-of-range value is rejected and counts in `ConfigRejects`.
+- `PersistentState::releaseDeadSlots` runs once in each wake cycle, before the BLE scan. A slot without a fixed MAC and without a packet for `slot_release_h` hours or longer is released. The 32-bit clock wrap does not change the result.
+- A released slot loses its reading, its two 24-hour histories, its ventilation latch bit and its battery latch bit (`PersistentState::resetSlot`). The free slot takes the next new sensor.
+- A slot with a fixed MAC never releases. The key `0` never releases.
+- A release time below `sensor_stale_min` releases the slot before it turns stale. Then `ALERT_SENSOR_LOST` does not fire for this slot.
+- The release clears `ALERT_SENSOR_LOST` for this slot. No chime sounds, because the chime plays only for a new alert.
+- `PersistentState` stores the key in the config trailer (1 byte, after `battery_offset_mv`). `STATE_VERSION` is 35. A corrupt field and a record of version 34 give a clean start.
+- The console command `CONFIG` and `DeviceConfigText` list the key `slot_release_h`. `docs/config.example.ini` and `DeviceConfigParser::KEYS` list it too.
+- Thus a removed sensor does not block a slot and does not keep the sensor lost alert until the next power-on.
+- Host tests cover the parser for the default, the edges `0` and `168`, the value `169` and a malformed value, the release at the exact time and over the clock wrap, no release before the time, no release with the key `0`, no release of a fixed MAC slot, the cleared histories and latches, the cleared `ALERT_SENSOR_LOST` bit, a new sensor in the released slot, the `CONFIG` line and its parse back, and the RTC round trip with a corrupt field and the old state version 34.

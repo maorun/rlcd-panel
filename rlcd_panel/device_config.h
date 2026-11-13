@@ -63,6 +63,8 @@ struct DeviceConfig {
   static constexpr int16_t DEFAULT_BATTERY_OFFSET_MV = 0; // added to the cell voltage before every battery limit
   static constexpr int16_t MIN_BATTERY_OFFSET_MV = -300;
   static constexpr int16_t MAX_BATTERY_OFFSET_MV = 300;
+  static constexpr uint8_t DEFAULT_SLOT_RELEASE_H = 0; // 0 keeps a silent slot for ever
+  static constexpr uint8_t MAX_SLOT_RELEASE_H = 168;
   static constexpr uint8_t DEFAULT_DISPLAY_INVERT = 0; // 1 shows light text on a dark background
   static constexpr uint8_t MAX_DISPLAY_INVERT = 1;
   static constexpr uint8_t DEFAULT_CLIMATE_ALERT_TILES = 15; // all four tiles feed the freezer and mold alerts
@@ -108,7 +110,13 @@ struct DeviceConfig {
   uint16_t sensor_stale_min = DEFAULT_SENSOR_STALE_MIN; // minutes without a packet until a sensor is stale, 5..240
   uint8_t display_invert = DEFAULT_DISPLAY_INVERT; // 1 inverts the framebuffer before each flush, 0..1
   int16_t battery_offset_mv = DEFAULT_BATTERY_OFFSET_MV; // corrects divider and ADC tolerance, -300..300 mV
+  uint8_t slot_release_h = DEFAULT_SLOT_RELEASE_H; // hours without a packet until a slot without a fixed MAC is released, 0 = off, else 1..168
   uint8_t climate_alert_tiles = DEFAULT_CLIMATE_ALERT_TILES; // bit 0 onboard, bits 1..3 slots 1..3: tiles of the freezer and mold alerts, 0..15
+
+  // Release time in ms of a silent slot without a fixed MAC (0 = never). 168 h fit into 32 bits.
+  uint32_t slotReleaseMs() const {
+    return static_cast<uint32_t>(slot_release_h) * 3600000UL;
+  }
 
   // Stale timeout in ms for every SwitchBotReading::isStale call. A value below one wake interval plus
   // the scan duration would mark each sensor stale between two scans, so the sum is the lower bound.
@@ -204,7 +212,8 @@ struct DeviceConfig {
            wake_interval_s >= MIN_WAKE_INTERVAL_S && wake_interval_s <= MAX_WAKE_INTERVAL_S &&
            sensor_stale_min >= MIN_SENSOR_STALE_MIN && sensor_stale_min <= MAX_SENSOR_STALE_MIN &&
            display_invert <= MAX_DISPLAY_INVERT && climate_alert_tiles <= MAX_CLIMATE_ALERT_TILES &&
-           battery_offset_mv >= MIN_BATTERY_OFFSET_MV && battery_offset_mv <= MAX_BATTERY_OFFSET_MV;
+           battery_offset_mv >= MIN_BATTERY_OFFSET_MV && battery_offset_mv <= MAX_BATTERY_OFFSET_MV &&
+           slot_release_h <= MAX_SLOT_RELEASE_H;
   }
 
   bool isDefault() const {
@@ -230,7 +239,8 @@ struct DeviceConfig {
            ventilate_limit_rh == d.ventilate_limit_rh && sensor_battery_limit_pct == d.sensor_battery_limit_pct &&
            ntp_sync_interval_h == d.ntp_sync_interval_h && wake_interval_s == d.wake_interval_s &&
            sensor_stale_min == d.sensor_stale_min && display_invert == d.display_invert &&
-           climate_alert_tiles == d.climate_alert_tiles && battery_offset_mv == d.battery_offset_mv;
+           climate_alert_tiles == d.climate_alert_tiles && battery_offset_mv == d.battery_offset_mv &&
+           slot_release_h == d.slot_release_h;
   }
 };
 
@@ -278,7 +288,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 4096;
-  static constexpr size_t KEY_COUNT = 33;
+  static constexpr size_t KEY_COUNT = 34;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -293,6 +303,7 @@ public:
       "slot2_rh_offset_pct", "slot3_rh_offset_pct", "onboard_name",
       "slot1_name", "slot2_name", "slot3_name",
       "slot1_mac", "slot2_mac", "slot3_mac",
+      "slot_release_h",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -602,6 +613,9 @@ private:
       index = 32;
       ok = parseIntIn(val, val_len, DeviceConfig::MIN_BATTERY_OFFSET_MV, DeviceConfig::MAX_BATTERY_OFFSET_MV,
                       cfg.battery_offset_mv);
+    } else if (keyIs(key, key_len, "slot_release_h")) {
+      index = 33;
+      ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_SLOT_RELEASE_H, cfg.slot_release_h);
     } else if (keyIs(key, key_len, "outdoor_slot")) {
       index = 26;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_OUTDOOR_SLOT, cfg.outdoor_slot);
@@ -666,6 +680,7 @@ public:
     ok = ok && putInt(out, cap, pos, "display_invert", cfg.display_invert);
     ok = ok && putInt(out, cap, pos, "climate_alert_tiles", cfg.climate_alert_tiles);
     ok = ok && putSignedInt(out, cap, pos, "battery_offset_mv", cfg.battery_offset_mv);
+    ok = ok && putInt(out, cap, pos, "slot_release_h", cfg.slot_release_h);
     ok = ok && putInt(out, cap, pos, "outdoor_slot", cfg.outdoor_slot);
     ok = ok && putInt(out, cap, pos, "ventilate_limit_rh", cfg.ventilate_limit_rh);
     ok = ok && putInt(out, cap, pos, "sensor_battery_limit_pct", cfg.sensor_battery_limit_pct);

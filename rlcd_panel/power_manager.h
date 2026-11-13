@@ -129,6 +129,37 @@ struct PersistentState {
     }
   }
 
+  // Releases each slot without a fixed MAC whose last packet is `slot_release_h` hours old or older: the
+  // slot loses its reading, histories and latches (resetSlot) and takes the next new sensor. A slot with
+  // a fixed MAC never releases; key 0 is off. Runs once per wake cycle before the BLE scan, so
+  // ALERT_SENSOR_LOST no longer sees the slot. Returns a bit mask of the released slots. A value below
+  // sensor_stale_min releases the slot before it turns stale, so the alert never fires for it. The caller
+  // runs timestampsConsistent() first: a reading stamped in the future would release at once.
+  uint8_t releaseDeadSlots(uint32_t now_ms) {
+    const uint32_t release_ms = config.slotReleaseMs();
+    uint8_t released = 0;
+    for (size_t i = 0; release_ms != 0 && i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (config.hasSlotMac(i) || registry.isFixed(i) || !slotExpired(registry.slot(i), now_ms, release_ms)) {
+        continue;
+      }
+      resetSlot(i);
+      released = static_cast<uint8_t>(released | (1u << i));
+    }
+    return released;
+  }
+
+  // Clears the reading, both 24-hour histories and the battery and ventilation latches of slot `index`.
+  void resetSlot(size_t index) {
+    if (index >= MAX_SWITCHBOT_SENSORS) {
+      return;
+    }
+    registry.clearSlot(index);
+    sensor_battery_latch = static_cast<uint8_t>(sensor_battery_latch & ~(1u << index));
+    ventilate_tiles = static_cast<uint8_t>(ventilate_tiles & ~(2u << index));
+    history.slots[1 + index].clear();
+    history.temperatures[1 + index].clear();
+  }
+
 private:
   // True when the reading of slot `index` breaks a fixed MAC.
   bool breaksFixedMac(size_t index) const {
@@ -141,12 +172,6 @@ private:
     return !probe.consistent();
   }
 
-  void resetSlot(size_t index) {
-    registry.clearSlot(index);
-    sensor_battery_latch = static_cast<uint8_t>(sensor_battery_latch & ~(1u << index));
-    history.slots[1 + index].clear();
-    history.temperatures[1 + index].clear();
-  }
 };
 
 struct WakeupPlan {
@@ -260,7 +285,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 34;
+  static constexpr uint8_t STATE_VERSION = 35;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -292,8 +317,8 @@ public:
   // Rejected config.ini lines: the count (one byte), then four 16-bit line numbers.
   static constexpr size_t REJECTS_SIZE = 1 + ConfigRejects::MAX_LINES * 2;
   // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
-  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, ventilate limit, sensor battery limit, display invert, climate alert tiles, RH offset (float), three slot temperature offsets and three slot RH offsets (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
-  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 4 + 6 * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
+  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, ventilate limit, sensor battery limit, display invert, climate alert tiles, battery offset (int16), slot release hours, RH offset (float), three slot temperature offsets and three slot RH offsets (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
+  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 1 + 4 + 6 * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
   // Header: magic, version, mode, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -540,6 +565,7 @@ public:
     out[pos++] = state.config.climate_alert_tiles;
     out[pos++] = static_cast<uint8_t>(static_cast<uint16_t>(state.config.battery_offset_mv) & 0xFF);
     out[pos++] = static_cast<uint8_t>(static_cast<uint16_t>(state.config.battery_offset_mv) >> 8);
+    out[pos++] = state.config.slot_release_h;
     putFloat(out, pos, state.config.rh_offset_pct);
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       putFloat(out, pos, state.config.slot_temp_offset_c[i]);
@@ -801,6 +827,7 @@ public:
     s.config.climate_alert_tiles = data[pos++];
     s.config.battery_offset_mv = static_cast<int16_t>(static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8)));
     pos += 2;
+    s.config.slot_release_h = data[pos++];
     s.config.rh_offset_pct = getFloat(data, pos);
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       s.config.slot_temp_offset_c[i] = getFloat(data, pos);
