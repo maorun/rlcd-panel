@@ -32,6 +32,17 @@ jobs:
           "${RUNNER_TEMP}/render_display_preview" --all "${RUNNER_TEMP}/previews"
           ls -l "${RUNNER_TEMP}/previews"
 
+      - name: Check the sample config.ini
+        run: |
+          ./scripts/check-config.sh tools/sample_config.ini
+          printf 'chime_volume_pct=abc\n' > "${RUNNER_TEMP}/bad.ini"
+          status=0
+          ./scripts/check-config.sh "${RUNNER_TEMP}/bad.ini" || status=$?
+          test "${status}" -eq 1
+          status=0
+          ./scripts/check-config.sh "${RUNNER_TEMP}/missing.ini" || status=$?
+          test "${status}" -eq 2
+
   firmware-compile:
     name: Firmware compile
     if: github.event_name == 'workflow_dispatch'

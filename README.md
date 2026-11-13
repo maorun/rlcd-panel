@@ -160,6 +160,8 @@ The onboard `ES8311` DAC and speaker play a short chime when a sensor crosses a 
 
 Put an optional `config.ini` in the root of the MicroSD card. The board reads it on power-on and on a `KEY` wakeup. Timer wakeups use the stored copy. The diagnostics view shows `CONFIG: SD` or `CONFIG: DEFAULT`.
 
+Check a `config.ini` on the host before you copy it to the card: `./scripts/check-config.sh <file>`. The script builds `tools/check_config.cpp` and runs the firmware parser. It prints the accepted values, then `REJECTED line=<N>` for each of the first four rejected lines and `REJECTED count=<N>`. The exit code is `0` for no rejected line, `1` for rejected lines and `2` for a missing file or a file above 4096 bytes. The sample file is `tools/sample_config.ini`.
+
 ```ini
 # Lines with # or ; are comments
 temp_offset_c=-1.9

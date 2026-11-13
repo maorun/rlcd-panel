@@ -705,4 +705,47 @@ private:
   }
 };
 
+// Host check of a config.ini text (tools/check_config.cpp). It runs DeviceConfigParser with the
+// firmware rules and writes the report: the accepted values as DeviceConfigText, then one line
+// "REJECTED line=<N>" for each recorded line and "REJECTED count=<N>". The exit code is 0 for no
+// rejected line, 1 for rejected lines and 2 for a file above DeviceConfigParser::MAX_FILE_SIZE
+// (the report is then one ERROR line). The code needs no Arduino header.
+class DeviceConfigCheck {
+public:
+  static constexpr int EXIT_OK = 0;
+  static constexpr int EXIT_REJECTED = 1;
+  static constexpr int EXIT_UNUSABLE = 2;
+  // Enough for the longest report: the values, four line numbers and the count.
+  static constexpr size_t MAX_REPORT_SIZE = DeviceConfigText::MAX_SIZE + 128;
+
+  // Returns the exit code. `out` always holds a terminated string, empty when `cap` is 0.
+  static int run(const char* data, size_t len, char* out, size_t cap) {
+    if (out == nullptr || cap == 0) {
+      return EXIT_UNUSABLE;
+    }
+    out[0] = '\0';
+    DeviceConfig cfg;
+    const ConfigParseResult result = DeviceConfigParser::parse(data, len, cfg);
+    if (!result.file_ok) {
+      snprintf(out, cap, "ERROR file above %u bytes\n", static_cast<unsigned>(DeviceConfigParser::MAX_FILE_SIZE));
+      return EXIT_UNUSABLE;
+    }
+    size_t pos = DeviceConfigText::format(cfg, out, cap);
+    const ConfigRejects rejects = result.rejects();
+    for (size_t i = 0; i < rejects.recorded() && pos < cap; ++i) {
+      pos += append(out, cap, pos, "REJECTED line=%u\n", static_cast<unsigned>(rejects.lines[i]));
+    }
+    if (pos < cap) {
+      append(out, cap, pos, "REJECTED count=%u\n", static_cast<unsigned>(rejects.count));
+    }
+    return rejects.count == 0 ? EXIT_OK : EXIT_REJECTED;
+  }
+
+private:
+  static size_t append(char* out, size_t cap, size_t pos, const char* fmt, unsigned value) {
+    const int n = snprintf(out + pos, cap - pos, fmt, value);
+    return n < 0 ? 0 : static_cast<size_t>(n);
+  }
+};
+
 } // namespace rlcd_panel
