@@ -209,6 +209,8 @@ The firmware appends one CSV record per hour to `/climate_v4_YYYYMM.csv` on the 
 
 On USB power the board answers console commands while it is awake. `./scripts/dump-logs.sh --history [port]` sends `HISTORY`, checks the CRC-32 and writes the last 24 hours of all sensors to `sd_logs/history_<host time>.csv` (columns `sensor,age_h,temp_c,rh_pct,noise_db`; sensor `0` is the onboard sensor, `age_h` `0` is the newest sample; a missing sample gives an empty field). The command reads the RTC copy only, so it needs no MicroSD card. The code is in `rlcd_panel/serial_console.h`.
 
+The console command `VERSION` shows the build identity: `VERSION fw=<version> git=<hash> core=3.3.12 state=<STATE_VERSION> built=<YYYY-MM-DDTHH:MM:SS>`, then a `CRC32` line. `./scripts/flash-firmware.sh` sets the short Git hash (`-dirty` for uncommitted changes); a build without it, for example in CI, shows `git=unknown`. The command reads constants only, so it needs no MicroSD card. The code is in `rlcd_panel/firmware_version.h` and `rlcd_panel/serial_console.h`.
+
 ## Ambient Noise Monitor
 
 The onboard `ES7210` ADC and the dual microphone array measure the ambient noise level. The diagnostics view (third `KEY` view) shows `QUIET`, `MODERATE` or `LOUD` and the level in dBFS. The firmware measures a 5 s window after a `KEY` wakeup or a power-on, only while this view is on screen. A timer wakeup measures only when the hourly CSV record is due (see "MicroSD Noise Logging"); otherwise the microphones stay off. The levels are relative to full scale, not calibrated sound pressure levels. The code is in `rlcd_panel/es7210_mic.h`.

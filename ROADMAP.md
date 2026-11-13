@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
 
-- [ ] Serial console command VERSION with the build identity
-  - Rank: [Total: 31, Use: 4, Setup: 9, Harmony: 8, Safety: 10, Effort: S]
-  - Location: `rlcd_panel/firmware_version.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/flash-firmware.sh`, `tests/test_firmware_logic.cpp`
-  - Goal: Add `rlcd_panel/firmware_version.h` with the constant `FIRMWARE_VERSION` (semantic version, start at `1.0.0`) and the macro `RLCD_GIT_HASH` (default `unknown`). `scripts/flash-firmware.sh` passes the short Git hash with `--build-property` and adds `-dirty` for a changed working tree. Add the console command `VERSION` without an argument. It replies `VERSION fw=<version> git=<hash> core=3.3.12 state=<STATE_VERSION> built=<YYYY-MM-DDTHH:MM:SS>` and the `CRC32` line. The build time comes from `__DATE__` and `__TIME__` through `Pcf85063Codec::fromCompileStamp`. The command runs on USB power only and does not mount the card. A CI build without the property shows `git=unknown`. Thus the user knows which firmware runs on the panel.
-  - Acceptance test: Host tests cover the parser, the rejection of `VERSION` with arguments, the reply format, the default hash, the build time text from a fixed compile stamp, the CRC-32 line, and the USB power gate. `arduino-cli compile rlcd_panel` passes with and without the build property.
-
 - [ ] Reset reason and abnormal reset counter in STATUS
   - Rank: [Total: 31, Use: 4, Setup: 9, Harmony: 9, Safety: 9, Effort: M]
   - Location: `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`

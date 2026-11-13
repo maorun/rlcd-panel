@@ -17,6 +17,7 @@
 #include "dashboard_view.h"
 #include "device_config.h"
 #include "es7210_mic.h"
+#include "firmware_version.h"
 #include "ntp_sync.h"
 #include "pcf85063_rtc.h"
 #include "power_manager.h"
@@ -834,6 +835,11 @@ void setup() {
         // The RTC histories answer: no card access, so the clap listener keeps running.
         SerialConsoleRunner<SdLogStorage, SerialSink>::showHistory(console_sink, g_state.history,
                                                                    g_state.noise_history);
+      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::VERSION) {
+        // Constants answer: no card access, so the clap listener keeps running.
+        SerialConsoleRunner<SdLogStorage, SerialSink>::showVersion(console_sink, FIRMWARE_VERSION, RLCD_GIT_HASH,
+                                                                   ARDUINO_CORE_VERSION, PowerManager::STATE_VERSION,
+                                                                   __DATE__, __TIME__);
       } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::STATUS) {
         // The RTC copy answers: no card access, so the clap listener keeps running.
         portENTER_CRITICAL(&g_registry_mux); // the BLE callback writes the registry

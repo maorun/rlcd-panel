@@ -34,7 +34,7 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
@@ -60,7 +60,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..6", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..6", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "VERSION" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -99,6 +99,13 @@ public:
     const bool is_info = matches(line, cmd_len, "INFO");
     const bool is_config = matches(line, cmd_len, "CONFIG");
     const bool is_status = matches(line, cmd_len, "STATUS");
+    if (matches(line, cmd_len, "VERSION")) {
+      if (cmd_len != len) {
+        return SerialParseStatus::UNKNOWN; // VERSION takes no argument
+      }
+      out.kind = SerialCommandKind::VERSION;
+      return SerialParseStatus::OK;
+    }
     if (matches(line, cmd_len, "HISTORY")) {
       if (cmd_len != len) {
         return SerialParseStatus::UNKNOWN; // HISTORY takes no argument
@@ -301,6 +308,8 @@ struct SerialStatusSnapshot {
 //   TIME SET <YYYY-MM-DDTHH:MM:SS> -> "OK TIME" after the write (the write clears the oscillator stop flag and the
 //   RtcDrift baseline), or "ERR RTC_FAILED". A bad format or date or a year outside 2025 to 2099 gives "ERR BAD_ARG"
 //   from the parser. showTime() and setTime() need no card: execute() ignores TIME.
+//   VERSION -> "VERSION fw=<version> git=<hash> core=<core> state=<STATE_VERSION> built=<YYYY-MM-DDTHH:MM:SS>", then "CRC32 <8 hex
+//   digits>" over that line. The build time comes from __DATE__ and __TIME__. showVersion() needs no card: execute() ignores VERSION.
 //   CALIB N -> "REFERENCE <name>", one "SENSOR <name> hours=<n> temp_offset=<x> rh_offset=<x> temp_diff=<x> rh_diff=<x>" or
 //   "SKIP <name> hours=<n>" per other sensor, the "key=value" lines to paste into config.ini, then "CRC32 <8 hex digits>"
 //   over all lines before it. showCalib() works on the RTC history: no card access, so execute() ignores CALIB.
@@ -552,6 +561,34 @@ public:
     send(sink, line);
   }
 
+  // Sends the build identity. `date` and `time` are the compiler stamps __DATE__ and __TIME__; an unreadable stamp
+  // gives built=unknown. The text stays below 128 bytes; a longer hash is cut by the format, so no frame is truncated.
+  static void showVersion(Sink& sink, const char* fw, const char* git, const char* core, uint8_t state_version,
+                          const char* date, const char* time) {
+    char built[24] = "unknown";
+    RtcTime stamp;
+    if (Pcf85063Codec::fromCompileStamp(date, time, stamp)) {
+      snprintf(built, sizeof(built), "%04u-%02u-%02uT%02u:%02u:%02u", static_cast<unsigned>(stamp.year),
+               static_cast<unsigned>(stamp.month), static_cast<unsigned>(stamp.day), static_cast<unsigned>(stamp.hour),
+               static_cast<unsigned>(stamp.minute), static_cast<unsigned>(stamp.second));
+    }
+    char text[128];
+    const int n = snprintf(text, sizeof(text), "VERSION fw=%.16s git=%.24s core=%.16s state=%u built=%s\n", fw, git,
+                           core, static_cast<unsigned>(state_version), built);
+    if (n <= 0 || static_cast<size_t>(n) >= sizeof(text)) {
+      return; // a truncated frame has no valid CRC: send nothing
+    }
+    const size_t len = static_cast<size_t>(n);
+    SerialCrc32 crc;
+    crc.update(reinterpret_cast<const uint8_t*>(text), len);
+    if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+      return;
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
   // Writes a parsed local time to the RTC. The write clears the oscillator stop flag. After a successful write the
   // drift baseline is void, as after the seed from the compile stamp, so the next NTP sync measures no false drift.
   // A failed write leaves the baseline untouched. The NTP schedule is not touched.
@@ -605,7 +642,7 @@ public:
     if (command.kind == SerialCommandKind::NONE || command.kind == SerialCommandKind::CONFIG ||
         command.kind == SerialCommandKind::CALIB || command.kind == SerialCommandKind::STATUS ||
         command.kind == SerialCommandKind::BEEP || command.kind == SerialCommandKind::TIME ||
-        command.kind == SerialCommandKind::HISTORY) {
+        command.kind == SerialCommandKind::HISTORY || command.kind == SerialCommandKind::VERSION) {
       return;
     }
     if (!storage.mount()) {
@@ -623,6 +660,7 @@ public:
       case SerialCommandKind::BEEP:
       case SerialCommandKind::TIME:
       case SerialCommandKind::HISTORY:
+      case SerialCommandKind::VERSION:
       default: break;
     }
     storage.unmount();

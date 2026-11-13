@@ -18,11 +18,18 @@ if [[ -z "${PORT}" ]]; then
   exit 1
 fi
 
+# Read the build identity before the preview script changes tracked files. Untracked files do not count.
+GIT_HASH="$(git -C "${REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+if [[ "${GIT_HASH}" != "unknown" && -n "$(git -C "${REPO_ROOT}" status --porcelain --untracked-files=no 2>/dev/null)" ]]; then
+  GIT_HASH="${GIT_HASH}-dirty"
+fi
+
 echo "=== 1. Generating Display Preview Image ==="
 "${REPO_ROOT}/scripts/generate-display-preview.sh"
 
-echo "=== 2. Compiling Firmware ==="
-arduino-cli compile "${REPO_ROOT}/rlcd_panel"
+echo "=== 2. Compiling Firmware (git ${GIT_HASH}) ==="
+# arduino-cli removes one quote level itself, so the hash needs a plain double quote pair.
+arduino-cli compile --build-property "compiler.cpp.extra_flags=-DRLCD_GIT_HASH=\"${GIT_HASH}\"" "${REPO_ROOT}/rlcd_panel"
 
 echo "=== 3. Uploading Firmware to ${PORT} ==="
 arduino-cli upload -p "${PORT}" "${REPO_ROOT}/rlcd_panel"
