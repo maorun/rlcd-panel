@@ -27,6 +27,7 @@
 #include "st7305_panel.h"
 #include "switchbot_ble.h"
 #include "bthome_ble.h"
+#include "atc_ble.h"
 
 using namespace rlcd_panel;
 
@@ -116,10 +117,35 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
     portEXIT_CRITICAL(&g_registry_mux);
   }
 
+  // Xiaomi sensors with ATC or pvvx firmware carry their MAC address in the packet.
+  static void handleAtc(BLEAdvertisedDevice& advertisedDevice) {
+    const String svc = advertisedDevice.getServiceData();
+    SwitchBotReading reading;
+    if (!AtcBleParser::parseServiceData(
+            ATC_SERVICE_UUID,
+            reinterpret_cast<const uint8_t*>(svc.c_str()),
+            svc.length(),
+            reading)) {
+      return;
+    }
+    reading.rssi = SwitchBotBleParser::clampRssi(advertisedDevice.getRSSI());
+    reading.updated_ms = nowMs();
+
+    portENTER_CRITICAL(&g_registry_mux);
+    g_state.registry.upsert(reading);
+    g_scan_completion.onPacket(g_state.registry, reading);
+    portEXIT_CRITICAL(&g_registry_mux);
+  }
+
   void onResult(BLEAdvertisedDevice advertisedDevice) override {
     if (advertisedDevice.haveServiceData() &&
         advertisedDevice.getServiceDataUUID().equals(BLEUUID(BTHOME_SERVICE_UUID))) {
       handleBtHome(advertisedDevice);
+      return;
+    }
+    if (advertisedDevice.haveServiceData() &&
+        advertisedDevice.getServiceDataUUID().equals(BLEUUID(ATC_SERVICE_UUID))) {
+      handleAtc(advertisedDevice);
       return;
     }
 

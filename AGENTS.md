@@ -11,6 +11,7 @@
 - `rlcd_panel/battery_monitor.h`: 18650 Li-ion battery voltage and percentage decoder (`GPIO4` ADC1_CH3 with 3.0× divider).
 - `rlcd_panel/battery_monitor.h` also holds `CycleTracker` (charge cycle counter: 100 points of discharge are one cycle; NVS key `cycle_count`, one write per charge event or whole cycle) and `CycleStore`.
 - `rlcd_panel/switchbot_ble.h`: Header-only BLE parser (`Company ID 0x0969` Manufacturer Data + `UUID 0xFD3D` Service Data) and 3-slot sensor registry. `SwitchBotRegistry::anyStale` feeds `ALERT_SENSOR_LOST` (one 440 Hz note when a valid slot is stale for 30 min).
+- `rlcd_panel/atc_ble.h`: Header-only parser `AtcBleParser` for Xiaomi thermometers with custom firmware (`UUID 0x181A` Service Data). The length selects the format: 13 bytes ATC (MAC, temperature and battery mV big-endian), 15 bytes pvvx (little-endian). Other lengths, a temperature outside -50 to 100 °C, a humidity above 100 %RH and a battery above 100 % are rejected. The readings use the `SwitchBotRegistry` slots.
 - `rlcd_panel/sparkline.h`: Header-only 24-hour relative humidity trend: `HumidityHistory` (24 hourly samples, 0.1 %RH steps, 0 to 100 %RH), `ClimateHistory` (onboard + 3 SwitchBot slots, hourly gate) and the `Sparkline` scaler and renderer (`MIN_SPAN` 5.0 %RH).
 - `rlcd_panel/st7305_framebuffer.h`: Header-only 400×300 1-bpp framebuffer (`15,000` bytes) with `ST7305` 2×4 block pixel packing and 5×7 text primitives.
 - `rlcd_panel/st7305_panel.h`: ESP32-S3 hardware SPI driver for the `ST7305` RLCD controller.

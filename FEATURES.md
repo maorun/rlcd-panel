@@ -636,3 +636,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The exit code is `0` for a file without rejected lines. It is `1` for rejected lines. It is `2` for a missing file or a file above 4096 bytes. In the case of exit code `2` the tool writes one `ERROR` line to stderr and no values.
 - The CI job `host-tests` runs the script on `tools/sample_config.ini`. Thus the user finds a bad line on the host and not after a reboot of the panel.
 - Host tests cover a valid file, a malformed value, an out-of-range value, more than four rejected lines, an empty file, a file at the limit and a file above 4096 bytes, a report buffer that is too small, and the exit codes 0, 1 and 2.
+
+## Xiaomi thermometer support with ATC and pvvx firmware
+
+- **Code:** `rlcd_panel/atc_ble.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `README.md`, `AGENTS.md`
+- `AtcBleParser` (`rlcd_panel/atc_ble.h`) decodes Service Data (`UUID 0x181A`) of Xiaomi thermometers, for example the `LYWSD03MMC`, with ATC or pvvx custom firmware.
+- The length of the payload selects the format. A payload of 13 bytes is ATC: MAC, temperature (`int16`, 0.1 °C), humidity (`uint8`, %), battery (%), battery in mV and counter, all big-endian. A payload of 15 bytes is pvvx: MAC, temperature (`int16`, 0.01 °C), humidity (`uint16`, 0.01 %), battery in mV, battery (%), counter and flags, all little-endian.
+- The reading stores the MAC in big-endian order for both formats.
+- The parser rejects other lengths, a temperature outside -50 to 100 °C, a humidity above 100 %RH, a battery above 100 %, a wrong UUID, a null payload and an all-zero MAC. A rejected packet leaves an invalid reading.
+- The scan callback in `rlcd_panel.ino` processes each advertisement with `UUID 0x181A` like a BTHome advertisement. The firmware still reads only the first Service Data entry of an advertisement.
+- The UUID `0x181A` is generic. Another device with a 13-byte or 15-byte payload in range can take a free slot. Fix a slot to a MAC in `config.ini` to prevent this.
+- The new sensors use the same registry slots, fixed MAC rule, offsets, latches and stale rule as the other sensors.
+- Host tests cover an ATC packet and a pvvx packet, negative temperatures in both formats, the byte order of the MAC, the lengths 12, 14 and 16, the limits of temperature, humidity and battery, and the registry upsert with a fixed MAC.

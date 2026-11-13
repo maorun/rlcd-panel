@@ -15,6 +15,7 @@
 #include "../rlcd_panel/battery_monitor.h"
 #include "../rlcd_panel/board_pins.h"
 #include "../rlcd_panel/bthome_ble.h"
+#include "../rlcd_panel/atc_ble.h"
 #include "../rlcd_panel/button_handler.h"
 #include "../rlcd_panel/clap_detector.h"
 #include "../rlcd_panel/climate_math.h"
@@ -379,6 +380,129 @@ void testBtHomeUnknownObjectIds() {
   const uint8_t lux[] = {0x40, 0x05, 0x01, 0x02, 0x03, 0x02, 0xD0, 0x07, 0x03, 0x10, 0x27};
   assert(BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, lux, sizeof(lux), r));
   assert(approxEqual(r.temperature_c, 20.0f, 0.001f));
+}
+
+void testAtcValidPacket() {
+  // MAC A4:C1:38:11:22:33, 21.5 C, 45 %, battery 87 %, 2950 mV, counter 7.
+  const uint8_t pkt[] = {0xA4, 0xC1, 0x38, 0x11, 0x22, 0x33, 0x00, 0xD7, 45, 87, 0x0B, 0x86, 7};
+  SwitchBotReading r;
+  assert(AtcBleParser::parseServiceData(ATC_SERVICE_UUID, pkt, sizeof(pkt), r));
+  assert(r.valid);
+  assert(approxEqual(r.temperature_c, 21.5f, 0.001f));
+  assert(r.humidity_pct == 45);
+  assert(r.battery_pct == 87);
+  const uint8_t mac[6] = {0xA4, 0xC1, 0x38, 0x11, 0x22, 0x33};
+  assert(memcmp(r.mac, mac, 6) == 0);
+}
+
+void testPvvxValidPacket() {
+  // MAC A4:C1:38:11:22:33 little-endian, 21.55 C, 45.67 %, 2950 mV, battery 87 %, counter 7, flags 0.
+  const uint8_t pkt[] = {0x33, 0x22, 0x11, 0x38, 0xC1, 0xA4, 0x6B, 0x08, 0xD7, 0x11, 0x86, 0x0B, 87, 7, 0};
+  SwitchBotReading r;
+  assert(AtcBleParser::parseServiceData(ATC_SERVICE_UUID, pkt, sizeof(pkt), r));
+  assert(r.valid);
+  assert(approxEqual(r.temperature_c, 21.55f, 0.001f));
+  assert(r.humidity_pct == 46);
+  assert(r.battery_pct == 87);
+  const uint8_t mac[6] = {0xA4, 0xC1, 0x38, 0x11, 0x22, 0x33};
+  assert(memcmp(r.mac, mac, 6) == 0);
+}
+
+void testAtcPvvxNegativeTemperature() {
+  // ATC -5.5 C: 0xFFC9.
+  const uint8_t atc[] = {1, 2, 3, 4, 5, 6, 0xFF, 0xC9, 80, 50, 0x0B, 0x86, 1};
+  SwitchBotReading r;
+  assert(AtcBleParser::parseServiceData(ATC_SERVICE_UUID, atc, sizeof(atc), r));
+  assert(approxEqual(r.temperature_c, -5.5f, 0.001f));
+  // pvvx -12.34 C: 0xFB2E.
+  const uint8_t pvvx[] = {6, 5, 4, 3, 2, 1, 0x2E, 0xFB, 0x10, 0x27, 0x86, 0x0B, 50, 1, 0};
+  assert(AtcBleParser::parseServiceData(ATC_SERVICE_UUID, pvvx, sizeof(pvvx), r));
+  assert(approxEqual(r.temperature_c, -12.34f, 0.001f));
+  assert(r.humidity_pct == 100);
+  // The MAC byte order differs: the same bytes give opposite MAC orders.
+  assert(r.mac[0] == 1 && r.mac[5] == 6);
+}
+
+void testAtcPvvxRejectsInvalid() {
+  uint8_t buf[16] = {1, 2, 3, 4, 5, 6, 0x00, 0xD7, 45, 87, 0x0B, 0x86, 7, 0, 0, 0};
+  SwitchBotReading r;
+  assert(!AtcBleParser::parseServiceData(ATC_SERVICE_UUID, buf, 12, r));
+  assert(!r.valid);
+  assert(!AtcBleParser::parseServiceData(ATC_SERVICE_UUID, buf, 14, r));
+  assert(!AtcBleParser::parseServiceData(ATC_SERVICE_UUID, buf, 16, r));
+  assert(!AtcBleParser::parseServiceData(ATC_SERVICE_UUID, nullptr, 13, r));
+  assert(!AtcBleParser::parseServiceData(0xFCD2, buf, 13, r));
+  const uint8_t zero_mac[13] = {0, 0, 0, 0, 0, 0, 0x00, 0xD7, 45, 87, 0x0B, 0x86, 7};
+  assert(!AtcBleParser::parseServiceData(ATC_SERVICE_UUID, zero_mac, sizeof(zero_mac), r));
+  assert(AtcBleParser::parseServiceData(ATC_SERVICE_UUID, buf, 13, r));
+
+  // ATC limits: -50.0 and 100.0 C pass; -50.1 and 100.1 C fail.
+  buf[6] = 0xFE; buf[7] = 0x0C; // -500
+  assert(AtcBleParser::parseServiceData(ATC_SERVICE_UUID, buf, 13, r));
+  buf[6] = 0xFE; buf[7] = 0x0B; // -501
+  assert(!AtcBleParser::parseServiceData(ATC_SERVICE_UUID, buf, 13, r));
+  buf[6] = 0x03; buf[7] = 0xE8; // 1000
+  assert(AtcBleParser::parseServiceData(ATC_SERVICE_UUID, buf, 13, r));
+  buf[6] = 0x03; buf[7] = 0xE9; // 1001
+  assert(!AtcBleParser::parseServiceData(ATC_SERVICE_UUID, buf, 13, r));
+  buf[6] = 0x00; buf[7] = 0xD7;
+  buf[8] = 101;
+  assert(!AtcBleParser::parseServiceData(ATC_SERVICE_UUID, buf, 13, r));
+  buf[8] = 100;
+  buf[9] = 100;
+  assert(AtcBleParser::parseServiceData(ATC_SERVICE_UUID, buf, 13, r));
+  assert(r.battery_pct == 100);
+  buf[9] = 101;
+  assert(!AtcBleParser::parseServiceData(ATC_SERVICE_UUID, buf, 13, r));
+
+  // pvvx limits.
+  uint8_t p[15] = {6, 5, 4, 3, 2, 1, 0x00, 0x00, 0x10, 0x27, 0x86, 0x0B, 50, 1, 0};
+  p[6] = 0x10; p[7] = 0x27; // 10000 = 100.00 C
+  assert(AtcBleParser::parseServiceData(ATC_SERVICE_UUID, p, 15, r));
+  p[6] = 0x11; p[7] = 0x27; // 10001
+  assert(!AtcBleParser::parseServiceData(ATC_SERVICE_UUID, p, 15, r));
+  p[6] = 0x78; p[7] = 0xEC; // -5000 -> -50.00 C
+  assert(AtcBleParser::parseServiceData(ATC_SERVICE_UUID, p, 15, r));
+  p[6] = 0x6E; p[7] = 0xEC; // -5010
+  assert(!AtcBleParser::parseServiceData(ATC_SERVICE_UUID, p, 15, r));
+  p[6] = 0x00; p[7] = 0x08;
+  p[8] = 0x11; p[9] = 0x27; // 10001 = 100.01 %
+  assert(!AtcBleParser::parseServiceData(ATC_SERVICE_UUID, p, 15, r));
+  p[8] = 0x10; p[9] = 0x27;
+  p[12] = 101;
+  assert(!AtcBleParser::parseServiceData(ATC_SERVICE_UUID, p, 15, r));
+}
+
+void testAtcRegistryFixedMac() {
+  SwitchBotRegistry reg;
+  const uint8_t mac[6] = {0xA4, 0xC1, 0x38, 0x11, 0x22, 0x33};
+  reg.setFixedMac(2, mac);
+  const uint8_t pkt[] = {0xA4, 0xC1, 0x38, 0x11, 0x22, 0x33, 0x00, 0xD7, 45, 87, 0x0B, 0x86, 7};
+  SwitchBotReading r;
+  assert(AtcBleParser::parseServiceData(ATC_SERVICE_UUID, pkt, sizeof(pkt), r));
+  r.updated_ms = 1000;
+  assert(reg.upsert(r));
+  assert(!reg.slot(0).valid);
+  assert(reg.slot(2).valid);
+  assert(reg.slot(2).battery_pct == 87);
+  assert(!reg.slot(2).isStale(1000 + SENSOR_STALE_TIMEOUT_MS));
+  assert(reg.slot(2).isStale(1001 + SENSOR_STALE_TIMEOUT_MS));
+}
+
+void testPvvxRegistryUpdate() {
+  SwitchBotRegistry reg;
+  const uint8_t first[] = {0x33, 0x22, 0x11, 0x38, 0xC1, 0xA4, 0x6B, 0x08, 0xD7, 0x11, 0x86, 0x0B, 87, 7, 0};
+  const uint8_t next[] = {0x33, 0x22, 0x11, 0x38, 0xC1, 0xA4, 0x10, 0x09, 0x10, 0x0E, 0x86, 0x0B, 80, 8, 0};
+  SwitchBotReading r;
+  assert(AtcBleParser::parseServiceData(ATC_SERVICE_UUID, first, sizeof(first), r));
+  assert(reg.upsert(r));
+  assert(AtcBleParser::parseServiceData(ATC_SERVICE_UUID, next, sizeof(next), r));
+  assert(reg.upsert(r));
+  assert(reg.activeCount() == 1);
+  assert(reg.slot(0).packet_count == 2);
+  assert(reg.slot(0).battery_pct == 80);
+  assert(approxEqual(reg.slot(0).temperature_c, 23.2f, 0.001f));
+  assert(reg.slot(0).mac[0] == 0xA4 && reg.slot(0).mac[5] == 0x33);
 }
 
 void testBtHomeCombinedRegistry() {
@@ -12330,6 +12454,12 @@ int main() {
   testBtHomeInvalidPackets();
   testBtHomeUnknownObjectIds();
   testBtHomeCombinedRegistry();
+  testAtcValidPacket();
+  testPvvxValidPacket();
+  testAtcPvvxNegativeTemperature();
+  testAtcPvvxRejectsInvalid();
+  testAtcRegistryFixedMac();
+  testPvvxRegistryUpdate();
   testClimateMathReferencePoints();
   testClimateMathInvalidInput();
   testComfortZone();

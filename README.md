@@ -9,7 +9,7 @@ Standalone `Arduino CLI` (`ESP32-S3`) firmware for the **Waveshare ESP32-S3-RLCD
 | Component | Model / ASIN | Details |
 | :--- | :--- | :--- |
 | **Display & MCU Board** | Waveshare `ESP32-S3-RLCD-4.2` (`B0GF23YC3Y`) | `ESP32-S3-WROOM-1-N16R8` (16 MB Flash, 8 MB Octal PSRAM), 4.2" `ST7305` RLCD (400×300, 1-bpp monochrome, no backlight), onboard `SHTC3`, `PCF85063A` RTC, `ES8311` + `ES7210` audio, `MicroSD`, 18650 charger |
-| **External BLE Sensors (3×)** | SwitchBot IP65 Indoor/Outdoor Thermo-Hygrometer (`WoIOSensor`, `B0DXPHZMMP`); also SwitchBot Meter (`0x54`) and Meter Plus (`0x69`) | Unencrypted BLE advertisements (`Company ID 0x0969` Manufacturer Data + `UUID 0xFD3D` Service Data). The Meter and Meter Plus send all values in the Service Data only. |
+| **External BLE Sensors (3×)** | SwitchBot IP65 Indoor/Outdoor Thermo-Hygrometer (`WoIOSensor`, `B0DXPHZMMP`); also SwitchBot Meter (`0x54`) and Meter Plus (`0x69`); also Xiaomi thermometers (for example `LYWSD03MMC`) with ATC or pvvx custom firmware | Unencrypted BLE advertisements (`Company ID 0x0969` Manufacturer Data + `UUID 0xFD3D` Service Data). The Meter and Meter Plus send all values in the Service Data only. Xiaomi sensors with ATC (13 bytes) or pvvx (15 bytes) firmware send `UUID 0x181A` Service Data. |
 
 ## Internal Onboard GPIO Mapping (`ESP32-S3-RLCD-4.2`)
 
