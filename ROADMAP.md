@@ -18,10 +18,39 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
+- [ ] Serial console command STATUS with a live sensor snapshot
+  - Rank: [Total: 34, Use: 6, Setup: 9, Harmony: 9, Safety: 10, Effort: S]
+  - Location: `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
+  - Goal: Add the console command `STATUS` without an argument. `STATUS now` gives `ERR UNKNOWN`. Send one line `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>` for the onboard sensor (index `0`) and each slot `1` to `3`. A missing value gives `--`. Then send one line `POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>`. End the reply with `CRC32 <8 hex digits>` over all bytes before this line. Read only the RTC copy (`g_state`). Do not mount the MicroSD card and do not stop the clap listener. Run the command on USB power only (`PowerManager::serialConsoleAllowed`). A short serial write ends the reply without the CRC line. Add `./scripts/dump-logs.sh --status [port]`, which sends `STATUS`, checks the CRC-32 and prints the lines. Thus the user reads all sensor values on the host without a view change.
+  - Acceptance test: Host tests cover the parser for `STATUS`, the rejection of `STATUS` with arguments, each `state` value, the dashes for a missing value and an empty slot, negative temperatures, the `POWER` line on USB and on battery, the CRC-32 line, no card access, the stop on a short write at each line, and the USB power gate. `arduino-cli compile rlcd_panel` passes.
+
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
+- [ ] Configurable sensor stale timeout in config.ini
+  - Rank: [Total: 32, Use: 6, Setup: 8, Harmony: 9, Safety: 9, Effort: M]
+  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/ventilate_latch.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+  - Goal: Add the `config.ini` key `sensor_stale_min` (default `30`, range `5` to `240` minutes). Use this value in each `SwitchBotReading::isStale` call instead of the fixed `SENSOR_STALE_TIMEOUT_MS`: the `STALE` badge, `RSSI --`, `ALERT_SENSOR_LOST`, `SwitchBotRegistry::anyStale`, the hourly history gate, the CSV columns, the ventilation latch and the sensor battery latch. Keep the default value equal to the current 30 min, so a card without the key gives the same behavior. A malformed or out-of-range value is rejected and counts in `ConfigRejects`. A value below `wake_interval_s` plus the 4 s scan time is clamped up to this sum, so a slow wake interval does not mark each slot stale. Store the value in the config trailer of `PersistentState` (2 bytes) and increase the state version. Show the key in the `CONFIG` reply. Thus the user adapts the dropout detection to the sensor send interval and to `wake_interval_s`.
+  - Acceptance test: Host tests cover the parser for the default, the edges `5` and `240`, out-of-range and malformed values, the clamp against `wake_interval_s`, the stale change at the exact timeout and over the 32-bit clock wrap, each call site with a non-default value, the `CONFIG` line and its parse back, and the RTC round trip with a corrupt field. `docs/display_preview_dashboard.png` stays bit-exact for the default scenes.
+
+- [ ] Serial console command BEEP to test each alert chime
+  - Rank: [Total: 31, Use: 4, Setup: 9, Harmony: 9, Safety: 9, Effort: S]
+  - Location: `rlcd_panel/serial_console.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+  - Goal: Add the console command `BEEP N`. `N` is the alert bit number `0` to `6` (`ALERT_FREEZER` to `ALERT_SENSOR_BATTERY`). A missing argument, `BEEP 7` and extra text give `ERR BAD_ARG`. The command plays `ChimeSynth::pattern` of this bit once at `chime_volume_pct`. Mute, quiet hours and volume `0` give `ERR MUTED` and play no sound. A cleared bit in `chime_alert_mask` does not block the test. The command does not change the stored alert bits, so no alert is replayed or lost. Stop the clap listener before the playback and power down the amplifier, the `ES8311` and the I2S bus on each path, in the order of `AudioLoopback::run`. Reply `OK BEEP <N> <duration ms>` after the playback. Run the command on USB power only. Thus the user hears each chime and sets the volume without a real alert.
+  - Acceptance test: Host tests cover the parser for each valid bit, a missing argument, `BEEP 7`, extra text, the `ERR MUTED` paths for mute, quiet hours and volume `0`, the play of a bit that `chime_alert_mask` clears, the unchanged alert state, the power-down order on the success and the error path, and the USB power gate. `arduino-cli compile rlcd_panel` passes.
+
+- [ ] Comfort zone label for each sensor in the stats view
+  - Rank: [Total: 29, Use: 7, Setup: 4, Harmony: 8, Safety: 10, Effort: S]
+  - Location: `rlcd_panel/climate_math.h`, `rlcd_panel/dashboard_view.h`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`
+  - Goal: Add `ClimateMath::comfort(temp_c, rh_pct)`. Return `COLD` below 18.0 C, `WARM` above 26.0 C, `DRY` below 30 %RH, `HUMID` above 60 %RH, else `OK`. Check the temperature first. Return `INVALID` for NaN, infinite and out-of-range input, with the limits of `ClimateMath::compute`. Show `COMFORT <LABEL>` at the end of the 24-hour record line of each sensor block in the stats view, or as a new line inside the 72 px block pitch. A stale or empty slot shows `COMFORT --`. The text keeps the 8 px right margin. Calculate the label for each render. No RTC state changes and the state version stays the same. Thus the user sees at once whether a room is in the comfort range.
+  - Acceptance test: Host tests cover each label, the exact edges 18.0 C, 26.0 C, 30 %RH and 60 %RH, the priority of the temperature over the humidity, NaN, infinite and out-of-range input, the dashes for a stale and an empty slot, and the text bounds in each block. `docs/display_preview_stats.png` shows at least two different labels.
 
 ## Priority 3: Audio Expansions (Score 22–27)
+
+- [ ] Inverted display mode from config.ini
+  - Rank: [Total: 23, Use: 4, Setup: 3, Harmony: 6, Safety: 10, Effort: S]
+  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/st7305_framebuffer.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/render_display_preview.cpp`, `tools/preview_scenes.h`, `scripts/generate-display-preview.sh`, `tests/test_firmware_logic.cpp`
+  - Goal: Add the `config.ini` key `display_invert` (default `0`, values `0` and `1`). With `1`, invert each of the 15,000 framebuffer bytes after the render and before `St7305Panel::flush`, so the panel shows light text on a dark background. Do the inversion in `St7305Framebuffer::invert()`, not with a panel command, so the host preview stays bit-exact. Inverted badges and banners invert again and stay readable. A malformed value is rejected and counts in `ConfigRejects`. Store the flag in the config trailer of `PersistentState` and increase the state version. Show the key in the `CONFIG` reply. The reflective LCD has no backlight, so the mode does not change the power draw. Thus the user selects the better contrast for the light in the room.
+  - Acceptance test: Host tests cover the parser for `0`, `1`, out-of-range and malformed values, `invert()` on each byte and a double inversion back to the original, the `CONFIG` line and its parse back, and the RTC round trip. `./scripts/generate-display-preview.sh` writes the new file `docs/display_preview_inverted.png`, and the other preview files stay bit-exact.
 
 ## Rules for ranking
 
