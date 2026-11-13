@@ -659,3 +659,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The console command `STATUS` sends the line `SD status=<VALUE> age=<s>` before the `POWER` line. The age is `--` while the status is `UNKNOWN`.
 - Thus the user sees a missing or full card before hours of log data are lost.
 - Host tests cover each status from the logger results, the 0 MB case, the line text and bounds of each status, the unchanged `SD FREE` line for `OK` and `UNKNOWN`, the `STATUS` line for each value, the RTC round trip, a corrupt status byte and the old state version 32.
+
+## Hours above the mold limit in the sensor stats view
+
+- **Code:** `rlcd_panel/sparkline.h`, `rlcd_panel/dashboard_view.h`, `tests/test_firmware_logic.cpp`
+- `HumidityHistory::countAbove(limit_tenths)` counts the stored hourly samples that are strictly above the limit. A sample at the limit does not count.
+- Each sensor block of the stats view shows `MOLD <N>H` in scale-1 text, right-aligned to x = 392, on the `MAC` line (`y + 21`). The limit is `mold_alert_limit_rh`, converted to 0.1 %RH steps.
+- A slot with fewer than 2 samples, an empty slot and a stale slot show `MOLD --`. A packet that the BLE task stamps up to 65 s after the render time counts as live.
+- The text stays right of the widest `MAC` text and does not touch the `COMFORT` label.
+- The count is calculated for each render. No RTC state changes and `STATE_VERSION` stays 33.
+- Thus the user sees how long a room was at risk of mold in the last day.
+- Host tests cover 0, 1 and 24 hours above the limit, a sample at the exact limit, a limit change, fewer than 2 samples, an empty slot, a stale slot, and the text bounds in each block.

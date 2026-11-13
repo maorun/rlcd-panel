@@ -1088,6 +1088,127 @@ void testComfortZone() {
   assert(PowerManager::STATE_VERSION == 33);
 }
 
+void testMoldHoursStats() {
+  // countAbove: strictly above the limit
+  HumidityHistory h;
+  assert(h.countAbove(700) == 0);
+  for (int i = 0; i < 24; ++i) {
+    h.push(600);
+  }
+  assert(h.countAbove(700) == 0);
+  h.push(701);
+  assert(h.countAbove(700) == 1);
+  h.push(700); // exact limit: not counted
+  assert(h.countAbove(700) == 1);
+  assert(h.countAbove(699) == 2); // limit change
+  assert(h.countAbove(600) == 2);
+  assert(h.countAbove(1000) == 0);
+  for (int i = 0; i < 24; ++i) {
+    h.push(900);
+  }
+  assert(h.size() == 24 && h.countAbove(700) == 24);
+  assert(h.countAbove(900) == 0);
+
+  const uint32_t now = 10000000;
+  SwitchBotReading sb;
+  sb.valid = true;
+  sb.temperature_c = 21.0f;
+  sb.humidity_pct = 50;
+  sb.updated_ms = now - 1000;
+  char text[16];
+  DashboardView::formatMold(text, sizeof(text), sb, now, SENSOR_STALE_TIMEOUT_MS, &h, 70);
+  assert(strcmp(text, "MOLD 24H") == 0);
+  DashboardView::formatMold(text, sizeof(text), sb, now, SENSOR_STALE_TIMEOUT_MS, &h, 90);
+  assert(strcmp(text, "MOLD 0H") == 0);
+  HumidityHistory one;
+  one.push(900);
+  DashboardView::formatMold(text, sizeof(text), sb, now, SENSOR_STALE_TIMEOUT_MS, &one, 70);
+  assert(strcmp(text, "MOLD --") == 0); // fewer than 2 samples
+  one.push(900);
+  DashboardView::formatMold(text, sizeof(text), sb, now, SENSOR_STALE_TIMEOUT_MS, &one, 70);
+  assert(strcmp(text, "MOLD 2H") == 0);
+  DashboardView::formatMold(text, sizeof(text), sb, now, SENSOR_STALE_TIMEOUT_MS, nullptr, 70);
+  assert(strcmp(text, "MOLD --") == 0);
+  const SwitchBotReading empty{};
+  DashboardView::formatMold(text, sizeof(text), empty, now, SENSOR_STALE_TIMEOUT_MS, &h, 70);
+  assert(strcmp(text, "MOLD --") == 0);
+  sb.updated_ms = now - SENSOR_STALE_TIMEOUT_MS - 1;
+  DashboardView::formatMold(text, sizeof(text), sb, now, SENSOR_STALE_TIMEOUT_MS, &h, 70);
+  assert(strcmp(text, "MOLD --") == 0);
+  // Future stamp (the BLE task stamps a packet after now): live for under 65 s, dashes beyond
+  sb.updated_ms = now + 1000;
+  DashboardView::formatMold(text, sizeof(text), sb, now, SENSOR_STALE_TIMEOUT_MS, &h, 70);
+  assert(strcmp(text, "MOLD 24H") == 0);
+  sb.updated_ms = now + 70000;
+  DashboardView::formatMold(text, sizeof(text), sb, now, SENSOR_STALE_TIMEOUT_MS, &h, 70);
+  assert(strcmp(text, "MOLD --") == 0);
+
+  // Rendered text bounds: right-aligned to x = 392, right of the widest MAC text, above the comfort label
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    slots[i].valid = true;
+    slots[i].temperature_c = 21.0f;
+    slots[i].humidity_pct = 50;
+    slots[i].updated_ms = now - 1000;
+    for (size_t k = 0; k < 6; ++k) {
+      slots[i].mac[k] = 0xEE;
+    }
+  }
+  slots[2].valid = false; // empty slot
+  ClimateHistory history;
+  for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
+    for (int i = 0; i < 24; ++i) {
+      history.slots[s].push(900);
+    }
+  }
+  const uint16_t mold_w = static_cast<uint16_t>(strlen("MOLD 24H") * 6);
+  const uint16_t mold_left = DashboardView::COMFORT_RIGHT_X - mold_w;
+  const uint16_t mac_right = 10 + static_cast<uint16_t>(strlen("MAC ..:EE:FF:00") * 12);
+  assert(mac_right < mold_left);
+  St7305Framebuffer fb;
+  DashboardView::renderSensorStats(
+      fb, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr, &history);
+  St7305Framebuffer without;
+  ClimateHistory none;
+  DashboardView::renderSensorStats(
+      without, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr, &none);
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    const uint16_t y0 = static_cast<uint16_t>(34 + i * DashboardView::SENSOR_BLOCK_PITCH);
+    const uint16_t y_mold = y0 + DashboardView::MOLD_Y_OFFSET;
+    bool ink = false;
+    // Text rows: ink only inside [mold_left, 392); blank right margin; blank left of the text
+    for (uint16_t y = y_mold; y < y_mold + 7; ++y) {
+      for (uint16_t x = 0; x < RLCD_WIDTH; ++x) {
+        const bool in_text = x >= mold_left && x < DashboardView::COMFORT_RIGHT_X;
+        if (x >= mac_right && !in_text) {
+          assert(!fb.getPixel(x, y));
+        }
+        ink = ink || (in_text && fb.getPixel(x, y));
+      }
+    }
+    assert(ink);
+    // No ink between the MOLD text and the comfort label rows
+    for (uint16_t y = y_mold + 7; y < y0 + DashboardView::COMFORT_Y_OFFSET; ++y) {
+      for (uint16_t x = mold_left; x < RLCD_WIDTH; ++x) {
+        assert(!fb.getPixel(x, y));
+      }
+    }
+    // The count changes the pixels: "MOLD 24H" differs from "MOLD --"
+    bool differs = false;
+    for (uint16_t y = y_mold; y < y_mold + 7; ++y) {
+      for (uint16_t x = mold_left; x < DashboardView::COMFORT_RIGHT_X; ++x) {
+        differs = differs || fb.getPixel(x, y) != without.getPixel(x, y);
+      }
+    }
+    assert(i == 2 ? !differs : differs); // empty slot shows "MOLD --" in both renders
+  }
+  assert(PowerManager::STATE_VERSION == 33); // no RTC state change
+}
+
 void testDashboardClimateLine() {
   Shtc3Reading onboard;
   onboard.valid = true;
@@ -1548,7 +1669,10 @@ void testDisplayModesRenderWithoutClipping() {
     }
     for (uint16_t y = 52; y < 84; ++y) {
       for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
-        second += fb.getPixel(x, y) ? 1 : 0;
+        // Only the "MOLD --" text of the empty slot (x = 350..392, y + 21 = 55..61) is allowed
+        const bool mold = x >= DashboardView::COMFORT_RIGHT_X - 7 * 6 &&
+                          x < DashboardView::COMFORT_RIGHT_X && y >= 55 && y < 62;
+        second += (!mold && fb.getPixel(x, y)) ? 1 : 0;
       }
     }
     assert(first > 20);
@@ -11406,8 +11530,11 @@ void testSlotMacStatsLine() {
   size_t ink = 0;
   for (uint16_t y = 52; y < 66; ++y) {
     for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      // Only the "MOLD --" text (x = 350..392, y + 21 = 55..61) may differ in the empty block
+      const bool mold = x >= DashboardView::COMFORT_RIGHT_X - 7 * 6 &&
+                        x < DashboardView::COMFORT_RIGHT_X && y >= 55 && y < 62;
       ink += with.getPixel(x, y) ? 1 : 0;
-      assert(!without.getPixel(x, y));
+      assert(mold || !without.getPixel(x, y));
     }
   }
   assert(ink > 20);
@@ -12615,6 +12742,7 @@ int main() {
   testClimateMathReferencePoints();
   testClimateMathInvalidInput();
   testComfortZone();
+  testMoldHoursStats();
   testDashboardClimateLine();
   testDashboardStaleIndicator();
   testButtonDebounceAndModeTransitions();
