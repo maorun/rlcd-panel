@@ -618,6 +618,17 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `./scripts/dump-logs.sh --set-time [port]` sends `TIME SET` with the local time of the host and prints the result. The accuracy is about 1 s. Thus a user without Wi-Fi sets the clock for the hourly log, the quiet hours and the retention rule.
 - Host tests cover the parser, 29 February in a leap year and in a common year, 24:00:00, the years 2024 and 2100, a missing `T`, extra text, the reply format with a valid and an invalid time, the cleared drift baseline, the failed write and the USB power gate.
 
+## Serial console command HISTORY to export the 24-hour histories
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
+- The console command `HISTORY` (no argument) sends the 24-hour histories from the RTC copy (`ClimateHistory`, `NoiseHistory`). `HISTORY` with an argument gives `ERR UNKNOWN`.
+- The reply starts with `BEGIN HISTORY` and the header `sensor,age_h,temp_c,rh_pct,noise_db`. Each stored hour of each sensor gives one row: sensor `0` is the onboard sensor, `1` to `3` are the slots. `age_h` `0` is the newest sample.
+- The noise field holds a value in the rows of sensor `0` only. A missing sample or an invalid noise hour gives an empty field. Temperatures show one decimal and can be negative.
+- The reply ends with `CRC32 <8 hex digits>` over all bytes before this line. A short write stops the reply, so the host sees no `CRC32` line.
+- The command does not mount the card, so the clap listener keeps running. It runs on USB power only (`PowerManager::serialConsoleAllowed`).
+- `./scripts/dump-logs.sh --history [port]` sends `HISTORY`, checks the CRC-32 and writes `sd_logs/history_<host time>.csv`. Thus the user gets the last 24 hours also without a card.
+- Host tests cover the parser, the rejection of arguments, the header, a full and an empty history, an invalid noise hour, negative temperatures, the row order, the CRC-32 line, each short write, no card access, the USB power gate and the script option.
+
 ## SwitchBot Meter and Meter Plus support from Service Data
 
 - **Code:** `rlcd_panel/switchbot_ble.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `README.md`

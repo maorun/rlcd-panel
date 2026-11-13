@@ -9821,6 +9821,168 @@ void testDumpLogsScriptSetTimeSmokeCheck() {
   assert(script.find("time.localtime()") != std::string::npos);
 }
 
+void testSerialHistoryParser() {
+  SerialCommand cmd;
+  assert(parseText("HISTORY", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::HISTORY);
+  assert(parseText("HISTORY\r\n", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::HISTORY);
+  assert(parseText("HISTORY 1", cmd) == SerialParseStatus::UNKNOWN && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("HISTORY ", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("history", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("HISTORYX", cmd) == SerialParseStatus::UNKNOWN);
+}
+
+namespace {
+std::vector<std::string> splitLines(const std::string& text) {
+  std::vector<std::string> lines;
+  size_t start = 0;
+  while (start < text.size()) {
+    const size_t end = text.find('\n', start);
+    lines.push_back(text.substr(start, end - start));
+    start = end + 1;
+  }
+  return lines;
+}
+
+std::string historyCrcLine(const std::string& body) {
+  SerialCrc32 crc;
+  crc.update(reinterpret_cast<const uint8_t*>(body.data()), body.size());
+  char line[24];
+  snprintf(line, sizeof(line), "CRC32 %08lx", static_cast<unsigned long>(crc.value()));
+  return line;
+}
+} // namespace
+
+void testSerialHistoryEmpty() {
+  ClimateHistory h;
+  NoiseHistory n;
+  FakeSink sink;
+  TestRunner::showHistory(sink, h, n);
+  const std::string body = "BEGIN HISTORY\nsensor,age_h,temp_c,rh_pct,noise_db\n";
+  assert(sink.out == body + historyCrcLine(body) + "\n");
+}
+
+void testSerialHistoryFullOrderAndNegative() {
+  ClimateHistory h;
+  NoiseHistory n;
+  for (int i = 0; i < 24; ++i) {
+    for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
+      h.temperatures[s].pushCelsius(static_cast<float>(i) - 5.0f + static_cast<float>(s) * 0.5f); // -5.0 up to 18.0
+      h.slots[s].pushPercent(40.0f + static_cast<float>(s));
+    }
+    n.push(static_cast<uint8_t>(30 + i));
+  }
+  FakeSink sink;
+  TestRunner::showHistory(sink, h, n);
+  const std::vector<std::string> lines = splitLines(sink.out);
+  assert(lines.size() == 2 + 4 * 24 + 1);
+  assert(lines[0] == "BEGIN HISTORY");
+  assert(lines[1] == "sensor,age_h,temp_c,rh_pct,noise_db");
+  size_t k = 2;
+  for (size_t s = 0; s < 4; ++s) {
+    for (size_t age = 0; age < 24; ++age, ++k) {
+      char tail[48];
+      const int tenths = (static_cast<int>(23 - age) - 5) * 10 + static_cast<int>(s) * 5;
+      if (s == 0) {
+        snprintf(tail, sizeof(tail), "%d,%d,%s%d.%d,40.0,%d", 0, static_cast<int>(age), tenths < 0 ? "-" : "",
+                 (tenths < 0 ? -tenths : tenths) / 10, (tenths < 0 ? -tenths : tenths) % 10, 30 + 23 - static_cast<int>(age));
+      } else {
+        snprintf(tail, sizeof(tail), "%d,%d,%s%d.%d,%d.0,", static_cast<int>(s), static_cast<int>(age), tenths < 0 ? "-" : "",
+                 (tenths < 0 ? -tenths : tenths) / 10, (tenths < 0 ? -tenths : tenths) % 10, 40 + static_cast<int>(s));
+      }
+      assert(lines[k] == tail);
+    }
+  }
+  assert(lines[2] == "0,0,18.0,40.0,53");
+  assert(lines[25] == "0,23,-5.0,40.0,30");
+  assert(lines[2 + 24 + 23] == "1,23,-4.5,41.0,");
+  // CRC over all bytes before the CRC line
+  const size_t pos = sink.out.rfind("CRC32 ");
+  assert(lines.back() == historyCrcLine(sink.out.substr(0, pos)));
+  assert(sink.out.back() == '\n');
+}
+
+void testSerialHistoryMissingAndInvalidNoise() {
+  ClimateHistory h;
+  NoiseHistory n;
+  h.temperatures[0].pushCelsius(-0.04f); // rounds to 0.0: no "-0.0"
+  h.temperatures[0].pushCelsius(-0.5f);
+  h.slots[0].pushPercent(55.5f);          // one humidity sample, two temperature samples
+  n.push(42);
+  n.pushInvalid();                        // newest hour has no valid noise
+  h.slots[2].pushPercent(61.0f);          // humidity only
+  FakeSink sink;
+  TestRunner::showHistory(sink, h, n);
+  const std::vector<std::string> lines = splitLines(sink.out);
+  assert(lines.size() == 2 + 2 + 1 + 1);
+  assert(lines[2] == "0,0,-0.5,55.5,");   // invalid noise: empty field
+  assert(lines[3] == "0,1,0.0,,42");      // missing humidity: empty field
+  assert(lines[4] == "2,0,,61.0,");
+}
+
+void testSerialHistoryNoiseOnly() {
+  ClimateHistory h;
+  NoiseHistory n;
+  n.push(40);
+  n.push(41);
+  n.push(42);
+  FakeSink sink;
+  TestRunner::showHistory(sink, h, n);
+  const std::vector<std::string> lines = splitLines(sink.out);
+  assert(lines.size() == 2 + 3 + 1);
+  assert(lines[2] == "0,0,,,42" && lines[3] == "0,1,,,41" && lines[4] == "0,2,,,40");
+}
+
+void testSerialHistoryShortWriteAndNoCard() {
+  ClimateHistory h;
+  NoiseHistory n;
+  h.temperatures[0].pushCelsius(21.5f);
+  h.slots[0].pushPercent(45.0f);
+  FakeSink full;
+  TestRunner::showHistory(full, h, n);
+  const size_t crc_at = full.out.rfind("CRC32 ");
+  for (size_t limit = 0; limit < crc_at; ++limit) {
+    FakeSink sink;
+    sink.limit = limit;
+    TestRunner::showHistory(sink, h, n);
+    assert(sink.out.size() == limit && sink.out.find("CRC32") == std::string::npos);
+  }
+  FakeSink cut_crc; // a short write inside the CRC line leaves no complete line
+  cut_crc.limit = full.out.size() - 1;
+  TestRunner::showHistory(cut_crc, h, n);
+  assert(cut_crc.out.back() != '\n');
+  // execute() ignores HISTORY: no mount, no output
+  FakeConsoleStorage storage;
+  FakeSink quiet;
+  SerialCommand cmd;
+  assert(parseText("HISTORY", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, quiet, cmd);
+  assert(storage.mounts == 0 && storage.unmounts == 0 && quiet.out.empty());
+  // The USB power gate is the one of the other commands
+  BatteryReading battery;
+  battery.valid = true;
+  battery.usb_powered = false;
+  assert(!PowerManager::serialConsoleAllowed(battery));
+  battery.usb_powered = true;
+  assert(PowerManager::serialConsoleAllowed(battery));
+}
+
+void testDumpLogsScriptHistorySmokeCheck() {
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  std::ifstream in(root + "scripts/dump-logs.sh");
+  assert(in.good());
+  std::stringstream ss;
+  ss << in.rdbuf();
+  const std::string script = ss.str();
+  assert(script.find("--history") != std::string::npos);
+  assert(script.find("command(\"HISTORY\")") != std::string::npos);
+  assert(script.find("BEGIN HISTORY") != std::string::npos);
+  assert(script.find("sensor,age_h,temp_c,rh_pct,noise_db") != std::string::npos);
+  assert(script.find("history_") != std::string::npos);
+  assert(script.find("zlib.crc32") != std::string::npos);
+}
+
 namespace {
 void fillCalib(ClimateHistory& h, size_t sensor, int hours, float temp, float rh) {
   for (int i = 0; i < hours; ++i) {
@@ -13064,6 +13226,13 @@ testSerialTimeSetWritesRtcAndClearsDriftBaseline();
 testSerialTimeSetFailedWriteKeepsBaseline();
 testSerialTimeNeedsNoCardAndUsbPower();
 testDumpLogsScriptSetTimeSmokeCheck();
+testSerialHistoryParser();
+testSerialHistoryEmpty();
+testSerialHistoryFullOrderAndNegative();
+testSerialHistoryMissingAndInvalidNoise();
+testSerialHistoryNoiseOnly();
+testSerialHistoryShortWriteAndNoCard();
+testDumpLogsScriptHistorySmokeCheck();
 testSerialConfigNegativeSmallOffset();
   testRtcDriftFirstSyncHasNoRate();
   testRtcDriftPositiveNegativeZero();

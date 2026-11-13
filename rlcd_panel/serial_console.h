@@ -34,7 +34,7 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
@@ -60,7 +60,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..6", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..6", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -99,6 +99,13 @@ public:
     const bool is_info = matches(line, cmd_len, "INFO");
     const bool is_config = matches(line, cmd_len, "CONFIG");
     const bool is_status = matches(line, cmd_len, "STATUS");
+    if (matches(line, cmd_len, "HISTORY")) {
+      if (cmd_len != len) {
+        return SerialParseStatus::UNKNOWN; // HISTORY takes no argument
+      }
+      out.kind = SerialCommandKind::HISTORY;
+      return SerialParseStatus::OK;
+    }
     if (is_list || is_info || is_config || is_status) {
       if (cmd_len != len) {
         return SerialParseStatus::UNKNOWN; // these commands take no argument
@@ -399,6 +406,54 @@ public:
     send(sink, line);
   }
 
+  // Sends the 24-hour histories as CSV. A sensor has one row per age up to the longest of its histories (sensor 0
+  // includes the noise history). Each history counts its age from its own newest sample: the hourly write pushes all
+  // histories in one step, and a sensor without a fresh reading skips its step, so a gap can shift that sensor's age_h. The card stays untouched. A short write ends the reply, so the host sees no CRC32 line.
+  static void showHistory(Sink& sink, const ClimateHistory& history, const NoiseHistory& noise) {
+    SerialCrc32 crc;
+    auto emit = [&](const char* text) {
+      const size_t len = strlen(text);
+      if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+        return false;
+      }
+      crc.update(reinterpret_cast<const uint8_t*>(text), len);
+      return true;
+    };
+    if (!emit("BEGIN HISTORY\n") || !emit("sensor,age_h,temp_c,rh_pct,noise_db\n")) {
+      return;
+    }
+    for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
+      const size_t temps = history.temperatures[s].size();
+      const size_t rhs = history.slots[s].size();
+      const size_t noises = s == ClimateHistory::ONBOARD ? noise.size() : 0;
+      size_t hours = temps > rhs ? temps : rhs;
+      hours = noises > hours ? noises : hours;
+      for (size_t age = 0; age < hours; ++age) {
+        char temp[12] = "", rh[12] = "", db[8] = "";
+        if (age < temps) {
+          formatTenths(temp, sizeof(temp), history.temperatures[s].at(temps - 1 - age));
+        }
+        if (age < rhs) {
+          formatTenths(rh, sizeof(rh), history.slots[s].at(rhs - 1 - age));
+        }
+        if (age < noises) {
+          const uint8_t v = noise.at(noises - 1 - age);
+          if (NoiseHistory::isValid(v)) {
+            snprintf(db, sizeof(db), "%u", static_cast<unsigned>(v));
+          }
+        }
+        char line[48];
+        snprintf(line, sizeof(line), "%u,%u,%s,%s,%s\n", static_cast<unsigned>(s), static_cast<unsigned>(age), temp, rh, db);
+        if (!emit(line)) {
+          return;
+        }
+      }
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
   // Sends a live snapshot of all sensors and of the power state. The card stays untouched.
   static void showStatus(Sink& sink, const SerialStatusSnapshot& snap) {
     if (snap.registry == nullptr || snap.history == nullptr || snap.config == nullptr) {
@@ -549,7 +604,8 @@ public:
   static void execute(Storage& storage, Sink& sink, const SerialCommand& command) {
     if (command.kind == SerialCommandKind::NONE || command.kind == SerialCommandKind::CONFIG ||
         command.kind == SerialCommandKind::CALIB || command.kind == SerialCommandKind::STATUS ||
-        command.kind == SerialCommandKind::BEEP || command.kind == SerialCommandKind::TIME) {
+        command.kind == SerialCommandKind::BEEP || command.kind == SerialCommandKind::TIME ||
+        command.kind == SerialCommandKind::HISTORY) {
       return;
     }
     if (!storage.mount()) {
@@ -566,6 +622,7 @@ public:
       case SerialCommandKind::STATUS:
       case SerialCommandKind::BEEP:
       case SerialCommandKind::TIME:
+      case SerialCommandKind::HISTORY:
       default: break;
     }
     storage.unmount();
