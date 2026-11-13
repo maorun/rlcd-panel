@@ -285,7 +285,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 35;
+  static constexpr uint8_t STATE_VERSION = 36;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -317,8 +317,8 @@ public:
   // Rejected config.ini lines: the count (one byte), then four 16-bit line numbers.
   static constexpr size_t REJECTS_SIZE = 1 + ConfigRejects::MAX_LINES * 2;
   // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
-  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, ventilate limit, sensor battery limit, display invert, climate alert tiles, battery offset (int16), slot release hours, RH offset (float), three slot temperature offsets and three slot RH offsets (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
-  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 1 + 4 + 6 * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
+  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, ventilate limit, sensor battery limit, display invert, climate alert tiles, battery offset (int16), slot release hours, night wake interval (uint16), RH offset (float), three slot temperature offsets and three slot RH offsets (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
+  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 1 + 2 + 4 + 6 * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
   // Header: magic, version, mode, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -386,11 +386,17 @@ public:
   // Sleep settings of this wake cycle. Battery power takes the interval from config.ini. USB power
   // keeps the default interval, so the board answers at the usual pace while it charges. The
   // interval only moves the wakeup timer: the hourly log, the histories and the NTP schedule
-  // compare RTC stamps and do not depend on it.
-  static PowerConfig powerConfig(const DeviceConfig& config, const BatteryReading& battery) {
+  // compare RTC stamps and do not depend on it. On battery power in the quiet hours a set
+  // night_wake_interval_s replaces the interval. An invalid RTC time is no quiet hours.
+  static PowerConfig powerConfig(const DeviceConfig& config, const BatteryReading& battery,
+                                 const QuietHoursWindow& quiet = QuietHoursWindow(),
+                                 const RtcTime& time = RtcTime()) {
     PowerConfig c;
     if (!(battery.valid && battery.usb_powered)) {
       c.sleep_interval_s = config.wake_interval_s;
+      if (config.night_wake_interval_s > 0 && quiet.isActive(time)) {
+        c.sleep_interval_s = config.night_wake_interval_s;
+      }
     }
     return c.sanitized();
   }
@@ -566,6 +572,8 @@ public:
     out[pos++] = static_cast<uint8_t>(static_cast<uint16_t>(state.config.battery_offset_mv) & 0xFF);
     out[pos++] = static_cast<uint8_t>(static_cast<uint16_t>(state.config.battery_offset_mv) >> 8);
     out[pos++] = state.config.slot_release_h;
+    out[pos++] = static_cast<uint8_t>(state.config.night_wake_interval_s & 0xFF);
+    out[pos++] = static_cast<uint8_t>(state.config.night_wake_interval_s >> 8);
     putFloat(out, pos, state.config.rh_offset_pct);
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       putFloat(out, pos, state.config.slot_temp_offset_c[i]);
@@ -828,6 +836,8 @@ public:
     s.config.battery_offset_mv = static_cast<int16_t>(static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8)));
     pos += 2;
     s.config.slot_release_h = data[pos++];
+    s.config.night_wake_interval_s = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    pos += 2;
     s.config.rh_offset_pct = getFloat(data, pos);
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       s.config.slot_temp_offset_c[i] = getFloat(data, pos);

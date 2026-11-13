@@ -171,6 +171,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
   | `sensor_stale_min` | `30` | `5` to `240` | minutes without a packet until a sensor is stale |
   | `display_invert` | `0` | `0` or `1` | `1` shows light text on a dark background |
   | `slot_release_h` | `0` | `0` to `168` | hours without a packet until a slot without a fixed MAC is released; `0` is off |
+  | `night_wake_interval_s` | `0` | `0`, or `60` to `1800` | seconds between two scans on battery power in the quiet hours; `0` keeps `wake_interval_s` |
   | `climate_alert_tiles` | `15` | `0` to `15` | tiles of the freezer and mold alerts (bit 0 onboard, bits 1 to 3 slots 1 to 3); `0` switches both alerts off |
   | `outdoor_slot` | `0` | `0` (off) to `3` | registry slot of the outdoor sensor for the ventilation advice |
 
@@ -699,7 +700,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 
 - **Code:** `docs/config.example.ini`, `rlcd_panel/device_config.h`, `tests/test_firmware_logic.cpp`.
 - `docs/config.example.ini` lists each key of `DeviceConfigParser` once. Each key has one comment line with its range. Keys with a default value are active lines. The names (`onboard_name`, `slot1_name` to `slot3_name`) and the fixed MACs (`slot1_mac` to `slot3_mac`) have no default value, so they are comment lines only. The file has LF line ends and is below 4096 bytes. `README.md` links to it.
-- `DeviceConfigParser::KEYS` is the table of all 33 keys. `KEY_COUNT` is its size.
+- `DeviceConfigParser::KEYS` is the table of all 35 keys. `KEY_COUNT` is its size.
 - The host test `testConfigExampleTemplateInSync` reads the file. It checks that the parse gives no rejected line, that the result equals the defaults of `DeviceConfig`, and that each key of `KEYS` appears in the file. It also checks that the parser knows each key of `KEYS`.
 - The test fails when a key is missing in the file, when a value is not the default, when the file has more than 4096 bytes, and when a line is rejected. A new key in the parser needs an entry in `KEYS` and in the template.
 
@@ -728,3 +729,16 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The command runs on USB power only. It does not mount the card, so the clap listener keeps running.
 - Thus the user knows which firmware runs on the panel.
 - Host tests cover the parser, the rejection of an argument, the reply format, the default hash, the build time from a fixed compile stamp, the CRC-32 line, a short write and the USB power gate.
+
+## Longer wake interval during the quiet hours on battery power
+
+- **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `docs/config.example.ini`, `tests/test_firmware_logic.cpp`
+- The `config.ini` key `night_wake_interval_s` has the default `0` (off). The range is `0` or `60` to `1800` seconds. A malformed or out-of-range value (for example `59`, `1801`, a negative value or text) is rejected and counts in `ConfigRejects`.
+- `PowerManager::powerConfig` takes the quiet hours window and the RTC time as extra arguments. On battery power, while `QuietHoursWindow::isActive()` is true and the key is more than `0`, the key replaces `sleep_interval_s`. The window can cross midnight.
+- USB power keeps `60` s. An invalid RTC time or a stopped oscillator counts as no quiet hours, so `wake_interval_s` applies.
+- The interval moves the wakeup timer only. The hourly log, the histories and the NTP schedule use RTC stamps, so they stay correct.
+- `DeviceConfig::staleTimeoutMs()` uses the larger of `wake_interval_s` and `night_wake_interval_s` plus the scan time for its lower bound. A sensor does not turn stale during the night.
+- `PersistentState` stores the key in the config trailer (2 bytes, little endian, after `slot_release_h`). `STATE_VERSION` is 36. A corrupt field and a record of version 35 give a clean start.
+- The console command `CONFIG` and `DeviceConfigText` list the key. `docs/config.example.ini` and `DeviceConfigParser::KEYS` list it too.
+- Thus the battery lasts longer, because the panel scans less often while the user sleeps.
+- Host tests cover the parser for the default, the edges `60` and `1800`, the values `59` and `1801` and a malformed value, the interval inside and outside the quiet hours, a window across midnight, the USB power gate, an invalid RTC time, the stale clamp with both intervals, the `CONFIG` line and its parse back, and the RTC round trip with a corrupt field and the old state version 35.

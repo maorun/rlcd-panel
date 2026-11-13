@@ -63,6 +63,9 @@ struct DeviceConfig {
   static constexpr int16_t DEFAULT_BATTERY_OFFSET_MV = 0; // added to the cell voltage before every battery limit
   static constexpr int16_t MIN_BATTERY_OFFSET_MV = -300;
   static constexpr int16_t MAX_BATTERY_OFFSET_MV = 300;
+  static constexpr uint16_t DEFAULT_NIGHT_WAKE_INTERVAL_S = 0; // 0 keeps wake_interval_s during the quiet hours
+  static constexpr uint16_t MIN_NIGHT_WAKE_INTERVAL_S = 60;
+  static constexpr uint16_t MAX_NIGHT_WAKE_INTERVAL_S = 1800;
   static constexpr uint8_t DEFAULT_SLOT_RELEASE_H = 0; // 0 keeps a silent slot for ever
   static constexpr uint8_t MAX_SLOT_RELEASE_H = 168;
   static constexpr uint8_t DEFAULT_DISPLAY_INVERT = 0; // 1 shows light text on a dark background
@@ -111,6 +114,7 @@ struct DeviceConfig {
   uint8_t display_invert = DEFAULT_DISPLAY_INVERT; // 1 inverts the framebuffer before each flush, 0..1
   int16_t battery_offset_mv = DEFAULT_BATTERY_OFFSET_MV; // corrects divider and ADC tolerance, -300..300 mV
   uint8_t slot_release_h = DEFAULT_SLOT_RELEASE_H; // hours without a packet until a slot without a fixed MAC is released, 0 = off, else 1..168
+  uint16_t night_wake_interval_s = DEFAULT_NIGHT_WAKE_INTERVAL_S; // seconds from one scan start to the next on battery power in the quiet hours, 0 = off, else 60..1800
   uint8_t climate_alert_tiles = DEFAULT_CLIMATE_ALERT_TILES; // bit 0 onboard, bits 1..3 slots 1..3: tiles of the freezer and mold alerts, 0..15
 
   // Release time in ms of a silent slot without a fixed MAC (0 = never). 168 h fit into 32 bits.
@@ -122,7 +126,9 @@ struct DeviceConfig {
   // the scan duration would mark each sensor stale between two scans, so the sum is the lower bound.
   uint32_t staleTimeoutMs() const {
     const uint32_t configured = static_cast<uint32_t>(sensor_stale_min) * 60000UL;
-    const uint32_t floor_ms = (static_cast<uint32_t>(wake_interval_s) + SCAN_DURATION_S) * 1000UL;
+    // The night interval is the longest interval of the board, so the floor uses the larger one.
+    const uint32_t longest_s = night_wake_interval_s > wake_interval_s ? night_wake_interval_s : wake_interval_s;
+    const uint32_t floor_ms = (longest_s + SCAN_DURATION_S) * 1000UL;
     return configured < floor_ms ? floor_ms : configured;
   }
 
@@ -213,7 +219,9 @@ struct DeviceConfig {
            sensor_stale_min >= MIN_SENSOR_STALE_MIN && sensor_stale_min <= MAX_SENSOR_STALE_MIN &&
            display_invert <= MAX_DISPLAY_INVERT && climate_alert_tiles <= MAX_CLIMATE_ALERT_TILES &&
            battery_offset_mv >= MIN_BATTERY_OFFSET_MV && battery_offset_mv <= MAX_BATTERY_OFFSET_MV &&
-           slot_release_h <= MAX_SLOT_RELEASE_H;
+           slot_release_h <= MAX_SLOT_RELEASE_H &&
+           (night_wake_interval_s == 0 ||
+            (night_wake_interval_s >= MIN_NIGHT_WAKE_INTERVAL_S && night_wake_interval_s <= MAX_NIGHT_WAKE_INTERVAL_S));
   }
 
   bool isDefault() const {
@@ -240,7 +248,7 @@ struct DeviceConfig {
            ntp_sync_interval_h == d.ntp_sync_interval_h && wake_interval_s == d.wake_interval_s &&
            sensor_stale_min == d.sensor_stale_min && display_invert == d.display_invert &&
            climate_alert_tiles == d.climate_alert_tiles && battery_offset_mv == d.battery_offset_mv &&
-           slot_release_h == d.slot_release_h;
+           slot_release_h == d.slot_release_h && night_wake_interval_s == d.night_wake_interval_s;
   }
 };
 
@@ -288,7 +296,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 4096;
-  static constexpr size_t KEY_COUNT = 34;
+  static constexpr size_t KEY_COUNT = 35;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -303,7 +311,7 @@ public:
       "slot2_rh_offset_pct", "slot3_rh_offset_pct", "onboard_name",
       "slot1_name", "slot2_name", "slot3_name",
       "slot1_mac", "slot2_mac", "slot3_mac",
-      "slot_release_h",
+      "slot_release_h", "night_wake_interval_s",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -415,6 +423,17 @@ private:
       return false;
     }
     out = static_cast<T>(static_cast<int>(v));
+    return true;
+  }
+
+  // night_wake_interval_s: 0 (off) or 60 to 1800.
+  static bool parseNightInterval(const char* s, size_t n, uint16_t& out) {
+    uint16_t v = 0;
+    if (!parseIntIn(s, n, 0, DeviceConfig::MAX_NIGHT_WAKE_INTERVAL_S, v) ||
+        (v != 0 && v < DeviceConfig::MIN_NIGHT_WAKE_INTERVAL_S)) {
+      return false;
+    }
+    out = v;
     return true;
   }
 
@@ -616,6 +635,9 @@ private:
     } else if (keyIs(key, key_len, "slot_release_h")) {
       index = 33;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_SLOT_RELEASE_H, cfg.slot_release_h);
+    } else if (keyIs(key, key_len, "night_wake_interval_s")) {
+      index = 34;
+      ok = parseNightInterval(val, val_len, cfg.night_wake_interval_s);
     } else if (keyIs(key, key_len, "outdoor_slot")) {
       index = 26;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_OUTDOOR_SLOT, cfg.outdoor_slot);
@@ -681,6 +703,7 @@ public:
     ok = ok && putInt(out, cap, pos, "climate_alert_tiles", cfg.climate_alert_tiles);
     ok = ok && putSignedInt(out, cap, pos, "battery_offset_mv", cfg.battery_offset_mv);
     ok = ok && putInt(out, cap, pos, "slot_release_h", cfg.slot_release_h);
+    ok = ok && putInt(out, cap, pos, "night_wake_interval_s", cfg.night_wake_interval_s);
     ok = ok && putInt(out, cap, pos, "outdoor_slot", cfg.outdoor_slot);
     ok = ok && putInt(out, cap, pos, "ventilate_limit_rh", cfg.ventilate_limit_rh);
     ok = ok && putInt(out, cap, pos, "sensor_battery_limit_pct", cfg.sensor_battery_limit_pct);
