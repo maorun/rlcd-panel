@@ -9805,6 +9805,115 @@ void testSerialTimeNeedsNoCardAndUsbPower() {
   assert(!PowerManager::serialConsoleAllowed(invalid));
 }
 
+namespace {
+// Verdict of the template check: 0 ok, else the first failed rule.
+enum ConfigTemplateVerdict { TEMPLATE_OK = 0, TEMPLATE_TOO_BIG, TEMPLATE_REJECTED_LINE, TEMPLATE_NOT_DEFAULT,
+                             TEMPLATE_KEY_MISSING, TEMPLATE_CRLF };
+
+bool templateHasKey(const std::string& text, const std::string& key) {
+  // A key counts as listed on an active line or on a comment line "# key=value".
+  size_t pos = 0;
+  while (pos < text.size()) {
+    size_t end = text.find('\n', pos);
+    if (end == std::string::npos) end = text.size();
+    std::string line = text.substr(pos, end - pos);
+    if (!line.empty() && line[0] == '#') {
+      line = line.substr(1);
+      while (!line.empty() && line[0] == ' ') line.erase(0, 1);
+    }
+    if (line.compare(0, key.size() + 1, key + "=") == 0) return true;
+    pos = end + 1;
+  }
+  return false;
+}
+
+ConfigTemplateVerdict checkConfigTemplate(const std::string& text) {
+  if (text.size() > DeviceConfigParser::MAX_FILE_SIZE) return TEMPLATE_TOO_BIG;
+  if (text.find('\r') != std::string::npos) return TEMPLATE_CRLF;
+  DeviceConfig cfg;
+  const ConfigParseResult r = DeviceConfigParser::parse(text.data(), text.size(), cfg);
+  if (!r.file_ok || r.rejected != 0) return TEMPLATE_REJECTED_LINE;
+  if (!cfg.isDefault()) return TEMPLATE_NOT_DEFAULT;
+  for (size_t i = 0; i < DeviceConfigParser::KEY_COUNT; ++i) {
+    if (!templateHasKey(text, DeviceConfigParser::KEYS[i])) return TEMPLATE_KEY_MISSING;
+  }
+  return TEMPLATE_OK;
+}
+} // namespace
+
+void testConfigExampleTemplateInSync() {
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  std::ifstream in(root + "docs/config.example.ini", std::ios::binary);
+  assert(in.good());
+  std::stringstream ss;
+  ss << in.rdbuf();
+  const std::string text = ss.str();
+  assert(checkConfigTemplate(text) == TEMPLATE_OK);
+
+  // Every active line sets a key, so keys_set and the comment-only keys add up to the key table
+  DeviceConfig cfg;
+  const ConfigParseResult r = DeviceConfigParser::parse(text.data(), text.size(), cfg);
+  assert(r.rejected == 0 && r.keys_set > 0 && r.keys_set < DeviceConfigParser::KEY_COUNT);
+  // Only the keys without a default value (names, fixed MACs) are comment lines. Each of their
+  // example lines parses without a reject once the comment mark is removed.
+  size_t commented = 0;
+  std::string uncommented;
+  for (size_t i = 0; i < DeviceConfigParser::KEY_COUNT; ++i) {
+    const std::string key = DeviceConfigParser::KEYS[i];
+    const bool optional = key.find("_name") != std::string::npos || key.find("_mac") != std::string::npos;
+    const size_t at = text.find("# " + key + "=");
+    assert((at != std::string::npos) == optional);
+    if (at != std::string::npos) {
+      ++commented;
+      uncommented += text.substr(at + 2, text.find('\n', at) - at - 2) + "\n";
+    }
+  }
+  assert(commented == 7 && r.keys_set + commented == DeviceConfigParser::KEY_COUNT);
+  DeviceConfig examples;
+  const ConfigParseResult er = DeviceConfigParser::parse(uncommented.data(), uncommented.size(), examples);
+  assert(er.rejected == 0 && er.keys_set == commented);
+  // Each key of the table is unique
+  for (size_t i = 0; i < DeviceConfigParser::KEY_COUNT; ++i) {
+    for (size_t j = i + 1; j < DeviceConfigParser::KEY_COUNT; ++j) {
+      assert(strcmp(DeviceConfigParser::KEYS[i], DeviceConfigParser::KEYS[j]) != 0);
+    }
+  }
+
+  // The parser knows each key of the table: an invalid value is rejected, an unknown key is not
+  for (size_t i = 0; i < DeviceConfigParser::KEY_COUNT; ++i) {
+    const std::string line = std::string(DeviceConfigParser::KEYS[i]) + "=x\n";
+    DeviceConfig probe;
+    assert(DeviceConfigParser::parse(line.data(), line.size(), probe).rejected == 1);
+  }
+  const std::string unknown = "no_such_key=x\n";
+  DeviceConfig probe;
+  assert(DeviceConfigParser::parse(unknown.data(), unknown.size(), probe).rejected == 0);
+
+  // Failure 1: a key of the parser is missing in the file
+  std::string missing = text;
+  const size_t at = missing.find("sensor_stale_min=30\n");
+  assert(at != std::string::npos);
+  missing.erase(at, std::string("sensor_stale_min=30\n").size());
+  assert(checkConfigTemplate(missing) == TEMPLATE_KEY_MISSING);
+  std::string missing_comment = text;
+  missing_comment.replace(missing_comment.find("# slot3_mac="), 12, "# slot3_mak=");
+  assert(checkConfigTemplate(missing_comment) == TEMPLATE_KEY_MISSING);
+  // Failure 2: a value in the file is not the default
+  std::string changed = text;
+  changed.replace(changed.find("wake_interval_s=60"), 18, "wake_interval_s=90");
+  assert(checkConfigTemplate(changed) == TEMPLATE_NOT_DEFAULT);
+  // Failure 3: the file is above 4096 bytes
+  std::string big = text;
+  big.append(DeviceConfigParser::MAX_FILE_SIZE - big.size() + 1, '#');
+  assert(big.size() == DeviceConfigParser::MAX_FILE_SIZE + 1);
+  assert(checkConfigTemplate(big) == TEMPLATE_TOO_BIG);
+  // Failure 4: a rejected line
+  std::string rejected = text + "chime_volume_pct=101\n";
+  assert(checkConfigTemplate(rejected) == TEMPLATE_REJECTED_LINE);
+}
+
 void testDumpLogsScriptSetTimeSmokeCheck() {
   // String smoke check of the script text; the script itself needs a board. The path comes from __FILE__.
   std::string here = __FILE__;
@@ -10259,9 +10368,9 @@ void testNoiseAlertConfigKey() {
   }
   const DeviceConfig kept = parseText("noise_alert_limit_db=80\nnoise_alert_limit_db=20\n", &r);
   assert(kept.noise_alert_limit_db == 80 && r.rejected == 1 && r.keys_set == 1);
-  // The ninth key counts as a key of its own
+  // Three distinct keys count as three
   parseText("temp_offset_c=1\nnoise_alert_limit_db=60\nlog_retention_months=3\n", &r);
-  assert(r.keys_set == 3 && DeviceConfigParser::KEY_COUNT == 9);
+  assert(r.keys_set == 3 && DeviceConfigParser::KEY_COUNT == 33); // grows with each new key
   // valid() and isDefault() cover the new field
   DeviceConfig c;
   assert(c.isDefault() && c.valid());
@@ -13116,6 +13225,7 @@ int main() {
   testDeviceConfigFileSizeLimit();
   testDeviceConfigWiring();
   testDeviceConfigRtcRoundTrip();
+  testConfigExampleTemplateInSync();
   testSlotMacParser();
   testSlotMacRegistry();
   testSlotMacConfigApply();

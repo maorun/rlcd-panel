@@ -278,7 +278,22 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 4096;
-  static constexpr size_t KEY_COUNT = 9;
+  static constexpr size_t KEY_COUNT = 33;
+  // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
+  // that file against this table and checks that the parser knows each entry.
+  static constexpr const char* KEYS[KEY_COUNT] = {
+      "temp_offset_c", "rh_offset_pct", "freeze_alert_limit_c",
+      "mold_alert_limit_rh", "chime_volume_pct", "quiet_hours_start_hour",
+      "quiet_hours_end_hour", "mic_spl_offset_db", "log_retention_months",
+      "noise_alert_limit_db", "chime_alert_mask", "ntp_sync_interval_h",
+      "wake_interval_s", "sensor_stale_min", "display_invert",
+      "climate_alert_tiles", "battery_offset_mv", "outdoor_slot",
+      "ventilate_limit_rh", "sensor_battery_limit_pct", "slot1_temp_offset_c",
+      "slot2_temp_offset_c", "slot3_temp_offset_c", "slot1_rh_offset_pct",
+      "slot2_rh_offset_pct", "slot3_rh_offset_pct", "onboard_name",
+      "slot1_name", "slot2_name", "slot3_name",
+      "slot1_mac", "slot2_mac", "slot3_mac",
+  };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
   // Always resets `out` to the defaults first.

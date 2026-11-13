@@ -693,3 +693,11 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The console command `CONFIG` shows the key `battery_offset_mv`.
 - Thus the user can correct a battery reading that is wrong by a fixed voltage.
 - Host tests cover the parser for the default, the edges, the values `-301` and `301` and a malformed value, the percentage with `+100` and `-100` mV, the low battery, empty protection, USB and charge full limits with an offset, the `CONFIG` line and its parse back, the RTC round trip, a corrupt field and the old state version 33.
+
+## Commented config.ini template with a sync test
+
+- **Code:** `docs/config.example.ini`, `rlcd_panel/device_config.h`, `tests/test_firmware_logic.cpp`.
+- `docs/config.example.ini` lists each key of `DeviceConfigParser` once. Each key has one comment line with its range. Keys with a default value are active lines. The names (`onboard_name`, `slot1_name` to `slot3_name`) and the fixed MACs (`slot1_mac` to `slot3_mac`) have no default value, so they are comment lines only. The file has LF line ends and is below 4096 bytes. `README.md` links to it.
+- `DeviceConfigParser::KEYS` is the table of all 33 keys. `KEY_COUNT` is its size.
+- The host test `testConfigExampleTemplateInSync` reads the file. It checks that the parse gives no rejected line, that the result equals the defaults of `DeviceConfig`, and that each key of `KEYS` appears in the file. It also checks that the parser knows each key of `KEYS`.
+- The test fails when a key is missing in the file, when a value is not the default, when the file has more than 4096 bytes, and when a line is rejected. A new key in the parser needs an entry in `KEYS` and in the template.
