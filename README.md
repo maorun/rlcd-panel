@@ -185,6 +185,8 @@ wake_interval_s=60
 sensor_stale_min=30
 # 1 shows light text on a dark background (0 or 1)
 display_invert=0
+# Tiles of the freezer and mold alerts: bit 0 onboard, bits 1 to 3 slots 1 to 3 (0 to 15)
+climate_alert_tiles=15
 outdoor_slot=0
 sensor_battery_limit_pct=10
 # Optional sensor names: 1 to 12 characters of A-Z, 0-9, space and -

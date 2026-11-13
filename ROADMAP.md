@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] Tile selection for the freezer and mold alerts in config.ini
-  - Rank: [Total: 35, Use: 9, Setup: 8, Harmony: 9, Safety: 9, Effort: M]
-  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the `config.ini` key `climate_alert_tiles` (default `15`, range `0` to `15`). Bit 0 is the onboard sensor, bits 1 to 3 are the registry slots. `AlertEvaluator` uses only the tiles of the mask for `ALERT_FREEZER` and `ALERT_HUMIDITY`. A tile outside the mask counts as a tile without a usable reading, so the existing hold rule applies. The mask `0` clears both bits and gives no chime. `ALERT_VENTILATE`, `ALERT_SENSOR_LOST`, `ALERT_SENSOR_BATTERY`, the ventilation badges and the `BAT LOW` text do not use the mask. Thus an outdoor sensor below 0 C in winter does not start the freezer alert. A malformed or out-of-range value is rejected and counts in `ConfigRejects`. Store the mask in the config trailer of `PersistentState` (1 byte) and increase the state version. Show the key in the `CONFIG` reply.
-  - Acceptance test: Host tests cover the parser for the default, the edges `0` and `15`, the values `16` and `-1`, a malformed value, the freezer and the mold trigger with each single bit, an outdoor slot below 0 C outside the mask, the mask `0` with an active alert, a mask change while an alert is active, the unchanged ventilation advice, the `CONFIG` line and its parse back, and the RTC round trip with a corrupt field and the old state version.
-
 - [ ] Serial console command TIME to read and set the RTC
   - Rank: [Total: 34, Use: 7, Setup: 9, Harmony: 9, Safety: 9, Effort: S]
   - Location: `rlcd_panel/serial_console.h`, `rlcd_panel/pcf85063_rtc.h`, `rlcd_panel/ntp_sync.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
