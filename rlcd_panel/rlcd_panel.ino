@@ -466,7 +466,8 @@ void refreshSensors() {
       g_onboard_reading.valid,
       g_onboard_reading.humidity_pct,
       calibratedRegistry(),
-      g_onboard_reading.temperature_c);
+      g_onboard_reading.temperature_c,
+      config().staleTimeoutMs());
   // The tile badges have no chime and do not depend on the alert mask. The latch updates before the
   // first render, so the display shows the current state.
   // The BLE scan is stopped here, so the registry copy needs no g_registry_mux.
@@ -477,10 +478,11 @@ void refreshSensors() {
   }
   g_state.ventilate_tiles = VentilateLatch::update(
       g_state.ventilate_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
-      config().ventilate_limit_rh);
+      config().ventilate_limit_rh, config().staleTimeoutMs());
   // The sensor battery latch updates before the first render. The chime follows in chimeOnSensorBattery().
   g_state.sensor_battery_latch = SensorBatteryLatch::update(
-      g_state.sensor_battery_latch, tiles, MAX_SWITCHBOT_SENSORS, nowMs(), config().sensor_battery_limit_pct);
+      g_state.sensor_battery_latch, tiles, MAX_SWITCHBOT_SENSORS, nowMs(), config().sensor_battery_limit_pct,
+      config().staleTimeoutMs());
 }
 
 // Stores the new mask and plays the chimes of the step. The amplifier is off again before this
@@ -545,7 +547,8 @@ void logToSdCard() {
   int32_t free_mb = -1;
   const SdLogResult result = SdLogger::append(
       g_rtc_time, g_state.battery, g_onboard_reading, snapshot, MAX_SWITCHBOT_SENSORS, now,
-      have_noise ? &g_noise : nullptr, &cal, config().log_retention_months, &free_mb);
+      have_noise ? &g_noise : nullptr, &cal, config().log_retention_months, &free_mb,
+      config().staleTimeoutMs());
   g_sd_free_mb = free_mb; // -1 after a failed mount, so the view never shows an old value
   if (g_mode_controller.mode() == DisplayMode::SYSTEM_DIAGNOSTICS) {
     renderDashboard(); // the diagnostics view shows the free space after the write
@@ -594,6 +597,7 @@ AlertLimits alertLimits() {
   limits.freezer_trigger_c = config().freeze_alert_limit_c;
   limits.humidity_trigger_pct = static_cast<float>(config().mold_alert_limit_rh);
   limits.outdoor_slot = config().outdoor_slot;
+  limits.stale_timeout_ms = config().staleTimeoutMs();
   return limits;
 }
 
@@ -712,7 +716,7 @@ void setup() {
     initBle();
     // The battery reading is from the last wake cycle: one cycle after a plug-in keeps the old power state.
     scanOnce(ScanCompletion::fullScanRequired(
-        cause, g_state.battery, g_state.registry, nowMs(), g_state.history.sampleDue(nowMs())));
+        cause, g_state.battery, g_state.registry, nowMs(), g_state.history.sampleDue(nowMs()), config().staleTimeoutMs()));
     BLEDevice::deinit(false);
     cycle.advance();
   }

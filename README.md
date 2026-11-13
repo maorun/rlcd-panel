@@ -181,6 +181,8 @@ noise_alert_limit_db=0
 chime_alert_mask=127
 ntp_sync_interval_h=24
 wake_interval_s=60
+# Minutes without a packet until a sensor is stale (5 to 240)
+sensor_stale_min=30
 outdoor_slot=0
 sensor_battery_limit_pct=10
 # Optional sensor names: 1 to 12 characters of A-Z, 0-9, space and -

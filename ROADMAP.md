@@ -20,11 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] Configurable sensor stale timeout in config.ini
-  - Rank: [Total: 32, Use: 6, Setup: 8, Harmony: 9, Safety: 9, Effort: M]
-  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/ventilate_latch.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the `config.ini` key `sensor_stale_min` (default `30`, range `5` to `240` minutes). Use this value in each `SwitchBotReading::isStale` call instead of the fixed `SENSOR_STALE_TIMEOUT_MS`: the `STALE` badge, `RSSI --`, `ALERT_SENSOR_LOST`, `SwitchBotRegistry::anyStale`, the hourly history gate, the CSV columns, the ventilation latch and the sensor battery latch. Keep the default value equal to the current 30 min, so a card without the key gives the same behavior. A malformed or out-of-range value is rejected and counts in `ConfigRejects`. A value below `wake_interval_s` plus the 4 s scan time is clamped up to this sum, so a slow wake interval does not mark each slot stale. Store the value in the config trailer of `PersistentState` (2 bytes) and increase the state version. Show the key in the `CONFIG` reply. Thus the user adapts the dropout detection to the sensor send interval and to `wake_interval_s`.
-  - Acceptance test: Host tests cover the parser for the default, the edges `5` and `240`, out-of-range and malformed values, the clamp against `wake_interval_s`, the stale change at the exact timeout and over the 32-bit clock wrap, each call site with a non-default value, the `CONFIG` line and its parse back, and the RTC round trip with a corrupt field. `docs/display_preview_dashboard.png` stays bit-exact for the default scenes.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 

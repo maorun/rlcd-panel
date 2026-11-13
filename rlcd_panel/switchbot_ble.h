@@ -212,9 +212,10 @@ public:
 
   // True when one valid slot of `slots` is stale. An empty slot never counts: a sensor that was
   // never seen cannot drop out.
-  static bool anyStale(const SwitchBotReading* slots, size_t count, uint32_t now_ms) {
+  static bool anyStale(const SwitchBotReading* slots, size_t count, uint32_t now_ms,
+                       uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS) {
     for (size_t i = 0; slots != nullptr && i < count; ++i) {
-      if (slots[i].isStale(now_ms)) {
+      if (slots[i].isStale(now_ms, stale_timeout_ms)) {
         return true;
       }
     }
@@ -295,7 +296,7 @@ public:
   static constexpr uint8_t RELEASE_MARGIN_PCT = 5;
 
   static uint8_t update(uint8_t previous, const SwitchBotReading* slots, size_t slot_count, uint32_t now_ms,
-                        uint8_t limit_pct) {
+                        uint8_t limit_pct, uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS) {
     if (limit_pct == LIMIT_OFF || limit_pct > MAX_LIMIT_PCT || slots == nullptr) {
       return 0;
     }
@@ -307,7 +308,7 @@ public:
         continue;
       }
       uint8_t held = static_cast<uint8_t>(previous & mask);
-      if (!r.isStale(now_ms) && r.battery_pct >= 0) {
+      if (!r.isStale(now_ms, stale_timeout_ms) && r.battery_pct >= 0) {
         if (r.battery_pct <= static_cast<int>(limit_pct)) {
           held = mask;
         } else if (r.battery_pct >= static_cast<int>(limit_pct) + RELEASE_MARGIN_PCT) {

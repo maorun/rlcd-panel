@@ -47,6 +47,7 @@ struct AlertLimits {
   float freezer_trigger_c = 0.0f;
   float humidity_trigger_pct = 70.0f;
   uint8_t outdoor_slot = 0; // 0 = off, 1 to 3 = registry slot of the outdoor sensor
+  uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS; // a slot without a packet for longer is stale
 
   float freezerReleaseC() const { return freezer_trigger_c + FREEZER_HYSTERESIS_C; }
   float humidityReleasePct() const { return humidity_trigger_pct - HUMIDITY_HYSTERESIS_PCT; }
@@ -84,12 +85,12 @@ public:
     }
     for (size_t i = 0; slots != nullptr && i < slot_count; ++i) {
       const SwitchBotReading& r = slots[i];
-      if (r.valid && !r.isStale(now_ms)) {
+      if (r.valid && !r.isStale(now_ms, limits.stale_timeout_ms)) {
         tally.add(r.temperature_c, static_cast<float>(r.humidity_pct));
       }
     }
     uint8_t mask = ALERT_NONE;
-    if (SwitchBotRegistry::anyStale(slots, slot_count, now_ms)) {
+    if (SwitchBotRegistry::anyStale(slots, slot_count, now_ms, limits.stale_timeout_ms)) {
       mask |= ALERT_SENSOR_LOST;
     }
     if (ventilate(previous, onboard, slots, slot_count, now_ms, limits)) {
@@ -173,7 +174,7 @@ private:
       return false;
     }
     const SwitchBotReading& outdoor = slots[limits.outdoor_slot - 1];
-    if (!outdoor.valid || outdoor.isStale(now_ms)) {
+    if (!outdoor.valid || outdoor.isStale(now_ms, limits.stale_timeout_ms)) {
       return false;
     }
     const float indoor_gm3 = ClimateMath::absoluteHumidityGm3(onboard.temperature_c, onboard.humidity_pct);

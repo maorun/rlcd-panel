@@ -427,7 +427,7 @@ public:
           static_cast<float>(sb.humidity_pct),
           sb.battery_pct,
           -1.0f,
-          sb.isStale(now_ms),
+          sb.isStale(now_ms, staleTimeoutMs(config)),
           history != nullptr ? &history->slots[1 + i] : nullptr,
           VentilateLatch::isSet(ventilate_tiles, 1 + i),
           history != nullptr ? &history->temperatures[1 + i] : nullptr,
@@ -480,19 +480,26 @@ public:
 
   // "COMFORT OK" for a live slot, "COMFORT --" for an empty, stale or out-of-range slot. Computed on
   // each render; nothing is stored.
-  static void formatComfort(char* out, size_t capacity, const SwitchBotReading& sb, uint32_t now_ms) {
+  // Stale timeout of the config, or the default timeout without a config.
+  static uint32_t staleTimeoutMs(const DeviceConfig* config) {
+    return config != nullptr ? config->staleTimeoutMs() : SENSOR_STALE_TIMEOUT_MS;
+  }
+
+  static void formatComfort(char* out, size_t capacity, const SwitchBotReading& sb, uint32_t now_ms,
+                            uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS) {
     const bool future = (now_ms - sb.updated_ms) >= 0xFFFF0000u;
     ComfortZone zone = ComfortZone::INVALID;
-    if (sb.valid && (future || !sb.isStale(now_ms))) {
+    if (sb.valid && (future || !sb.isStale(now_ms, stale_timeout_ms))) {
       zone = ClimateMath::comfort(sb.temperature_c, static_cast<float>(sb.humidity_pct));
     }
     snprintf(out, capacity, "COMFORT %s", ClimateMath::comfortLabel(zone));
   }
 
   static void drawComfort(
-      St7305Framebuffer& fb, uint16_t y, uint16_t y_offset, const SwitchBotReading& sb, uint32_t now_ms) {
+      St7305Framebuffer& fb, uint16_t y, uint16_t y_offset, const SwitchBotReading& sb, uint32_t now_ms,
+      uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS) {
     char text[16];
-    formatComfort(text, sizeof(text), sb, now_ms);
+    formatComfort(text, sizeof(text), sb, now_ms, stale_timeout_ms);
     const uint16_t x = static_cast<uint16_t>(COMFORT_RIGHT_X - strlen(text) * 6);
     fb.drawText(x, static_cast<uint16_t>(y + y_offset), text, 1, true);
   }
@@ -503,10 +510,11 @@ public:
   }
 
   // "RSSI -NN DBM" for a live slot, "RSSI --" for an empty or stale slot.
-  static void formatRssi(char* out, size_t capacity, const SwitchBotReading& sb, uint32_t now_ms) {
+  static void formatRssi(char* out, size_t capacity, const SwitchBotReading& sb, uint32_t now_ms,
+                         uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS) {
     // A packet stamped shortly after now_ms counts as fresh, like the age display.
     const bool future = (now_ms - sb.updated_ms) >= 0xFFFF0000u;
-    if (!sb.valid || (!future && sb.isStale(now_ms))) {
+    if (!sb.valid || (!future && sb.isStale(now_ms, stale_timeout_ms))) {
       snprintf(out, capacity, "RSSI --");
       return;
     }
@@ -538,7 +546,7 @@ public:
       if (!sb.valid) {
         snprintf(line, sizeof(line), "%s NO SIGNAL", label);
         drawLine(fb, 10, y, line);
-        drawComfort(fb, y, 3, sb, now_ms); // first line: the empty slot has no packet line
+        drawComfort(fb, y, 3, sb, now_ms, staleTimeoutMs(config)); // first line: the empty slot has no packet line
         if (config != nullptr && config->hasSlotMac(i)) {
           formatMac(line, sizeof(line), config->slot_mac[i]);
           drawLine(fb, 10, static_cast<uint16_t>(y + 18), line);
@@ -547,7 +555,7 @@ public:
       }
 
       char rssi[24];
-      formatRssi(rssi, sizeof(rssi), sb, now_ms);
+      formatRssi(rssi, sizeof(rssi), sb, now_ms, staleTimeoutMs(config));
       snprintf(line, sizeof(line), "%s %s", label, rssi);
       drawLine(fb, 10, y, line);
 
@@ -573,7 +581,7 @@ public:
           static_cast<unsigned long>(sb.packet_count),
           age);
       drawLine(fb, 10, static_cast<uint16_t>(y + 36), line);
-      drawComfort(fb, y, COMFORT_Y_OFFSET, sb, now_ms);
+      drawComfort(fb, y, COMFORT_Y_OFFSET, sb, now_ms, staleTimeoutMs(config));
 
       formatRecords(line, sizeof(line), history, 1 + i);
       drawLine(fb, 10, static_cast<uint16_t>(y + 54), line);

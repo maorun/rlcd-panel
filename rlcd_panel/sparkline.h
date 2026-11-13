@@ -442,7 +442,8 @@ struct ClimateHistory {
       bool onboard_valid,
       float onboard_humidity_pct,
       const SwitchBotRegistry& registry,
-      float onboard_temperature_c = NAN) {
+      float onboard_temperature_c = NAN,
+      uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS) {
     if (!sampleDue(now_ms)) {
       return false;
     }
@@ -455,7 +456,7 @@ struct ClimateHistory {
     }
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       const SwitchBotReading& r = registry.slot(i);
-      if (r.valid && !r.isStale(now_ms)) {
+      if (r.valid && !r.isStale(now_ms, stale_timeout_ms)) {
         if (slots[1 + i].pushPercent(static_cast<float>(r.humidity_pct))) {
           pushed = true;
         }
