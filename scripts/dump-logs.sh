@@ -4,6 +4,7 @@
 #        ./scripts/dump-logs.sh --config [port]   prints the active configuration (CONFIG command)
 #        ./scripts/dump-logs.sh --status [port]   prints the live sensor snapshot (STATUS command)
 #        ./scripts/dump-logs.sh --set-time [port] sets the RTC to the local time of this host (TIME SET command; accuracy is about 1 s)
+#        ./scripts/dump-logs.sh --history [port]  writes the 24-hour histories from the RTC copy to sd_logs/history_<host time>.csv (HISTORY command, no card needed)
 # The board answers on USB power only, while it is awake. Press KEY to wake it first.
 set -euo pipefail
 umask 077
@@ -24,6 +25,10 @@ if [[ "${1:-}" == "--status" ]]; then
 fi
 if [[ "${1:-}" == "--set-time" ]]; then
   MODE=set-time
+  shift
+fi
+if [[ "${1:-}" == "--history" ]]; then
+  MODE=history
   shift
 fi
 PORT="${1:-}"
@@ -135,6 +140,40 @@ if mode == "status":
     if [r.split(" ")[1] for r in rows[:4]] != ["0", "1", "2", "3"] or len(rows) != 5 or not rows[4].startswith("POWER "):
         raise SystemExit("Error: incomplete STATUS reply (expected 4 SENSOR lines and 1 POWER line)")
     sys.stdout.write(body.decode("ascii"))
+    sys.exit(0)
+if mode == "history":
+    # HISTORY answers from the RTC copy: "BEGIN HISTORY", the CSV header, the rows, then the CRC32 line over all bytes before it.
+    HEADER = "sensor,age_h,temp_c,rh_pct,noise_db"
+    ROW = re.compile(r"^[0-3],\d{1,2},(?:-?\d+\.\d)?,(?:\d+\.\d)?,(?:\d{1,3})?$")
+    command("HISTORY")
+    deadline = time.time() + timeout_s
+    body = bytearray()
+    started = False
+    while True:
+        text = line(deadline)
+        if text.startswith("ERR "):
+            raise SystemExit("Error: " + text)
+        if text == "BEGIN HISTORY":
+            started = True
+            body = bytearray(b"BEGIN HISTORY\n")
+            continue
+        if not started:
+            continue  # boot log lines before the frame
+        if text.startswith("CRC32 "):
+            break
+        if text == HEADER or ROW.match(text):
+            body.extend(text.encode("ascii") + b"\n")
+        else:
+            raise SystemExit(f"Error: unexpected HISTORY line ({text!r})")
+    expected = f"CRC32 {zlib.crc32(bytes(body)) & 0xFFFFFFFF:08x}"
+    if text != expected:
+        raise SystemExit(f"Error: CRC mismatch ({text} / {expected})")
+    csv = bytes(body).split(b"\n", 1)[1]
+    target = os.path.join(out_dir, "history_" + time.strftime("%Y%m%dT%H%M%S", time.localtime()) + ".csv")
+    with open(target + ".part", "wb") as handle:
+        handle.write(csv)
+    os.replace(target + ".part", target)
+    print(f"{os.path.basename(target)}: {len(csv)} bytes, {expected}")
     sys.exit(0)
 if mode == "set-time":
     # TIME SET takes the local time of this host and answers "OK TIME", "ERR BAD_ARG" or "ERR RTC_FAILED".

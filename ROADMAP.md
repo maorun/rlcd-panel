@@ -20,11 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] Serial console command HISTORY to export the 24-hour histories
-  - Rank: [Total: 32, Use: 5, Setup: 8, Harmony: 9, Safety: 10, Effort: S]
-  - Location: `rlcd_panel/serial_console.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the console command `HISTORY` without an argument. It sends the line `BEGIN HISTORY`, the CSV header `sensor,age_h,temp_c,rh_pct,noise_db`, and one row for each stored hour of each sensor (sensor `0` onboard, `1` to `3` the slots, `age_h` `0` is the newest sample). The noise column holds a value in the rows of sensor `0` only. A missing sample gives an empty field. End the reply with `CRC32 <8 hex digits>` over all bytes before this line. The command reads the RTC copy (`ClimateHistory`, `NoiseHistory`) only. It does not mount the card and does not stop the clap listener. It runs on USB power only. Add `./scripts/dump-logs.sh --history [port]`, which checks the CRC-32 and writes `sd_logs/history_<host time>.csv`. Thus the user gets the last 24 hours also without a card.
-  - Acceptance test: Host tests cover the parser, the rejection of `HISTORY` with arguments, the header, a full history, an empty history, an invalid noise hour, negative temperatures, the row order, the CRC-32 line, the stop on a short write, no card access, and the USB power gate.
 
 - [ ] Serial console command VERSION with the build identity
   - Rank: [Total: 31, Use: 4, Setup: 9, Harmony: 8, Safety: 10, Effort: S]

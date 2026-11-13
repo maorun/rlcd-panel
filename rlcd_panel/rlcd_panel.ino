@@ -828,6 +828,10 @@ void setup() {
         // The RTC histories answer: no card access, so the clap listener keeps running.
         SerialConsoleRunner<SdLogStorage, SerialSink>::showCalib(console_sink, command.reference, g_state.history,
                                                                  g_state.config);
+      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::HISTORY) {
+        // The RTC histories answer: no card access, so the clap listener keeps running.
+        SerialConsoleRunner<SdLogStorage, SerialSink>::showHistory(console_sink, g_state.history,
+                                                                   g_state.noise_history);
       } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::STATUS) {
         // The RTC copy answers: no card access, so the clap listener keeps running.
         portENTER_CRITICAL(&g_registry_mux); // the BLE callback writes the registry
