@@ -266,6 +266,8 @@ struct SerialStatusSnapshot {
   uint8_t sensor_battery_latch = 0; // SensorBatteryLatch bits, one per registry slot
   bool muted = false;
   uint32_t now_ms = 0; // RTC-backed clock
+  SdStatus sd_status = SdStatus::UNKNOWN; // last card result
+  uint32_t sd_status_ms = 0;              // clock value of that result
 };
 
 // Runs one parsed command. Storage mounts the card for the command and unmounts it on every
@@ -284,7 +286,7 @@ struct SerialStatusSnapshot {
 //   so execute() ignores CONFIG.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 3 (slots, calibrated readings), a missing value gives "--";
-//   then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "CRC32 <8 hex digits>" over all lines
+//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 6), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
@@ -457,6 +459,16 @@ public:
       if (snap.battery.percentage >= 0) {
         snprintf(pct, sizeof(pct), "%d", static_cast<int>(snap.battery.percentage));
       }
+    }
+    if (snap.sd_status == SdStatus::UNKNOWN) {
+      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "SD status=UNKNOWN age=--\n"));
+    } else {
+      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "SD status=%s age=%lu\n",
+                                          SdStatusCodec::name(snap.sd_status),
+                                          static_cast<unsigned long>(static_cast<uint32_t>(snap.now_ms - snap.sd_status_ms) / 1000UL)));
+    }
+    if (len >= sizeof(text)) {
+      return;
     }
     len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "POWER src=%s v=%s pct=%s alerts=%02x muted=%u\n",
                                         snap.battery.usb_powered ? "USB" : "BAT", volts, pct,

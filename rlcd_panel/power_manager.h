@@ -96,6 +96,15 @@ struct PersistentState {
   DeviceConfig config;       // settings from /sdcard/config.ini; a timer wakeup reuses them
   bool config_from_sd = false; // true: the card supplied `config`; false: the defaults apply
   ConfigRejects config_rejects; // rejected lines of the last config.ini parse
+  SdStatus sd_status = SdStatus::UNKNOWN; // result of the last card access (hourly write or config load)
+  uint32_t sd_status_ms = 0;  // clock value of that result; meaningless while sd_status is UNKNOWN
+
+  // Stores the result of a card access. A wake cycle without card access never calls it, so the
+  // stored status stays.
+  void setSdStatus(SdStatus status, uint32_t now_ms) {
+    sd_status = status;
+    sd_status_ms = now_ms;
+  }
 
   // Takes over a new config. A slot whose fixed MAC changed (set, changed or removed) loses its
   // reading and its 24-hour histories. A slot that holds a MAC another slot has fixed loses them
@@ -251,7 +260,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 32;
+  static constexpr uint8_t STATE_VERSION = 33;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -268,8 +277,9 @@ public:
   // Battery history: count, head, 24 samples (uint16 millivolts), 24 stamps (uint32), last
   // sample time, sampled flag.
   static constexpr size_t BATTERY_HISTORY_SIZE = 1 + 1 + BatteryHistory::CAPACITY * (2 + 4) + 4 + 1;
-  // SD log trailer: last log time, logged flag, then the daily summary stamp: flag, year (uint16), month, day.
-  static constexpr size_t SD_LOG_SIZE = 4 + 1 + 1 + 2 + 1 + 1;
+  // SD log trailer: last log time, logged flag, then the daily summary stamp: flag, year (uint16), month, day,
+  // then the card status (one byte) and the clock stamp of that result (uint32).
+  static constexpr size_t SD_LOG_SIZE = 4 + 1 + 1 + 2 + 1 + 1 + 1 + 4;
   // Audio trailer: one byte, bit 0 muted, bits 1..5 alert mask, bits 6..7 noise band.
   static constexpr size_t AUDIO_SIZE = 4; // flags byte (bit 0 ventilate, bit 1 sensor battery alert), muted | mask << 1 | band << 6, sensor battery latch bits, then the tile badge latch bits
   // NTP trailer: last attempt time, flags (bit 0 attempted, bit 1 last ok), failure count, then the
@@ -486,6 +496,8 @@ public:
     out[pos++] = static_cast<uint8_t>(state.daily.year >> 8);
     out[pos++] = state.daily.month;
     out[pos++] = state.daily.day;
+    out[pos++] = static_cast<uint8_t>(state.sd_status);
+    putU32(out, pos, state.sd_status_ms);
     out[pos++] = static_cast<uint8_t>(((state.alert_mask & ALERT_VENTILATE) != 0 ? 1 : 0) |
                                       ((state.alert_mask & ALERT_SENSOR_BATTERY) != 0 ? 2 : 0));
     out[pos++] = static_cast<uint8_t>((state.muted ? 1 : 0) | ((state.alert_mask & (ALERT_MASK_ALL & ~ALERT_VENTILATE & ~ALERT_SENSOR_BATTERY)) << 1) |
@@ -704,6 +716,12 @@ public:
       s.daily.month = daily_month;
       s.daily.day = daily_day;
     }
+    const uint8_t sd_status = data[pos++];
+    if (sd_status > SdStatusCodec::MAX_VALUE) {
+      return false;
+    }
+    s.sd_status = static_cast<SdStatus>(sd_status);
+    s.sd_status_ms = getU32(data, pos);
     const uint8_t vent = data[pos++];
     if (vent > 3) {
       return false;

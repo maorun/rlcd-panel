@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] MicroSD card status in the diagnostics view and in STATUS
-  - Rank: [Total: 33, Use: 6, Setup: 9, Harmony: 9, Safety: 9, Effort: M]
-  - Location: `rlcd_panel/sd_logger.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`
-  - Goal: Add `SdStatus` with the values `UNKNOWN`, `OK`, `NO_CARD`, `MOUNT_FAILED`, `WRITE_FAILED` and `FULL`. `SdLogger` sets the status after each hourly write and after each config load. `FULL` is a failed write with 0 MB free space. Store the status and the clock stamp of the last result in `PersistentState` (5 bytes) and increase the state version. The diagnostics view keeps `SD FREE: NNN MB` while the status is `OK` or `UNKNOWN`. For another status it shows `SD: NO CARD`, `SD: MOUNT ERR`, `SD: WRITE ERR` or `SD: FULL` in the same place. The console command `STATUS` adds the line `SD status=<VALUE> age=<s>` before the `POWER` line. A timer wakeup without a write keeps the stored status. Thus the user sees a missing or full card before hours of log data are lost.
-  - Acceptance test: Host tests cover each status from the logger results, the 0 MB case, the line text and bounds of each status in the diagnostics view, the unchanged `SD FREE` line for `OK`, the `STATUS` line with each value, and the RTC round trip with a corrupt status and the old state version. `docs/display_preview_diagnostics.png` stays bit-exact.
-
 - [ ] Battery voltage calibration offset in config.ini
   - Rank: [Total: 32, Use: 6, Setup: 9, Harmony: 9, Safety: 8, Effort: S]
   - Location: `rlcd_panel/battery_monitor.h`, `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`

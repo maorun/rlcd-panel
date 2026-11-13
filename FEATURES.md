@@ -648,3 +648,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The UUID `0x181A` is generic. Another device with a 13-byte or 15-byte payload in range can take a free slot. Fix a slot to a MAC in `config.ini` to prevent this.
 - The new sensors use the same registry slots, fixed MAC rule, offsets, latches and stale rule as the other sensors.
 - Host tests cover an ATC packet and a pvvx packet, negative temperatures in both formats, the byte order of the MAC, the lengths 12, 14 and 16, the limits of temperature, humidity and battery, and the registry upsert with a fixed MAC.
+
+## MicroSD card status in the diagnostics view and in STATUS
+
+- **Code:** `rlcd_panel/sd_logger.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- `SdStatus` has the values `UNKNOWN`, `OK`, `NO_CARD`, `MOUNT_FAILED`, `WRITE_FAILED` and `FULL`. `SdStatusCodec` converts the logger results to a status.
+- The wake cycle sets the status after each hourly write and after each config load. A write that fails with 0 MB free space gives `FULL`. A config load keeps a stored `WRITE_FAILED` or `FULL`, because a read does not prove a write. A short read of `config.ini` gives `MOUNT_FAILED`.
+- `PersistentState` stores the status (1 byte) and the clock stamp of the last result (4 bytes). `STATE_VERSION` is 33. A wake cycle without card access keeps the stored status. A corrupt status byte rejects the state.
+- The diagnostics view keeps `SD FREE: NNN MB` while the status is `OK` or `UNKNOWN`. For another status it shows `SD: NO CARD`, `SD: MOUNT ERR`, `SD: WRITE ERR` or `SD: FULL` in the same place, left of the L10/L90 text.
+- The console command `STATUS` sends the line `SD status=<VALUE> age=<s>` before the `POWER` line. The age is `--` while the status is `UNKNOWN`.
+- Thus the user sees a missing or full card before hours of log data are lost.
+- Host tests cover each status from the logger results, the 0 MB case, the line text and bounds of each status, the unchanged `SD FREE` line for `OK` and `UNKNOWN`, the `STATUS` line for each value, the RTC round trip, a corrupt status byte and the old state version 32.
