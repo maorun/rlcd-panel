@@ -500,3 +500,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The suggested lines follow, for example `slot2_temp_offset_c=-0.4` and `slot2_rh_offset_pct=2.1`. Each value is the active offset minus the mean difference, clamped to the key range. The onboard sensor uses the keys `temp_offset_c` and `rh_offset_pct`.
 - The answer comes from the RTC copy of the histories and the configuration. The command does not mount or write the MicroSD card, so the clap listener keeps running. The command runs on USB power only. The output ends with the `CRC32` line over all lines before it.
 - Host tests cover the parser, a constant difference, a gap, fewer than 6 hours, an empty reference, an active offset, the clamp, the onboard key names, the CRC-32 line and the USB power gate.
+
+## High-humidity ventilation badge on the sensor tiles
+
+- **Code:** `rlcd_panel/ventilate_latch.h`, `rlcd_panel/device_config.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.
+- **Preview:** `docs/display_preview_dashboard.png` shows the badge in the tile `GARTEN`.
+- The new `config.ini` key `ventilate_limit_rh` (default `60`, range `50` to `80` %RH) sets the limit. A value outside the range is rejected.
+- `VentilateLatch` keeps one bit for each tile (bit 0 onboard, bits 1 to 3 the slots). The bit sets when the calibrated humidity is above the limit. It releases when the humidity is 2 %RH or more below the limit. Between the two limits the bit keeps its state. A stale slot, an empty slot and an invalid reading clear the bit.
+- The tile shows an inverted 9 x 9 px badge with the glyph `V` right of the humidity line, at x + 108 and y + 56. The badge stays inside the tile, above the sparkline box. A stale tile shows no badge.
+- The badge is independent of the `VENTILATE` header banner, of `ALERT_VENTILATE` and of `mold_alert_limit_rh`. It has no chime.
+- RTC state version 28: the audio block gets a third byte with the four latch bits, and the config trailer stores `ventilate_limit_rh` after `outdoor_slot`. A corrupt record or a latch bit above bit 3 gives a clean start.

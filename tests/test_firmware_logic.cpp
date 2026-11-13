@@ -1053,7 +1053,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 27);
+  assert(PowerManager::STATE_VERSION == 28);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -1940,7 +1940,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 27);
+  assert(PowerManager::STATE_VERSION == 28);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -2375,7 +2375,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 27);
+  assert(PowerManager::STATE_VERSION == 28);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -2725,7 +2725,7 @@ void testSensorLostAlert() {
     }
   }
   // State encoding: audio byte = muted | mask << 1 | band << 6
-  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1;
+  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 2;
   s.muted = false;
   s.alert_mask = ALERT_SENSOR_LOST;
   s.noise_band = NoiseBand::MODERATE;
@@ -3036,7 +3036,7 @@ void testAudioStatePersistence() {
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(!r.muted && r.alert_mask == ALERT_HUMIDITY);
   // No reserved bit is left: the band value 3 with a valid CRC is rejected
-  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1] = 0xC0;
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 2] = 0xC0;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -4011,7 +4011,7 @@ void testNoiseStatePersistence() {
     assert(r.noise_band == band && r.muted && r.alert_mask == ALERT_HUMIDITY);
   }
   // Band value 3 does not exist and is rejected even with a valid CRC
-  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1;
+  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 2;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   buf[audio_pos] = static_cast<uint8_t>(3 << 6);
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
@@ -4204,7 +4204,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 27);
+  assert(PowerManager::STATE_VERSION == 28);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -4901,7 +4901,9 @@ void testDeviceConfigRtcRoundTrip() {
       {20, 29},  // wake interval low byte 29 with high byte 0: below range
       {21, 4},   // wake interval high byte 4: 60 + 1024 above range
       {22, 4},   // outdoor slot above range
-      {51, 2},   // invalid character in the onboard name
+      {23, 49},  // ventilate limit below range
+      {23, 81},  // ventilate limit above range
+      {52, 2},   // invalid character in the onboard name
       {PowerManager::CONFIG_SIZE - PowerManager::REJECTS_SIZE - 1, 2}, // unknown flag bit
   };
   for (const Corrupt& c : cases) {
@@ -4916,7 +4918,7 @@ void testDeviceConfigRtcRoundTrip() {
   const float nan_value = NAN;
   const float far_value = 99.0f;
   for (const float f : {nan_value, far_value}) {
-    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(23)}) {
+    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(24)}) {
       memcpy(bad, buf, sizeof(bad));
       memcpy(bad + cfg_pos + off, &f, 4);
       const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
@@ -4989,7 +4991,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 27);
+  assert(PowerManager::STATE_VERSION == 28);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -5159,7 +5161,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 27);
+  assert(PowerManager::STATE_VERSION == 28);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -5341,7 +5343,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 27);
+  assert(PowerManager::STATE_VERSION == 28);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -8212,7 +8214,8 @@ void testSerialConfigLineFormat() {
     lines += c == '\n' ? 1 : 0;
   }
   assert(text.find("\nwake_interval_s=60\n") != std::string::npos);
-  assert(lines == 20);
+  assert(text.find("\nventilate_limit_rh=60\n") != std::string::npos);
+  assert(lines == 21);
   assert(text.find("wifi") == std::string::npos && text.find("ssid") == std::string::npos &&
          text.find("pass") == std::string::npos);
   // Too small a buffer gives 0 and an empty string
@@ -8291,7 +8294,7 @@ void testSerialConfigRoundTrip() {
   const char* ini =
       "temp_offset_c=-3.25\nrh_offset_pct=4.5\nfreeze_alert_limit_c=-7.5\nmold_alert_limit_rh=85\n"
       "chime_volume_pct=100\nquiet_hours_start_hour=0\nquiet_hours_end_hour=23\nmic_spl_offset_db=-12.75\n"
-      "log_retention_months=120\nnoise_alert_limit_db=40\nchime_alert_mask=5\nntp_sync_interval_h=168\noutdoor_slot=3\n"
+      "log_retention_months=120\nnoise_alert_limit_db=40\nchime_alert_mask=5\nntp_sync_interval_h=168\noutdoor_slot=3\nventilate_limit_rh=73\n"
       "slot1_temp_offset_c=0.5\nslot2_temp_offset_c=-5.0\nslot3_temp_offset_c=4.75\n"
       "slot1_rh_offset_pct=-10.0\nslot2_rh_offset_pct=3.5\nslot3_rh_offset_pct=10.0\n";
   DeviceConfig original;
@@ -8303,7 +8306,8 @@ void testSerialConfigRoundTrip() {
   assert(source_at != std::string::npos);
   DeviceConfig back;
   const ConfigParseResult result = DeviceConfigParser::parse(sink.out.data(), source_at, back);
-  assert(result.file_ok && result.rejected == 0 && result.keys_set == 20);
+  assert(result.file_ok && result.rejected == 0 && result.keys_set == 21);
+  assert(back.ventilate_limit_rh == 73);
   assert(back.temp_offset_c == original.temp_offset_c && back.rh_offset_pct == original.rh_offset_pct);
   assert(back.freeze_alert_limit_c == original.freeze_alert_limit_c);
   assert(back.mold_alert_limit_rh == 85 && back.chime_volume_pct == 100);
@@ -8653,7 +8657,7 @@ void testNoiseAlertStatePersistence() {
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 11 - 24;
+  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 12 - 24;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -8666,7 +8670,7 @@ void testNoiseAlertStatePersistence() {
   // An invalid band value in the audio byte is rejected
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
-  bad[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1] = 0xC0;
+  bad[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 2] = 0xC0;
   const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
   for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
@@ -8921,7 +8925,7 @@ void testVentilationStatePersistence() {
   // The ventilate latch byte precedes the audio byte; a value above 1 is rejected, even with a valid CRC
   s.alert_mask = ALERT_VENTILATE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t vent_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 2;
+  const size_t vent_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 3;
   assert(buf[vent_pos] == 1);
   for (uint8_t bad_vent : {uint8_t{2}, uint8_t{255}}) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -9179,7 +9183,7 @@ void testChimeAlertMask() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   uint8_t badbuf[PowerManager::SERIALIZED_SIZE];
   memcpy(badbuf, buf, sizeof(badbuf));
-  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 10 - 24] = 64;
+  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 11 - 24] = 64;
   const uint32_t crc = PowerManager::crc32(badbuf, sizeof(badbuf) - 4);
   for (int i = 0; i < 4; ++i) badbuf[sizeof(badbuf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState out;
@@ -10098,7 +10102,7 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 27);
+  assert(PowerManager::STATE_VERSION == 28);
 
   // A valid checksum with the same MAC in two keys is rejected
   const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
@@ -10153,7 +10157,182 @@ void testSlotMacStatsLine() {
   assert(ink > 20);
 }
 
+void testVentilateLatchConfig() {
+  DeviceConfig cfg;
+  auto parse = [&](const char* text) { return DeviceConfigParser::parse(text, strlen(text), cfg); };
+  parse("");
+  assert(cfg.ventilate_limit_rh == 60 && cfg.isDefault() && cfg.valid());
+  assert(parse("ventilate_limit_rh=50\n").keys_set == 1 && cfg.ventilate_limit_rh == 50);
+  assert(parse("ventilate_limit_rh = 80\r\n").keys_set == 1 && cfg.ventilate_limit_rh == 80);
+  for (const char* bad : {"ventilate_limit_rh=49\n", "ventilate_limit_rh=81\n", "ventilate_limit_rh=abc\n",
+                          "ventilate_limit_rh=\n", "ventilate_limit_rh=60.5\n"}) {
+    const ConfigParseResult r = parse(bad);
+    assert(r.keys_set == 0 && r.rejected == 1 && cfg.ventilate_limit_rh == 60);
+  }
+  parse("ventilate_limit_rh=70\n");
+  assert(!cfg.isDefault());
+  char text[DeviceConfigText::MAX_SIZE];
+  assert(DeviceConfigText::format(cfg, text, sizeof(text)) > 0);
+  DeviceConfig back;
+  DeviceConfigParser::parse(text, strlen(text), back);
+  assert(back.ventilate_limit_rh == 70);
+  cfg.ventilate_limit_rh = 49;
+  assert(!cfg.valid());
+  cfg.ventilate_limit_rh = 81;
+  assert(!cfg.valid());
+}
+
+void testVentilateLatchLogic() {
+  Shtc3Reading onboard;
+  onboard.valid = true;
+  onboard.humidity_pct = 50.0f;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  const uint32_t now = 1000;
+  slots[0].valid = true;
+  slots[0].humidity_pct = 50;
+  slots[0].updated_ms = now;
+  auto run = [&](uint8_t prev) { return VentilateLatch::update(prev, onboard, slots, MAX_SWITCHBOT_SENSORS, now, 60); };
+
+  // No trigger at the limit, trigger above it
+  onboard.humidity_pct = 60.0f;
+  assert(run(0) == 0);
+  onboard.humidity_pct = 60.5f;
+  assert(run(0) == 1);
+  // Hold between the limits (59 and 58.5 are above 58)
+  onboard.humidity_pct = 59.0f;
+  assert(run(1) == 1 && run(0) == 0);
+  onboard.humidity_pct = 58.5f;
+  assert(run(1) == 1);
+  // Release 2 %RH below the limit
+  onboard.humidity_pct = 58.0f;
+  assert(run(1) == 0);
+  // Slot 1: trigger from the calibrated humidity value, stale and empty clear
+  slots[0].humidity_pct = 70;
+  assert(run(0) == 2);
+  assert(VentilateLatch::update(2, onboard, slots, MAX_SWITCHBOT_SENSORS, now + SENSOR_STALE_TIMEOUT_MS + 1, 60) == 0);
+  slots[0].valid = false;
+  assert(run(2) == 0);
+  // Invalid onboard reading clears
+  slots[0].valid = true;
+  onboard.valid = false;
+  onboard.humidity_pct = 90.0f;
+  assert(run(1) == 2);
+  // Nullptr slots and a short slot count are safe
+  assert(VentilateLatch::update(0xFF, onboard, nullptr, 0, now, 60) == 0);
+  // The calibrated registry feeds the latch: the offset moves the humidity over the limit
+  SwitchBotRegistry reg;
+  SwitchBotReading raw;
+  raw.valid = true;
+  raw.humidity_pct = 58;
+  raw.updated_ms = now;
+  const uint8_t mac[6] = {1, 2, 3, 4, 5, 6};
+  memcpy(raw.mac, mac, 6);
+  assert(reg.upsert(raw));
+  const float t_off[3] = {0, 0, 0};
+  const float h_off[3] = {5.0f, 0, 0};
+  const SwitchBotRegistry cal = reg.calibrated(t_off, h_off);
+  SwitchBotReading cslots[3];
+  for (size_t i = 0; i < 3; ++i) cslots[i] = cal.slot(i);
+  onboard.valid = false;
+  assert(VentilateLatch::update(0, onboard, cslots, 3, now, 60) == 2);
+  assert(VentilateLatch::update(0, onboard, reg.slot(0).valid ? &reg.slot(0) : nullptr, 1, now, 60) == 0);
+}
+
+void testVentilateBadgeBounds() {
+  using DV = DashboardView;
+  const uint16_t tile_w = 190;
+  const uint16_t tile_h = 124;
+  // Inside the tile, without touching the border or the sparkline box and the text lines
+  const uint16_t sx = tile_w - DV::SPARKLINE_W - DV::SPARKLINE_RIGHT_MARGIN;
+  assert(DV::VENT_BADGE_X_OFFSET + DV::VENT_BADGE_SIZE < tile_w - 1);
+  assert(DV::VENT_BADGE_Y_OFFSET + DV::VENT_BADGE_SIZE <= DV::SPARKLINE_Y_OFFSET);
+  assert(DV::VENT_BADGE_Y_OFFSET > 24 && DV::VENT_BADGE_Y_OFFSET + DV::VENT_BADGE_SIZE < tile_h - 1);
+  // "H: 100 %" ends at x + 12 + 8 * 12 - 2 = 106
+  assert(DV::VENT_BADGE_X_OFFSET > 106);
+  assert(sx > 0);
+
+  // Rendering: the badge pixels differ from the same tile without a badge, in every tile
+  const Shtc3Reading onboard{true, 21.0f, 70.0f};
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    slots[i].valid = true;
+    slots[i].humidity_pct = 70;
+    slots[i].temperature_c = 20.0f;
+    slots[i].updated_ms = 100;
+  }
+  BatteryReading battery;
+  St7305Framebuffer base;
+  St7305Framebuffer with;
+  ClimateHistory history;
+  for (int h = 0; h < 24; ++h) {
+    for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) history.slots[s].pushPercent(60.0f + h % 5);
+  }
+  for (size_t t = 0; t < VentilateLatch::TILE_COUNT; ++t) {
+    DV::render(base, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", 100, &history, false, nullptr, false, 0);
+    DV::render(with, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", 100, &history, false, nullptr, false,
+               static_cast<uint8_t>(1u << t));
+    const uint16_t col = static_cast<uint16_t>(t % 2);
+    const uint16_t row = static_cast<uint16_t>(t / 2);
+    const uint16_t tx = static_cast<uint16_t>(6 + col * 198);
+    const uint16_t ty = static_cast<uint16_t>(36 + row * 132);
+    const uint16_t bx = tx + DV::VENT_BADGE_X_OFFSET;
+    const uint16_t by = ty + DV::VENT_BADGE_Y_OFFSET;
+    for (uint16_t y = 0; y < RLCD_HEIGHT; ++y) {
+      for (uint16_t x = 0; x < RLCD_WIDTH; ++x) {
+        const bool inside = x >= bx && x < bx + DV::VENT_BADGE_SIZE && y >= by && y < by + DV::VENT_BADGE_SIZE;
+        if (!inside) {
+          assert(base.getPixel(x, y) == with.getPixel(x, y)); // nothing else changes
+        }
+      }
+    }
+    assert(with.getPixel(bx, by) && with.getPixel(bx + 8, by + 8)); // inverted box
+    assert(!base.getPixel(bx, by));
+    // The box stays inside the tile and clear of the sparkline box
+    assert(bx + DV::VENT_BADGE_SIZE <= tx + tile_w - 1 && by + DV::VENT_BADGE_SIZE <= ty + DV::SPARKLINE_Y_OFFSET);
+  }
+}
+
+void testVentilateLatchRtcRoundTrip() {
+  PersistentState st;
+  assert(st.config.ventilate_limit_rh == 60 && st.ventilate_tiles == 0);
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  PersistentState r;
+  for (uint8_t bits : {uint8_t(0), uint8_t(1), uint8_t(0x0A), uint8_t(0x0F)}) {
+    st.ventilate_tiles = bits;
+    st.config.ventilate_limit_rh = 75;
+    assert(PowerManager::serialize(st, buf, sizeof(buf)));
+    assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.ventilate_tiles == bits && r.config.ventilate_limit_rh == 75);
+  }
+  // A corrupt record: latch bit above the four tiles, limit outside the range, flipped checksum
+  PersistentState bad;
+  st.ventilate_tiles = 1;
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1;
+  assert(buf[latch_pos] == 1);
+  buf[latch_pos] = 0x10;
+  uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
+  for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), bad));
+  st.config.ventilate_limit_rh = 49;
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), bad));
+  st.config.ventilate_limit_rh = 60;
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  buf[latch_pos] ^= 0x02;
+  assert(!PowerManager::deserialize(buf, sizeof(buf), bad)); // checksum mismatch
+  // The old state version is rejected
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  buf[4] = PowerManager::STATE_VERSION - 1;
+  crc = PowerManager::crc32(buf, sizeof(buf) - 4);
+  for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), bad));
+}
+
 int main() {
+  testVentilateLatchConfig();
+  testVentilateLatchLogic();
+  testVentilateBadgeBounds();
+  testVentilateLatchRtcRoundTrip();
   testCycleTrackerPartialDischarges();
   testCycleTrackerMilestoneWrite();
   testCycleTrackerChargeDetection();

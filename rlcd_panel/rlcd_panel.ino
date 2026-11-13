@@ -293,6 +293,7 @@ void renderDashboard() {
   info.mic_cal_failed = g_mic_cal_failed;
   info.quiet_hours = quietHours().isActive(g_rtc_time);
   info.ventilate = (g_state.alert_mask & ALERT_VENTILATE) != 0;
+  info.ventilate_tiles = g_state.ventilate_tiles;
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;
   info.runtime = g_state.battery_history.estimate(g_state.battery);
@@ -451,6 +452,16 @@ void refreshSensors() {
       g_onboard_reading.humidity_pct,
       calibratedRegistry(),
       g_onboard_reading.temperature_c);
+  // The tile badges have no chime and do not depend on the alert mask. The latch updates before the
+  // first render, so the display shows the current state.
+  SwitchBotReading tiles[MAX_SWITCHBOT_SENSORS];
+  const SwitchBotRegistry calibrated = calibratedRegistry();
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    tiles[i] = calibrated.slot(i);
+  }
+  g_state.ventilate_tiles = VentilateLatch::update(
+      g_state.ventilate_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
+      config().ventilate_limit_rh);
 }
 
 // Stores the new mask and plays the chimes of the step. The amplifier is off again before this

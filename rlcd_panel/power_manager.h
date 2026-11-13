@@ -14,6 +14,7 @@
 #include "ntp_sync.h"
 #include "sd_logger.h"
 #include "sparkline.h"
+#include "ventilate_latch.h"
 #include "switchbot_ble.h"
 
 #if defined(ARDUINO) || defined(ESP_PLATFORM)
@@ -86,6 +87,7 @@ struct PersistentState {
   bool has_logged = false;   // false until the first MicroSD attempt, success or failure
   DailyLogState daily;       // local day of the last handled daily summary
   bool muted = false;        // true: alerts stay silent
+  uint8_t ventilate_tiles = 0; // ventilation badge latch, bit 0 onboard, bits 1..3 slots (VentilateLatch)
   uint8_t alert_mask = ALERT_NONE; // alerts active in the last wake cycle (hysteresis latch)
   NoiseBand noise_band = NoiseBand::QUIET; // band of the last noise window (hysteresis latch)
   NtpSyncState ntp;          // NTP attempt time, result and backoff
@@ -171,7 +173,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 27;
+  static constexpr uint8_t STATE_VERSION = 28;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -191,7 +193,7 @@ public:
   // SD log trailer: last log time, logged flag, then the daily summary stamp: flag, year (uint16), month, day.
   static constexpr size_t SD_LOG_SIZE = 4 + 1 + 1 + 2 + 1 + 1;
   // Audio trailer: one byte, bit 0 muted, bits 1..5 alert mask, bits 6..7 noise band.
-  static constexpr size_t AUDIO_SIZE = 2; // ventilate latch byte, then muted | mask << 1 | band << 6
+  static constexpr size_t AUDIO_SIZE = 3; // ventilate latch byte, muted | mask << 1 | band << 6, then the tile badge latch bits
   // NTP trailer: last attempt time, flags (bit 0 attempted, bit 1 last ok), failure count, then the
   // RTC drift: flags (bit 0 synced, bit 1 drift known), last sync (UTC seconds), drift, rate (int32).
   static constexpr size_t NTP_SIZE = 4 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -202,8 +204,8 @@ public:
   // Rejected config.ini lines: the count (one byte), then four 16-bit line numbers.
   static constexpr size_t REJECTS_SIZE = 1 + ConfigRejects::MAX_LINES * 2;
   // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
-  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), outdoor slot, RH offset (float), three slot temperature offsets and three slot RH offsets (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
-  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 1 + 4 + 6 * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
+  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), outdoor slot, ventilate limit, RH offset (float), three slot temperature offsets and three slot RH offsets (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
+  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 1 + 1 + 4 + 6 * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
   // Header: magic, version, mode, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -409,6 +411,7 @@ public:
     out[pos++] = (state.alert_mask & ALERT_VENTILATE) != 0 ? 1 : 0;
     out[pos++] = static_cast<uint8_t>((state.muted ? 1 : 0) | ((state.alert_mask & (ALERT_MASK_ALL & ~ALERT_VENTILATE)) << 1) |
         (static_cast<uint8_t>(state.noise_band) << 6));
+    out[pos++] = static_cast<uint8_t>(state.ventilate_tiles & VentilateLatch::ALL_MASK);
     putU32(out, pos, state.ntp.last_attempt_ms);
     out[pos++] = static_cast<uint8_t>((state.ntp.has_attempted ? 1 : 0) | (state.ntp.last_ok ? 2 : 0));
     out[pos++] = state.ntp.failures;
@@ -437,6 +440,7 @@ public:
     out[pos++] = static_cast<uint8_t>(state.config.wake_interval_s & 0xFF);
     out[pos++] = static_cast<uint8_t>(state.config.wake_interval_s >> 8);
     out[pos++] = state.config.outdoor_slot;
+    out[pos++] = state.config.ventilate_limit_rh;
     putFloat(out, pos, state.config.rh_offset_pct);
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       putFloat(out, pos, state.config.slot_temp_offset_c[i]);
@@ -627,6 +631,10 @@ public:
     s.muted = (audio & 1) != 0;
     s.alert_mask = static_cast<uint8_t>(((audio >> 1) & (ALERT_MASK_ALL & ~ALERT_VENTILATE)) | (vent != 0 ? ALERT_VENTILATE : 0));
     s.noise_band = static_cast<NoiseBand>(band);
+    s.ventilate_tiles = data[pos++];
+    if ((s.ventilate_tiles & ~VentilateLatch::ALL_MASK) != 0) {
+      return false;
+    }
     s.ntp.last_attempt_ms = getU32(data, pos);
     const uint8_t ntp_flags = data[pos++];
     s.ntp.failures = data[pos++];
@@ -674,6 +682,7 @@ public:
     s.config.wake_interval_s = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
     pos += 2;
     s.config.outdoor_slot = data[pos++];
+    s.config.ventilate_limit_rh = data[pos++];
     s.config.rh_offset_pct = getFloat(data, pos);
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       s.config.slot_temp_offset_c[i] = getFloat(data, pos);
