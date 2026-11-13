@@ -10,6 +10,9 @@ namespace rlcd_panel {
 constexpr uint16_t SWITCHBOT_COMPANY_ID = 0x0969;
 // SwitchBot BLE Service Data UUID (0xFD3D)
 constexpr uint16_t SWITCHBOT_SERVICE_UUID = 0xFD3D;
+// Device types in the first Service Data byte of the SwitchBot Meter and Meter Plus.
+constexpr uint8_t SWITCHBOT_METER_TYPE = 0x54;
+constexpr uint8_t SWITCHBOT_METER_PLUS_TYPE = 0x69;
 
 constexpr size_t MAX_SWITCHBOT_SENSORS = 3;
 // A sensor is stale when no packet arrived for 30 minutes.
@@ -103,6 +106,73 @@ public:
     }
     out_battery_pct = static_cast<int8_t>(batt);
     return true;
+  }
+
+  // Decode the 6-byte Service Data (UUID 0xFD3D) of the SwitchBot Meter (0x54) and Meter Plus (0x69):
+  //   ServicePayload[0]: Device type
+  //   ServicePayload[2]: Bits 6..0 = Battery percentage (0..100%)
+  //   ServicePayload[3]: Bits 3..0 = tenths of the temperature
+  //   ServicePayload[4]: Bit 7 = sign (1 = positive, 0 = negative), Bits 6..0 = whole degrees (C)
+  //   ServicePayload[5]: Bit 7 = unit flag (0 = C, 1 = F), Bits 6..0 = relative humidity (0..100%)
+  // The packet carries no MAC address, so the caller passes the BLE address (6 bytes).
+  static bool parseServiceDataReading(
+      uint16_t service_uuid,
+      const uint8_t* service_payload,
+      size_t len,
+      const uint8_t* mac,
+      SwitchBotReading& out) {
+    out = SwitchBotReading{};
+    if (service_uuid != SWITCHBOT_SERVICE_UUID || service_payload == nullptr || mac == nullptr ||
+        len != 6) {
+      return false;
+    }
+    if (service_payload[0] != SWITCHBOT_METER_TYPE &&
+        service_payload[0] != SWITCHBOT_METER_PLUS_TYPE) {
+      return false;
+    }
+
+    const uint8_t batt = service_payload[2] & 0x7F;
+    const uint8_t frac_part = service_payload[3] & 0x0F;
+    const bool is_positive = (service_payload[4] & 0x80) != 0;
+    const uint8_t int_part = service_payload[4] & 0x7F;
+    const uint8_t humidity = service_payload[5] & 0x7F;
+    if (batt > 100 || frac_part > 9 || humidity > 100) {
+      return false;
+    }
+
+    float temp = static_cast<float>(int_part) + (static_cast<float>(frac_part) * 0.1f);
+    if (!is_positive && (int_part != 0 || frac_part != 0)) {
+      temp = -temp;
+    }
+
+    memcpy(out.mac, mac, 6);
+    out.temperature_c = temp;
+    out.humidity_pct = humidity;
+    out.battery_pct = static_cast<int8_t>(batt);
+    out.fahrenheit_mode = (service_payload[5] & 0x80) != 0;
+    out.valid = true;
+    return true;
+  }
+
+  // Combine the Manufacturer Data and the Service Data of one advertisement. Valid Manufacturer Data
+  // (WoIOSensor) wins for temperature and humidity; the Service Data then gives the battery only.
+  // Without valid Manufacturer Data, the Service Data of a Meter or Meter Plus gives all values and
+  // the BLE address gives the MAC. Pass nullptr or 0 for a missing part.
+  static bool parseAdvertisement(
+      const uint8_t* mfg_data,
+      size_t mfg_len,
+      const uint8_t* service_payload,
+      size_t service_len,
+      const uint8_t* ble_mac,
+      SwitchBotReading& out) {
+    if (parseManufacturerData(mfg_data, mfg_len, out)) {
+      int8_t battery_pct = -1;
+      if (parseServiceDataBattery(SWITCHBOT_SERVICE_UUID, service_payload, service_len, battery_pct)) {
+        out.battery_pct = battery_pct;
+      }
+      return true;
+    }
+    return parseServiceDataReading(SWITCHBOT_SERVICE_UUID, service_payload, service_len, ble_mac, out);
   }
 };
 

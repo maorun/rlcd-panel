@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] SwitchBot Meter and Meter Plus support from Service Data
-  - Rank: [Total: 34, Use: 9, Setup: 7, Harmony: 9, Safety: 9, Effort: M]
-  - Location: `rlcd_panel/switchbot_ble.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `README.md`
-  - Goal: Add `SwitchBotBleParser::parseServiceDataReading`. Decode the 6-byte Service Data (`UUID 0xFD3D`) of the SwitchBot Meter (device type `0x54`) and the Meter Plus (device type `0x69`): byte 2 bits 0 to 6 battery, byte 3 bits 0 to 3 the tenths of the temperature, byte 4 bit 7 the sign (1 is positive) and bits 0 to 6 the whole degrees, byte 5 bits 0 to 6 the humidity and bit 7 the unit flag. Take the MAC address from the BLE address, because the packet carries none. Reject a tenth above 9, a humidity above 100 %RH and other device types. When an advertisement holds valid Manufacturer Data (`WoIOSensor` path), keep that path and use the Service Data for the battery only, as now. The new sensors use the registry slots, the fixed MAC rule, the offsets, the latches and the stale rule of the other sensors. Thus the user can use the cheaper indoor SwitchBot meters.
-  - Acceptance test: Host tests cover a Meter packet at 21.5 C and 48 %RH, a negative temperature, 0.0 C with both sign values, a Meter Plus packet, the battery value, a tenth of 10, a humidity of 101, an unknown device type, a short payload, a `WoIOSensor` packet with both data types (Manufacturer Data wins), the MAC from the BLE address, and the registry upsert with a fixed MAC. `arduino-cli compile rlcd_panel` passes.
-
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
 - [ ] Host tool to check a config.ini file before the copy to the card

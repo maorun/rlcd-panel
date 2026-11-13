@@ -617,3 +617,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The commands run on USB power only (`PowerManager::serialConsoleAllowed`). They do not mount the card, so the clap listener keeps running.
 - `./scripts/dump-logs.sh --set-time [port]` sends `TIME SET` with the local time of the host and prints the result. The accuracy is about 1 s. Thus a user without Wi-Fi sets the clock for the hourly log, the quiet hours and the retention rule.
 - Host tests cover the parser, 29 February in a leap year and in a common year, 24:00:00, the years 2024 and 2100, a missing `T`, extra text, the reply format with a valid and an invalid time, the cleared drift baseline, the failed write and the USB power gate.
+
+## SwitchBot Meter and Meter Plus support from Service Data
+
+- **Code:** `rlcd_panel/switchbot_ble.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `README.md`
+- `SwitchBotBleParser::parseServiceDataReading` decodes the 6-byte Service Data (`UUID 0xFD3D`) of the SwitchBot Meter (device type `0x54`) and the Meter Plus (device type `0x69`). Byte 2 holds the battery (bits 0 to 6). Byte 3 holds the tenths of the temperature (bits 0 to 3). Byte 4 holds the sign (bit 7, 1 is positive) and the whole degrees (bits 0 to 6). Byte 5 holds the humidity (bits 0 to 6) and the unit flag (bit 7).
+- The packet has no MAC address. The caller passes the BLE address, and the parser copies it into the reading.
+- The parser rejects a tenth above 9, a humidity above 100 %RH, a battery above 100 %, a length other than 6, a wrong UUID and other device types. A rejected packet leaves an invalid reading. The value 0.0 °C is always positive, with both sign values.
+- Manufacturer Data has priority. When an advertisement holds valid Manufacturer Data (`WoIOSensor`), the firmware keeps this path and takes only the battery from the Service Data. The Service Data path runs only when the Manufacturer Data is missing or invalid.
+- The new sensors use the same registry slots, fixed MAC rule, offsets, latches and stale rule as the other sensors.
+- Host tests cover `parseAdvertisement` (Manufacturer Data wins, Service Data gives the battery, fallback to Service Data), a Meter packet at 21.5 °C and 48 %RH, a negative temperature, 0.0 °C with both signs, a Meter Plus packet, the battery value, a tenth of 10, a humidity of 101, a battery of 101 %, an unknown device type, a short and a long payload, a wrong UUID, a `WoIOSensor` packet with both data types, the MAC from the BLE address, and the registry upsert with a fixed MAC.
