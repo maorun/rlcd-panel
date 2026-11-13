@@ -62,9 +62,11 @@ public:
   // inject `usb_plugged`; the firmware passes HWCDC::isPlugged().
   static constexpr float USB_VOLTAGE_V = 4.25f;
 
-  static BatteryReading decodeMillivolts(uint32_t adc_millivolts, bool usb_plugged = false) {
+  // `offset_mv` (config.ini key battery_offset_mv) corrects the tolerance of the divider and of the
+  // ADC. It is added to the cell voltage, so every limit and the history see the corrected value.
+  static BatteryReading decodeMillivolts(uint32_t adc_millivolts, bool usb_plugged = false, int16_t offset_mv = 0) {
     BatteryReading r;
-    r.voltage_v = (static_cast<float>(adc_millivolts) * BAT_VOLTAGE_DIVIDER_RATIO) / 1000.0f;
+    r.voltage_v = (static_cast<float>(adc_millivolts) * BAT_VOLTAGE_DIVIDER_RATIO + static_cast<float>(offset_mv)) / 1000.0f;
     r.percentage = voltageToPercent(r.voltage_v);
     r.usb_powered = usb_plugged || (r.voltage_v >= USB_VOLTAGE_V);
     r.valid = (r.voltage_v > 0.5f);
@@ -120,21 +122,21 @@ public:
   }
 
 #ifdef ARDUINO
-  static BatteryReading read() {
+  static BatteryReading read(int16_t offset_mv = 0) {
     // analogReadMilliVolts utilizes ESP32-S3 eFuse factory calibration curve
     const uint32_t raw_mv = analogReadMilliVolts(PIN_BAT_ADC);
-    return decodeMillivolts(raw_mv, HWCDC::isPlugged());
+    return decodeMillivolts(raw_mv, HWCDC::isPlugged(), offset_mv);
   }
 
   // Mean of four ADC samples 5 ms apart. The protection check uses it, so one load dip cannot
   // latch the warning.
-  static BatteryReading readAveraged() {
+  static BatteryReading readAveraged(int16_t offset_mv = 0) {
     uint32_t sum_mv = 0;
     for (int i = 0; i < 4; ++i) {
       sum_mv += analogReadMilliVolts(PIN_BAT_ADC);
       delay(5);
     }
-    return decodeMillivolts(sum_mv / 4, HWCDC::isPlugged());
+    return decodeMillivolts(sum_mv / 4, HWCDC::isPlugged(), offset_mv);
   }
 #endif
 };

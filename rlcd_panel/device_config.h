@@ -60,6 +60,9 @@ struct DeviceConfig {
   static constexpr uint16_t DEFAULT_SENSOR_STALE_MIN = 30; // equals SENSOR_STALE_TIMEOUT_MS
   static constexpr uint16_t MIN_SENSOR_STALE_MIN = 5;
   static constexpr uint16_t MAX_SENSOR_STALE_MIN = 240;
+  static constexpr int16_t DEFAULT_BATTERY_OFFSET_MV = 0; // added to the cell voltage before every battery limit
+  static constexpr int16_t MIN_BATTERY_OFFSET_MV = -300;
+  static constexpr int16_t MAX_BATTERY_OFFSET_MV = 300;
   static constexpr uint8_t DEFAULT_DISPLAY_INVERT = 0; // 1 shows light text on a dark background
   static constexpr uint8_t MAX_DISPLAY_INVERT = 1;
   static constexpr uint8_t DEFAULT_CLIMATE_ALERT_TILES = 15; // all four tiles feed the freezer and mold alerts
@@ -104,6 +107,7 @@ struct DeviceConfig {
   uint16_t wake_interval_s = DEFAULT_WAKE_INTERVAL_S; // seconds from one scan start to the next on battery power, 30..900
   uint16_t sensor_stale_min = DEFAULT_SENSOR_STALE_MIN; // minutes without a packet until a sensor is stale, 5..240
   uint8_t display_invert = DEFAULT_DISPLAY_INVERT; // 1 inverts the framebuffer before each flush, 0..1
+  int16_t battery_offset_mv = DEFAULT_BATTERY_OFFSET_MV; // corrects divider and ADC tolerance, -300..300 mV
   uint8_t climate_alert_tiles = DEFAULT_CLIMATE_ALERT_TILES; // bit 0 onboard, bits 1..3 slots 1..3: tiles of the freezer and mold alerts, 0..15
 
   // Stale timeout in ms for every SwitchBotReading::isStale call. A value below one wake interval plus
@@ -199,7 +203,8 @@ struct DeviceConfig {
            ntp_sync_interval_h >= MIN_NTP_SYNC_INTERVAL_H && ntp_sync_interval_h <= MAX_NTP_SYNC_INTERVAL_H &&
            wake_interval_s >= MIN_WAKE_INTERVAL_S && wake_interval_s <= MAX_WAKE_INTERVAL_S &&
            sensor_stale_min >= MIN_SENSOR_STALE_MIN && sensor_stale_min <= MAX_SENSOR_STALE_MIN &&
-           display_invert <= MAX_DISPLAY_INVERT && climate_alert_tiles <= MAX_CLIMATE_ALERT_TILES;
+           display_invert <= MAX_DISPLAY_INVERT && climate_alert_tiles <= MAX_CLIMATE_ALERT_TILES &&
+           battery_offset_mv >= MIN_BATTERY_OFFSET_MV && battery_offset_mv <= MAX_BATTERY_OFFSET_MV;
   }
 
   bool isDefault() const {
@@ -225,7 +230,7 @@ struct DeviceConfig {
            ventilate_limit_rh == d.ventilate_limit_rh && sensor_battery_limit_pct == d.sensor_battery_limit_pct &&
            ntp_sync_interval_h == d.ntp_sync_interval_h && wake_interval_s == d.wake_interval_s &&
            sensor_stale_min == d.sensor_stale_min && display_invert == d.display_invert &&
-           climate_alert_tiles == d.climate_alert_tiles;
+           climate_alert_tiles == d.climate_alert_tiles && battery_offset_mv == d.battery_offset_mv;
   }
 };
 
@@ -578,6 +583,10 @@ private:
     } else if (keyIs(key, key_len, "climate_alert_tiles")) {
       index = 31;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_CLIMATE_ALERT_TILES, cfg.climate_alert_tiles);
+    } else if (keyIs(key, key_len, "battery_offset_mv")) {
+      index = 32;
+      ok = parseIntIn(val, val_len, DeviceConfig::MIN_BATTERY_OFFSET_MV, DeviceConfig::MAX_BATTERY_OFFSET_MV,
+                      cfg.battery_offset_mv);
     } else if (keyIs(key, key_len, "outdoor_slot")) {
       index = 26;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_OUTDOOR_SLOT, cfg.outdoor_slot);
@@ -641,6 +650,7 @@ public:
     ok = ok && putInt(out, cap, pos, "sensor_stale_min", cfg.sensor_stale_min);
     ok = ok && putInt(out, cap, pos, "display_invert", cfg.display_invert);
     ok = ok && putInt(out, cap, pos, "climate_alert_tiles", cfg.climate_alert_tiles);
+    ok = ok && putSignedInt(out, cap, pos, "battery_offset_mv", cfg.battery_offset_mv);
     ok = ok && putInt(out, cap, pos, "outdoor_slot", cfg.outdoor_slot);
     ok = ok && putInt(out, cap, pos, "ventilate_limit_rh", cfg.ventilate_limit_rh);
     ok = ok && putInt(out, cap, pos, "sensor_battery_limit_pct", cfg.sensor_battery_limit_pct);
@@ -691,6 +701,12 @@ private:
   static bool putInt(char* out, size_t cap, size_t& pos, const char* key, uint16_t value) {
     char text[8];
     snprintf(text, sizeof(text), "%u", static_cast<unsigned>(value));
+    return putLine(out, cap, pos, key, text);
+  }
+
+  static bool putSignedInt(char* out, size_t cap, size_t& pos, const char* key, int16_t value) {
+    char text[8];
+    snprintf(text, sizeof(text), "%d", static_cast<int>(value));
     return putLine(out, cap, pos, key, text);
   }
 

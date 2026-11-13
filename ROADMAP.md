@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] Battery voltage calibration offset in config.ini
-  - Rank: [Total: 32, Use: 6, Setup: 9, Harmony: 9, Safety: 8, Effort: S]
-  - Location: `rlcd_panel/battery_monitor.h`, `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the `config.ini` key `battery_offset_mv` (default `0`, range `-300` to `300` mV). `BatteryMonitor::decodeMillivolts` adds the offset to the cell voltage before each limit: the percentage, the low battery alert, the empty protection, the charge full latch, the USB voltage limit of 4.25 V, the runtime history and the cycle counter. The offset corrects the tolerance of the 3.0 divider and of the ADC. A malformed or out-of-range value is rejected and counts in `ConfigRejects`. A power-on reads the cell before the card mounts, so this first check uses the offset of the RTC copy, or `0` after a clean start. Store the offset in the config trailer of `PersistentState` (2 bytes) and increase the state version. Show the key in the `CONFIG` reply.
-  - Acceptance test: Host tests cover the parser for the default, the edges `-300` and `300`, the values `-301` and `301`, a malformed value, the percentage with `+100` and `-100` mV, the low battery and the empty protection limits with an offset, the USB voltage limit with an offset, the `CONFIG` line and its parse back, and the RTC round trip with a corrupt field.
-
 - [ ] Serial console command HISTORY to export the 24-hour histories
   - Rank: [Total: 32, Use: 5, Setup: 8, Harmony: 9, Safety: 10, Effort: S]
   - Location: `rlcd_panel/serial_console.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
