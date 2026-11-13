@@ -716,3 +716,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The console command `CONFIG` and `DeviceConfigText` list the key `slot_release_h`. `docs/config.example.ini` and `DeviceConfigParser::KEYS` list it too.
 - Thus a removed sensor does not block a slot and does not keep the sensor lost alert until the next power-on.
 - Host tests cover the parser for the default, the edges `0` and `168`, the value `169` and a malformed value, the release at the exact time and over the clock wrap, no release before the time, no release with the key `0`, no release of a fixed MAC slot, the cleared histories and latches, the cleared `ALERT_SENSOR_LOST` bit, a new sensor in the released slot, the `CONFIG` line and its parse back, and the RTC round trip with a corrupt field and the old state version 34.
+
+## Serial console command VERSION with the build identity
+
+- **Code:** `rlcd_panel/firmware_version.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/flash-firmware.sh`.
+- `rlcd_panel/firmware_version.h` holds the constant `FIRMWARE_VERSION` (`1.0.0`), the constant `ARDUINO_CORE_VERSION` (`3.3.12`) and the macro `RLCD_GIT_HASH`. The macro has the default `unknown`.
+- `scripts/flash-firmware.sh` passes the short Git hash to the compiler with `--build-property`. It adds `-dirty` when `git status --porcelain` shows a change. A build without the property, for example in CI, shows `git=unknown`.
+- The console command `VERSION` takes no argument. A command with an argument gives `ERR UNKNOWN`.
+- The reply is `VERSION fw=<version> git=<hash> core=3.3.12 state=<STATE_VERSION> built=<YYYY-MM-DDTHH:MM:SS>`, then `CRC32 <8 hex digits>` over the `VERSION` line.
+- The build time comes from `__DATE__` and `__TIME__` through `Pcf85063Codec::fromCompileStamp`. An unreadable stamp gives `built=unknown`.
+- The command runs on USB power only. It does not mount the card, so the clap listener keeps running.
+- Thus the user knows which firmware runs on the panel.
+- Host tests cover the parser, the rejection of an argument, the reply format, the default hash, the build time from a fixed compile stamp, the CRC-32 line, a short write and the USB power gate.

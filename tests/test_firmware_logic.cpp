@@ -23,6 +23,7 @@
 #include "../rlcd_panel/dashboard_view.h"
 #include "../rlcd_panel/device_config.h"
 #include "../rlcd_panel/es7210_mic.h"
+#include "../rlcd_panel/firmware_version.h"
 #include "../rlcd_panel/ntp_sync.h"
 #include "../rlcd_panel/pcf85063_rtc.h"
 #include "../rlcd_panel/power_manager.h"
@@ -10056,6 +10057,99 @@ void testDumpLogsScriptSetTimeSmokeCheck() {
   assert(script.find("time.localtime()") != std::string::npos);
 }
 
+namespace {
+std::string readRepoFile(const char* relative) {
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  std::ifstream in(root + relative, std::ios::binary);
+  assert(in.good());
+  std::stringstream ss;
+  ss << in.rdbuf();
+  return ss.str();
+}
+} // namespace
+
+void testSerialVersionCoreMatchesSketchProfile() {
+  // ARDUINO_CORE_VERSION must follow the pinned core of the build profile.
+  const std::string profile = readRepoFile("rlcd_panel/sketch.yaml");
+  const std::string expect = std::string("esp32:esp32 (") + ARDUINO_CORE_VERSION + ")";
+  assert(profile.find(expect) != std::string::npos);
+}
+
+void testFlashScriptPassesGitHashSmokeCheck() {
+  // String smoke check of the script text; the script itself needs a board.
+  const std::string script = readRepoFile("scripts/flash-firmware.sh");
+  assert(script.find("--build-property") != std::string::npos);
+  assert(script.find("compiler.cpp.extra_flags=-DRLCD_GIT_HASH=") != std::string::npos);
+  assert(script.find("-dirty") != std::string::npos);
+  assert(script.find("status --porcelain") != std::string::npos);
+  // The hash is read before the preview script runs.
+  assert(script.find("rev-parse --short HEAD") < script.find("generate-display-preview.sh"));
+}
+
+void testSerialVersionParser() {
+  SerialCommand cmd;
+  assert(parseText("VERSION", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::VERSION);
+  assert(parseText("VERSION\r\n", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::VERSION);
+  assert(parseText("VERSION 1", cmd) == SerialParseStatus::UNKNOWN && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("VERSION ", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("version", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("VERSIONS", cmd) == SerialParseStatus::UNKNOWN);
+}
+
+void testSerialVersionReplyFormat() {
+  FakeSink sink;
+  TestRunner::showVersion(sink, "1.0.0", "abc1234-dirty", "3.3.12", 34, "Nov  3 2026", "04:05:06");
+  const std::string body = "VERSION fw=1.0.0 git=abc1234-dirty core=3.3.12 state=34 built=2026-11-03T04:05:06\n";
+  SerialCrc32 crc;
+  crc.update(reinterpret_cast<const uint8_t*>(body.data()), body.size());
+  char crc_line[24];
+  snprintf(crc_line, sizeof(crc_line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+  assert(sink.out == body + crc_line); // the CRC-32 line covers the VERSION line only
+  // An unreadable compile stamp gives built=unknown and keeps the frame valid.
+  FakeSink bad;
+  TestRunner::showVersion(bad, "1.0.0", "x", "3.3.12", 34, "garbage", "04:05:06");
+  assert(bad.out.rfind("VERSION fw=1.0.0 git=x core=3.3.12 state=34 built=unknown\n", 0) == 0);
+  // A short write on the first line sends no CRC-32 line.
+  FakeSink cut;
+  cut.limit = 10;
+  TestRunner::showVersion(cut, "1.0.0", "x", "3.3.12", 34, "Nov  3 2026", "04:05:06");
+  assert(cut.out.size() == 10 && cut.out.find("CRC32") == std::string::npos);
+}
+
+void testSerialVersionBuildIdentity() {
+  assert(strcmp(RLCD_GIT_HASH, "unknown") == 0); // a build without -DRLCD_GIT_HASH (CI) shows unknown
+  assert(strcmp(FIRMWARE_VERSION, "1.0.0") == 0);
+  assert(strcmp(ARDUINO_CORE_VERSION, "3.3.12") == 0);
+  FakeSink sink;
+  TestRunner::showVersion(sink, FIRMWARE_VERSION, RLCD_GIT_HASH, ARDUINO_CORE_VERSION, PowerManager::STATE_VERSION,
+                          __DATE__, __TIME__);
+  char expect[96];
+  snprintf(expect, sizeof(expect), "VERSION fw=1.0.0 git=unknown core=3.3.12 state=%u built=",
+           static_cast<unsigned>(PowerManager::STATE_VERSION));
+  assert(sink.out.rfind(expect, 0) == 0);
+  assert(sink.out.find("built=unknown") == std::string::npos); // the real compile stamp decodes
+}
+
+void testSerialVersionNeedsNoCardAndUsbPower() {
+  FakeConsoleStorage storage;
+  FakeSink sink;
+  SerialCommand cmd;
+  assert(parseText("VERSION", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, sink, cmd); // VERSION does not mount the card
+  assert(sink.out.empty() && storage.mounts == 0);
+  BatteryReading battery;
+  battery.valid = true;
+  battery.usb_powered = true;
+  assert(PowerManager::serialConsoleAllowed(battery));
+  battery.usb_powered = false;
+  assert(!PowerManager::serialConsoleAllowed(battery));
+  BatteryReading invalid;
+  invalid.usb_powered = true;
+  assert(!PowerManager::serialConsoleAllowed(invalid));
+}
+
 void testSerialHistoryParser() {
   SerialCommand cmd;
   assert(parseText("HISTORY", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::HISTORY);
@@ -13463,6 +13557,12 @@ testSerialTimeSetWritesRtcAndClearsDriftBaseline();
 testSerialTimeSetFailedWriteKeepsBaseline();
 testSerialTimeNeedsNoCardAndUsbPower();
 testDumpLogsScriptSetTimeSmokeCheck();
+testSerialVersionParser();
+testSerialVersionCoreMatchesSketchProfile();
+testFlashScriptPassesGitHashSmokeCheck();
+testSerialVersionReplyFormat();
+testSerialVersionBuildIdentity();
+testSerialVersionNeedsNoCardAndUsbPower();
 testSerialHistoryParser();
 testSerialHistoryEmpty();
 testSerialHistoryFullOrderAndNegative();
