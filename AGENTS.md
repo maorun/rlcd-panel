@@ -33,6 +33,7 @@
 - `scripts/dump-logs.sh`: Copies the monthly CSV logs over USB serial into the ignored directory `sd_logs/` and checks the CRC-32.
 - `scripts/flash-firmware.sh`: Mandatory flash script that generates the display preview image first, compiles, and uploads to the board.
 - `tools/check_config.cpp`: Host tool that runs the firmware `DeviceConfigParser` on one `config.ini` file (exit 0 ok, 1 rejected lines, 2 missing or oversized file). `scripts/check-config.sh <file>` builds and runs it (exit 3 for a build failure). Sample file: `tools/sample_config.ini`.
+- `docs/config.example.ini`: Commented `config.ini` template with each parser key once (default value and range; names and fixed MACs as comment lines). `DeviceConfigParser::KEYS` lists the keys. `testConfigExampleTemplateInSync` fails for a missing key, a non-default value, a rejected line, CR characters or a file above 4096 bytes. Add each new key to `KEYS` (and `KEY_COUNT`) and to the template.
 - `tools/render_display_preview.cpp`: Host C++ tool that renders one view (`<out.bmp> [mode 0..3] [low]`) or every scene (`--all <dir>`) and exports 400×300 24-bpp BMP.
 - `tools/preview_scenes.h`: Shared preview scene table (`PREVIEW_SCENES`) and fixed sample data, used by the tool and the host tests.
 - `tests/test_firmware_logic.cpp`: Host C++17 unit test suite covering BLE packet parsing, registry management, framebuffer bit mapping, `SHTC3` CRC-8 decoding, and dashboard rendering.
