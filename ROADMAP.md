@@ -26,11 +26,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] Trend arrows for temperature and humidity in the climate tiles
-  - Rank: [Total: 29, Use: 8, Setup: 2, Harmony: 9, Safety: 10, Effort: S]
-  - Location: `rlcd_panel/sparkline.h`, `rlcd_panel/dashboard_view.h`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`
-  - Goal: Add `TrendClassifier` to `sparkline.h`. Compare the newest hourly sample of `TemperatureHistory` and `HumidityHistory` with the sample 3 hours earlier. Give `RISING` for a change of 0.5 °C or more (3.0 %RH for humidity), `FALLING` for the same negative change, and `STEADY` for a smaller change. Give `UNKNOWN` when one of the two samples is invalid. Draw a small up or down triangle with `fillRect` right of the temperature line and right of the humidity line of each tile. Draw no mark for `STEADY` and `UNKNOWN`. The 5x7 font has no arrow glyph, so the triangle is 7 px high, the same as one text row. The trend uses the hourly samples, so it can lag by up to one hour. Use no new RTC memory and no new sensor read.
-  - Acceptance test: Host tests cover a rise, a fall and a steady value for each quantity, the exact thresholds, an invalid newest sample, an invalid sample 3 hours earlier, fewer than 4 samples, a wrap of the circular buffer, and the triangle bounds inside the tile and outside the sparkline box. `docs/display_preview_dashboard.png` shows one rising and one falling arrow.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 

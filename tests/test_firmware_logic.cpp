@@ -1944,6 +1944,206 @@ void testRecordsPersistence() {
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
+void testTrendClassifier() {
+  // Temperature: threshold 0.5 degC over 3 hours
+  TemperatureHistory t;
+  assert(TrendClassifier::temperature(t) == Trend::UNKNOWN); // empty
+  for (int i = 0; i < 3; ++i) t.push(200);
+  assert(TrendClassifier::temperature(t) == Trend::UNKNOWN); // 3 samples: no sample 3 hours earlier
+  t.push(204);                                               // +0.4 vs index 0
+  assert(TrendClassifier::temperature(t) == Trend::STEADY);
+  t.clear();
+  for (int i = 0; i < 3; ++i) t.push(200);
+  t.push(205); // exactly +0.5
+  assert(TrendClassifier::temperature(t) == Trend::RISE);
+  t.clear();
+  for (int i = 0; i < 3; ++i) t.push(200);
+  t.push(196); // -0.4
+  assert(TrendClassifier::temperature(t) == Trend::STEADY);
+  t.clear();
+  for (int i = 0; i < 3; ++i) t.push(200);
+  t.push(195); // exactly -0.5
+  assert(TrendClassifier::temperature(t) == Trend::FALL);
+  t.clear();
+  for (int i = 0; i < 3; ++i) t.push(200);
+  t.push(200);
+  assert(TrendClassifier::temperature(t) == Trend::STEADY);
+
+  // Humidity: threshold 3.0 %RH
+  HumidityHistory h;
+  assert(TrendClassifier::humidity(h) == Trend::UNKNOWN);
+  for (int i = 0; i < 3; ++i) h.push(500);
+  assert(TrendClassifier::humidity(h) == Trend::UNKNOWN);
+  h.push(529);
+  assert(TrendClassifier::humidity(h) == Trend::STEADY);
+  h.clear();
+  for (int i = 0; i < 3; ++i) h.push(500);
+  h.push(530);
+  assert(TrendClassifier::humidity(h) == Trend::RISE);
+  h.clear();
+  for (int i = 0; i < 3; ++i) h.push(500);
+  h.push(471);
+  assert(TrendClassifier::humidity(h) == Trend::STEADY);
+  h.clear();
+  for (int i = 0; i < 3; ++i) h.push(500);
+  h.push(470);
+  assert(TrendClassifier::humidity(h) == Trend::FALL);
+
+  // Only the newest sample and the one 3 hours earlier count
+  h.clear();
+  h.push(100); h.push(900); h.push(100); h.push(500); h.push(500); // newest 500 vs 900 (3 hours earlier) gives FALL
+  assert(TrendClassifier::humidity(h) == Trend::FALL);
+
+  // Wrap of the circular buffer: 30 pushes into 24 slots, ending with a rise of 1.0 degC
+  TemperatureHistory w;
+  for (int i = 0; i < 29; ++i) w.push(100);
+  w.push(110);
+  assert(w.head() != 0 && w.size() == TemperatureHistory::CAPACITY);
+  assert(TrendClassifier::temperature(w) == Trend::RISE);
+  HumidityHistory wh;
+  for (int i = 0; i < 29; ++i) wh.push(600);
+  wh.push(500);
+  assert(TrendClassifier::humidity(wh) == Trend::FALL);
+  // Head exactly at slot 0 after the wrap: oldest..newest order still holds
+  TemperatureHistory w0;
+  for (int i = 0; i < 24 + 24; ++i) w0.push(static_cast<int16_t>(i < 47 ? 100 : 120));
+  assert(w0.head() == 0);
+  assert(TrendClassifier::temperature(w0) == Trend::RISE);
+
+  // An invalid sample (outside the valid range, e.g. from a restore) gives UNKNOWN
+  TemperatureHistory bad;
+  for (int i = 0; i < 3; ++i) bad.push(200);
+  bad.push(2000);
+  assert(TrendClassifier::temperature(bad) == Trend::UNKNOWN); // invalid newest
+  TemperatureHistory bad_old;
+  bad_old.push(-2000);
+  for (int i = 0; i < 3; ++i) bad_old.push(200);
+  assert(TrendClassifier::temperature(bad_old) == Trend::UNKNOWN); // invalid sample 3 hours earlier
+  HumidityHistory bad_h;
+  bad_h.push(-5);
+  for (int i = 0; i < 3; ++i) bad_h.push(500);
+  assert(TrendClassifier::humidity(bad_h) == Trend::UNKNOWN);
+  HumidityHistory bad_h_new;
+  for (int i = 0; i < 3; ++i) bad_h_new.push(500);
+  bad_h_new.push(1500);
+  assert(TrendClassifier::humidity(bad_h_new) == Trend::UNKNOWN);
+}
+
+void testTrendMarkRendering() {
+  Shtc3Reading onboard;
+  onboard.valid = true;
+  onboard.temperature_c = 21.8f;
+  onboard.humidity_pct = 48.0f;
+  BatteryReading battery;
+  battery.valid = true;
+  battery.percentage = 72;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS] = {};
+
+  // Onboard tile: temperature rises, humidity falls. Other slots stay without history.
+  ClimateHistory rising, steady;
+  const size_t on = ClimateHistory::ONBOARD;
+  for (int i = 0; i < 3; ++i) {
+    rising.temperatures[on].push(200);
+    rising.slots[on].push(600);
+    steady.temperatures[on].push(200);
+    steady.slots[on].push(600);
+  }
+  rising.temperatures[on].push(230);
+  rising.slots[on].push(480);
+  steady.temperatures[on].push(200);
+  steady.slots[on].push(600);
+
+  St7305Framebuffer with, without;
+  DashboardView::render(with, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, nullptr, 100, &rising);
+  DashboardView::render(without, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, nullptr, 100, &steady);
+
+  const uint16_t tile_x = 6, tile_y = 36, tile_w = 190, tile_h = 124;
+  const uint16_t box_x = tile_x + tile_w - DashboardView::SPARKLINE_W - DashboardView::SPARKLINE_RIGHT_MARGIN;
+  const uint16_t box_y = tile_y + DashboardView::SPARKLINE_Y_OFFSET;
+  size_t up_ink = 0, down_ink = 0; // pixels in the temperature band and in the humidity band
+  for (uint16_t y = 0; y < RLCD_HEIGHT; ++y) {
+    for (uint16_t x = 0; x < RLCD_WIDTH; ++x) {
+      if (with.getPixel(x, y) == without.getPixel(x, y)) {
+        continue;
+      }
+      // Every changed pixel is the triangle or the sparkline curve of the history that differs
+      const bool in_box = x >= box_x && x < box_x + DashboardView::SPARKLINE_W && y >= box_y &&
+                          y < box_y + DashboardView::SPARKLINE_H;
+      if (in_box) continue;
+      // Strictly inside the tile and below the divider, outside the sparkline box
+      assert(x > tile_x && x < tile_x + tile_w - 1);
+      assert(y > tile_y + 24 && y < tile_y + tile_h - 1);
+      if (y < tile_y + DashboardView::HUMIDITY_LINE_Y_OFFSET) {
+        // Temperature line band: 7 px triangle starting in the text row
+        assert(y >= tile_y + DashboardView::TEMP_LINE_Y_OFFSET &&
+               y < tile_y + DashboardView::TEMP_LINE_Y_OFFSET + 14);
+        ++up_ink;
+      } else {
+        ++down_ink;
+      }
+    }
+  }
+  // Each 7 px triangle has rows of 1, 3, 3, 5, 5, 7 and 7 pixels = 31 pixels. The rise is in the
+  // temperature band, the fall in the humidity band, and none touches the sparkline box.
+  assert(up_ink == 31);
+  assert(down_ink == 31);
+
+  // Apex direction: the rise has one pixel in its top row, the fall has seven.
+  const uint16_t mark_y = tile_y + DashboardView::TEMP_LINE_Y_OFFSET + DashboardView::TREND_MARK_Y_INSET;
+  size_t top_row_ink = 0, bottom_row_ink = 0;
+  for (uint16_t x = tile_x; x < tile_x + tile_w; ++x) {
+    if (with.getPixel(x, mark_y) != without.getPixel(x, mark_y)) ++top_row_ink;
+    if (with.getPixel(x, mark_y + 6) != without.getPixel(x, mark_y + 6)) ++bottom_row_ink;
+  }
+  assert(top_row_ink == 1);
+  assert(bottom_row_ink == 7);
+
+  // A stale tile and a tile without history draw no mark, and a 100 %RH line skips the humidity mark.
+  TemperatureHistory rise_t;
+  HumidityHistory rise_h;
+  for (int i = 0; i < 3; ++i) {
+    rise_t.push(200);
+    rise_h.push(500);
+  }
+  rise_t.push(230);
+  rise_h.push(600);
+  HumidityHistory flat_h;
+  TemperatureHistory flat_t;
+  for (int i = 0; i < 4; ++i) {
+    flat_t.push(200);
+    flat_h.push(500);
+  }
+  auto tile = [](St7305Framebuffer& fb, float rh, bool stale, const HumidityHistory* hh, const TemperatureHistory* th) {
+    fb.clear(false);
+    DashboardView::renderTile(fb, 6, 36, 190, 124, "T", true, 21.0f, rh, -1, -1.0f, stale, hh, false, th);
+  };
+  St7305Framebuffer a, b;
+  tile(a, 50.0f, true, &rise_h, &rise_t);
+  tile(b, 50.0f, true, &flat_h, &flat_t);
+  auto outside_box_diff = [&]() {
+    size_t d = 0;
+    for (uint16_t y = tile_y + 25; y < tile_y + 90; ++y)
+      for (uint16_t x = tile_x; x < tile_x + tile_w - 1; ++x) {
+        const bool in_box = x >= box_x && x < box_x + DashboardView::SPARKLINE_W && y >= box_y &&
+                            y < box_y + DashboardView::SPARKLINE_H;
+        if (!in_box && a.getPixel(x, y) != b.getPixel(x, y)) ++d;
+      }
+    return d;
+  };
+  size_t diff = outside_box_diff();
+  assert(diff == 0); // stale: no marks
+  tile(a, 50.0f, false, &rise_h, &rise_t);
+  tile(b, 50.0f, false, &flat_h, &flat_t);
+  diff = outside_box_diff();
+  assert(diff == 62); // temperature and humidity mark
+  tile(a, 100.0f, false, &rise_h, nullptr);
+  tile(b, 100.0f, false, &flat_h, nullptr);
+  diff = 0;
+  for (uint16_t y = tile_y + DashboardView::HUMIDITY_LINE_Y_OFFSET; y < tile_y + DashboardView::HUMIDITY_LINE_Y_OFFSET + 14; ++y)
+    for (uint16_t x = tile_x; x < box_x; ++x) diff += a.getPixel(x, y) != b.getPixel(x, y);
+  assert(diff == 0); // 100 %RH: the mark would touch the sparkline box, so it is skipped
+}
+
 void testSparklineAutoScale() {
   HumidityHistory h;
   Sparkline::Scale s;
@@ -2068,7 +2268,8 @@ void testDashboardSparklineInsideTiles() {
   ClimateHistory history;
   for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
     for (int i = 0; i < 24; ++i) {
-      history.slots[s].push(static_cast<int16_t>(i % 2 == 0 ? 100 : 900));
+      // Period of 3 hours: the newest sample equals the one 3 hours earlier, so no trend mark
+      history.slots[s].push(static_cast<int16_t>(100 + (i % 3) * 400));
     }
   }
 
@@ -10395,6 +10596,8 @@ int main() {
   testRecordsStatsView();
   testRecordsPersistence();
   testSparklineAutoScale();
+  testTrendClassifier();
+  testTrendMarkRendering();
   testSparklineBoundsAndClipping();
   testDashboardSparklineInsideTiles();
   testHistoryPersistence();

@@ -510,3 +510,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The tile shows an inverted 9 x 9 px badge with the glyph `V` right of the humidity line, at x + 108 and y + 56. The badge stays inside the tile, above the sparkline box. A stale tile shows no badge.
 - The badge is independent of the `VENTILATE` header banner, of `ALERT_VENTILATE` and of `mold_alert_limit_rh`. It has no chime.
 - RTC state version 28: the audio block gets a third byte with the four latch bits, and the config trailer stores `ventilate_limit_rh` after `outdoor_slot`. A corrupt record or a latch bit above bit 3 gives a clean start.
+
+## Trend arrows for temperature and humidity in the climate tiles
+
+- **Code:** `rlcd_panel/sparkline.h`, `rlcd_panel/dashboard_view.h`, `tests/test_firmware_logic.cpp`.
+- **Preview:** `docs/display_preview_dashboard.png` shows rising and falling arrows in the tiles.
+- `TrendClassifier` compares the newest hourly sample with the sample 3 hours earlier. It gives `RISE` for a change of 0.5 °C or more (3.0 %RH for humidity), `FALL` for the same negative change and `STEADY` for a smaller change.
+- It gives `UNKNOWN` for fewer than 4 samples and for a sample outside the valid range.
+- `DashboardView::renderTile` draws a 7 x 7 px triangle with `fillRect` right of the temperature line and right of the humidity line. `STEADY` and `UNKNOWN` draw no mark.
+- The humidity mark is skipped when it would touch the sparkline box. The trend compares sample positions, so a gap in the hourly samples widens the span. Each quantity uses its own buffer. The trend lags by up to one hour. It uses no new RTC memory and no new sensor read.
