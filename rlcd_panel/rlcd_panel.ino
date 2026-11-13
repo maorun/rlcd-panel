@@ -748,6 +748,8 @@ void setup() {
   g_rtc.begin(Wire);
   g_panel.begin();
 
+  g_state.releaseDeadSlots(nowMs()); // before the scan, so a free slot takes a new sensor in this cycle
+
   if (cycle.advance() == PowerPhase::SCAN) {
     g_state.last_scan_ms = nowMs();
     initBle();

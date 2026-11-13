@@ -35,6 +35,12 @@ struct SwitchBotReading {
   }
 };
 
+// Release rule of a silent slot: true when a valid reading is at least `timeout_ms` old. `timeout_ms` 0 never
+// releases. Unsigned subtraction keeps the result correct when the 32-bit clock wraps around.
+inline bool slotExpired(const SwitchBotReading& r, uint32_t now_ms, uint32_t timeout_ms) {
+  return timeout_ms != 0 && r.valid && (now_ms - r.updated_ms) >= timeout_ms;
+}
+
 class SwitchBotBleParser {
 public:
   // Clamps a dBm value from the BLE stack to the int8_t range of the registry.

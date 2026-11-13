@@ -189,6 +189,7 @@ sensor_stale_min=30
 display_invert=0
 # Millivolts added to the cell voltage before each battery limit (-300 to 300)
 battery_offset_mv=0
+slot_release_h=0
 # Tiles of the freezer and mold alerts: bit 0 onboard, bits 1 to 3 slots 1 to 3 (0 to 15)
 climate_alert_tiles=15
 outdoor_slot=0
