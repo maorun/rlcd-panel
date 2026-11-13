@@ -117,7 +117,7 @@ To render a single view by hand, run `render_display_preview <out.bmp> [mode 0..
 
 ## Power Management
 
-The firmware sleeps between measurements. Each cycle scans BLE for 4 s, redraws the display, and enters deep sleep. A cycle starts every 60 s by default. The `config.ini` key `wake_interval_s` (30 to 900) sets this interval on battery power; USB power keeps 60 s. The reflective LCD keeps the image without power. RTC memory keeps the sensor registry, battery reading, and view mode. Press `KEY` to wake the board and cycle the view. The serial port is not active during deep sleep, so hold `BOOT` while you connect `PWR` or USB to flash (see above).
+The firmware sleeps between measurements. Each cycle scans BLE for 4 s, redraws the display, and enters deep sleep. A cycle starts every 60 s by default. The `config.ini` key `wake_interval_s` (30 to 900) sets this interval on battery power; USB power keeps 60 s. The key `night_wake_interval_s` (0 is off, else 60 to 1800) replaces it on battery power during the quiet hours; an invalid RTC time uses `wake_interval_s`. The reflective LCD keeps the image without power. RTC memory keeps the sensor registry, battery reading, and view mode. Press `KEY` to wake the board and cycle the view. The serial port is not active during deep sleep, so hold `BOOT` while you connect `PWR` or USB to flash (see above).
 
 ## Build, Test, Preview, and Flash Commands
 
@@ -190,6 +190,8 @@ display_invert=0
 # Millivolts added to the cell voltage before each battery limit (-300 to 300)
 battery_offset_mv=0
 slot_release_h=0
+# Seconds between two scans on battery power in the quiet hours (60 to 1800, 0 uses wake_interval_s)
+night_wake_interval_s=0
 # Tiles of the freezer and mold alerts: bit 0 onboard, bits 1 to 3 slots 1 to 3 (0 to 15)
 climate_alert_tiles=15
 outdoor_slot=0
