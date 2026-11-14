@@ -22,6 +22,7 @@ struct MainView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Telemetry").font(.headline)
             Text(model.bluetoothState).font(.caption).foregroundStyle(.secondary)
+            panelsView
             if let frame = model.frame {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4)) {
                     ForEach(0..<4, id: \.self) { i in
@@ -49,6 +50,42 @@ struct MainView: View {
             } else {
                 Text("No telemetry frame yet. Set ble_broadcast_enabled=1 on the panel.").foregroundStyle(.secondary)
             }
+        }
+    }
+
+    private var panelsView: some View {
+        GroupBox("Panels") {
+            VStack(alignment: .leading, spacing: 6) {
+                if let id = model.pinnedPanel {
+                    HStack {
+                        Text("Pinned: \(id.uuidString)").font(.system(.caption, design: .monospaced))
+                        Spacer()
+                        Button("Forget panel") { model.forgetPanel() }
+                    }
+                } else {
+                    Text("No panel pinned. The app accepts each panel in range.").font(.caption).foregroundStyle(.secondary)
+                }
+                TimelineView(.periodic(from: .now, by: 1)) { context in
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(model.discovered.panels) { p in
+                            HStack {
+                                Text(p.name ?? "(no name)")
+                                Text("\(p.rssi) dBm").foregroundStyle(.secondary)
+                                Text("last packet " + ageText(p.lastPacket, now: context.date)).foregroundStyle(.secondary)
+                                Spacer()
+                                if p.id == model.pinnedPanel {
+                                    Text("pinned").font(.caption).foregroundStyle(.secondary)
+                                } else {
+                                    Button("Pin") { model.pinPanel(p.id) }
+                                }
+                            }
+                            .font(.callout)
+                            .help(p.id.uuidString)
+                        }
+                    }
+                }
+                if model.discovered.panels.isEmpty { Text("No panel found yet.").font(.caption).foregroundStyle(.secondary) }
+            }.frame(maxWidth: .infinity, alignment: .leading)
         }
     }
 
@@ -140,8 +177,8 @@ struct MainView: View {
     }
 }
 
-func ageText(_ date: Date?) -> String {
+func ageText(_ date: Date?, now: Date = Date()) -> String {
     guard let date else { return "never" }
-    let s = Int(Date().timeIntervalSince(date))
+    let s = max(0, Int(now.timeIntervalSince(date)))
     return s < 60 ? "\(s) s ago" : "\(s / 60) min ago"
 }
