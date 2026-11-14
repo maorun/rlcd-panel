@@ -24,6 +24,10 @@ final class AppModel: ConsoleLinkDelegate {
     var diagnostics: DiagnosticsReply?
     var version: VersionReply?
     var scanResult: ScanReply?
+    var panelTime: TimeReply?
+    var panelOffsetSeconds: Int?
+    var lastChimeResult: String?
+    var lastPatternResult: String?
     var message: String?
     /// User notifications for active alerts.
     var notificationsEnabled = false
@@ -39,6 +43,8 @@ final class AppModel: ConsoleLinkDelegate {
     var batch: ConfigBatch?
     var batchSummary: String?
     var showDiff = false
+    var pendingPattern: Int?
+    var showingPatternAlert = false
     private var pendingCommand: ConsoleCommand?
     private var queue: [ConsoleCommand] = []
     private var assembler = ReplyAssembler()
@@ -51,6 +57,10 @@ final class AppModel: ConsoleLinkDelegate {
     /// Level of `ble_console` from the last `CONFIG` reply (0 until read).
     var consoleLevel: Int { config?.bleConsoleLevel ?? 0 }
     var canSet: Bool { consoleConnected && (transport == .usb || consoleLevel == 2) }
+    var canTimeSet: Bool { consoleConnected && PanelClock.isTimeSetAllowed(onUsb: transport == .usb, bleConsoleLevel: consoleLevel) }
+    var canBeep: Bool { consoleConnected }
+    var canPattern: Bool { consoleConnected }
+    var isIdle: Bool { consoleConnected && pendingCommand == nil && queue.isEmpty && batch == nil }
     /// A frame older than this shows `--`. It exceeds the longest firmware wake interval (night, 1800 s), so a silent panel never looks current.
     static let staleSeconds: TimeInterval = 1900
     /// A discovered peripheral leaves the list after this time without a packet.
@@ -162,10 +172,18 @@ final class AppModel: ConsoleLinkDelegate {
         diagnostics = nil
         version = nil
         scanResult = nil
+        panelTime = nil
+        panelOffsetSeconds = nil
+        lastChimeResult = nil
+        lastPatternResult = nil
     }
 
     func disconnectConsole() {
         scanResult = nil
+        panelTime = nil
+        panelOffsetSeconds = nil
+        lastChimeResult = nil
+        lastPatternResult = nil
         resetLink()
         consoleConnected = false
         consoleState = "Console not connected"
@@ -214,14 +232,66 @@ final class AppModel: ConsoleLinkDelegate {
         sendNext()
     }
 
-    /// Sends `STATUS` and `VERSION` for the diagnostics panel. Runs only on the user's button press.
+    /// Sends `STATUS`, `VERSION` and `TIME` for the diagnostics panel. Runs only on the user's button press.
     func refreshDiagnostics() {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { return }
         message = nil
         diagnostics = nil // a failed reply must not leave values of an older reply
         version = nil
-        queue = diagnosticsRefreshCommands
+        panelTime = nil
+        panelOffsetSeconds = nil
+        queue = diagnosticsRefreshCommands + [.time]
         sendNext()
+    }
+
+    /// Synchronizes the panel clock with Mac time by sending `TIME SET <date>` followed by `TIME`.
+    func syncClock() {
+        guard canTimeSet else { message = "TIME SET needs ble_console=2 or the USB serial link"; return }
+        guard isIdle else { message = "Wait for the running command"; return }
+        message = nil
+        queue = [.timeSet(Date()), .time]
+        sendNext()
+    }
+
+    /// Reads the panel clock.
+    func readTime() {
+        guard isIdle else { return }
+        message = nil
+        queue = [.time]
+        sendNext()
+    }
+
+    /// Plays a test chime (alert bit 0..7).
+    func beep(_ bit: Int) {
+        guard isIdle else { return }
+        message = nil
+        lastChimeResult = nil
+        queue = [.beep(bit)]
+        sendNext()
+    }
+
+    /// Displays a test pattern (0..2) on the panel.
+    func pattern(_ n: Int) {
+        guard isIdle else { return }
+        message = nil
+        lastPatternResult = nil
+        queue = [.pattern(n)]
+        sendNext()
+    }
+
+    /// Chime alert name.
+    static func chimeName(_ bit: Int) -> String {
+        switch bit {
+        case 0: return "Freezer / frost"
+        case 1: return "Humidity / mold"
+        case 2: return "Noise level"
+        case 3: return "Sensor lost"
+        case 4: return "Charge complete"
+        case 5: return "Ventilation"
+        case 6: return "Sensor battery"
+        case 7: return "Heat index"
+        default: return "Alert \(bit)"
+        }
     }
 
     /// Changes of the form against the last `CONFIG` reply, in schema order.
@@ -381,6 +451,18 @@ final class AppModel: ConsoleLinkDelegate {
                 if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
                 batch?.receive(status: text)
                 if text.hasPrefix("ERR") { queue.removeAll() }
+                if cmd == .time || text.hasPrefix("TIME ") || text == "TIME" {
+                    if let t = try? TimeReply.parse(text) {
+                        panelTime = t
+                        panelOffsetSeconds = PanelClock.offsetSeconds(panelTime: t, macDate: Date())
+                    }
+                }
+                if case .beep = cmd { lastChimeResult = text }
+                if case .pattern = cmd { lastPatternResult = text }
+            case let (.time, .frame(lines)):
+                let t = try TimeReply.parse(lines: lines)
+                panelTime = t
+                panelOffsetSeconds = PanelClock.offsetSeconds(panelTime: t, macDate: Date())
             case let (.status, .frame(lines)):
                 diagnostics = nil // a bad reply must not leave the values of an older reply
                 let parsed = try StatusReply.parse(lines: lines)
@@ -399,6 +481,8 @@ final class AppModel: ConsoleLinkDelegate {
                 scanResult = nil // a reply that fails to parse must not leave the old rows
                 scanResult = try ScanReply.parse(lines: lines)
             case (.set, .frame): batch?.receive(status: "ERR UNEXPECTED_REPLY")
+            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame):
+                message = "Unexpected frame reply"
             }
         } catch {
             message = "Reply not understood: \(error)"
