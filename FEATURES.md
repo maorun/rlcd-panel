@@ -742,3 +742,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The console command `CONFIG` and `DeviceConfigText` list the key. `docs/config.example.ini` and `DeviceConfigParser::KEYS` list it too.
 - Thus the battery lasts longer, because the panel scans less often while the user sleeps.
 - Host tests cover the parser for the default, the edges `60` and `1800`, the values `59` and `1801` and a malformed value, the interval inside and outside the quiet hours, a window across midnight, the USB power gate, an invalid RTC time, the stale clamp with both intervals, the `CONFIG` line and its parse back, and the RTC round trip with a corrupt field and the old state version 35.
+
+## Reset reason and abnormal reset counter in STATUS
+
+- **Code:** `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`.
+- `ResetReasonCodec` maps `esp_reset_reason()` to the text `POWERON`, `EXT`, `SW`, `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT`, `DEEPSLEEP`, `BROWNOUT`, `SDIO` or `UNKNOWN`. Each other value, for example `USB` or `PWR_GLITCH`, gives `UNKNOWN` and counts as normal.
+- A reset by `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT` or `BROWNOUT` is abnormal.
+- `AbnormalResetCounter::onBoot` counts abnormal resets in NVS (`Preferences`, namespace `rlcd`, key `abn_resets`, `uint16_t`). The count saturates at 65535 and then causes no write.
+- `setup()` calls `onBoot` once. NVS is written only after an abnormal reset. A deep sleep wakeup or a power-on causes no flash write.
+- The console command `STATUS` adds the line `RESET reason=<TEXT> abnormal=<N>` before the `POWER` line. The line shows `abnormal=--` when NVS is unreadable.
+- Thus the user sees a brownout of a weak cell or a crash of the firmware.
+- Host tests cover each reason text, the abnormal classification, the counter with a portable NVS stand-in (0 writes after 10 deep sleep wakeups, 1 write after one panic), the saturation, an unreadable NVS, a failed write and the `STATUS` line.

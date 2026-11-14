@@ -282,6 +282,8 @@ struct SerialStatusSnapshot {
   uint32_t now_ms = 0; // RTC-backed clock
   SdStatus sd_status = SdStatus::UNKNOWN; // last card result
   uint32_t sd_status_ms = 0;              // clock value of that result
+  const char* reset_reason = "UNKNOWN";   // ResetReasonCodec::text of the last boot
+  int32_t abnormal_resets = -1;           // NVS count; negative when NVS is unreadable
 };
 
 // Runs one parsed command. Storage mounts the card for the command and unmounts it on every
@@ -300,7 +302,7 @@ struct SerialStatusSnapshot {
 //   so execute() ignores CONFIG.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 3 (slots, calibrated readings), a missing value gives "--";
-//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "CRC32 <8 hex digits>" over all lines
+//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 6), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
@@ -531,6 +533,15 @@ public:
                                           SdStatusCodec::name(snap.sd_status),
                                           static_cast<unsigned long>(static_cast<uint32_t>(snap.now_ms - snap.sd_status_ms) / 1000UL)));
     }
+    if (len >= sizeof(text)) {
+      return;
+    }
+    char abnormal[12] = "--";
+    if (snap.abnormal_resets >= 0) {
+      snprintf(abnormal, sizeof(abnormal), "%ld", static_cast<long>(snap.abnormal_resets));
+    }
+    len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "RESET reason=%s abnormal=%s\n",
+                                        snap.reset_reason != nullptr ? snap.reset_reason : "UNKNOWN", abnormal));
     if (len >= sizeof(text)) {
       return;
     }

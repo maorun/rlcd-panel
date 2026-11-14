@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
 
-- [ ] Reset reason and abnormal reset counter in STATUS
-  - Rank: [Total: 31, Use: 4, Setup: 9, Harmony: 9, Safety: 9, Effort: M]
-  - Location: `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add `ResetReasonCodec`, which maps `esp_reset_reason()` to the text `POWERON`, `EXT`, `SW`, `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT`, `DEEPSLEEP`, `BROWNOUT`, `SDIO` or `UNKNOWN`. A reset by `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT` or `BROWNOUT` is abnormal. Count abnormal resets in NVS (`Preferences`, namespace `rlcd`, key `abn_resets`, saturates at 65535). Write NVS only in the wake cycle after an abnormal reset, so a deep sleep wakeup causes no flash write. The console command `STATUS` adds the line `RESET reason=<TEXT> abnormal=<N>` before the `POWER` line. `abnormal=--` shows when NVS is unreadable. Thus the user sees a brownout of a weak cell or a crash of the firmware.
-  - Acceptance test: Host tests cover each reason text, the abnormal classification, the counter with a portable NVS stand-in (write count after 10 deep sleep wakeups is 0, after one panic is 1), the saturation, an unreadable NVS, and the `STATUS` line. `arduino-cli compile rlcd_panel` passes.
-
 - [ ] Event log file on the MicroSD card
   - Rank: [Total: 30, Use: 6, Setup: 8, Harmony: 9, Safety: 7, Effort: M]
   - Location: `rlcd_panel/sd_logger.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`

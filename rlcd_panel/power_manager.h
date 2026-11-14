@@ -23,6 +23,7 @@
 #include <esp_attr.h>
 #include <esp_sleep.h>
 #include <esp_system.h>
+#include <Preferences.h>
 #include <sys/time.h>
 #endif
 
@@ -976,7 +977,110 @@ private:
   PowerPhase phase_ = PowerPhase::BOOT;
 };
 
+// Reset reason of the chip. The values match `esp_reset_reason_t` (checked on the board).
+enum class ResetReason : uint8_t {
+  UNKNOWN = 0,
+  POWERON = 1,
+  EXT = 2,
+  SW = 3,
+  PANIC = 4,
+  INT_WDT = 5,
+  TASK_WDT = 6,
+  WDT = 7,
+  DEEPSLEEP = 8,
+  BROWNOUT = 9,
+  SDIO = 10,
+};
+
+class ResetReasonCodec {
+public:
+  static ResetReason decode(int esp_reason) {
+    return esp_reason >= 1 && esp_reason <= 10 ? static_cast<ResetReason>(esp_reason) : ResetReason::UNKNOWN;
+  }
+
+  static const char* text(ResetReason r) {
+    switch (r) {
+      case ResetReason::POWERON: return "POWERON";
+      case ResetReason::EXT: return "EXT";
+      case ResetReason::SW: return "SW";
+      case ResetReason::PANIC: return "PANIC";
+      case ResetReason::INT_WDT: return "INT_WDT";
+      case ResetReason::TASK_WDT: return "TASK_WDT";
+      case ResetReason::WDT: return "WDT";
+      case ResetReason::DEEPSLEEP: return "DEEPSLEEP";
+      case ResetReason::BROWNOUT: return "BROWNOUT";
+      case ResetReason::SDIO: return "SDIO";
+      default: return "UNKNOWN";
+    }
+  }
+
+  // A crash, a watchdog or a brownout. A power-on, a deep sleep wakeup and a software reset are normal.
+  static bool isAbnormal(ResetReason r) {
+    return r == ResetReason::PANIC || r == ResetReason::INT_WDT || r == ResetReason::TASK_WDT ||
+           r == ResetReason::WDT || r == ResetReason::BROWNOUT;
+  }
+};
+
+// Count of abnormal resets in NVS. `Store` provides `bool load(uint16_t&)` and `bool save(uint16_t)`
+// (ResetCountStore on the board). Only an abnormal reset writes; a deep sleep wakeup never does.
+class AbnormalResetCounter {
+public:
+  static constexpr uint16_t MAX_COUNT = 65535;
+
+  // Call once per boot. Returns false when NVS failed to read or to write.
+  template <typename Store>
+  static bool onBoot(ResetReason reason, Store& store) {
+    if (!ResetReasonCodec::isAbnormal(reason)) {
+      return true;
+    }
+    uint16_t count = 0;
+    if (!store.load(count)) {
+      return false;
+    }
+    if (count == MAX_COUNT) {
+      return true; // saturated: no write
+    }
+    return store.save(static_cast<uint16_t>(count + 1));
+  }
+
+  // The count for STATUS, or -1 when NVS is unreadable.
+  template <typename Store>
+  static int32_t read(Store& store) {
+    uint16_t count = 0;
+    return store.load(count) ? static_cast<int32_t>(count) : -1;
+  }
+};
+
 #if defined(ARDUINO) || defined(ESP_PLATFORM)
+
+static_assert(ESP_RST_POWERON == 1 && ESP_RST_EXT == 2 && ESP_RST_SW == 3 && ESP_RST_PANIC == 4 &&
+                  ESP_RST_INT_WDT == 5 && ESP_RST_TASK_WDT == 6 && ESP_RST_WDT == 7 && ESP_RST_DEEPSLEEP == 8 &&
+                  ESP_RST_BROWNOUT == 9 && ESP_RST_SDIO == 10,
+              "reset reason mapping");
+
+// NVS storage of the abnormal reset count. A missing key reads as 0; an unreadable namespace fails.
+class ResetCountStore {
+public:
+  bool load(uint16_t& count) const {
+    Preferences prefs;
+    if (!prefs.begin("rlcd", false)) { // read-write open creates the namespace on first use, as in CycleStore
+      return false;
+    }
+    count = prefs.getUShort("abn_resets", 0);
+    prefs.end();
+    return true;
+  }
+
+  bool save(uint16_t count) const {
+    Preferences prefs;
+    if (!prefs.begin("rlcd", false)) {
+      return false;
+    }
+    const bool ok = prefs.putUShort("abn_resets", count) == sizeof(uint16_t);
+    prefs.end();
+    return ok;
+  }
+};
 
 static_assert(ESP_SLEEP_WAKEUP_UNDEFINED == 0, "wakeup cause mapping");
 static_assert(ESP_SLEEP_WAKEUP_EXT0 == 2, "wakeup cause mapping");
@@ -989,6 +1093,10 @@ RTC_DATA_ATTR static uint8_t g_rtc_state_blob[PowerManager::SERIALIZED_SIZE];
 class PowerPlatform {
 public:
   static constexpr uint8_t kHeldDisplayPins[3] = {PIN_RLCD_CS, PIN_RLCD_DC, PIN_RLCD_RST};
+
+  static ResetReason resetReason() {
+    return ResetReasonCodec::decode(static_cast<int>(esp_reset_reason()));
+  }
 
   static WakeupCause wakeupCause() {
     return PowerManager::decodeWakeupCause(static_cast<int>(esp_sleep_get_wakeup_cause()));
