@@ -28,6 +28,11 @@ public:
   // Longest text from format(): "DP -45.0C VPD 9.99K" is 19 glyphs.
   static constexpr size_t LINE_MAX_CHARS = 20;
 
+  // Temperature in the display unit: 'F' gives Fahrenheit, any other unit keeps Celsius.
+  static float toDisplay(float temp_c, char unit) {
+    return unit == 'F' ? temp_c * 9.0f / 5.0f + 32.0f : temp_c;
+  }
+
   // Saturation vapor pressure in kPa.
   static float saturationPressureKpa(float temp_c) {
     return SATURATION_PRESSURE_KPA_AT_0C * expf((MAGNUS_A * temp_c) / (temp_c + MAGNUS_B_C));
@@ -90,7 +95,7 @@ public:
   }
 
   // Formats "DP 9.3C VPD 1.2K" (VPD in kPa, one digit), or "DP -- VPD --" when not valid.
-  static void format(char* buf, size_t size, bool usable, float temp_c, float humidity_pct) {
+  static void format(char* buf, size_t size, bool usable, float temp_c, float humidity_pct, char unit = 'C') {
     if (buf == nullptr || size == 0) {
       return;
     }
@@ -99,8 +104,8 @@ public:
       snprintf(buf, size, "DP -- VPD --");
       return;
     }
-    snprintf(buf, size, "DP %.1fC VPD %.1fK", static_cast<double>(d.dew_point_c),
-             static_cast<double>(d.vpd_kpa));
+    snprintf(buf, size, "DP %.1f%c VPD %.1fK", static_cast<double>(toDisplay(d.dew_point_c, unit)),
+             unit == 'F' ? 'F' : 'C', static_cast<double>(d.vpd_kpa));
   }
 };
 

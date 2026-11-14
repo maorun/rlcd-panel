@@ -70,6 +70,7 @@ struct DeviceConfig {
   static constexpr uint8_t MAX_SLOT_RELEASE_H = 168;
   static constexpr uint8_t DEFAULT_DISPLAY_INVERT = 0; // 1 shows light text on a dark background
   static constexpr uint8_t MAX_DISPLAY_INVERT = 1;
+  static constexpr char DEFAULT_TEMP_UNIT = 'C'; // display unit of the temperature: 'C' or 'F'
   static constexpr uint8_t DEFAULT_CLIMATE_ALERT_TILES = 15; // all four tiles feed the freezer and mold alerts
   static constexpr uint8_t MAX_CLIMATE_ALERT_TILES = 15;
   static constexpr uint32_t SCAN_DURATION_S = 4; // scan time that adds to the wake interval
@@ -115,6 +116,7 @@ struct DeviceConfig {
   int16_t battery_offset_mv = DEFAULT_BATTERY_OFFSET_MV; // corrects divider and ADC tolerance, -300..300 mV
   uint8_t slot_release_h = DEFAULT_SLOT_RELEASE_H; // hours without a packet until a slot without a fixed MAC is released, 0 = off, else 1..168
   uint16_t night_wake_interval_s = DEFAULT_NIGHT_WAKE_INTERVAL_S; // seconds from one scan start to the next on battery power in the quiet hours, 0 = off, else 60..1800
+  char temp_unit = DEFAULT_TEMP_UNIT; // 'C' or 'F': only the screen and the console command STATUS use it; the card files, limits and alerts stay in Celsius
   uint8_t climate_alert_tiles = DEFAULT_CLIMATE_ALERT_TILES; // bit 0 onboard, bits 1..3 slots 1..3: tiles of the freezer and mold alerts, 0..15
 
   // Release time in ms of a silent slot without a fixed MAC (0 = never). 168 h fit into 32 bits.
@@ -217,7 +219,7 @@ struct DeviceConfig {
            ntp_sync_interval_h >= MIN_NTP_SYNC_INTERVAL_H && ntp_sync_interval_h <= MAX_NTP_SYNC_INTERVAL_H &&
            wake_interval_s >= MIN_WAKE_INTERVAL_S && wake_interval_s <= MAX_WAKE_INTERVAL_S &&
            sensor_stale_min >= MIN_SENSOR_STALE_MIN && sensor_stale_min <= MAX_SENSOR_STALE_MIN &&
-           display_invert <= MAX_DISPLAY_INVERT && climate_alert_tiles <= MAX_CLIMATE_ALERT_TILES &&
+           display_invert <= MAX_DISPLAY_INVERT && (temp_unit == 'C' || temp_unit == 'F') && climate_alert_tiles <= MAX_CLIMATE_ALERT_TILES &&
            battery_offset_mv >= MIN_BATTERY_OFFSET_MV && battery_offset_mv <= MAX_BATTERY_OFFSET_MV &&
            slot_release_h <= MAX_SLOT_RELEASE_H &&
            (night_wake_interval_s == 0 ||
@@ -248,7 +250,8 @@ struct DeviceConfig {
            ntp_sync_interval_h == d.ntp_sync_interval_h && wake_interval_s == d.wake_interval_s &&
            sensor_stale_min == d.sensor_stale_min && display_invert == d.display_invert &&
            climate_alert_tiles == d.climate_alert_tiles && battery_offset_mv == d.battery_offset_mv &&
-           slot_release_h == d.slot_release_h && night_wake_interval_s == d.night_wake_interval_s;
+           slot_release_h == d.slot_release_h && night_wake_interval_s == d.night_wake_interval_s &&
+           temp_unit == d.temp_unit;
   }
 };
 
@@ -296,7 +299,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 4096;
-  static constexpr size_t KEY_COUNT = 35;
+  static constexpr size_t KEY_COUNT = 36;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -311,7 +314,7 @@ public:
       "slot2_rh_offset_pct", "slot3_rh_offset_pct", "onboard_name",
       "slot1_name", "slot2_name", "slot3_name",
       "slot1_mac", "slot2_mac", "slot3_mac",
-      "slot_release_h", "night_wake_interval_s",
+      "slot_release_h", "night_wake_interval_s", "temp_unit",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -638,6 +641,13 @@ private:
     } else if (keyIs(key, key_len, "night_wake_interval_s")) {
       index = 34;
       ok = parseNightInterval(val, val_len, cfg.night_wake_interval_s);
+    } else if (keyIs(key, key_len, "temp_unit")) {
+      index = 35;
+      // Exactly one upper-case letter: 'f', 'K', a longer text and an empty value are rejected.
+      ok = val_len == 1 && (val[0] == 'C' || val[0] == 'F');
+      if (ok) {
+        cfg.temp_unit = val[0];
+      }
     } else if (keyIs(key, key_len, "outdoor_slot")) {
       index = 26;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_OUTDOOR_SLOT, cfg.outdoor_slot);
@@ -704,6 +714,7 @@ public:
     ok = ok && putSignedInt(out, cap, pos, "battery_offset_mv", cfg.battery_offset_mv);
     ok = ok && putInt(out, cap, pos, "slot_release_h", cfg.slot_release_h);
     ok = ok && putInt(out, cap, pos, "night_wake_interval_s", cfg.night_wake_interval_s);
+    ok = ok && putLine(out, cap, pos, "temp_unit", cfg.temp_unit == 'F' ? "F" : "C");
     ok = ok && putInt(out, cap, pos, "outdoor_slot", cfg.outdoor_slot);
     ok = ok && putInt(out, cap, pos, "ventilate_limit_rh", cfg.ventilate_limit_rh);
     ok = ok && putInt(out, cap, pos, "sensor_battery_limit_pct", cfg.sensor_battery_limit_pct);

@@ -739,7 +739,7 @@ void testBatteryOffsetMv() {
   bad[pos] = 0xD3; bad[pos + 1] = 0xFE; // -301 mV
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 37);
+  assert(PowerManager::STATE_VERSION == 38);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 33; // old state version without the offset
   seal();
@@ -1179,7 +1179,7 @@ void testComfortZone() {
   assert(memcmp(ok_fb.data(), cold_fb.data(), RLCD_BUFFER_SIZE) != 0);
 
   // No RTC state change
-  assert(PowerManager::STATE_VERSION == 37);
+  assert(PowerManager::STATE_VERSION == 38);
 }
 
 void testMoldHoursStats() {
@@ -1300,7 +1300,7 @@ void testMoldHoursStats() {
     }
     assert(i == 2 ? !differs : differs); // empty slot shows "MOLD --" in both renders
   }
-  assert(PowerManager::STATE_VERSION == 37); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 38); // no RTC state change
 }
 
 void testDashboardClimateLine() {
@@ -1646,7 +1646,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 37);
+  assert(PowerManager::STATE_VERSION == 38);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -2536,7 +2536,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 37);
+  assert(PowerManager::STATE_VERSION == 38);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -3172,7 +3172,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 37);
+  assert(PowerManager::STATE_VERSION == 38);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -5002,7 +5002,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 37);
+  assert(PowerManager::STATE_VERSION == 38);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -5711,7 +5711,10 @@ void testDeviceConfigRtcRoundTrip() {
       {31, 169}, // slot release hours above range
       {32, 59},  // night wake interval low byte 59 with high byte 0: below range
       {33, 8},   // night wake interval high byte 8: 2048 above range
-      {62, 2},   // invalid character in the onboard name
+      {34, 'K'}, // temperature unit K
+      {34, 'f'}, // temperature unit in lower case
+      {34, 0},   // temperature unit empty
+      {63, 2},   // invalid character in the onboard name
       {PowerManager::CONFIG_SIZE - PowerManager::REJECTS_SIZE - 1, 2}, // unknown flag bit
   };
   for (const Corrupt& c : cases) {
@@ -5726,7 +5729,7 @@ void testDeviceConfigRtcRoundTrip() {
   const float nan_value = NAN;
   const float far_value = 99.0f;
   for (const float f : {nan_value, far_value}) {
-    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(34)}) {
+    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(35)}) {
       memcpy(bad, buf, sizeof(bad));
       memcpy(bad + cfg_pos + off, &f, 4);
       const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
@@ -5799,7 +5802,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 37);
+  assert(PowerManager::STATE_VERSION == 38);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -5969,7 +5972,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 37);
+  assert(PowerManager::STATE_VERSION == 38);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -6151,7 +6154,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 37);
+  assert(PowerManager::STATE_VERSION == 38);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -9185,7 +9188,8 @@ void testSerialConfigLineFormat() {
   assert(text.find("\nclimate_alert_tiles=15\n") != std::string::npos);
   assert(text.find("\ndisplay_invert=0\n") != std::string::npos);
   assert(text.find("\nbattery_offset_mv=0\n") != std::string::npos);
-  assert(lines == 28);
+  assert(text.find("\ntemp_unit=C\n") != std::string::npos);
+  assert(lines == 29);
   assert(text.find("wifi") == std::string::npos && text.find("ssid") == std::string::npos &&
          text.find("pass") == std::string::npos);
   // Too small a buffer gives 0 and an empty string
@@ -9377,7 +9381,7 @@ void testSlotRelease() {
   bad[pos] = 169;
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 37);
+  assert(PowerManager::STATE_VERSION == 38);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 34; // old state version without the key
   seal();
@@ -9488,7 +9492,7 @@ void testNightWakeInterval() {
   bad[pos] = 0x09; bad[pos + 1] = 0x07; // 1801 s: above range
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 37);
+  assert(PowerManager::STATE_VERSION == 38);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 35; // old state version without the key
   seal();
@@ -9499,7 +9503,7 @@ void testSerialConfigRoundTrip() {
   const char* ini =
       "temp_offset_c=-3.25\nrh_offset_pct=4.5\nfreeze_alert_limit_c=-7.5\nmold_alert_limit_rh=85\n"
       "chime_volume_pct=100\nquiet_hours_start_hour=0\nquiet_hours_end_hour=23\nmic_spl_offset_db=-12.75\n"
-      "log_retention_months=120\nnoise_alert_limit_db=40\nchime_alert_mask=5\nntp_sync_interval_h=168\noutdoor_slot=3\nventilate_limit_rh=73\nsensor_battery_limit_pct=25\nbattery_offset_mv=-120\n"
+      "log_retention_months=120\nnoise_alert_limit_db=40\nchime_alert_mask=5\nntp_sync_interval_h=168\noutdoor_slot=3\nventilate_limit_rh=73\nsensor_battery_limit_pct=25\nbattery_offset_mv=-120\ntemp_unit=F\n"
       "slot1_temp_offset_c=0.5\nslot2_temp_offset_c=-5.0\nslot3_temp_offset_c=4.75\n"
       "slot1_rh_offset_pct=-10.0\nslot2_rh_offset_pct=3.5\nslot3_rh_offset_pct=10.0\n";
   DeviceConfig original;
@@ -9511,8 +9515,8 @@ void testSerialConfigRoundTrip() {
   assert(source_at != std::string::npos);
   DeviceConfig back;
   const ConfigParseResult result = DeviceConfigParser::parse(sink.out.data(), source_at, back);
-  assert(result.file_ok && result.rejected == 0 && result.keys_set == 28);
-  assert(back.battery_offset_mv == -120);
+  assert(result.file_ok && result.rejected == 0 && result.keys_set == 29);
+  assert(back.battery_offset_mv == -120 && back.temp_unit == 'F');
   assert(back.ventilate_limit_rh == 73 && back.sensor_battery_limit_pct == 25);
   assert(back.temp_offset_c == original.temp_offset_c && back.rh_offset_pct == original.rh_offset_pct);
   assert(back.freeze_alert_limit_c == original.freeze_alert_limit_c);
@@ -10792,7 +10796,7 @@ void testNoiseAlertConfigKey() {
   assert(kept.noise_alert_limit_db == 80 && r.rejected == 1 && r.keys_set == 1);
   // Three distinct keys count as three
   parseText("temp_offset_c=1\nnoise_alert_limit_db=60\nlog_retention_months=3\n", &r);
-  assert(r.keys_set == 3 && DeviceConfigParser::KEY_COUNT == 35); // grows with each new key
+  assert(r.keys_set == 3 && DeviceConfigParser::KEY_COUNT == 36); // grows with each new key
   // valid() and isDefault() cover the new field
   DeviceConfig c;
   assert(c.isDefault() && c.valid());
@@ -10826,7 +10830,7 @@ void testNoiseAlertStatePersistence() {
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 22 - 24;
+  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 23 - 24;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -11352,7 +11356,7 @@ void testChimeAlertMask() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   uint8_t badbuf[PowerManager::SERIALIZED_SIZE];
   memcpy(badbuf, buf, sizeof(badbuf));
-  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 21 - 24] = 128;
+  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 22 - 24] = 128;
   const uint32_t crc = PowerManager::crc32(badbuf, sizeof(badbuf) - 4);
   for (int i = 0; i < 4; ++i) badbuf[sizeof(badbuf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState out;
@@ -12271,7 +12275,7 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 37);
+  assert(PowerManager::STATE_VERSION == 38);
 
   // A valid checksum with the same MAC in two keys is rejected
   const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
@@ -12785,7 +12789,7 @@ void testSensorBatteryLatchRtcRoundTrip() {
     }
   }
   // The version is increased
-  assert(PowerManager::STATE_VERSION == 37);
+  assert(PowerManager::STATE_VERSION == 38);
   // Corrupt records: latch bit above bit 2, flag byte above 3, limit above 50, old version
   st.sensor_battery_latch = 1;
   st.alert_mask = ALERT_NONE;
@@ -13008,7 +13012,7 @@ void testSensorStaleMinConfig() {
 
   // RTC round trip, corrupt values and the version bump
   PersistentState st;
-  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 37);
+  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 38);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(5), uint16_t(30), uint16_t(240)}) {
@@ -13093,7 +13097,7 @@ void testDisplayInvert() {
 
   // RTC round trip, corrupt value and version bump
   PersistentState st;
-  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 37);
+  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 38);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(1)}) {
@@ -13232,7 +13236,7 @@ void testClimateAlertTiles() {
 
   // RTC round trip, corrupt value and the old state version
   PersistentState st;
-  assert(st.config.climate_alert_tiles == 15 && PowerManager::STATE_VERSION == 37);
+  assert(st.config.climate_alert_tiles == 15 && PowerManager::STATE_VERSION == 38);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(5), uint8_t(15)}) {
@@ -13439,7 +13443,7 @@ void testSdCardStatus() {
   assert(unknown_lines[4] == "SD status=UNKNOWN age=--");
 
   // RTC round trip, a corrupt status byte and the old state version
-  assert(PowerManager::STATE_VERSION == 37);
+  assert(PowerManager::STATE_VERSION == 38);
   PersistentState st;
   st.setSdStatus(SdStatus::FULL, 4242);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -13480,7 +13484,7 @@ void testSdCardStatus() {
 }
 
 void testEventLog() {
-  assert(PowerManager::STATE_VERSION == 37);
+  assert(PowerManager::STATE_VERSION == 38);
   const RtcTime t1 = localTime(2026, 11, 14, 9, 30);
   const RtcTime bad_time{}; // invalid
   // Empty ring and one event
@@ -13654,7 +13658,198 @@ void testEventLog() {
   assert(!PowerManager::deserialize(buf, sizeof(buf) - 1, rejected));
 }
 
+void testTempUnitConfig() {
+  // Default is Celsius and counts as default
+  DeviceConfig cfg;
+  assert(cfg.temp_unit == 'C' && cfg.isDefault() && cfg.valid());
+  ConfigParseResult r = DeviceConfigParser::parse("temp_unit=F\n", 12, cfg);
+  assert(r.keys_set == 1 && r.rejected == 0 && cfg.temp_unit == 'F' && !cfg.isDefault() && cfg.valid());
+  const char* with_space = " temp_unit = C \r\n";
+  r = DeviceConfigParser::parse(with_space, strlen(with_space), cfg);
+  assert(r.keys_set == 1 && r.rejected == 0 && cfg.temp_unit == 'C');
+  // 'f', 'K', an empty value and longer text are rejected and count in ConfigRejects
+  for (const char* bad : {"temp_unit=f\n", "temp_unit=K\n", "temp_unit=\n", "temp_unit=FF\n", "temp_unit=1\n"}) {
+    r = DeviceConfigParser::parse(bad, strlen(bad), cfg);
+    assert(r.keys_set == 0 && r.rejected == 1 && r.rejected_lines[0] == 1);
+    assert(cfg.temp_unit == 'C' && r.rejects().count == 1 && r.rejects().recorded() == 1);
+  }
+  // A rejected line keeps the earlier valid value
+  const char* keep = "temp_unit=F\ntemp_unit=K\n";
+  r = DeviceConfigParser::parse(keep, strlen(keep), cfg);
+  assert(r.keys_set == 1 && r.rejected == 1 && r.rejected_lines[0] == 2 && cfg.temp_unit == 'F');
+  // A stored unit outside C and F is invalid
+  DeviceConfig broken;
+  broken.temp_unit = 'K';
+  assert(!broken.valid());
+  // The key is in the parser table
+  bool listed = false;
+  for (size_t i = 0; i < DeviceConfigParser::KEY_COUNT; ++i) {
+    listed = listed || strcmp(DeviceConfigParser::KEYS[i], "temp_unit") == 0;
+  }
+  assert(listed);
+}
+
+void testClimateMathToDisplay() {
+  assert(approxEqual(ClimateMath::toDisplay(-40.0f, 'F'), -40.0f, 0.001f));
+  assert(approxEqual(ClimateMath::toDisplay(0.0f, 'F'), 32.0f, 0.001f));
+  assert(approxEqual(ClimateMath::toDisplay(37.0f, 'F'), 98.6f, 0.001f));
+  assert(approxEqual(ClimateMath::toDisplay(100.0f, 'F'), 212.0f, 0.001f));
+  for (const float c : {-40.0f, 0.0f, 37.0f, 100.0f}) {
+    assert(ClimateMath::toDisplay(c, 'C') == c);
+    assert(ClimateMath::toDisplay(c, 'K') == c); // unknown unit keeps Celsius
+  }
+}
+
+void testTempUnitDashboard() {
+  // The dew point line shows the glyph F: 20 C / 50 %RH gives a dew point of 9.3 C = 48.7 F
+  char line[ClimateMath::LINE_MAX_CHARS + 8];
+  ClimateMath::format(line, sizeof(line), true, 20.0f, 50.0f, 'F');
+  assert(strcmp(line, "DP 48.7F VPD 1.2K") == 0);
+  ClimateMath::format(line, sizeof(line), true, 20.0f, 50.0f);
+  assert(strcmp(line, "DP 9.3C VPD 1.2K") == 0);
+  ClimateMath::format(line, sizeof(line), false, 20.0f, 50.0f, 'F');
+  assert(strcmp(line, "DP -- VPD --") == 0);
+  // Widest dew point line in Fahrenheit: -45 C is -49 F, 60 C / 100 %RH is 140 F; both fit the tile
+  ClimateMath::format(line, sizeof(line), true, 60.0f, 100.0f, 'F');
+  assert(strcmp(line, "DP 140.0F VPD 0.0K") == 0);
+  assert(12 + strlen(line) * 6 <= 190 - 4); // scale 1 text inside the 190 px tile
+  ClimateMath::format(line, sizeof(line), true, -45.0f, 100.0f, 'F');
+  assert(strlen(line) <= ClimateMath::LINE_MAX_CHARS);
+
+  // Tile text: the temperature line ends with F, and the widest value ("T: 140.0 F", 120 px) fits
+  St7305Framebuffer fc, ff;
+  fc.clear(false);
+  ff.clear(false);
+  DashboardView::renderTile(fc, 6, 36, 190, 124, "T", true, 21.0f, 50.0f, -1);
+  DashboardView::renderTile(ff, 6, 36, 190, 124, "T", true, 21.0f, 50.0f, -1, -1.0f, false, nullptr, false, nullptr,
+                            false, 'F');
+  bool differs = false;
+  for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT && !differs; ++y)
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x)
+      if (fc.getPixel(x, y) != ff.getPixel(x, y)) { differs = true; break; }
+  assert(differs);
+  St7305Framebuffer fw;
+  fw.clear(false);
+  DashboardView::renderTile(fw, 6, 36, 190, 124, "T", true, 60.0f, 50.0f, -1, -1.0f, false, nullptr, false, nullptr,
+                            false, 'F');
+  // Nothing is drawn right of the tile frame at x = 195, and the frame stays intact
+  for (uint16_t y = 36; y < 36 + 124; ++y) {
+    for (uint16_t x = 196; x < 200; ++x) assert(!fw.getPixel(x, y));
+    assert(fw.getPixel(195, y));
+  }
+
+  // Default scenes stay in Celsius without a config and with the default config
+  assert(DashboardView::tempUnit(nullptr) == 'C');
+  DeviceConfig cfg;
+  assert(DashboardView::tempUnit(&cfg) == 'C');
+  cfg.temp_unit = 'F';
+  assert(DashboardView::tempUnit(&cfg) == 'F');
+
+  // Record line: both values in Fahrenheit, the highest one with the glyph F
+  char text[48];
+  ClimateHistory h;
+  h.temperatures[1].pushCelsius(-15.0f);
+  h.temperatures[1].pushCelsius(5.0f);
+  h.slots[1].pushPercent(41.0f);
+  h.slots[1].pushPercent(63.4f);
+  DashboardView::formatRecords(text, sizeof(text), &h, 1, 'F');
+  assert(strcmp(text, "24H T5.0 TO 41.0F H41-63") == 0);
+  DashboardView::formatRecords(text, sizeof(text), &h, 1);
+  assert(strcmp(text, "24H T-15.0 TO 5.0 H41-63") == 0);
+  DashboardView::formatRecords(text, sizeof(text), &h, 1, 'C');
+  assert(strcmp(text, "24H T-15.0 TO 5.0 H41-63") == 0);
+  // Widest Fahrenheit record line: -100 C = -148 F up to 100 C = 212 F
+  ClimateHistory widest;
+  widest.temperatures[3].pushCelsius(-100.0f);
+  widest.temperatures[3].pushCelsius(100.0f);
+  widest.slots[3].pushPercent(0.0f);
+  widest.slots[3].pushPercent(100.0f);
+  DashboardView::formatRecords(text, sizeof(text), &widest, 3, 'F');
+  assert(strcmp(text, "24H T-148.0 TO 212.0F H0-100") == 0);
+  assert(10 + strlen(text) * 12 <= RLCD_WIDTH - 8);
+  ClimateHistory wide;
+  wide.temperatures[3].pushCelsius(-100.0f);
+  wide.temperatures[3].pushCelsius(-100.0f);
+  wide.slots[3].pushPercent(100.0f);
+  wide.slots[3].pushPercent(100.0f);
+  DashboardView::formatRecords(text, sizeof(text), &wide, 3, 'F');
+  assert(strcmp(text, "24H T-148.0 TO -148.0F H100-100") == 0);
+  assert(10 + strlen(text) * 12 <= RLCD_WIDTH);
+  // No samples: the record line stays "--" in both units
+  ClimateHistory empty;
+  DashboardView::formatRecords(text, sizeof(text), &empty, 1, 'F');
+  assert(strcmp(text, "24H T-- H--") == 0);
+}
+
+void testTempUnitStaysCelsiusInCsv() {
+  // The CSV row has no unit setting: the temperatures stay in Celsius
+  RtcTime t;
+  t.valid = true; t.year = 2026; t.month = 3; t.day = 9; t.hour = 7; t.minute = 5; t.second = 1;
+  BatteryReading bat;
+  bat.valid = true; bat.percentage = 87; bat.voltage_v = 4.0f; bat.usb_powered = false;
+  Shtc3Reading onboard;
+  onboard.valid = true; onboard.temperature_c = 21.54f; onboard.humidity_pct = 45.0f;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  slots[0].valid = true; slots[0].temperature_c = -3.5f; slots[0].humidity_pct = 80;
+  slots[0].battery_pct = 90; slots[0].updated_ms = 1000;
+  char buf[SdLogCodec::MAX_ROW_SIZE];
+  SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 2000, nullptr, nullptr, buf, sizeof(buf));
+  assert(strcmp(buf, "2026-03-09 07:05:01,87,4.00,0,21.5,45.0,-3.5,80,90,,,,,,,,,,,,\n") == 0);
+}
+
+void testTempUnitSerial() {
+  // CONFIG shows the unit
+  DeviceConfig cfg;
+  FakeSink sink;
+  TestRunner::showConfig(sink, cfg, true);
+  assert(sink.out.find("\ntemp_unit=C\n") != std::string::npos);
+  cfg.temp_unit = 'F';
+  FakeSink sink_f;
+  TestRunner::showConfig(sink_f, cfg, true);
+  assert(sink_f.out.find("\ntemp_unit=F\n") != std::string::npos);
+  DeviceConfig back;
+  const ConfigParseResult result = DeviceConfigParser::parse(sink_f.out.data(), sink_f.out.find("SOURCE "), back);
+  assert(result.rejected == 0 && back.temp_unit == 'F');
+
+  // STATUS: Celsius by default, Fahrenheit with the glyph F when set; the humidity is unchanged
+  StatusFixture f;
+  f.addSlot(1, -5.4f, 61, 80, -70, f.snap.now_ms - 120000);
+  f.addSlot(2, 37.0f, 45, 8, -85, f.snap.now_ms - 60000);
+  f.history.record(f.snap.now_ms - 300000, true, 44.6f, f.registry, 22.34f);
+  std::vector<std::string> lines = statusLines(f.run());
+  assert(lines[0] == "SENSOR 0 onboard temp=22.3 rh=45 bat=-- rssi=-- age=300 state=OK");
+  assert(lines[1] == "SENSOR 1 slot1 temp=-5.4 rh=61 bat=80 rssi=-70 age=120 state=OK");
+  f.config.temp_unit = 'F';
+  lines = statusLines(f.run());
+  assert(lines[0] == "SENSOR 0 onboard temp=72.1F rh=45 bat=-- rssi=-- age=300 state=OK");
+  assert(lines[1] == "SENSOR 1 slot1 temp=22.3F rh=61 bat=80 rssi=-70 age=120 state=OK");
+  assert(lines[2] == "SENSOR 2 slot2 temp=98.6F rh=45 bat=8 rssi=-85 age=60 state=OK");
+  assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
+}
+
+void testTempUnitRtcRoundTrip() {
+  PersistentState s;
+  s.config.temp_unit = 'F';
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.temp_unit == 'F');
+  s.config.temp_unit = 'C';
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.temp_unit == 'C' && r.config.isDefault());
+  // The unit byte follows the night wake interval in the config trailer
+  const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
+  assert(buf[cfg_pos + 34] == 'C');
+  assert(PowerManager::STATE_VERSION == 38);
+}
+
 int main() {
+  testTempUnitConfig();
+  testClimateMathToDisplay();
+  testTempUnitDashboard();
+  testTempUnitStaysCelsiusInCsv();
+  testTempUnitSerial();
+  testTempUnitRtcRoundTrip();
   testEventLog();
   testClimateAlertTiles();
   testDisplayInvert();
@@ -13996,6 +14191,6 @@ testSerialConfigNegativeSmallOffset();
   testSensorStaleMinConfig();
   testConfigCheckTool();
   testSdCardStatus();
-  printf("All 157 firmware logic test suites passed.\n");
+  printf("All 163 firmware logic test suites passed.\n");
   return 0;
 }
