@@ -301,4 +301,6 @@ The window lists each panel in range with its name, RSSI and the age of the last
 
 The window has a config editor. It shows the keys of `config.ini` in the groups climate, alerts, power, sensors and BLE, with the unit and a short description. It marks each changed key and checks each value with the rules of the firmware. The button "Review changes" shows each change as `key: old -> new`. "Apply" sends one `SET` for each changed key in a fixed order, stops at the first `ERR` reply and reads `CONFIG` at the end. Apply needs the USB serial link or `ble_console=2`. Clear a fixed MAC with an empty value.
 
+The diagnostics group shows the hardware metrics of the panel: the `SHTC3` read failures (red at 3 failures in a row), the rejected BLE packets by format, the last reset reason (red `ABNORMAL` badge for `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT` and `BROWNOUT`), the battery runtime estimate and the awake time, and the firmware identity from `VERSION`. The button "Refresh STATUS and VERSION" reads them. A line that an older firmware does not send shows `not reported by this firmware`.
+
 Run the tests with `swift test` in `macos/RlcdCompanion`. They read `tests/fixtures/ble_telemetry_vectors.txt`. CI runs them on `macos-latest`.

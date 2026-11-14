@@ -1035,3 +1035,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The apply is off when no `SET` is possible (BLE with `ble_console` below 2), when a value fails the validation, or when a command line has more than 40 bytes. The form warns when the batch lowers `ble_console` over BLE.
 - A lost link, a timeout or a changed link ends the batch and clears the edits.
 - The tests read `docs/config.example.ini` and compare the keys and the default values with the schema. They test the limits, the enum values, the diff, the batch order, the stop at `ERR BAD_VALUE` and the limits against the firmware constants.
+
+## Hardware diagnostics panel in the macOS app
+
+- `Diagnostics.swift` (`macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift`) parses the lines that `StatusReply.otherLines` keeps: `SHTC3` (`Shtc3Stats`), `BLE` (`BleRejectMetrics`), `RESET` (`ResetMetrics`), `RUNTIME` (`RuntimeMetrics`) and `AWAKE` (`AwakeMetrics`). `DiagnosticsReply.parse(status:)` gives all five values.
+- A `--` field gives `nil`. A line that the firmware does not send gives `nil` and no error, so an older firmware works. A non-numeric or negative counter, or a missing key in a present line, throws `ParseError.badLine`.
+- `StatusReply` also keeps the full `RESET` line in `otherLines`, so the abnormal count is available. `resetReason` stays unchanged.
+- `ResetMetrics.isAbnormal` is true for `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT` and `BROWNOUT`. `Shtc3Stats.isAlert` is true when `run` is 3 or more, as in the diagnostics view of the panel.
+- `ConsoleCommand.version` sends `VERSION`. `VersionReply.parse` reads `fw`, `git`, `core`, `state` and `built`. A missing field throws `ParseError.badLine`.
+- `DiagnosticsView` shows five groups: SHTC3 sensor, BLE rejected packets, resets, battery runtime and awake time. It marks the SHTC3 `run` red at 3 or more and shows a red `ABNORMAL` badge for an abnormal reset reason. The refresh button sends `STATUS` and `VERSION` (`AppModel.refreshDiagnostics`). The app sends no command on its own.
+- A new panel pin, a forget and a lost link clear the diagnostics and the version.
+- `DiagnosticsTests.swift` covers a full reply, `--` fields, missing lines, non-numeric counters, the `VERSION` reply, each reset reason and the red mark at run 2 and run 3.

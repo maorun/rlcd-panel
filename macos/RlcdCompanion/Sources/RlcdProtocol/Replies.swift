@@ -42,7 +42,7 @@ public struct StatusReply: Equatable {
     public let cellPercent: Double?
     public let alertMask: UInt8
     public let muted: Bool
-    /// Lines in the reply that this parser does not know (SHTC3, BLE, RUNTIME, ...), by first word.
+    /// Lines in the reply that this parser does not read in full (SHTC3, BLE, RUNTIME, ...), by first word. `RESET` is also here: `resetReason` reads only the reason, `DiagnosticsReply` reads the abnormal count.
     public let otherLines: [String: String]
 
     public var isUsbPower: Bool { powerSource == "USB" }
@@ -69,7 +69,9 @@ public struct StatusReply: Equatable {
                     humidity: number(f["rh"]), battery: number(f["bat"]), rssi: number(f["rssi"]),
                     ageSeconds: number(f["age"]), state: f["state"] ?? ""))
             case "SD": sd = f["status"]
-            case "RESET": reset = f["reason"]
+            case "RESET":
+                reset = f["reason"]
+                other["RESET"] = line // `DiagnosticsReply` reads the abnormal count
             case "POWER":
                 src = f["src"]
                 volts = number(f["v"])
@@ -86,6 +88,25 @@ public struct StatusReply: Equatable {
         return StatusReply(
             sensors: sensors, sdStatus: sd, resetReason: reset, powerSource: src, cellVolts: volts,
             cellPercent: pct, alertMask: mask, muted: muted, otherLines: other)
+    }
+}
+
+/// Parsed `VERSION` reply: `VERSION fw=<version> git=<hash> core=<core> state=<version> built=<timestamp>`.
+public struct VersionReply: Equatable {
+    public let firmware: String
+    public let git: String
+    public let core: String
+    public let state: String
+    /// Build time as the panel reports it (`unknown` when the build has none).
+    public let built: String
+
+    /// `lines` hold the `VERSION` line (the lines before the `CRC32` line).
+    public static func parse(lines: [String]) throws -> VersionReply {
+        guard let line = lines.first(where: { $0.hasPrefix("VERSION ") }) else { throw ParseError.missingLine("VERSION") }
+        let f = fields(line)
+        guard let fw = f["fw"], let git = f["git"], let core = f["core"], let state = f["state"], let built = f["built"],
+              !fw.isEmpty, !git.isEmpty, !core.isEmpty, !state.isEmpty, !built.isEmpty else { throw ParseError.badLine(line) }
+        return VersionReply(firmware: fw, git: git, core: core, state: state, built: built)
     }
 }
 
@@ -178,7 +199,7 @@ public struct ConfigReply: Equatable {
 
 /// The console commands that the app may send. The app sends one only after a user action.
 public enum ConsoleCommand: Equatable {
-    case status, history, events, config
+    case status, history, events, config, version
     case set(key: String, value: String)
 
     /// Keys whose empty value the firmware accepts (no fixed MAC).
@@ -192,6 +213,7 @@ public enum ConsoleCommand: Equatable {
         case .history: return "HISTORY"
         case .events: return "EVENTS"
         case .config: return "CONFIG"
+        case .version: return "VERSION"
         case let .set(key, value):
             let text = "SET \(key)=\(value)"
             let bad = CharacterSet.whitespacesAndNewlines.union(.controlCharacters)

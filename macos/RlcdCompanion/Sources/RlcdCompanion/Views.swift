@@ -106,6 +106,7 @@ struct MainView: View {
             }
             if let m = model.message { Text(m).font(.caption).foregroundStyle(.orange) }
             if let s = model.status { statusView(s) }
+            DiagnosticsView(model: model)
             if !model.history.isEmpty { chartsView }
             if let c = model.config { configView(c) }
             ConfigEditorView(model: model)

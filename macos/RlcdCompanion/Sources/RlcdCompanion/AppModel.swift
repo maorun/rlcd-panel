@@ -20,6 +20,8 @@ final class AppModel: ConsoleLinkDelegate {
     var history: [HistoryRow] = []
     var events: [EventRow] = []
     var config: ConfigReply?
+    var diagnostics: DiagnosticsReply?
+    var version: VersionReply?
     var message: String?
     /// Wall clock for the age of the last frame. A 30 s tick refreshes it, so the menu bar shows `--` for a silent panel.
     var now = Date()
@@ -115,6 +117,8 @@ final class AppModel: ConsoleLinkDelegate {
         history = []
         events = []
         config = nil
+        diagnostics = nil
+        version = nil
     }
 
     func disconnectConsole() {
@@ -162,6 +166,16 @@ final class AppModel: ConsoleLinkDelegate {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty else { return }
         message = nil
         queue = [.status, .history, .events, .config]
+        sendNext()
+    }
+
+    /// Sends `STATUS` and `VERSION` for the diagnostics panel. Runs only on the user's button press.
+    func refreshDiagnostics() {
+        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { return }
+        message = nil
+        diagnostics = nil // a failed reply must not leave values of an older reply
+        version = nil
+        queue = diagnosticsRefreshCommands
         sendNext()
     }
 
@@ -290,7 +304,14 @@ final class AppModel: ConsoleLinkDelegate {
                 message = text
                 batch?.receive(status: text)
                 if text.hasPrefix("ERR") { queue.removeAll() }
-            case let (.status, .frame(lines)): status = try StatusReply.parse(lines: lines)
+            case let (.status, .frame(lines)):
+                diagnostics = nil // a bad reply must not leave the values of an older reply
+                let parsed = try StatusReply.parse(lines: lines)
+                status = parsed
+                diagnostics = try DiagnosticsReply.parse(status: parsed)
+            case let (.version, .frame(lines)):
+                version = nil
+                version = try VersionReply.parse(lines: lines)
             case let (.history, .frame(lines)): history = try HistoryReply.parse(lines: lines)
             case let (.events, .frame(lines)): events = try EventsReply.parse(lines: lines)
             case let (.config, .frame(lines)):
