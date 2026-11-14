@@ -26,12 +26,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Score 22–27
 
-- [ ] Skip of the display refresh for an unchanged frame on a timer wakeup
-  - Rank: [Total: 25, Use: 7, Setup: 2, Harmony: 9, Safety: 7, Effort: S]
-  - Location: `rlcd_panel/st7305_framebuffer.h`, `rlcd_panel/st7305_panel.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add `St7305Framebuffer::crc32()` over the 15,000 bytes after `display_invert`. Store the CRC-32 of the last flushed frame and a refresh counter in `PersistentState` (5 bytes) and increase the state version. On a timer wakeup with an equal CRC-32, the wake cycle skips the panel start and the flush, because the reflective panel keeps its image. A power-on, a `KEY` wakeup, a view change, the console command `PATTERN` and each 60th skipped cycle always flush. Thus the board saves the SPI transfer and the panel start in many night cycles.
-  - Acceptance test: Host tests cover the CRC-32 of a known pattern, one changed pixel, the skip for an equal frame on a timer wakeup, the flush for a power-on, a `KEY` wakeup and a view change, the forced flush after 60 skips, the `PATTERN` path, and the RTC round trip with a corrupt field and the old state version. `arduino-cli compile rlcd_panel` passes. On the board, the `AWAKE` line in `STATUS` shows a shorter awake time for an unchanged frame, and the display shows the correct view after 61 cycles.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

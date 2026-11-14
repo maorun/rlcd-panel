@@ -985,3 +985,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The console command `STATUS` shows the new line `AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>` after the `RUNTIME` line and before the `CRC32` line. The fields show `--` while `samples` is 0. The `CRC32` value covers the new line.
 - Thus the user sees the real cost of each feature, for example the BLE broadcast or the noise window, and gets a more accurate runtime.
 - Host tests cover the first sample, 24 samples and the 25th sample, the saturation at 65535 ms, the skip rules, the estimate with 7 and 8 samples, the `STATUS` line and its position after `RUNTIME`, and the RTC round trip with a corrupt field and the old state version.
+
+## Skip of the display refresh for an unchanged frame
+
+- **Code:** `rlcd_panel/st7305_framebuffer.h`, `rlcd_panel/frame_refresh.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- `St7305Framebuffer::crc32()` gives the CRC-32 of the 15,000 frame bytes. The wake cycle calls it after `display_invert`, so the value describes the bytes that go to the panel.
+- The reflective panel keeps its image without power. A timer wakeup with a frame equal to the last flushed frame skips the panel start and the SPI transfer. The board saves energy in each such cycle.
+- `FrameRefresh` keeps the CRC-32 of the last flushed frame and a counter of the skipped cycles in a row. It uses 5 bytes in `PersistentState`, just before the checksum. The state version is 47.
+- A power-on, a `KEY` wakeup, a view change (mode or chart sensor) and the empty battery screen always flush. The 61st cycle in a row flushes after 60 skips.
+- The console command `PATTERN` starts the panel, shows the pattern and clears the stored CRC-32. Thus the next wake cycle flushes the normal view.
+- The RTC check rejects a skip counter above 60 and skips without a known frame. A power-on sets both values to 0.
+- Host tests cover the CRC-32 of a known value and of a pattern, one changed pixel, the skip for an equal frame, the flush for a power-on, a `KEY` wakeup and a view change, the forced flush after 60 skips, the `PATTERN` path, and the RTC round trip with a corrupt field and the old state version.

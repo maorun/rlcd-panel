@@ -48,6 +48,9 @@ struct SerialSink {
 
 St7305Framebuffer g_framebuffer;
 St7305Panel g_panel;
+bool g_panel_started = false;   // g_panel.begin() ran in this wake cycle
+bool g_timer_wakeup = false;    // this wake cycle is a timer wakeup
+bool g_skip_counted = false;    // a skip of this wake cycle already counted in g_state.frame
 // Cycle counter tracking state; separate from g_state so a rejected state restore keeps it.
 RTC_DATA_ATTR CycleTracker::RtcState g_cycle_rtc;
 // Scan time that the last early stop saved (ms). Only the runtime estimate reads it.
@@ -342,12 +345,37 @@ SwitchBotRegistry calibratedRegistry() {
   return g_state.registry.calibrated(config().slot_temp_offset_c, config().slot_rh_offset_pct);
 }
 
-// Every flush goes through here, so display_invert applies to each screen.
+// Starts the panel once per wake cycle. A skipped refresh never starts it.
+void ensurePanelStarted() {
+  if (!g_panel_started) {
+    g_panel.begin();
+    g_panel_started = true;
+  }
+}
+
+// Every flush goes through here, so display_invert applies to each screen. A timer wakeup with the
+// frame of the last flush and the same view skips the panel start and the SPI transfer: the
+// reflective panel keeps its image. Each 60th skip in a row flushes again (FrameRefresh).
 void flushFramebuffer() {
   if (config().display_invert != 0) {
     g_framebuffer.invert();
   }
+  const uint32_t frame_crc = g_framebuffer.crc32();
+  const bool view_changed = g_mode_controller.mode() != g_state.mode ||
+                            g_mode_controller.chartSensor() != g_state.chart_sensor;
+  // A redraw in the same cycle (for example after the NTP sync) counts once and keeps the skip, also at the 60th.
+  const bool same_cycle_skip = g_skip_counted && g_timer_wakeup && !view_changed && frame_crc == g_state.frame.crc;
+  if (same_cycle_skip || g_state.frame.shouldSkip(g_timer_wakeup, view_changed, frame_crc)) {
+    if (!g_skip_counted) {
+      g_state.frame.recordSkip();
+      g_skip_counted = true;
+    }
+    return;
+  }
+  ensurePanelStarted();
   g_panel.flush(g_framebuffer);
+  g_state.frame.recordFlush(frame_crc);
+  g_skip_counted = false;
 }
 
 void renderDashboard() {
@@ -1116,6 +1144,10 @@ void setup() {
                                                                               g_reset_reason == ResetReason::DEEPSLEEP);
   g_reset_event_pending = reset_detail >= 0;
   g_reset_event_detail = static_cast<uint16_t>(reset_detail >= 0 ? reset_detail : 0);
+  if (g_reset_reason != ResetReason::DEEPSLEEP) {
+    g_state.frame.invalidate(); // a reset between a flush and the save leaves a CRC that the panel no longer shows
+  }
+  g_timer_wakeup = cause == WakeupCause::TIMER; // after the restore: a failed restore is a power-on
   g_mode_controller.setMode(g_state.mode);
   g_mode_controller.setChartSensor(g_state.chart_sensor);
   g_cycles.fromRtc(g_cycle_rtc); // blank memory after a power-on keeps the empty tracker
@@ -1145,9 +1177,10 @@ void setup() {
     g_state.battery.empty_protection = true;
     updateCycles(); // the last discharge steps before the protection count too
     if (PowerManager::needsProtectionRender(was_protected, true)) {
-      g_panel.begin();
+      ensurePanelStarted();
       DashboardView::renderEmptyBattery(g_framebuffer, g_state.battery);
-      flushFramebuffer();
+      g_panel.flush(g_framebuffer); // the empty battery screen always flushes
+      g_state.frame.invalidate(); // the stored frame no longer shows the dashboard
     }
     if (!PowerPlatform::saveState(g_state)) {
       Serial.println("RTC state save failed");
@@ -1161,7 +1194,7 @@ void setup() {
 
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   g_rtc.begin(Wire);
-  g_panel.begin();
+  // The panel starts at the first flush; an unchanged frame on a timer wakeup never starts it.
 
   g_pending_slot_release = g_state.releaseDeadSlots(nowMs()); // before the scan, so a free slot takes a new sensor in this cycle
 
@@ -1317,8 +1350,9 @@ void setup() {
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::PATTERN) {
       // Raw flush without display_invert: g_panel.flush, not flushFramebuffer(); keep it so (the host test checks the raw bytes). No card access. The pattern
       // stays until the next render; the next wake cycle draws the normal view again.
+      ensurePanelStarted(); // a skipped refresh left the panel off
       Runner::showPattern(sink, g_framebuffer, g_panel,
-                                                                command.reference);
+                                                                command.reference, &g_state.frame);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::BEEP) {
       clap_listener.release(); // the chime uses the same I2S bus; the next poll() reopens it
       Es8311Hal beep_hal;

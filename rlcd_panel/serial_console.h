@@ -8,6 +8,7 @@
 #include "audio_alert.h"
 #include "battery_monitor.h"
 #include "device_config.h"
+#include "frame_refresh.h"
 #include "pcf85063_rtc.h"
 #include "sd_logger.h"
 #include "shtc3_sensor.h"
@@ -1136,14 +1137,18 @@ public:
   }
 
   // Renders test pattern `pattern` (0 to 2) into `fb` and flushes it to `panel` as it is: display_invert is not
-  // applied, so the user sees the raw packing. Replies "OK PATTERN <pattern>". No card access, no state change.
+  // applied, so the user sees the raw packing. Replies "OK PATTERN <pattern>". No card access. The pattern is no
+  // dashboard frame: `frame` (when given) is invalidated, so the next wake cycle flushes the normal view.
   template <typename Framebuffer, typename Panel>
-  static void showPattern(Sink& sink, Framebuffer& fb, Panel& panel, uint8_t pattern) {
+  static void showPattern(Sink& sink, Framebuffer& fb, Panel& panel, uint8_t pattern, FrameRefresh* frame = nullptr) {
     if (!fb.fillPattern(pattern)) { // defense in depth: the parser already limits the pattern to 0 to 2
       reject(sink, SerialParseStatus::BAD_ARG);
       return;
     }
     panel.flush(fb);
+    if (frame != nullptr) {
+      frame->invalidate();
+    }
     char line[32];
     snprintf(line, sizeof(line), "OK PATTERN %u\n", static_cast<unsigned>(pattern));
     send(sink, line);

@@ -187,6 +187,19 @@ public:
     }
   }
 
+  // CRC-32 (IEEE 802.3, polynomial 0xEDB88320) over the BYTE_COUNT bytes. Call it after invert(), so the value
+  // describes the bytes that go to the panel.
+  uint32_t crc32() const {
+    uint32_t crc = 0xFFFFFFFFU;
+    for (uint32_t i = 0; i < BYTE_COUNT; ++i) {
+      crc ^= buffer_[i];
+      for (int bit = 0; bit < 8; ++bit) {
+        crc = (crc >> 1) ^ (0xEDB88320U & (0U - (crc & 1U)));
+      }
+    }
+    return ~crc;
+  }
+
   const uint8_t* data() const {
     return buffer_;
   }
