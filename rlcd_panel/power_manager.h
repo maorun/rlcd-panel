@@ -91,6 +91,7 @@ struct PersistentState {
   bool muted = false;        // true: alerts stay silent
   uint8_t ventilate_tiles = 0; // ventilation badge latch, bit 0 onboard, bits 1..3 slots (VentilateLatch)
   uint8_t sensor_battery_latch = 0; // low battery latch, bits 0..2 are the registry slots (SensorBatteryLatch)
+  uint32_t last_chime_ms = 0; // clock value of the last chime or alert rising edge (chime_repeat_h)
   uint8_t alert_mask = ALERT_NONE; // alerts active in the last wake cycle (hysteresis latch)
   NoiseBand noise_band = NoiseBand::QUIET; // band of the last noise window (hysteresis latch)
   NtpSyncState ntp;          // NTP attempt time, result and backoff
@@ -288,7 +289,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 39;
+  static constexpr uint8_t STATE_VERSION = 40;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -308,8 +309,8 @@ public:
   // SD log trailer: last log time, logged flag, then the daily summary stamp: flag, year (uint16), month, day,
   // then the card status (one byte) and the clock stamp of that result (uint32).
   static constexpr size_t SD_LOG_SIZE = 4 + 1 + 1 + 2 + 1 + 1 + 1 + 4;
-  // Audio trailer: one byte, bit 0 muted, bits 1..5 alert mask, bits 6..7 noise band.
-  static constexpr size_t AUDIO_SIZE = 4; // flags byte (bit 0 ventilate, bit 1 sensor battery alert), muted | mask << 1 | band << 6, sensor battery latch bits, then the tile badge latch bits
+  // Audio trailer: last chime stamp (uint32), then one byte each: flags, muted | mask << 1 | band << 6, sensor battery latch, tile badge latch.
+  static constexpr size_t AUDIO_SIZE = 4 + 4; // last chime stamp (uint32) first, then 4 bytes: flags byte (bit 0 ventilate, bit 1 sensor battery alert), muted | mask << 1 | band << 6, sensor battery latch bits, then the tile badge latch bits
   // NTP trailer: last attempt time, flags (bit 0 attempted, bit 1 last ok), failure count, then the
   // RTC drift: flags (bit 0 synced, bit 1 drift known), last sync (UTC seconds), drift, rate (int32).
   static constexpr size_t NTP_SIZE = 4 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -320,8 +321,8 @@ public:
   // Rejected config.ini lines: the count (one byte), then four 16-bit line numbers.
   static constexpr size_t REJECTS_SIZE = 1 + ConfigRejects::MAX_LINES * 2;
   // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
-  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, ventilate limit, sensor battery limit, display invert, climate alert tiles, battery offset (int16), slot release hours, night wake interval (uint16), temperature unit (one byte, 'C' or 'F'), RH offset (float), three slot temperature offsets and three slot RH offsets (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
-  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 1 + 2 + 1 + 4 + 6 * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
+  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, ventilate limit, sensor battery limit, display invert, climate alert tiles, battery offset (int16), slot release hours, night wake interval (uint16), temperature unit (one byte, 'C' or 'F'), chime repeat hours, RH offset (float), three slot temperature offsets and three slot RH offsets (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
+  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 1 + 2 + 1 + 1 + 4 + 6 * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
   // Header: magic, version, mode, chart sensor, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -537,6 +538,7 @@ public:
     out[pos++] = state.daily.day;
     out[pos++] = static_cast<uint8_t>(state.sd_status);
     putU32(out, pos, state.sd_status_ms);
+    putU32(out, pos, state.last_chime_ms);
     out[pos++] = static_cast<uint8_t>(((state.alert_mask & ALERT_VENTILATE) != 0 ? 1 : 0) |
                                       ((state.alert_mask & ALERT_SENSOR_BATTERY) != 0 ? 2 : 0));
     out[pos++] = static_cast<uint8_t>((state.muted ? 1 : 0) | ((state.alert_mask & (ALERT_MASK_ALL & ~ALERT_VENTILATE & ~ALERT_SENSOR_BATTERY)) << 1) |
@@ -583,6 +585,7 @@ public:
     out[pos++] = static_cast<uint8_t>(state.config.night_wake_interval_s & 0xFF);
     out[pos++] = static_cast<uint8_t>(state.config.night_wake_interval_s >> 8);
     out[pos++] = static_cast<uint8_t>(state.config.temp_unit);
+    out[pos++] = state.config.chime_repeat_h;
     putFloat(out, pos, state.config.rh_offset_pct);
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       putFloat(out, pos, state.config.slot_temp_offset_c[i]);
@@ -788,6 +791,7 @@ public:
     }
     s.sd_status = static_cast<SdStatus>(sd_status);
     s.sd_status_ms = getU32(data, pos);
+    s.last_chime_ms = getU32(data, pos);
     const uint8_t vent = data[pos++];
     if (vent > 3) {
       return false;
@@ -869,6 +873,7 @@ public:
     s.config.night_wake_interval_s = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
     pos += 2;
     s.config.temp_unit = static_cast<char>(data[pos++]);
+    s.config.chime_repeat_h = data[pos++];
     s.config.rh_offset_pct = getFloat(data, pos);
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       s.config.slot_temp_offset_c[i] = getFloat(data, pos);
@@ -943,9 +948,10 @@ public:
   // A reset clock with intact RTC memory breaks this and forces a clean start with a scan. The
   // 32-bit clock wraps after 49.7 days; the same clean start then runs once, which is harmless.
   static bool timestampsConsistent(const PersistentState& state, uint32_t now_ms) {
-    // The history, the SD log gate and the NTP schedule are exempt: they use wrap-safe subtraction, so a reset or
+    // A chime stamp in the future also forces a clean start: the reminder timer then restarts with the
+    // alert mask. The history, the SD log gate and the NTP schedule are exempt: they use wrap-safe subtraction, so a reset or
     // wrapped clock only triggers an early sample or record. The history keeps its 24 hours.
-    if (state.last_scan_ms > now_ms) {
+    if (state.last_scan_ms > now_ms || state.last_chime_ms > now_ms) {
       return false;
     }
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {

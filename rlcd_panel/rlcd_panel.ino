@@ -541,6 +541,15 @@ void refreshSensors() {
       config().staleTimeoutMs());
 }
 
+void playChime(uint8_t bits) {
+  if (bits != ALERT_NONE) {
+    Es8311Hal hal;
+    if (!AudioSequencer::play(hal, bits, config().chime_volume_pct)) {
+      Serial.println("Chime failed");
+    }
+  }
+}
+
 // Stores the new mask and plays the chimes of the step. The amplifier is off again before this
 // function returns.
 void applyAlertStep(const AlertEvaluator::Step& step) {
@@ -550,13 +559,11 @@ void applyAlertStep(const AlertEvaluator::Step& step) {
       g_state.events.record(g_rtc_time, (step.mask & bit) != 0 ? EventCode::ALERT_RISE : EventCode::ALERT_FALL, bit);
     }
   }
+  // A new rising edge starts the reminder timer (chime_repeat_h), also when the sound is suppressed.
+  g_state.last_chime_ms = AlertEvaluator::edgeStamp(
+      g_state.alert_mask, step.mask, config().chime_alert_mask, g_state.last_chime_ms, nowMs());
   g_state.alert_mask = step.mask;
-  if (step.chime != ALERT_NONE) {
-    Es8311Hal hal;
-    if (!AudioSequencer::play(hal, step.chime, config().chime_volume_pct)) {
-      Serial.println("Chime failed");
-    }
-  }
+  playChime(step.chime);
 }
 
 // Checks the hourly noise window against the limit of config.ini. It runs after the window ended,
@@ -743,6 +750,16 @@ void chimeOnChargeFull() {
       config().chime_alert_mask));
 }
 
+// Reminder chime of the lowest active alert after chime_repeat_h hours (AlertEvaluator::repeat). The
+// stamp advances also when mute, quiet hours or chime_alert_mask suppress the sound.
+void chimeRepeat() {
+  const AlertEvaluator::Repeat r = AlertEvaluator::repeat(
+      g_state.muted, g_state.alert_mask, quietHours().isActive(g_rtc_time), config().chime_alert_mask,
+      config().chime_repeat_h, g_state.last_chime_ms, nowMs());
+  g_state.last_chime_ms = r.stamp;
+  playChime(r.chime);
+}
+
 } // namespace
 
 void setup() {
@@ -831,6 +848,7 @@ void setup() {
   chimeOnAlerts();
   chimeOnChargeFull();
   chimeOnSensorBattery();
+  chimeRepeat();
   logToSdCard(); // after the render: the display shows fresh data even if the card is slow
   // The sync runs after the first render, so a slow or absent network never delays the display.
   // A new time redraws the header clock.

@@ -200,6 +200,8 @@ slot_release_h=0
 night_wake_interval_s=0
 # Temperature unit on the screen and in STATUS: C or F (the card files, limits and alerts stay in Celsius)
 temp_unit=C
+# Hours until the chime of an alert that stays active sounds again: 0 is off, 0 to 24 (mute, quiet hours and a cleared chime_alert_mask bit skip the reminder; ALERT_CHARGE_FULL never repeats)
+chime_repeat_h=0
 # Tiles of the freezer and mold alerts: bit 0 onboard, bits 1 to 3 slots 1 to 3 (0 to 15)
 climate_alert_tiles=15
 outdoor_slot=0

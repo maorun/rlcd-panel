@@ -172,6 +172,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
   | `display_invert` | `0` | `0` or `1` | `1` shows light text on a dark background |
   | `slot_release_h` | `0` | `0` to `168` | hours without a packet until a slot without a fixed MAC is released; `0` is off |
   | `temp_unit` | `C` | `C` or `F` | display unit of the temperature on the screen and in `STATUS`; everything else stays in Celsius |
+  | `chime_repeat_h` | `0` | `0` to `24` | hours until the chime of an alert that stays active sounds again; `0` is off |
   | `night_wake_interval_s` | `0` | `0`, or `60` to `1800` | seconds between two scans on battery power in the quiet hours; `0` keeps `wake_interval_s` |
   | `climate_alert_tiles` | `15` | `0` to `15` | tiles of the freezer and mold alerts (bit 0 onboard, bits 1 to 3 slots 1 to 3); `0` switches both alerts off |
   | `outdoor_slot` | `0` | `0` (off) to `3` | registry slot of the outdoor sensor for the ventilation advice |
@@ -817,3 +818,16 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `docs/display_preview_stats.png` shows `FEELS 19C`, `FEELS 14C` and `FEELS --`.
 - Thus the user sees the heat stress in a warm room.
 - Host tests cover the NOAA table values (for example 32 C and 70 %RH), the limits 26.7 C and 40 %RH, both corrections, NaN, infinite and out-of-range input, the text in Celsius and Fahrenheit, the dashes for a stale and an empty slot, and the text bounds with a 12-glyph name.
+
+## Chime reminder for an alert that stays active
+
+- **Code:** `rlcd_panel/audio_alert.h`, `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `docs/config.example.ini`, `tests/test_firmware_logic.cpp`
+- The `config.ini` key `chime_repeat_h` has the default `0` (off) and the range `0` to `24` hours. A malformed or out-of-range value (for example `25`) is rejected and counts in `ConfigRejects`.
+- When an alert bit stays active for `chime_repeat_h` hours after its last chime, the chime of the lowest active bit sounds again. `AlertEvaluator::repeat` makes this decision once in each wake cycle. The unsigned clock difference is correct over the 32-bit clock wrap.
+- `ALERT_CHARGE_FULL` never repeats.
+- Mute, quiet hours and a cleared bit of `chime_alert_mask` suppress the repeat. A suppressed repeat is skipped and not delayed: the stamp moves to the current time, so no chime plays at the end of the quiet hours.
+- A new rising edge of an alert bit resets the timer, also when the first chime is suppressed.
+- `PersistentState::last_chime_ms` (4 bytes, before the audio flags byte) stores the clock stamp. The key uses 1 byte in the config trailer, after `temp_unit`. `STATE_VERSION` is 40. A corrupt field and a record of version 39 give a clean start.
+- The `CONFIG` reply shows the line `chime_repeat_h=<N>`. `docs/config.example.ini` and `DeviceConfigParser::KEYS` list the key (`KEY_COUNT` is 37).
+- Thus the user does not forget an open window or a freezer that is too warm.
+- Host tests cover the parser for the default, the edges `0` and `24`, the value `25` and malformed values, a repeat at the exact time and over the clock wrap, no repeat for `ALERT_CHARGE_FULL`, the lowest active bit, the suppression by mute, quiet hours and a cleared mask bit (with the stamp advance), the reset by a rising edge, the `CONFIG` reply and the `RTC` round trip with the new `STATE_VERSION`.
