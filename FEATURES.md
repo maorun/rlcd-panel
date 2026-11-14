@@ -910,3 +910,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The limit uses 1 byte in the config trailer after `chime_repeat_h`. The state version is 42. The console command `CONFIG` shows `heat_alert_limit_c=<N>`.
 - Thus the user gets a warning for a hot room in summer.
 - Host tests cover the parser, the trigger, the release with hysteresis, a tile outside the mask, a stale tile, the limit 0, the masks 127 and 255, `BEEP 7`, the event ring, the `CONFIG` line, the template sync and the RTC round trip with a corrupt field and the old state version.
+
+## Daily noise peak summary in the daily file
+
+- **Code:** `rlcd_panel/sd_logger.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`.
+- The daily row has 3 new columns: `noise_peak_db` (highest hourly noise level of the day), `noise_peak_hour` (local hour 0 to 23 of the peak) and `noise_events_sum` (sum of the hourly `noise_events`). The row has 30 columns.
+- `SdLogger::appendDaily` writes the rows to `/sdcard/daily_v2_YYYY.csv`. The old `daily_v1_YYYY.csv` files stay unchanged.
+- `DailyNoiseStats` in `PersistentState::daily` collects the values at each hourly write. If two hours have the same peak, the first hour wins. The sum stops at 65535. `DailyLogState::markDone` starts a new summary after each daily row.
+- A day without a valid noise reading gives empty fields.
+- The summary uses 4 bytes in the SD log trailer in RTC memory. The state version is 43. A peak above 140 dB, an hour above 23 and an event sum without a peak are rejected, also with a valid CRC.
+- `LIST` and `DUMP` accept `daily_v1_YYYY.csv` and `daily_v2_YYYY.csv`. `scripts/dump-logs.sh` copies both. The retention rule treats both files in the same way.
+- Thus the user sees the loudest hour of each day without the hourly file.
+- Host tests cover the header and the row format with 30 columns, a day with one peak, two equal peaks, a day without a noise reading, the sum saturation at 65535, the file name, `DUMP` and `LIST` with both daily files, the retention of both file names, and the RTC round trip with a corrupt field and the old state version.

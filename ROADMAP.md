@@ -24,11 +24,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 
-- [ ] Daily noise peak summary in the daily file
-  - Rank: [Total: 25, Use: 6, Setup: 2, Harmony: 9, Safety: 8, Effort: M]
-  - Location: `rlcd_panel/sd_logger.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
-  - Goal: Add three columns to the daily summary row: `noise_peak_db` (highest hourly `noise_db` of the day), `noise_peak_hour` (local hour 0 to 23 of the peak) and `noise_events_sum` (sum of `noise_events` of the day). Keep the values in `PersistentState::daily` and increase the state version. Write the rows to a new file `/sdcard/daily_v2_YYYY.csv` (30 columns); the old `daily_v1_YYYY.csv` files stay unchanged. `LIST`, `DUMP`, `scripts/dump-logs.sh` and the retention accept both file names. A day without a valid noise reading gives empty fields. Thus the user finds loud hours over many weeks without a read of each hourly file.
-  - Acceptance test: Host tests cover the new header and row format, a day with one peak, two equal peaks (the first hour wins), a day without a noise reading, the sum saturation at 65535, the file name, `DUMP daily_v2_YYYY.csv`, the retention of both file names, and the RTC round trip with a corrupt field and the old state version. `arduino-cli compile rlcd_panel` passes.
 
 
 ## Rules for ranking

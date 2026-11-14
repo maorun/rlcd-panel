@@ -739,7 +739,7 @@ void testBatteryOffsetMv() {
   bad[pos] = 0xD3; bad[pos + 1] = 0xFE; // -301 mV
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 33; // old state version without the offset
   seal();
@@ -1179,7 +1179,7 @@ void testComfortZone() {
   assert(memcmp(ok_fb.data(), cold_fb.data(), RLCD_BUFFER_SIZE) != 0);
 
   // No RTC state change
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
 }
 
 void testAbsHumidityStats() {
@@ -1208,7 +1208,7 @@ void testAbsHumidityStats() {
   assert(strcmp(text, "AH 8.6G") == 0);
   DashboardView::formatAbsHumidity(text, sizeof(text), SwitchBotReading{}, now);
   assert(strcmp(text, "AH --") == 0);
-  assert(PowerManager::STATE_VERSION == 42); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 43); // no RTC state change
 
   // Rendering: right edge at x = 392, line y + 54, no overlap with the widest record text
   BatteryReading battery;
@@ -1452,7 +1452,7 @@ void testFeelsLikeStats() {
   DashboardView::renderSensorStats(dashed, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
                                    nullptr, &config);
   assert(memcmp(fb.data(), dashed.data(), RLCD_BUFFER_SIZE) != 0);
-  assert(PowerManager::STATE_VERSION == 42); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 43); // no RTC state change
 }
 
 void testMoldHoursStats() {
@@ -1573,7 +1573,7 @@ void testMoldHoursStats() {
     }
     assert(i == 2 ? !differs : differs); // empty slot shows "MOLD --" in both renders
   }
-  assert(PowerManager::STATE_VERSION == 42); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 43); // no RTC state change
 }
 
 void testDashboardClimateLine() {
@@ -1920,7 +1920,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -2816,7 +2816,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -3452,7 +3452,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3653,7 +3653,7 @@ void testSdLogSchedule() {
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(r.last_log_ms == 123456 && r.has_logged);
-  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - 10 - 1] = 2; // has_logged precedes the 5-byte daily stamp and the 5-byte SD status
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - 14 - 1] = 2; // has_logged precedes the 5-byte daily stamp, the 4-byte noise summary and the 5-byte SD status
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -5282,7 +5282,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6085,7 +6085,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6255,7 +6255,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -6437,7 +6437,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -8312,7 +8312,7 @@ void testClimateChartKeyHandling() {
 }
 
 void testClimateChartRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
   PersistentState s;
   s.mode = DisplayMode::CLIMATE_CHART;
   s.chart_sensor = 3;
@@ -10112,7 +10112,7 @@ void testChimeRepeat() {
   assert(AlertEvaluator::repeatableBits(static_cast<uint8_t>(ALERT_FREEZER | ALERT_CHARGE_FULL)) == ALERT_FREEZER);
 
   // RTC round trip: stamp, key and state version
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
   PersistentState st;
   st.last_chime_ms = 0xFFFFFF00u;
   st.config.chime_repeat_h = 24;
@@ -10256,7 +10256,7 @@ void testSlotRelease() {
   bad[pos] = 169;
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 34; // old state version without the key
   seal();
@@ -10367,7 +10367,7 @@ void testNightWakeInterval() {
   bad[pos] = 0x09; bad[pos + 1] = 0x07; // 1801 s: above range
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 35; // old state version without the key
   seal();
@@ -11023,7 +11023,7 @@ void testShtc3DiagnosticsInverted() {
 }
 
 void testShtc3RtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
   PersistentState s;
   s.shtc3.nack = 513;
   s.shtc3.short_reads = 65535;
@@ -13141,32 +13141,35 @@ void testDailySummaryRowFormat() {
   noise.push(55);
   noise.pushInvalid();
   char buf[SdLogCodec::MAX_ROW_SIZE];
-  const size_t len = SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, buf, sizeof(buf));
+  DailyNoiseStats stats;
+  stats.add(40, 3, 2);
+  stats.add(55, 14, 5);
+  const size_t len = SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, stats, buf, sizeof(buf));
   assert(len == strlen(buf));
   const std::string expected = std::string("2026-03-08,20.0,22.5,21.2,40.0,50.0,45.0,-3.5,-3.5,-3.5,80.0,80.0,80.0") +
-                               std::string(12, ',') + ",40,55\n";
+                               std::string(12, ',') + ",40,55,55,14,7\n";
   assert(expected == buf);
 
-  // Header and row have the same column count, 27.
+  // Header and row have the same column count, 30.
   char header[SdLogCodec::DAILY_HEADER_SIZE];
   const size_t hl = SdLogCodec::formatDailyHeader(header, sizeof(header));
   assert(hl == strlen(header) && header[hl - 1] == '\n');
   assert(strncmp(header, "date,onboard_temp_min_c,", 24) == 0);
-  assert(strstr(header, ",noise_min_db,noise_max_db\n") != nullptr);
-  assert(std::count(header, header + hl, ',') == 26 && std::count(buf, buf + len, ',') == 26);
+  assert(strstr(header, ",noise_min_db,noise_max_db,noise_peak_db,noise_peak_hour,noise_events_sum\n") != nullptr);
+  assert(std::count(header, header + hl, ',') == 29 && std::count(buf, buf + len, ',') == 29);
 
   // Sensors without samples and no valid noise: empty fields, same column count.
   NoiseHistory silent;
   silent.pushInvalid();
-  const size_t empty_len = SdLogCodec::formatDailyRow(2026, 12, 31, ClimateHistory{}, silent, buf, sizeof(buf));
-  assert(empty_len > 0 && std::string(buf) == "2026-12-31" + std::string(26, ',') + "\n");
+  const size_t empty_len = SdLogCodec::formatDailyRow(2026, 12, 31, ClimateHistory{}, silent, DailyNoiseStats{}, buf, sizeof(buf));
+  assert(empty_len > 0 && std::string(buf) == "2026-12-31" + std::string(29, ',') + "\n");
 
   // Bad arguments.
-  assert(SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, nullptr, 256) == 0);
-  assert(SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, buf, SdLogCodec::MAX_ROW_SIZE - 1) == 0 && buf[0] == '\0');
-  assert(SdLogCodec::formatDailyRow(1999, 3, 8, h, noise, buf, sizeof(buf)) == 0);
-  assert(SdLogCodec::formatDailyRow(2026, 13, 8, h, noise, buf, sizeof(buf)) == 0);
-  assert(SdLogCodec::formatDailyRow(2026, 3, 0, h, noise, buf, sizeof(buf)) == 0);
+  assert(SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, stats, nullptr, 256) == 0);
+  assert(SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, stats, buf, SdLogCodec::MAX_ROW_SIZE - 1) == 0 && buf[0] == '\0');
+  assert(SdLogCodec::formatDailyRow(1999, 3, 8, h, noise, stats, buf, sizeof(buf)) == 0);
+  assert(SdLogCodec::formatDailyRow(2026, 13, 8, h, noise, stats, buf, sizeof(buf)) == 0);
+  assert(SdLogCodec::formatDailyRow(2026, 3, 0, h, noise, stats, buf, sizeof(buf)) == 0);
   assert(SdLogCodec::formatDailyHeader(nullptr, 600) == 0);
   assert(SdLogCodec::formatDailyHeader(header, hl) == 0); // no room for the terminator
 
@@ -13179,7 +13182,10 @@ void testDailySummaryRowFormat() {
   }
   NoiseHistory loud;
   loud.push(140);
-  assert(SdLogCodec::formatDailyRow(2099, 12, 31, wide, loud, buf, sizeof(buf)) > 0);
+  DailyNoiseStats loud_stats;
+  loud_stats.add(140, 23, 65535);
+  assert(SdLogCodec::formatDailyRow(2099, 12, 31, wide, loud, loud_stats, buf, sizeof(buf)) > 0);
+  assert(std::string(buf).find(",140,140,23,65535\n") != std::string::npos);
 
   // The hourly header has 21 columns (format version 4).
   char hourly[SdLogCodec::MAX_ROW_SIZE];
@@ -13190,7 +13196,7 @@ void testDailySummaryRowFormat() {
 void testDailySummaryFileNames() {
   char path[SdLogCodec::MAX_PATH_SIZE];
   assert(SdLogCodec::formatDailyFilename(2026, path, sizeof(path)) > 0);
-  assert(strcmp(path, "/sdcard/daily_v1_2026.csv") == 0);
+  assert(strcmp(path, "/sdcard/daily_v2_2026.csv") == 0);
   assert(SdLogCodec::formatDailyFilename(1999, path, sizeof(path)) == 0 && path[0] == '\0');
   assert(SdLogCodec::formatDailyFilename(2100, path, sizeof(path)) == 0);
   assert(SdLogCodec::formatDailyFilename(2026, path, 10) == 0);
@@ -13203,13 +13209,18 @@ void testDailySummaryFileNames() {
   assert(!SdLogCodec::parseDailyFileName("daily_v1_2100.csv", year));
   assert(!SdLogCodec::parseDailyFileName("daily_v1_26.csv", year));
   assert(!SdLogCodec::parseDailyFileName("daily_v1_202a.csv", year));
-  assert(!SdLogCodec::parseDailyFileName("daily_v2_2026.csv", year));
+  assert(SdLogCodec::parseDailyFileName("daily_v2_2026.csv", year) && year == 2026);
+  assert(!SdLogCodec::parseDailyFileName("daily_v3_2026.csv", year));
+  assert(!SdLogCodec::parseDailyFileName("daily_v2_2100.csv", year));
+  assert(!SdLogCodec::parseDailyFileName("daily_v2_2026.txt", year));
   assert(!SdLogCodec::parseDailyFileName("daily_v1_2026.txt", year));
   assert(!SdLogCodec::parseDailyFileName("../daily_v1_2026.csv", year));
   // The hourly check does not accept the daily name; the console check accepts both.
   assert(!SdLogCodec::isLogFileName("daily_v1_2026.csv"));
   assert(SdLogCodec::isDailyFileName("daily_v1_2026.csv"));
   assert(SdLogCodec::isConsoleFileName("daily_v1_2026.csv"));
+  assert(SdLogCodec::isConsoleFileName("daily_v2_2026.csv"));
+  assert(!SdLogCodec::isLogFileName("daily_v2_2026.csv"));
   assert(SdLogCodec::isConsoleFileName("climate_v2_202611.csv"));
   assert(!SdLogCodec::isConsoleFileName("daily_v1_2026.csv/.."));
   assert(!SdLogCodec::isConsoleFileName("config.ini"));
@@ -13228,6 +13239,12 @@ void testDailySummaryRetention() {
   stopped.oscillator_stopped = true;
   assert(!SdLogCodec::shouldDeleteFile("daily_v1_2025.csv", stopped, 12));
   assert(!SdLogCodec::shouldDeleteFile("daily_v1_2025.csv", localTime(2024, 1, 1, 0), 12)); // untrusted clock
+  assert(SdLogCodec::shouldDeleteFile("daily_v2_2025.csv", now, 12));
+  assert(!SdLogCodec::shouldDeleteFile("daily_v2_2026.csv", now, 12));
+  assert(!SdLogCodec::shouldDeleteFile("daily_v2_2027.csv", now, 12));
+  assert(!SdLogCodec::shouldDeleteFile("daily_v2_2025.csv", now, 0));
+  assert(!SdLogCodec::shouldDeleteFile("daily_v2_2025.csv", RtcTime{}, 12));
+  assert(!SdLogCodec::shouldDeleteFile("daily_v2_2025.csv", stopped, 12));
   assert(!SdLogCodec::shouldDeleteFile("notes_2025.csv", now, 12));
   // The hourly rule is the same as before.
   assert(SdLogCodec::shouldDeleteFile("climate_v2_202401.csv", now, 12));
@@ -13379,7 +13396,7 @@ void testDailySummaryStateRoundTrip() {
   // Corrupt stamp fields with a valid CRC are rejected.
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   const size_t daily_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE -
-                           PowerManager::AUDIO_SIZE - 10; // daily stamp (5) is followed by the SD status (5)
+                           PowerManager::AUDIO_SIZE - 14; // daily stamp (5), noise summary (4) and SD status (5)
   assert(buf[daily_pos] == 1 && buf[daily_pos + 1] == (2026 & 0xFF));
   const size_t bad[5][3] = {{daily_pos, 2, 0}, {daily_pos + 3, 13, 0}, {daily_pos + 3, 0, 0}, {daily_pos + 4, 32, 0}, {daily_pos + 3, 2, 31}};
   for (const auto& c : bad) {
@@ -13403,8 +13420,11 @@ void testDailySummaryConsole() {
   assert(parseText("DUMP daily_v1_2026.csv", cmd) == SerialParseStatus::OK);
   assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "daily_v1_2026.csv") == 0);
   assert(parseText("DUMP daily_v1_2026.csv\r\n", cmd) == SerialParseStatus::OK);
+  assert(parseText("DUMP daily_v2_2026.csv", cmd) == SerialParseStatus::OK);
+  assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "daily_v2_2026.csv") == 0);
+  assert(parseText("DUMP daily_v2_1999.csv", cmd) == SerialParseStatus::BAD_NAME);
+  assert(parseText("DUMP daily_v3_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP daily_v1_1999.csv", cmd) == SerialParseStatus::BAD_NAME);
-  assert(parseText("DUMP daily_v2_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP daily_v1_2026.csv ", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP ../daily_v1_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP daily_v1_2026", cmd) == SerialParseStatus::BAD_NAME);
@@ -13413,12 +13433,13 @@ void testDailySummaryConsole() {
   FakeConsoleStorage storage;
   storage.add("climate_v2_202611.csv", "hourly\n");
   storage.add("daily_v1_2026.csv", "date\n2026-11-11\n");
+  storage.add("daily_v2_2026.csv", "date\n2026-11-12\n");
   FakeSink list_sink;
   SerialCommand list;
   list.kind = SerialCommandKind::LIST;
   TestRunner::execute(storage, list_sink, list);
   assert(list_sink.out ==
-         "FILE climate_v2_202611.csv 7\nFILE daily_v1_2026.csv 16\nEND LIST 2\n");
+         "FILE climate_v2_202611.csv 7\nFILE daily_v1_2026.csv 16\nFILE daily_v2_2026.csv 16\nEND LIST 3\n");
 
   FakeSink dump_sink;
   SerialCommand dump;
@@ -13430,6 +13451,111 @@ void testDailySummaryConsole() {
   char tail[24];
   snprintf(tail, sizeof(tail), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
   assert(dump_sink.out == std::string("BEGIN daily_v1_2026.csv 16\ndate\n2026-11-11\n") + tail);
+
+  FakeSink dump2_sink;
+  snprintf(dump.file, sizeof(dump.file), "%s", "daily_v2_2026.csv");
+  TestRunner::execute(storage, dump2_sink, dump);
+  SerialCrc32 crc2;
+  crc2.update(reinterpret_cast<const uint8_t*>("date\n2026-11-12\n"), 16);
+  snprintf(tail, sizeof(tail), "CRC32 %08lx\n", static_cast<unsigned long>(crc2.value()));
+  assert(dump2_sink.out == std::string("BEGIN daily_v2_2026.csv 16\ndate\n2026-11-12\n") + tail);
+}
+
+void testDailyNoisePeakStats() {
+  DailyNoiseStats none;
+  assert(!none.hasReading() && none.events_sum == 0);
+  none.add(NoiseHistory::INVALID, 5, 9); // invalid reading: no change
+  none.add(50, 24, 9);                   // invalid hour: no change
+  assert(!none.hasReading() && none.events_sum == 0);
+
+  DailyNoiseStats one; // one peak
+  one.add(40, 1, 1);
+  one.add(72, 9, 2);
+  one.add(55, 20, 3);
+  assert(one.peak_db == 72 && one.peak_hour == 9 && one.events_sum == 6);
+
+  DailyNoiseStats tie; // two equal peaks: the first hour wins
+  tie.add(60, 4, 0);
+  tie.add(60, 17, 0);
+  assert(tie.peak_db == 60 && tie.peak_hour == 4);
+
+  DailyNoiseStats zero; // a peak of 0 dB is a reading
+  zero.add(0, 0, 0);
+  assert(zero.hasReading() && zero.peak_db == 0);
+
+  DailyNoiseStats sat; // saturation at 65535
+  sat.add(30, 1, 65000);
+  sat.add(30, 2, 600);
+  assert(sat.events_sum == 65535);
+  sat.add(30, 3, 65535);
+  assert(sat.events_sum == 65535);
+
+  // markDone starts a new summary.
+  DailyLogState state;
+  state.noise.add(70, 3, 4);
+  state.markDone(localTime(2026, 5, 11, 0));
+  assert(!state.noise.hasReading() && state.noise.events_sum == 0);
+
+  // Order of the wake cycle: the daily write stamps the new day first, then the reading is added.
+  DailyLogState cycle;
+  cycle.markDone(localTime(2026, 5, 10, 12));
+  cycle.noise.add(70, 11, 4); // old day
+  cycle.markDone(localTime(2026, 5, 11, 0)); // midnight: row written, stats reset
+  cycle.noise.add(50, 0, 1); // first reading of the new day
+  assert(cycle.noise.peak_db == 50 && cycle.noise.peak_hour == 0 && cycle.noise.events_sum == 1);
+
+  // Row of a day with a peak and of a day without a reading.
+  char buf[SdLogCodec::MAX_ROW_SIZE];
+  assert(SdLogCodec::formatDailyRow(2026, 5, 10, ClimateHistory{}, NoiseHistory{}, one, buf, sizeof(buf)) > 0);
+  assert(std::string(buf) == "2026-05-10" + std::string(26, ',') + ",72,9,6\n");
+  assert(SdLogCodec::formatDailyRow(2026, 5, 10, ClimateHistory{}, NoiseHistory{}, DailyNoiseStats{}, buf, sizeof(buf)) > 0);
+  assert(std::string(buf) == "2026-05-10" + std::string(29, ',') + "\n");
+}
+
+void testDailyNoisePeakRtcRoundTrip() {
+  PersistentState s;
+  s.daily.markDone(localTime(2026, 7, 9, 0));
+  s.daily.noise.add(81, 22, 300);
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.daily.noise.peak_db == 81 && r.daily.noise.peak_hour == 22 && r.daily.noise.events_sum == 300);
+  PersistentState fresh;
+  assert(PowerManager::serialize(fresh, buf, sizeof(buf)));
+  assert(PowerManager::deserialize(buf, sizeof(buf), r) && !r.daily.noise.hasReading());
+
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  const size_t noise_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE -
+                           PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - 9;
+  assert(buf[noise_pos] == 81 && buf[noise_pos + 1] == 22);
+  // peak above 140 (not NO_PEAK), hour above 23, and a sum without a peak.
+  const size_t bad[3][3] = {{noise_pos, 141, 0}, {noise_pos + 1, 24, 0}, {noise_pos, DailyNoiseStats::NO_PEAK, 1}};
+  for (const auto& c : bad) {
+    uint8_t b[PowerManager::SERIALIZED_SIZE];
+    memcpy(b, buf, sizeof(b));
+    b[c[0]] = static_cast<uint8_t>(c[1]);
+    if (c[2] != 0) {
+      b[noise_pos + 1] = 0; // peak absent needs hour 0 and a zero sum: the sum 300 stays
+    }
+    const uint32_t cc = PowerManager::crc32(b, sizeof(b) - 4);
+    for (int i = 0; i < 4; ++i) {
+      b[sizeof(b) - 4 + i] = static_cast<uint8_t>(cc >> (8 * i));
+    }
+    PersistentState rejected;
+    assert(!PowerManager::deserialize(b, sizeof(b), rejected));
+  }
+
+  // The old state version is rejected.
+  uint8_t old[PowerManager::SERIALIZED_SIZE];
+  memcpy(old, buf, sizeof(old));
+  old[4] = PowerManager::STATE_VERSION - 1;
+  const uint32_t occ = PowerManager::crc32(old, sizeof(old) - 4);
+  for (int i = 0; i < 4; ++i) {
+    old[sizeof(old) - 4 + i] = static_cast<uint8_t>(occ >> (8 * i));
+  }
+  PersistentState rejected_old;
+  assert(!PowerManager::deserialize(old, sizeof(old), rejected_old));
 }
 
 // ---- Hourly count of loud transient events ----
@@ -13834,7 +13960,7 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
 
   // A valid checksum with the same MAC in two keys is rejected
   const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
@@ -14348,7 +14474,7 @@ void testSensorBatteryLatchRtcRoundTrip() {
     }
   }
   // The version is increased
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
   // Corrupt records: latch bit above bit 2, flag byte above 7, limit above 50, old version
   st.sensor_battery_latch = 1;
   st.alert_mask = ALERT_NONE;
@@ -14571,7 +14697,7 @@ void testSensorStaleMinConfig() {
 
   // RTC round trip, corrupt values and the version bump
   PersistentState st;
-  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 42);
+  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 43);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(5), uint16_t(30), uint16_t(240)}) {
@@ -14656,7 +14782,7 @@ void testDisplayInvert() {
 
   // RTC round trip, corrupt value and version bump
   PersistentState st;
-  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 42);
+  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 43);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(1)}) {
@@ -14795,7 +14921,7 @@ void testClimateAlertTiles() {
 
   // RTC round trip, corrupt value and the old state version
   PersistentState st;
-  assert(st.config.climate_alert_tiles == 15 && PowerManager::STATE_VERSION == 42);
+  assert(st.config.climate_alert_tiles == 15 && PowerManager::STATE_VERSION == 43);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(5), uint8_t(15)}) {
@@ -15002,7 +15128,7 @@ void testSdCardStatus() {
   assert(unknown_lines[4] == "SD status=UNKNOWN age=--");
 
   // RTC round trip, a corrupt status byte and the old state version
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
   PersistentState st;
   st.setSdStatus(SdStatus::FULL, 4242);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -15043,7 +15169,7 @@ void testSdCardStatus() {
 }
 
 void testEventLog() {
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
   const RtcTime t1 = localTime(2026, 11, 14, 9, 30);
   const RtcTime bad_time{}; // invalid
   // Empty ring and one event
@@ -15399,7 +15525,7 @@ void testTempUnitRtcRoundTrip() {
   // The unit byte follows the night wake interval in the config trailer
   const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   assert(buf[cfg_pos + 34] == 'C');
-  assert(PowerManager::STATE_VERSION == 42);
+  assert(PowerManager::STATE_VERSION == 43);
 }
 
 // ---- Heat alert (ALERT_HEAT, heat_alert_limit_c) ----
@@ -15943,6 +16069,8 @@ testSerialConfigNegativeSmallOffset();
   testDailySummaryRowFormat();
   testDailySummaryFileNames();
   testDailySummaryRetention();
+  testDailyNoisePeakStats();
+  testDailyNoisePeakRtcRoundTrip();
   testDailySummaryMidnightGateCetAndCest();
   testDailySummaryOneRowPerDay();
   testDailySummaryFailedWriteRetries();

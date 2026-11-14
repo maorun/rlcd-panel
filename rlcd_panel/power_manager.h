@@ -291,7 +291,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 42;
+  static constexpr uint8_t STATE_VERSION = 43;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -309,8 +309,8 @@ public:
   // sample time, sampled flag.
   static constexpr size_t BATTERY_HISTORY_SIZE = 1 + 1 + BatteryHistory::CAPACITY * (2 + 4) + 4 + 1;
   // SD log trailer: last log time, logged flag, then the daily summary stamp: flag, year (uint16), month, day,
-  // then the card status (one byte) and the clock stamp of that result (uint32).
-  static constexpr size_t SD_LOG_SIZE = 4 + 1 + 1 + 2 + 1 + 1 + 1 + 4;
+  // then the daily noise summary (peak dB, peak hour, event sum uint16), then the card status (one byte) and the clock stamp of that result (uint32).
+  static constexpr size_t SD_LOG_SIZE = 4 + 1 + 1 + 2 + 1 + 1 + 1 + 1 + 2 + 1 + 4;
   // Audio trailer: last chime stamp (uint32), then one byte each: flags, muted | mask << 1 | band << 6, sensor battery latch, tile badge latch.
   static constexpr size_t AUDIO_SIZE = 4 + 4; // last chime stamp (uint32) first, then 4 bytes: flags byte (bit 0 ventilate, bit 1 sensor battery alert, bit 2 heat alert), muted | mask << 1 | band << 6, sensor battery latch bits, then the tile badge latch bits
   // NTP trailer: last attempt time, flags (bit 0 attempted, bit 1 last ok), failure count, then the
@@ -540,6 +540,10 @@ public:
     out[pos++] = static_cast<uint8_t>(state.daily.year >> 8);
     out[pos++] = state.daily.month;
     out[pos++] = state.daily.day;
+    out[pos++] = state.daily.noise.peak_db;
+    out[pos++] = state.daily.noise.peak_hour;
+    out[pos++] = static_cast<uint8_t>(state.daily.noise.events_sum & 0xFF);
+    out[pos++] = static_cast<uint8_t>(state.daily.noise.events_sum >> 8);
     out[pos++] = static_cast<uint8_t>(state.sd_status);
     putU32(out, pos, state.sd_status_ms);
     putU32(out, pos, state.last_chime_ms);
@@ -798,6 +802,20 @@ public:
       s.daily.month = daily_month;
       s.daily.day = daily_day;
     }
+    const uint8_t peak_db = data[pos++];
+    const uint8_t peak_hour = data[pos++];
+    const uint16_t events_sum = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    pos += 2;
+    if (peak_db == DailyNoiseStats::NO_PEAK) {
+      if (peak_hour != 0 || events_sum != 0) {
+        return false;
+      }
+    } else if (!NoiseHistory::isValid(peak_db) || peak_hour > 23) {
+      return false;
+    }
+    s.daily.noise.peak_db = peak_db;
+    s.daily.noise.peak_hour = peak_hour;
+    s.daily.noise.events_sum = events_sum;
     const uint8_t sd_status = data[pos++];
     if (sd_status > SdStatusCodec::MAX_VALUE) {
       return false;
