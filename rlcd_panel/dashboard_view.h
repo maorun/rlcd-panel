@@ -101,6 +101,12 @@ public:
   static constexpr uint16_t COMFORT_RIGHT_X = 392;
   static constexpr uint16_t COMFORT_Y_OFFSET = 39;
   static constexpr uint16_t MOLD_Y_OFFSET = 21; // MAC line
+  // Feels-like text on the first line, right-aligned to COMFORT_RIGHT_X. The widest text is
+  // "FEELS -45C" or "FEELS 140F" = 10 glyphs = 60 px, so it starts at x = 332, 10 px right of the
+  // widest RSSI line ("<12 glyphs> RSSI -100 DBM" ends at x = 322).
+  static constexpr uint16_t FEELS_Y_OFFSET = 3;
+  // The empty slot shows its comfort label between the FEELS text (y + 3 to y + 9) and the MOLD text (y + 21).
+  static constexpr uint16_t COMFORT_EMPTY_Y_OFFSET = 11;
   static constexpr uint16_t NOISE_TREND_Y = 248;
   static constexpr uint16_t NOISE_SPARKLINE_X = 216;
   static constexpr uint16_t NOISE_SPARKLINE_Y = 246;
@@ -539,6 +545,35 @@ public:
     fb.drawText(x, static_cast<uint16_t>(y + y_offset), text, 1, true);
   }
 
+  // "FEELS 31C" (heat index in the display unit, rounded) for a live slot, "FEELS --" for an empty or
+  // stale slot or an invalid result. Computed on each render; nothing is stored.
+  static void formatFeels(char* out, size_t capacity, const SwitchBotReading& sb, uint32_t now_ms,
+                          uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS, char unit = 'C') {
+    const bool future = (now_ms - sb.updated_ms) >= 0xFFFF0000u;
+    float hi = NAN;
+    if (sb.valid && (future || !sb.isStale(now_ms, stale_timeout_ms))) {
+      hi = ClimateMath::heatIndexC(sb.temperature_c, static_cast<float>(sb.humidity_pct));
+    }
+    if (!isfinite(hi)) {
+      snprintf(out, capacity, "FEELS --");
+      return;
+    }
+    float shown = roundf(ClimateMath::toDisplay(hi, unit));
+    if (shown == 0.0f) {
+      shown = 0.0f; // no "-0": a value from -0.5 to 0 rounds to zero
+    }
+    snprintf(out, capacity, "FEELS %.0f%c", static_cast<double>(shown), unit == 'F' ? 'F' : 'C');
+  }
+
+  static void drawFeels(
+      St7305Framebuffer& fb, uint16_t y, const SwitchBotReading& sb, uint32_t now_ms,
+      const DeviceConfig* config) {
+    char text[24];
+    formatFeels(text, sizeof(text), sb, now_ms, staleTimeoutMs(config), tempUnit(config));
+    const uint16_t x = static_cast<uint16_t>(COMFORT_RIGHT_X - strlen(text) * 6);
+    fb.drawText(x, static_cast<uint16_t>(y + FEELS_Y_OFFSET), text, 1, true);
+  }
+
   // "MOLD 5H" (hourly samples above the mold limit in the 24 h history, one sample per hour) for a live slot with at least 2 samples,
   // "MOLD --" for an empty or stale slot or fewer samples. Computed on each render; nothing is stored.
   // Widest: "MOLD 24H" = 8 glyphs, 48 px.
@@ -608,7 +643,8 @@ public:
       if (!sb.valid) {
         snprintf(line, sizeof(line), "%s NO SIGNAL", label);
         drawLine(fb, 10, y, line);
-        drawComfort(fb, y, 3, sb, now_ms, staleTimeoutMs(config)); // first line: the empty slot has no packet line
+        drawComfort(fb, y, COMFORT_EMPTY_Y_OFFSET, sb, now_ms, staleTimeoutMs(config)); // the empty slot has no packet line
+        drawFeels(fb, y, sb, now_ms, config);
         drawMold(fb, y, sb, now_ms, config, history, i);
         if (config != nullptr && config->hasSlotMac(i)) {
           formatMac(line, sizeof(line), config->slot_mac[i]);
@@ -645,6 +681,7 @@ public:
           age);
       drawLine(fb, 10, static_cast<uint16_t>(y + 36), line);
       drawComfort(fb, y, COMFORT_Y_OFFSET, sb, now_ms, staleTimeoutMs(config));
+      drawFeels(fb, y, sb, now_ms, config);
       drawMold(fb, y, sb, now_ms, config, history, i);
 
       formatRecords(line, sizeof(line), history, 1 + i, tempUnit(config));

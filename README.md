@@ -86,7 +86,7 @@ Four climate tiles: the onboard `SHTC3` and up to three SwitchBot sensors. Each 
 
 ![Sensor Stats view](docs/display_preview_stats.png)
 
-One text block per SwitchBot sensor with `RSSI`, `MAC` address, received packet count (`PKT`), and the age of the last packet (`AGE`). The `MOLD <N>H` text at the right of the `MAC` line shows the hours of the last 24 hours above `mold_alert_limit_rh` (`MOLD --` for an empty or stale slot or fewer than 2 samples). The last line shows the onboard battery voltage.
+One text block per SwitchBot sensor with `RSSI`, `MAC` address, received packet count (`PKT`), and the age of the last packet (`AGE`). The `MOLD <N>H` text at the right of the `MAC` line shows the hours of the last 24 hours above `mold_alert_limit_rh` (`MOLD --` for an empty or stale slot or fewer than 2 samples). The `FEELS <T>C` text at the right of the first line shows the heat index (NOAA Rothfusz regression with both NOAA corrections) of the sensor in the unit `temp_unit`. Below 26.7 C or below 40 %RH it equals the air temperature. An empty or stale slot and an invalid reading show `FEELS --`. The last line shows the onboard battery voltage.
 
 ### Mode 2: System Diagnostics
 
