@@ -229,9 +229,21 @@ public:
     return isFixed(index) ? fixed_mac_[index] : nullptr;
   }
 
+  // Reports and clears the new MAC of slot `index` since the last call: true when a packet from a MAC
+  // that no slot held took the slot. `format` is the format of that packet. No persistent state.
+  bool takeAssigned(size_t index, BleFormat& format) {
+    if (index >= MAX_SWITCHBOT_SENSORS || !assigned_[index]) {
+      return false;
+    }
+    assigned_[index] = false;
+    format = assigned_format_[index];
+    return true;
+  }
+
   void clearSlot(size_t index) {
     if (index < MAX_SWITCHBOT_SENSORS) {
       slots_[index] = SwitchBotReading{};
+      assigned_[index] = false;
     }
   }
 
@@ -272,6 +284,7 @@ public:
       if (fixed_[i] && memcmp(fixed_mac_[i], reading.mac, 6) == 0) {
         slots_[i] = reading;
         slots_[i].packet_count = 1;
+        markAssigned(i, format);
         return true;
       }
     }
@@ -281,6 +294,7 @@ public:
       if (!slots_[i].valid && accepts(i, reading.mac)) {
         slots_[i] = reading;
         slots_[i].packet_count = 1;
+        markAssigned(i, format);
         return true;
       }
     }
@@ -392,7 +406,14 @@ private:
     return true;
   }
 
+  void markAssigned(size_t index, BleFormat format) {
+    assigned_[index] = true;
+    assigned_format_[index] = format;
+  }
+
   SwitchBotReading slots_[MAX_SWITCHBOT_SENSORS];
+  bool assigned_[MAX_SWITCHBOT_SENSORS] = {false, false, false};
+  BleFormat assigned_format_[MAX_SWITCHBOT_SENSORS] = {BleFormat::WOIO, BleFormat::WOIO, BleFormat::WOIO};
   bool fixed_[MAX_SWITCHBOT_SENSORS] = {false, false, false};
   uint8_t fixed_mac_[MAX_SWITCHBOT_SENSORS][6] = {{0}, {0}, {0}};
   BleRejectStats rejects_;

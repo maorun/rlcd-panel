@@ -15352,7 +15352,8 @@ void testEventLog() {
       {EventCode::ALERT_RISE, "ALERT_RISE"},          {EventCode::ALERT_FALL, "ALERT_FALL"},
       {EventCode::CONFIG_LOAD, "CONFIG_LOAD"},        {EventCode::NTP_SYNC, "NTP_SYNC"},
       {EventCode::BATTERY_LOW_SET, "BATTERY_LOW_SET"}, {EventCode::BATTERY_LOW_CLEAR, "BATTERY_LOW_CLEAR"},
-      {EventCode::EMPTY_PROTECTION, "EMPTY_PROTECTION"}};
+      {EventCode::EMPTY_PROTECTION, "EMPTY_PROTECTION"}, {EventCode::RESET, "RESET"},
+      {EventCode::SLOT_ASSIGN, "SLOT_ASSIGN"},        {EventCode::SLOT_RELEASE, "SLOT_RELEASE"}};
   for (const auto& c : codes) {
     EventRing r;
     r.record(t1, c.code, 65535);
@@ -15457,7 +15458,7 @@ void testEventLog() {
       {0, 17},                        // count above 16
       {3 + 0, 2},                     // time flag above 1
       {3 + 8, 0},                     // code NONE in a used entry
-      {3 + 8, 8},                     // code above the last
+      {3 + 8, 11},                    // code above the last
       {3 + 3, 13},                    // month 13
       {3 + 4, 32},                    // day 32
       {3 + 5, 24},                    // hour 24
@@ -15495,6 +15496,126 @@ void testEventLog() {
   reseal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
   assert(!PowerManager::deserialize(buf, sizeof(buf) - 1, rejected));
+}
+
+void testResetAndSlotEvents() {
+  RtcTime t1;
+  t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 14; t1.hour = 9; t1.minute = 30; t1.second = 0;
+  assert(static_cast<uint8_t>(EventCode::RESET) == 8 && static_cast<uint8_t>(EventCode::SLOT_ASSIGN) == 9 &&
+         static_cast<uint8_t>(EventCode::SLOT_RELEASE) == 10);
+
+  // RESET: a power-on and a PANIC reset record, a deep sleep wakeup does not
+  assert(ResetReasonCodec::recordsEvent(ResetReason::POWERON));
+  assert(ResetReasonCodec::recordsEvent(ResetReason::PANIC));
+  assert(!ResetReasonCodec::recordsEvent(ResetReason::DEEPSLEEP));
+  assert(ResetReasonCodec::eventDetail(ResetReason::POWERON, false) == static_cast<int32_t>(ResetReason::POWERON));
+  assert(ResetReasonCodec::eventDetail(ResetReason::PANIC, false) == static_cast<int32_t>(ResetReason::PANIC));
+  assert(ResetReasonCodec::eventDetail(ResetReason::DEEPSLEEP, false) == -1);
+  assert(ResetReasonCodec::eventDetail(ResetReason::DEEPSLEEP, true) == static_cast<int32_t>(ResetReason::UNKNOWN));
+  EventRing resets;
+  for (ResetReason r : {ResetReason::POWERON, ResetReason::PANIC, ResetReason::DEEPSLEEP}) {
+    if (ResetReasonCodec::recordsEvent(r)) resets.record(t1, EventCode::RESET, static_cast<uint16_t>(r));
+  }
+  assert(resets.size() == 2 && resets.at(0).detail == static_cast<uint16_t>(ResetReason::POWERON) &&
+         resets.at(1).detail == static_cast<uint16_t>(ResetReason::PANIC));
+  char row[SdLogCodec::MAX_EVENT_ROW_SIZE];
+  assert(SdLogCodec::formatEventRow(resets.at(1), row, sizeof(row)) > 0);
+  assert(strstr(row, ",RESET,") != nullptr);
+
+  // SLOT_ASSIGN: new MAC in a free slot, then a known MAC
+  auto reading = [](uint8_t last) {
+    SwitchBotReading r;
+    r.valid = true;
+    memset(r.mac, 0, 6);
+    r.mac[5] = last;
+    r.temperature_c = 20.0f;
+    r.humidity_pct = 50.0f;
+    r.battery_pct = 80;
+    return r;
+  };
+  PersistentState st;
+  assert(st.registry.upsert(reading(1), BleFormat::ATC));
+  assert(st.registry.upsert(reading(2), BleFormat::BTHOME));
+  assert(st.registry.upsert(reading(1), BleFormat::ATC)); // known MAC
+  st.recordSlotEvents(t1, 0);
+  assert(st.events.size() == 2);
+  assert(st.events.at(0).code == EventCode::SLOT_ASSIGN && st.events.at(0).detail == ((1u << 8) | 3u));
+  assert(st.events.at(1).code == EventCode::SLOT_ASSIGN && st.events.at(1).detail == ((2u << 8) | 2u));
+  st.recordSlotEvents(t1, 0); // consumed: no repeat
+  assert(st.events.size() == 2);
+  assert(st.registry.upsert(reading(1), BleFormat::ATC));
+  st.recordSlotEvents(t1, 0);
+  assert(st.events.size() == 2); // known MAC: no event
+
+  // clearSlot drops a pending assign: no false SLOT_ASSIGN for a cleared slot
+  PersistentState cleared;
+  assert(cleared.registry.upsert(reading(7), BleFormat::WOIO));
+  cleared.registry.clearSlot(0);
+  BleFormat unused = BleFormat::WOIO;
+  assert(!cleared.registry.takeAssigned(0, unused) && !cleared.registry.takeAssigned(9, unused));
+  cleared.recordSlotEvents(t1, 0);
+  assert(cleared.events.size() == 0);
+
+  // A release and an assign in one cycle: the release comes first
+  PersistentState order;
+  order.config.slot_release_h = 2;
+  SwitchBotReading old_sensor = reading(1);
+  old_sensor.updated_ms = 1000;
+  assert(order.registry.upsert(old_sensor, BleFormat::WOIO));
+  while (order.registry.takeAssigned(0, unused)) {}
+  const uint8_t gone = order.releaseDeadSlots(1000 + 2UL * 3600000UL);
+  assert(gone == 0b001 && order.registry.upsert(reading(5), BleFormat::METER));
+  order.recordSlotEvents(t1, gone);
+  assert(order.events.size() == 2 && order.events.at(0).code == EventCode::SLOT_RELEASE &&
+         order.events.at(0).detail == 1 && order.events.at(1).code == EventCode::SLOT_ASSIGN &&
+         order.events.at(1).detail == ((1u << 8) | 1u));
+
+  // SLOT_RELEASE: a dead slot records, a fixed MAC slot never releases
+  PersistentState rel;
+  rel.config.slot_release_h = 2;
+  const uint8_t fixed[6] = {0, 0, 0, 0, 0, 9};
+  memcpy(rel.config.slot_mac[2], fixed, 6);
+  rel.registry.setFixedMac(2, fixed);
+  SwitchBotReading a = reading(1), b = reading(9);
+  a.updated_ms = 1000;
+  b.updated_ms = 1000;
+  assert(rel.registry.upsert(a) && rel.registry.upsert(b));
+  BleFormat f;
+  while (rel.registry.takeAssigned(0, f)) {}
+  assert(rel.registry.takeAssigned(2, f) && f == BleFormat::WOIO); // a fixed slot takes its MAC: an assign
+  const uint8_t released = rel.releaseDeadSlots(1000 + 2UL * 3600000UL);
+  assert(released == 0b001);
+  rel.recordSlotEvents(t1, released);
+  assert(rel.events.size() == 1 && rel.events.at(0).code == EventCode::SLOT_RELEASE && rel.events.at(0).detail == 1);
+  assert(rel.registry.slot(2).valid); // fixed slot stays, no event
+  assert(rel.releaseDeadSlots(1000 + 3UL * 3600000UL) == 0);
+
+  // RTC validation: code 10 accepted, code 11 rejected
+  PersistentState save;
+  save.events.record(t1, EventCode::SLOT_RELEASE, 3);
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(save, buf, sizeof(buf)));
+  PersistentState back;
+  assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.events.at(0).code == EventCode::SLOT_RELEASE);
+  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE;
+  buf[base + 3 + 8] = 11;
+  const uint32_t crc = PowerManager::crc32(buf, PowerManager::SERIALIZED_SIZE - 4);
+  for (int i = 0; i < 4; ++i) buf[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  PersistentState bad;
+  assert(!PowerManager::deserialize(buf, sizeof(buf), bad));
+
+  // EVENTS reply with the new rows
+  EventRing ring;
+  ring.record(t1, EventCode::RESET, 1);
+  ring.record(t1, EventCode::SLOT_ASSIGN, (2u << 8) | 3u);
+  ring.record(t1, EventCode::SLOT_RELEASE, 3);
+  FakeSink sink;
+  TestRunner::showEvents(sink, ring, t1);
+  const std::vector<std::string> lines = splitLines(sink.out);
+  assert(lines.size() == 2 + 3 + 1);
+  assert(lines[2] == "2026-11-14 09:30:00,RESET,1");
+  assert(lines[3] == "2026-11-14 09:30:00,SLOT_ASSIGN,515");
+  assert(lines[4] == "2026-11-14 09:30:00,SLOT_RELEASE,3");
 }
 
 void testTempUnitConfig() {
@@ -16145,6 +16266,7 @@ int main() {
   testBatteryMonitorUsbPlugged();
   testBatteryOffsetMv();
   testSlotRelease();
+  testResetAndSlotEvents();
   testChimeRepeat();
   testNightWakeInterval();
   testDashboardViewRendering();

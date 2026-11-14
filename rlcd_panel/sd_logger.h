@@ -115,6 +115,9 @@ enum class EventCode : uint8_t {
   BATTERY_LOW_SET = 5,  // the low battery alert went on; detail is the cell percentage
   BATTERY_LOW_CLEAR = 6, // the low battery alert went off; detail is the cell percentage
   EMPTY_PROTECTION = 7, // the empty battery protection; detail 1 is set, 0 is release
+  RESET = 8,            // a start that is no deep sleep wakeup; detail is the ResetReason
+  SLOT_ASSIGN = 9,      // a new MAC took a registry slot; detail is slot (high byte) and BleFormat (low byte)
+  SLOT_RELEASE = 10,    // releaseDeadSlots cleared a slot; detail is the slot number
 };
 
 struct LogEvent {
@@ -135,7 +138,7 @@ struct LogEvent {
 class EventRing {
 public:
   static constexpr size_t CAPACITY = 16;
-  static constexpr uint8_t MAX_CODE = static_cast<uint8_t>(EventCode::EMPTY_PROTECTION);
+  static constexpr uint8_t MAX_CODE = static_cast<uint8_t>(EventCode::SLOT_RELEASE);
 
   size_t size() const { return count_; }
   uint16_t dropped() const { return dropped_; }
@@ -513,6 +516,9 @@ public:
       case EventCode::BATTERY_LOW_SET: return "BATTERY_LOW_SET";
       case EventCode::BATTERY_LOW_CLEAR: return "BATTERY_LOW_CLEAR";
       case EventCode::EMPTY_PROTECTION: return "EMPTY_PROTECTION";
+      case EventCode::RESET: return "RESET";
+      case EventCode::SLOT_ASSIGN: return "SLOT_ASSIGN";
+      case EventCode::SLOT_RELEASE: return "SLOT_RELEASE";
       case EventCode::NONE: break;
     }
     return nullptr;

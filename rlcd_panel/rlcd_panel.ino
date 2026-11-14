@@ -268,6 +268,9 @@ Shtc3Result readOnboardShtc3(Shtc3Reading& out) {
 // until refreshSensors() has the time. -1 means none.
 int32_t g_pending_config_rejects = -1;
 bool g_pending_protection_release = false;
+bool g_reset_event_pending = false; // a start that is no deep sleep wakeup waits for its RESET event
+uint16_t g_reset_event_detail = 0;  // ResetReason of that start
+uint8_t g_pending_slot_release = 0; // mask of the slots releaseDeadSlots cleared, recorded once the RTC time is known
 
 void updateRtc() {
   if (!g_rtc.present()) {
@@ -571,6 +574,10 @@ void refreshSensors() {
   g_state.battery_history.record(nowMs(), g_state.battery);
   updateCycles();
   updateRtc();
+  if (g_reset_event_pending) {
+    g_state.events.record(g_rtc_time, EventCode::RESET, g_reset_event_detail);
+    g_reset_event_pending = false;
+  }
   if (was_low != g_state.battery.low_battery) {
     const uint16_t pct = g_state.battery.percentage > 0 ? static_cast<uint16_t>(g_state.battery.percentage) : 0;
     g_state.events.record(g_rtc_time, g_state.battery.low_battery ? EventCode::BATTERY_LOW_SET : EventCode::BATTERY_LOW_CLEAR, pct);
@@ -579,6 +586,10 @@ void refreshSensors() {
     g_state.events.record(g_rtc_time, EventCode::CONFIG_LOAD, static_cast<uint16_t>(g_pending_config_rejects));
     g_pending_config_rejects = -1;
   }
+  portENTER_CRITICAL(&g_registry_mux);
+  g_state.recordSlotEvents(g_rtc_time, g_pending_slot_release);
+  portEXIT_CRITICAL(&g_registry_mux);
+  g_pending_slot_release = 0;
   if (g_pending_protection_release) {
     g_state.events.record(g_rtc_time, EventCode::EMPTY_PROTECTION, 0);
     g_pending_protection_release = false;
@@ -902,6 +913,11 @@ void setup() {
     cause = WakeupCause::POWER_ON;
     cycle.begin(cause);
   }
+  // Each start that is no deep sleep wakeup gets a RESET event, also a failed restore (see eventDetail).
+  const int32_t reset_detail = ResetReasonCodec::eventDetail(g_reset_reason, cause == WakeupCause::POWER_ON &&
+                                                                              g_reset_reason == ResetReason::DEEPSLEEP);
+  g_reset_event_pending = reset_detail >= 0;
+  g_reset_event_detail = static_cast<uint16_t>(reset_detail >= 0 ? reset_detail : 0);
   g_mode_controller.setMode(g_state.mode);
   g_mode_controller.setChartSensor(g_state.chart_sensor);
   g_cycles.fromRtc(g_cycle_rtc); // blank memory after a power-on keeps the empty tracker
@@ -912,11 +928,19 @@ void setup() {
   const BatteryReading protect_reading = BatteryMonitor::readAveraged(config().battery_offset_mv);
   g_state.battery.empty_protection = BatteryMonitor::updateEmptyProtection(protect_reading, was_protected);
   if (g_state.battery.empty_protection && !was_protected) {
+    if (g_reset_event_pending) { // the start came first: the reset goes before the protection in the ring
+      g_state.events.record(g_rtc_time, EventCode::RESET, g_reset_event_detail);
+      g_reset_event_pending = false;
+    }
     g_state.events.record(g_rtc_time, EventCode::EMPTY_PROTECTION, 1); // the RTC is not read here: no time
   } else if (was_protected && !g_state.battery.empty_protection) {
     g_pending_protection_release = true;
   }
   if (!PowerManager::modulesAllowed(g_state.battery)) {
+    if (g_reset_event_pending) {
+      g_state.events.record(g_rtc_time, EventCode::RESET, g_reset_event_detail); // the RTC is not read here: no time
+      g_reset_event_pending = false;
+    }
     ++g_state.boot_count;
     g_state.battery = protect_reading;
     g_state.battery.low_battery = true;
@@ -941,7 +965,7 @@ void setup() {
   g_rtc.begin(Wire);
   g_panel.begin();
 
-  g_state.releaseDeadSlots(nowMs()); // before the scan, so a free slot takes a new sensor in this cycle
+  g_pending_slot_release = g_state.releaseDeadSlots(nowMs()); // before the scan, so a free slot takes a new sensor in this cycle
 
   const bool scanned = cycle.advance() == PowerPhase::SCAN;
   if (scanned) {
