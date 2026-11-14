@@ -10,6 +10,7 @@
 #include "device_config.h"
 #include "pcf85063_rtc.h"
 #include "sd_logger.h"
+#include "shtc3_sensor.h"
 #include "sparkline.h"
 
 namespace rlcd_panel {
@@ -327,6 +328,7 @@ struct SerialStatusSnapshot {
   uint32_t sd_status_ms = 0;              // clock value of that result
   const char* reset_reason = "UNKNOWN";   // ResetReasonCodec::text of the last boot
   int32_t abnormal_resets = -1;           // NVS count; negative when NVS is unreadable
+  Shtc3Health shtc3;                      // failed onboard SHTC3 reads by cause
 };
 
 // Runs one parsed command. Storage mounts the card for the command and unmounts it on every
@@ -345,7 +347,7 @@ struct SerialStatusSnapshot {
 //   so execute() ignores CONFIG.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 3 (slots, calibrated readings), a missing value gives "--";
-//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "CRC32 <8 hex digits>" over all lines
+//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "SHTC3 nack=<N> short=<N> crc=<N> run=<N>", then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 6), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
@@ -626,6 +628,12 @@ public:
     }
     len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "RESET reason=%s abnormal=%s\n",
                                         snap.reset_reason != nullptr ? snap.reset_reason : "UNKNOWN", abnormal));
+    if (len >= sizeof(text)) {
+      return;
+    }
+    len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "SHTC3 nack=%u short=%u crc=%u run=%u\n",
+                                        static_cast<unsigned>(snap.shtc3.nack), static_cast<unsigned>(snap.shtc3.short_reads),
+                                        static_cast<unsigned>(snap.shtc3.crc), static_cast<unsigned>(snap.shtc3.run)));
     if (len >= sizeof(text)) {
       return;
     }

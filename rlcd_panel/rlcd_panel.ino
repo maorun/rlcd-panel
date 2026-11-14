@@ -194,7 +194,7 @@ void onScanComplete(BLEScanResults) {
   g_scan_running = false;
 }
 
-bool readOnboardShtc3(Shtc3Reading& out) {
+Shtc3Result readOnboardShtc3(Shtc3Reading& out) {
   out = Shtc3Reading{};
 
   // Wake command 0x3517
@@ -202,7 +202,7 @@ bool readOnboardShtc3(Shtc3Reading& out) {
   Wire.write(0x35);
   Wire.write(0x17);
   if (Wire.endTransmission() != 0) {
-    return false;
+    return Shtc3Result::NACK;
   }
   delay(1);
 
@@ -211,7 +211,7 @@ bool readOnboardShtc3(Shtc3Reading& out) {
   Wire.write(0x78);
   Wire.write(0x66);
   if (Wire.endTransmission() != 0) {
-    return false;
+    return Shtc3Result::NACK;
   }
   delay(15);
 
@@ -229,11 +229,8 @@ bool readOnboardShtc3(Shtc3Reading& out) {
   Wire.write(0x98);
   Wire.endTransmission();
 
-  if (received != 6) {
-    return false;
-  }
-  return Shtc3Codec::decodeFrame(frame, sizeof(frame), out, config().temp_offset_c,
-                                config().rh_offset_pct);
+  return Shtc3Codec::classify(true, received == 6 ? 6 : 0, frame, out, config().temp_offset_c,
+                              config().rh_offset_pct);
 }
 
 // Events that happen before the RTC is read (config load, release of the empty protection) wait here
@@ -350,6 +347,7 @@ void renderDashboard() {
   info.sd_free_mb = g_sd_free_mb;
   info.sd_status = g_state.sd_status;
   info.cycle_tenths = g_cycles.cycleTenths();
+  info.shtc3 = g_state.shtc3;
 
   DashboardView::renderMode(
       g_framebuffer,
@@ -495,7 +493,7 @@ void updateCycles() {
 }
 
 void refreshSensors() {
-  readOnboardShtc3(g_onboard_reading);
+  g_state.shtc3.record(readOnboardShtc3(g_onboard_reading));
   // After a reset of the RTC state the latch starts off: a cell at 16..19 % raises no alert until
   // it reaches the set threshold.
   const bool was_low = g_state.battery.low_battery;
@@ -955,6 +953,7 @@ void setup() {
         snap.now_ms = nowMs();
         snap.sd_status = g_state.sd_status;
         snap.sd_status_ms = g_state.sd_status_ms;
+        snap.shtc3 = g_state.shtc3;
         snap.reset_reason = ResetReasonCodec::text(g_reset_reason);
         ResetCountStore reset_store;
         snap.abnormal_resets = AbnormalResetCounter::read(reset_store);

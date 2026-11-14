@@ -842,3 +842,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The `CONFIG` reply shows the line `chime_repeat_h=<N>`. `docs/config.example.ini` and `DeviceConfigParser::KEYS` list the key (`KEY_COUNT` is 37).
 - Thus the user does not forget an open window or a freezer that is too warm.
 - Host tests cover the parser for the default, the edges `0` and `24`, the value `25` and malformed values, a repeat at the exact time and over the clock wrap, no repeat for `ALERT_CHARGE_FULL`, the lowest active bit, the suppression by mute, quiet hours and a cleared mask bit (with the stamp advance), the reset by a rising edge, the `CONFIG` reply and the `RTC` round trip with the new `STATE_VERSION`.
+
+## Onboard SHTC3 read failure counter in STATUS and the diagnostics view
+
+- **Code:** `rlcd_panel/shtc3_sensor.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`
+- `Shtc3Codec::classify` gives the cause of each read: `OK`, `NACK` (an I2C command without an acknowledgement), `SHORT` (fewer than 6 bytes) or `CRC` (a CRC-8 mismatch in the frame). `readOnboardShtc3` returns this result. The bus sequence does not change.
+- `Shtc3Health` counts the failed reads by cause. Each counter stops at 65535. `run` counts the failures in a row (it stops at 255) and a good read sets it to 0.
+- `PersistentState::shtc3` stores 7 bytes just before the checksum: three `uint16_t` counters and one `uint8_t` run. `STATE_VERSION` is 41. A power-on sets the counters to 0. A corrupt field, a run above the sum of the counters and a record of version 40 give a clean start.
+- The console command `STATUS` shows the line `SHTC3 nack=<N> short=<N> crc=<N> run=<N>` before the `POWER` line.
+- The diagnostics view shows `SHTC3 ERR: <N>` (the sum of the three counters) at x = 190, y = 44. The text is inverted while `run` is 3 or more. The widest text ends at x = 394.
+- `docs/display_preview_diagnostics.png` shows `SHTC3 ERR: 3`.
+- Thus the user finds a loose sensor or a bad bus before the onboard tile shows wrong values.
+- Host tests cover the cause of each failed read (a missing acknowledgement, a short frame, a bad temperature CRC and a bad humidity CRC) and a valid frame, the saturation at 65535 and at run 255, the reset of `run` after a good read, the `STATUS` line and its position, the inverted text at `run` 3, and the RTC round trip with a corrupt field and the old state version.

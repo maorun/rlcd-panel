@@ -18,11 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] Onboard SHTC3 read failure counter in STATUS and the diagnostics view
-  - Rank: [Total: 35, Use: 7, Setup: 10, Harmony: 9, Safety: 9, Effort: S]
-  - Location: `rlcd_panel/shtc3_sensor.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`
-  - Goal: Add `Shtc3Health` to `shtc3_sensor.h`. It counts the failed reads of the onboard `SHTC3` by cause: `NACK` (an I2C command without an acknowledgement), `SHORT` (fewer than 6 bytes) and `CRC` (a CRC-8 mismatch in the frame). Each counter saturates at 65535. It also holds the count of consecutive failures, which a good read sets to 0. `readOnboardShtc3` returns the cause and does not change the bus sequence. Store the counters in `PersistentState` (7 bytes) and increase the state version. A power-on sets the counters to 0. Add the line `SHTC3 nack=<N> short=<N> crc=<N> run=<N>` to the `STATUS` reply before `POWER`. Show `SHTC3 ERR: <N>` (sum of the three counters) in the diagnostics view, inverted while `run` is 3 or more. Thus the user finds a loose sensor or a bad bus before the onboard tile shows wrong values.
-  - Acceptance test: Host tests cover the classification of each cause from a fake I2C result, a valid frame, a frame with a bad temperature CRC and a bad humidity CRC, the saturation at 65535, the reset of `run` after a good read, the `STATUS` line format and its position, the inverted diagnostics text at `run` 3, the RTC round trip with a corrupt field and the old state version. `./scripts/generate-display-preview.sh` gives a diagnostics preview with the new line. `arduino-cli compile rlcd_panel` passes.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 

@@ -43,6 +43,7 @@ struct SystemInfo {
   RtcDriftState rtc_drift;     // RTC drift of the last NTP sync; no figure shows "--"
   int32_t sd_free_mb = -1;     // free MicroSD space in MB; negative (unmounted, unknown) shows "--"
   SdStatus sd_status = SdStatus::UNKNOWN; // card fault replaces the free space text (OK and UNKNOWN keep it)
+  Shtc3Health shtc3;           // failed onboard SHTC3 reads; "SHTC3 ERR: N" is inverted from a run of 3
 };
 
 class DashboardView {
@@ -115,6 +116,10 @@ public:
   static constexpr uint16_t EVENTS_X = 232;   // diagnostics: "EVENTS: N" right of the config text
   static constexpr uint16_t EVENTS_Y = 276;   // same line as "CONFIG:"; 13 glyphs end at x = 388
   static constexpr uint16_t EVENTS_ERR_X = 264; // short "EV: N" right of "CONFIG: SD (255 ERR)"; 9 glyphs end at x = 372
+  // Diagnostics: "SHTC3 ERR: N" right of the power line (ends at x = 178). The widest text is
+  // "SHTC3 ERR: 196605" = 17 glyphs = 204 px, from x = 190 to x = 394. The inverted box adds 2 px.
+  static constexpr uint16_t SHTC3_X = 190;
+  static constexpr uint16_t SHTC3_Y = 44;
   static constexpr uint16_t LOOPBACK_Y = 260; // diagnostics: speaker to microphone test line
   static constexpr uint16_t MIC_TEST_Y = 224; // diagnostics: microphone self-test line
   static constexpr uint16_t PERCENTILE_X = 240; // diagnostics: "L10/L90" text (scale 1) right of "SD FREE"
@@ -726,6 +731,14 @@ public:
     const char* power = !battery.valid ? "NONE" : (battery.usb_powered ? "USB" : "BATTERY");
     snprintf(line, sizeof(line), "POWER: %s", power);
     drawLine(fb, 10, 44, line);
+
+    snprintf(line, sizeof(line), "SHTC3 ERR: %lu", static_cast<unsigned long>(info.shtc3.total()));
+    if (info.shtc3.alert()) {
+      fb.fillRect(SHTC3_X - 2, SHTC3_Y - 2, static_cast<uint16_t>(strlen(line) * 12 + 2), 18, true);
+      fb.drawText(SHTC3_X, SHTC3_Y, line, 2, false);
+    } else {
+      fb.drawText(SHTC3_X, SHTC3_Y, line, 2, true);
+    }
 
     if (battery.valid && battery.percentage >= 0) {
       snprintf(

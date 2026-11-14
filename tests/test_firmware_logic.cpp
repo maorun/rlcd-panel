@@ -725,7 +725,7 @@ void testBatteryOffsetMv() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 29;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 29;
   assert(buf[pos] == 100 && buf[pos + 1] == 0);
   auto seal = [&]() {
     const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
@@ -739,7 +739,7 @@ void testBatteryOffsetMv() {
   bad[pos] = 0xD3; bad[pos + 1] = 0xFE; // -301 mV
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 33; // old state version without the offset
   seal();
@@ -1179,7 +1179,7 @@ void testComfortZone() {
   assert(memcmp(ok_fb.data(), cold_fb.data(), RLCD_BUFFER_SIZE) != 0);
 
   // No RTC state change
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
 }
 
 void testFeelsLikeStats() {
@@ -1319,7 +1319,7 @@ void testFeelsLikeStats() {
   DashboardView::renderSensorStats(dashed, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
                                    nullptr, &config);
   assert(memcmp(fb.data(), dashed.data(), RLCD_BUFFER_SIZE) != 0);
-  assert(PowerManager::STATE_VERSION == 40); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 41); // no RTC state change
 }
 
 void testMoldHoursStats() {
@@ -1440,7 +1440,7 @@ void testMoldHoursStats() {
     }
     assert(i == 2 ? !differs : differs); // empty slot shows "MOLD --" in both renders
   }
-  assert(PowerManager::STATE_VERSION == 40); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 41); // no RTC state change
 }
 
 void testDashboardClimateLine() {
@@ -1787,7 +1787,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -2679,7 +2679,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -3102,7 +3102,7 @@ void testHistoryPersistence() {
   assert(rejected.history.slots[0].size() == 0);
 
   // Each corrupt field with a valid CRC is rejected: head, sample range, sampled flag
-  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE - PowerManager::BATTERY_HISTORY_SIZE - PowerManager::NOISE_HISTORY_SIZE - 1;
+  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE - PowerManager::BATTERY_HISTORY_SIZE - PowerManager::NOISE_HISTORY_SIZE - 1;
   // Sample bytes: low byte at ring_pos + 2, high byte at ring_pos + 3 (little endian)
   const size_t cases[5][2] = {
       {ring_pos + 1, 24}, {ring_pos + 3, 0x7F}, {sampled_pos, 2}, {ring_pos + 3, 0xFF}, {ring_pos + 3, 0x04}};
@@ -3315,7 +3315,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3516,7 +3516,7 @@ void testSdLogSchedule() {
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(r.last_log_ms == 123456 && r.has_logged);
-  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - 10 - 1] = 2; // has_logged precedes the 5-byte daily stamp and the 5-byte SD status
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - 10 - 1] = 2; // has_logged precedes the 5-byte daily stamp and the 5-byte SD status
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -3666,7 +3666,7 @@ void testSensorLostAlert() {
     }
   }
   // State encoding: audio byte = muted | mask << 1 | band << 6
-  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 3;
+  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 3;
   s.muted = false;
   s.alert_mask = ALERT_SENSOR_LOST;
   s.noise_band = NoiseBand::MODERATE;
@@ -3977,7 +3977,7 @@ void testAudioStatePersistence() {
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(!r.muted && r.alert_mask == ALERT_HUMIDITY);
   // No reserved bit is left: the band value 3 with a valid CRC is rejected
-  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 3] = 0xC0;
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 3] = 0xC0;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -4952,7 +4952,7 @@ void testNoiseStatePersistence() {
     assert(r.noise_band == band && r.muted && r.alert_mask == ALERT_HUMIDITY);
   }
   // Band value 3 does not exist and is rejected even with a valid CRC
-  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 3;
+  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 3;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   buf[audio_pos] = static_cast<uint8_t>(3 << 6);
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
@@ -5145,13 +5145,13 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
   // Reserved flag bit, success without attempt, and too many failures are rejected
-  const size_t flags_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE + 4;
+  const size_t flags_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE + 4;
   const uint8_t bad_flags[3][2] = {{4, 0}, {2, 0}, {1, NtpSchedule::MAX_FAILURES + 1}};
   for (const auto& b : bad_flags) {
     assert(PowerManager::serialize(s, buf, sizeof(buf)));
@@ -5820,7 +5820,7 @@ void testDeviceConfigRtcRoundTrip() {
 
   // A corrupt record is rejected, with a bad checksum and with a valid checksum
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
+  const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
   bad[cfg_pos + 8] ^= 0x40;
@@ -5946,7 +5946,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6116,7 +6116,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -6298,7 +6298,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -7059,7 +7059,7 @@ void testRtcDriftPersistence() {
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(!r.rtc_drift.has_sync && !r.rtc_drift.has_drift);
   // Corrupt records are rejected, even with a valid CRC
-  const size_t drift_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - 13;
+  const size_t drift_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - 13;
   auto reseal = [&]() {
     const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
     for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -8173,7 +8173,7 @@ void testClimateChartKeyHandling() {
 }
 
 void testClimateChartRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
   PersistentState s;
   s.mode = DisplayMode::CLIMATE_CHART;
   s.chart_sensor = 3;
@@ -8998,7 +8998,7 @@ void testBatteryHistoryCorruptStamps() {
   }
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE -
+  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE -
                       PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE -
                       PowerManager::BATTERY_HISTORY_SIZE;
   const size_t stamps = base + 2 + BatteryHistory::CAPACITY * 2;
@@ -9032,7 +9032,7 @@ void testBatteryHistoryPersistence() {
   assert(s.battery_history.slope(a) && r.battery_history.slope(b) && a == b);
 
   // A flipped byte fails the checksum
-  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE -
+  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE -
                       PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE -
                       PowerManager::BATTERY_HISTORY_SIZE;
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -9972,7 +9972,7 @@ void testChimeRepeat() {
   assert(AlertEvaluator::repeatableBits(static_cast<uint8_t>(ALERT_FREEZER | ALERT_CHARGE_FULL)) == ALERT_FREEZER);
 
   // RTC round trip: stamp, key and state version
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
   PersistentState st;
   st.last_chime_ms = 0xFFFFFF00u;
   st.config.chime_repeat_h = 24;
@@ -10105,7 +10105,7 @@ void testSlotRelease() {
   PersistentState s;
   s.config.slot_release_h = 77;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 31;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 31;
   assert(buf[pos] == 77);
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   auto seal = [&]() {
@@ -10116,7 +10116,7 @@ void testSlotRelease() {
   bad[pos] = 169;
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 34; // old state version without the key
   seal();
@@ -10212,7 +10212,7 @@ void testNightWakeInterval() {
   PersistentState st;
   st.config.night_wake_interval_s = 0x0258; // 600
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 32;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 32;
   assert(buf[pos] == 0x58 && buf[pos + 1] == 0x02);
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   auto seal = [&]() {
@@ -10227,7 +10227,7 @@ void testNightWakeInterval() {
   bad[pos] = 0x09; bad[pos + 1] = 0x07; // 1801 s: above range
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 35; // old state version without the key
   seal();
@@ -10351,13 +10351,13 @@ void testSerialStatusParser() {
 void testSerialStatusEmptyAndMissingValues() {
   StatusFixture f;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 8);
+  assert(lines.size() == 9);
   assert(lines[0] == "SENSOR 0 onboard temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
   assert(lines[1] == "SENSOR 1 slot1 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
   assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
   assert(lines[5] == "RESET reason=UNKNOWN abnormal=--");
-  assert(lines[6] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
-  assert(lines[7].rfind("CRC32 ", 0) == 0);
+  assert(lines[7] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
+  assert(lines[8].rfind("CRC32 ", 0) == 0);
 }
 
 void testSerialStatusStates() {
@@ -10411,8 +10411,8 @@ void testSerialStatusWorstCaseLineLength() {
   f.snap.reset_reason = ResetReasonCodec::text(ResetReason::TASK_WDT); // the longest text
   f.snap.abnormal_resets = 65535;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 8 && lines[4].rfind("SD status=", 0) == 0 && lines[5] == "RESET reason=TASK_WDT abnormal=65535" &&
-         lines[6].rfind("POWER ", 0) == 0 && lines[7].size() == 14);
+  assert(lines.size() == 9 && lines[4].rfind("SD status=", 0) == 0 && lines[5] == "RESET reason=TASK_WDT abnormal=65535" &&
+         lines[6].rfind("SHTC3 ", 0) == 0 && lines[7].rfind("POWER ", 0) == 0 && lines[8].size() == 14);
   for (size_t i = 0; i < 4; ++i) {
     assert(lines[i].rfind("SENSOR ", 0) == 0 && lines[i].find(" state=") != std::string::npos);
   }
@@ -10427,10 +10427,10 @@ void testSerialStatusPowerLine() {
   f.snap.alert_mask = 0x25;
   f.snap.muted = true;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[6] == "POWER src=BAT v=3.62 pct=42 alerts=25 muted=1");
+  assert(lines[7] == "POWER src=BAT v=3.62 pct=42 alerts=25 muted=1");
   f.snap.battery.valid = false;
   lines = statusLines(f.run());
-  assert(lines[6] == "POWER src=BAT v=-- pct=-- alerts=25 muted=1");
+  assert(lines[7] == "POWER src=BAT v=-- pct=-- alerts=25 muted=1");
 }
 
 struct FakeResetStore {
@@ -10516,6 +10516,190 @@ void testSerialStatusResetLine() {
   assert(statusLines(f.run())[5] == "RESET reason=BROWNOUT abnormal=--");
   f.snap.reset_reason = nullptr;
   assert(statusLines(f.run())[5] == "RESET reason=UNKNOWN abnormal=--");
+}
+
+namespace {
+void goodFrame(uint8_t* frame) {
+  frame[0] = 0x63;
+  frame[1] = 0x32;
+  frame[2] = Shtc3Codec::computeCrc8(frame, 2);
+  frame[3] = 0x8C;
+  frame[4] = 0xA4;
+  frame[5] = Shtc3Codec::computeCrc8(frame + 3, 2);
+}
+} // namespace
+
+void testShtc3Classification() {
+  uint8_t frame[6];
+  goodFrame(frame);
+  Shtc3Reading r;
+  assert(Shtc3Codec::classify(true, 6, frame, r) == Shtc3Result::OK && r.valid);
+
+  Shtc3Reading nack;
+  assert(Shtc3Codec::classify(false, 6, frame, nack) == Shtc3Result::NACK && !nack.valid);
+  assert(Shtc3Codec::classify(false, 0, nullptr, nack) == Shtc3Result::NACK);
+
+  Shtc3Reading shorty;
+  assert(Shtc3Codec::classify(true, 0, frame, shorty) == Shtc3Result::SHORT && !shorty.valid);
+  assert(Shtc3Codec::classify(true, 5, frame, shorty) == Shtc3Result::SHORT);
+  assert(Shtc3Codec::classify(true, 6, nullptr, shorty) == Shtc3Result::SHORT);
+
+  uint8_t bad_t[6];
+  memcpy(bad_t, frame, 6);
+  bad_t[2] ^= 0x01; // temperature CRC
+  Shtc3Reading crc_t;
+  assert(Shtc3Codec::classify(true, 6, bad_t, crc_t) == Shtc3Result::CRC && !crc_t.valid);
+  uint8_t bad_rh[6];
+  memcpy(bad_rh, frame, 6);
+  bad_rh[5] ^= 0x01; // humidity CRC
+  Shtc3Reading crc_rh;
+  assert(Shtc3Codec::classify(true, 6, bad_rh, crc_rh) == Shtc3Result::CRC && !crc_rh.valid);
+}
+
+void testShtc3HealthCounters() {
+  Shtc3Health h;
+  assert(h.total() == 0 && h.run == 0 && !h.alert() && h.consistent());
+  h.record(Shtc3Result::NACK);
+  h.record(Shtc3Result::SHORT);
+  h.record(Shtc3Result::SHORT);
+  h.record(Shtc3Result::CRC);
+  assert(h.nack == 1 && h.short_reads == 2 && h.crc == 1 && h.total() == 4 && h.run == 4 && h.alert());
+  // A good read sets the run to 0 and keeps the counters.
+  h.record(Shtc3Result::OK);
+  assert(h.run == 0 && h.total() == 4 && !h.alert() && h.consistent());
+  h.record(Shtc3Result::NACK);
+  h.record(Shtc3Result::NACK);
+  assert(h.run == 2 && !h.alert());
+  h.record(Shtc3Result::NACK);
+  assert(h.run == 3 && h.alert());
+}
+
+void testShtc3HealthSaturation() {
+  Shtc3Health h;
+  h.nack = 65534;
+  h.short_reads = 65535;
+  h.crc = 65535;
+  h.record(Shtc3Result::NACK);
+  assert(h.nack == 65535);
+  h.record(Shtc3Result::NACK);
+  h.record(Shtc3Result::SHORT);
+  h.record(Shtc3Result::CRC);
+  assert(h.nack == 65535 && h.short_reads == 65535 && h.crc == 65535 && h.total() == 196605);
+  // The run saturates at 255.
+  Shtc3Health r;
+  for (int i = 0; i < 300; ++i) {
+    r.record(Shtc3Result::CRC);
+  }
+  assert(r.run == 255 && r.crc == 300);
+}
+
+void testShtc3StatusLine() {
+  StatusFixture f;
+  f.snap.shtc3.nack = 1;
+  f.snap.shtc3.short_reads = 22;
+  f.snap.shtc3.crc = 65535;
+  f.snap.shtc3.run = 4;
+  const std::vector<std::string> lines = statusLines(f.run());
+  assert(lines.size() == 9);
+  assert(lines[5].rfind("RESET ", 0) == 0);
+  assert(lines[6] == "SHTC3 nack=1 short=22 crc=65535 run=4");
+  assert(lines[7].rfind("POWER ", 0) == 0);
+  StatusFixture clean;
+  assert(statusLines(clean.run())[6] == "SHTC3 nack=0 short=0 crc=0 run=0");
+}
+
+void testShtc3DiagnosticsInverted() {
+  BatteryReading battery;
+  battery.valid = true;
+  battery.usb_powered = true;
+  battery.percentage = 80;
+  battery.voltage_v = 4.0f;
+  SystemInfo info;
+  info.shtc3.nack = 4;
+  info.shtc3.run = 2;
+  St7305Framebuffer plain;
+  DashboardView::renderDiagnostics(plain, battery, info, "12:00");
+  info.shtc3.run = 3;
+  St7305Framebuffer inverted;
+  DashboardView::renderDiagnostics(inverted, battery, info, "12:00");
+  assert(memcmp(plain.data(), inverted.data(), RLCD_BUFFER_SIZE) != 0);
+  // The box is black behind the white text: its corner pixel is set only while the run is 3 or more.
+  assert(!plain.getPixel(DashboardView::SHTC3_X - 2, DashboardView::SHTC3_Y - 2));
+  assert(inverted.getPixel(DashboardView::SHTC3_X - 2, DashboardView::SHTC3_Y - 2));
+  // The count in the text changes the image.
+  SystemInfo none;
+  St7305Framebuffer zero;
+  DashboardView::renderDiagnostics(zero, battery, none, "12:00");
+  assert(memcmp(zero.data(), plain.data(), RLCD_BUFFER_SIZE) != 0);
+  // The widest text fits inside the screen: 17 glyphs from x = 190 end at x = 394.
+  SystemInfo wide;
+  wide.shtc3.nack = wide.shtc3.short_reads = wide.shtc3.crc = 65535;
+  wide.shtc3.run = 255;
+  St7305Framebuffer w;
+  DashboardView::renderDiagnostics(w, battery, wide, "12:00");
+  assert(DashboardView::SHTC3_X + 17 * 12 <= RLCD_WIDTH);
+  // The inverted box of the widest text ends at x = 393 and leaves x = 394 untouched.
+  assert(w.getPixel(393, DashboardView::SHTC3_Y - 2) && !w.getPixel(394, DashboardView::SHTC3_Y - 2));
+}
+
+void testShtc3RtcRoundTrip() {
+  assert(PowerManager::STATE_VERSION == 41);
+  PersistentState s;
+  s.shtc3.nack = 513;
+  s.shtc3.short_reads = 65535;
+  s.shtc3.crc = 7;
+  s.shtc3.run = 5;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState out;
+  assert(PowerManager::deserialize(buf, sizeof(buf), out));
+  assert(out.shtc3.nack == 513 && out.shtc3.short_reads == 65535 && out.shtc3.crc == 7 && out.shtc3.run == 5);
+
+  // The block sits just before the checksum: nack, short, crc (little endian), run.
+  const size_t at = sizeof(buf) - 4 - Shtc3Health::SERIALIZED_SIZE;
+  assert(buf[at] == 0x01 && buf[at + 1] == 0x02 && buf[at + 2] == 0xFF && buf[at + 3] == 0xFF &&
+         buf[at + 4] == 7 && buf[at + 5] == 0 && buf[at + 6] == 5);
+
+  // A run above the counted failures is corrupt, also behind a valid checksum.
+  uint8_t bad[PowerManager::SERIALIZED_SIZE];
+  memcpy(bad, buf, sizeof(buf));
+  bad[at] = bad[at + 1] = bad[at + 2] = bad[at + 3] = bad[at + 4] = bad[at + 5] = 0;
+  bad[at + 6] = 1; // run 1 with all counters 0
+  uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
+  for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  PersistentState rejected;
+  rejected.boot_count = 9;
+  assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+  assert(rejected.boot_count == 0 && rejected.shtc3.total() == 0);
+
+  // A flipped counter byte without a new checksum is rejected.
+  memcpy(bad, buf, sizeof(buf));
+  bad[at] ^= 0x10;
+  assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+
+  // The old state version (40) with a valid checksum is rejected.
+  memcpy(bad, buf, sizeof(buf));
+  bad[4] = 40;
+  crc = PowerManager::crc32(bad, sizeof(bad) - 4);
+  for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+
+  // A power-on starts with zero counters; a failed restore keeps the defaults.
+  PersistentState power_on;
+  assert(!PowerManager::restore(WakeupCause::POWER_ON, buf, sizeof(buf), power_on));
+  assert(power_on.shtc3.total() == 0 && power_on.shtc3.run == 0);
+}
+
+void testShtc3PreviewDiagnostics() {
+  // The diagnostics preview shows "SHTC3 ERR: 3" (not inverted: the run is 0).
+  St7305Framebuffer fb;
+  preview::renderScene(fb, DisplayMode::SYSTEM_DIAGNOSTICS, false);
+  size_t ink = 0;
+  for (uint16_t y = DashboardView::SHTC3_Y; y < DashboardView::SHTC3_Y + 14; ++y) {
+    for (uint16_t x = DashboardView::SHTC3_X; x < RLCD_WIDTH; ++x) ink += fb.getPixel(x, y) ? 1 : 0;
+  }
+  assert(ink > 100);
+  assert(!fb.getPixel(DashboardView::SHTC3_X - 2, DashboardView::SHTC3_Y - 2));
 }
 
 void testSerialStatusCrcOverAllPriorBytes() {
@@ -11721,7 +11905,7 @@ void testNoiseAlertStatePersistence() {
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 24 - 24;
+  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 24 - 24;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -11734,7 +11918,7 @@ void testNoiseAlertStatePersistence() {
   // An invalid band value in the audio byte is rejected
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
-  bad[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 3] = 0xC0;
+  bad[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 3] = 0xC0;
   const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
   for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
@@ -11972,7 +12156,7 @@ void testVentilationStatePersistence() {
   // An out-of-range slot is rejected, even with a valid CRC
   s.config.outdoor_slot = 3;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t cfg_start = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
+  const size_t cfg_start = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   for (uint8_t bad_slot : {uint8_t{4}, uint8_t{255}}) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
     memcpy(bad, buf, sizeof(bad));
@@ -11989,7 +12173,7 @@ void testVentilationStatePersistence() {
   // The flag byte (bit 0 ventilate, bit 1 sensor battery) precedes the audio byte; a value above 3 is rejected, even with a valid CRC
   s.alert_mask = ALERT_VENTILATE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t vent_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 4;
+  const size_t vent_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 4;
   assert(buf[vent_pos] == 1);
   for (uint8_t bad_vent : {uint8_t{4}, uint8_t{255}}) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -12247,7 +12431,7 @@ void testChimeAlertMask() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   uint8_t badbuf[PowerManager::SERIALIZED_SIZE];
   memcpy(badbuf, buf, sizeof(badbuf));
-  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 23 - 24] = 128;
+  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 23 - 24] = 128;
   const uint32_t crc = PowerManager::crc32(badbuf, sizeof(badbuf) - 4);
   for (int i = 0; i < 4; ++i) badbuf[sizeof(badbuf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState out;
@@ -12710,7 +12894,7 @@ void testDailySummaryStateRoundTrip() {
 
   // Corrupt stamp fields with a valid CRC are rejected.
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t daily_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE -
+  const size_t daily_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE -
                            PowerManager::AUDIO_SIZE - 10; // daily stamp (5) is followed by the SD status (5)
   assert(buf[daily_pos] == 1 && buf[daily_pos + 1] == (2026 & 0xFF));
   const size_t bad[5][3] = {{daily_pos, 2, 0}, {daily_pos + 3, 13, 0}, {daily_pos + 3, 0, 0}, {daily_pos + 4, 32, 0}, {daily_pos + 3, 2, 31}};
@@ -13166,10 +13350,10 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
 
   // A valid checksum with the same MAC in two keys is rejected
-  const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
+  const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
   memcpy(bad + mac_pos + 6, MAC_A, 6);
@@ -13374,7 +13558,7 @@ void testVentilateLatchRtcRoundTrip() {
   PersistentState bad;
   st.ventilate_tiles = 1;
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
-  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1;
+  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1;
   assert(buf[latch_pos] == 1);
   buf[latch_pos] = 0x10;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
@@ -13680,13 +13864,13 @@ void testSensorBatteryLatchRtcRoundTrip() {
     }
   }
   // The version is increased
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
   // Corrupt records: latch bit above bit 2, flag byte above 3, limit above 50, old version
   st.sensor_battery_latch = 1;
   st.alert_mask = ALERT_NONE;
   st.config.sensor_battery_limit_pct = 10;
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
-  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 2;
+  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 2;
   assert(buf[latch_pos] == 1);
   auto reseal = [](uint8_t* b) {
     const uint32_t crc = PowerManager::crc32(b, PowerManager::SERIALIZED_SIZE - 4);
@@ -13702,7 +13886,7 @@ void testSensorBatteryLatchRtcRoundTrip() {
   reseal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
   memcpy(bad, buf, sizeof(bad));
-  bad[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 24] = 51; // the limit follows the ventilate limit (byte 23)
+  bad[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 24] = 51; // the limit follows the ventilate limit (byte 23)
   reseal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
   memcpy(bad, buf, sizeof(bad));
@@ -13903,7 +14087,7 @@ void testSensorStaleMinConfig() {
 
   // RTC round trip, corrupt values and the version bump
   PersistentState st;
-  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 40);
+  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 41);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(5), uint16_t(30), uint16_t(240)}) {
@@ -13988,7 +14172,7 @@ void testDisplayInvert() {
 
   // RTC round trip, corrupt value and version bump
   PersistentState st;
-  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 40);
+  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 41);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(1)}) {
@@ -14127,7 +14311,7 @@ void testClimateAlertTiles() {
 
   // RTC round trip, corrupt value and the old state version
   PersistentState st;
-  assert(st.config.climate_alert_tiles == 15 && PowerManager::STATE_VERSION == 40);
+  assert(st.config.climate_alert_tiles == 15 && PowerManager::STATE_VERSION == 41);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(5), uint8_t(15)}) {
@@ -14325,16 +14509,16 @@ void testSdCardStatus() {
     f.snap.sd_status = n.status;
     f.snap.sd_status_ms = f.snap.now_ms - 125000;
     const std::vector<std::string> lines = statusLines(f.run());
-    assert(lines.size() == 8);
+    assert(lines.size() == 9);
     assert(lines[4] == std::string("SD status=") + n.name + " age=125");
-    assert(lines[6].rfind("POWER ", 0) == 0);
+    assert(lines[7].rfind("POWER ", 0) == 0);
   }
   StatusFixture unknown;
   const std::vector<std::string> unknown_lines = statusLines(unknown.run());
   assert(unknown_lines[4] == "SD status=UNKNOWN age=--");
 
   // RTC round trip, a corrupt status byte and the old state version
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
   PersistentState st;
   st.setSdStatus(SdStatus::FULL, 4242);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -14342,7 +14526,7 @@ void testSdCardStatus() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.sd_status == SdStatus::FULL && back.sd_status_ms == 4242);
-  const size_t sd_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE -
+  const size_t sd_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE -
                         PowerManager::AUDIO_SIZE - 5;
   assert(buf[sd_pos] == static_cast<uint8_t>(SdStatus::FULL));
   auto reseal = [](uint8_t* b) {
@@ -14375,7 +14559,7 @@ void testSdCardStatus() {
 }
 
 void testEventLog() {
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
   const RtcTime t1 = localTime(2026, 11, 14, 9, 30);
   const RtcTime bad_time{}; // invalid
   // Empty ring and one event
@@ -14500,7 +14684,7 @@ void testEventLog() {
 
   // Corrupt ring: each case is rejected, and `out` keeps its defaults
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
-  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE;
+  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE;
   auto reseal = [](uint8_t* b) {
     const uint32_t crc = PowerManager::crc32(b, PowerManager::SERIALIZED_SIZE - 4);
     for (int i = 0; i < 4; ++i) b[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -14729,9 +14913,9 @@ void testTempUnitRtcRoundTrip() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.temp_unit == 'C' && r.config.isDefault());
   // The unit byte follows the night wake interval in the config trailer
-  const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
+  const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   assert(buf[cfg_pos + 34] == 'C');
-  assert(PowerManager::STATE_VERSION == 40);
+  assert(PowerManager::STATE_VERSION == 41);
 }
 
 int main() {
@@ -15016,6 +15200,13 @@ testSerialStatusOnboardStaleAndOffset();
 testSerialStatusWorstCaseLineLength();
 testSerialStatusPowerLine();
 testSerialStatusResetLine();
+testShtc3Classification();
+testShtc3HealthCounters();
+testShtc3HealthSaturation();
+testShtc3StatusLine();
+testShtc3DiagnosticsInverted();
+testShtc3RtcRoundTrip();
+testShtc3PreviewDiagnostics();
 testResetReasonText();
 testResetReasonAbnormal();
 testAbnormalResetCounterWrites();
@@ -15095,6 +15286,6 @@ testSerialConfigNegativeSmallOffset();
   testSensorStaleMinConfig();
   testConfigCheckTool();
   testSdCardStatus();
-  printf("All 163 firmware logic test suites passed.\n");
+  printf("All 170 firmware logic test suites passed.\n");
   return 0;
 }
