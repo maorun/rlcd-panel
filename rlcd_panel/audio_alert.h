@@ -29,7 +29,7 @@ constexpr uint8_t ALERT_CHARGE_FULL = 16; // the cell is full on USB power (set 
 constexpr uint8_t ALERT_VENTILATE = 32; // the outdoor air is drier than the humid indoor air
 constexpr uint8_t ALERT_SENSOR_BATTERY = 64; // an external sensor reports a low battery (set by batteryStep)
 constexpr uint8_t ALERT_HEAT = 128; // a tile feels hotter than the heat limit (feels-like temperature)
-constexpr uint8_t CLIMATE_TILES_ALL = 15; // bit 0 onboard, bits 1 to 3 registry slots 1 to 3
+constexpr uint8_t CLIMATE_TILES_ALL = 63; // bit 0 onboard, bits 1 to 5 registry slots 1 to 5
 constexpr uint8_t ALERT_CLIMATE_MASK =
     ALERT_FREEZER | ALERT_HUMIDITY | ALERT_SENSOR_LOST | ALERT_VENTILATE | ALERT_HEAT; // set by AlertEvaluator
 constexpr uint8_t ALERT_MASK_ALL =
@@ -49,9 +49,9 @@ struct AlertLimits {
 
   float freezer_trigger_c = 0.0f;
   float humidity_trigger_pct = 70.0f;
-  uint8_t outdoor_slot = 0; // 0 = off, 1 to 3 = registry slot of the outdoor sensor
+  uint8_t outdoor_slot = 0; // 0 = off, 1 to 5 = registry slot of the outdoor sensor
   uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS; // a slot without a packet for longer is stale
-  uint8_t climate_tiles = CLIMATE_TILES_ALL; // tiles of the freezer and mold alerts: bit 0 onboard, bits 1 to 3 slots 1 to 3
+  uint8_t climate_tiles = CLIMATE_TILES_ALL; // tiles of the freezer and mold alerts: bit 0 onboard, bits 1 to 5 slots 1 to 5
 
   float heat_trigger_c = 0.0f; // feels-like limit in C, 0 = off
 
@@ -94,7 +94,7 @@ public:
     }
     for (size_t i = 0; slots != nullptr && i < slot_count; ++i) {
       const SwitchBotReading& r = slots[i];
-      if (i < 3 && (limits.climate_tiles & (2u << i)) != 0 && r.valid && !r.isStale(now_ms, limits.stale_timeout_ms)) {
+      if (i < MAX_SWITCHBOT_SENSORS && (limits.climate_tiles & (2u << i)) != 0 && r.valid && !r.isStale(now_ms, limits.stale_timeout_ms)) {
         tally.add(r.temperature_c, static_cast<float>(r.humidity_pct));
       }
     }

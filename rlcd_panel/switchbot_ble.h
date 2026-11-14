@@ -14,7 +14,7 @@ constexpr uint16_t SWITCHBOT_SERVICE_UUID = 0xFD3D;
 constexpr uint8_t SWITCHBOT_METER_TYPE = 0x54;
 constexpr uint8_t SWITCHBOT_METER_PLUS_TYPE = 0x69;
 
-constexpr size_t MAX_SWITCHBOT_SENSORS = 3;
+constexpr size_t MAX_SWITCHBOT_SENSORS = 5;
 // A sensor is stale when no packet arrived for 30 minutes.
 constexpr uint32_t SENSOR_STALE_TIMEOUT_MS = 1800000;
 
@@ -412,10 +412,10 @@ private:
   }
 
   SwitchBotReading slots_[MAX_SWITCHBOT_SENSORS];
-  bool assigned_[MAX_SWITCHBOT_SENSORS] = {false, false, false};
-  BleFormat assigned_format_[MAX_SWITCHBOT_SENSORS] = {BleFormat::WOIO, BleFormat::WOIO, BleFormat::WOIO};
-  bool fixed_[MAX_SWITCHBOT_SENSORS] = {false, false, false};
-  uint8_t fixed_mac_[MAX_SWITCHBOT_SENSORS][6] = {{0}, {0}, {0}};
+  bool assigned_[MAX_SWITCHBOT_SENSORS] = {};
+  BleFormat assigned_format_[MAX_SWITCHBOT_SENSORS] = {BleFormat::WOIO, BleFormat::WOIO, BleFormat::WOIO, BleFormat::WOIO, BleFormat::WOIO};
+  bool fixed_[MAX_SWITCHBOT_SENSORS] = {};
+  uint8_t fixed_mac_[MAX_SWITCHBOT_SENSORS][6] = {};
   BleRejectStats rejects_;
 };
 
@@ -497,7 +497,7 @@ private:
 };
 
 // Per slot low battery latch of the external sensors (config.ini key sensor_battery_limit_pct).
-// Bits 0 to 2 are the registry slots. A bit sets when the reported battery is at or below the
+// Bits 0 to 4 are the registry slots. A bit sets when the reported battery is at or below the
 // limit. It releases at the limit plus RELEASE_MARGIN_PCT or more; between the two it holds. A
 // stale slot and a slot without a reported battery (-1) keep their bit: no new information
 // arrived. An empty slot clears its bit. A limit of 0 switches the latch off and clears all bits.

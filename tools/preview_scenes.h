@@ -26,9 +26,10 @@ struct PreviewScene {
   bool battery_empty = false; // empty battery protection: full-screen warning
   bool ventilate = false;     // ventilation advice: banner in the dashboard header
   bool invert = false;        // config.ini display_invert=1: light text on a dark background
+  uint8_t tiles = 0;          // dashboard tile count 1 to 6 (onboard + slots); 0 is the classic sample with 3 slots, which is the 4-tile layout (display_preview_dashboard)
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 11;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 14;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
@@ -42,13 +43,16 @@ constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_battery_empty", DisplayMode::DASHBOARD, false, false, false, true},
     {"display_preview_ventilate", DisplayMode::DASHBOARD, false, false, false, false, true},
     {"display_preview_inverted", DisplayMode::DASHBOARD, false, false, false, false, false, true},
+    {"display_preview_tiles1", DisplayMode::DASHBOARD, false, false, false, false, false, false, 1},
+    {"display_preview_tiles2", DisplayMode::DASHBOARD, false, false, false, false, false, false, 2},
+    {"display_preview_tiles6", DisplayMode::DASHBOARD, false, false, false, false, false, false, 6},
 };
 
 // Renders one mode with the fixed sample data used for all documentation previews.
 inline void renderScene(
     St7305Framebuffer& fb, DisplayMode mode, bool low_battery, bool quiet_hours = false,
     bool long_runtime = false, bool battery_empty = false, bool ventilate = false,
-    bool invert = false) {
+    bool invert = false, uint8_t tiles = 0) {
   Shtc3Reading onboard;
   onboard.valid = true;
   onboard.temperature_c = 21.8f;
@@ -85,11 +89,40 @@ inline void renderScene(
   slots[2].mac[0] = 0xB0; slots[2].mac[1] = 0xE9; slots[2].mac[2] = 0xFE;
   slots[2].mac[3] = 0x65; slots[2].mac[4] = 0x43; slots[2].mac[5] = 0x21;
 
+  // Sensor 4: Garage / Garage
+  slots[3].valid = true;
+  slots[3].temperature_c = 11.6f;
+  slots[3].humidity_pct = 57;
+  slots[3].battery_pct = 88;
+  slots[3].rssi = -77;
+  slots[3].packet_count = 205;
+  slots[3].mac[0] = 0xB0; slots[3].mac[1] = 0xE9; slots[3].mac[2] = 0xFE;
+  slots[3].mac[3] = 0x44; slots[3].mac[4] = 0x55; slots[3].mac[5] = 0x66;
+
+  // Sensor 5: Attic / Dachboden
+  slots[4].valid = true;
+  slots[4].temperature_c = 27.3f;
+  slots[4].humidity_pct = 36;
+  slots[4].battery_pct = 64;
+  slots[4].rssi = -81;
+  slots[4].packet_count = 151;
+  slots[4].mac[0] = 0xB0; slots[4].mac[1] = 0xE9; slots[4].mac[2] = 0xFE;
+  slots[4].mac[3] = 0x77; slots[4].mac[4] = 0x88; slots[4].mac[5] = 0x99;
+
   // Preview clock: slots 0 and 1 are fresh, slot 2 got its last packet 45 minutes ago (stale)
   const uint32_t now_ms = 10000000;
   slots[0].updated_ms = now_ms - 60000;
   slots[1].updated_ms = now_ms - 120000;
   slots[2].updated_ms = now_ms - 45 * 60 * 1000;
+  slots[3].updated_ms = now_ms - 90000;
+  slots[4].updated_ms = now_ms - 30000;
+
+  // The classic sample has three slots (four tiles). A tile count N shows N - 1 slots; a slot
+  // beyond that count has no reading, no name and no tile.
+  const size_t live_slots = tiles == 0 ? 3 : static_cast<size_t>(tiles - 1);
+  for (size_t i = live_slots; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    slots[i] = SwitchBotReading();
+  }
 
   BatteryReading battery;
   battery.valid = true;
@@ -110,11 +143,11 @@ inline void renderScene(
 
   // Preview history: 24 hourly samples with a daily rhythm per sensor
   ClimateHistory history;
-  const float base[ClimateHistory::SLOT_COUNT] = {45.0f, 58.0f, 72.0f, 40.0f};
-  const float swing[ClimateHistory::SLOT_COUNT] = {4.0f, 9.0f, 14.0f, 1.0f};
+  const float base[ClimateHistory::SLOT_COUNT] = {45.0f, 58.0f, 72.0f, 40.0f, 52.0f, 38.0f};
+  const float swing[ClimateHistory::SLOT_COUNT] = {4.0f, 9.0f, 14.0f, 1.0f, 6.0f, 8.0f};
   // Outdoor sensors swing below freezing, so the stats view shows negative records
-  const float tbase[ClimateHistory::SLOT_COUNT] = {21.0f, 4.0f, -5.0f, 6.0f};
-  const float tswing[ClimateHistory::SLOT_COUNT] = {1.5f, 6.0f, 10.0f, 0.0f};
+  const float tbase[ClimateHistory::SLOT_COUNT] = {21.0f, 4.0f, -5.0f, 6.0f, 12.0f, 24.0f};
+  const float tswing[ClimateHistory::SLOT_COUNT] = {1.5f, 6.0f, 10.0f, 0.0f, 3.0f, 5.0f};
   for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
     for (int hour = 0; hour < 24; ++hour) {
       history.slots[s].pushPercent(base[s] + swing[s] * sinf(static_cast<float>(hour) * 0.2618f));
@@ -195,6 +228,11 @@ inline void renderScene(
   strcpy(config.slot_name[0], "WOHNZIMMER");
   strcpy(config.slot_name[1], "GARTEN");
   strcpy(config.slot_name[2], "KELLER");
+  strcpy(config.slot_name[3], "GARAGE");
+  strcpy(config.slot_name[4], "DACHBODEN");
+  for (size_t i = live_slots; i < DeviceConfig::SLOT_COUNT; ++i) {
+    config.slot_name[i][0] = '\0'; // no name: the slot gets no tile
+  }
 
   DashboardView::renderMode(
       fb,

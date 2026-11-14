@@ -29,7 +29,7 @@ struct ConfigSchemaTests {
         let (active, commented) = try templateKeys()
         let template = Set(active.keys).union(commented)
         #expect(Set(ConfigSchema.keys) == template)
-        #expect(ConfigSchema.keys.count == 40)
+        #expect(ConfigSchema.keys.count == 44)
         #expect(Set(ConfigSchema.keys).count == ConfigSchema.keys.count)
         for e in ConfigSchema.entries {
             if let v = active[e.key] {
@@ -130,6 +130,13 @@ struct ConfigSchemaTests {
 
     @Test func unknownKey() {
         #expect(ConfigSchema.validate(key: "wifi_ssid", value: "x") == .unknownKey)
+    }
+
+    @Test func duplicateMacInSlotFourAndFiveIsAProblem() {
+        let changes = [ConfigChange(key: "slot5_mac", old: "", new: "AA:BB:CC:DD:EE:04")]
+        let p = ConfigSchema.problems(changes: changes, allValues: ["slot4_mac": "AA:BB:CC:DD:EE:04"])
+        #expect(p["slot5_mac"]?.hasPrefix(ConfigValidationError.duplicateMac.text) == true)
+        #expect(ConsoleCommand.set(key: "slot5_mac", value: "").line == "SET slot5_mac=")
     }
 
     @Test func duplicateMacIsAProblem() {
@@ -290,7 +297,7 @@ struct ConfigSchemaTests {
             "quiet_hours_end_hour": (0, 23), "mic_spl_offset_db": (-20, 20), "log_retention_months": (0, 120),
             "noise_alert_limit_db": (40, 100), "chime_alert_mask": (0, 255), "ntp_sync_interval_h": (6, 168),
             "wake_interval_s": (30, 900), "sensor_stale_min": (5, 240), "display_invert": (0, 1),
-            "climate_alert_tiles": (0, 15), "battery_offset_mv": (-300, 300), "outdoor_slot": (0, 3),
+            "climate_alert_tiles": (0, 63), "battery_offset_mv": (-300, 300), "outdoor_slot": (0, 5),
             "ventilate_limit_rh": (50, 80), "sensor_battery_limit_pct": (0, 50),
             "slot1_temp_offset_c": (-5, 5), "slot2_temp_offset_c": (-5, 5), "slot3_temp_offset_c": (-5, 5),
             "slot1_rh_offset_pct": (-10, 10), "slot2_rh_offset_pct": (-10, 10), "slot3_rh_offset_pct": (-10, 10),
@@ -305,7 +312,7 @@ struct ConfigSchemaTests {
             default: Issue.record("\(key) has no numeric kind")
             }
         }
-        // The other 8 keys are the enum, 4 names and 3 MACs.
-        #expect(expected.count + 8 == ConfigSchema.keys.count)
+        // The other 12 keys are the enum, 6 names and 5 MACs.
+        #expect(expected.count + 12 == ConfigSchema.keys.count)
     }
 }

@@ -16,7 +16,8 @@ struct DeviceConfig {
   static constexpr float DEFAULT_RH_OFFSET_PCT = 0.0f;
   static constexpr float MIN_RH_OFFSET_PCT = -10.0f;
   static constexpr float MAX_RH_OFFSET_PCT = 10.0f;
-  static constexpr size_t SLOT_COUNT = 3; // SwitchBot and BTHome registry slots
+  static constexpr size_t SLOT_COUNT = 5; // SwitchBot and BTHome registry slots
+  static constexpr size_t OFFSET_SLOT_COUNT = 3; // slots 1 to 3 have offset keys
   static constexpr float DEFAULT_SLOT_TEMP_OFFSET_C = 0.0f;
   static constexpr float MIN_SLOT_TEMP_OFFSET_C = -5.0f;
   static constexpr float MAX_SLOT_TEMP_OFFSET_C = 5.0f;
@@ -47,7 +48,7 @@ struct DeviceConfig {
   static constexpr uint8_t DEFAULT_SENSOR_BATTERY_LIMIT_PCT = 10; // 0 switches the sensor battery warning off
   static constexpr uint8_t MAX_SENSOR_BATTERY_LIMIT_PCT = 50;
   static constexpr uint8_t DEFAULT_OUTDOOR_SLOT = 0; // 0 switches the ventilation advice off
-  static constexpr uint8_t MAX_OUTDOOR_SLOT = 3;
+  static constexpr uint8_t MAX_OUTDOOR_SLOT = 5;
   static constexpr uint8_t DEFAULT_VENTILATE_LIMIT_RH = 60;
   static constexpr uint8_t MIN_VENTILATE_LIMIT_RH = 50;
   static constexpr uint8_t MAX_VENTILATE_LIMIT_RH = 80;
@@ -80,31 +81,33 @@ struct DeviceConfig {
   static constexpr uint8_t MAX_BLE_BROADCAST_ENABLED = 1;
   static constexpr uint8_t DEFAULT_BLE_CONSOLE = 0; // 0 starts no BLE console service
   static constexpr uint8_t MAX_BLE_CONSOLE = 2;
-  static constexpr uint8_t DEFAULT_CLIMATE_ALERT_TILES = 15; // all four tiles feed the freezer and mold alerts
-  static constexpr uint8_t MAX_CLIMATE_ALERT_TILES = 15;
+  static constexpr uint8_t DEFAULT_CLIMATE_ALERT_TILES = 63; // all six tiles feed the freezer and mold alerts
+  static constexpr uint8_t MAX_CLIMATE_ALERT_TILES = 63;
   static constexpr uint32_t SCAN_DURATION_S = 4; // scan time that adds to the wake interval
 
   static constexpr size_t MAC_BYTES = 6;
   static constexpr size_t NAME_MAX_CHARS = 12; // longest sensor name; a name buffer adds the terminator
 
-  // Display names of the onboard sensor and of the three registry slots (keys onboard_name and
-  // slot1_name to slot3_name). Empty means the default title. A name holds 1 to 12 characters of
+  // Display names of the onboard sensor and of the five registry slots (keys onboard_name and
+  // slot1_name to slot5_name). Empty means the default title. A name holds 1 to 12 characters of
   // A-Z, 0-9, space and '-': all of them have a glyph in the 5x7 font.
   char onboard_name[NAME_MAX_CHARS + 1] = {0};
-  char slot_name[SLOT_COUNT][NAME_MAX_CHARS + 1] = {{0}, {0}, {0}};
+  char slot_name[SLOT_COUNT][NAME_MAX_CHARS + 1] = {};
 
   // Fixed MAC address of each registry slot (keys slot1_mac to slot3_mac, format AA:BB:CC:DD:EE:FF).
   // All zero means no fixed MAC: the slot keeps the first-come rule. A fixed MAC is never all zero
   // and never appears in two slots.
-  uint8_t slot_mac[SLOT_COUNT][MAC_BYTES] = {{0}, {0}, {0}};
+  uint8_t slot_mac[SLOT_COUNT][MAC_BYTES] = {};
 
   float temp_offset_c = DEFAULT_TEMP_OFFSET_C;
   float rh_offset_pct = DEFAULT_RH_OFFSET_PCT; // added to the onboard humidity, result clamped to 0..100 %RH
-  // Offsets of the three registry slots (keys slot1_* to slot3_*), added to the decoded value of the
+  // Offsets of the registry slots 1 to 3 (keys slot1_* to slot3_*); slots 4 and 5 keep 0, added to the decoded value of the
   // slot by SwitchBotRegistry::calibrated(). The humidity result is clamped to 0..100 %RH.
   float slot_temp_offset_c[SLOT_COUNT] = {DEFAULT_SLOT_TEMP_OFFSET_C, DEFAULT_SLOT_TEMP_OFFSET_C,
+                                          DEFAULT_SLOT_TEMP_OFFSET_C, DEFAULT_SLOT_TEMP_OFFSET_C,
                                           DEFAULT_SLOT_TEMP_OFFSET_C};
   float slot_rh_offset_pct[SLOT_COUNT] = {DEFAULT_SLOT_RH_OFFSET_PCT, DEFAULT_SLOT_RH_OFFSET_PCT,
+                                          DEFAULT_SLOT_RH_OFFSET_PCT, DEFAULT_SLOT_RH_OFFSET_PCT,
                                           DEFAULT_SLOT_RH_OFFSET_PCT};
   float freeze_alert_limit_c = DEFAULT_FREEZE_ALERT_LIMIT_C;
   uint8_t mold_alert_limit_rh = DEFAULT_MOLD_ALERT_LIMIT_RH;
@@ -115,7 +118,7 @@ struct DeviceConfig {
   uint8_t log_retention_months = DEFAULT_LOG_RETENTION_MONTHS; // log files older than this are deleted
   uint8_t noise_alert_limit_db = DEFAULT_NOISE_ALERT_LIMIT_DB; // 0 = off, else 40..100 dB
   uint8_t chime_alert_mask = DEFAULT_CHIME_ALERT_MASK; // bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full, 5 ventilate, 6 sensor battery, 7 heat
-  uint8_t outdoor_slot = DEFAULT_OUTDOOR_SLOT; // registry slot (1..3) of the outdoor sensor for the ventilation advice, 0 = off
+  uint8_t outdoor_slot = DEFAULT_OUTDOOR_SLOT; // registry slot (1..5) of the outdoor sensor for the ventilation advice, 0 = off
   uint8_t ventilate_limit_rh = DEFAULT_VENTILATE_LIMIT_RH; // a tile above this %RH shows the ventilation badge, 50..80
   uint8_t sensor_battery_limit_pct = DEFAULT_SENSOR_BATTERY_LIMIT_PCT; // an external sensor at or below this % shows BAT LOW, 0 = off, else 1..50
   uint8_t ntp_sync_interval_h = DEFAULT_NTP_SYNC_INTERVAL_H; // hours between two successful NTP syncs, 6..168
@@ -130,7 +133,7 @@ struct DeviceConfig {
   uint8_t heat_alert_limit_c = DEFAULT_HEAT_ALERT_LIMIT_C; // feels-like limit of the heat alert in C, 0 = off, else 27..45
   uint8_t ble_broadcast_enabled = DEFAULT_BLE_BROADCAST_ENABLED; // 1 = advertise the climate tiles after each scan (ble_telemetry.h), 0 = off
   uint8_t ble_console = DEFAULT_BLE_CONSOLE; // BLE console on USB power: 0 off, 1 read commands, 2 also SET (serial_console.h)
-  uint8_t climate_alert_tiles = DEFAULT_CLIMATE_ALERT_TILES; // bit 0 onboard, bits 1..3 slots 1..3: tiles of the freezer and mold alerts, 0..15
+  uint8_t climate_alert_tiles = DEFAULT_CLIMATE_ALERT_TILES; // bit 0 onboard, bits 1..5 slots 1..5: tiles of the freezer and mold alerts, 0..63
 
   // Release time in ms of a silent slot without a fixed MAC (0 = never). 168 h fit into 32 bits.
   uint32_t slotReleaseMs() const {
@@ -317,7 +320,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 4096;
-  static constexpr size_t KEY_COUNT = 40;
+  static constexpr size_t KEY_COUNT = 44;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -334,7 +337,8 @@ public:
       "slot1_mac", "slot2_mac", "slot3_mac",
       "slot_release_h", "night_wake_interval_s", "temp_unit",
       "chime_repeat_h", "heat_alert_limit_c", "ble_broadcast_enabled",
-      "ble_console",
+      "ble_console", "slot4_name", "slot5_name",
+      "slot4_mac", "slot5_mac",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -501,11 +505,12 @@ private:
     return true;
   }
 
-  // Keys onboard_name (index 18) and slot1_name to slot3_name (index 19..21). The value is already
+  // Keys onboard_name (index 18), slot1_name to slot3_name (index 19..21) and slot4_name, slot5_name (index 40, 41). The value is already
   // trimmed. A rejected value keeps the earlier name. Returns false for any other key.
   static bool parseNameKey(const char* key, size_t key_len, const char* val, size_t val_len, DeviceConfig& cfg,
                            bool& ok, int& index) {
-    static const char* const slot_keys[DeviceConfig::SLOT_COUNT] = {"slot1_name", "slot2_name", "slot3_name"};
+    static const char* const slot_keys[DeviceConfig::SLOT_COUNT] = {"slot1_name", "slot2_name", "slot3_name",
+                                                                  "slot4_name", "slot5_name"};
     char* target = nullptr;
     if (keyIs(key, key_len, "onboard_name")) {
       index = 18;
@@ -513,7 +518,7 @@ private:
     }
     for (size_t i = 0; target == nullptr && i < DeviceConfig::SLOT_COUNT; ++i) {
       if (keyIs(key, key_len, slot_keys[i])) {
-        index = static_cast<int>(19 + i);
+        index = i < 3 ? static_cast<int>(19 + i) : static_cast<int>(37 + i);
         target = cfg.slot_name[i];
       }
     }
@@ -554,17 +559,18 @@ private:
     return true;
   }
 
-  // Keys slot1_mac to slot3_mac (index 22..24). An empty value clears the fixed MAC. A malformed
+  // Keys slot1_mac to slot3_mac (index 22..24) and slot4_mac, slot5_mac (index 42, 43). An empty value clears the fixed MAC. A malformed
   // value, the all-zero MAC and a MAC that another slot has fixed are rejected; the previous value
   // stays. Returns false for any other key.
   static bool parseMacKey(const char* key, size_t key_len, const char* val, size_t val_len, DeviceConfig& cfg,
                           bool& ok, int& index) {
-    static const char* const mac_keys[DeviceConfig::SLOT_COUNT] = {"slot1_mac", "slot2_mac", "slot3_mac"};
+    static const char* const mac_keys[DeviceConfig::SLOT_COUNT] = {"slot1_mac", "slot2_mac", "slot3_mac",
+                                                                 "slot4_mac", "slot5_mac"};
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       if (!keyIs(key, key_len, mac_keys[i])) {
         continue;
       }
-      index = static_cast<int>(22 + i);
+      index = i < 3 ? static_cast<int>(22 + i) : static_cast<int>(39 + i);
       if (val_len == 0) {
         memset(cfg.slot_mac[i], 0, DeviceConfig::MAC_BYTES);
         ok = true;
@@ -584,11 +590,11 @@ private:
   // slot3_rh_offset_pct (index 15..17). Returns false for any other key.
   static bool parseSlotKey(const char* key, size_t key_len, const char* val, size_t val_len, DeviceConfig& cfg,
                            bool& ok, int& index) {
-    static const char* const temp_keys[DeviceConfig::SLOT_COUNT] = {"slot1_temp_offset_c", "slot2_temp_offset_c",
+    static const char* const temp_keys[DeviceConfig::OFFSET_SLOT_COUNT] = {"slot1_temp_offset_c", "slot2_temp_offset_c",
                                                                     "slot3_temp_offset_c"};
-    static const char* const rh_keys[DeviceConfig::SLOT_COUNT] = {"slot1_rh_offset_pct", "slot2_rh_offset_pct",
+    static const char* const rh_keys[DeviceConfig::OFFSET_SLOT_COUNT] = {"slot1_rh_offset_pct", "slot2_rh_offset_pct",
                                                                   "slot3_rh_offset_pct"};
-    for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
+    for (size_t i = 0; i < DeviceConfig::OFFSET_SLOT_COUNT; ++i) {
       if (keyIs(key, key_len, temp_keys[i])) {
         index = static_cast<int>(12 + i);
         ok = parseFloatIn(val, val_len, DeviceConfig::MIN_SLOT_TEMP_OFFSET_C,
@@ -758,7 +764,7 @@ private:
 // reads the text back to the same values. The text holds no Wi-Fi setting: DeviceConfig has none.
 class DeviceConfigText {
 public:
-  static constexpr size_t MAX_SIZE = 896;
+  static constexpr size_t MAX_SIZE = 1152; // worst case with every key at its longest value: 1021 bytes
 
   // Returns the text length, or 0 with an empty string when `cap` is too small.
   static size_t format(const DeviceConfig& cfg, char* out, size_t cap) {
@@ -795,12 +801,12 @@ public:
     ok = ok && putInt(out, cap, pos, "outdoor_slot", cfg.outdoor_slot);
     ok = ok && putInt(out, cap, pos, "ventilate_limit_rh", cfg.ventilate_limit_rh);
     ok = ok && putInt(out, cap, pos, "sensor_battery_limit_pct", cfg.sensor_battery_limit_pct);
-    for (size_t i = 0; ok && i < DeviceConfig::SLOT_COUNT; ++i) {
+    for (size_t i = 0; ok && i < DeviceConfig::OFFSET_SLOT_COUNT; ++i) {
       char key[32];
       snprintf(key, sizeof(key), "slot%u_temp_offset_c", static_cast<unsigned>(i + 1));
       ok = putFloat(out, cap, pos, key, cfg.slot_temp_offset_c[i]);
     }
-    for (size_t i = 0; ok && i < DeviceConfig::SLOT_COUNT; ++i) {
+    for (size_t i = 0; ok && i < DeviceConfig::OFFSET_SLOT_COUNT; ++i) {
       char key[32];
       snprintf(key, sizeof(key), "slot%u_rh_offset_pct", static_cast<unsigned>(i + 1));
       ok = putFloat(out, cap, pos, key, cfg.slot_rh_offset_pct[i]);

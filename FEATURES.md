@@ -1025,11 +1025,11 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The tests step `LinkWatchdog` with a fake clock: a connect timeout at 10 s, no timeout at 9.9 s, a write timeout at 5 s, a restart of the command timer by each chunk and no timeout after a cancel. They also store, read and clear a pin, reject a malformed UUID text and filter the frames of a second UUID.
 ## Structured `config.ini` editor in the macOS companion app
 
-- `ConfigSchema` (`macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`) holds one entry for each of the 40 keys of `DeviceConfigParser::KEYS`: category (climate, alerts, power, sensors, BLE), value type, range or enum values, default value, unit and description.
+- `ConfigSchema` (`macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`) holds one entry for each of the 44 keys of `DeviceConfigParser::KEYS`: category (climate, alerts, power, sensors, BLE), value type, range or enum values, default value, unit and description.
 - `ConfigSchema.validate(key:value:)` applies the rules of `DeviceConfigParser`. Examples: `heat_alert_limit_c` accepts 0 or 27 to 45, `noise_alert_limit_db` accepts 0 or 40 to 100, `temp_unit` accepts `C` or `F`, a name has 1 to 12 characters of A-Z, 0-9, space and `-`, and `slotN_mac` accepts `AA:BB:CC:DD:EE:FF` or an empty value.
 - `ConfigSchema.diff` compares two `ConfigReply` values. A key that the reply lacks has its default value. `ConfigSchema.batch` gives the `SET` commands in the fixed schema order. `ble_console` is the last key.
 - `ConfigSchema.problems` also finds a MAC that two slots would hold. It replays the batch order, so a MAC move needs a clear of the old slot first.
-- `ConsoleCommand.set` accepts an empty value for `slot1_mac` to `slot3_mac`. This clears the fixed MAC.
+- `ConsoleCommand.set` accepts an empty value for `slot1_mac` to `slot5_mac`. This clears the fixed MAC.
 - `ConfigEditorView` shows the keys in five groups. A marker shows each changed key. A diff sheet lists each change as `key: old -> new` before the apply.
 - `ConfigBatch` sends one `SET` for each changed key and then one `CONFIG`. The first `ERR` reply stops the remaining `SET` commands. The `CONFIG` refresh still runs.
 - The apply is off when no `SET` is possible (BLE with `ble_console` below 2), when a value fails the validation, or when a command line has more than 40 bytes. The form warns when the batch lowers `ble_console` over BLE.
@@ -1056,3 +1056,20 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `SlotAssignment` builds `SET slot<N>_mac=<MAC>` for slot 1 to 3. Slot 4 gives no command. It reports a MAC that another slot holds as fixed MAC, and refuses the all-zero MAC. The `Clear slot` action builds `SET slot<N>_mac=` with an empty value. `ConsoleCommand.set` accepts an empty value only for `slot1_mac` to `slot3_mac`.
 - After each `SET`, the app reads `CONFIG` and scans again. A scan reply that fails, times out or ends the link clears the list.
 - Tests parse a recorded reply with each format, an empty battery field, a slot `-` and a `DROPPED,3` row. They reject bad replies, build each `SET` line and the clear line, refuse an empty value for other keys, refuse slot 4, report a duplicate MAC and refuse `SCAN` on BLE.
+
+## Dynamic 1-to-6 tile climate dashboard and 5 sensor slots
+
+- **Code:** `rlcd_panel/dashboard_view.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/device_config.h`, `rlcd_panel/audio_alert.h`.
+- The registry holds 5 external slots (`MAX_SWITCHBOT_SENSORS`, `DeviceConfig::SLOT_COUNT`). `ClimateHistory` holds 6 histories: the onboard sensor and slot 1 to slot 5. The panel has up to 6 climate sources.
+- The new `config.ini` keys are `slot4_name`, `slot5_name`, `slot4_mac` and `slot5_mac`. `DeviceConfigParser::KEYS` has 44 keys. `docs/config.example.ini` lists each key.
+- `climate_alert_tiles` uses bits 0 to 5 (default 63). `outdoor_slot` accepts 0 to 5. The tile latches (`VentilateLatch`, `SensorBatteryLatch`), `AlertEvaluator` and the chart view cover slot 4 and slot 5.
+- `PersistentState` stores 5 slots and 6 histories. `STATE_VERSION` is 48. A record of an older version starts clean.
+- `DashboardView::activeTileCount` counts the tiles: the onboard tile and each slot that has a reading, a fixed MAC or a name. `DashboardView::layoutTiles` gives one rectangle for each tile in the area x = 6, y = 36, 388 x 256 px with a gap of 8 px.
+- Layouts: 1 tile 388 x 256. 2 tiles 190 x 256 side by side. 3 tiles one 388 x 124 tile above two 190 x 124 tiles. 4 tiles a 2 x 2 grid of 190 x 124. 5 tiles two 190 x 124 tiles above three 124 x 124 tiles. 6 tiles a 2 x 3 grid of 190 x 80.
+- `DashboardView::tileStyle` selects the draw style from the tile size. The standard style (190 x 124 and 388 x 124) is unchanged. The large style (height 200 px or more) shows a big temperature text and humidity text, each with a curve. The compact style (190 x 80 and 124 x 124) shows short text lines and one curve. A battery text that is too wide for a tile drops to scale 1.
+- The sensor stats view, the CSV logs (`climate_v4`, `daily_v2`), the offset keys and the console command `CALIB` keep slots 1 to 3. The console commands `STATUS` and `HISTORY` list all 6 sources. The BLE telemetry frame keeps 4 tiles.
+- The macOS companion app knows the new keys (`ConfigSchema`, 44 keys), accepts an empty value for `slot4_mac` and `slot5_mac`, finds a duplicate MAC across the 5 slots, and names 6 sensors in the history charts.
+- The early scan stop (`ScanCompletion`) still keeps the full scan while a slot is empty, so a new sensor can fill it. With fewer than 5 external sensors the scan always runs the full 4 s. This costs battery runtime.
+- `DeviceConfigText::MAX_SIZE` is 1152 bytes. A host test fills every key with its longest value.
+- Preview images: `docs/display_preview_tiles1.png`, `display_preview_tiles2.png` and `display_preview_tiles6.png`. The 4 tile layout is `display_preview_dashboard.png`.
+- Host tests cover the geometry and the bounds of each layout from 1 to 6 tiles, the render for each count with the widest texts, the tile count, the registry and the fixed MACs for 5 slots, the parser and the checked `SET` for the new keys, the template sync, the RTC round trip with 5 slots, the alerts and latches for slot 5, and the unchanged log format.

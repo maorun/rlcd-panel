@@ -151,11 +151,15 @@ void testSwitchBotServiceBatteryAndRegistry() {
   assert(approxEqual(reg.slot(1).temperature_c, 25.5f));
   assert(reg.slot(1).battery_pct == 88);
 
-  // 4th distinct sensor is rejected when all 3 slots are occupied
+  // 4th and 5th distinct sensor take the free slots, the 6th is rejected
   SwitchBotReading fourth;
   fourth.valid = true;
   fourth.mac[5] = 4;
-  assert(!reg.upsert(fourth));
+  assert(reg.upsert(fourth) && reg.activeCount() == 4);
+  fourth.mac[5] = 5;
+  assert(reg.upsert(fourth) && reg.activeCount() == 5 && reg.slot(4).mac[5] == 5);
+  fourth.mac[5] = 6;
+  assert(!reg.upsert(fourth) && reg.activeCount() == 5);
 }
 
 const uint8_t BTHOME_MAC[6] = {0xA4, 0xC1, 0x38, 0x11, 0x22, 0x33};
@@ -270,7 +274,7 @@ void testSwitchBotMeterRegistryFixedMac() {
   // The fixed MAC owns slot 2; the other MAC takes the first free slot.
   assert(memcmp(reg.slot(2).mac, mac_b, 6) == 0);
   assert(memcmp(reg.slot(0).mac, mac_a, 6) == 0);
-  // A repeated MAC reuses its slot; a fourth MAC finds no free slot.
+  // A repeated MAC reuses its slot; a sixth MAC finds no free slot.
   assert(reg.upsert(a));
   assert(reg.activeCount() == 2);
   const uint8_t mac_c[6] = {0xAA, 0, 0, 0, 0, 3};
@@ -280,8 +284,16 @@ void testSwitchBotMeterRegistryFixedMac() {
   assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, svc, 6, mac_c, c));
   assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, svc, 6, mac_d, d));
   assert(reg.upsert(c));
-  assert(!reg.upsert(d));
-  assert(reg.activeCount() == 3);
+  assert(reg.upsert(d)); // slot 3 is free (5 slots)
+  const uint8_t mac_e[6] = {0xAA, 0, 0, 0, 0, 5};
+  const uint8_t mac_f[6] = {0xAA, 0, 0, 0, 0, 6};
+  SwitchBotReading e;
+  SwitchBotReading f;
+  assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, svc, 6, mac_e, e));
+  assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, svc, 6, mac_f, f));
+  assert(reg.upsert(e));
+  assert(!reg.upsert(f)); // all five slots are taken
+  assert(reg.activeCount() == 5);
   assert(!reg.slot(2).isStale(1000 + SENSOR_STALE_TIMEOUT_MS));
   assert(reg.slot(2).isStale(1001 + SENSOR_STALE_TIMEOUT_MS));
 }
@@ -741,7 +753,7 @@ void testBatteryOffsetMv() {
   bad[pos] = 0xD3; bad[pos + 1] = 0xFE; // -301 mV
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 33; // old state version without the offset
   seal();
@@ -1139,7 +1151,7 @@ void testComfortZone() {
   battery.voltage_v = 3.9f;
   battery.percentage = 70;
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
-  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (size_t i = 0; i < 3; ++i) { // three live slots: classic 4-tile layout
     slots[i].valid = true;
     slots[i].temperature_c = 21.0f;
     slots[i].humidity_pct = 70; // HUMID: the widest label
@@ -1152,9 +1164,9 @@ void testComfortZone() {
   St7305Framebuffer fb;
   DashboardView::renderSensorStats(fb, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now);
   const uint16_t label_left = DashboardView::COMFORT_RIGHT_X - 13 * 6;
-  const uint16_t label_dy[MAX_SWITCHBOT_SENSORS] = {
+  const uint16_t label_dy[DashboardView::STATS_SLOT_COUNT] = {
       DashboardView::COMFORT_Y_OFFSET, DashboardView::COMFORT_Y_OFFSET, DashboardView::COMFORT_EMPTY_Y_OFFSET};
-  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (size_t i = 0; i < DashboardView::STATS_SLOT_COUNT; ++i) {
     const uint16_t y0 = static_cast<uint16_t>(34 + i * DashboardView::SENSOR_BLOCK_PITCH);
     bool ink = false;
     for (uint16_t y = y0; y < y0 + DashboardView::SENSOR_BLOCK_PITCH; ++y) {
@@ -1181,7 +1193,7 @@ void testComfortZone() {
   assert(memcmp(ok_fb.data(), cold_fb.data(), RLCD_BUFFER_SIZE) != 0);
 
   // No RTC state change
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
 }
 
 void testAbsHumidityStats() {
@@ -1210,7 +1222,7 @@ void testAbsHumidityStats() {
   assert(strcmp(text, "AH 8.6G") == 0);
   DashboardView::formatAbsHumidity(text, sizeof(text), SwitchBotReading{}, now);
   assert(strcmp(text, "AH --") == 0);
-  assert(PowerManager::STATE_VERSION == 47); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 48); // no RTC state change
 
   // Rendering: right edge at x = 392, line y + 54, no overlap with the widest record text
   BatteryReading battery;
@@ -1218,7 +1230,7 @@ void testAbsHumidityStats() {
   battery.voltage_v = 3.9f;
   battery.percentage = 70;
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
-  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (size_t i = 0; i < 3; ++i) { // three live slots: classic 4-tile layout
     slots[i].valid = true;
     slots[i].temperature_c = 20.0f;
     slots[i].humidity_pct = 50;
@@ -1239,7 +1251,7 @@ void testAbsHumidityStats() {
     St7305Framebuffer fb;
     DashboardView::renderSensorStats(fb, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
                                      &history, &config);
-    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    for (size_t i = 0; i < DashboardView::STATS_SLOT_COUNT; ++i) {
       const uint16_t y0 = static_cast<uint16_t>(34 + i * DashboardView::SENSOR_BLOCK_PITCH);
       const uint16_t left = static_cast<uint16_t>(DashboardView::COMFORT_RIGHT_X - strlen(texts[i]) * 6);
       St7305Framebuffer ref;
@@ -1401,7 +1413,7 @@ void testFeelsLikeStats() {
   battery.voltage_v = 3.9f;
   battery.percentage = 70;
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
-  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (size_t i = 0; i < 3; ++i) { // three live slots: classic 4-tile layout
     slots[i].valid = true;
     slots[i].temperature_c = 32.0f;
     slots[i].humidity_pct = 70;
@@ -1419,7 +1431,7 @@ void testFeelsLikeStats() {
                                    nullptr, &config);
   const char* texts[MAX_SWITCHBOT_SENSORS] = {"FEELS 40C", "FEELS -45C", "FEELS --"};
   const uint16_t rssi_right = 10 + static_cast<uint16_t>(strlen("WWWWWWWWWWWW RSSI -100 DBM") * 12);
-  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (size_t i = 0; i < DashboardView::STATS_SLOT_COUNT; ++i) {
     const uint16_t y0 = static_cast<uint16_t>(34 + i * DashboardView::SENSOR_BLOCK_PITCH);
     const uint16_t left = static_cast<uint16_t>(DashboardView::COMFORT_RIGHT_X - strlen(texts[i]) * 6);
     if (i < 2) {
@@ -1454,7 +1466,7 @@ void testFeelsLikeStats() {
   DashboardView::renderSensorStats(dashed, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
                                    nullptr, &config);
   assert(memcmp(fb.data(), dashed.data(), RLCD_BUFFER_SIZE) != 0);
-  assert(PowerManager::STATE_VERSION == 47); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 48); // no RTC state change
 }
 
 void testMoldHoursStats() {
@@ -1518,7 +1530,7 @@ void testMoldHoursStats() {
   battery.voltage_v = 3.9f;
   battery.percentage = 70;
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
-  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (size_t i = 0; i < 3; ++i) { // three live slots: classic 4-tile layout
     slots[i].valid = true;
     slots[i].temperature_c = 21.0f;
     slots[i].humidity_pct = 50;
@@ -1545,7 +1557,7 @@ void testMoldHoursStats() {
   ClimateHistory none;
   DashboardView::renderSensorStats(
       without, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr, &none);
-  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (size_t i = 0; i < DashboardView::STATS_SLOT_COUNT; ++i) {
     const uint16_t y0 = static_cast<uint16_t>(34 + i * DashboardView::SENSOR_BLOCK_PITCH);
     const uint16_t y_mold = y0 + DashboardView::MOLD_Y_OFFSET;
     bool ink = false;
@@ -1575,7 +1587,7 @@ void testMoldHoursStats() {
     }
     assert(i == 2 ? !differs : differs); // empty slot shows "MOLD --" in both renders
   }
-  assert(PowerManager::STATE_VERSION == 47); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 48); // no RTC state change
 }
 
 void testDashboardClimateLine() {
@@ -1589,7 +1601,7 @@ void testDashboardClimateLine() {
   battery.percentage = 65;
   const uint32_t now_ms = 100000;
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
-  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (size_t i = 0; i < 3; ++i) { // three live slots: classic 4-tile layout
     slots[i].valid = true;
     slots[i].temperature_c = 20.0f;
     slots[i].humidity_pct = 50;
@@ -1661,8 +1673,13 @@ void testDashboardClimateLine() {
   }
 
   // An invalid tile ("NO SIGNAL") shows the dashes, too
+  // (named slots keep the 4-tile layout without a reading)
+  DeviceConfig named;
+  strcpy(named.slot_name[0], "A");
+  strcpy(named.slot_name[1], "B");
+  strcpy(named.slot_name[2], "C");
   St7305Framebuffer none;
-  DashboardView::render(none, onboard, battery, nullptr, 0, nullptr, now_ms);
+  DashboardView::render(none, onboard, battery, nullptr, 0, nullptr, now_ms, nullptr, false, &named);
   for (uint16_t y = 0; y < line_h; ++y) {
     for (uint16_t x = 0; x < 100; ++x) {
       const uint16_t py = 36 + DashboardView::CLIMATE_LINE_Y_OFFSET + y;
@@ -1682,7 +1699,7 @@ void testDashboardStaleIndicator() {
   battery.percentage = 65;
 
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
-  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (size_t i = 0; i < 3; ++i) { // three live slots: classic 4-tile layout
     slots[i].valid = true;
     slots[i].temperature_c = 18.0f + static_cast<float>(i);
     slots[i].humidity_pct = 55;
@@ -1887,7 +1904,7 @@ void testBleSignalStrength() {
   DashboardView::renderMode(
       fb, DisplayMode::SENSOR_STATS, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info, "88:88", now_ms);
   size_t width_fresh = 0;
-  for (uint16_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (uint16_t i = 0; i < DashboardView::STATS_SLOT_COUNT; ++i) {
     const uint16_t y0 = static_cast<uint16_t>(34 + i * DashboardView::SENSOR_BLOCK_PITCH);
     size_t ink = 0;
     uint16_t max_x = 0;
@@ -1922,7 +1939,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -1940,7 +1957,7 @@ void testDisplayModesRenderWithoutClipping() {
 
   // Worst-case widths: low RSSI, big packet counter, long age, wide battery label.
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
-  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (size_t i = 0; i < 3; ++i) { // three live slots: classic 4-tile layout
     slots[i].valid = true;
     slots[i].rssi = -100;
     slots[i].packet_count = 4000000000u;
@@ -2000,7 +2017,7 @@ void testDisplayModesRenderWithoutClipping() {
   }
 
   // Sensor stats: every sensor block (3 text lines of 12 px height) has ink on each line.
-  for (uint16_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (uint16_t i = 0; i < DashboardView::STATS_SLOT_COUNT; ++i) {
     for (uint16_t line = 0; line < 3; ++line) {
       const uint16_t y0 = static_cast<uint16_t>(34 + i * 78 + line * 18);
       size_t ink = 0;
@@ -2253,7 +2270,7 @@ void testPowerStateSerialization() {
   const size_t slot0_off = PowerManager::HEADER_SIZE;
   const Patch patches[] = {
       {5, 9},                       // mode
-      {6, 4},                       // chart sensor
+      {6, 6},                       // chart sensor
       {7, 16},                      // battery flags (unknown bit)
       {8, 101},                     // battery percentage
       {12, 0x7F},                   // battery voltage exponent byte -> huge value
@@ -2718,7 +2735,7 @@ void testRecordsStatsView() {
 
   // Rendering: the records line draws pixels and stays inside the screen
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
-  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (size_t i = 0; i < 3; ++i) { // three live slots: classic 4-tile layout
     slots[i].valid = true;
     slots[i].mac[5] = static_cast<uint8_t>(i + 1);
   }
@@ -2818,7 +2835,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -2931,9 +2948,13 @@ void testTrendMarkRendering() {
   steady.temperatures[on].push(200);
   steady.slots[on].push(600);
 
+  DeviceConfig named; // named slots keep the 4-tile layout
+  strcpy(named.slot_name[0], "A");
+  strcpy(named.slot_name[1], "B");
+  strcpy(named.slot_name[2], "C");
   St7305Framebuffer with, without;
-  DashboardView::render(with, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, nullptr, 100, &rising);
-  DashboardView::render(without, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, nullptr, 100, &steady);
+  DashboardView::render(with, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, nullptr, 100, &rising, false, &named);
+  DashboardView::render(without, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, nullptr, 100, &steady, false, &named);
 
   const uint16_t tile_x = 6, tile_y = 36, tile_w = 190, tile_h = 124;
   const uint16_t box_x = tile_x + tile_w - DashboardView::SPARKLINE_W - DashboardView::SPARKLINE_RIGHT_MARGIN;
@@ -3136,7 +3157,7 @@ void testDashboardSparklineInsideTiles() {
   battery.voltage_v = 3.9f;
   battery.percentage = 70;
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
-  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (size_t i = 0; i < 3; ++i) { // three live slots: classic 4-tile layout
     slots[i].valid = true;
     slots[i].temperature_c = 15.0f;
     slots[i].humidity_pct = 100;
@@ -3454,7 +3475,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3510,7 +3531,7 @@ void testPreviewScenesCoverAllDisplayModes() {
     renderScene(
         frames[i], PREVIEW_SCENES[i].mode, PREVIEW_SCENES[i].low_battery, PREVIEW_SCENES[i].quiet_hours,
         PREVIEW_SCENES[i].long_runtime, PREVIEW_SCENES[i].battery_empty, PREVIEW_SCENES[i].ventilate,
-        PREVIEW_SCENES[i].invert);
+        PREVIEW_SCENES[i].invert, PREVIEW_SCENES[i].tiles);
     size_t ink = 0;
     for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
       for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
@@ -5284,7 +5305,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -5981,12 +6002,12 @@ void testDeviceConfigRtcRoundTrip() {
       {21, 4},   // wake interval high byte 4: 60 + 1024 above range
       {22, 4},   // sensor stale minutes low byte 4 with high byte 0: below range
       {23, 1},   // sensor stale minutes high byte 1: 30 + 256 above range
-      {24, 4},   // outdoor slot above range
+      {24, 6},   // outdoor slot above range
       {25, 49},  // ventilate limit below range
       {25, 81},  // ventilate limit above range
       {26, 51},  // sensor battery limit above range
       {27, 2},   // display invert above range
-      {28, 16},  // climate alert tiles above range
+      {28, 64},  // climate alert tiles above range
       {30, 0x7F}, // battery offset high byte 0x7F: 32512 mV above range
       {30, 0x80}, // battery offset high byte 0x80: -32768 mV below range
       {31, 169}, // slot release hours above range
@@ -6003,7 +6024,7 @@ void testDeviceConfigRtcRoundTrip() {
       {37, 255}, // BLE broadcast flag far above range
       {38, 3},   // BLE console above range
       {38, 255}, // BLE console far above range
-      {67, 2},   // invalid character in the onboard name
+      {67 + 16, 2},   // invalid character in the onboard name (2 floats per slot, 5 slots)
       {PowerManager::CONFIG_SIZE - PowerManager::REJECTS_SIZE - 1, 2}, // unknown flag bit
   };
   for (const Corrupt& c : cases) {
@@ -6091,7 +6112,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6261,7 +6282,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -6357,7 +6378,7 @@ void testSensorNames() {
   battery.voltage_v = 3.9f;
   battery.percentage = 70;
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
-  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (size_t i = 0; i < 3; ++i) { // three live slots: classic 4-tile layout
     slots[i].valid = true;
     slots[i].temperature_c = 18.0f;
     slots[i].humidity_pct = 55;
@@ -6443,7 +6464,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -8278,8 +8299,8 @@ void testClimateChartKeyHandling() {
   assert(c.mode() == DisplayMode::CLIMATE_CHART && c.chartSensor() == 0);
   uint32_t t = 0;
   assert(c.updateWithLongPress(false, t) == ButtonEvent::NONE);
-  // A short press selects the next sensor and keeps the mode; the sensor wraps 0..3 -> 0
-  for (uint8_t want = 1; want <= 3; ++want) {
+  // A short press selects the next sensor and keeps the mode; the sensor wraps 0..5 -> 0
+  for (uint8_t want = 1; want <= 5; ++want) {
     assert(pressKeyShort(c, t) == ButtonEvent::NEXT_SENSOR);
     assert(c.chartSensor() == want && c.mode() == DisplayMode::CLIMATE_CHART);
   }
@@ -8311,22 +8332,22 @@ void testClimateChartKeyHandling() {
   s.next();
   assert(s.mode() == DisplayMode::CLIMATE_CHART);
 
-  // setChartSensor ignores an index above 3
-  s.setChartSensor(3);
-  s.setChartSensor(4);
-  assert(s.chartSensor() == 3);
+  // setChartSensor ignores an index above 5
+  s.setChartSensor(5);
+  s.setChartSensor(6);
+  assert(s.chartSensor() == 5);
 }
 
 void testClimateChartRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   PersistentState s;
   s.mode = DisplayMode::CLIMATE_CHART;
-  s.chart_sensor = 3;
+  s.chart_sensor = 5;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
-  assert(r.mode == DisplayMode::CLIMATE_CHART && r.chart_sensor == 3);
+  assert(r.mode == DisplayMode::CLIMATE_CHART && r.chart_sensor == 5);
 
   // A stored mode above 4 and a stored sensor above 3 are rejected (the CRC is recomputed)
   auto refresh_crc = [](uint8_t* b) {
@@ -8342,7 +8363,7 @@ void testClimateChartRtcRoundTrip() {
   refresh_crc(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
   memcpy(bad, buf, sizeof(bad));
-  bad[6] = 4;
+  bad[6] = 6;
   refresh_crc(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
   // The previous state version is rejected
@@ -8877,7 +8898,7 @@ void testBatteryRuntimeFlatCurve() {
 
 // ---- Early BLE scan stop ----
 
-static SwitchBotRegistry scanRegistry(uint32_t updated_ms, int count = 3) {
+static SwitchBotRegistry scanRegistry(uint32_t updated_ms, int count = static_cast<int>(MAX_SWITCHBOT_SENSORS)) {
   SwitchBotRegistry reg;
   for (int i = 1; i <= count; ++i) {
     SwitchBotReading r = makeReading(static_cast<uint8_t>(i), 20.0f, 50, 90);
@@ -8899,7 +8920,7 @@ void testScanCompletionStopsWhenAllReported() {
   const SwitchBotRegistry reg = scanRegistry(1000);
   ScanCompletion sc;
   sc.begin(false);
-  for (int i = 1; i <= 3; ++i) {
+  for (int i = 1; i <= static_cast<int>(MAX_SWITCHBOT_SENSORS); ++i) {
     assert(!sc.canStop(reg, 2000));
     sc.onPacket(reg, makeReading(static_cast<uint8_t>(i), 21.0f, 55, 80));
   }
@@ -8919,12 +8940,13 @@ void testScanCompletionNoBatteryField() {
   const SwitchBotRegistry reg = scanRegistry(1000);
   ScanCompletion sc;
   sc.begin(false);
-  sc.onPacket(reg, makeReading(1, 21.0f, 55, 80));
-  sc.onPacket(reg, makeReading(2, 21.0f, 55, 80));
+  for (uint8_t i = 1; i <= MAX_SWITCHBOT_SENSORS - 1; ++i) {
+    sc.onPacket(reg, makeReading(i, 21.0f, 55, 80));
+  }
   // The packet has no battery field: the kept registry value does not count.
-  sc.onPacket(reg, makeReading(3, 21.0f, 55, -1));
+  sc.onPacket(reg, makeReading(5, 21.0f, 55, -1));
   assert(!sc.canStop(reg, 3000));
-  sc.onPacket(reg, makeReading(3, 21.0f, 55, 70));
+  sc.onPacket(reg, makeReading(5, 21.0f, 55, 70));
   assert(sc.canStop(reg, 3000));
 }
 
@@ -8932,7 +8954,7 @@ void testScanCompletionMinimumElapsed() {
   const SwitchBotRegistry reg = scanRegistry(1000);
   ScanCompletion sc;
   sc.begin(false);
-  for (int i = 1; i <= 3; ++i) {
+  for (int i = 1; i <= static_cast<int>(MAX_SWITCHBOT_SENSORS); ++i) {
     sc.onPacket(reg, makeReading(static_cast<uint8_t>(i), 21.0f, 55, 80));
   }
   assert(!sc.canStop(reg, 0));
@@ -8980,7 +9002,7 @@ void testScanCompletionFullScanCauses() {
   // A full scan never stops early, even with every slot reported.
   ScanCompletion sc;
   sc.begin(true);
-  for (int i = 1; i <= 3; ++i) {
+  for (int i = 1; i <= static_cast<int>(MAX_SWITCHBOT_SENSORS); ++i) {
     sc.onPacket(reg, makeReading(static_cast<uint8_t>(i), 21.0f, 55, 80));
   }
   assert(!sc.canStop(reg, 3000));
@@ -9001,15 +9023,16 @@ void testScanCompletionIgnoresUnknownMacAndInvalid() {
 }
 
 void testScanCompletionNewSlotAfterUpsert() {
-  SwitchBotRegistry reg = scanRegistry(1000, 2);
+  SwitchBotRegistry reg = scanRegistry(1000, 4);
   ScanCompletion sc;
   sc.begin(false);
-  const SwitchBotReading fresh = makeReading(3, 21.0f, 55, 80);
+  const SwitchBotReading fresh = makeReading(5, 21.0f, 55, 80);
   assert(reg.upsert(fresh));
   sc.onPacket(reg, fresh);
   assert(!sc.canStop(reg, 3000));
-  sc.onPacket(reg, makeReading(1, 21.0f, 55, 80));
-  sc.onPacket(reg, makeReading(2, 21.0f, 55, 80));
+  for (uint8_t i = 1; i <= 4; ++i) {
+    sc.onPacket(reg, makeReading(i, 21.0f, 55, 80));
+  }
   assert(sc.canStop(reg, 3000));
 }
 
@@ -9729,7 +9752,7 @@ void testSerialConfigLineFormat() {
   assert(text.find("\nwake_interval_s=60\n") != std::string::npos);
   assert(text.find("\nventilate_limit_rh=60\n") != std::string::npos);
   assert(text.find("\nsensor_battery_limit_pct=10\n") != std::string::npos);
-  assert(text.find("\nclimate_alert_tiles=15\n") != std::string::npos);
+  assert(text.find("\nclimate_alert_tiles=63\n") != std::string::npos);
   assert(text.find("\ndisplay_invert=0\n") != std::string::npos);
   assert(text.find("\nbattery_offset_mv=0\n") != std::string::npos);
   assert(text.find("\ntemp_unit=C\n") != std::string::npos);
@@ -10118,7 +10141,7 @@ void testChimeRepeat() {
   assert(AlertEvaluator::repeatableBits(static_cast<uint8_t>(ALERT_FREEZER | ALERT_CHARGE_FULL)) == ALERT_FREEZER);
 
   // RTC round trip: stamp, key and state version
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   PersistentState st;
   st.last_chime_ms = 0xFFFFFF00u;
   st.config.chime_repeat_h = 24;
@@ -10262,7 +10285,7 @@ void testSlotRelease() {
   bad[pos] = 169;
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 34; // old state version without the key
   seal();
@@ -10373,7 +10396,7 @@ void testNightWakeInterval() {
   bad[pos] = 0x09; bad[pos + 1] = 0x07; // 1801 s: above range
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 35; // old state version without the key
   seal();
@@ -10499,13 +10522,13 @@ void testSerialStatusParser() {
 void testSerialStatusEmptyAndMissingValues() {
   StatusFixture f;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 12);
+  assert(lines.size() == 14);
   assert(lines[0] == "SENSOR 0 onboard temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
   assert(lines[1] == "SENSOR 1 slot1 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
   assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
-  assert(lines[5] == "RESET reason=UNKNOWN abnormal=--");
-  assert(lines[8] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
-  assert(lines[11].rfind("CRC32 ", 0) == 0);
+  assert(lines[7] == "RESET reason=UNKNOWN abnormal=--");
+  assert(lines[10] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
+  assert(lines[13].rfind("CRC32 ", 0) == 0);
 }
 
 void testSerialStatusStates() {
@@ -10562,8 +10585,8 @@ void testSerialStatusWorstCaseLineLength() {
   for (int i = 0; i < 30; ++i) wide_awake.record(65535);
   f.snap.awake = &wide_awake;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 12 && lines[4].rfind("SD status=", 0) == 0 && lines[5] == "RESET reason=TASK_WDT abnormal=65535" &&
-         lines[6].rfind("SHTC3 ", 0) == 0 && lines[7].rfind("BLE ", 0) == 0 && lines[8].rfind("POWER ", 0) == 0 && lines[9].rfind("RUNTIME ", 0) == 0 && lines[10].rfind("AWAKE ", 0) == 0 && lines[11].size() == 14);
+  assert(lines.size() == 14 && lines[6].rfind("SD status=", 0) == 0 && lines[7] == "RESET reason=TASK_WDT abnormal=65535" &&
+         lines[8].rfind("SHTC3 ", 0) == 0 && lines[9].rfind("BLE ", 0) == 0 && lines[10].rfind("POWER ", 0) == 0 && lines[11].rfind("RUNTIME ", 0) == 0 && lines[12].rfind("AWAKE ", 0) == 0 && lines[13].size() == 14);
   for (size_t i = 0; i < 4; ++i) {
     assert(lines[i].rfind("SENSOR ", 0) == 0 && lines[i].find(" state=") != std::string::npos);
   }
@@ -10581,7 +10604,7 @@ SwitchBotReading rejectReading(uint8_t id) {
 }
 
 void fillRegistry(SwitchBotRegistry& reg) {
-  for (uint8_t i = 1; i <= 3; ++i) {
+  for (uint8_t i = 1; i <= MAX_SWITCHBOT_SENSORS; ++i) {
     assert(reg.upsert(rejectReading(i)));
   }
 }
@@ -10606,6 +10629,10 @@ void testBleRejectFixedSlots() {
   reg.setFixedMac(1, other);
   uint8_t third[6] = {0xAA, 0, 0, 0, 0, 9};
   reg.setFixedMac(2, third);
+  uint8_t fourth[6] = {0xAA, 0, 0, 0, 0, 10};
+  uint8_t fifth[6] = {0xAA, 0, 0, 0, 0, 11};
+  reg.setFixedMac(3, fourth);
+  reg.setFixedMac(4, fifth);
   // Every slot is free but fixed to another MAC: a new MAC is rejected.
   assert(!reg.upsert(rejectReading(1), BleFormat::BTHOME));
   assert(reg.rejects().by_format[2] == 1 && reg.rejects().last_mac[5] == 1);
@@ -10655,23 +10682,23 @@ void testBleRejectSaturationAndReset() {
   assert(reg.rejects().total() == 4u * 65535u);
   reg.resetRejects();
   assert(reg.rejects().total() == 0 && !reg.rejects().has_last && reg.rejects().last_mac[5] == 0);
-  assert(reg.activeCount() == 3);
+  assert(reg.activeCount() == 5);
 }
 
 void testBleRejectStatusLine() {
   StatusFixture f;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 12);
-  assert(lines[7] == "BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0");
-  assert(lines[8].rfind("POWER ", 0) == 0);
+  assert(lines.size() == 14);
+  assert(lines[9] == "BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0");
+  assert(lines[10].rfind("POWER ", 0) == 0);
   fillRegistry(f.registry);
   f.registry.upsert(rejectReading(0xAB), BleFormat::BTHOME);
   f.registry.upsert(rejectReading(0xCD), BleFormat::ATC);
   f.registry.upsert(rejectReading(0xCD), BleFormat::ATC);
   lines = statusLines(f.run());
-  assert(lines.size() == 12);
-  assert(lines[7] == "BLE rejected=3 last=AA:00:00:00:00:CD woio=0 meter=0 bthome=1 atc=2");
-  assert(lines[8].rfind("POWER ", 0) == 0);
+  assert(lines.size() == 14);
+  assert(lines[9] == "BLE rejected=3 last=AA:00:00:00:00:CD woio=0 meter=0 bthome=1 atc=2");
+  assert(lines[10].rfind("POWER ", 0) == 0);
   // The slot lines stay as before.
   assert(lines[0].rfind("SENSOR 0 ", 0) == 0);
 }
@@ -10690,8 +10717,8 @@ void testBleRejectStatusWorstCaseLength() {
     f.registry.upsert(r, BleFormat::ATC);
   }
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 12);
-  assert(lines[7] == "BLE rejected=262140 last=FF:FF:FF:FF:FF:FF woio=65535 meter=65535 bthome=65535 atc=65535");
+  assert(lines.size() == 14);
+  assert(lines[9] == "BLE rejected=262140 last=FF:FF:FF:FF:FF:FF woio=65535 meter=65535 bthome=65535 atc=65535");
 }
 
 namespace {
@@ -10713,13 +10740,13 @@ void testStatusRuntimeLineValid() {
   f.snap.cycle_tenths = 123;
   f.snap.scan_saved_ms = 0;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 12);
-  assert(lines[9] == "RUNTIME h=29 samples=12 cycles=12.3 scan_saved_ms=0");
+  assert(lines.size() == 14);
+  assert(lines[11] == "RUNTIME h=29 samples=12 cycles=12.3 scan_saved_ms=0");
   // An early scan stop saves awake time and raises the runtime by the same ratio as the diagnostics view.
   f.snap.scan_saved_ms = 4000;
   const BatteryRuntime expected = h.estimate(f.snap.battery, 4000);
   assert(expected.valid && expected.hours > 29);
-  assert(statusLines(f.run())[9] ==
+  assert(statusLines(f.run())[11] ==
          "RUNTIME h=" + std::to_string(expected.hours) + " samples=12 cycles=12.3 scan_saved_ms=4000");
 }
 
@@ -10731,21 +10758,21 @@ void testStatusRuntimeLineNoEstimate() {
   // Too few samples
   const BatteryHistory few = runtimeHistory(BatteryHistory::MIN_SAMPLES - 1);
   f.snap.battery_history = &few;
-  assert(statusLines(f.run())[9] == "RUNTIME h=-- samples=5 cycles=0.0 scan_saved_ms=0");
+  assert(statusLines(f.run())[11] == "RUNTIME h=-- samples=5 cycles=0.0 scan_saved_ms=0");
   // Flat slope
   BatteryHistory flat;
   for (size_t i = 0; i < 12; ++i) {
     flat.push(3.90f);
   }
   f.snap.battery_history = &flat;
-  assert(statusLines(f.run())[9] == "RUNTIME h=-- samples=12 cycles=0.0 scan_saved_ms=0");
+  assert(statusLines(f.run())[11] == "RUNTIME h=-- samples=12 cycles=0.0 scan_saved_ms=0");
   // USB power gives no estimate, a missing history reads as no samples
   const BatteryHistory ok = runtimeHistory(12);
   f.snap.battery_history = &ok;
   f.snap.battery.usb_powered = true;
-  assert(statusLines(f.run())[9] == "RUNTIME h=-- samples=12 cycles=0.0 scan_saved_ms=0");
+  assert(statusLines(f.run())[11] == "RUNTIME h=-- samples=12 cycles=0.0 scan_saved_ms=0");
   f.snap.battery_history = nullptr;
-  assert(statusLines(f.run())[9] == "RUNTIME h=-- samples=0 cycles=0.0 scan_saved_ms=0");
+  assert(statusLines(f.run())[11] == "RUNTIME h=-- samples=0 cycles=0.0 scan_saved_ms=0");
 }
 
 void testStatusRuntimeLineUnknownCycles() {
@@ -10755,7 +10782,7 @@ void testStatusRuntimeLineUnknownCycles() {
   f.snap.battery.usb_powered = false;
   f.snap.battery.voltage_v = 3.78f;
   f.snap.cycle_tenths = -1;
-  assert(statusLines(f.run())[9] == "RUNTIME h=29 samples=12 cycles=-- scan_saved_ms=0");
+  assert(statusLines(f.run())[11] == "RUNTIME h=29 samples=12 cycles=-- scan_saved_ms=0");
 }
 
 void testStatusRuntimeLineWorstCaseLength() {
@@ -10772,9 +10799,9 @@ void testStatusRuntimeLineWorstCaseLength() {
   const BatteryRuntime expected = h.estimate(f.snap.battery, f.snap.scan_saved_ms);
   assert(expected.valid && expected.hours == 99u * 24u + 12u);
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 12);
-  assert(lines[9] == "RUNTIME h=2388 samples=24 cycles=9999.9 scan_saved_ms=4294967295");
-  assert(lines[11].size() == 14);
+  assert(lines.size() == 14);
+  assert(lines[11] == "RUNTIME h=2388 samples=24 cycles=9999.9 scan_saved_ms=4294967295");
+  assert(lines[13].size() == 14);
 }
 
 void testStatusRuntimeLinePositionCrcAndNoSideEffect() {
@@ -10788,19 +10815,19 @@ void testStatusRuntimeLinePositionCrcAndNoSideEffect() {
   f.snap.cycle_tenths = 123;
   const std::string out = f.run();
   const std::vector<std::string> lines = statusLines(out);
-  assert(lines.size() == 12);
-  assert(lines[8].rfind("POWER ", 0) == 0);
-  assert(lines[9].rfind("RUNTIME ", 0) == 0);
-  assert(lines[11].rfind("CRC32 ", 0) == 0 && lines[11].size() == 14);
+  assert(lines.size() == 14);
+  assert(lines[10].rfind("POWER ", 0) == 0);
+  assert(lines[11].rfind("RUNTIME ", 0) == 0);
+  assert(lines[13].rfind("CRC32 ", 0) == 0 && lines[13].size() == 14);
   // The CRC-32 covers the RUNTIME line too.
   const size_t crc_at = out.rfind("CRC32 ");
   SerialCrc32 crc;
   crc.update(reinterpret_cast<const uint8_t*>(out.data()), crc_at);
   char expected[24];
   snprintf(expected, sizeof(expected), "CRC32 %08lx", static_cast<unsigned long>(crc.value()));
-  assert(lines[11] == expected);
+  assert(lines[13] == expected);
   assert(out.find("RUNTIME ") < crc_at);
-  assert(lines[11] == "CRC32 b8e71473"); // fixed value of the whole reply
+  assert(lines[13] == "CRC32 25d0a987"); // fixed value of the whole reply
   // The command leaves the history unchanged.
   assert(h.size() == before.size() && h.head() == before.head() && h.last_sample_ms == before.last_sample_ms &&
          h.has_sampled == before.has_sampled);
@@ -10817,10 +10844,10 @@ void testSerialStatusPowerLine() {
   f.snap.alert_mask = 0x25;
   f.snap.muted = true;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[8] == "POWER src=BAT v=3.62 pct=42 alerts=25 muted=1");
+  assert(lines[10] == "POWER src=BAT v=3.62 pct=42 alerts=25 muted=1");
   f.snap.battery.valid = false;
   lines = statusLines(f.run());
-  assert(lines[8] == "POWER src=BAT v=-- pct=-- alerts=25 muted=1");
+  assert(lines[10] == "POWER src=BAT v=-- pct=-- alerts=25 muted=1");
 }
 
 struct FakeResetStore {
@@ -10897,15 +10924,15 @@ void testSerialStatusResetLine() {
   f.snap.reset_reason = ResetReasonCodec::text(ResetReason::BROWNOUT);
   f.snap.abnormal_resets = 3;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[5] == "RESET reason=BROWNOUT abnormal=3");
+  assert(lines[7] == "RESET reason=BROWNOUT abnormal=3");
   f.snap.abnormal_resets = 0;
-  assert(statusLines(f.run())[5] == "RESET reason=BROWNOUT abnormal=0");
+  assert(statusLines(f.run())[7] == "RESET reason=BROWNOUT abnormal=0");
   f.snap.abnormal_resets = 65535;
-  assert(statusLines(f.run())[5] == "RESET reason=BROWNOUT abnormal=65535");
+  assert(statusLines(f.run())[7] == "RESET reason=BROWNOUT abnormal=65535");
   f.snap.abnormal_resets = -1;
-  assert(statusLines(f.run())[5] == "RESET reason=BROWNOUT abnormal=--");
+  assert(statusLines(f.run())[7] == "RESET reason=BROWNOUT abnormal=--");
   f.snap.reset_reason = nullptr;
-  assert(statusLines(f.run())[5] == "RESET reason=UNKNOWN abnormal=--");
+  assert(statusLines(f.run())[7] == "RESET reason=UNKNOWN abnormal=--");
 }
 
 namespace {
@@ -10990,12 +11017,12 @@ void testShtc3StatusLine() {
   f.snap.shtc3.crc = 65535;
   f.snap.shtc3.run = 4;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 12);
-  assert(lines[5].rfind("RESET ", 0) == 0);
-  assert(lines[6] == "SHTC3 nack=1 short=22 crc=65535 run=4");
-  assert(lines[8].rfind("POWER ", 0) == 0);
+  assert(lines.size() == 14);
+  assert(lines[7].rfind("RESET ", 0) == 0);
+  assert(lines[8] == "SHTC3 nack=1 short=22 crc=65535 run=4");
+  assert(lines[10].rfind("POWER ", 0) == 0);
   StatusFixture clean;
-  assert(statusLines(clean.run())[6] == "SHTC3 nack=0 short=0 crc=0 run=0");
+  assert(statusLines(clean.run())[8] == "SHTC3 nack=0 short=0 crc=0 run=0");
 }
 
 void testShtc3DiagnosticsInverted() {
@@ -11108,34 +11135,34 @@ void testAwakeStatsRuntimeEstimate() {
 void testAwakeStatsStatusLine() {
   StatusFixture f;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 12);
-  assert(lines[9].rfind("RUNTIME ", 0) == 0);
-  assert(lines[10] == "AWAKE last_ms=-- avg_ms=-- max_ms=-- samples=0");
-  assert(lines[11].rfind("CRC32 ", 0) == 0);
+  assert(lines.size() == 14);
+  assert(lines[11].rfind("RUNTIME ", 0) == 0);
+  assert(lines[12] == "AWAKE last_ms=-- avg_ms=-- max_ms=-- samples=0");
+  assert(lines[13].rfind("CRC32 ", 0) == 0);
   AwakeTimeStats a;
   a.record(6400);
   a.record(3200);
   f.snap.awake = &a;
   const std::string out = f.run();
   lines = statusLines(out);
-  assert(lines[10] == "AWAKE last_ms=3200 avg_ms=4800 max_ms=6400 samples=2");
+  assert(lines[12] == "AWAKE last_ms=3200 avg_ms=4800 max_ms=6400 samples=2");
   // The CRC-32 covers the AWAKE line.
   const size_t crc_at = out.rfind("CRC32 ");
   SerialCrc32 crc;
   crc.update(reinterpret_cast<const uint8_t*>(out.data()), crc_at);
   char expected[24];
   snprintf(expected, sizeof(expected), "CRC32 %08lx", static_cast<unsigned long>(crc.value()));
-  assert(lines[11] == expected && out.find("AWAKE ") < crc_at && out.find("RUNTIME ") < out.find("AWAKE "));
+  assert(lines[13] == expected && out.find("AWAKE ") < crc_at && out.find("RUNTIME ") < out.find("AWAKE "));
   // The widest values fit the line.
   AwakeTimeStats wide;
   for (int i = 0; i < 30; ++i) wide.record(65535);
   f.snap.awake = &wide;
   lines = statusLines(f.run());
-  assert(lines[10].rfind("AWAKE last_ms=65535 avg_ms=655", 0) == 0 && lines[10].find(" max_ms=65535 samples=24") != std::string::npos);
+  assert(lines[12].rfind("AWAKE last_ms=65535 avg_ms=655", 0) == 0 && lines[12].find(" max_ms=65535 samples=24") != std::string::npos);
 }
 
 void testAwakeStatsRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   assert(PowerManager::AWAKE_SIZE == 6);
   PersistentState s;
   for (int i = 0; i < 9; ++i) s.awake.record(4000 + 100 * static_cast<uint32_t>(i));
@@ -11196,7 +11223,7 @@ void testAwakeStatsRtcRoundTrip() {
 }
 
 void testShtc3RtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   PersistentState s;
   s.shtc3.nack = 513;
   s.shtc3.short_reads = 65535;
@@ -11676,7 +11703,7 @@ void testConfigExampleTemplateInSync() {
       uncommented += text.substr(at + 2, text.find('\n', at) - at - 2) + "\n";
     }
   }
-  assert(commented == 7 && r.keys_set + commented == DeviceConfigParser::KEY_COUNT);
+  assert(commented == 11 && r.keys_set + commented == DeviceConfigParser::KEY_COUNT);
   DeviceConfig examples;
   const ConfigParseResult er = DeviceConfigParser::parse(uncommented.data(), uncommented.size(), examples);
   assert(er.rejected == 0 && er.keys_set == commented);
@@ -11882,11 +11909,11 @@ void testSerialHistoryFullOrderAndNegative() {
   FakeSink sink;
   TestRunner::showHistory(sink, h, n);
   const std::vector<std::string> lines = splitLines(sink.out);
-  assert(lines.size() == 2 + 4 * 24 + 1);
+  assert(lines.size() == 2 + 6 * 24 + 1); // onboard + 5 slots
   assert(lines[0] == "BEGIN HISTORY");
   assert(lines[1] == "sensor,age_h,temp_c,rh_pct,noise_db");
   size_t k = 2;
-  for (size_t s = 0; s < 4; ++s) {
+  for (size_t s = 0; s < 6; ++s) {
     for (size_t age = 0; age < 24; ++age, ++k) {
       char tail[48];
       const int tenths = (static_cast<int>(23 - age) - 5) * 10 + static_cast<int>(s) * 5;
@@ -12684,7 +12711,7 @@ void testNoiseAlertConfigKey() {
   assert(kept.noise_alert_limit_db == 80 && r.rejected == 1 && r.keys_set == 1);
   // Three distinct keys count as three
   parseText("temp_offset_c=1\nnoise_alert_limit_db=60\nlog_retention_months=3\n", &r);
-  assert(r.keys_set == 3 && DeviceConfigParser::KEY_COUNT == 40); // grows with each new key
+  assert(r.keys_set == 3 && DeviceConfigParser::KEY_COUNT == 44); // grows with each new key
   // valid() and isDefault() cover the new field
   DeviceConfig c;
   assert(c.isDefault() && c.valid());
@@ -12718,7 +12745,7 @@ void testNoiseAlertStatePersistence() {
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 24 - 27;
+  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 2 * DeviceConfig::SLOT_COUNT * 4 - 27;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -12909,22 +12936,22 @@ void testVentilationAlertBit() {
 void testOutdoorSlotConfigKey() {
   ConfigParseResult r;
   assert(DeviceConfig{}.outdoor_slot == 0 && parseText("", &r).outdoor_slot == 0);
-  for (int v = 0; v <= 3; ++v) {
+  for (int v = 0; v <= 5; ++v) {
     char line[32];
     snprintf(line, sizeof(line), "outdoor_slot=%d\n", v);
     assert(parseText(line, &r).outdoor_slot == v && r.keys_set == 1 && r.rejected == 0);
   }
   assert(parseText("outdoor_slot = 2\r\n").outdoor_slot == 2);
-  const char* bad[] = {"outdoor_slot=4\n", "outdoor_slot=-1\n", "outdoor_slot=255\n", "outdoor_slot=abc\n",
+  const char* bad[] = {"outdoor_slot=6\n", "outdoor_slot=-1\n", "outdoor_slot=255\n", "outdoor_slot=abc\n",
                        "outdoor_slot=1.5\n", "outdoor_slot=\n"};
   for (const char* t : bad) {
     const DeviceConfig c = parseText(t, &r);
     assert(c.outdoor_slot == 0 && r.rejected == 1 && r.keys_set == 0);
   }
-  assert(parseText("outdoor_slot=3\noutdoor_slot=9\n", &r).outdoor_slot == 3 && r.rejected == 1);
+  assert(parseText("outdoor_slot=5\noutdoor_slot=9\n", &r).outdoor_slot == 5 && r.rejected == 1);
   // valid() and isDefault() cover the field
   DeviceConfig c;
-  c.outdoor_slot = 4;
+  c.outdoor_slot = 6;
   assert(!c.valid());
   c.outdoor_slot = 2;
   assert(c.valid() && !c.isDefault());
@@ -14165,6 +14192,10 @@ void testSlotMacRegistry() {
     reg.setFixedMac(0, MAC_A);
     reg.setFixedMac(1, MAC_B);
     reg.setFixedMac(2, MAC_C);
+    const uint8_t fix4[6] = {9, 9, 9, 9, 9, 4};
+    const uint8_t fix5[6] = {9, 9, 9, 9, 9, 5};
+    reg.setFixedMac(3, fix4);
+    reg.setFixedMac(4, fix5);
     const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
     assert(!reg.upsert(macReading(other)) && reg.activeCount() == 0);
     assert(reg.upsert(macReading(MAC_C)) && reg.slot(2).valid && !reg.slot(0).valid);
@@ -14172,7 +14203,11 @@ void testSlotMacRegistry() {
   // An unfixed slot rejects a MAC that another slot has fixed
   {
     SwitchBotRegistry reg;
+    const uint8_t fix4[6] = {9, 9, 9, 9, 9, 4};
+    const uint8_t fix5[6] = {9, 9, 9, 9, 9, 5};
     reg.setFixedMac(2, MAC_A);
+    reg.setFixedMac(3, fix4);
+    reg.setFixedMac(4, fix5);
     assert(reg.upsert(macReading(MAC_B)) && reg.upsert(macReading(MAC_C)));
     assert(!reg.slot(2).valid && reg.activeCount() == 2);
     assert(reg.upsert(macReading(MAC_A)) && memcmp(reg.slot(2).mac, MAC_A, 6) == 0);
@@ -14180,6 +14215,8 @@ void testSlotMacRegistry() {
     // Only two unfixed slots exist; a third foreign MAC finds no place
     SwitchBotRegistry full;
     full.setFixedMac(2, MAC_A);
+    full.setFixedMac(3, fix4);
+    full.setFixedMac(4, fix5);
     assert(full.upsert(macReading(MAC_B)) && full.upsert(macReading(MAC_C)));
     const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
     assert(!full.upsert(macReading(other)));
@@ -14189,6 +14226,10 @@ void testSlotMacRegistry() {
     SwitchBotRegistry reg;
     reg.setFixedMac(0, BTHOME_MAC);
     reg.setFixedMac(1, MAC_A);
+    const uint8_t fix4[6] = {9, 9, 9, 9, 9, 4};
+    const uint8_t fix5[6] = {9, 9, 9, 9, 9, 5};
+    reg.setFixedMac(3, fix4);
+    reg.setFixedMac(4, fix5);
     const uint8_t pkt[] = {0x40, 0x01, 77, 0x02, 0x4B, 0x08, 0x03, 0x97, 0x11};
     SwitchBotReading bt;
     assert(BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, pkt, sizeof(pkt), bt));
@@ -14204,6 +14245,20 @@ void testSlotMacRegistry() {
     SwitchBotRegistry reg2;
     reg2.setFixedMac(0, MAC_A);
     assert(reg2.upsert(macReading(MAC_B)) && !reg2.slot(0).valid && reg2.slot(1).valid);
+  }
+  // Five slots: the 4th and 5th slot take the next MACs, a 6th MAC finds none
+  {
+    SwitchBotRegistry reg;
+    for (uint8_t i = 0; i < 5; ++i) {
+      const uint8_t m[6] = {7, 7, 7, 7, 7, static_cast<uint8_t>(i + 1)};
+      assert(reg.upsert(macReading(m)) && memcmp(reg.slot(i).mac, m, 6) == 0);
+    }
+    const uint8_t sixth[6] = {7, 7, 7, 7, 7, 6};
+    assert(!reg.upsert(macReading(sixth)) && reg.activeCount() == 5);
+    // A fixed MAC on slot 5 (index 4) wins its own packets, also when slots 1 to 4 are free
+    SwitchBotRegistry fixed;
+    fixed.setFixedMac(4, sixth);
+    assert(fixed.upsert(macReading(sixth)) && fixed.slot(4).valid && !fixed.slot(0).valid && fixed.isFixed(4));
   }
   // clearSlot, setFixedMac with nullptr, and consistent()
   {
@@ -14271,20 +14326,27 @@ void testSlotMacRtcRoundTrip() {
   DeviceConfig cfg;
   memcpy(cfg.slot_mac[0], MAC_A, 6);
   memcpy(cfg.slot_mac[2], MAC_C, 6);
+  const uint8_t fix4[6] = {9, 9, 9, 9, 9, 4};
+  const uint8_t fix5[6] = {9, 9, 9, 9, 9, 5};
+  memcpy(cfg.slot_mac[3], fix4, 6);
+  memcpy(cfg.slot_mac[4], fix5, 6);
   s.applyConfig(cfg, true, ConfigRejects{});
   s.registry.upsert(macReading(MAC_A));
   s.registry.upsert(macReading(MAC_B));
+  s.registry.upsert(macReading(fix5)); // slot 5 holds a reading through the RTC round trip
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(memcmp(r.config.slot_mac, cfg.slot_mac, sizeof(cfg.slot_mac)) == 0);
   assert(r.registry.isFixed(0) && !r.registry.isFixed(1) && r.registry.isFixed(2));
+  assert(r.registry.isFixed(3) && r.registry.isFixed(4) && r.registry.slot(4).valid &&
+         memcmp(r.registry.slot(4).mac, fix5, 6) == 0 && !r.registry.slot(3).valid);
   // The restored registry keeps enforcing the fixed MACs
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
 
   // A valid checksum with the same MAC in two keys is rejected
   const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
@@ -14439,7 +14501,7 @@ void testVentilateBadgeBounds() {
   // Rendering: the badge pixels differ from the same tile without a badge, in every tile
   const Shtc3Reading onboard{true, 21.0f, 70.0f};
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
-  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (size_t i = 0; i < 3; ++i) { // three live slots give the 4-tile standard layout
     slots[i].valid = true;
     slots[i].humidity_pct = 70;
     slots[i].temperature_c = 20.0f;
@@ -14452,7 +14514,7 @@ void testVentilateBadgeBounds() {
   for (int h = 0; h < 24; ++h) {
     for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) history.slots[s].pushPercent(60.0f + h % 5);
   }
-  for (size_t t = 0; t < VentilateLatch::TILE_COUNT; ++t) {
+  for (size_t t = 0; t < 4; ++t) {
     DV::render(base, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", 100, &history, false, nullptr, false, 0);
     DV::render(with, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", 100, &history, false, nullptr, false,
                static_cast<uint8_t>(1u << t));
@@ -14482,19 +14544,19 @@ void testVentilateLatchRtcRoundTrip() {
   assert(st.config.ventilate_limit_rh == 60 && st.ventilate_tiles == 0);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState r;
-  for (uint8_t bits : {uint8_t(0), uint8_t(1), uint8_t(0x0A), uint8_t(0x0F)}) {
+  for (uint8_t bits : {uint8_t(0), uint8_t(1), uint8_t(0x0A), uint8_t(0x3F)}) {
     st.ventilate_tiles = bits;
     st.config.ventilate_limit_rh = 75;
     assert(PowerManager::serialize(st, buf, sizeof(buf)));
     assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.ventilate_tiles == bits && r.config.ventilate_limit_rh == 75);
   }
-  // A corrupt record: latch bit above the four tiles, limit outside the range, flipped checksum
+  // A corrupt record: latch bit above the six tiles, limit outside the range, flipped checksum
   PersistentState bad;
   st.ventilate_tiles = 1;
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
   const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1;
   assert(buf[latch_pos] == 1);
-  buf[latch_pos] = 0x10;
+  buf[latch_pos] = 0x40;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), bad));
@@ -14724,14 +14786,14 @@ void testSensorBatteryTileText() {
   assert(DV::BAT_LOW_Y_OFFSET - 2 > DV::HUMIDITY_LINE_Y_OFFSET + 14 && DV::BAT_LOW_Y_OFFSET - 2 + DV::BAT_LOW_H < 124 - 1);
   const Shtc3Reading onboard{true, 21.0f, 50.0f};
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
-  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+  for (size_t i = 0; i < 3; ++i) { // three live slots: 4-tile layout
     slots[i] = batteryReading(80);
     slots[i].mac[5] = static_cast<uint8_t>(i + 1);
   }
   BatteryReading battery;
   St7305Framebuffer base;
   St7305Framebuffer with;
-  for (size_t slot = 0; slot < MAX_SWITCHBOT_SENSORS; ++slot) {
+  for (size_t slot = 0; slot < 3; ++slot) {
     DV::render(base, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", 100, nullptr, false, nullptr, false, 0, 0);
     DV::render(with, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", 100, nullptr, false, nullptr, false, 0,
                static_cast<uint8_t>(1u << slot));
@@ -14756,7 +14818,7 @@ void testSensorBatteryTileText() {
     assert(changed > 100);
     assert(with.getPixel(bx, by)); // inverted box: black background
     // Outside the box the text "BAT: 80 %" of the other tiles stays
-    for (size_t other = 0; other < MAX_SWITCHBOT_SENSORS; ++other) {
+    for (size_t other = 0; other < 3; ++other) {
       if (other == slot) continue;
       const uint16_t ox = static_cast<uint16_t>(6 + ((other + 1) % 2) * 198 + 12);
       const uint16_t oy = static_cast<uint16_t>(36 + ((other + 1) / 2) * 132 + 96);
@@ -14798,8 +14860,8 @@ void testSensorBatteryLatchRtcRoundTrip() {
     }
   }
   // The version is increased
-  assert(PowerManager::STATE_VERSION == 47);
-  // Corrupt records: latch bit above bit 2, flag byte above 7, limit above 50, old version
+  assert(PowerManager::STATE_VERSION == 48);
+  // Corrupt records: latch bit above bit 4, flag byte above 7, limit above 50, old version
   st.sensor_battery_latch = 1;
   st.alert_mask = ALERT_NONE;
   st.config.sensor_battery_limit_pct = 10;
@@ -14812,7 +14874,7 @@ void testSensorBatteryLatchRtcRoundTrip() {
   };
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
-  bad[latch_pos] = 0x08;
+  bad[latch_pos] = 0x20; // bit 5 is above the five slots
   reseal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
   memcpy(bad, buf, sizeof(bad));
@@ -15021,7 +15083,7 @@ void testSensorStaleMinConfig() {
 
   // RTC round trip, corrupt values and the version bump
   PersistentState st;
-  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 47);
+  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 48);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(5), uint16_t(30), uint16_t(240)}) {
@@ -15106,7 +15168,7 @@ void testDisplayInvert() {
 
   // RTC round trip, corrupt value and version bump
   PersistentState st;
-  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 47);
+  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 48);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(1)}) {
@@ -15133,16 +15195,16 @@ void testClimateAlertTiles() {
   };
 
   // Parser: default, edges, out-of-range and malformed values
-  assert(cfg.climate_alert_tiles == 15 && cfg.isDefault() && cfg.valid());
+  assert(cfg.climate_alert_tiles == 63 && cfg.isDefault() && cfg.valid());
   assert(parse("climate_alert_tiles=0\n").keys_set == 1 && cfg.climate_alert_tiles == 0 && !cfg.isDefault());
-  assert(parse("climate_alert_tiles = 15\r\n").keys_set == 1 && cfg.climate_alert_tiles == 15 && cfg.isDefault());
+  assert(parse("climate_alert_tiles = 63\r\n").keys_set == 1 && cfg.climate_alert_tiles == 63 && cfg.isDefault());
   assert(parse("climate_alert_tiles=5\n").keys_set == 1 && cfg.climate_alert_tiles == 5);
-  for (const char* bad : {"climate_alert_tiles=16\n", "climate_alert_tiles=-1\n", "climate_alert_tiles=256\n",
+  for (const char* bad : {"climate_alert_tiles=64\n", "climate_alert_tiles=-1\n", "climate_alert_tiles=256\n",
                           "climate_alert_tiles=1.5\n", "climate_alert_tiles=abc\n", "climate_alert_tiles=\n"}) {
     const ConfigParseResult r = parse(bad);
-    assert(r.keys_set == 0 && r.rejected == 1 && r.rejected_lines[0] == 1 && cfg.climate_alert_tiles == 15);
+    assert(r.keys_set == 0 && r.rejected == 1 && r.rejected_lines[0] == 1 && cfg.climate_alert_tiles == 63);
   }
-  cfg.climate_alert_tiles = 16;
+  cfg.climate_alert_tiles = 64;
   assert(!cfg.valid());
 
   const uint32_t now = 1000;
@@ -15158,7 +15220,7 @@ void testClimateAlertTiles() {
   // Freezer and mold triggers with each single bit
   const Shtc3Reading cold = makeOnboard(-3.0f, 50.0f);
   const Shtc3Reading humid = makeOnboard(21.0f, 85.0f);
-  for (uint8_t bit = 0; bit < 4; ++bit) {
+  for (uint8_t bit = 0; bit < 6; ++bit) {
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) slots[i] = SwitchBotReading();
     const uint8_t tiles = static_cast<uint8_t>(1u << bit);
     // The one tile of the mask reads cold, every other tile reads cold too
@@ -15245,15 +15307,15 @@ void testClimateAlertTiles() {
 
   // RTC round trip, corrupt value and the old state version
   PersistentState st;
-  assert(st.config.climate_alert_tiles == 15 && PowerManager::STATE_VERSION == 47);
+  assert(st.config.climate_alert_tiles == 63 && PowerManager::STATE_VERSION == 48);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
-  for (uint8_t v : {uint8_t(0), uint8_t(5), uint8_t(15)}) {
+  for (uint8_t v : {uint8_t(0), uint8_t(5), uint8_t(63)}) {
     st.config.climate_alert_tiles = v;
     assert(PowerManager::serialize(st, buf, sizeof(buf)));
     assert(PowerManager::deserialize(buf, sizeof(buf), out) && out.config.climate_alert_tiles == v);
   }
-  st.config.climate_alert_tiles = 16;
+  st.config.climate_alert_tiles = 64;
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
   assert(!PowerManager::deserialize(buf, sizeof(buf), out));
   st.config.climate_alert_tiles = 5;
@@ -15443,16 +15505,16 @@ void testSdCardStatus() {
     f.snap.sd_status = n.status;
     f.snap.sd_status_ms = f.snap.now_ms - 125000;
     const std::vector<std::string> lines = statusLines(f.run());
-    assert(lines.size() == 12);
-    assert(lines[4] == std::string("SD status=") + n.name + " age=125");
-    assert(lines[8].rfind("POWER ", 0) == 0);
+    assert(lines.size() == 14);
+    assert(lines[6] == std::string("SD status=") + n.name + " age=125");
+    assert(lines[10].rfind("POWER ", 0) == 0);
   }
   StatusFixture unknown;
   const std::vector<std::string> unknown_lines = statusLines(unknown.run());
-  assert(unknown_lines[4] == "SD status=UNKNOWN age=--");
+  assert(unknown_lines[6] == "SD status=UNKNOWN age=--");
 
   // RTC round trip, a corrupt status byte and the old state version
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   PersistentState st;
   st.setSdStatus(SdStatus::FULL, 4242);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -15493,7 +15555,7 @@ void testSdCardStatus() {
 }
 
 void testEventLog() {
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   const RtcTime t1 = localTime(2026, 11, 14, 9, 30);
   const RtcTime bad_time{}; // invalid
   // Empty ring and one event
@@ -15970,7 +16032,7 @@ void testTempUnitRtcRoundTrip() {
   // The unit byte follows the night wake interval in the config trailer
   const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   assert(buf[cfg_pos + 34] == 'C');
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
 }
 
 // ---- BLE telemetry broadcast (BleTelemetryCodec, ble_broadcast_enabled) ----
@@ -16203,7 +16265,7 @@ void testBleBroadcastRtcRoundTrip() {
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.ble_broadcast_enabled == 1);
   const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE -
-                     PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 24 - 4 - 1 - 1 - 1;
+                     PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 2 * DeviceConfig::SLOT_COUNT * 4 - 4 - 1 - 1 - 1;
   assert(buf[pos] == 1);
   auto seal = [](uint8_t* b) {
     const uint32_t crc = PowerManager::crc32(b, PowerManager::SERIALIZED_SIZE - 4);
@@ -16220,7 +16282,7 @@ void testBleBroadcastRtcRoundTrip() {
   bad[4] = 43; // old state version without the key
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
 }
 
 
@@ -16311,7 +16373,7 @@ void testBleConsoleRtcRoundTrip() {
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.ble_console == 2);
   const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE -
-                     PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 24 - 4 - 1 - 1;
+                     PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 2 * DeviceConfig::SLOT_COUNT * 4 - 4 - 1 - 1;
   assert(buf[pos] == 2);
   auto seal = [](uint8_t* b) {
     const uint32_t crc = PowerManager::crc32(b, PowerManager::SERIALIZED_SIZE - 4);
@@ -16328,7 +16390,7 @@ void testBleConsoleRtcRoundTrip() {
   bad[4] = 44; // old state version without the key
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
 }
 
 void testBleConsoleGate() {
@@ -16826,7 +16888,7 @@ void testFrameRefreshPatternInvalidates() {
 }
 
 void testFrameRefreshRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 47);
+  assert(PowerManager::STATE_VERSION == 48);
   assert(PowerManager::FRAME_SIZE == 5);
   PersistentState s;
   s.frame.recordFlush(0xDEADBEEFU);
@@ -16871,6 +16933,441 @@ void testFrameRefreshRtcRoundTrip() {
   // A power-on state starts with an unknown frame.
   PersistentState fresh;
   assert(fresh.frame.crc == 0 && fresh.frame.skips == 0);
+}
+
+// ---- Dynamic 1-to-6 tile dashboard and five sensor slots ----
+
+namespace {
+// A live slot reading with distinct values, fresh at `now`.
+SwitchBotReading tileSlot(uint8_t id, uint32_t now) {
+  SwitchBotReading r;
+  r.valid = true;
+  r.mac[0] = 0xB0;
+  r.mac[5] = id;
+  r.temperature_c = 14.0f + id;
+  r.humidity_pct = static_cast<uint8_t>(40 + id);
+  r.battery_pct = static_cast<int8_t>(90 - id);
+  r.rssi = -60;
+  r.updated_ms = now;
+  return r;
+}
+
+// Renders a dashboard with `n` tiles (onboard + n - 1 live slots) and full histories.
+void renderTiles(St7305Framebuffer& fb, size_t n, uint8_t vent_bits = 0, uint8_t battery_bits = 0,
+                 bool stale_last = false, bool full_text = true) {
+  const uint32_t now = 1000000;
+  const Shtc3Reading onboard{true, 21.0f, full_text ? 100.0f : 48.0f};
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i + 1 < n; ++i) {
+    slots[i] = tileSlot(static_cast<uint8_t>(i + 1), now - 1000);
+    if (full_text) {
+      slots[i].temperature_c = -45.5f - static_cast<float>(i); // widest text
+      slots[i].humidity_pct = 100;
+      slots[i].battery_pct = 100;
+    }
+  }
+  if (stale_last && n > 1) {
+    slots[n - 2].updated_ms = 0; // stale
+  }
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 4.20f;
+  battery.percentage = 100;
+  ClimateHistory history;
+  for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
+    for (int h = 0; h < 24; ++h) {
+      history.slots[s].pushPercent(40.0f + static_cast<float>((h * 7 + static_cast<int>(s) * 3) % 30));
+      history.temperatures[s].pushCelsius(15.0f + static_cast<float>((h * 5 + static_cast<int>(s)) % 11));
+    }
+  }
+  DashboardView::render(fb, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, &history, false, nullptr,
+                        false, vent_bits, battery_bits);
+}
+
+bool rectContains(const DashboardView::TileRect& r, uint16_t x, uint16_t y) {
+  return x >= r.x && x < r.x + r.w && y >= r.y && y < r.y + r.h;
+}
+} // namespace
+
+void testTileLayoutGeometry() {
+  using DV = DashboardView;
+  const uint16_t area_x1 = DV::GRID_X + DV::GRID_W;
+  const uint16_t area_y1 = DV::GRID_Y + DV::GRID_H;
+  assert(area_x1 <= RLCD_WIDTH && area_y1 <= RLCD_HEIGHT);
+  assert(DV::GRID_Y >= DV::HEADER_HEIGHT);
+  const uint16_t expected_w[7][6] = {{0}, {388}, {190, 190}, {388, 190, 190}, {190, 190, 190, 190},
+                                     {190, 190, 124, 124, 124}, {190, 190, 190, 190, 190, 190}};
+  const uint16_t expected_h[7][6] = {{0}, {256}, {256, 256}, {124, 124, 124}, {124, 124, 124, 124},
+                                     {124, 124, 124, 124, 124}, {80, 80, 80, 80, 80, 80}};
+  for (size_t n = 1; n <= 6; ++n) {
+    DV::TileRect rects[DV::MAX_TILES];
+    assert(DV::layoutTiles(n, rects) == n);
+    for (size_t i = 0; i < n; ++i) {
+      assert(rects[i].w == expected_w[n][i] && rects[i].h == expected_h[n][i]);
+      // Inside the usable area below the header
+      assert(rects[i].x >= DV::GRID_X && rects[i].x + rects[i].w <= area_x1);
+      assert(rects[i].y >= DV::GRID_Y && rects[i].y + rects[i].h <= area_y1);
+      // No overlap with another tile and a gap of at least GRID_GAP between neighbours
+      for (size_t j = i + 1; j < n; ++j) {
+        const bool apart_x = rects[i].x + rects[i].w + DV::GRID_GAP <= rects[j].x ||
+                             rects[j].x + rects[j].w + DV::GRID_GAP <= rects[i].x;
+        const bool apart_y = rects[i].y + rects[i].h + DV::GRID_GAP <= rects[j].y ||
+                             rects[j].y + rects[j].h + DV::GRID_GAP <= rects[i].y;
+        assert(apart_x || apart_y);
+      }
+    }
+    // The tiles cover the whole usable area: left edge, right edge and bottom edge are used
+    uint16_t max_r = 0, max_b = 0, min_x = 400, min_y = 400;
+    for (size_t i = 0; i < n; ++i) {
+      max_r = rects[i].x + rects[i].w > max_r ? rects[i].x + rects[i].w : max_r;
+      max_b = rects[i].y + rects[i].h > max_b ? rects[i].y + rects[i].h : max_b;
+      min_x = rects[i].x < min_x ? rects[i].x : min_x;
+      min_y = rects[i].y < min_y ? rects[i].y : min_y;
+    }
+    assert(max_r == area_x1 && max_b == area_y1 && min_x == DV::GRID_X && min_y == DV::GRID_Y);
+  }
+  // The classic 2 x 2 grid keeps its old positions
+  DV::TileRect four[DV::MAX_TILES];
+  DV::layoutTiles(4, four);
+  assert(four[0].x == 6 && four[0].y == 36 && four[1].x == 204 && four[2].y == 168 && four[3].x == 204);
+  // Counts outside 1..6 clamp
+  DV::TileRect clamp[DV::MAX_TILES];
+  assert(DV::layoutTiles(0, clamp) == 1 && DV::layoutTiles(9, clamp) == 6);
+  // Tile styles by size
+  assert(DV::tileStyle(388, 256) == DV::TileStyle::LARGE && DV::tileStyle(190, 256) == DV::TileStyle::LARGE);
+  assert(DV::tileStyle(190, 124) == DV::TileStyle::STANDARD && DV::tileStyle(388, 124) == DV::TileStyle::STANDARD);
+  assert(DV::tileStyle(190, 80) == DV::TileStyle::COMPACT && DV::tileStyle(124, 124) == DV::TileStyle::COMPACT);
+}
+
+void testActiveTileCount() {
+  using DV = DashboardView;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  size_t map[DV::MAX_TILES] = {};
+  // Only the onboard tile
+  assert(DV::activeTileCount(slots, MAX_SWITCHBOT_SENSORS, nullptr, map) == 1);
+  assert(DV::activeTileCount(nullptr, 0, nullptr, map) == 1);
+  // Live slots 2 and 4 give tiles 1 and 2 in slot order
+  slots[1] = tileSlot(2, 1);
+  slots[3] = tileSlot(4, 1);
+  assert(DV::activeTileCount(slots, MAX_SWITCHBOT_SENSORS, nullptr, map) == 3 && map[1] == 1 && map[2] == 3);
+  // A name or a fixed MAC keeps a tile for a slot without a reading
+  DeviceConfig cfg;
+  strcpy(cfg.slot_name[4], "ATTIC");
+  assert(DV::activeTileCount(slots, MAX_SWITCHBOT_SENSORS, &cfg, map) == 4 && map[1] == 1 && map[2] == 3 && map[3] == 4);
+  const uint8_t mac[6] = {1, 2, 3, 4, 5, 6};
+  memcpy(cfg.slot_mac[0], mac, 6);
+  assert(DV::activeTileCount(slots, MAX_SWITCHBOT_SENSORS, &cfg, map) == 5);
+  // All five slots give six tiles; the count never exceeds 6
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) slots[i] = tileSlot(static_cast<uint8_t>(i + 1), 1);
+  assert(DV::activeTileCount(slots, MAX_SWITCHBOT_SENSORS, nullptr, map) == 6);
+  assert(map[1] == 0 && map[5] == 4);
+}
+
+void testDashboardRendersEveryTileCount() {
+  using DV = DashboardView;
+  for (size_t n = 1; n <= 6; ++n) {
+    for (int variant = 0; variant < 3; ++variant) {
+      St7305Framebuffer fb;
+      // variant 0: widest text, 1: normal text, 2: a stale last tile and all badges
+      renderTiles(fb, n, variant == 2 ? 0x3F : 0, variant == 2 ? 0x1F : 0, variant == 2, variant == 0);
+      DV::TileRect rects[DV::MAX_TILES];
+      DV::layoutTiles(n, rects);
+      // Nothing is drawn outside the tiles below the header
+      for (uint16_t y = DV::HEADER_HEIGHT; y < RLCD_HEIGHT; ++y) {
+        for (uint16_t x = 0; x < RLCD_WIDTH; ++x) {
+          bool inside = false;
+          for (size_t i = 0; i < n; ++i) inside = inside || rectContains(rects[i], x, y);
+          if (!inside) {
+            assert(!fb.getPixel(x, y));
+          }
+        }
+      }
+      for (size_t i = 0; i < n; ++i) {
+        const DV::TileRect& r = rects[i];
+        // The frame is drawn: corners and the title divider
+        assert(fb.getPixel(r.x, r.y) && fb.getPixel(r.x + r.w - 1, r.y + r.h - 1));
+        assert(fb.getPixel(r.x + r.w / 2, r.y + 24));
+        // The inner area of the frame holds ink, so the tile is not empty
+        size_t ink = 0;
+        for (uint16_t y = r.y + 25; y < r.y + r.h - 1; ++y) {
+          for (uint16_t x = r.x + 1; x < r.x + r.w - 1; ++x) ink += fb.getPixel(x, y) ? 1 : 0;
+        }
+        assert(ink > 60);
+        // The last pixel column and row inside the frame hold no text: a 1 px safe margin
+        for (uint16_t y = r.y + 25; y < r.y + r.h - 1; ++y) {
+          assert(!fb.getPixel(r.x + r.w - 2, y) || (variant == 2 && y < r.y + 25));
+        }
+        for (uint16_t x = r.x + 1; x < r.x + r.w - 1; ++x) {
+          assert(!fb.getPixel(x, r.y + r.h - 2));
+        }
+      }
+    }
+  }
+}
+
+void testSingleTileBitExactAgainstClassicGrid() {
+  // Two or more live slots in the 4-tile grid draw the same pixels as before: the standard style is
+  // unchanged. Compare the onboard tile of a 4-tile frame with a frame whose slots are all named.
+  St7305Framebuffer a, b;
+  renderTiles(a, 4, 0, 0, false, false);
+  renderTiles(b, 4, 0, 0, false, false);
+  assert(memcmp(a.data(), b.data(), RLCD_BUFFER_SIZE) == 0);
+  // The 3-tile layout differs from the 4-tile layout
+  St7305Framebuffer c;
+  renderTiles(c, 3, 0, 0, false, false);
+  assert(memcmp(a.data(), c.data(), RLCD_BUFFER_SIZE) != 0);
+}
+
+void testTileLayoutsDifferByCount() {
+  St7305Framebuffer frames[6];
+  for (size_t n = 1; n <= 6; ++n) renderTiles(frames[n - 1], n, 0, 0, false, false);
+  for (size_t i = 0; i < 6; ++i) {
+    for (size_t j = i + 1; j < 6; ++j) {
+      assert(memcmp(frames[i].data(), frames[j].data(), RLCD_BUFFER_SIZE) != 0);
+    }
+  }
+}
+
+void testFiveSlotConfigKeys() {
+  DeviceConfig cfg;
+  assert(DeviceConfig::SLOT_COUNT == 5 && MAX_SWITCHBOT_SENSORS == 5 && ClimateHistory::SLOT_COUNT == 6);
+  assert(DeviceConfigParser::KEY_COUNT == 44);
+  const char* text =
+      "slot4_name=GARAGE\nslot5_name=ATTIC 2\nslot4_mac=AA:BB:CC:DD:EE:04\nslot5_mac=aa:bb:cc:dd:ee:05\n"
+      "outdoor_slot=5\nclimate_alert_tiles=63\n";
+  const ConfigParseResult r = DeviceConfigParser::parse(text, strlen(text), cfg);
+  assert(r.file_ok && r.rejected == 0 && r.keys_set == 6);
+  assert(strcmp(cfg.slot_name[3], "GARAGE") == 0 && strcmp(cfg.slot_name[4], "ATTIC 2") == 0);
+  assert(cfg.slot_mac[3][5] == 0x04 && cfg.slot_mac[4][5] == 0x05 && cfg.slot_mac[4][0] == 0xAA);
+  assert(cfg.hasSlotMac(3) && cfg.hasSlotMac(4) && cfg.outdoor_slot == 5 && cfg.valid());
+  // A MAC may not appear in two slots, also not across slot 3 and 4
+  const char* dup = "slot3_mac=AA:BB:CC:DD:EE:04\nslot4_mac=AA:BB:CC:DD:EE:04\n";
+  DeviceConfig d;
+  const ConfigParseResult dr = DeviceConfigParser::parse(dup, strlen(dup), d);
+  assert(dr.rejected == 1 && dr.rejected_lines[0] == 2 && d.hasSlotMac(2) && !d.hasSlotMac(3));
+  // Bad values are rejected and keep the default
+  for (const char* bad : {"slot4_name=bad_name\n", "slot5_name=\n", "slot4_mac=AA:BB\n", "slot5_mac=00:00:00:00:00:00\n",
+                          "slot4_name=THIRTEEN CHARS\n", "outdoor_slot=6\n", "climate_alert_tiles=64\n"}) {
+    DeviceConfig b;
+    const ConfigParseResult br = DeviceConfigParser::parse(bad, strlen(bad), b);
+    assert(br.rejected == 1 && br.keys_set == 0 && b.isDefault());
+  }
+  // An empty MAC value clears the fixed MAC
+  DeviceConfig e;
+  const char* clear = "slot5_mac=AA:BB:CC:DD:EE:05\nslot5_mac=\n";
+  assert(DeviceConfigParser::parse(clear, strlen(clear), e).rejected == 0 && !e.hasSlotMac(4));
+  // checkSetting (console SET) knows the new keys
+  assert(DeviceConfigParser::checkSetting("slot4_name", 10, "GARAGE", 6) == DeviceConfigParser::SettingCheck::OK);
+  assert(DeviceConfigParser::checkSetting("slot5_mac", 9, "AA:BB:CC:DD:EE:05", 17) == DeviceConfigParser::SettingCheck::OK);
+  assert(DeviceConfigParser::checkSetting("slot6_name", 10, "X", 1) == DeviceConfigParser::SettingCheck::BAD_KEY);
+  assert(DeviceConfigParser::checkSetting("slot4_mac", 9, "bad", 3) == DeviceConfigParser::SettingCheck::BAD_VALUE);
+  // Defaults: all six tiles feed the alerts, the offset keys stay at slots 1 to 3
+  assert(DeviceConfig{}.climate_alert_tiles == 63 && DeviceConfig::OFFSET_SLOT_COUNT == 3);
+  const char* offs = "slot4_temp_offset_c=1.0\n";
+  DeviceConfig o;
+  assert(DeviceConfigParser::parse(offs, strlen(offs), o).rejected == 0 && o.isDefault()); // unknown key
+  // config.ini text round trip
+  char out[DeviceConfigText::MAX_SIZE];
+  assert(DeviceConfigText::format(cfg, out, sizeof(out)) > 0);
+  assert(strstr(out, "\nslot4_name=GARAGE\n") && strstr(out, "\nslot5_name=ATTIC 2\n"));
+  assert(strstr(out, "\nslot4_mac=AA:BB:CC:DD:EE:04\n") && strstr(out, "\nslot5_mac=AA:BB:CC:DD:EE:05\n"));
+  DeviceConfig back;
+  assert(DeviceConfigParser::parse(out, strlen(out), back).rejected == 0 && memcmp(back.slot_mac, cfg.slot_mac, sizeof(cfg.slot_mac)) == 0);
+  assert(strcmp(back.slot_name[4], "ATTIC 2") == 0);
+}
+
+void testFiveSlotRegistryAndFixedMac() {
+  SwitchBotRegistry reg;
+  const uint8_t fixed5[6] = {0xAA, 0, 0, 0, 0, 0x55};
+  const uint8_t fixed4[6] = {0xAA, 0, 0, 0, 0, 0x44};
+  reg.setFixedMac(4, fixed5);
+  reg.setFixedMac(3, fixed4);
+  // Unfixed packets take slots 1 to 3 first, never slot 4 or 5
+  for (uint8_t i = 1; i <= 3; ++i) {
+    SwitchBotReading r = tileSlot(i, 10);
+    r.mac[0] = 0xCC;
+    assert(reg.upsert(r) && memcmp(reg.slot(i - 1).mac, r.mac, 6) == 0);
+  }
+  SwitchBotReading extra = tileSlot(9, 10);
+  extra.mac[0] = 0xCC;
+  assert(!reg.upsert(extra)); // slots 4 and 5 are fixed to other MACs
+  // The fixed MACs fill slots 4 and 5
+  SwitchBotReading f5 = tileSlot(1, 11);
+  memcpy(f5.mac, fixed5, 6);
+  assert(reg.upsert(f5) && reg.slot(4).valid && memcmp(reg.slot(4).mac, fixed5, 6) == 0);
+  SwitchBotReading f4 = tileSlot(2, 11);
+  memcpy(f4.mac, fixed4, 6);
+  assert(reg.upsert(f4) && reg.slot(3).valid && reg.activeCount() == 5);
+  assert(reg.consistent());
+  // Clearing slot 5 frees it for the fixed MAC only
+  reg.clearSlot(4);
+  assert(!reg.slot(4).valid && reg.isFixed(4) && reg.activeCount() == 4);
+  // calibrated() keeps all five slots
+  float t_off[5] = {0, 0, 0, 0, 1.5f};
+  float h_off[5] = {0, 0, 0, 0, 0};
+  assert(reg.upsert(f5));
+  const SwitchBotRegistry cal = reg.calibrated(t_off, h_off);
+  assert(approxEqual(cal.slot(4).temperature_c, reg.slot(4).temperature_c + 1.5f) && cal.slot(3).valid);
+  // anyStale and release reach slot 5
+  assert(SwitchBotRegistry::anyStale(&reg.slot(0), 0, 0, 1000) == false);
+  PersistentState s;
+  s.registry.upsert(tileSlot(1, 5));
+  SwitchBotReading late = tileSlot(7, 5);
+  const uint8_t m5[6] = {0xAA, 0, 0, 0, 0, 0x77};
+  s.registry.setFixedMac(4, m5);
+  memcpy(late.mac, m5, 6);
+  assert(s.registry.upsert(late));
+  s.history.slots[5].pushPercent(55.0f);
+  s.history.temperatures[5].pushCelsius(21.0f);
+  s.resetSlot(4);
+  assert(!s.registry.slot(4).valid && s.history.slots[5].size() == 0 && s.history.temperatures[5].size() == 0);
+  assert(s.registry.slot(0).valid); // other slots stay
+}
+
+void testFiveSlotRtcRoundTrip() {
+  assert(PowerManager::STATE_VERSION == 48);
+  PersistentState s;
+  DeviceConfig cfg;
+  strcpy(cfg.slot_name[3], "GARAGE");
+  strcpy(cfg.slot_name[4], "ATTIC");
+  const uint8_t m4[6] = {0xAA, 0, 0, 0, 0, 4};
+  const uint8_t m5[6] = {0xAA, 0, 0, 0, 0, 5};
+  memcpy(cfg.slot_mac[3], m4, 6);
+  memcpy(cfg.slot_mac[4], m5, 6);
+  cfg.outdoor_slot = 5;
+  cfg.climate_alert_tiles = 0x2A;
+  s.applyConfig(cfg, true, ConfigRejects{});
+  for (uint8_t i = 1; i <= 5; ++i) {
+    SwitchBotReading r = tileSlot(i, 100 + i);
+    r.mac[0] = 0xAA;
+    r.mac[5] = i;
+    s.registry.upsert(r);
+  }
+  for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
+    for (int h = 0; h < 5; ++h) {
+      s.history.slots[i].pushPercent(40.0f + static_cast<float>(i * 5 + h));
+      s.history.temperatures[i].pushCelsius(10.0f + static_cast<float>(i) + static_cast<float>(h) * 0.5f);
+    }
+  }
+  s.chart_sensor = 5;
+  s.ventilate_tiles = 0x3F;
+  s.sensor_battery_latch = 0x1F;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.registry.activeCount() == 5 && r.registry.slot(4).valid && r.registry.slot(3).valid);
+  assert(r.registry.slot(4).mac[5] == 5 && r.registry.slot(4).humidity_pct == s.registry.slot(4).humidity_pct);
+  assert(r.registry.isFixed(3) && r.registry.isFixed(4));
+  assert(strcmp(r.config.slot_name[3], "GARAGE") == 0 && strcmp(r.config.slot_name[4], "ATTIC") == 0);
+  assert(memcmp(r.config.slot_mac, cfg.slot_mac, sizeof(cfg.slot_mac)) == 0);
+  assert(r.config.outdoor_slot == 5 && r.config.climate_alert_tiles == 0x2A);
+  assert(r.chart_sensor == 5 && r.ventilate_tiles == 0x3F && r.sensor_battery_latch == 0x1F);
+  for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
+    assert(r.history.slots[i].size() == 5 && r.history.temperatures[i].size() == 5);
+    assert(r.history.slots[i].at(4) == s.history.slots[i].at(4) && r.history.temperatures[i].at(0) == s.history.temperatures[i].at(0));
+  }
+  // The record of the old version (47) is rejected and starts clean
+  uint8_t old[PowerManager::SERIALIZED_SIZE];
+  memcpy(old, buf, sizeof(old));
+  old[4] = 47;
+  const uint32_t crc = PowerManager::crc32(old, sizeof(old) - 4);
+  for (int i = 0; i < 4; ++i) old[sizeof(old) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(old, sizeof(old), r));
+  // A duplicate MAC across slot 4 and slot 5 is rejected even with a valid checksum
+  PersistentState dup = s;
+  memcpy(dup.config.slot_mac[4], m4, 6);
+  assert(PowerManager::serialize(dup, buf, sizeof(buf)));
+  assert(!PowerManager::deserialize(buf, sizeof(buf), r));
+}
+
+void testFiveSlotAlertsAndLatches() {
+  const uint32_t now = 1000;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) slots[i] = tileSlot(static_cast<uint8_t>(i + 1), now);
+  const Shtc3Reading warm = makeOnboard(21.0f, 50.0f);
+  // Slot 5 alone reads cold: only a mask with bit 5 sees it
+  slots[4].temperature_c = -3.0f;
+  AlertLimits limits;
+  limits.climate_tiles = 1u << 5;
+  assert(AlertEvaluator::evaluate(ALERT_NONE, warm, slots, MAX_SWITCHBOT_SENSORS, now, limits) == ALERT_FREEZER);
+  limits.climate_tiles = 0x1F; // bits 0 to 4: slot 5 is outside
+  assert(AlertEvaluator::evaluate(ALERT_NONE, warm, slots, MAX_SWITCHBOT_SENSORS, now, limits) == ALERT_NONE);
+  // The ventilation advice reads slot 5 as outdoor sensor
+  limits.climate_tiles = 63;
+  limits.outdoor_slot = 5;
+  slots[4] = tileSlot(5, now);
+  slots[4].temperature_c = 5.0f;
+  slots[4].humidity_pct = 30;
+  const Shtc3Reading humid = makeOnboard(22.0f, 80.0f);
+  assert((AlertEvaluator::evaluate(ALERT_NONE, humid, slots, MAX_SWITCHBOT_SENSORS, now, limits) & ALERT_VENTILATE) != 0);
+  // Ventilation latch and sensor battery latch cover slot 5
+  slots[4].humidity_pct = 90;
+  const uint8_t vent = VentilateLatch::update(0, warm, slots, MAX_SWITCHBOT_SENSORS, now, 60);
+  assert(VentilateLatch::isSet(vent, 5) && !VentilateLatch::isSet(vent, 0));
+  slots[4].battery_pct = 4;
+  const uint8_t bat = SensorBatteryLatch::update(0, slots, MAX_SWITCHBOT_SENSORS, now, 10);
+  assert(SensorBatteryLatch::isSet(bat, 4) && !SensorBatteryLatch::isSet(bat, 3));
+}
+
+void testConfigTextWorstCaseFits() {
+  // Every key at its longest value must still fit DeviceConfigText::MAX_SIZE (CONFIG reply).
+  DeviceConfig c;
+  c.temp_offset_c = -10.0f;
+  c.rh_offset_pct = -10.0f;
+  c.freeze_alert_limit_c = -20.0f;
+  c.mic_spl_offset_db = -20.0f;
+  c.battery_offset_mv = -300;
+  c.wake_interval_s = 900;
+  c.night_wake_interval_s = 1800;
+  c.sensor_stale_min = 240;
+  c.temp_unit = 'F';
+  c.noise_alert_limit_db = 100;
+  c.heat_alert_limit_c = 45;
+  c.log_retention_months = 120;
+  c.slot_release_h = 168;
+  c.ntp_sync_interval_h = 168;
+  for (size_t i = 0; i < DeviceConfig::OFFSET_SLOT_COUNT; ++i) {
+    c.slot_temp_offset_c[i] = -5.0f;
+    c.slot_rh_offset_pct[i] = -10.0f;
+  }
+  memset(c.onboard_name, 'W', DeviceConfig::NAME_MAX_CHARS);
+  for (size_t s = 0; s < DeviceConfig::SLOT_COUNT; ++s) {
+    memset(c.slot_name[s], 'W', DeviceConfig::NAME_MAX_CHARS);
+    for (size_t b = 0; b < DeviceConfig::MAC_BYTES; ++b) c.slot_mac[s][b] = static_cast<uint8_t>(0xA0 + s * 8 + b + 1);
+  }
+  assert(c.valid());
+  char text[DeviceConfigText::MAX_SIZE];
+  const size_t n = DeviceConfigText::format(c, text, sizeof(text));
+  assert(n > 0 && n < DeviceConfigText::MAX_SIZE);
+  DeviceConfig back;
+  assert(DeviceConfigParser::parse(text, n, back).rejected == 0 && strcmp(back.slot_name[4], c.slot_name[4]) == 0);
+}
+
+void testFiveSlotHistoryAndLogFormat() {
+  SwitchBotRegistry reg;
+  for (uint8_t i = 1; i <= 5; ++i) reg.upsert(tileSlot(i, 10));
+  ClimateHistory h;
+  assert(h.record(100, true, 45.0f, reg, 21.0f, 1000000));
+  for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
+    assert(h.slots[i].size() == 1 && h.temperatures[i].size() == 1);
+  }
+  // The CSV formats stay at the onboard sensor and three slots: slots 4 and 5 add no column
+  const Shtc3Reading on{true, 21.0f, 45.0f};
+  const BatteryReading bat;
+  RtcTime t;
+  t.valid = true;
+  t.year = 2026;
+  t.month = 3;
+  t.day = 9;
+  char row[SdLogCodec::MAX_ROW_SIZE];
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) slots[i] = tileSlot(static_cast<uint8_t>(i + 1), 50);
+  const size_t n = SdLogCodec::formatRow(&t, &bat, &on, slots, MAX_SWITCHBOT_SENSORS, 60, nullptr, nullptr, row, sizeof(row));
+  assert(n > 0);
+  size_t commas = 0;
+  for (const char* c = row; *c; ++c) commas += *c == ',' ? 1 : 0;
+  assert(commas == 20); // 21 columns, as before
 }
 
 int main() {
@@ -17084,6 +17581,17 @@ int main() {
   testSlotMacRegistry();
   testSlotMacConfigApply();
   testSlotMacRtcRoundTrip();
+  testTileLayoutGeometry();
+  testActiveTileCount();
+  testDashboardRendersEveryTileCount();
+  testSingleTileBitExactAgainstClassicGrid();
+  testTileLayoutsDifferByCount();
+  testFiveSlotConfigKeys();
+  testFiveSlotRegistryAndFixedMac();
+  testFiveSlotRtcRoundTrip();
+  testFiveSlotAlertsAndLatches();
+  testFiveSlotHistoryAndLogFormat();
+  testConfigTextWorstCaseFits();
   testSlotMacStatsLine();
   testShtc3HumidityOffset();
   testSlotCalibrationOffsets();
@@ -17297,6 +17805,6 @@ testSerialConfigNegativeSmallOffset();
   testSensorStaleMinConfig();
   testConfigCheckTool();
   testSdCardStatus();
-  printf("All 188 firmware logic test suites passed.\n");
+  printf("All 199 firmware logic test suites passed.\n");
   return 0;
 }

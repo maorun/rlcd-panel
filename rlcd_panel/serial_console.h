@@ -620,7 +620,7 @@ struct SerialStatusSnapshot {
 //   digits>" over all lines before it. showConfig() sends it from the RTC copy: no card access,
 //   so execute() ignores CONFIG.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>" for index 0
-//   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 3 (slots, calibrated readings), a missing value gives "--";
+//   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 5 (slots, calibrated readings), a missing value gives "--";
 //   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "SHTC3 nack=<N> short=<N> crc=<N> run=<N>", then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>" (packets of the current scan that no slot took), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 7), or "ERR MUTED"
@@ -628,7 +628,7 @@ struct SerialStatusSnapshot {
 //   PATTERN N -> "OK PATTERN <N>" after the framebuffer shows test pattern N (0 black, 1 checkerboard, 2 border with cross) and the
 //   panel got it without display_invert; the next wake cycle renders the normal view. showPattern() needs no card: execute() ignores PATTERN.
 //   SCAN -> one 4 s BLE scan, then "BEGIN SCAN", the header "mac,format,rssi,slot,temp_c,rh_pct,battery_pct", one row for each MAC (format WOIO|METER|BTHOME|ATC,
-//   the strongest RSSI wins, slot 1 to 3 or "-", battery empty when the packet has none, temperature always in Celsius), up to 16 MACs, "DROPPED,<N>" when packets of further MACs found
+//   the strongest RSSI wins, slot 1 to 5 or "-", battery empty when the packet has none, temperature always in Celsius), up to 16 MACs, "DROPPED,<N>" when packets of further MACs found
 //   no entry, then "CRC32 <8 hex digits>" over all lines before it; "ERR SCAN_FAILED" when the scan does not start. The registry, the fixed MACs
 //   and the persistent state stay unchanged. scan() needs no card: execute() ignores SCAN.
 //   TIME -> "TIME <YYYY-MM-DDTHH:MM:SS> valid=<0|1> osf=<0|1>" with the local time of the RTC (osf: oscillator stop flag);
@@ -689,16 +689,17 @@ public:
   // The hourly samples are paired by age (newest with newest), and only the hours with a sample in both
   // histories count. The samples already contain the active offsets. The card stays untouched.
   static void showCalib(Sink& sink, uint8_t reference, const ClimateHistory& history, const DeviceConfig& config) {
-    static const char* const names[ClimateHistory::SLOT_COUNT] = {"onboard", "slot1", "slot2", "slot3"};
-    static const char* const prefixes[ClimateHistory::SLOT_COUNT] = {"", "slot1_", "slot2_", "slot3_"};
-    if (reference >= ClimateHistory::SLOT_COUNT) {
+    static const char* const names[ClimateHistory::SLOT_COUNT] = {"onboard", "slot1", "slot2", "slot3", "slot4", "slot5"};
+    static const char* const prefixes[ClimateHistory::SLOT_COUNT] = {"", "slot1_", "slot2_", "slot3_", "slot4_", "slot5_"};
+    constexpr size_t CALIB_SOURCE_COUNT = 1 + DeviceConfig::OFFSET_SLOT_COUNT; // slots 4 and 5 have no offset keys
+    if (reference >= CALIB_SOURCE_COUNT) {
       return;
     }
     char text[1024];
     size_t len = static_cast<size_t>(snprintf(text, sizeof(text), "REFERENCE %s\n", names[reference]));
     char suggestions[512] = {0};
     size_t slen = 0;
-    for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
+    for (size_t s = 0; s < CALIB_SOURCE_COUNT; ++s) {
       if (s == reference) {
         continue;
       }
@@ -895,10 +896,10 @@ public:
     if (snap.registry == nullptr || snap.history == nullptr || snap.config == nullptr) {
       return;
     }
-    static const char* const defaults[ClimateHistory::SLOT_COUNT] = {"onboard", "slot1", "slot2", "slot3"};
+    static const char* const defaults[ClimateHistory::SLOT_COUNT] = {"onboard", "slot1", "slot2", "slot3", "slot4", "slot5"};
     const DeviceConfig& cfg = *snap.config;
     const SwitchBotRegistry cal = snap.registry->calibrated(cfg.slot_temp_offset_c, cfg.slot_rh_offset_pct);
-    char text[896];
+    char text[1280];
     size_t len = 0;
     for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
       const char* raw = i == 0 ? cfg.onboard_name : cfg.slot_name[i - 1];

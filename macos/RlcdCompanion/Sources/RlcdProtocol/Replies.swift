@@ -129,7 +129,7 @@ public enum HistoryReply {
         return try lines.dropFirst(2).map { line in
             let c = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
             guard c.count == 5, let s = Int(c[0]), let a = Int(c[1]),
-                  (0...3).contains(s), (0...23).contains(a) else { throw ParseError.badLine(line) }
+                  (0...5).contains(s), (0...23).contains(a) else { throw ParseError.badLine(line) }
             return HistoryRow(sensor: s, ageHours: a, temperatureC: number(c[2]), humidityPct: number(c[3]), noiseDb: number(c[4]))
         }
     }
@@ -291,7 +291,7 @@ public enum ConsoleCommand: Equatable {
     case set(key: String, value: String)
 
     /// Keys whose empty value the firmware accepts (no fixed MAC).
-    static let emptyAllowedKeys: Set<String> = ["slot1_mac", "slot2_mac", "slot3_mac"]
+    static let emptyAllowedKeys: Set<String> = ["slot1_mac", "slot2_mac", "slot3_mac", "slot4_mac", "slot5_mac"]
 
     /// Text without the line end. Returns `nil` for a key or value that the firmware cannot take
     /// (empty value except for `slotN_mac`, white space, `=` in the key, or a line above 40 bytes).

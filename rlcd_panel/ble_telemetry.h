@@ -32,7 +32,7 @@ struct BleTelemetryTile {
 //   1     sequence number (low byte of the wake cycle counter)
 //   2     cell percentage (0..100, 255 = unknown)
 //   3     active alert mask (ALERT_* bits)
-//   4     valid tile mask (bit 0 onboard, bits 1..3 slots 1..3)
+//   4     valid tile mask (bit 0 onboard, bits 1..3 slots 1..3; slots 4 and 5 are not broadcast)
 //   5..16 four tiles, each: temperature int16 little-endian in 0.01 C, humidity uint8 in 0.5 %RH
 //   17    CRC-8 (0x31, Shtc3Codec::computeCrc8) over bytes 0..16
 // Manufacturer Data field: company ID 0xFFFF (bytes FF FF) + payload = 20 bytes.

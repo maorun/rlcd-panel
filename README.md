@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/maorun/rlcd-panel/actions/workflows/ci.yml/badge.svg)](https://github.com/maorun/rlcd-panel/actions/workflows/ci.yml)
 
-Standalone `Arduino CLI` (`ESP32-S3`) firmware for the **Waveshare ESP32-S3-RLCD-4.2** reflective LCD panel (`B0GF23YC3Y`) that directly receives BLE advertisements from up to three **SwitchBot IP65 Indoor/Outdoor Thermo-Hygrometers** (`WoIOSensor`, `B0DXPHZMMP`) and reads the onboard `SHTC3` climate sensor.
+Standalone `Arduino CLI` (`ESP32-S3`) firmware for the **Waveshare ESP32-S3-RLCD-4.2** reflective LCD panel (`B0GF23YC3Y`) that directly receives BLE advertisements from up to five **SwitchBot IP65 Indoor/Outdoor Thermo-Hygrometers** (`WoIOSensor`, `B0DXPHZMMP`) and reads the onboard `SHTC3` climate sensor.
 
 ## Target Hardware
 
@@ -80,7 +80,13 @@ The panel renders five views. The `KEY` button on `GPIO18` (active low, internal
 
 ![Dashboard view](docs/display_preview_dashboard.png)
 
-Four climate tiles: the onboard `SHTC3` and up to three SwitchBot sensors. Each tile shows temperature, humidity, battery, and a 24-hour humidity (%RH) sparkline. A `STALE` badge marks a SwitchBot sensor without a recent packet. The header shows the title, the clock, and the battery level of the panel. This is the default view after a power-on.
+One to six climate tiles: the onboard `SHTC3` and up to five external sensors. A slot gets a tile when it holds a reading, has a fixed MAC (`slotN_mac`) or has a name (`slotN_name`). The grid adapts to the tile count: one tile fills the area, two tiles stand side by side, three tiles are one wide tile above two, four tiles are a 2x2 grid, five tiles are two above three narrow tiles, and six tiles are a 2x3 grid. Each tile shows temperature, humidity, battery, and 24-hour trend curves (the small tiles show the humidity curve, the large tiles also show the temperature curve). A `STALE` badge marks a SwitchBot sensor without a recent packet. The header shows the title, the clock, and the battery level of the panel. This is the default view after a power-on.
+
+| 1 tile | 2 tiles | 6 tiles |
+|---|---|---|
+| ![1 tile](docs/display_preview_tiles1.png) | ![2 tiles](docs/display_preview_tiles2.png) | ![6 tiles](docs/display_preview_tiles6.png) |
+
+The sensor stats view and the CSV logs cover the onboard sensor and slots 1 to 3. The offset keys (`slotN_temp_offset_c`, `slotN_rh_offset_pct`) exist for slots 1 to 3. The BLE telemetry frame carries four tiles.
 
 ### Mode 1: Sensor Stats
 
@@ -104,7 +110,7 @@ Power source (battery or USB), battery voltage and percentage, free heap, and up
 
 ![Climate Chart view](docs/display_preview_chart.png)
 
-The view shows the name of one sensor, a 360 x 90 px temperature curve and a 360 x 90 px humidity curve of the last 24 hours. Each curve has its minimum and maximum. A short `KEY` press selects the next sensor (onboard, then the three SwitchBot slots, then onboard again). A hold of 2 s changes the view. A sensor with fewer than 2 samples shows `NO DATA`. The view reads only the RTC histories, so it needs no sensor read and no microphone.
+The view shows the name of one sensor, a 360 x 90 px temperature curve and a 360 x 90 px humidity curve of the last 24 hours. Each curve has its minimum and maximum. A short `KEY` press selects the next sensor (onboard, then the five external slots, then onboard again). A hold of 2 s changes the view. A sensor with fewer than 2 samples shows `NO DATA`. The view reads only the RTC histories, so it needs no sensor read and no microphone.
 
 ### Low Battery Alert
 
@@ -206,8 +212,8 @@ chime_repeat_h=0
 heat_alert_limit_c=0
 # BLE telemetry of the four climate tiles after each scan: 0 is off, 1 is on (a low battery alert and the empty battery protection skip it)
 ble_broadcast_enabled=0
-# Tiles of the freezer and mold alerts: bit 0 onboard, bits 1 to 3 slots 1 to 3 (0 to 15)
-climate_alert_tiles=15
+# Tiles of the freezer and mold alerts: bit 0 onboard, bits 1 to 5 slots 1 to 5 (0 to 63)
+climate_alert_tiles=63
 outdoor_slot=0
 sensor_battery_limit_pct=10
 # Optional sensor names: 1 to 12 characters of A-Z, 0-9, space and -
