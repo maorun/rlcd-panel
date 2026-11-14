@@ -11236,6 +11236,162 @@ void testSerialHistoryShortWriteAndNoCard() {
   assert(PowerManager::serialConsoleAllowed(battery));
 }
 
+void testSerialEventsParser() {
+  SerialCommand cmd;
+  assert(parseText("EVENTS", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::EVENTS);
+  assert(parseText("EVENTS\r\n", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::EVENTS);
+  assert(parseText("EVENTS 1", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("EVENTS ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("events", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("EVENTSX", cmd) == SerialParseStatus::UNKNOWN);
+  assert(std::string(SerialConsole::errorLine(SerialParseStatus::BAD_ARG)) == "ERR BAD_ARG\n");
+}
+
+namespace {
+RtcTime eventsClock(uint8_t hour) {
+  RtcTime t;
+  t.valid = true;
+  t.year = 2026;
+  t.month = 11;
+  t.day = 14;
+  t.hour = hour;
+  t.minute = 5;
+  t.second = 9;
+  return t;
+}
+
+std::string eventsExpected(const EventRing& ring, const RtcTime& now) {
+  std::string body = "BEGIN EVENTS\ntime,event,detail\n";
+  char row[SdLogCodec::MAX_EVENT_ROW_SIZE];
+  if (SdLogCodec::formatEventsDroppedRow(now, ring.dropped(), row, sizeof(row)) > 0) {
+    body += row;
+  }
+  for (size_t i = 0; i < ring.size(); ++i) {
+    assert(SdLogCodec::formatEventRow(ring.at(i), row, sizeof(row)) > 0);
+    body += row;
+  }
+  return body;
+}
+} // namespace
+
+void testSerialEventsEmptyOneAndFull() {
+  EventRing ring;
+  const RtcTime now = eventsClock(12);
+  FakeSink sink;
+  TestRunner::showEvents(sink, ring, now);
+  const std::string head = "BEGIN EVENTS\ntime,event,detail\n";
+  assert(sink.out == head + historyCrcLine(head) + "\n");
+
+  ring.record(eventsClock(8), EventCode::ALERT_RISE, 3);
+  FakeSink one;
+  TestRunner::showEvents(one, ring, now);
+  const std::string one_body = head + "2026-11-14 08:05:09,ALERT_RISE,3\n";
+  assert(one.out == one_body + historyCrcLine(one_body) + "\n");
+
+  for (int i = 1; i < 16; ++i) {
+    ring.record(eventsClock(static_cast<uint8_t>(8 + (i % 10))), EventCode::NTP_SYNC, static_cast<uint16_t>(i));
+  }
+  assert(ring.size() == EventRing::CAPACITY && ring.dropped() == 0);
+  FakeSink full;
+  TestRunner::showEvents(full, ring, now);
+  const std::vector<std::string> lines = splitLines(full.out);
+  assert(lines.size() == 2 + 16 + 1);
+  assert(lines[2] == "2026-11-14 08:05:09,ALERT_RISE,3" && lines[3].find("NTP_SYNC,1") != std::string::npos);
+  assert(lines[17].find("NTP_SYNC,15") != std::string::npos);
+  const std::string expected = eventsExpected(ring, now);
+  assert(full.out == expected + historyCrcLine(expected) + "\n");
+}
+
+void testSerialEventsDroppedNoTimeAndUnchangedRing() {
+  EventRing ring;
+  RtcTime bad;
+  bad.valid = false;
+  ring.record(bad, EventCode::BATTERY_LOW_SET, 7); // no valid time: empty first column
+  for (int i = 0; i < 17; ++i) {
+    ring.record(eventsClock(10), EventCode::CONFIG_LOAD, static_cast<uint16_t>(i));
+  }
+  assert(ring.size() == EventRing::CAPACITY && ring.dropped() == 2);
+  const RtcTime now = eventsClock(23);
+  const EventRing before = ring;
+  FakeSink sink;
+  TestRunner::showEvents(sink, ring, now);
+  const std::vector<std::string> lines = splitLines(sink.out);
+  assert(lines.size() == 2 + 1 + 16 + 1);
+  assert(lines[2] == "2026-11-14 23:05:09,EVENTS_DROPPED,2");
+  assert(lines[3] == "2026-11-14 10:05:09,CONFIG_LOAD,1"); // the two oldest events are gone
+  const std::string expected = eventsExpected(ring, now);
+  assert(sink.out == expected + historyCrcLine(expected) + "\n");
+  assert(memcmp(&before, &ring, sizeof(ring)) == 0); // the ring stays
+
+  EventRing timeless;
+  timeless.record(bad, EventCode::EMPTY_PROTECTION, 0);
+  FakeSink nt;
+  TestRunner::showEvents(nt, timeless, now);
+  assert(splitLines(nt.out)[2] == ",EMPTY_PROTECTION,0");
+  char row[SdLogCodec::MAX_EVENT_ROW_SIZE];
+  assert(SdLogCodec::formatEventRow(timeless.at(0), row, sizeof(row)) > 0);
+  assert(std::string(row) == ",EMPTY_PROTECTION,0\n");
+
+  // Lost events with an invalid current time give no EVENTS_DROPPED row, as in the file
+  RtcTime invalid_now;
+  invalid_now.valid = false;
+  FakeSink inv;
+  TestRunner::showEvents(inv, ring, invalid_now);
+  assert(inv.out.find("EVENTS_DROPPED") == std::string::npos);
+}
+
+void testSerialEventsCrcShortWriteAndGate() {
+  EventRing ring;
+  ring.record(eventsClock(8), EventCode::ALERT_FALL, 2);
+  ring.record(eventsClock(9), EventCode::NTP_SYNC, 40);
+  const RtcTime now = eventsClock(12);
+  FakeSink full;
+  TestRunner::showEvents(full, ring, now);
+  const size_t crc_at = full.out.rfind("CRC32 ");
+  assert(crc_at != std::string::npos);
+  SerialCrc32 reference;
+  reference.update(reinterpret_cast<const uint8_t*>(full.out.data()), crc_at);
+  char expected[24];
+  snprintf(expected, sizeof(expected), "CRC32 %08lx\n", static_cast<unsigned long>(reference.value()));
+  assert(full.out.substr(crc_at) == expected);
+  for (size_t limit = 0; limit < crc_at; ++limit) {
+    FakeSink sink;
+    sink.limit = limit;
+    TestRunner::showEvents(sink, ring, now);
+    assert(sink.out.size() == limit && sink.out.find("CRC32") == std::string::npos);
+  }
+  FakeSink cut_crc;
+  cut_crc.limit = full.out.size() - 1;
+  TestRunner::showEvents(cut_crc, ring, now);
+  assert(cut_crc.out.back() != '\n');
+  // execute() ignores EVENTS: no mount, no output
+  FakeConsoleStorage storage;
+  FakeSink quiet;
+  SerialCommand cmd;
+  assert(parseText("EVENTS", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, quiet, cmd);
+  assert(storage.mounts == 0 && storage.unmounts == 0 && quiet.out.empty());
+  BatteryReading battery;
+  battery.valid = true;
+  battery.usb_powered = false;
+  assert(!PowerManager::serialConsoleAllowed(battery));
+  battery.usb_powered = true;
+  assert(PowerManager::serialConsoleAllowed(battery));
+  // script option
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  std::ifstream in(root + "scripts/dump-logs.sh");
+  assert(in.good());
+  std::stringstream ss;
+  ss << in.rdbuf();
+  const std::string script = ss.str();
+  assert(script.find("--events") != std::string::npos);
+  assert(script.find("command(\"EVENTS\")") != std::string::npos);
+  assert(script.find("BEGIN EVENTS") != std::string::npos);
+  assert(script.find("time,event,detail") != std::string::npos);
+}
+
 void testDumpLogsScriptHistorySmokeCheck() {
   std::string here = __FILE__;
   const size_t cut = here.rfind("tests/");
@@ -14893,6 +15049,10 @@ testSerialHistoryFullOrderAndNegative();
 testSerialHistoryMissingAndInvalidNoise();
 testSerialHistoryNoiseOnly();
 testSerialHistoryShortWriteAndNoCard();
+testSerialEventsParser();
+testSerialEventsEmptyOneAndFull();
+testSerialEventsDroppedNoTimeAndUnchangedRing();
+testSerialEventsCrcShortWriteAndGate();
 testDumpLogsScriptHistorySmokeCheck();
 testSerialConfigNegativeSmallOffset();
   testRtcDriftFirstSyncHasNoRate();

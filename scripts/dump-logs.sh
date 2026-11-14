@@ -5,6 +5,7 @@
 #        ./scripts/dump-logs.sh --status [port]   prints the live sensor snapshot (STATUS command)
 #        ./scripts/dump-logs.sh --set-time [port] sets the RTC to the local time of this host (TIME SET command; accuracy is about 1 s)
 #        ./scripts/dump-logs.sh --history [port]  writes the 24-hour histories from the RTC copy to sd_logs/history_<host time>.csv (HISTORY command, no card needed)
+#        ./scripts/dump-logs.sh --events [port]   prints the event ring from the RTC copy (EVENTS command, no card needed)
 # The board answers on USB power only, while it is awake. Press KEY to wake it first.
 set -euo pipefail
 umask 077
@@ -29,6 +30,10 @@ if [[ "${1:-}" == "--set-time" ]]; then
 fi
 if [[ "${1:-}" == "--history" ]]; then
   MODE=history
+  shift
+fi
+if [[ "${1:-}" == "--events" ]]; then
+  MODE=events
   shift
 fi
 PORT="${1:-}"
@@ -174,6 +179,35 @@ if mode == "history":
         handle.write(csv)
     os.replace(target + ".part", target)
     print(f"{os.path.basename(target)}: {len(csv)} bytes, {expected}")
+    sys.exit(0)
+if mode == "events":
+    # EVENTS answers from the RTC copy: "BEGIN EVENTS", the CSV header, the rows, then the CRC32 line over all bytes before it.
+    HEADER = "time,event,detail"
+    ROW = re.compile(r"^(?:\d{4}-\d\d-\d\d \d\d:\d\d:\d\d)?,[A-Z_]+,\d{1,5}$")
+    command("EVENTS")
+    deadline = time.time() + timeout_s
+    body = bytearray()
+    started = False
+    while True:
+        text = line(deadline)
+        if text.startswith("ERR "):
+            raise SystemExit("Error: " + text)
+        if text == "BEGIN EVENTS":
+            started = True
+            body = bytearray(b"BEGIN EVENTS\n")
+            continue
+        if not started:
+            continue  # boot log lines before the frame
+        if text.startswith("CRC32 "):
+            break
+        if text == HEADER or ROW.match(text):
+            body.extend(text.encode("ascii") + b"\n")
+        else:
+            raise SystemExit(f"Error: unexpected EVENTS line ({text!r})")
+    expected = f"CRC32 {zlib.crc32(bytes(body)) & 0xFFFFFFFF:08x}"
+    if text != expected:
+        raise SystemExit(f"Error: CRC mismatch ({text} / {expected})")
+    sys.stdout.write(bytes(body).split(b"\n", 1)[1].decode("ascii"))
     sys.exit(0)
 if mode == "set-time":
     # TIME SET takes the local time of this host and answers "OK TIME", "ERR BAD_ARG" or "ERR RTC_FAILED".

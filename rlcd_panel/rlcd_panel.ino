@@ -912,6 +912,13 @@ void setup() {
         // The RTC histories answer: no card access, so the clap listener keeps running.
         SerialConsoleRunner<SdLogStorage, SerialSink>::showHistory(console_sink, g_state.history,
                                                                    g_state.noise_history);
+      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::EVENTS) {
+        // The RTC ring answers: no card access, so the clap listener keeps running. The ring stays.
+        RtcTime events_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again
+        if (!g_rtc.readTime(events_now)) {
+          events_now = g_rtc_time;
+        }
+        SerialConsoleRunner<SdLogStorage, SerialSink>::showEvents(console_sink, g_state.events, events_now);
       } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::VERSION) {
         // Constants answer: no card access, so the clap listener keeps running.
         SerialConsoleRunner<SdLogStorage, SerialSink>::showVersion(console_sink, FIRMWARE_VERSION, RLCD_GIT_HASH,
