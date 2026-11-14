@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] Measured awake time of each wake cycle in STATUS and the runtime estimate
-  - Rank: [Total: 35, Use: 6, Setup: 9, Harmony: 10, Safety: 10, Effort: S]
-  - Location: `rlcd_panel/battery_monitor.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add `AwakeTimeStats` to `battery_monitor.h`. Just before `esp_deep_sleep_start()`, the wake cycle records `millis()` as the awake time of this cycle. `AwakeTimeStats` keeps the last value, the maximum and a mean of the last 24 timer wakeups (each value saturates at 65535 ms). A power-on, a `KEY` wakeup and a cycle on USB power do not add a sample. Store the stats in `PersistentState` (6 bytes) and increase the state version. When 8 or more samples exist, `BatteryHistory::estimate` uses the measured mean instead of the constant `BatteryRuntime::AWAKE_MS`. Add the line `AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>` to the `STATUS` reply after `RUNTIME`. Thus the user sees the real cost of each feature, for example the BLE broadcast or the noise window, and gets a more accurate runtime.
-  - Acceptance test: Host tests cover the first sample, 24 samples and the 25th sample (the oldest sample goes out), the saturation at 65535 ms, the skip for a power-on, a `KEY` wakeup and USB power, the estimate with 7 samples (constant) and with 8 samples (measured mean), the `STATUS` line format and its position after `RUNTIME`, and the RTC round trip with a corrupt field and the old state version. `arduino-cli compile rlcd_panel` passes.
-
 - [ ] Native macOS companion app for the BLE telemetry and the BLE console
   - Rank: [Total: 33, Use: 9, Setup: 8, Harmony: 7, Safety: 9, Effort: M]
   - Location: `macos/RlcdCompanion/` (new Swift package: library `RlcdProtocol`, app target `RlcdCompanion`, tests `RlcdProtocolTests`), `tests/fixtures/ble_telemetry_vectors.txt`, `.github/workflows/ci.yml`, `README.md`

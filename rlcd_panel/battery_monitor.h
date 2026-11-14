@@ -160,6 +160,89 @@ struct BatteryRuntime {
   }
 };
 
+// Measured awake time of the timer wakeups (ms from wake to just before deep sleep). Keeps the last
+// value, the maximum and a running mean over the last 24 samples. Every value saturates at 65535 ms.
+// The state is 6 bytes: last (uint16), max (uint16) and one uint16 that packs the sample count
+// (low 5 bits, 0 to 24) and the mean in steps of 32 ms (high 11 bits). Once 24 samples exist, each
+// new sample moves the mean by 1/24 of the difference, so the oldest sample fades out.
+// A power-on, a KEY wakeup and a cycle on USB power add no sample (`wanted`).
+class AwakeTimeStats {
+public:
+  static constexpr uint8_t WINDOW = 24;
+  static constexpr uint8_t MIN_SAMPLES = 8; // fewer samples keep the constant BatteryRuntime AWAKE_MS
+  static constexpr uint32_t MEAN_STEP_MS = 32;
+  static constexpr uint16_t MAX_MEAN_STEPS = 2047;
+  static constexpr size_t SERIALIZED_SIZE = 6;
+
+  // True only for a timer wakeup on battery power.
+  static bool wanted(bool timer_wakeup, bool usb_powered) { return timer_wakeup && !usb_powered; }
+
+  void clear() { *this = AwakeTimeStats{}; }
+
+  void record(uint32_t awake_ms) {
+    const uint16_t v = awake_ms > 65535u ? 65535u : static_cast<uint16_t>(awake_ms);
+    last_ = v;
+    if (count_ == 0 || v > max_) {
+      max_ = v;
+    }
+    if (count_ < WINDOW) {
+      ++count_;
+    }
+    // Running mean with the weight 1/count (1/24 at a full window), rounded to the nearest step. A
+    // difference below half of count * 32 ms (at most 384 ms) gives no step: the mean has this dead zone.
+    const int32_t target = static_cast<int32_t>(v);
+    const int32_t current = static_cast<int32_t>(mean_steps_) * static_cast<int32_t>(MEAN_STEP_MS);
+    const int32_t delta = target - current;
+    const int32_t half = static_cast<int32_t>(count_) * static_cast<int32_t>(MEAN_STEP_MS) / 2;
+    const int32_t divisor = static_cast<int32_t>(count_) * static_cast<int32_t>(MEAN_STEP_MS);
+    const int32_t change = (delta >= 0 ? delta + half : delta - half) / divisor;
+    int32_t next = static_cast<int32_t>(mean_steps_) + change;
+    next = next < 0 ? 0 : (next > MAX_MEAN_STEPS ? MAX_MEAN_STEPS : next);
+    mean_steps_ = static_cast<uint16_t>(next);
+  }
+
+  uint8_t samples() const { return count_; }
+  uint16_t lastMs() const { return last_; }
+  uint16_t maxMs() const { return max_; }
+  uint32_t meanMs() const { return static_cast<uint32_t>(mean_steps_) * MEAN_STEP_MS; }
+  bool enough() const { return count_ >= MIN_SAMPLES; }
+
+  // Packs the state for the RTC copy.
+  void serialize(uint8_t* out) const {
+    out[0] = static_cast<uint8_t>(last_ & 0xFF);
+    out[1] = static_cast<uint8_t>(last_ >> 8);
+    out[2] = static_cast<uint8_t>(max_ & 0xFF);
+    out[3] = static_cast<uint8_t>(max_ >> 8);
+    const uint16_t packed = static_cast<uint16_t>((mean_steps_ << 5) | count_);
+    out[4] = static_cast<uint8_t>(packed & 0xFF);
+    out[5] = static_cast<uint8_t>(packed >> 8);
+  }
+
+  // Returns false and keeps the state when the bytes are corrupt: a count above WINDOW, a last
+  // value above the maximum, a mean more than one step above the maximum, or values with no sample.
+  bool restore(const uint8_t* in) {
+    const uint16_t last = static_cast<uint16_t>(in[0] | (in[1] << 8));
+    const uint16_t max = static_cast<uint16_t>(in[2] | (in[3] << 8));
+    const uint16_t packed = static_cast<uint16_t>(in[4] | (in[5] << 8));
+    const uint8_t count = static_cast<uint8_t>(packed & 0x1F);
+    const uint16_t steps = static_cast<uint16_t>(packed >> 5);
+    if (count > WINDOW || last > max || static_cast<uint32_t>(steps) * MEAN_STEP_MS > static_cast<uint32_t>(max) + MEAN_STEP_MS || (count == 0 && (last != 0 || max != 0 || steps != 0))) {
+      return false;
+    }
+    last_ = last;
+    max_ = max;
+    count_ = count;
+    mean_steps_ = steps;
+    return true;
+  }
+
+private:
+  uint16_t last_ = 0;
+  uint16_t max_ = 0;
+  uint16_t mean_steps_ = 0;
+  uint8_t count_ = 0;
+};
+
 // Ring of 24 battery voltage samples (millivolts) with their clock stamps for the runtime
 // estimate. Samples are one hour apart plus the wake interval, so the fit uses the stamps.
 class BatteryHistory {
@@ -312,7 +395,10 @@ public:
   // `scan_saved_ms` is the scan time that an early stop saved in the last scan. The awake time of
   // one wake cycle (AWAKE_MS) shrinks by that time and the runtime grows by the same ratio. The
   // saved time is capped, so the awake time never falls below MIN_AWAKE_MS.
-  BatteryRuntime estimate(const BatteryReading& reading, uint32_t scan_saved_ms = 0) const {
+  // With `awake` holding MIN_SAMPLES or more (and a mean above MIN_AWAKE_MS), `scan_saved_ms` is
+  // ignored: the mean already includes the early scan stops.
+  BatteryRuntime estimate(const BatteryReading& reading, uint32_t scan_saved_ms = 0,
+                          const AwakeTimeStats* awake = nullptr) const {
     BatteryRuntime r;
     double slope_v_h = 0.0;
     if (!reading.valid || reading.usb_powered || !plausible(reading.voltage_v) ||
@@ -320,8 +406,13 @@ public:
       return r;
     }
     const double left_v = static_cast<double>(reading.voltage_v) - BatteryMonitor::V_EMPTY;
-    const uint32_t saved_ms = scan_saved_ms > AWAKE_MS - MIN_AWAKE_MS ? AWAKE_MS - MIN_AWAKE_MS : scan_saved_ms;
-    const double scale = static_cast<double>(AWAKE_MS) / static_cast<double>(AWAKE_MS - saved_ms);
+    // The measured mean already contains the saving of an early scan stop. With the mean in use,
+    // `scan_saved_ms` has no effect: subtracting it again would count it twice, so the scale is 1.
+    // A mean at or below MIN_AWAKE_MS is no plausible measurement: the constant and the saved time apply.
+    const bool measured = awake != nullptr && awake->enough() && awake->meanMs() > MIN_AWAKE_MS;
+    const uint32_t awake_ms = measured ? awake->meanMs() : AWAKE_MS;
+    const uint32_t saved_ms = measured ? 0 : (scan_saved_ms > AWAKE_MS - MIN_AWAKE_MS ? AWAKE_MS - MIN_AWAKE_MS : scan_saved_ms);
+    const double scale = static_cast<double>(awake_ms) / static_cast<double>(awake_ms - saved_ms);
     const double hours = left_v > 0.0 ? left_v / -slope_v_h * scale : 0.0;
     r.valid = true;
     r.hours = hours > 99.0 * 24.0 + 12.0 ? 99u * 24u + 12u : static_cast<uint32_t>(hours + 0.5);

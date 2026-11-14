@@ -104,6 +104,7 @@ struct PersistentState {
   uint32_t sd_status_ms = 0;  // clock value of that result; meaningless while sd_status is UNKNOWN
   EventRing events;           // events since the last successful hourly write (events_v1_YYYY.csv)
   Shtc3Health shtc3;          // failed reads of the onboard SHTC3 by cause; a power-on sets them to 0
+  AwakeTimeStats awake;       // measured awake time of the timer wakeups on battery power
 
   // Stores the result of a card access. A wake cycle without card access never calls it, so the
   // stored status stays.
@@ -312,7 +313,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 45;
+  static constexpr uint8_t STATE_VERSION = 46;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -355,7 +356,8 @@ public:
   static constexpr size_t EVENTS_SIZE = 1 + 2 + EventRing::CAPACITY * EVENT_ENTRY_SIZE;
   // SHTC3 health trailer (just before the checksum): NACK, SHORT and CRC counters (uint16), run (uint8).
   static constexpr size_t SHTC3_SIZE = Shtc3Health::SERIALIZED_SIZE;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + 4;
+  static constexpr size_t AWAKE_SIZE = AwakeTimeStats::SERIALIZED_SIZE;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -671,6 +673,8 @@ public:
     out[pos++] = static_cast<uint8_t>(state.shtc3.crc & 0xFF);
     out[pos++] = static_cast<uint8_t>(state.shtc3.crc >> 8);
     out[pos++] = state.shtc3.run;
+    state.awake.serialize(out + pos);
+    pos += AWAKE_SIZE;
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -996,6 +1000,10 @@ public:
     if (!s.shtc3.consistent()) {
       return false; // a run longer than the counted failures is corrupt
     }
+    if (!s.awake.restore(data + pos)) {
+      return false;
+    }
+    pos += AWAKE_SIZE;
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       s.registry.setFixedMac(i, s.config.hasSlotMac(i) ? s.config.slot_mac[i] : nullptr);
     }

@@ -972,3 +972,16 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The key uses 1 byte in the config trailer after `ble_broadcast_enabled`. The state version is 45. The console command `CONFIG` shows `ble_console=<N>`.
 - Thus the user reads the climate values and the diagnostics from a phone or a computer without a cable.
 - Host tests cover the line assembly across several write packets, a line above 40 bytes, the reply split for MTU 23 (20-byte chunks) and MTU 185 (182-byte chunks) with byte equality to the USB reply, the CRC-32 line, `SET` with `ble_console` 1 and 2, `DUMP` over BLE, the gate on battery power and with `ble_console=0`, a disconnect in a partial line, the parser for 0, 1, 2, 3 and a malformed value, the `CONFIG` line, the template sync and the RTC round trip with a corrupt field and the old state version.
+
+## Measured awake time of each wake cycle
+
+- **Code:** `rlcd_panel/battery_monitor.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- The wake cycle reads `millis()` just before the deep sleep. This value is the awake time of the cycle.
+- `AwakeTimeStats` keeps the last value, the maximum and the mean of the last 24 samples. Each value saturates at 65535 ms.
+- Only a timer wakeup on battery power adds a sample. A power-on, a `KEY` wakeup and a cycle on USB power add no sample (`AwakeTimeStats::wanted`).
+- The stats use 6 bytes in `PersistentState`, just before the checksum: the last value, the maximum, and one 16-bit field. The field holds the mean in 32 ms steps (high 11 bits) and the sample count (low 5 bits). After 24 samples, each new sample moves the mean by 1/24 of the difference, so the oldest sample fades out.
+- The RTC check rejects a count above 24, a last value above the maximum, and values without a sample. A power-on sets the stats to 0. The state version is 46.
+- From 8 samples, `BatteryHistory::estimate` uses the measured mean as the awake time instead of the constant `BatteryRuntime::AWAKE_MS`. With fewer samples, the constant stays.
+- The console command `STATUS` shows the new line `AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>` after the `RUNTIME` line and before the `CRC32` line. The fields show `--` while `samples` is 0. The `CRC32` value covers the new line.
+- Thus the user sees the real cost of each feature, for example the BLE broadcast or the noise window, and gets a more accurate runtime.
+- Host tests cover the first sample, 24 samples and the 25th sample, the saturation at 65535 ms, the skip rules, the estimate with 7 and 8 samples, the `STATUS` line and its position after `RUNTIME`, and the RTC round trip with a corrupt field and the old state version.
