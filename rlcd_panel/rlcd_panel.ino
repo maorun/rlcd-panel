@@ -363,8 +363,10 @@ void flushFramebuffer() {
   const uint32_t frame_crc = g_framebuffer.crc32();
   const bool view_changed = g_mode_controller.mode() != g_state.mode ||
                             g_mode_controller.chartSensor() != g_state.chart_sensor;
-  if (g_state.frame.shouldSkip(g_timer_wakeup, view_changed, frame_crc)) {
-    if (!g_skip_counted) { // a redraw in the same cycle counts once
+  // A redraw in the same cycle (for example after the NTP sync) counts once and keeps the skip, also at the 60th.
+  const bool same_cycle_skip = g_skip_counted && g_timer_wakeup && !view_changed && frame_crc == g_state.frame.crc;
+  if (same_cycle_skip || g_state.frame.shouldSkip(g_timer_wakeup, view_changed, frame_crc)) {
+    if (!g_skip_counted) {
       g_state.frame.recordSkip();
       g_skip_counted = true;
     }
@@ -1142,6 +1144,9 @@ void setup() {
                                                                               g_reset_reason == ResetReason::DEEPSLEEP);
   g_reset_event_pending = reset_detail >= 0;
   g_reset_event_detail = static_cast<uint16_t>(reset_detail >= 0 ? reset_detail : 0);
+  if (g_reset_reason != ResetReason::DEEPSLEEP) {
+    g_state.frame.invalidate(); // a reset between a flush and the save leaves a CRC that the panel no longer shows
+  }
   g_timer_wakeup = cause == WakeupCause::TIMER; // after the restore: a failed restore is a power-on
   g_mode_controller.setMode(g_state.mode);
   g_mode_controller.setChartSensor(g_state.chart_sensor);
