@@ -160,7 +160,7 @@ arduino-cli compile rlcd_panel
 
 ## Audio Alerts
 
-The onboard `ES8311` DAC and speaker play a short chime when a sensor crosses a limit: a freezer alert below 0 °C (three beeps) and a mold risk alert above 70 %RH (two rising notes). A sensor dropout alert plays one low 440 Hz note when a known SwitchBot or BTHome sensor sends no packet for 30 min. A charge complete alert plays two falling notes once when the cell reaches 100 % on USB power; it releases below 95 %. A chime sounds once when the alert switches on. The key `chime_alert_mask` selects the chimes (bit 4 is charge complete, bit 5 is the ventilation advice, bit 6 is the low battery of an external sensor). The key `outdoor_slot` (1 to 3) selects the outdoor sensor: when the onboard humidity is above `mold_alert_limit_rh` and the outdoor air holds at least 2.0 g/m³ less water, the dashboard shows the banner `VENTILATE` and a chime sounds once. The alerts release at 1 °C and 67 %RH. Press `BOOT` during the 3 s window after a wakeup to mute or unmute the chime. In the diagnostics view the toggle happens on release, because a long press starts the loopback test. The window opens after a `KEY` wakeup or a power-on, not after a timer wakeup. The mute flag stays in RTC memory and resets with it. Quiet hours from 22:00 to 07:00 local RTC time suppress the chime. The alert state stays tracked, so an alert does not chime when the window ends. A `Q` badge in the header shows active quiet hours. Without a valid RTC time the chime sounds. The power amplifier (`GPIO46`) is off outside playback. The code is in `rlcd_panel/audio_alert.h`.
+The onboard `ES8311` DAC and speaker play a short chime when a sensor crosses a limit: a freezer alert below 0 °C (three beeps) and a mold risk alert above 70 %RH (two rising notes). A sensor dropout alert plays one low 440 Hz note when a known SwitchBot or BTHome sensor sends no packet for 30 min. A charge complete alert plays two falling notes once when the cell reaches 100 % on USB power; it releases below 95 %. A chime sounds once when the alert switches on. The key `chime_alert_mask` selects the chimes (bit 4 is charge complete, bit 5 is the ventilation advice, bit 6 is the low battery of an external sensor, bit 7 is the heat alert). The key `heat_alert_limit_c` (0 is off, else 27 to 45) starts the heat alert, when the feels-like temperature of a tile in `climate_alert_tiles` reaches the limit; the chime is two short high notes and the alert releases 2 °C below the limit. The key `outdoor_slot` (1 to 3) selects the outdoor sensor: when the onboard humidity is above `mold_alert_limit_rh` and the outdoor air holds at least 2.0 g/m³ less water, the dashboard shows the banner `VENTILATE` and a chime sounds once. The alerts release at 1 °C and 67 %RH. Press `BOOT` during the 3 s window after a wakeup to mute or unmute the chime. In the diagnostics view the toggle happens on release, because a long press starts the loopback test. The window opens after a `KEY` wakeup or a power-on, not after a timer wakeup. The mute flag stays in RTC memory and resets with it. Quiet hours from 22:00 to 07:00 local RTC time suppress the chime. The alert state stays tracked, so an alert does not chime when the window ends. A `Q` badge in the header shows active quiet hours. Without a valid RTC time the chime sounds. The power amplifier (`GPIO46`) is off outside playback. The code is in `rlcd_panel/audio_alert.h`.
 
 ## Settings from the MicroSD Card
 
@@ -186,7 +186,7 @@ quiet_hours_end_hour=7
 mic_spl_offset_db=0.0
 log_retention_months=0
 noise_alert_limit_db=0
-chime_alert_mask=127
+chime_alert_mask=255
 ntp_sync_interval_h=24
 wake_interval_s=60
 # Minutes without a packet until a sensor is stale (5 to 240)
@@ -202,6 +202,8 @@ night_wake_interval_s=0
 temp_unit=C
 # Hours until the chime of an alert that stays active sounds again: 0 is off, 0 to 24 (mute, quiet hours and a cleared chime_alert_mask bit skip the reminder; ALERT_CHARGE_FULL never repeats)
 chime_repeat_h=0
+# Feels-like temperature in C at which the heat alert starts: 0 is off, else 27 to 45 (releases 2 C below)
+heat_alert_limit_c=0
 # Tiles of the freezer and mold alerts: bit 0 onboard, bits 1 to 3 slots 1 to 3 (0 to 15)
 climate_alert_tiles=15
 outdoor_slot=0

@@ -739,7 +739,7 @@ void testBatteryOffsetMv() {
   bad[pos] = 0xD3; bad[pos + 1] = 0xFE; // -301 mV
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 33; // old state version without the offset
   seal();
@@ -1179,7 +1179,7 @@ void testComfortZone() {
   assert(memcmp(ok_fb.data(), cold_fb.data(), RLCD_BUFFER_SIZE) != 0);
 
   // No RTC state change
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
 }
 
 void testAbsHumidityStats() {
@@ -1208,7 +1208,7 @@ void testAbsHumidityStats() {
   assert(strcmp(text, "AH 8.6G") == 0);
   DashboardView::formatAbsHumidity(text, sizeof(text), SwitchBotReading{}, now);
   assert(strcmp(text, "AH --") == 0);
-  assert(PowerManager::STATE_VERSION == 41); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 42); // no RTC state change
 
   // Rendering: right edge at x = 392, line y + 54, no overlap with the widest record text
   BatteryReading battery;
@@ -1452,7 +1452,7 @@ void testFeelsLikeStats() {
   DashboardView::renderSensorStats(dashed, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
                                    nullptr, &config);
   assert(memcmp(fb.data(), dashed.data(), RLCD_BUFFER_SIZE) != 0);
-  assert(PowerManager::STATE_VERSION == 41); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 42); // no RTC state change
 }
 
 void testMoldHoursStats() {
@@ -1573,7 +1573,7 @@ void testMoldHoursStats() {
     }
     assert(i == 2 ? !differs : differs); // empty slot shows "MOLD --" in both renders
   }
-  assert(PowerManager::STATE_VERSION == 41); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 42); // no RTC state change
 }
 
 void testDashboardClimateLine() {
@@ -1920,7 +1920,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -2816,7 +2816,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -3452,7 +3452,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -5282,7 +5282,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -5973,7 +5973,6 @@ void testDeviceConfigRtcRoundTrip() {
       {10, 24},  // quiet start hour above range
       {11, 24},  // quiet end hour above range
       {16, 121}, // log retention above range
-      {18, 128}, // chime alert mask above range
       {19, 5},   // NTP sync interval below range
       {19, 169}, // NTP sync interval above range
       {20, 29},  // wake interval low byte 29 with high byte 0: below range
@@ -5995,7 +5994,10 @@ void testDeviceConfigRtcRoundTrip() {
       {34, 'f'}, // temperature unit in lower case
       {34, 0},   // temperature unit empty
       {35, 25},  // chime repeat hours above range
-      {64, 2},   // invalid character in the onboard name
+      {36, 26},  // heat alert limit below range
+      {36, 46},  // heat alert limit above range
+      {36, 255}, // heat alert limit far above range
+      {65, 2},   // invalid character in the onboard name
       {PowerManager::CONFIG_SIZE - PowerManager::REJECTS_SIZE - 1, 2}, // unknown flag bit
   };
   for (const Corrupt& c : cases) {
@@ -6010,7 +6012,7 @@ void testDeviceConfigRtcRoundTrip() {
   const float nan_value = NAN;
   const float far_value = 99.0f;
   for (const float f : {nan_value, far_value}) {
-    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(36)}) {
+    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(37)}) {
       memcpy(bad, buf, sizeof(bad));
       memcpy(bad + cfg_pos + off, &f, 4);
       const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
@@ -6083,7 +6085,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6253,7 +6255,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -6435,7 +6437,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -8310,7 +8312,7 @@ void testClimateChartKeyHandling() {
 }
 
 void testClimateChartRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
   PersistentState s;
   s.mode = DisplayMode::CLIMATE_CHART;
   s.chart_sensor = 3;
@@ -9704,7 +9706,8 @@ void testSerialConfigLineFormat() {
   assert(text.find("\nmic_spl_offset_db=0.0\n") != std::string::npos);
   assert(text.find("\nlog_retention_months=0\n") != std::string::npos);
   assert(text.find("\nnoise_alert_limit_db=0\n") != std::string::npos);
-  assert(text.find("\nchime_alert_mask=127\n") != std::string::npos);
+  assert(text.find("\nchime_alert_mask=255\n") != std::string::npos);
+  assert(text.find("\nheat_alert_limit_c=0\n") != std::string::npos);
   assert(text.find("\nntp_sync_interval_h=24\n") != std::string::npos);
   assert(text.find("\noutdoor_slot=0\n") != std::string::npos);
   for (int i = 1; i <= 3; ++i) {
@@ -9724,7 +9727,7 @@ void testSerialConfigLineFormat() {
   assert(text.find("\ndisplay_invert=0\n") != std::string::npos);
   assert(text.find("\nbattery_offset_mv=0\n") != std::string::npos);
   assert(text.find("\ntemp_unit=C\n") != std::string::npos);
-  assert(lines == 30);
+  assert(lines == 31);
   assert(text.find("wifi") == std::string::npos && text.find("ssid") == std::string::npos &&
          text.find("pass") == std::string::npos);
   // Too small a buffer gives 0 and an empty string
@@ -10109,7 +10112,7 @@ void testChimeRepeat() {
   assert(AlertEvaluator::repeatableBits(static_cast<uint8_t>(ALERT_FREEZER | ALERT_CHARGE_FULL)) == ALERT_FREEZER);
 
   // RTC round trip: stamp, key and state version
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
   PersistentState st;
   st.last_chime_ms = 0xFFFFFF00u;
   st.config.chime_repeat_h = 24;
@@ -10253,7 +10256,7 @@ void testSlotRelease() {
   bad[pos] = 169;
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 34; // old state version without the key
   seal();
@@ -10364,7 +10367,7 @@ void testNightWakeInterval() {
   bad[pos] = 0x09; bad[pos + 1] = 0x07; // 1801 s: above range
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 35; // old state version without the key
   seal();
@@ -10376,7 +10379,7 @@ void testSerialConfigRoundTrip() {
       "temp_offset_c=-3.25\nrh_offset_pct=4.5\nfreeze_alert_limit_c=-7.5\nmold_alert_limit_rh=85\n"
       "chime_volume_pct=100\nquiet_hours_start_hour=0\nquiet_hours_end_hour=23\nmic_spl_offset_db=-12.75\n"
       "log_retention_months=120\nnoise_alert_limit_db=40\nchime_alert_mask=5\nntp_sync_interval_h=168\noutdoor_slot=3\nventilate_limit_rh=73\nsensor_battery_limit_pct=25\nbattery_offset_mv=-120\ntemp_unit=F\nchime_repeat_h=12\n"
-      "slot1_temp_offset_c=0.5\nslot2_temp_offset_c=-5.0\nslot3_temp_offset_c=4.75\n"
+      "heat_alert_limit_c=33\nslot1_temp_offset_c=0.5\nslot2_temp_offset_c=-5.0\nslot3_temp_offset_c=4.75\n"
       "slot1_rh_offset_pct=-10.0\nslot2_rh_offset_pct=3.5\nslot3_rh_offset_pct=10.0\n";
   DeviceConfig original;
   DeviceConfigParser::parse(ini, strlen(ini), original);
@@ -10387,7 +10390,8 @@ void testSerialConfigRoundTrip() {
   assert(source_at != std::string::npos);
   DeviceConfig back;
   const ConfigParseResult result = DeviceConfigParser::parse(sink.out.data(), source_at, back);
-  assert(result.file_ok && result.rejected == 0 && result.keys_set == 30);
+  assert(result.file_ok && result.rejected == 0 && result.keys_set == 31);
+  assert(back.heat_alert_limit_c == 33 && sink.out.find("\nheat_alert_limit_c=33\n") != std::string::npos);
   assert(back.battery_offset_mv == -120 && back.temp_unit == 'F' && back.chime_repeat_h == 12);
   assert(back.ventilate_limit_rh == 73 && back.sensor_battery_limit_pct == 25);
   assert(back.temp_offset_c == original.temp_offset_c && back.rh_offset_pct == original.rh_offset_pct);
@@ -11019,7 +11023,7 @@ void testShtc3DiagnosticsInverted() {
 }
 
 void testShtc3RtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
   PersistentState s;
   s.shtc3.nack = 513;
   s.shtc3.short_reads = 65535;
@@ -11156,7 +11160,7 @@ struct FakeBeepHal {
 
 void testSerialBeepParser() {
   SerialCommand cmd;
-  for (char c = '0'; c <= '6'; ++c) {
+  for (char c = '0'; c <= '7'; ++c) {
     const std::string line = std::string("BEEP ") + c;
     assert(parseText(line, cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::BEEP);
     assert(cmd.reference == static_cast<uint8_t>(c - '0'));
@@ -11165,7 +11169,8 @@ void testSerialBeepParser() {
   assert(parseText("BEEP 3\r\n", cmd) == SerialParseStatus::OK && cmd.reference == 3);
   assert(parseText("BEEP", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("BEEP ", cmd) == SerialParseStatus::BAD_ARG);
-  assert(parseText("BEEP 7", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("BEEP 8", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("BEEP 7", cmd) == SerialParseStatus::OK && cmd.reference == 7);
   assert(parseText("BEEP 9", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("BEEP 1 2", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("BEEP 12", cmd) == SerialParseStatus::BAD_ARG);
@@ -11178,7 +11183,7 @@ void testSerialBeepParser() {
 }
 
 void testSerialBeepPlaysEachBitOnce() {
-  for (uint8_t bit = 0; bit <= 6; ++bit) {
+  for (uint8_t bit = 0; bit <= 7; ++bit) {
     FakeBeepHal hal;
     FakeSink sink;
     TestRunner::beep(sink, hal, bit, false, false, 30);
@@ -11247,10 +11252,10 @@ void testSerialBeepPowersDownOnErrorPaths() {
   assert(s3.out == "ERR PLAY_FAILED\n" && write.shutdownOrderOk());
   assert(std::vector<std::string>(write.calls.begin(), write.calls.end()) ==
          (std::vector<std::string>{"begin", "codec", "amp_on", "drain", "amp_off", "codec_off", "end"}));
-  // A bit above 6 never reaches the hardware.
+  // A bit above 7 never reaches the hardware.
   FakeBeepHal bad;
   FakeSink s4;
-  TestRunner::beep(s4, bad, 7, false, false, 30);
+  TestRunner::beep(s4, bad, 8, false, false, 30);
   assert(s4.out == "ERR BAD_ARG\n" && bad.calls.empty());
 }
 
@@ -12329,7 +12334,8 @@ void testNoiseAlertChimeSuppression() {
                                         ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_SENSOR_LOST)) +
                                         ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_CHARGE_FULL)) +
                                         ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_VENTILATE)) +
-                                        ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_SENSOR_BATTERY))));
+                                        ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_SENSOR_BATTERY)) +
+                                        ChimeSynth::totalSamples(ChimeSynth::pattern(ALERT_HEAT))));
   // Volume 0 stays silent
   Hal silent;
   assert(!AudioSequencer::play(silent, ALERT_NOISE_HIGH, 0) && silent.samples == 0);
@@ -12354,7 +12360,7 @@ void testNoiseAlertConfigKey() {
   assert(kept.noise_alert_limit_db == 80 && r.rejected == 1 && r.keys_set == 1);
   // Three distinct keys count as three
   parseText("temp_offset_c=1\nnoise_alert_limit_db=60\nlog_retention_months=3\n", &r);
-  assert(r.keys_set == 3 && DeviceConfigParser::KEY_COUNT == 37); // grows with each new key
+  assert(r.keys_set == 3 && DeviceConfigParser::KEY_COUNT == 38); // grows with each new key
   // valid() and isDefault() cover the new field
   DeviceConfig c;
   assert(c.isDefault() && c.valid());
@@ -12380,15 +12386,15 @@ void testNoiseAlertStatePersistence() {
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(r.alert_mask == (ALERT_NOISE_HIGH | ALERT_FREEZER) && r.noise_band == NoiseBand::LOUD && r.muted);
   assert(r.config.noise_alert_limit_db == 72);
-  for (uint8_t mask = 0; mask <= ALERT_MASK_ALL; ++mask) {
-    s.alert_mask = mask;
+  for (int mask = 0; mask <= ALERT_MASK_ALL; ++mask) {
+    s.alert_mask = static_cast<uint8_t>(mask);
     assert(PowerManager::serialize(s, buf, sizeof(buf)));
     assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.alert_mask == mask);
   }
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 24 - 24;
+  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 24 - 25;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -12527,7 +12533,7 @@ void testVentilationAdviceNoOutdoorData() {
 
 void testVentilationAlertBit() {
   using E = AlertEvaluator;
-  assert(ALERT_VENTILATE == 32 && ALERT_MASK_ALL == 127);
+  assert(ALERT_VENTILATE == 32 && ALERT_MASK_ALL == 255);
   assert((ALERT_CLIMATE_MASK & ALERT_VENTILATE) != 0);
   // One chime per trigger: only the edge sounds
   E::Step st = E::climateStep(false, ALERT_NONE, ALERT_VENTILATE, false, 127);
@@ -12630,12 +12636,12 @@ void testVentilationStatePersistence() {
       assert(r.alert_mask == mask && r.noise_band == band && r.muted == s.muted);
     }
   }
-  // A chime mask up to 127 survives; the default has all seven bits
-  assert(DeviceConfig{}.chime_alert_mask == 127);
+  // A chime mask up to 255 survives; the default has all eight bits
+  assert(DeviceConfig{}.chime_alert_mask == 255);
   PersistentState s;
-  s.config.chime_alert_mask = 127;
+  s.config.chime_alert_mask = 255;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.chime_alert_mask == 127);
+  assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.chime_alert_mask == 255);
   // An out-of-range slot is rejected, even with a valid CRC
   s.config.outdoor_slot = 3;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
@@ -12648,17 +12654,17 @@ void testVentilationStatePersistence() {
     for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
     assert(!PowerManager::deserialize(bad, sizeof(bad), r));
   }
-  // A mask above 127 is invalid
+  // A mask of 255 is the maximum and valid
   s.config.outdoor_slot = 0;
   PersistentState bad_state = s;
-  bad_state.config.chime_alert_mask = 128;
-  assert(!bad_state.config.valid());
-  // The flag byte (bit 0 ventilate, bit 1 sensor battery) precedes the audio byte; a value above 3 is rejected, even with a valid CRC
+  bad_state.config.chime_alert_mask = 255;
+  assert(bad_state.config.valid());
+  // The flag byte (bit 0 ventilate, bit 1 sensor battery) precedes the audio byte; a value above 7 is rejected, even with a valid CRC
   s.alert_mask = ALERT_VENTILATE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   const size_t vent_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 4;
   assert(buf[vent_pos] == 1);
-  for (uint8_t bad_vent : {uint8_t{4}, uint8_t{255}}) {
+  for (uint8_t bad_vent : {uint8_t{8}, uint8_t{255}}) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
     memcpy(bad, buf, sizeof(bad));
     bad[vent_pos] = bad_vent;
@@ -12836,21 +12842,21 @@ void testChargeFullChime() {
   assert(AudioSequencer::play(hal, ALERT_CHARGE_FULL, 30));
   assert(static_cast<uint32_t>(hal.samples) == ChimeSynth::totalSamples(p));
   assert(hal.amp_on == 1 && hal.amp_off == 1 && hal.ends == 1);
-  assert(ALERT_MASK_ALL == 127 && ALERT_SENSOR_BATTERY == 64);
+  assert(ALERT_MASK_ALL == 255 && ALERT_SENSOR_BATTERY == 64);
 }
 
 void testChimeAlertMask() {
   using E = AlertEvaluator;
   using N = NoiseAlertEvaluator;
   const uint8_t bits[] = {ALERT_FREEZER, ALERT_HUMIDITY, ALERT_NOISE_HIGH, ALERT_SENSOR_LOST, ALERT_CHARGE_FULL,
-                          ALERT_VENTILATE, ALERT_SENSOR_BATTERY};
+                          ALERT_VENTILATE, ALERT_SENSOR_BATTERY, ALERT_HEAT};
   const QuietHoursWindow w = QuietHoursWindow::fromHours(22, 7);
-  // Default: all seven chimes are on
+  // Default: all eight chimes are on
   ConfigParseResult r;
-  assert(DeviceConfig{}.chime_alert_mask == 127 && parseText("", &r).chime_alert_mask == 127);
-  assert(PersistentState{}.config.chime_alert_mask == 127 && DeviceConfig{}.isDefault());
+  assert(DeviceConfig{}.chime_alert_mask == 255 && parseText("", &r).chime_alert_mask == 255);
+  assert(PersistentState{}.config.chime_alert_mask == 255 && DeviceConfig{}.isDefault());
   for (uint8_t b : bits) {
-    assert(E::chimeBits(false, ALERT_NONE, b, false, 127) == b);
+    assert(E::chimeBits(false, ALERT_NONE, b, false, 255) == b);
   }
   // Each single bit sounds only its own alert
   for (uint8_t m : bits) {
@@ -12883,42 +12889,37 @@ void testChimeAlertMask() {
   st = E::step(false, st.mask, ALERT_NONE, false, 127);
   assert(E::step(false, st.mask, ALERT_HUMIDITY, false, 127).chime == ALERT_HUMIDITY);
   // Parser: valid values, range and rejection
-  for (int v = 0; v <= 127; ++v) {
+  for (int v = 0; v <= 255; ++v) {
     char line[40];
     snprintf(line, sizeof(line), "chime_alert_mask=%d\n", v);
     assert(parseText(line, &r).chime_alert_mask == v && r.keys_set == 1 && r.rejected == 0);
   }
-  const char* bad[] = {"chime_alert_mask=128\n", "chime_alert_mask=255\n", "chime_alert_mask=-1\n",
+  const char* bad[] = {"chime_alert_mask=256\n", "chime_alert_mask=300\n", "chime_alert_mask=-1\n",
                        "chime_alert_mask=abc\n", "chime_alert_mask=3.5\n", "chime_alert_mask=\n"};
   for (const char* t : bad) {
     const DeviceConfig c = parseText(t, &r);
-    assert(c.chime_alert_mask == 127 && r.rejected == 1 && r.keys_set == 0);
+    assert(c.chime_alert_mask == 255 && r.rejected == 1 && r.keys_set == 0);
   }
-  assert(parseText("chime_alert_mask=5\nchime_alert_mask=200\n", &r).chime_alert_mask == 5 && r.rejected == 1);
+  assert(parseText("chime_alert_mask=5\nchime_alert_mask=256\n", &r).chime_alert_mask == 5 && r.rejected == 1);
   DeviceConfig inv;
-  inv.chime_alert_mask = 128;
-  assert(!inv.valid());
+  inv.chime_alert_mask = 255;
+  assert(inv.valid() && inv.isDefault());
   inv.chime_alert_mask = 0;
   assert(inv.valid() && !inv.isDefault());
   // RTC round trip for every value
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
-  for (int v = 0; v <= 127; ++v) {
+  for (int v = 0; v <= 255; ++v) {
     PersistentState s;
     s.config.chime_alert_mask = static_cast<uint8_t>(v);
     PersistentState out;
     assert(PowerManager::serialize(s, buf, sizeof(buf)));
     assert(PowerManager::deserialize(buf, sizeof(buf), out) && out.config.chime_alert_mask == v);
   }
-  // An out-of-range byte is rejected even with a valid CRC
+  // Mask 128 (ALERT_HEAT) is valid now; the old state version is rejected
   PersistentState s;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   uint8_t badbuf[PowerManager::SERIALIZED_SIZE];
-  memcpy(badbuf, buf, sizeof(badbuf));
-  badbuf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 23 - 24] = 128;
-  const uint32_t crc = PowerManager::crc32(badbuf, sizeof(badbuf) - 4);
-  for (int i = 0; i < 4; ++i) badbuf[sizeof(badbuf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState out;
-  assert(!PowerManager::deserialize(badbuf, sizeof(badbuf), out));
   // An old record version is rejected
   memcpy(badbuf, buf, sizeof(badbuf));
   badbuf[4] = PowerManager::STATE_VERSION - 1;
@@ -13833,7 +13834,7 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
 
   // A valid checksum with the same MAC in two keys is rejected
   const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
@@ -14205,7 +14206,7 @@ void testSensorBatteryLatchWithParsers() {
 
 void testSensorBatteryAlertBit() {
   using E = AlertEvaluator;
-  assert(ALERT_SENSOR_BATTERY == 64 && ALERT_MASK_ALL == 127);
+  assert(ALERT_SENSOR_BATTERY == 64 && ALERT_MASK_ALL == 255);
   assert((ALERT_MASK_ALL & ALERT_SENSOR_BATTERY) != 0 && (ALERT_CLIMATE_MASK & ALERT_SENSOR_BATTERY) == 0);
   const QuietHoursWindow w = QuietHoursWindow::fromHours(22, 7);
   // One chime when the first latch switches on; a second latch does not chime again
@@ -14347,8 +14348,8 @@ void testSensorBatteryLatchRtcRoundTrip() {
     }
   }
   // The version is increased
-  assert(PowerManager::STATE_VERSION == 41);
-  // Corrupt records: latch bit above bit 2, flag byte above 3, limit above 50, old version
+  assert(PowerManager::STATE_VERSION == 42);
+  // Corrupt records: latch bit above bit 2, flag byte above 7, limit above 50, old version
   st.sensor_battery_latch = 1;
   st.alert_mask = ALERT_NONE;
   st.config.sensor_battery_limit_pct = 10;
@@ -14365,7 +14366,7 @@ void testSensorBatteryLatchRtcRoundTrip() {
   reseal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
   memcpy(bad, buf, sizeof(bad));
-  bad[latch_pos - 2] = 4;
+  bad[latch_pos - 2] = 8;
   reseal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
   memcpy(bad, buf, sizeof(bad));
@@ -14570,7 +14571,7 @@ void testSensorStaleMinConfig() {
 
   // RTC round trip, corrupt values and the version bump
   PersistentState st;
-  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 41);
+  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 42);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(5), uint16_t(30), uint16_t(240)}) {
@@ -14655,7 +14656,7 @@ void testDisplayInvert() {
 
   // RTC round trip, corrupt value and version bump
   PersistentState st;
-  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 41);
+  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 42);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(1)}) {
@@ -14794,7 +14795,7 @@ void testClimateAlertTiles() {
 
   // RTC round trip, corrupt value and the old state version
   PersistentState st;
-  assert(st.config.climate_alert_tiles == 15 && PowerManager::STATE_VERSION == 41);
+  assert(st.config.climate_alert_tiles == 15 && PowerManager::STATE_VERSION == 42);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(5), uint8_t(15)}) {
@@ -15001,7 +15002,7 @@ void testSdCardStatus() {
   assert(unknown_lines[4] == "SD status=UNKNOWN age=--");
 
   // RTC round trip, a corrupt status byte and the old state version
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
   PersistentState st;
   st.setSdStatus(SdStatus::FULL, 4242);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -15042,7 +15043,7 @@ void testSdCardStatus() {
 }
 
 void testEventLog() {
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
   const RtcTime t1 = localTime(2026, 11, 14, 9, 30);
   const RtcTime bad_time{}; // invalid
   // Empty ring and one event
@@ -15398,7 +15399,178 @@ void testTempUnitRtcRoundTrip() {
   // The unit byte follows the night wake interval in the config trailer
   const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   assert(buf[cfg_pos + 34] == 'C');
-  assert(PowerManager::STATE_VERSION == 41);
+  assert(PowerManager::STATE_VERSION == 42);
+}
+
+// ---- Heat alert (ALERT_HEAT, heat_alert_limit_c) ----
+
+uint8_t heatEvaluate(uint8_t previous, const Shtc3Reading& onboard, const SwitchBotReading* slots, float limit_c,
+                     uint8_t tiles = CLIMATE_TILES_ALL, uint32_t now_ms = 1000) {
+  AlertLimits limits;
+  limits.heat_trigger_c = limit_c;
+  limits.climate_tiles = tiles;
+  return AlertEvaluator::evaluate(previous, onboard, slots, MAX_SWITCHBOT_SENSORS, now_ms, limits) & ALERT_HEAT;
+}
+
+void testHeatAlert() {
+  using E = AlertEvaluator;
+  assert(ALERT_HEAT == 128 && (ALERT_MASK_ALL & ALERT_HEAT) != 0 && (ALERT_CLIMATE_MASK & ALERT_HEAT) != 0);
+  SwitchBotReading none[MAX_SWITCHBOT_SENSORS];
+  // Parser: 0, 27, 45 valid; 26, 46 and malformed rejected
+  ConfigParseResult r;
+  assert(DeviceConfig{}.heat_alert_limit_c == 0 && parseText("", &r).heat_alert_limit_c == 0);
+  for (int v : {0, 27, 33, 45}) {
+    char line[40];
+    snprintf(line, sizeof(line), "heat_alert_limit_c=%d\n", v);
+    assert(parseText(line, &r).heat_alert_limit_c == v && r.keys_set == 1 && r.rejected == 0);
+  }
+  for (const char* t : {"heat_alert_limit_c=26\n", "heat_alert_limit_c=46\n", "heat_alert_limit_c=1\n",
+                        "heat_alert_limit_c=-1\n", "heat_alert_limit_c=abc\n", "heat_alert_limit_c=30.5\n",
+                        "heat_alert_limit_c=\n", "heat_alert_limit_c=256\n"}) {
+    assert(parseText(t, &r).heat_alert_limit_c == 0 && r.rejected == 1 && r.keys_set == 0);
+  }
+  DeviceConfig inv;
+  inv.heat_alert_limit_c = 26;
+  assert(!inv.valid());
+  inv.heat_alert_limit_c = 46;
+  assert(!inv.valid());
+  inv.heat_alert_limit_c = 27;
+  assert(inv.valid() && !inv.isDefault());
+  // Trigger at the limit: 35 C and 60 %RH feel hotter than 40 C
+  const Shtc3Reading hot = makeOnboard(35.0f, 60.0f);
+  const float feels = ClimateMath::heatIndexC(35.0f, 60.0f);
+  assert(feels > 40.0f);
+  assert(heatEvaluate(ALERT_NONE, hot, none, feels) == ALERT_HEAT);                 // exactly at the limit
+  assert(heatEvaluate(ALERT_NONE, hot, none, feels + 0.1f) == ALERT_NONE);          // just below the limit
+  assert(heatEvaluate(ALERT_NONE, hot, none, 0.0f) == ALERT_NONE);                  // limit 0 is off
+  // Hysteresis of 2 C: the bit holds above limit - 2 and releases at or below
+  assert(heatEvaluate(ALERT_HEAT, hot, none, feels + 1.9f) == ALERT_HEAT);
+  assert(heatEvaluate(ALERT_HEAT, hot, none, feels + 2.0f) == ALERT_NONE);
+  assert(heatEvaluate(ALERT_HEAT, hot, none, 0.0f) == ALERT_NONE);                  // switched off clears
+  // A cool room does not trigger and the bit releases
+  const Shtc3Reading cool = makeOnboard(21.0f, 50.0f);
+  assert(heatEvaluate(ALERT_NONE, cool, none, 27.0f) == ALERT_NONE);
+  assert(heatEvaluate(ALERT_HEAT, cool, none, 27.0f) == ALERT_NONE);
+  // An invalid onboard reading releases the bit (no usable reading)
+  Shtc3Reading invalid = hot;
+  invalid.valid = false;
+  assert(heatEvaluate(ALERT_HEAT, invalid, none, 30.0f) == ALERT_NONE);
+  // A slot tile triggers; a tile outside climate_alert_tiles does not
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  slots[1] = makeReading(2, 35.0f, 60, 80);
+  slots[1].updated_ms = 900;
+  assert(heatEvaluate(ALERT_NONE, cool, slots, 40.0f) == ALERT_HEAT);
+  assert(heatEvaluate(ALERT_NONE, cool, slots, 40.0f, 1 | 2 | 8) == ALERT_NONE);   // bit 2 (slot 2) cleared
+  assert(heatEvaluate(ALERT_HEAT, cool, slots, 40.0f, 1 | 2 | 8) == ALERT_NONE);
+  assert(heatEvaluate(ALERT_NONE, hot, none, 40.0f, 0) == ALERT_NONE);              // mask 0 switches it off
+  assert(heatEvaluate(ALERT_HEAT, hot, none, 40.0f, 0) == ALERT_NONE);
+  // A stale tile gives no reading: no trigger and release
+  assert(heatEvaluate(ALERT_NONE, cool, slots, 40.0f, CLIMATE_TILES_ALL, 900 + SENSOR_STALE_TIMEOUT_MS + 1) == ALERT_NONE);
+  assert(heatEvaluate(ALERT_HEAT, cool, slots, 40.0f, CLIMATE_TILES_ALL, 900 + SENSOR_STALE_TIMEOUT_MS + 1) == ALERT_NONE);
+  // Edges: the rise chimes once, the bit stays without a new chime, the fall is silent
+  E::Step st = E::climateStep(false, ALERT_NONE, ALERT_HEAT, false, 255);
+  assert(st.mask == ALERT_HEAT && st.chime == ALERT_HEAT);
+  st = E::climateStep(false, st.mask, ALERT_HEAT, false, 255);
+  assert(st.chime == ALERT_NONE);
+  st = E::climateStep(false, st.mask, ALERT_NONE, false, 255);
+  assert(st.mask == ALERT_NONE && st.chime == ALERT_NONE);
+  // The old mask 127 silences the heat chime, 255 lets it sound
+  assert(E::chimeBits(false, ALERT_NONE, ALERT_HEAT, false, 127) == ALERT_NONE);
+  assert(E::chimeBits(false, ALERT_NONE, ALERT_HEAT, false, 255) == ALERT_HEAT);
+  assert(E::chimeBits(true, ALERT_NONE, ALERT_HEAT, false, 255) == ALERT_NONE);
+  assert(E::chimeBits(false, ALERT_NONE, ALERT_HEAT, true, 255) == ALERT_NONE);
+  // The other climate bits stay independent
+  assert((E::evaluate(ALERT_NONE, hot, none, MAX_SWITCHBOT_SENSORS, 1000) & ALERT_HEAT) == 0);
+  // Chime: two short high notes
+  const ChimePattern heat = ChimeSynth::pattern(ALERT_HEAT);
+  assert(heat.count == 3 && heat.notes[0].freq_hz > 1000 && heat.notes[2].freq_hz > 1000 && heat.notes[1].freq_hz == 0);
+  assert(heat.notes[0].duration_ms <= 200 && heat.notes[2].duration_ms <= 200);
+  // The repeat reminder covers the heat bit
+  const E::Repeat rep = E::repeat(false, ALERT_HEAT, false, 255, 1, 0, 3600000UL);
+  assert(rep.chime == ALERT_HEAT);
+  assert(E::repeat(false, ALERT_HEAT, false, 127, 1, 0, 3600000UL).chime == ALERT_NONE);
+}
+
+void testHeatAlertRtcRoundTrip() {
+  PersistentState s;
+  s.config.heat_alert_limit_c = 33;
+  s.config.chime_alert_mask = 255;
+  s.alert_mask = ALERT_HEAT | ALERT_VENTILATE | ALERT_FREEZER;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.config.heat_alert_limit_c == 33 && r.alert_mask == (ALERT_HEAT | ALERT_VENTILATE | ALERT_FREEZER));
+  // Each single bit round trips
+  for (int bit = 0; bit < 8; ++bit) {
+    PersistentState t;
+    t.alert_mask = static_cast<uint8_t>(1u << bit);
+    assert(PowerManager::serialize(t, buf, sizeof(buf)));
+    assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.alert_mask == t.alert_mask);
+  }
+  // A corrupt limit (26, 46) is rejected even with a valid CRC; 0 and 27 are accepted
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
+  assert(buf[cfg_pos + 36] == 33);
+  for (uint8_t v : {uint8_t{26}, uint8_t{46}, uint8_t{0}, uint8_t{27}, uint8_t{45}}) {
+    uint8_t bad[PowerManager::SERIALIZED_SIZE];
+    memcpy(bad, buf, sizeof(bad));
+    bad[cfg_pos + 36] = v;
+    const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
+    for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+    assert(PowerManager::deserialize(bad, sizeof(bad), r) == (v == 0 || v == 27 || v == 45));
+  }
+  // The old state version is rejected
+  uint8_t old[PowerManager::SERIALIZED_SIZE];
+  memcpy(old, buf, sizeof(old));
+  old[4] = PowerManager::STATE_VERSION - 1;
+  const uint32_t crc = PowerManager::crc32(old, sizeof(old) - 4);
+  for (int i = 0; i < 4; ++i) old[sizeof(old) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  assert(!PowerManager::deserialize(old, sizeof(old), r));
+}
+
+void testHeatAlertEventsAndBeep() {
+  // The rising and the falling edge go to the event ring with the alert bit as detail
+  EventRing ring;
+  ring.record(eventsClock(8), EventCode::ALERT_RISE, ALERT_HEAT);
+  ring.record(eventsClock(9), EventCode::ALERT_FALL, ALERT_HEAT);
+  assert(ring.size() == 2);
+  assert(ring.at(0).code == EventCode::ALERT_RISE && ring.at(0).detail == ALERT_HEAT);
+  assert(ring.at(1).code == EventCode::ALERT_FALL && ring.at(1).detail == ALERT_HEAT);
+  // BEEP 7 plays the heat chime once
+  FakeBeepHal hal;
+  FakeSink sink;
+  TestRunner::beep(sink, hal, 7, false, false, 30);
+  const ChimePattern p = ChimeSynth::pattern(ALERT_HEAT);
+  uint32_t ms = 0;
+  for (uint8_t i = 0; i < p.count; ++i) ms += p.notes[i].duration_ms;
+  assert(sink.out == "OK BEEP 7 " + std::to_string(ms) + "\n");
+  assert(hal.samples == ChimeSynth::totalSamples(p));
+  // AudioSequencer plays the heat chime in a mask
+  struct Counter {
+    int samples = 0;
+    bool beginBus() { return true; }
+    bool configureCodec() { return true; }
+    void setAmplifier(bool) {}
+    bool write(const int16_t*, size_t n) { samples += static_cast<int>(n); return true; }
+    void drain() {}
+    void shutdownCodec() {}
+    void endBus() {}
+  } counter;
+  assert(AudioSequencer::play(counter, ALERT_HEAT, 30));
+  assert(static_cast<uint32_t>(counter.samples) == ChimeSynth::totalSamples(p));
+  // The CONFIG reply shows the key
+  DeviceConfig cfg;
+  cfg.heat_alert_limit_c = 31;
+  FakeSink cs;
+  TestRunner::showConfig(cs, cfg, true);
+  assert(cs.out.find("\nheat_alert_limit_c=31\n") != std::string::npos);
+  FakeSink ds;
+  TestRunner::showConfig(ds, DeviceConfig{}, false);
+  assert(ds.out.find("\nheat_alert_limit_c=0\n") != std::string::npos);
+  // The console command SET accepts the key and rejects out-of-range values
+  assert(DeviceConfigParser::checkSetting("heat_alert_limit_c", 18, "27", 2) == DeviceConfigParser::SettingCheck::OK);
+  assert(DeviceConfigParser::checkSetting("heat_alert_limit_c", 18, "26", 2) == DeviceConfigParser::SettingCheck::BAD_VALUE);
 }
 
 int main() {
@@ -15564,6 +15736,9 @@ int main() {
   testNoiseAlertStepWiring();
   testNoiseAlertStatePersistence();
   testChimeAlertMask();
+  testHeatAlert();
+  testHeatAlertRtcRoundTrip();
+  testHeatAlertEventsAndBeep();
   testAbsoluteHumidity();
   testVentilationAdviceTriggerAndRelease();
   testVentilationAdviceNoOutdoorData();

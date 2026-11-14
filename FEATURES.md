@@ -164,7 +164,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
   | `mic_spl_offset_db` | `0.0` | `-20.0` to `20.0` | added to the microphone SPL offset |
   | `log_retention_months` | `0` | `0` to `120` | delete log files older than this; `0` keeps all |
 | `noise_alert_limit_db` | `0` | `0` (off) or `40` to `100` | loud noise alert trigger |
-| `chime_alert_mask` | `127` | `0` to `127` | chime per alert (bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full, 5 ventilate, 6 sensor battery) |
+| `chime_alert_mask` | `255` | `0` to `255` | chime per alert (bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full, 5 ventilate, 6 sensor battery, 7 heat) |
 | `sensor_battery_limit_pct` | `10` | `0` to `50` | an external sensor at or below this battery level shows `BAT LOW`; `0` is off |
   | `ntp_sync_interval_h` | `24` | `6` to `168` | hours between two successful NTP syncs |
   | `wake_interval_s` | `60` | `30` to `900` | seconds between two scans on battery power; USB power keeps `60` |
@@ -898,3 +898,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The console runs on USB power only and the estimate is invalid on USB power, so `h` shows `--` in practice, as `RUNTIME: --` does in the diagnostics view. `samples`, `cycles` and `scan_saved_ms` stay valid.
 - Thus the user logs the battery state on the host without a look at the display.
 - Host tests cover a valid runtime, a runtime with a saved scan time, too few samples, a flat slope, USB power, a missing history, an unknown cycle count, the position of the line after `POWER` and before `CRC32`, the fixed CRC-32 value, and an unchanged `BatteryHistory` after the command.
+
+## Heat alert chime for a high feels-like temperature
+
+- **Code:** `rlcd_panel/audio_alert.h`, `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `docs/config.example.ini`, `tests/test_firmware_logic.cpp`.
+- The alert bit `ALERT_HEAT` (bit 7, value 128) is new. The `config.ini` key `heat_alert_limit_c` (0 is off, else 27 to 45 C, default 0) sets the limit. The parser rejects 26, 46 and a malformed value.
+- `AlertEvaluator` sets the bit when `ClimateMath::heatIndexC` of a tile in `climate_alert_tiles` is at or above the limit. It releases the bit when each such tile is 2 C below the limit, or has no usable reading. A stale tile and a tile outside the mask do not count.
+- `MAX_CHIME_ALERT_MASK` and the default `chime_alert_mask` are 255. Bit 7 of the mask switches the chime on or off.
+- The chime is two short high notes. `BEEP 7` plays it.
+- The rising and the falling edge go to the event ring as `ALERT_RISE` and `ALERT_FALL`.
+- The limit uses 1 byte in the config trailer after `chime_repeat_h`. The state version is 42. The console command `CONFIG` shows `heat_alert_limit_c=<N>`.
+- Thus the user gets a warning for a hot room in summer.
+- Host tests cover the parser, the trigger, the release with hysteresis, a tile outside the mask, a stale tile, the limit 0, the masks 127 and 255, `BEEP 7`, the event ring, the `CONFIG` line, the template sync and the RTC round trip with a corrupt field and the old state version.

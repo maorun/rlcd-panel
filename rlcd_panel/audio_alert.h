@@ -19,7 +19,7 @@
 
 namespace rlcd_panel {
 
-// Alert kinds as bit mask. The mask is persisted in RTC memory (seven bits).
+// Alert kinds as bit mask. The mask is persisted in RTC memory (eight bits).
 constexpr uint8_t ALERT_NONE = 0;
 constexpr uint8_t ALERT_FREEZER = 1;  // a sensor reads below the freezer limit
 constexpr uint8_t ALERT_HUMIDITY = 2; // a sensor reads above the mold risk limit
@@ -28,9 +28,10 @@ constexpr uint8_t ALERT_SENSOR_LOST = 8; // a known external sensor sends no mor
 constexpr uint8_t ALERT_CHARGE_FULL = 16; // the cell is full on USB power (set by chargeStep)
 constexpr uint8_t ALERT_VENTILATE = 32; // the outdoor air is drier than the humid indoor air
 constexpr uint8_t ALERT_SENSOR_BATTERY = 64; // an external sensor reports a low battery (set by batteryStep)
+constexpr uint8_t ALERT_HEAT = 128; // a tile feels hotter than the heat limit (feels-like temperature)
 constexpr uint8_t CLIMATE_TILES_ALL = 15; // bit 0 onboard, bits 1 to 3 registry slots 1 to 3
 constexpr uint8_t ALERT_CLIMATE_MASK =
-    ALERT_FREEZER | ALERT_HUMIDITY | ALERT_SENSOR_LOST | ALERT_VENTILATE; // set by AlertEvaluator
+    ALERT_FREEZER | ALERT_HUMIDITY | ALERT_SENSOR_LOST | ALERT_VENTILATE | ALERT_HEAT; // set by AlertEvaluator
 constexpr uint8_t ALERT_MASK_ALL =
     ALERT_CLIMATE_MASK | ALERT_NOISE_HIGH | ALERT_CHARGE_FULL | ALERT_SENSOR_BATTERY;
 
@@ -39,6 +40,7 @@ constexpr uint8_t ALERT_MASK_ALL =
 struct AlertLimits {
   static constexpr float FREEZER_HYSTERESIS_C = 1.0f;
   static constexpr float HUMIDITY_HYSTERESIS_PCT = 3.0f;
+  static constexpr float HEAT_HYSTERESIS_C = 2.0f;
 
   // Ventilation advice: the indoor air must hold this much more water than the outdoor air to
   // trigger, and less than the release difference to release.
@@ -51,6 +53,9 @@ struct AlertLimits {
   uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS; // a slot without a packet for longer is stale
   uint8_t climate_tiles = CLIMATE_TILES_ALL; // tiles of the freezer and mold alerts: bit 0 onboard, bits 1 to 3 slots 1 to 3
 
+  float heat_trigger_c = 0.0f; // feels-like limit in C, 0 = off
+
+  float heatReleaseC() const { return heat_trigger_c - HEAT_HYSTERESIS_C; }
   float freezerReleaseC() const { return freezer_trigger_c + FREEZER_HYSTERESIS_C; }
   float humidityReleasePct() const { return humidity_trigger_pct - HUMIDITY_HYSTERESIS_PCT; }
 };
@@ -107,6 +112,11 @@ public:
     // An empty tile mask switches both alerts off: they clear and never hold.
     if ((limits.climate_tiles & CLIMATE_TILES_ALL) == 0) {
       return mask;
+    }
+    // The heat alert never holds without a usable reading: it releases at once.
+    if (limits.heat_trigger_c > 0.0f &&
+        (tally.heat_trigger || ((previous & ALERT_HEAT) != 0 && tally.heat_hold))) {
+      mask |= ALERT_HEAT;
     }
     if (tally.cold_trigger || ((previous & ALERT_FREEZER) != 0 && cold_hold)) {
       mask |= ALERT_FREEZER;
@@ -247,6 +257,8 @@ private:
     bool cold_hold = false;
     bool humid_trigger = false;
     bool humid_hold = false;
+    bool heat_trigger = false;
+    bool heat_hold = false;
     bool have_temperature = false;
     bool have_humidity = false;
 
@@ -256,6 +268,11 @@ private:
       if (!isnan(temperature_c)) {
         cold_trigger = cold_trigger || temperature_c < limits.freezer_trigger_c;
         cold_hold = cold_hold || temperature_c < limits.freezerReleaseC();
+      }
+      const float feels = ClimateMath::heatIndexC(temperature_c, humidity_pct);
+      if (!isnan(feels)) {
+        heat_trigger = heat_trigger || feels >= limits.heat_trigger_c;
+        heat_hold = heat_hold || feels > limits.heatReleaseC();
       }
       if (!isnan(humidity_pct)) {
         humid_trigger = humid_trigger || humidity_pct > limits.humidity_trigger_pct;
@@ -370,7 +387,7 @@ public:
   static constexpr uint32_t SAMPLES_PER_MS = SAMPLE_RATE_HZ / 1000;
 
   // Freezer: three short high beeps. Humidity: two notes, rising. Noise: two high beeps, then a
-  // lower note. Sensor lost: one low note. Charge full: two notes, falling. Ventilate: three notes, rising. Sensor battery: two low notes, falling.
+  // lower note. Sensor lost: one low note. Charge full: two notes, falling. Ventilate: three notes, rising. Sensor battery: two low notes, falling. Heat: two short high notes, rising.
   static ChimePattern pattern(uint8_t alert_bit) {
     static const ChimeNote FREEZER[] = {{880, 120}, {0, 80}, {880, 120}, {0, 80}, {880, 120}};
     static const ChimeNote HUMIDITY[] = {{660, 160}, {0, 40}, {880, 240}};
@@ -379,6 +396,7 @@ public:
     static const ChimeNote CHARGE_FULL[] = {{988, 160}, {0, 40}, {660, 260}};
     static const ChimeNote VENTILATE[] = {{784, 120}, {0, 40}, {1047, 120}, {0, 40}, {1319, 200}};
     static const ChimeNote SENSOR_BATTERY[] = {{523, 160}, {0, 40}, {392, 300}};
+    static const ChimeNote HEAT[] = {{1319, 100}, {0, 60}, {1568, 160}};
     switch (alert_bit) {
       case ALERT_NOISE_HIGH: return {NOISE, sizeof(NOISE) / sizeof(NOISE[0])};
       case ALERT_FREEZER: return {FREEZER, sizeof(FREEZER) / sizeof(FREEZER[0])};
@@ -387,6 +405,7 @@ public:
       case ALERT_CHARGE_FULL: return {CHARGE_FULL, sizeof(CHARGE_FULL) / sizeof(CHARGE_FULL[0])};
       case ALERT_VENTILATE: return {VENTILATE, sizeof(VENTILATE) / sizeof(VENTILATE[0])};
       case ALERT_SENSOR_BATTERY: return {SENSOR_BATTERY, sizeof(SENSOR_BATTERY) / sizeof(SENSOR_BATTERY[0])};
+      case ALERT_HEAT: return {HEAT, sizeof(HEAT) / sizeof(HEAT[0])};
       default: return {nullptr, 0};
     }
   }
@@ -512,7 +531,7 @@ public:
     if ((alert_bits & ALERT_MASK_ALL) == 0) {
       return false;
     }
-    ChimePattern patterns[7];
+    ChimePattern patterns[8];
     uint8_t count = 0;
     if ((alert_bits & ALERT_FREEZER) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_FREEZER);
     if ((alert_bits & ALERT_HUMIDITY) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_HUMIDITY);
@@ -521,6 +540,7 @@ public:
     if ((alert_bits & ALERT_CHARGE_FULL) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_CHARGE_FULL);
     if ((alert_bits & ALERT_VENTILATE) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_VENTILATE);
     if ((alert_bits & ALERT_SENSOR_BATTERY) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_SENSOR_BATTERY);
+    if ((alert_bits & ALERT_HEAT) != 0) patterns[count++] = ChimeSynth::pattern(ALERT_HEAT);
     return playPatterns(hal, patterns, count, volume_pct);
   }
 
