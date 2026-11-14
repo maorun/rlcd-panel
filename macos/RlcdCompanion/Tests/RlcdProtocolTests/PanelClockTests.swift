@@ -101,4 +101,18 @@ struct PanelClockTests {
         let r = a.append(Data("TIME 2026-11-14T19:50:00 valid=1 osf=0\n".utf8))
         #expect(r == [.status("TIME 2026-11-14T19:50:00 valid=1 osf=0")])
     }
+
+    @Test func appBundleInfoPlistHasRequiredKeys() throws {
+        let testFile = URL(fileURLWithPath: #filePath)
+        let pkgDir = testFile.deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        let plistUrl = pkgDir.appendingPathComponent("Info.plist")
+        let data = try Data(contentsOf: plistUrl)
+        let plist = try #require(try PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        #expect(plist["CFBundleIdentifier"] as? String == "com.maorun.rlcd-companion")
+        #expect(plist["CFBundleExecutable"] as? String == "RlcdCompanion")
+        #expect(plist["CFBundlePackageType"] as? String == "APPL")
+        #expect(plist["NSHighResolutionCapable"] as? Bool == true)
+        let btDesc = try #require(plist["NSBluetoothAlwaysUsageDescription"] as? String)
+        #expect(!btDesc.isEmpty)
+    }
 }

@@ -106,6 +106,11 @@ final class AppModel: ConsoleLinkDelegate {
     /// Enables or disables macOS alert notifications.
     func toggleNotifications(_ enabled: Bool) {
         if enabled {
+            guard Bundle.main.bundleIdentifier != nil else {
+                notificationsEnabled = false
+                message = "Notifications require running from RLCD Companion.app"
+                return
+            }
             UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { [weak self] granted, _ in
                 Task { @MainActor in
                     self?.notificationsEnabled = granted
@@ -117,7 +122,7 @@ final class AppModel: ConsoleLinkDelegate {
     }
 
     private func checkAlertNotifications(previous: TelemetryFrame?, current: TelemetryFrame) {
-        guard notificationsEnabled else { return }
+        guard notificationsEnabled, Bundle.main.bundleIdentifier != nil else { return }
         let rising = AlertTransitions.risingAlerts(previous: previous, current: current)
         guard rising.rawValue != 0 else { return }
         for name in rising.names {
