@@ -213,6 +213,8 @@ On USB power the board answers console commands while it is awake. `./scripts/du
 
 The console command `VERSION` shows the build identity: `VERSION fw=<version> git=<hash> core=3.3.12 state=<STATE_VERSION> built=<YYYY-MM-DDTHH:MM:SS>`, then a `CRC32` line. `./scripts/flash-firmware.sh` sets the short Git hash (`-dirty` for uncommitted changes); a build without it, for example in CI, shows `git=unknown`. The command reads constants only, so it needs no MicroSD card. The code is in `rlcd_panel/firmware_version.h` and `rlcd_panel/serial_console.h`.
 
+The console command `STATUS` shows the line `RESET reason=<TEXT> abnormal=<N>` before the `POWER` line. The reason is `POWERON`, `EXT`, `SW`, `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT`, `DEEPSLEEP`, `BROWNOUT`, `SDIO` or `UNKNOWN`. A reset by `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT` or `BROWNOUT` is abnormal. NVS (namespace `rlcd`, key `abn_resets`) counts these resets up to 65535. NVS is written only after an abnormal reset, so a deep sleep wakeup causes no flash write. The line shows `abnormal=--` when NVS is unreadable.
+
 ## Ambient Noise Monitor
 
 The onboard `ES7210` ADC and the dual microphone array measure the ambient noise level. The diagnostics view (third `KEY` view) shows `QUIET`, `MODERATE` or `LOUD` and the level in dBFS. The firmware measures a 5 s window after a `KEY` wakeup or a power-on, only while this view is on screen. A timer wakeup measures only when the hourly CSV record is due (see "MicroSD Noise Logging"); otherwise the microphones stay off. The levels are relative to full scale, not calibrated sound pressure levels. The code is in `rlcd_panel/es7210_mic.h`.

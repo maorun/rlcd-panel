@@ -61,6 +61,7 @@ PowerConfig g_power_config;
 int32_t g_sd_free_mb = -1; // free MicroSD space in MB of this wake cycle; -1 = card not read
 NoiseReading g_noise; // measured at most once per wake cycle: diagnostics view or hourly SD record
 bool g_noise_attempted = false; // a failed window is not retried in the same wake cycle
+ResetReason g_reset_reason = ResetReason::UNKNOWN; // reason of the last boot
 MicCalibration g_mic_cal;       // loaded from NVS in setup(); the default when absent or corrupt
 bool g_mic_cal_busy = false;    // the 10 s calibration window runs
 bool g_mic_cal_failed = false;  // the last calibration of this wake cycle was rejected
@@ -705,6 +706,13 @@ void setup() {
   pinMode(PIN_BTN_KEY, INPUT_PULLUP);
   pinMode(PIN_BTN_BOOT, INPUT_PULLUP);
 
+  g_reset_reason = PowerPlatform::resetReason();
+  {
+    // Writes NVS only after an abnormal reset; a deep sleep wakeup never writes.
+    ResetCountStore reset_store;
+    AbnormalResetCounter::onBoot(g_reset_reason, reset_store);
+  }
+
   WakeupCause cause = PowerPlatform::wakeupCause();
   PowerCycle cycle;
   cycle.begin(cause);
@@ -856,6 +864,9 @@ void setup() {
         snap.now_ms = nowMs();
         snap.sd_status = g_state.sd_status;
         snap.sd_status_ms = g_state.sd_status_ms;
+        snap.reset_reason = ResetReasonCodec::text(g_reset_reason);
+        ResetCountStore reset_store;
+        snap.abnormal_resets = AbnormalResetCounter::read(reset_store);
         SerialConsoleRunner<SdLogStorage, SerialSink>::showStatus(console_sink, snap);
       } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::TIME) {
         // The RTC answers over I2C: no card access, so the clap listener keeps running.

@@ -9612,12 +9612,13 @@ void testSerialStatusParser() {
 void testSerialStatusEmptyAndMissingValues() {
   StatusFixture f;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 7);
+  assert(lines.size() == 8);
   assert(lines[0] == "SENSOR 0 onboard temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
   assert(lines[1] == "SENSOR 1 slot1 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
   assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
-  assert(lines[5] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
-  assert(lines[6].rfind("CRC32 ", 0) == 0);
+  assert(lines[5] == "RESET reason=UNKNOWN abnormal=--");
+  assert(lines[6] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
+  assert(lines[7].rfind("CRC32 ", 0) == 0);
 }
 
 void testSerialStatusStates() {
@@ -9668,8 +9669,11 @@ void testSerialStatusWorstCaseLineLength() {
   f.history.record(f.snap.now_ms - 1000, true, 100.0f, f.registry, -99.9f);
   f.snap.alert_mask = 0x7f;
   f.snap.muted = true;
+  f.snap.reset_reason = ResetReasonCodec::text(ResetReason::TASK_WDT); // the longest text
+  f.snap.abnormal_resets = 65535;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 7 && lines[4].rfind("SD status=", 0) == 0 && lines[5].rfind("POWER ", 0) == 0 && lines[6].size() == 14);
+  assert(lines.size() == 8 && lines[4].rfind("SD status=", 0) == 0 && lines[5] == "RESET reason=TASK_WDT abnormal=65535" &&
+         lines[6].rfind("POWER ", 0) == 0 && lines[7].size() == 14);
   for (size_t i = 0; i < 4; ++i) {
     assert(lines[i].rfind("SENSOR ", 0) == 0 && lines[i].find(" state=") != std::string::npos);
   }
@@ -9684,10 +9688,95 @@ void testSerialStatusPowerLine() {
   f.snap.alert_mask = 0x25;
   f.snap.muted = true;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[5] == "POWER src=BAT v=3.62 pct=42 alerts=25 muted=1");
+  assert(lines[6] == "POWER src=BAT v=3.62 pct=42 alerts=25 muted=1");
   f.snap.battery.valid = false;
   lines = statusLines(f.run());
-  assert(lines[5] == "POWER src=BAT v=-- pct=-- alerts=25 muted=1");
+  assert(lines[6] == "POWER src=BAT v=-- pct=-- alerts=25 muted=1");
+}
+
+struct FakeResetStore {
+  uint16_t value = 0;
+  bool readable = true;
+  bool writable = true;
+  int writes = 0;
+  bool load(uint16_t& out) const {
+    out = value;
+    return readable;
+  }
+  bool save(uint16_t v) {
+    if (!writable) {
+      return false;
+    }
+    value = v;
+    ++writes;
+    return true;
+  }
+};
+
+void testResetReasonText() {
+  const struct { int code; const char* text; } cases[] = {
+      {1, "POWERON"}, {2, "EXT"}, {3, "SW"}, {4, "PANIC"}, {5, "INT_WDT"}, {6, "TASK_WDT"},
+      {7, "WDT"}, {8, "DEEPSLEEP"}, {9, "BROWNOUT"}, {10, "SDIO"}, {0, "UNKNOWN"}, {11, "UNKNOWN"}, {-1, "UNKNOWN"}};
+  for (const auto& c : cases) {
+    assert(std::string(ResetReasonCodec::text(ResetReasonCodec::decode(c.code))) == c.text);
+  }
+}
+
+void testResetReasonAbnormal() {
+  for (int code = -1; code <= 11; ++code) {
+    const bool expect = code == 4 || code == 5 || code == 6 || code == 7 || code == 9;
+    assert(ResetReasonCodec::isAbnormal(ResetReasonCodec::decode(code)) == expect);
+  }
+}
+
+void testAbnormalResetCounterWrites() {
+  FakeResetStore store;
+  for (int i = 0; i < 10; ++i) {
+    assert(AbnormalResetCounter::onBoot(ResetReason::DEEPSLEEP, store));
+  }
+  assert(store.writes == 0 && store.value == 0);
+  assert(AbnormalResetCounter::onBoot(ResetReason::POWERON, store) && store.writes == 0);
+  assert(AbnormalResetCounter::onBoot(ResetReason::PANIC, store));
+  assert(store.writes == 1 && store.value == 1);
+  assert(AbnormalResetCounter::onBoot(ResetReason::BROWNOUT, store) && store.value == 2);
+  assert(AbnormalResetCounter::read(store) == 2);
+}
+
+void testAbnormalResetCounterSaturates() {
+  FakeResetStore store;
+  store.value = 65534;
+  assert(AbnormalResetCounter::onBoot(ResetReason::WDT, store) && store.value == 65535 && store.writes == 1);
+  assert(AbnormalResetCounter::onBoot(ResetReason::WDT, store) && store.value == 65535 && store.writes == 1);
+  assert(AbnormalResetCounter::read(store) == 65535);
+  store.writable = false; // a saturated count needs no write, so a failing store is no error
+  assert(AbnormalResetCounter::onBoot(ResetReason::PANIC, store) && store.writes == 1);
+}
+
+void testAbnormalResetCounterUnreadable() {
+  FakeResetStore store;
+  store.readable = false;
+  assert(!AbnormalResetCounter::onBoot(ResetReason::PANIC, store) && store.writes == 0);
+  assert(AbnormalResetCounter::read(store) == -1);
+  assert(AbnormalResetCounter::onBoot(ResetReason::DEEPSLEEP, store)); // no NVS access needed
+  FakeResetStore failing;
+  failing.writable = false;
+  assert(!AbnormalResetCounter::onBoot(ResetReason::PANIC, failing));
+}
+
+void testSerialStatusResetLine() {
+  StatusFixture f;
+  f.snap.reset_reason = ResetReasonCodec::text(ResetReason::BROWNOUT);
+  f.snap.abnormal_resets = 3;
+  std::vector<std::string> lines = statusLines(f.run());
+  assert(lines[5] == "RESET reason=BROWNOUT abnormal=3");
+  f.snap.abnormal_resets = 0;
+  assert(statusLines(f.run())[5] == "RESET reason=BROWNOUT abnormal=0");
+  f.snap.abnormal_resets = 65535;
+  assert(statusLines(f.run())[5] == "RESET reason=BROWNOUT abnormal=65535");
+  f.snap.abnormal_resets = -1;
+  assert(statusLines(f.run())[5] == "RESET reason=BROWNOUT abnormal=--");
+  f.snap.reset_reason = nullptr;
+  assert(statusLines(f.run())[5] == "RESET reason=UNKNOWN abnormal=--");
 }
 
 void testSerialStatusCrcOverAllPriorBytes() {
@@ -13341,9 +13430,9 @@ void testSdCardStatus() {
     f.snap.sd_status = n.status;
     f.snap.sd_status_ms = f.snap.now_ms - 125000;
     const std::vector<std::string> lines = statusLines(f.run());
-    assert(lines.size() == 7);
+    assert(lines.size() == 8);
     assert(lines[4] == std::string("SD status=") + n.name + " age=125");
-    assert(lines[5].rfind("POWER ", 0) == 0);
+    assert(lines[6].rfind("POWER ", 0) == 0);
   }
   StatusFixture unknown;
   const std::vector<std::string> unknown_lines = statusLines(unknown.run());
@@ -13655,6 +13744,12 @@ testSerialStatusStates();
 testSerialStatusOnboardStaleAndOffset();
 testSerialStatusWorstCaseLineLength();
 testSerialStatusPowerLine();
+testSerialStatusResetLine();
+testResetReasonText();
+testResetReasonAbnormal();
+testAbnormalResetCounterWrites();
+testAbnormalResetCounterSaturates();
+testAbnormalResetCounterUnreadable();
 testSerialStatusCrcOverAllPriorBytes();
 testSerialStatusNoCardAccess();
 testSerialStatusStopsOnShortWriteAtEachLine();
