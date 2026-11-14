@@ -288,3 +288,13 @@ A `BOOT` long press (2 s) in the diagnostics view plays a 1 kHz tone for 500 ms 
 ## Time Synchronization (optional)
 
 The firmware can set the `PCF85063A` clock over Wi-Fi and NTP once per day. Copy `rlcd_panel/wifi_config.example.h` to `rlcd_panel/wifi_config.h` and enter your SSID and password. Git ignores this file. The default time zone is CET/CEST. Without the file, the radio stays off and the clock keeps its time. If the network fails, the firmware keeps the RTC unchanged and retries with a growing delay (15 min to 6 h). The radio switches off right after each attempt. The code is in `rlcd_panel/ntp_sync.h`.
+
+## macOS Companion App
+
+The Swift package `macos/RlcdCompanion` holds a SwiftUI menu bar app for macOS 14 and later. Run it with `swift run -c release` in `macos/RlcdCompanion`. The package has no `Info.plist`, so macOS grants Bluetooth access to the host terminal; a signed app bundle needs the key `NSBluetoothAlwaysUsageDescription`. The menu bar shows the onboard temperature. The window shows the four tiles, the cell percentage, the active alerts and the age of the last frame.
+
+The app scans passively for the telemetry frame (set `ble_broadcast_enabled=1`; format in `rlcd_panel/ble_telemetry.h`). It rejects a frame with a bad CRC-8, a wrong company ID, an unknown format version or a wrong length.
+
+The console section connects only after you press "Connect console" (the scan alone never connects) and then reads `STATUS`, `HISTORY`, `EVENTS` and `CONFIG` when you press the read button, checks the `CRC32` line of each reply and draws the 24-hour temperature and humidity charts. It connects to the Nordic UART service `6E400001-B5A3-F393-E0A9-E50E24DCCA9E` of the panel, or opens the first `/dev/cu.usbmodem*` port at 115200 baud (select "USB serial"). The `SET` control works with `ble_console=2` or on the USB serial link. The `SET` control rejects a value with white space, so it cannot set a sensor name with a space; the `STATUS` temperatures use the unit `temp_unit` from the `CONFIG` reply, and the charts always use Celsius. The app sends no command on its own and stores nothing on the panel. The BLE bridge itself is a separate roadmap item: the BLE console path is not verified against the firmware or on hardware.
+
+Run the tests with `swift test` in `macos/RlcdCompanion`. They read `tests/fixtures/ble_telemetry_vectors.txt`. CI runs them on `macos-latest`.

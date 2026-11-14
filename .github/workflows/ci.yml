@@ -43,6 +43,20 @@ jobs:
           ./scripts/check-config.sh "${RUNNER_TEMP}/missing.ini" || status=$?
           test "${status}" -eq 2
 
+  macos-companion:
+    name: macOS companion tests
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run Swift tests
+        working-directory: macos/RlcdCompanion
+        run: swift test
+
+      - name: Build release
+        working-directory: macos/RlcdCompanion
+        run: swift build -c release
+
   firmware-compile:
     name: Firmware compile
     if: github.event_name == 'workflow_dispatch'

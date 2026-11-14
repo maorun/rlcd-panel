@@ -18,11 +18,8 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
-- [ ] Native macOS companion app for the BLE telemetry and the BLE console
-  - Rank: [Total: 33, Use: 9, Setup: 8, Harmony: 7, Safety: 9, Effort: M]
-  - Location: `macos/RlcdCompanion/` (new Swift package: library `RlcdProtocol`, app target `RlcdCompanion`, tests `RlcdProtocolTests`), `tests/fixtures/ble_telemetry_vectors.txt`, `.github/workflows/ci.yml`, `README.md`
-  - Goal: Add a SwiftUI menu bar app for macOS 14 and later. It uses `CoreBluetooth` to scan passively for the telemetry frame of the entry "BLE telemetry broadcast of the climate tiles after each scan". The library `RlcdProtocol` decodes the frame, checks the format version and the CRC-8, and rejects a bad frame. The menu bar shows the onboard temperature. The window shows the four tiles, the cell percentage, the active alerts and the age of the last frame. When the panel is on USB power and `ble_console` is not 0, the app connects to the console bridge. It sends `STATUS`, `HISTORY`, `EVENTS` and `CONFIG`, checks the `CRC32` line of each reply, and shows two 24-hour charts (Swift Charts) from the `HISTORY` rows. With `ble_console=2`, the app changes one key with `SET`. As a fallback, the app opens the USB serial port (`/dev/cu.usbmodem*`, 115200 baud) and sends the same commands. The app does not store data on the panel and does not send a command on its own. Add a CI job on `macos-latest` that runs `swift test` in `macos/RlcdCompanion`. Thus the user monitors the climate from the desk without a look at the panel.
-  - Acceptance test: `swift test` in `macos/RlcdCompanion` passes. The tests decode each hex vector in `tests/fixtures/ble_telemetry_vectors.txt` with the same values as the C++ test, and reject a frame with a bad CRC-8, a wrong company ID, an unknown format version and a short frame. Other tests parse a recorded `STATUS`, `HISTORY`, `EVENTS` and `CONFIG` reply, accept a correct CRC-32, reject a changed byte, and split a reply over several BLE notifications. `swift build -c release` passes. The C++ host tests and `arduino-cli compile rlcd_panel` stay unchanged and pass.
+
+## Priority 2: Storage, and Configuration (Score 28–33)
 
 ## Priority 3: Score 22–27
 

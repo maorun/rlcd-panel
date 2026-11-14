@@ -996,3 +996,18 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The console command `PATTERN` starts the panel, shows the pattern and clears the stored CRC-32. Thus the next wake cycle flushes the normal view.
 - The RTC check rejects a skip counter above 60 and skips without a known frame. A power-on sets both values to 0.
 - Host tests cover the CRC-32 of a known value and of a pattern, one changed pixel, the skip for an equal frame, the flush for a power-on, a `KEY` wakeup and a view change, the forced flush after 60 skips, the `PATTERN` path, and the RTC round trip with a corrupt field and the old state version.
+
+## Native macOS companion app for the BLE telemetry and the BLE console
+
+- The Swift package `macos/RlcdCompanion` holds a SwiftUI menu bar app for macOS 14 and later. It has the library `RlcdProtocol`, the app target `RlcdCompanion` and the test target `RlcdProtocolTests`.
+- The app scans passively with `CoreBluetooth` for the telemetry frame (company ID `0xFFFF`, 20 bytes). `TelemetryFrame.decode` rejects a frame with a wrong length, a wrong company ID, an unknown format version or a bad CRC-8 (`0x31`).
+- The menu bar shows the onboard temperature. The window shows the four tiles, the cell percentage, the active alerts and the age of the last frame.
+- The app connects to the BLE console bridge (Nordic UART service `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`) only after the scan finds the service. The panel offers the service only on USB power with `ble_console` not 0.
+- The app sends `STATUS`, `HISTORY`, `EVENTS` and `CONFIG` only when the user presses the button. It never sends a command on its own.
+- `ReplyAssembler` joins the notification chunks of one reply, also chunks of 1 byte. It checks the `CRC32` line of each reply and rejects a reply with a changed byte.
+- The window shows two 24-hour charts (`Swift Charts`) from the `HISTORY` rows: temperature and relative humidity.
+- With `ble_console=2` or on the USB serial link, the user changes one key with `SET <key>=<value>`. With `ble_console=1` the firmware replies `ERR READ_ONLY`, and the app disables the `SET` control.
+- As a fallback, the app opens the first port `/dev/cu.usbmodem*` at 115200 baud and sends the same commands.
+- The app stores no data on the panel.
+- The tests read `tests/fixtures/ble_telemetry_vectors.txt` and decode each vector with the values of the C++ test. They also test the four rejection cases, the parsers of the four replies, the CRC-32, a changed byte and a reply split over several notifications.
+- The CI job `macOS companion tests` runs `swift test` and `swift build -c release` on `macos-latest`.

@@ -45,6 +45,7 @@
 - `docs/config.example.ini`: Commented `config.ini` template with each parser key once (default value and range; names and fixed MACs as comment lines). `DeviceConfigParser::KEYS` lists the keys. `testConfigExampleTemplateInSync` fails for a missing key, a non-default value, a rejected line, CR characters or a file above 4096 bytes. Add each new key to `KEYS` (and `KEY_COUNT`) and to the template.
 - `tools/render_display_preview.cpp`: Host C++ tool that renders one view (`<out.bmp> [mode 0..3] [low]`) or every scene (`--all <dir>`) and exports 400×300 24-bpp BMP.
 - `tools/preview_scenes.h`: Shared preview scene table (`PREVIEW_SCENES`) and fixed sample data, used by the tool and the host tests.
+- `macos/RlcdCompanion/`: Swift package for macOS 14 and later. Library `RlcdProtocol` (`TelemetryFrame.decode` for the telemetry frame with CRC-8 `0x31`; `ReplyAssembler` joins console notifications and checks the `CRC32` line; `StatusReply`, `HistoryReply`, `EventsReply`, `ConfigReply` parsers; `ConsoleCommand`), app target `RlcdCompanion` (SwiftUI `MenuBarExtra`, `CoreBluetooth` scan and Nordic UART console, USB serial fallback `/dev/cu.usbmodem*` at 115200 baud, `Swift Charts`) and test target `RlcdProtocolTests` (reads `tests/fixtures/ble_telemetry_vectors.txt`). The app sends a command only on a user action. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`; CI job `macOS companion tests`.
 - `tests/test_firmware_logic.cpp`: Host C++17 unit test suite covering BLE packet parsing, registry management, framebuffer bit mapping, `SHTC3` CRC-8 decoding, and dashboard rendering.
 
 ## Hardware & Firmware Invariants
@@ -67,6 +68,10 @@
 - **Host Unit Tests:**
   ```bash
   c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner && rm -f test_runner
+  ```
+- **macOS Companion Tests:**
+  ```bash
+  cd macos/RlcdCompanion && swift test && swift build -c release
   ```
 - **Firmware Compile Check:**
   ```bash
