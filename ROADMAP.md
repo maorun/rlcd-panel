@@ -19,10 +19,10 @@ Do the work in priority order, unless the maintainer gives a different order.
 ## Priority 1: Core Tooling and Calibration (Score 34–40)
 
 
-## Priority 2: Audio, Storage, and Configuration (Score 28–33)
+## Priority 2: Storage, and Configuration (Score 28–33)
 
 
-## Priority 3: Audio Expansions (Score 22–27)
+## Priority 3: Score 22–27
 
 
 
