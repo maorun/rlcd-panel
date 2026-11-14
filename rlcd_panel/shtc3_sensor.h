@@ -11,6 +11,10 @@ struct Shtc3Reading {
   float humidity_pct = 0.0f;
 };
 
+// Result of one onboard SHTC3 read. NACK: an I2C command without an acknowledgement. SHORT: fewer
+// than 6 bytes. CRC: a CRC-8 mismatch in the frame.
+enum class Shtc3Result : uint8_t { OK = 0, NACK = 1, SHORT = 2, CRC = 3 };
+
 class Shtc3Codec {
 public:
   // Calibration offset to compensate for ESP32-S3 PCB and SoC self-heating.
@@ -64,6 +68,78 @@ public:
     out.humidity_pct = rh < 0.0f ? 0.0f : (rh > 100.0f ? 100.0f : rh);
     out.valid = true;
     return true;
+  }
+
+  // Classifies one transfer. `acked` is false when a command got no acknowledgement; `received` is
+  // the count of bytes read back. A good frame fills `out`; a failed read leaves it invalid.
+  static Shtc3Result classify(
+      bool acked,
+      size_t received,
+      const uint8_t* frame,
+      Shtc3Reading& out,
+      float temp_offset_c = DEFAULT_TEMP_OFFSET_C,
+      float rh_offset_pct = 0.0f) {
+    if (!acked) {
+      return Shtc3Result::NACK;
+    }
+    if (received < 6 || frame == nullptr) {
+      return Shtc3Result::SHORT;
+    }
+    return decodeFrame(frame, received, out, temp_offset_c, rh_offset_pct) ? Shtc3Result::OK
+                                                                          : Shtc3Result::CRC;
+  }
+};
+
+// Failed reads of the onboard SHTC3 by cause. Each counter saturates at 65535. `run` counts the
+// failures in a row (saturates at 255); a good read sets it to 0.
+struct Shtc3Health {
+  static constexpr uint16_t COUNT_MAX = 65535;
+  static constexpr uint8_t RUN_ALERT = 3; // the diagnostics text is inverted from this run on
+  static constexpr size_t SERIALIZED_SIZE = 3 * 2 + 1;
+
+  uint16_t nack = 0;
+  uint16_t short_reads = 0;
+  uint16_t crc = 0;
+  uint8_t run = 0;
+
+  void record(Shtc3Result result) {
+    switch (result) {
+      case Shtc3Result::OK:
+        run = 0;
+        return;
+      case Shtc3Result::NACK:
+        bump(nack);
+        break;
+      case Shtc3Result::SHORT:
+        bump(short_reads);
+        break;
+      case Shtc3Result::CRC:
+        bump(crc);
+        break;
+    }
+    if (run < 255) {
+      ++run;
+    }
+  }
+
+  uint32_t total() const {
+    return static_cast<uint32_t>(nack) + short_reads + crc;
+  }
+
+  bool alert() const {
+    return run >= RUN_ALERT;
+  }
+
+  // Each failure in a row also counts in one counter, so `run` never exceeds the sum.
+  bool consistent() const {
+    return run <= total();
+  }
+
+private:
+  static void bump(uint16_t& counter) {
+    if (counter < COUNT_MAX) {
+      ++counter;
+    }
   }
 };
 

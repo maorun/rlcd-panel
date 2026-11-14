@@ -229,6 +229,8 @@ The console command `SET <key>=<value>` changes one key of `/sdcard/config.ini` 
 
 The console command `STATUS` shows the line `RESET reason=<TEXT> abnormal=<N>` before the `POWER` line. The reason is `POWERON`, `EXT`, `SW`, `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT`, `DEEPSLEEP`, `BROWNOUT`, `SDIO` or `UNKNOWN`. A reset by `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT` or `BROWNOUT` is abnormal. NVS (namespace `rlcd`, key `abn_resets`) counts these resets up to 65535. NVS is written only after an abnormal reset, so a deep sleep wakeup causes no flash write. The line shows `abnormal=--` when NVS is unreadable.
 
+The console command `STATUS` also shows the line `SHTC3 nack=<N> short=<N> crc=<N> run=<N>` before the `POWER` line. It counts the failed reads of the onboard `SHTC3` by cause: `nack` (no acknowledgement on the I²C bus), `short` (fewer than 6 bytes) and `crc` (a CRC-8 error in the frame). Each counter stops at 65535. `run` counts the failures in a row and returns to 0 after a good read. The counters live in RTC memory and restart at 0 after a power-on. The diagnostics view shows `SHTC3 ERR: <N>` (the sum of the three counters). The text is inverted while `run` is 3 or more: check the sensor and the bus then.
+
 The firmware keeps the last 16 events (alert edges, config loads, NTP results, low battery alert, empty protection) in the RTC memory. The hourly write appends them to `/sdcard/events_v1_YYYY.csv` (columns `time,event,detail`) and clears the ring. A lost event adds the row `EVENTS_DROPPED,<N>`. `LIST`, `DUMP events_v1_YYYY.csv` and `./scripts/dump-logs.sh` handle the file, and the retention counts it as December of its year. The code is in `rlcd_panel/sd_logger.h`.
 
 ## Ambient Noise Monitor

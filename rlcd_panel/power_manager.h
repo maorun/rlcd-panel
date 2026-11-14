@@ -13,6 +13,7 @@
 #include "device_config.h"
 #include "ntp_sync.h"
 #include "sd_logger.h"
+#include "shtc3_sensor.h"
 #include "sparkline.h"
 #include "ventilate_latch.h"
 #include "switchbot_ble.h"
@@ -102,6 +103,7 @@ struct PersistentState {
   SdStatus sd_status = SdStatus::UNKNOWN; // result of the last card access (hourly write or config load)
   uint32_t sd_status_ms = 0;  // clock value of that result; meaningless while sd_status is UNKNOWN
   EventRing events;           // events since the last successful hourly write (events_v1_YYYY.csv)
+  Shtc3Health shtc3;          // failed reads of the onboard SHTC3 by cause; a power-on sets them to 0
 
   // Stores the result of a card access. A wake cycle without card access never calls it, so the
   // stored status stays.
@@ -289,7 +291,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 40;
+  static constexpr uint8_t STATE_VERSION = 41;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -330,7 +332,9 @@ public:
   // time flag, year (uint16), month, day, hour, minute, second, code, detail (uint16).
   static constexpr size_t EVENT_ENTRY_SIZE = 1 + 2 + 5 + 1 + 2;
   static constexpr size_t EVENTS_SIZE = 1 + 2 + EventRing::CAPACITY * EVENT_ENTRY_SIZE;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + 4;
+  // SHTC3 health trailer (just before the checksum): NACK, SHORT and CRC counters (uint16), run (uint8).
+  static constexpr size_t SHTC3_SIZE = Shtc3Health::SERIALIZED_SIZE;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -624,6 +628,13 @@ public:
       out[pos++] = static_cast<uint8_t>(e.detail & 0xFF);
       out[pos++] = static_cast<uint8_t>(e.detail >> 8);
     }
+    out[pos++] = static_cast<uint8_t>(state.shtc3.nack & 0xFF);
+    out[pos++] = static_cast<uint8_t>(state.shtc3.nack >> 8);
+    out[pos++] = static_cast<uint8_t>(state.shtc3.short_reads & 0xFF);
+    out[pos++] = static_cast<uint8_t>(state.shtc3.short_reads >> 8);
+    out[pos++] = static_cast<uint8_t>(state.shtc3.crc & 0xFF);
+    out[pos++] = static_cast<uint8_t>(state.shtc3.crc >> 8);
+    out[pos++] = state.shtc3.run;
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -922,6 +933,14 @@ public:
     }
     if (!s.events.restore(event_count, event_dropped, event_items)) {
       return false; // a corrupt ring never reaches the card
+    }
+    s.shtc3.nack = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    s.shtc3.short_reads = static_cast<uint16_t>(data[pos + 2] | (data[pos + 3] << 8));
+    s.shtc3.crc = static_cast<uint16_t>(data[pos + 4] | (data[pos + 5] << 8));
+    s.shtc3.run = data[pos + 6];
+    pos += Shtc3Health::SERIALIZED_SIZE;
+    if (!s.shtc3.consistent()) {
+      return false; // a run longer than the counted failures is corrupt
     }
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       s.registry.setFixedMac(i, s.config.hasSlotMac(i) ? s.config.slot_mac[i] : nullptr);

@@ -169,6 +169,8 @@ inline void renderScene(
   info.rtc_drift.rate_ppm = 35;
   info.sd_free_mb = 7421;
   info.cycle_tenths = 123; // 12.3 cycles
+  info.shtc3.nack = 2;     // three failed onboard SHTC3 reads, none in a row
+  info.shtc3.short_reads = 1;
   info.loopback.status = LoopbackStatus::PASS;
   info.loopback.level_db = -24;
   // Fixed sample spectrum: a fan hum near 120 Hz with harmonics and a soft broad high band
