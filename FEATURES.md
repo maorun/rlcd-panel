@@ -1082,3 +1082,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The macOS companion app decodes 6 tiles (`TelemetryFrame.formatVersion = 2`, size 26 bytes).
 - The companion app view adapts the tile grid dynamically for 1 to 6 active sensors using configured names and slot labels.
 - Shared vectors in `tests/fixtures/ble_telemetry_vectors.txt` verify both C++ and Swift decoders across all tile combinations.
+
+## Climate badges and macOS notifications for alerts in the companion app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/ClimateMath.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/AlertTransitions.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ClimateMathTests.swift`, `tests/fixtures/climate_math_vectors.txt`, `tests/test_firmware_logic.cpp`.
+- Ported `ClimateMath` calculations to Swift: dew point, absolute humidity, NOAA Rothfusz heat index regression with adjustments, and comfort zone classification matching C++ implementation.
+- Added shared test vectors in `tests/fixtures/climate_math_vectors.txt` tested by both C++ firmware unit test harness and Swift test suite.
+- Tile views in the companion app display Dew Point (`DP`), Heat Index (`HI`), Comfort zone tags, and Mold hours count from history samples.
+- `AlertTransitions` detects rising alert mask bits across consecutive telemetry frames with distinct sequence numbers.
+- `AppModel` dispatches macOS user notification banners via `UserNotifications` when rising alert bits occur and notifications are enabled by the user.

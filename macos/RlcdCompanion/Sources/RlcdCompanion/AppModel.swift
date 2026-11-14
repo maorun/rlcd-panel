@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import RlcdProtocol
+import UserNotifications
 
 enum Transport: String, CaseIterable { case bluetooth = "Bluetooth", usb = "USB serial" }
 
@@ -24,6 +25,8 @@ final class AppModel: ConsoleLinkDelegate {
     var version: VersionReply?
     var scanResult: ScanReply?
     var message: String?
+    /// User notifications for active alerts.
+    var notificationsEnabled = false
     /// Wall clock for the age of the last frame. A 30 s tick refreshes it, so the menu bar shows `--` for a silent panel.
     var now = Date()
     /// Peripherals that sent a valid frame or the console service, strongest signal first.
@@ -80,11 +83,49 @@ final class AppModel: ConsoleLinkDelegate {
         scanner.onBluetoothState = { [weak self] in self?.bluetoothState = $0 }
         scanner.onConsoleAvailable = { [weak self] in self?.consoleAvailable = $0 }
         scanner.onFrame = { [weak self] f, r in
-            self?.frame = f
-            self?.frameDate = Date()
-            self?.now = Date()
-            self?.rssi = r
+            guard let self else { return }
+            let prev = self.frame
+            self.frame = f
+            self.frameDate = Date()
+            self.now = Date()
+            self.rssi = r
+            self.checkAlertNotifications(previous: prev, current: f)
         }
+    }
+
+    /// Enables or disables macOS alert notifications.
+    func toggleNotifications(_ enabled: Bool) {
+        if enabled {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound]) { [weak self] granted, _ in
+                Task { @MainActor in
+                    self?.notificationsEnabled = granted
+                }
+            }
+        } else {
+            notificationsEnabled = false
+        }
+    }
+
+    private func checkAlertNotifications(previous: TelemetryFrame?, current: TelemetryFrame) {
+        guard notificationsEnabled else { return }
+        let rising = AlertTransitions.risingAlerts(previous: previous, current: current)
+        guard rising.rawValue != 0 else { return }
+        for name in rising.names {
+            let content = UNMutableNotificationContent()
+            content.title = "RLCD Panel Alert"
+            content.body = "Alert raised: \(name)"
+            content.sound = .default
+            let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+            UNUserNotificationCenter.current().add(req)
+        }
+    }
+
+    /// Count of hours above mold_alert_limit_rh in the last 24 hours for a given sensor (0..5).
+    func moldHours(forSensor sensor: Int) -> Int? {
+        guard let limitStr = config?.values["mold_alert_limit_rh"], let limit = Double(limitStr) else { return nil }
+        let sensorRows = history.filter { $0.sensor == sensor }
+        guard !sensorRows.isEmpty else { return nil }
+        return sensorRows.filter { ($0.humidityPct ?? 0) > limit }.count
     }
 
     /// Starts the BLE console connection. The user presses the button; the scan alone never connects.

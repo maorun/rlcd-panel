@@ -32,10 +32,29 @@ struct MainView: View {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: columnCount), spacing: 8) {
                     ForEach(visibleIndices, id: \.self) { i in
                         VStack(spacing: 4) {
-                            Text(model.config?.name(forSlot: i) ?? tileNames[i]).font(.caption).lineLimit(1)
+                            HStack {
+                                Text(model.config?.name(forSlot: i) ?? tileNames[i]).font(.caption).lineLimit(1)
+                                Spacer()
+                                if let mold = model.moldHours(forSensor: i), mold > 0 {
+                                    Text("MOLD \(mold)H").font(.system(size: 9, weight: .bold)).foregroundStyle(.red)
+                                }
+                            }
                             if let t = frame.tiles[i].temperatureC, let h = frame.tiles[i].humidityPct {
                                 Text(String(format: "%.1f °C", t)).font(.title2)
                                 Text(String(format: "%.1f %%RH", h)).foregroundStyle(.secondary)
+                                let cz = ClimateMath.comfort(tempC: t, humidityPct: h)
+                                let dp = ClimateMath.dewPointC(tempC: t, humidityPct: h)
+                                let hi = ClimateMath.heatIndexC(tempC: t, humidityPct: h)
+                                HStack(spacing: 4) {
+                                    if let dp {
+                                        Text(String(format: "DP %.1f", dp)).font(.caption2).foregroundStyle(.secondary)
+                                    }
+                                    if let hi, hi > t + 0.5 {
+                                        Text(String(format: "HI %.1f", hi)).font(.caption2).foregroundStyle(.orange)
+                                    }
+                                    Spacer()
+                                    Text(cz.label).font(.caption2.bold()).foregroundStyle(cz == .ok ? .green : .secondary)
+                                }
                             } else {
                                 Text("--").font(.title2)
                                 Text("-- %RH").foregroundStyle(.secondary)
@@ -52,7 +71,16 @@ struct MainView: View {
                         Text("Last frame: " + ageText(model.frameDate))
                     }
                 }
-                Text("Alerts: " + (frame.alerts.names.isEmpty ? "none" : frame.alerts.names.joined(separator: ", ")))
+                HStack {
+                    Text("Alerts: " + (frame.alerts.names.isEmpty ? "none" : frame.alerts.names.joined(separator: ", ")))
+                    Spacer()
+                    Toggle("Notifications", isOn: Binding(
+                        get: { model.notificationsEnabled },
+                        set: { model.toggleNotifications($0) }
+                    ))
+                    .toggleStyle(.switch)
+                    .controlSize(.small)
+                }
             } else {
                 Text("No telemetry frame yet. Set ble_broadcast_enabled=1 on the panel.").foregroundStyle(.secondary)
             }
