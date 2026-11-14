@@ -39,12 +39,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Add the line `RUNTIME h=<N|--> samples=<N> cycles=<N|--> scan_saved_ms=<N>` to the `STATUS` reply after `POWER` and before `CRC32`. The values come from `BatteryHistory`, `BatteryRuntime` and `CycleTracker`, which the diagnostics view already uses. `h` is the remaining runtime in whole hours, or `--` when no estimate exists. The line reads the RTC copy and NVS only and does not change the state. Thus the user logs the battery state on the host without a look at the display.
   - Acceptance test: Host tests cover a valid runtime, too few samples, a flat slope, an unknown cycle count, the line position before `CRC32`, the new CRC-32 value, and an unchanged `BatteryHistory` after the command. `arduino-cli compile rlcd_panel` passes.
 
-- [ ] Absolute humidity line in the sensor stats view
-  - Rank: [Total: 30, Use: 7, Setup: 4, Harmony: 9, Safety: 10, Effort: S]
-  - Location: `rlcd_panel/dashboard_view.h`, `rlcd_panel/climate_math.h`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`, `docs/display_preview_stats.png`
-  - Goal: Add `DashboardView::formatAbsHumidity`. It gives `AH <N.N>G` with `ClimateMath::absoluteHumidityGm3` of the slot (1 decimal, g/m3). Show it at scale 1, right-aligned to x = 392, at `y + 54`, on the record line of each slot. An empty or stale slot or an invalid result gives `AH --`. The text is calculated on each render; nothing is stored. Make sure that the record text and the new text do not overlap at the widest record text. Thus the user compares the indoor and the outdoor air moisture without the ventilation advice.
-  - Acceptance test: Host tests cover 20 C and 50 %RH (8.6 g/m3), 0 %RH, a NaN reading, a stale slot, an empty slot, the right edge at x = 392, and no overlap with the widest record text in Celsius and in Fahrenheit. `./scripts/generate-display-preview.sh` gives a stats preview with the new text.
-
 ## Priority 3: Audio Expansions (Score 22–27)
 
 - [ ] Display test pattern from the serial console

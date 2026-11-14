@@ -108,6 +108,11 @@ public:
   static constexpr uint16_t FEELS_Y_OFFSET = 3;
   // The empty slot shows its comfort label between the FEELS text (y + 3 to y + 9) and the MOLD text (y + 21).
   static constexpr uint16_t COMFORT_EMPTY_Y_OFFSET = 11;
+  // Absolute humidity text on the record line (y + 54, scale 1, 7 px high), right-aligned to COMFORT_RIGHT_X.
+  // The record text (scale 2) starts at x = 10 and reaches x = 370 in the widest case, so the AH text
+  // (up to "AH 130.4G" = 54 px, x = 338) is drawn only when a gap of AH_GAP_PX stays to the record text.
+  static constexpr uint16_t ABS_HUMIDITY_Y_OFFSET = 54;
+  static constexpr uint16_t AH_GAP_PX = 4;
   static constexpr uint16_t NOISE_TREND_Y = 248;
   static constexpr uint16_t NOISE_SPARKLINE_X = 216;
   static constexpr uint16_t NOISE_SPARKLINE_Y = 246;
@@ -579,6 +584,36 @@ public:
     fb.drawText(x, static_cast<uint16_t>(y + FEELS_Y_OFFSET), text, 1, true);
   }
 
+  // "AH 8.6G" (absolute humidity in g/m3, 1 decimal) for a live slot, "AH --" for an empty or stale slot
+  // or an invalid result. Computed on each render; nothing is stored. Widest: "AH 130.4G" = 9 glyphs.
+  static void formatAbsHumidity(char* out, size_t capacity, const SwitchBotReading& sb, uint32_t now_ms,
+                                uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS) {
+    const bool future = (now_ms - sb.updated_ms) >= 0xFFFF0000u;
+    float ah = -1.0f;
+    if (sb.valid && (future || !sb.isStale(now_ms, stale_timeout_ms))) {
+      ah = ClimateMath::absoluteHumidityGm3(sb.temperature_c, static_cast<float>(sb.humidity_pct));
+    }
+    if (!isfinite(ah) || ah < 0.0f) {
+      snprintf(out, capacity, "AH --");
+      return;
+    }
+    snprintf(out, capacity, "AH %.1fG", static_cast<double>(ah));
+  }
+
+  // Draws the AH text unless it would come closer than AH_GAP_PX to the record text of
+  // record_chars scale-2 glyphs (0 for a slot without a record line).
+  static void drawAbsHumidity(
+      St7305Framebuffer& fb, uint16_t y, const SwitchBotReading& sb, uint32_t now_ms,
+      const DeviceConfig* config, size_t record_chars) {
+    char text[24];
+    formatAbsHumidity(text, sizeof(text), sb, now_ms, staleTimeoutMs(config));
+    const uint16_t x = static_cast<uint16_t>(COMFORT_RIGHT_X - strlen(text) * 6);
+    if (record_chars > 0 && x < 10 + record_chars * 12 + AH_GAP_PX) {
+      return;
+    }
+    fb.drawText(x, static_cast<uint16_t>(y + ABS_HUMIDITY_Y_OFFSET), text, 1, true);
+  }
+
   // "MOLD 5H" (hourly samples above the mold limit in the 24 h history, one sample per hour) for a live slot with at least 2 samples,
   // "MOLD --" for an empty or stale slot or fewer samples. Computed on each render; nothing is stored.
   // Widest: "MOLD 24H" = 8 glyphs, 48 px.
@@ -651,6 +686,7 @@ public:
         drawComfort(fb, y, COMFORT_EMPTY_Y_OFFSET, sb, now_ms, staleTimeoutMs(config)); // the empty slot has no packet line
         drawFeels(fb, y, sb, now_ms, config);
         drawMold(fb, y, sb, now_ms, config, history, i);
+        drawAbsHumidity(fb, y, sb, now_ms, config, 0);
         if (config != nullptr && config->hasSlotMac(i)) {
           formatMac(line, sizeof(line), config->slot_mac[i]);
           drawLine(fb, 10, static_cast<uint16_t>(y + 18), line);
@@ -690,7 +726,8 @@ public:
       drawMold(fb, y, sb, now_ms, config, history, i);
 
       formatRecords(line, sizeof(line), history, 1 + i, tempUnit(config));
-      drawLine(fb, 10, static_cast<uint16_t>(y + 54), line);
+      const bool record_drawn = drawLine(fb, 10, static_cast<uint16_t>(y + 54), line);
+      drawAbsHumidity(fb, y, sb, now_ms, config, record_drawn ? strlen(line) : 0);
     }
 
     // Noise trend of the last 24 h with the minimum and maximum. Hours without a reading are skipped;

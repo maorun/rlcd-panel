@@ -854,3 +854,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `docs/display_preview_diagnostics.png` shows `SHTC3 ERR: 3`.
 - Thus the user finds a loose sensor or a bad bus before the onboard tile shows wrong values.
 - Host tests cover the cause of each failed read (a missing acknowledgement, a short frame, a bad temperature CRC and a bad humidity CRC) and a valid frame, the saturation at 65535 and at run 255, the reset of `run` after a good read, the `STATUS` line and its position, the inverted text at `run` 3, and the RTC round trip with a corrupt field and the old state version.
+
+## Absolute humidity line in the sensor stats view
+
+- **Code:** `rlcd_panel/dashboard_view.h`, `tests/test_firmware_logic.cpp`.
+- `DashboardView::formatAbsHumidity` gives `AH <N.N>G` with `ClimateMath::absoluteHumidityGm3` of the slot (1 decimal, g/m3).
+- Each sensor block of the stats view shows the text in scale 1, right-aligned to x = 392, at `y + 54` (`ABS_HUMIDITY_Y_OFFSET`), on the record line. An empty slot, a stale slot and an invalid result show `AH --`.
+- The widest record text ends at x = 370. The `AH` text starts at x = 338 or later. If the gap to the record text is less than 4 px (`AH_GAP_PX`), the firmware does not draw the `AH` text. The record text stays complete in Celsius and in Fahrenheit.
+- The value is calculated for each render. No RTC state changes and the state version stays 41.
+- `docs/display_preview_stats.png` shows `AH 9.0G`, `AH 8.1G` and `AH --`.
+- Thus the user compares the indoor and the outdoor air moisture without the ventilation advice.
+- Host tests cover 20 C and 50 %RH (8.6 g/m3), 0 %RH, a NaN reading, a stale slot, an empty slot, a future time stamp, the right edge at x = 392, and the record line in Celsius and in Fahrenheit at its widest text.
