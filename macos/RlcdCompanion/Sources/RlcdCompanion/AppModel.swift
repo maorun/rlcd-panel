@@ -22,6 +22,7 @@ final class AppModel: ConsoleLinkDelegate {
     var config: ConfigReply?
     var diagnostics: DiagnosticsReply?
     var version: VersionReply?
+    var scanResult: ScanReply?
     var message: String?
     /// Wall clock for the age of the last frame. A 30 s tick refreshes it, so the menu bar shows `--` for a silent panel.
     var now = Date()
@@ -119,15 +120,18 @@ final class AppModel: ConsoleLinkDelegate {
         config = nil
         diagnostics = nil
         version = nil
+        scanResult = nil
     }
 
     func disconnectConsole() {
+        scanResult = nil
         resetLink()
         consoleConnected = false
         consoleState = "Console not connected"
     }
 
     func selectTransport(_ t: Transport) {
+        scanResult = nil
         transport = t
         resetLink()
         consoleConnected = false
@@ -207,6 +211,7 @@ final class AppModel: ConsoleLinkDelegate {
         guard canApply else { message = "Apply not allowed"; return }
         message = nil
         batchSummary = nil
+        if changes.contains(where: { SlotAssignment.isMacKey($0.key) }) { scanResult = nil } // slot column goes stale
         batch = ConfigBatch(changes: changes)
         sendNextBatchCommand()
     }
@@ -214,6 +219,34 @@ final class AppModel: ConsoleLinkDelegate {
     private func sendNextBatchCommand() {
         guard let cmd = batch?.next() else { return }
         queue = [cmd]
+        sendNext()
+    }
+
+    /// Starts one 4 s BLE scan of the panel. USB serial only: the firmware replies `ERR NOT_OVER_BLE` on BLE.
+    func scan() {
+        guard SlotAssignment.scanAllowed(onUsb: transport == .usb) else { message = "SCAN needs the USB serial link"; return }
+        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        message = nil
+        queue = [.scan]
+        sendNext()
+    }
+
+    /// Sets (`mac`) or clears (`nil`) the fixed MAC of one slot, then reads `CONFIG` and scans again.
+    func assign(slot: Int, mac: String?) {
+        guard canSet else { message = "SET needs ble_console=2 or the USB serial link"; return }
+        guard pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        guard let cmd = SlotAssignment.command(slot: slot, mac: mac), cmd.line != nil else {
+            message = "Slot or MAC not valid"
+            return
+        }
+        if let mac, let warning = SlotAssignment.warning(slot: slot, mac: mac, config: config) {
+            message = warning // the firmware rejects a MAC that another slot holds as fixed MAC
+            return
+        }
+        message = nil
+        scanResult = nil // the slot column is stale once the SET runs; the scan below reloads it
+        queue = [cmd, .config]
+        if transport == .usb { queue.append(.scan) } // the slot column of the old scan is stale now
         sendNext()
     }
 
@@ -233,10 +266,11 @@ final class AppModel: ConsoleLinkDelegate {
         guard transport == .usb else { return } // the BLE watchdog of the scanner owns the BLE timeouts
         timeout?.cancel()
         timeout = Task { [weak self] in
-            try? await Task.sleep(for: .seconds(10))
+            try? await Task.sleep(for: .seconds(SlotAssignment.timeoutSeconds(for: cmd)))
             guard !Task.isCancelled else { return }
             guard let self else { return }
             message = "No reply to \(cmd.line ?? "command")"
+            if cmd == .scan { scanResult = nil }
             pendingCommand = nil
             queue.removeAll()
             endBatchAfterLoss()
@@ -271,6 +305,7 @@ final class AppModel: ConsoleLinkDelegate {
             consoleState = state
             consoleConnected = connected
             if !connected {
+                scanResult = nil // the slot column of a lost link is stale
                 config = nil // the ble_console level of a lost link must not gate SET on the next link
                 draft = [:]
                 abandonCommands()
@@ -302,6 +337,7 @@ final class AppModel: ConsoleLinkDelegate {
                 batch?.receive(status: "ERR CORRUPT")
             case (_, let .status(text)):
                 message = text
+                if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
                 batch?.receive(status: text)
                 if text.hasPrefix("ERR") { queue.removeAll() }
             case let (.status, .frame(lines)):
@@ -318,6 +354,9 @@ final class AppModel: ConsoleLinkDelegate {
                 batch?.receiveFrame()
                 config = try ConfigReply.parse(lines: lines)
                 if batch != nil { draft = [:] } // the panel state replaces the edits
+            case let (.scan, .frame(lines)):
+                scanResult = nil // a reply that fails to parse must not leave the old rows
+                scanResult = try ScanReply.parse(lines: lines)
             case (.set, .frame): batch?.receive(status: "ERR UNEXPECTED_REPLY")
             }
         } catch {
