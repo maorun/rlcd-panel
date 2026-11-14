@@ -10488,13 +10488,13 @@ void testSerialStatusParser() {
 void testSerialStatusEmptyAndMissingValues() {
   StatusFixture f;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 9);
+  assert(lines.size() == 10);
   assert(lines[0] == "SENSOR 0 onboard temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
   assert(lines[1] == "SENSOR 1 slot1 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
   assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
   assert(lines[5] == "RESET reason=UNKNOWN abnormal=--");
-  assert(lines[7] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
-  assert(lines[8].rfind("CRC32 ", 0) == 0);
+  assert(lines[8] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
+  assert(lines[9].rfind("CRC32 ", 0) == 0);
 }
 
 void testSerialStatusStates() {
@@ -10548,12 +10548,136 @@ void testSerialStatusWorstCaseLineLength() {
   f.snap.reset_reason = ResetReasonCodec::text(ResetReason::TASK_WDT); // the longest text
   f.snap.abnormal_resets = 65535;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 9 && lines[4].rfind("SD status=", 0) == 0 && lines[5] == "RESET reason=TASK_WDT abnormal=65535" &&
-         lines[6].rfind("SHTC3 ", 0) == 0 && lines[7].rfind("POWER ", 0) == 0 && lines[8].size() == 14);
+  assert(lines.size() == 10 && lines[4].rfind("SD status=", 0) == 0 && lines[5] == "RESET reason=TASK_WDT abnormal=65535" &&
+         lines[6].rfind("SHTC3 ", 0) == 0 && lines[7].rfind("BLE ", 0) == 0 && lines[8].rfind("POWER ", 0) == 0 && lines[9].size() == 14);
   for (size_t i = 0; i < 4; ++i) {
     assert(lines[i].rfind("SENSOR ", 0) == 0 && lines[i].find(" state=") != std::string::npos);
   }
   assert(lines[3].find("age=4294967 state=STALE") != std::string::npos);
+}
+
+SwitchBotReading rejectReading(uint8_t id) {
+  SwitchBotReading r;
+  r.valid = true;
+  r.mac[0] = 0xAA;
+  r.mac[5] = id;
+  r.humidity_pct = 50;
+  r.updated_ms = 1;
+  return r;
+}
+
+void fillRegistry(SwitchBotRegistry& reg) {
+  for (uint8_t i = 1; i <= 3; ++i) {
+    assert(reg.upsert(rejectReading(i)));
+  }
+}
+
+void testBleRejectFullRegistry() {
+  SwitchBotRegistry reg;
+  fillRegistry(reg);
+  assert(reg.rejects().total() == 0 && !reg.rejects().has_last);
+  assert(!reg.upsert(rejectReading(9), BleFormat::METER));
+  assert(reg.rejects().total() == 1 && reg.rejects().by_format[1] == 1 && reg.rejects().has_last);
+  assert(reg.rejects().last_mac[5] == 9 && reg.rejects().last_mac[0] == 0xAA);
+  // A known MAC updates its slot and counts nothing.
+  assert(reg.upsert(rejectReading(2)));
+  assert(reg.rejects().total() == 1);
+}
+
+void testBleRejectFixedSlots() {
+  SwitchBotRegistry reg;
+  const uint8_t fixed[6] = {0xAA, 0, 0, 0, 0, 7};
+  reg.setFixedMac(0, fixed);
+  uint8_t other[6] = {0xAA, 0, 0, 0, 0, 8};
+  reg.setFixedMac(1, other);
+  uint8_t third[6] = {0xAA, 0, 0, 0, 0, 9};
+  reg.setFixedMac(2, third);
+  // Every slot is free but fixed to another MAC: a new MAC is rejected.
+  assert(!reg.upsert(rejectReading(1), BleFormat::BTHOME));
+  assert(reg.rejects().by_format[2] == 1 && reg.rejects().last_mac[5] == 1);
+  assert(reg.activeCount() == 0);
+  // The correct MAC for a fixed slot is accepted and not counted.
+  assert(reg.upsert(rejectReading(7), BleFormat::ATC));
+  assert(reg.upsert(rejectReading(8), BleFormat::WOIO));
+  assert(reg.rejects().total() == 1 && reg.rejects().by_format[3] == 0);
+  assert(reg.activeCount() == 2);
+}
+
+void testBleRejectEachFormatAndSlotsUnchanged() {
+  SwitchBotRegistry reg;
+  fillRegistry(reg);
+  const SwitchBotRegistry before = reg;
+  const BleFormat formats[4] = {BleFormat::WOIO, BleFormat::METER, BleFormat::BTHOME, BleFormat::ATC};
+  for (size_t f = 0; f < 4; ++f) {
+    for (size_t n = 0; n <= f; ++n) {
+      assert(!reg.upsert(rejectReading(static_cast<uint8_t>(20 + f)), formats[f]));
+    }
+  }
+  for (size_t f = 0; f < 4; ++f) {
+    assert(reg.rejects().by_format[f] == f + 1);
+  }
+  assert(reg.rejects().total() == 10 && reg.rejects().last_mac[5] == 23);
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    assert(memcmp(&reg.slot(i), &before.slot(i), sizeof(SwitchBotReading)) == 0);
+  }
+  // An invalid reading is no packet and counts nothing.
+  SwitchBotReading invalid;
+  assert(!reg.upsert(invalid, BleFormat::ATC));
+  assert(reg.rejects().total() == 10);
+}
+
+void testBleRejectSaturationAndReset() {
+  SwitchBotRegistry reg;
+  fillRegistry(reg);
+  for (uint32_t n = 0; n < 65540; ++n) {
+    reg.upsert(rejectReading(30), BleFormat::WOIO);
+    reg.upsert(rejectReading(31), BleFormat::METER);
+    reg.upsert(rejectReading(32), BleFormat::BTHOME);
+    reg.upsert(rejectReading(33), BleFormat::ATC);
+  }
+  for (size_t f = 0; f < 4; ++f) {
+    assert(reg.rejects().by_format[f] == 65535);
+  }
+  assert(reg.rejects().total() == 4u * 65535u);
+  reg.resetRejects();
+  assert(reg.rejects().total() == 0 && !reg.rejects().has_last && reg.rejects().last_mac[5] == 0);
+  assert(reg.activeCount() == 3);
+}
+
+void testBleRejectStatusLine() {
+  StatusFixture f;
+  std::vector<std::string> lines = statusLines(f.run());
+  assert(lines.size() == 10);
+  assert(lines[7] == "BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0");
+  assert(lines[8].rfind("POWER ", 0) == 0);
+  fillRegistry(f.registry);
+  f.registry.upsert(rejectReading(0xAB), BleFormat::BTHOME);
+  f.registry.upsert(rejectReading(0xCD), BleFormat::ATC);
+  f.registry.upsert(rejectReading(0xCD), BleFormat::ATC);
+  lines = statusLines(f.run());
+  assert(lines.size() == 10);
+  assert(lines[7] == "BLE rejected=3 last=AA:00:00:00:00:CD woio=0 meter=0 bthome=1 atc=2");
+  assert(lines[8].rfind("POWER ", 0) == 0);
+  // The slot lines stay as before.
+  assert(lines[0].rfind("SENSOR 0 ", 0) == 0);
+}
+
+void testBleRejectStatusWorstCaseLength() {
+  StatusFixture f;
+  fillRegistry(f.registry);
+  SwitchBotReading r = rejectReading(1);
+  for (size_t i = 0; i < 6; ++i) {
+    r.mac[i] = 0xFF;
+  }
+  for (uint32_t n = 0; n < 65540; ++n) {
+    f.registry.upsert(r, BleFormat::WOIO);
+    f.registry.upsert(r, BleFormat::METER);
+    f.registry.upsert(r, BleFormat::BTHOME);
+    f.registry.upsert(r, BleFormat::ATC);
+  }
+  const std::vector<std::string> lines = statusLines(f.run());
+  assert(lines.size() == 10);
+  assert(lines[7] == "BLE rejected=262140 last=FF:FF:FF:FF:FF:FF woio=65535 meter=65535 bthome=65535 atc=65535");
 }
 
 void testSerialStatusPowerLine() {
@@ -10564,10 +10688,10 @@ void testSerialStatusPowerLine() {
   f.snap.alert_mask = 0x25;
   f.snap.muted = true;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[7] == "POWER src=BAT v=3.62 pct=42 alerts=25 muted=1");
+  assert(lines[8] == "POWER src=BAT v=3.62 pct=42 alerts=25 muted=1");
   f.snap.battery.valid = false;
   lines = statusLines(f.run());
-  assert(lines[7] == "POWER src=BAT v=-- pct=-- alerts=25 muted=1");
+  assert(lines[8] == "POWER src=BAT v=-- pct=-- alerts=25 muted=1");
 }
 
 struct FakeResetStore {
@@ -10737,10 +10861,10 @@ void testShtc3StatusLine() {
   f.snap.shtc3.crc = 65535;
   f.snap.shtc3.run = 4;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 9);
+  assert(lines.size() == 10);
   assert(lines[5].rfind("RESET ", 0) == 0);
   assert(lines[6] == "SHTC3 nack=1 short=22 crc=65535 run=4");
-  assert(lines[7].rfind("POWER ", 0) == 0);
+  assert(lines[8].rfind("POWER ", 0) == 0);
   StatusFixture clean;
   assert(statusLines(clean.run())[6] == "SHTC3 nack=0 short=0 crc=0 run=0");
 }
@@ -14646,9 +14770,9 @@ void testSdCardStatus() {
     f.snap.sd_status = n.status;
     f.snap.sd_status_ms = f.snap.now_ms - 125000;
     const std::vector<std::string> lines = statusLines(f.run());
-    assert(lines.size() == 9);
+    assert(lines.size() == 10);
     assert(lines[4] == std::string("SD status=") + n.name + " age=125");
-    assert(lines[7].rfind("POWER ", 0) == 0);
+    assert(lines[8].rfind("POWER ", 0) == 0);
   }
   StatusFixture unknown;
   const std::vector<std::string> unknown_lines = statusLines(unknown.run());
@@ -15337,6 +15461,12 @@ testSerialStatusStates();
 testSerialStatusOnboardStaleAndOffset();
 testSerialStatusWorstCaseLineLength();
 testSerialStatusPowerLine();
+testBleRejectFullRegistry();
+testBleRejectFixedSlots();
+testBleRejectEachFormatAndSlotsUnchanged();
+testBleRejectSaturationAndReset();
+testBleRejectStatusLine();
+testBleRejectStatusWorstCaseLength();
 testSerialStatusResetLine();
 testShtc3Classification();
 testShtc3HealthCounters();

@@ -114,7 +114,7 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
     reading.updated_ms = nowMs();
 
     portENTER_CRITICAL(&g_registry_mux);
-    g_state.registry.upsert(reading);
+    g_state.registry.upsert(reading, BleFormat::BTHOME);
     g_scan_completion.onPacket(g_state.registry, reading);
     portEXIT_CRITICAL(&g_registry_mux);
   }
@@ -134,7 +134,7 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
     reading.updated_ms = nowMs();
 
     portENTER_CRITICAL(&g_registry_mux);
-    g_state.registry.upsert(reading);
+    g_state.registry.upsert(reading, BleFormat::ATC);
     g_scan_completion.onPacket(g_state.registry, reading);
     portEXIT_CRITICAL(&g_registry_mux);
   }
@@ -174,13 +174,18 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
       return;
     }
 
+    // Valid Manufacturer Data means a WoIOSensor packet; otherwise the Service Data of a Meter gave the reading.
+    SwitchBotReading mfg_probe;
+    const BleFormat format = SwitchBotBleParser::parseManufacturerData(reinterpret_cast<const uint8_t*>(mfg.c_str()), mfg.length(), mfg_probe)
+                                 ? BleFormat::WOIO
+                                 : BleFormat::METER;
     reading.rssi = SwitchBotBleParser::clampRssi(advertisedDevice.getRSSI());
     // Keep this timestamp at or before the nowMs() read in renderDashboard() so a fresh reading
     // never appears to lie in the future (unsigned subtraction would flag it stale).
     reading.updated_ms = nowMs();
 
     portENTER_CRITICAL(&g_registry_mux);
-    g_state.registry.upsert(reading);
+    g_state.registry.upsert(reading, format);
     g_scan_completion.onPacket(g_state.registry, reading);
     portEXIT_CRITICAL(&g_registry_mux);
   }
@@ -461,6 +466,9 @@ void scanOnce(bool full_scan) {
   const uint32_t duration_s = g_power_config.sanitized().scan_duration_s;
   // Set the flag first: a fast completion callback in the BLE task must not be overwritten.
   g_scan_completion.begin(full_scan);
+  portENTER_CRITICAL(&g_registry_mux);
+  g_state.registry.resetRejects();
+  portEXIT_CRITICAL(&g_registry_mux);
   g_scan_running = true;
   if (!g_ble_scan->start(duration_s, onScanComplete, false)) {
     g_scan_running = false;

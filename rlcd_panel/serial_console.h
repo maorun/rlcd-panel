@@ -347,7 +347,7 @@ struct SerialStatusSnapshot {
 //   so execute() ignores CONFIG.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 3 (slots, calibrated readings), a missing value gives "--";
-//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "SHTC3 nack=<N> short=<N> crc=<N> run=<N>", then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "CRC32 <8 hex digits>" over all lines
+//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "SHTC3 nack=<N> short=<N> crc=<N> run=<N>", then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>" (packets of the current scan that no slot took), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 6), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
@@ -559,7 +559,7 @@ public:
     static const char* const defaults[ClimateHistory::SLOT_COUNT] = {"onboard", "slot1", "slot2", "slot3"};
     const DeviceConfig& cfg = *snap.config;
     const SwitchBotRegistry cal = snap.registry->calibrated(cfg.slot_temp_offset_c, cfg.slot_rh_offset_pct);
-    char text[640];
+    char text[768];
     size_t len = 0;
     for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
       const char* raw = i == 0 ? cfg.onboard_name : cfg.slot_name[i - 1];
@@ -634,6 +634,24 @@ public:
     len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "SHTC3 nack=%u short=%u crc=%u run=%u\n",
                                         static_cast<unsigned>(snap.shtc3.nack), static_cast<unsigned>(snap.shtc3.short_reads),
                                         static_cast<unsigned>(snap.shtc3.crc), static_cast<unsigned>(snap.shtc3.run)));
+    if (len >= sizeof(text)) {
+      return;
+    }
+    {
+      const BleRejectStats& rej = snap.registry->rejects();
+      char last[20] = "--";
+      if (rej.has_last) {
+        snprintf(last, sizeof(last), "%02X:%02X:%02X:%02X:%02X:%02X", static_cast<unsigned>(rej.last_mac[0]),
+                 static_cast<unsigned>(rej.last_mac[1]), static_cast<unsigned>(rej.last_mac[2]),
+                 static_cast<unsigned>(rej.last_mac[3]), static_cast<unsigned>(rej.last_mac[4]),
+                 static_cast<unsigned>(rej.last_mac[5]));
+      }
+      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len,
+                                          "BLE rejected=%lu last=%s woio=%u meter=%u bthome=%u atc=%u\n",
+                                          static_cast<unsigned long>(rej.total()), last,
+                                          static_cast<unsigned>(rej.by_format[0]), static_cast<unsigned>(rej.by_format[1]),
+                                          static_cast<unsigned>(rej.by_format[2]), static_cast<unsigned>(rej.by_format[3])));
+    }
     if (len >= sizeof(text)) {
       return;
     }

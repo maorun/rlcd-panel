@@ -865,3 +865,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `docs/display_preview_stats.png` shows `AH 9.0G`, `AH 8.1G` and `AH --`.
 - Thus the user compares the indoor and the outdoor air moisture without the ventilation advice.
 - Host tests cover 20 C and 50 %RH (8.6 g/m3), 0 %RH, a NaN reading, a stale slot, an empty slot, a future time stamp, the right edge at x = 392, and the record line in Celsius and in Fahrenheit at its widest text.
+
+## Rejected BLE packet counter in STATUS
+
+- **Code:** `rlcd_panel/switchbot_ble.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- `SwitchBotRegistry::upsert(reading, BleFormat)` counts each valid packet that the registry rejects. The registry rejects a packet when no slot is free, or when each free slot has a fixed MAC of a different sensor. The format is `WOIO`, `METER`, `BTHOME` or `ATC`.
+- A packet for a known MAC or for a slot that is fixed to this MAC is not a reject and is not counted. A reject does not change the slots.
+- `BleRejectStats` holds one `uint16_t` counter for each format and the MAC of the last rejected packet. Each counter stops at 65535.
+- `SwitchBotRegistry::resetRejects()` clears the counters at the start of each scan (`scanOnce()`). `PersistentState` does not store them, so `STATE_VERSION` stays 41.
+- The console command `STATUS` shows the line `BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>` before the `POWER` line. `<N>` after `rejected=` is the sum of the four counters. `last` has the format `AA:BB:CC:DD:EE:FF`, or `--` without a reject.
+- Thus the user finds a wrong `slotN_mac` entry or a fourth sensor that takes no slot.
+- Host tests cover a full registry with a new MAC, a fixed slot with a different MAC, a fixed slot with the correct MAC (no count), each format counter, the saturation of each counter at 65535, the reset at the scan start, the last MAC, the `STATUS` line with and without a reject, the longest line, and the unchanged slot contents.
