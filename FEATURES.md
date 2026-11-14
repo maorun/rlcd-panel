@@ -644,6 +644,17 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `./scripts/dump-logs.sh --events [port]` sends `EVENTS`, checks the CRC-32 and prints the rows. Thus the user reads the recent alerts and resets also without a MicroSD card.
 - Host tests cover the parser, the rejection of arguments, an empty ring, one event, a full ring, lost events, an event without time, the row equality with `formatEventRow`, the CRC-32 value, each short write, the unchanged ring, no card access, the USB power gate and the script option.
 
+## Serial console command PATTERN to show a display test pattern
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/st7305_framebuffer.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- The console command `PATTERN N` shows one test pattern on the panel. `N` is `0`, `1` or `2`. A missing digit, `PATTERN 3`, `PATTERN -1` and extra text give `ERR BAD_ARG`.
+- `St7305Framebuffer::fillPattern` draws the pattern. Pattern `0` makes each pixel black. Pattern `1` is a checkerboard of 1-pixel squares; the pixel (0,0) is black. Pattern `2` is a 1-pixel border with a cross from corner to corner. A value above `2` leaves the buffer unchanged.
+- The firmware flushes the pattern with `g_panel.flush` and not with `flushFramebuffer()`. Thus `display_invert` has no effect, and the user sees the raw packing of the `ST7305`.
+- The reply is `OK PATTERN <N>`. The pattern stays on the panel until the next render. The next wake cycle renders the normal view again.
+- The command does not mount the card, so the clap listener keeps running. It runs on USB power only (`PowerManager::serialConsoleAllowed`). `execute()` ignores `PATTERN`.
+- Thus the user finds dead pixels, a bad row or a wrong packing after a hardware change.
+- Host tests cover the parser for each pattern, the values `3` and `-1`, extra text, the bit-exact framebuffer bytes of each pattern with the `ST7305` packing rule, the corner pixels, the unchanged buffer for an invalid value, the raw flush without `display_invert`, no card access and the USB power gate.
+
 ## SwitchBot Meter and Meter Plus support from Service Data
 
 - **Code:** `rlcd_panel/switchbot_ble.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `README.md`

@@ -11952,6 +11952,113 @@ void testSerialEventsCrcShortWriteAndGate() {
   assert(script.find("time,event,detail") != std::string::npos);
 }
 
+namespace {
+struct FakePatternPanel {
+  int flushes = 0;
+  std::vector<uint8_t> last;
+  void flush(const St7305Framebuffer& fb) {
+    ++flushes;
+    last.assign(fb.data(), fb.data() + St7305Framebuffer::BYTE_COUNT);
+  }
+};
+} // namespace
+
+void testSerialPatternParser() {
+  SerialCommand cmd;
+  for (char c = '0'; c <= '2'; ++c) {
+    const std::string line = std::string("PATTERN ") + c;
+    assert(parseText(line, cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::PATTERN);
+    assert(cmd.reference == static_cast<uint8_t>(c - '0'));
+  }
+  assert(parseText("PATTERN 1\r\n", cmd) == SerialParseStatus::OK && cmd.reference == 1);
+  assert(parseText("PATTERN 3", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("PATTERN -1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("PATTERN", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("PATTERN ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("PATTERN 1 2", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("PATTERN 10", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("PATTERN x", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("PATTERN  1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("PATTERNX", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("pattern 1", cmd) == SerialParseStatus::UNKNOWN);
+}
+
+void testFramebufferFillPatternBitExact() {
+  St7305Framebuffer fb;
+  // 0: each of the 15,000 bytes is 0xFF
+  assert(fb.fillPattern(0));
+  for (uint32_t i = 0; i < St7305Framebuffer::BYTE_COUNT; ++i) {
+    assert(fb.data()[i] == 0xFF);
+  }
+  // 1: checkerboard, packing rule byte = (x/2)*75 + (299-y)/4, bit = 7 - (((299-y)%4)*2 + x%2)
+  assert(fb.fillPattern(1));
+  std::vector<uint8_t> expected(St7305Framebuffer::BYTE_COUNT, 0);
+  for (uint32_t y = 0; y < 300; ++y) {
+    for (uint32_t x = 0; x < 400; ++x) {
+      if (((x + y) & 1U) == 0) {
+        const uint32_t inv = 299 - y;
+        expected[(x / 2) * 75 + inv / 4] |= static_cast<uint8_t>(1U << (7 - ((inv % 4) * 2 + (x % 2))));
+      }
+    }
+  }
+  assert(memcmp(fb.data(), expected.data(), expected.size()) == 0);
+  assert(fb.getPixel(0, 0) && !fb.getPixel(399, 0) && !fb.getPixel(0, 299) && fb.getPixel(399, 299));
+  assert(!fb.getPixel(1, 0) && fb.getPixel(1, 1));
+  // 2: border and cross
+  assert(fb.fillPattern(2));
+  assert(fb.getPixel(0, 0) && fb.getPixel(399, 0) && fb.getPixel(0, 299) && fb.getPixel(399, 299));
+  for (uint16_t x = 0; x < 400; ++x) {
+    assert(fb.getPixel(x, 0) && fb.getPixel(x, 299));
+  }
+  for (uint16_t y = 0; y < 300; ++y) {
+    assert(fb.getPixel(0, y) && fb.getPixel(399, y));
+  }
+  assert(!fb.getPixel(1, 100) && !fb.getPixel(100, 1) && !fb.getPixel(200, 40));
+  // fixed diagonal pixels: both diagonals meet in the centre and end in the corners
+  assert(fb.getPixel(200, 150) && fb.getPixel(199, 149));
+  assert(fb.getPixel(1, 1) && fb.getPixel(398, 298) && fb.getPixel(1, 298) && fb.getPixel(398, 1));
+  assert(fb.getPixel(100, 75) && fb.getPixel(100, 224) && fb.getPixel(300, 225) && fb.getPixel(300, 74));
+  assert(!fb.getPixel(100, 150) && !fb.getPixel(300, 150));
+  // an invalid pattern leaves the buffer unchanged
+  const std::vector<uint8_t> before(fb.data(), fb.data() + St7305Framebuffer::BYTE_COUNT);
+  assert(!fb.fillPattern(3) && !fb.fillPattern(255));
+  assert(memcmp(fb.data(), before.data(), before.size()) == 0);
+}
+
+void testSerialPatternShowFlushesWithoutInvertAndGate() {
+  St7305Framebuffer fb;
+  FakePatternPanel panel;
+  FakeSink sink;
+  TestRunner::showPattern(sink, fb, panel, 1);
+  assert(sink.out == "OK PATTERN 1\n" && panel.flushes == 1);
+  St7305Framebuffer reference;
+  reference.fillPattern(1);
+  // the flushed bytes are the raw pattern: the invert() of display_invert is not applied
+  assert(memcmp(panel.last.data(), reference.data(), panel.last.size()) == 0);
+  St7305Framebuffer inverted = reference; // what flushFramebuffer() would send with display_invert=1
+  inverted.invert();
+  assert(memcmp(panel.last.data(), inverted.data(), panel.last.size()) != 0);
+  FakeSink zero;
+  TestRunner::showPattern(zero, fb, panel, 0);
+  assert(zero.out == "OK PATTERN 0\n" && panel.flushes == 2 && panel.last[0] == 0xFF);
+  FakeSink bad;
+  TestRunner::showPattern(bad, fb, panel, 3);
+  assert(bad.out == "ERR BAD_ARG\n" && panel.flushes == 2);
+  // execute() ignores PATTERN: no mount, no output
+  FakeConsoleStorage storage;
+  FakeSink quiet;
+  SerialCommand cmd;
+  assert(parseText("PATTERN 2", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, quiet, cmd);
+  assert(storage.mounts == 0 && storage.unmounts == 0 && quiet.out.empty());
+  BatteryReading battery;
+  battery.valid = true;
+  battery.usb_powered = false;
+  assert(!PowerManager::serialConsoleAllowed(battery));
+  battery.usb_powered = true;
+  assert(PowerManager::serialConsoleAllowed(battery));
+}
+
 void testDumpLogsScriptHistorySmokeCheck() {
   std::string here = __FILE__;
   const size_t cut = here.rfind("tests/");
@@ -15632,6 +15739,9 @@ testSerialEventsParser();
 testSerialEventsEmptyOneAndFull();
 testSerialEventsDroppedNoTimeAndUnchangedRing();
 testSerialEventsCrcShortWriteAndGate();
+testSerialPatternParser();
+testFramebufferFillPatternBitExact();
+testSerialPatternShowFlushesWithoutInvertAndGate();
 testDumpLogsScriptHistorySmokeCheck();
 testSerialConfigNegativeSmallOffset();
   testRtcDriftFirstSyncHasNoRate();
