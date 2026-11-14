@@ -793,3 +793,16 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `tools/preview_scenes.h` adds the scene `display_preview_chart` (garden sensor). `./scripts/generate-display-preview.sh` writes `docs/display_preview_chart.png`. The other preview files stay bit-exact.
 - Thus the user sees the course of one room in detail.
 - Host tests cover the mode cycle with 5 modes, the rejection of a stored mode above 4 and of a stored sensor above 3, the `KEY` handling (short press, hold, wake press), the sensor wrap, the curve bounds, the minimum span, `NO DATA` and the RTC round trip with the new state version.
+
+## Serial console command SET to change one config.ini key
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/device_config.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- The console command `SET <key>=<value>` changes one key of `/sdcard/config.ini`. The line limit is 40 bytes. The command runs on USB power only, as each console command does.
+- The parser accepts only a key of `DeviceConfigParser::KEYS` (exact match, lowercase). `DeviceConfigParser::checkSetting` checks the value with the parser rules of `config.ini`. A bad key or a missing `=` gives `ERR BAD_KEY`. A bad value gives `ERR BAD_VALUE`. Both errors leave the card untouched.
+- `DeviceConfigEditor::set` replaces the last line of the key. The line end of that line stays; its indent and its spaces around `=` do not. Without such a line, the editor appends `key=value` in the line end style of the file (LF for an empty file). Each other line, each comment and the byte order mark stay unchanged.
+- A result above 4096 bytes, or an existing file above 4096 bytes, gives `ERR TOO_LARGE`. The command writes nothing in this case.
+- The runner (`SerialConsoleRunner::setConfig`) writes the result to `/sdcard/config.tmp`, removes the old file and renames the new file. A failed write or a failed remove keeps the old file and removes `config.tmp`. A failed rename writes the old text back. If this restore also fails, `config.tmp` stays and holds the new text. Each failed step gives `ERR WRITE_FAILED`. No card gives `ERR NO_CARD`. A power loss between the remove and the rename can lose the file; `config.tmp` then holds the new text.
+- After a success the firmware parses the new text and calls `PersistentState::applyConfig`, as a `KEY` wakeup does. It also sets the card status to `OK`, records the event `CONFIG_LOAD` and recalculates the power settings. Then the reply is `OK SET <key>`.
+- The `RTC` state layout does not change.
+- Thus the user changes a setting without a card removal.
+- Host tests cover the parser (valid pairs, unknown key, bad value, the 40-byte limit), the editor (replace, append, comments, CRLF, byte order mark, 4096-byte limit), each failing step of the file write, the empty file and the absent file, the applied config and the reply, and the ignore in `execute`.

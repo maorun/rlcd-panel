@@ -34,7 +34,7 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
@@ -42,8 +42,13 @@ enum class SerialParseStatus : uint8_t {
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
   BAD_ARG,  // CALIB without a reference, with a reference above 3 or with extra text; BEEP without a bit, above 6 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099
+  BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '=')
+  BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv or events_v1_YYYY.csv
 };
+
+constexpr size_t SET_KEY_SIZE = 41;
+constexpr size_t SET_VALUE_SIZE = 41;
 
 struct SerialCommand {
   SerialCommandKind kind = SerialCommandKind::NONE;
@@ -51,6 +56,8 @@ struct SerialCommand {
   uint8_t reference = 0; // CALIB: 0 onboard, 1 to 3 a slot; BEEP: alert bit number 0 to 6
   bool time_set = false; // TIME: true for "TIME SET <time>"; `time` then holds the parsed local time
   RtcTime time;
+  char set_key[SET_KEY_SIZE] = {0};     // SET: key of DeviceConfigParser::KEYS
+  char set_value[SET_VALUE_SIZE] = {0}; // SET: value, checked with the parser rules
 };
 
 // One log file as the storage reports it.
@@ -60,7 +67,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..6", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "VERSION" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..6", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "VERSION", "SET <key>=<value>" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -104,6 +111,33 @@ public:
         return SerialParseStatus::UNKNOWN; // VERSION takes no argument
       }
       out.kind = SerialCommandKind::VERSION;
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "SET")) {
+      // "SET <key>=<value>": one key of DeviceConfigParser::KEYS and a value that its rules accept
+      if (len < cmd_len + 2) {
+        return SerialParseStatus::BAD_KEY;
+      }
+      const char* pair = line + cmd_len + 1;
+      const size_t pair_len = len - cmd_len - 1;
+      const char* eq = static_cast<const char*>(memchr(pair, '=', pair_len));
+      if (eq == nullptr) {
+        return SerialParseStatus::BAD_KEY;
+      }
+      const size_t key_len = static_cast<size_t>(eq - pair);
+      const size_t val_len = pair_len - key_len - 1;
+      const DeviceConfigParser::SettingCheck check = DeviceConfigParser::checkSetting(pair, key_len, eq + 1, val_len);
+      if (check == DeviceConfigParser::SettingCheck::BAD_KEY) {
+        return SerialParseStatus::BAD_KEY;
+      }
+      if (check == DeviceConfigParser::SettingCheck::BAD_VALUE) {
+        return SerialParseStatus::BAD_VALUE;
+      }
+      memcpy(out.set_key, pair, key_len);
+      out.set_key[key_len] = '\0';
+      memcpy(out.set_value, eq + 1, val_len);
+      out.set_value[val_len] = '\0';
+      out.kind = SerialCommandKind::SET;
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "HISTORY")) {
@@ -220,6 +254,8 @@ public:
       case SerialParseStatus::TOO_LONG: return "ERR TOO_LONG\n";
       case SerialParseStatus::BAD_NAME: return "ERR BAD_NAME\n";
       case SerialParseStatus::BAD_ARG: return "ERR BAD_ARG\n";
+      case SerialParseStatus::BAD_KEY: return "ERR BAD_KEY\n";
+      case SerialParseStatus::BAD_VALUE: return "ERR BAD_VALUE\n";
       case SerialParseStatus::OK:
       case SerialParseStatus::EMPTY:
       default: return "";
@@ -312,6 +348,15 @@ struct SerialStatusSnapshot {
 //   from the parser. showTime() and setTime() need no card: execute() ignores TIME.
 //   VERSION -> "VERSION fw=<version> git=<hash> core=<core> state=<STATE_VERSION> built=<YYYY-MM-DDTHH:MM:SS>", then "CRC32 <8 hex
 //   digits>" over that line. The build time comes from __DATE__ and __TIME__. showVersion() needs no card: execute() ignores VERSION.
+//   SET <key>=<value> -> "OK SET <key>" after the new config.ini is in place and applied, "ERR BAD_KEY" or "ERR BAD_VALUE"
+//   from the parser, "ERR NO_CARD", "ERR TOO_LARGE" (result above 4096 bytes, nothing written) or "ERR WRITE_FAILED".
+//   setConfig() mounts the card for the command. The last line of the key is replaced or a line is appended; other lines and
+//   comments stay. The text goes to /sdcard/config.tmp, then the old file is removed and the new file is renamed. A failure
+//   before the remove keeps the old file. If the rename fails after the remove, the old text is written back. execute()
+//   ignores SET. A failed restore keeps config.tmp, which then holds the new text. Storage for SET:
+//   bool readConfig(char* buf, size_t cap, size_t& len, bool& exists) (false: read error; an absent file gives true with
+//   exists false); bool writeTemp(const char*, size_t); bool removeConfig(); bool renameTemp(); void removeTemp();
+//   bool restoreConfig(const char*, size_t).
 //   CALIB N -> "REFERENCE <name>", one "SENSOR <name> hours=<n> temp_offset=<x> rh_offset=<x> temp_diff=<x> rh_diff=<x>" or
 //   "SKIP <name> hours=<n>" per other sensor, the "key=value" lines to paste into config.ini, then "CRC32 <8 hex digits>"
 //   over all lines before it. showCalib() works on the RTC history: no card access, so execute() ignores CALIB.
@@ -649,11 +694,77 @@ public:
     send(sink, line);
   }
 
+  // Changes one key of /sdcard/config.ini. `apply(const char* text, size_t len)` runs after the new file is in place and
+  // takes over the new config (PersistentState::applyConfig); the reply "OK SET <key>" follows it. Returns true on success.
+  template <typename Apply>
+  static bool setConfig(Storage& storage, Sink& sink, const SerialCommand& command, Apply apply) {
+    // Defense in depth: the parser already checks the pair.
+    const DeviceConfigParser::SettingCheck check =
+        command.kind == SerialCommandKind::SET
+            ? DeviceConfigParser::checkSetting(command.set_key, strlen(command.set_key), command.set_value,
+                                               strlen(command.set_value))
+            : DeviceConfigParser::SettingCheck::BAD_KEY;
+    if (check != DeviceConfigParser::SettingCheck::OK) {
+      reject(sink, check == DeviceConfigParser::SettingCheck::BAD_VALUE ? SerialParseStatus::BAD_VALUE
+                                                                        : SerialParseStatus::BAD_KEY);
+      return false;
+    }
+    if (!storage.mount()) {
+      send(sink, "ERR NO_CARD\n");
+      return false;
+    }
+    // Static: two 4 KB buffers do not fit the 8 KB loop task stack. One console command runs at a time.
+    static char current[DeviceConfigParser::MAX_FILE_SIZE + 1];
+    static char next[DeviceConfigParser::MAX_FILE_SIZE + 1];
+    size_t current_len = 0;
+    size_t next_len = 0;
+    bool exists = false;
+    const char* reply = nullptr;
+    bool done = false;
+    if (!storage.readConfig(current, sizeof(current), current_len, exists)) {
+      reply = "ERR WRITE_FAILED\n";
+    } else if (current_len > DeviceConfigParser::MAX_FILE_SIZE) {
+      reply = "ERR TOO_LARGE\n";
+    } else if (DeviceConfigEditor::set(current, current_len, command.set_key, command.set_value, next, next_len) !=
+               DeviceConfigEditor::Result::OK) {
+      reply = "ERR TOO_LARGE\n";
+    } else if (!storage.writeTemp(next, next_len)) {
+      storage.removeTemp();
+      reply = "ERR WRITE_FAILED\n"; // the old file is untouched
+    } else if (exists && !storage.removeConfig()) {
+      storage.removeTemp();
+      reply = "ERR WRITE_FAILED\n"; // the old file is untouched
+    } else if (!storage.renameTemp()) {
+      if (exists) {
+        if (!storage.restoreConfig(current, current_len)) {
+          storage.unmount(); // the old file is gone: config.tmp holds the new text and stays
+          send(sink, "ERR WRITE_FAILED\n");
+          return false;
+        }
+      }
+      storage.removeTemp();
+      reply = "ERR WRITE_FAILED\n";
+    } else {
+      done = true;
+    }
+    storage.unmount();
+    if (!done) {
+      send(sink, reply);
+      return false;
+    }
+    apply(static_cast<const char*>(next), next_len);
+    char line[SET_KEY_SIZE + 16];
+    snprintf(line, sizeof(line), "OK SET %s\n", command.set_key);
+    send(sink, line);
+    return true;
+  }
+
   static void execute(Storage& storage, Sink& sink, const SerialCommand& command) {
     if (command.kind == SerialCommandKind::NONE || command.kind == SerialCommandKind::CONFIG ||
         command.kind == SerialCommandKind::CALIB || command.kind == SerialCommandKind::STATUS ||
         command.kind == SerialCommandKind::BEEP || command.kind == SerialCommandKind::TIME ||
-        command.kind == SerialCommandKind::HISTORY || command.kind == SerialCommandKind::VERSION) {
+        command.kind == SerialCommandKind::HISTORY || command.kind == SerialCommandKind::VERSION ||
+        command.kind == SerialCommandKind::SET) {
       return;
     }
     if (!storage.mount()) {
@@ -672,6 +783,7 @@ public:
       case SerialCommandKind::TIME:
       case SerialCommandKind::HISTORY:
       case SerialCommandKind::VERSION:
+      case SerialCommandKind::SET:
       default: break;
     }
     storage.unmount();
@@ -868,6 +980,58 @@ public:
     if (file_) {
       file_.close();
     }
+  }
+
+  // config.ini for the console command SET. An absent file gives true with exists false; a read error gives false; a file above
+  // `cap` gives a length above the limit. The parser needs one byte above the limit to see an oversized file.
+  bool readConfig(char* buf, size_t cap, size_t& len, bool& exists) {
+    len = 0;
+    exists = SD_MMC.exists("/config.ini");
+    if (!exists) {
+      return true;
+    }
+    File f = SD_MMC.open("/config.ini", FILE_READ);
+    if (!f || f.isDirectory()) {
+      return false;
+    }
+    const size_t size = static_cast<size_t>(f.size());
+    const size_t n = f.read(reinterpret_cast<uint8_t*>(buf), cap);
+    f.close();
+    len = n;
+    return n == (size < cap ? size : cap);
+  }
+
+  bool writeTemp(const char* data, size_t len) {
+    SD_MMC.remove("/config.tmp");
+    File f = SD_MMC.open("/config.tmp", FILE_WRITE);
+    if (!f) {
+      return false;
+    }
+    const size_t n = f.write(reinterpret_cast<const uint8_t*>(data), len);
+    f.close();
+    return n == len;
+  }
+
+  bool removeConfig() {
+    return SD_MMC.remove("/config.ini");
+  }
+
+  bool renameTemp() {
+    return SD_MMC.rename("/config.tmp", "/config.ini");
+  }
+
+  bool restoreConfig(const char* data, size_t len) {
+    File f = SD_MMC.open("/config.ini", FILE_WRITE);
+    if (!f) {
+      return false;
+    }
+    const size_t n = f.write(reinterpret_cast<const uint8_t*>(data), len);
+    f.close();
+    return n == len;
+  }
+
+  void removeTemp() {
+    SD_MMC.remove("/config.tmp");
   }
 
   uint64_t totalBytes() {

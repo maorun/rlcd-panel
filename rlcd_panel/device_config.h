@@ -318,6 +318,36 @@ public:
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
+  enum class SettingCheck : uint8_t { OK = 0, BAD_KEY, BAD_VALUE };
+
+  // Checks one "key=value" pair of the console command SET with the rules of parse(): the key must
+  // be an entry of KEYS (exact match), and the value must give one accepted line and no rejected line.
+  static SettingCheck checkSetting(const char* key, size_t key_len, const char* val, size_t val_len) {
+    bool known = false;
+    for (size_t i = 0; key != nullptr && i < KEY_COUNT; ++i) {
+      known = known || keyIs(key, key_len, KEYS[i]);
+    }
+    if (!known) {
+      return SettingCheck::BAD_KEY;
+    }
+    char line[128];
+    if (val == nullptr || key_len + val_len + 2 > sizeof(line)) {
+      return SettingCheck::BAD_VALUE;
+    }
+    for (size_t i = 0; i < val_len; ++i) {
+      if (static_cast<unsigned char>(val[i]) < 0x20) {
+        return SettingCheck::BAD_VALUE; // a line break would add a second line
+      }
+    }
+    memcpy(line, key, key_len);
+    line[key_len] = '=';
+    memcpy(line + key_len + 1, val, val_len);
+    line[key_len + 1 + val_len] = '\n';
+    DeviceConfig scratch;
+    const ConfigParseResult r = parse(line, key_len + val_len + 2, scratch);
+    return (r.file_ok && r.rejected == 0 && r.keys_set == 1) ? SettingCheck::OK : SettingCheck::BAD_VALUE;
+  }
+
   // Always resets `out` to the defaults first.
   static ConfigParseResult parse(const char* data, size_t len, DeviceConfig& out) {
     out = DeviceConfig{};
@@ -782,6 +812,103 @@ private:
       text[--len] = '\0'; // "-1.90" -> "-1.9", "0.00" -> "0.0"
     }
     return putLine(out, cap, pos, key, text);
+  }
+};
+
+// Edits a config.ini text for the console command SET. The last line of the key (the line that wins in
+// DeviceConfigParser::parse) is replaced by "key=value"; its line end (LF, CRLF or none) stays. Without
+// such a line the pair is appended as a new line in the line end style of the file (LF for an empty file).
+// Each other line, comment and a byte order mark stay unchanged. A result above MAX_FILE_SIZE gives
+// TOO_LARGE and `out` stays unusable.
+class DeviceConfigEditor {
+public:
+  enum class Result : uint8_t { OK = 0, TOO_LARGE };
+
+  // `out` needs DeviceConfigParser::MAX_FILE_SIZE bytes.
+  static Result set(const char* in, size_t in_len, const char* key, const char* value, char* out, size_t& out_len) {
+    out_len = 0;
+    const size_t key_len = strlen(key);
+    const size_t pair_len = key_len + 1 + strlen(value);
+    if (in_len > DeviceConfigParser::MAX_FILE_SIZE) {
+      return Result::TOO_LARGE;
+    }
+    size_t pos = (in_len >= 3 && static_cast<uint8_t>(in[0]) == 0xEF && static_cast<uint8_t>(in[1]) == 0xBB &&
+                  static_cast<uint8_t>(in[2]) == 0xBF) ? 3 : 0;
+    bool found = false;
+    size_t found_start = 0;
+    size_t found_end = 0; // end of the line content, before CR and LF
+    while (pos < in_len) {
+      size_t nl = pos;
+      while (nl < in_len && in[nl] != '\n') {
+        ++nl;
+      }
+      const char* line = in + pos;
+      size_t n = nl - pos;
+      while (n > 0 && (line[0] == ' ' || line[0] == '\t' || line[0] == '\r')) {
+        ++line;
+        --n;
+      }
+      if (n > 0 && line[0] != '#' && line[0] != ';') {
+        const char* eq = static_cast<const char*>(memchr(line, '=', n));
+        if (eq != nullptr) {
+          const char* k = line;
+          size_t kl = static_cast<size_t>(eq - line);
+          while (kl > 0 && (k[kl - 1] == ' ' || k[kl - 1] == '\t' || k[kl - 1] == '\r')) {
+            --kl;
+          }
+          if (kl == key_len && memcmp(k, key, key_len) == 0) {
+            found = true;
+            found_start = pos;
+            found_end = nl > pos && in[nl - 1] == '\r' ? nl - 1 : nl;
+          }
+        }
+      }
+      pos = nl + 1;
+    }
+    if (found) {
+      const size_t total = found_start + pair_len + (in_len - found_end);
+      if (total > DeviceConfigParser::MAX_FILE_SIZE) {
+        return Result::TOO_LARGE;
+      }
+      memcpy(out, in, found_start);
+      size_t at = found_start;
+      memcpy(out + at, key, key_len);
+      at += key_len;
+      out[at++] = '=';
+      memcpy(out + at, value, strlen(value));
+      at += strlen(value);
+      memcpy(out + at, in + found_end, in_len - found_end);
+      out_len = at + (in_len - found_end);
+      return Result::OK;
+    }
+    bool crlf = false;
+    for (size_t i = in_len; i > 0; --i) {
+      if (in[i - 1] == '\n') {
+        crlf = i >= 2 && in[i - 2] == '\r';
+        break;
+      }
+    }
+    const char* eol = crlf ? "\r\n" : "\n";
+    const size_t eol_len = crlf ? 2 : 1;
+    const bool need_eol = in_len > 0 && in[in_len - 1] != '\n';
+    const size_t total = in_len + (need_eol ? eol_len : 0) + pair_len + eol_len;
+    if (total > DeviceConfigParser::MAX_FILE_SIZE) {
+      return Result::TOO_LARGE;
+    }
+    size_t at = in_len;
+    memcpy(out, in, in_len);
+    if (need_eol) {
+      memcpy(out + at, eol, eol_len);
+      at += eol_len;
+    }
+    memcpy(out + at, key, key_len);
+    at += key_len;
+    out[at++] = '=';
+    memcpy(out + at, value, strlen(value));
+    at += strlen(value);
+    memcpy(out + at, eol, eol_len);
+    out_len = at + eol_len;
+    return Result::OK;
   }
 };
 

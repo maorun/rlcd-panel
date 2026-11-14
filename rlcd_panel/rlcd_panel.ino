@@ -899,6 +899,21 @@ void setup() {
         SerialConsoleRunner<SdLogStorage, SerialSink>::showVersion(console_sink, FIRMWARE_VERSION, RLCD_GIT_HASH,
                                                                    ARDUINO_CORE_VERSION, PowerManager::STATE_VERSION,
                                                                    __DATE__, __TIME__);
+      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SET) {
+        clap_listener.release(); // keep the I2S bus idle while the card transfers
+        // The new text takes effect as after a KEY wakeup: parse it and apply it inside the registry lock.
+        SerialConsoleRunner<SdLogStorage, SerialSink>::setConfig(
+            console_storage, console_sink, command, [](const char* text, size_t len) {
+              DeviceConfig loaded;
+              const ConfigParseResult parsed = DeviceConfigParser::parse(text, len, loaded);
+              portENTER_CRITICAL(&g_registry_mux);
+              g_state.applyConfig(loaded, parsed.file_ok, parsed.rejects());
+              portEXIT_CRITICAL(&g_registry_mux);
+              // Same follow-up as a KEY wakeup: card status, event, and the sleep and listen settings.
+              g_state.setSdStatus(SdStatus::OK, nowMs());
+              g_state.events.record(g_rtc_time, EventCode::CONFIG_LOAD, static_cast<uint16_t>(parsed.rejects().count));
+              g_power_config = PowerManager::powerConfig(config(), g_state.battery, quietHours(), g_rtc_time);
+            });
       } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::STATUS) {
         // The RTC copy answers: no card access, so the clap listener keeps running.
         portENTER_CRITICAL(&g_registry_mux); // the BLE callback writes the registry
