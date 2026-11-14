@@ -16,14 +16,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 - Priority 1 holds the most critical user-facing enhancements and core hardware integrations.
 - Do not record review findings in this file. Name them in the review report and in the pull request description.
 
-## Priority 1: Core Tooling and Calibration (Score 34–40)
-
-- [ ] Dynamic 1-to-6 tile telemetry frame and companion app display
-  - Rank: [Total: 37, Use: 9, Setup: 9, Harmony: 9, Safety: 10, Effort: M]
-  - Location: `rlcd_panel/ble_telemetry.h`, `macos/RlcdCompanion/Sources/RlcdProtocol/TelemetryFrame.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `tests/fixtures/ble_telemetry_vectors.txt`, `tests/test_firmware_logic.cpp`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/TelemetryFrameTests.swift`
-  - Goal: Update `BleTelemetryCodec` for up to 6 tiles: version, sequence, cell percentage, alert mask, valid tile mask with bits 0 to 5, six tiles of `int16` 0.01 C and `uint8` 0.5 %RH, and the CRC-8. The payload has 24 bytes. With the company ID, the 2-byte AD header and the 3-byte flags field, the advertisement uses 31 of 31 bytes. Increase the frame version, so that an old decoder rejects the new frame. In `macos/RlcdCompanion/`, `TelemetryFrame` decodes 1 to 6 tiles. The companion app window adapts its grid to show 1 to 6 tiles with names and badges. Update the shared test vectors in `tests/fixtures/ble_telemetry_vectors.txt`. This entry uses the 5 external slots of the panel.
-  - Acceptance test: The C++ host tests and `swift test` in `macos/RlcdCompanion` decode frames with 1, 2, 4, 5 and 6 tiles from the shared hex vectors, match the temperature and the humidity of each tile, and check the CRC-8. The tests reject a frame with a bad CRC-8 and a frame with a wrong length. The companion app shows 1 to 6 tiles in a flexible grid. `swift build -c release` passes.
-
 ## Priority 2: Storage, and Configuration (Score 28–33)
 
 - [ ] Climate badges and macOS notifications for alert bits in the companion app

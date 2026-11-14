@@ -1,19 +1,23 @@
 # Shared test vectors of the BLE telemetry frame (rlcd_panel/ble_telemetry.h).
 # Read by the C++ host tests; the macOS companion app reads the same file.
-# Layout: the Manufacturer Data field after the AD length and type bytes (0xFF) is 20 bytes:
-#   company ID FF FF (2 bytes), then the 18 byte payload:
-#   version (1), sequence (1), cell pct (1, 255 unknown), alert mask (1), valid tile mask (1),
-#   four tiles of temperature int16 little-endian in 0.01 C and humidity uint8 in 0.5 %RH (12),
-#   CRC-8 (poly 0x31, init 0xFF) over the 17 bytes before it (1).
-# With the 3 byte flags AD (02 01 06) and the 2 byte AD header the advertising data is 25 of 31 bytes.
-# Line: name | sequence | cell | alerts | tile0 | tile1 | tile2 | tile3 | hex
+# Layout: the Manufacturer Data field after the AD length and type bytes (0xFF) is 26 bytes:
+#   company ID FF FF (2 bytes), then the 24 byte payload:
+#   version (2), sequence (1), cell pct (1, 255 unknown), alert mask (1), valid tile mask (1),
+#   six tiles of temperature int16 little-endian in 0.01 C and humidity uint8 in 0.5 %RH (18),
+#   CRC-8 (poly 0x31, init 0xFF) over the 23 bytes before it (1).
+# With the 3 byte flags AD (02 01 06) and the 2 byte AD header the advertising data is 31 of 31 bytes.
+# Line: name | sequence | cell | alerts | tile0 | tile1 | tile2 | tile3 | tile4 | tile5 | hex
 # A tile is "temp_c/rh_pct" or "-" for an empty or stale tile. The hex has no spaces.
-four_valid | 7 | 80 | 0 | 21.5/45.0 | -3.25/60.5 | 30.0/100.0 | 0.0/0.0 | FFFF010750000F66085ABBFE79B80BC8000000B3
-empty_slot_and_stale_slot | 8 | 55 | 1 | 22.0/40.0 | - | 18.75/52.5 | - | FFFF0108370105980850000000530769000000B0
-extremes_cold_dry | 0 | 100 | 0 | -50.0/0.0 | -50.0/0.0 | -50.0/0.0 | -50.0/0.0 | FFFF010064000F78EC0078EC0078EC0078EC001E
-extremes_hot_wet | 1 | 100 | 255 | 100.0/100.0 | 100.0/100.0 | 100.0/100.0 | 100.0/100.0 | FFFF010164FF0F1027C81027C81027C81027C852
-rh_rounding | 2 | 50 | 0 | 20.0/45.2 | 20.0/45.3 | 20.0/45.74 | 20.0/45.76 | FFFF010232000FD0075AD0075BD0075BD0075CB5
-cell_unknown | 3 | 255 | 0 | 20.0/50.0 | - | - | - | FFFF0103FF0001D0076400000000000000000083
-sequence_wrap_255 | 255 | 90 | 0 | 19.5/41.0 | - | - | - | FFFF01FF5A00019E0752000000000000000000DC
-sequence_wrap_0 | 0 | 90 | 0 | 19.5/41.0 | - | - | - | FFFF01005A00019E075200000000000000000013
-all_empty | 9 | 70 | 128 | - | - | - | - | FFFF0109468000000000000000000000000000F4
+six_valid | 7 | 80 | 0 | 21.5/45.0 | -3.25/60.5 | 30.0/100.0 | 0.0/0.0 | 18.25/55.0 | 25.5/62.0 | FFFF020750003F66085ABBFE79B80BC800000021076EF6097C9F
+one_tile_onboard | 3 | 255 | 0 | 20.0/50.0 | - | - | - | - | - | FFFF0203FF0001D0076400000000000000000000000000000001
+two_tiles | 8 | 55 | 1 | 22.0/40.0 | -3.0/65.0 | - | - | - | - | FFFF0208370103980850D4FE8200000000000000000000000091
+four_tiles | 4 | 90 | 0 | 21.0/45.0 | 19.0/50.0 | 18.0/55.0 | 22.5/48.0 | - | - | FFFF02045A000F34085A6C076408076ECA086000000000000066
+five_tiles | 5 | 85 | 2 | 21.0/45.0 | 19.0/50.0 | 18.0/55.0 | 22.5/48.0 | 17.5/60.0 | - | FFFF020555021F34085A6C076408076ECA0860D6067800000095
+empty_slot_and_stale_slot | 8 | 55 | 1 | 22.0/40.0 | - | 18.75/52.5 | - | 20.5/48.0 | - | FFFF02083701159808500000005307690000000208600000003F
+extremes_cold_dry | 0 | 100 | 0 | -50.0/0.0 | -50.0/0.0 | -50.0/0.0 | -50.0/0.0 | -50.0/0.0 | -50.0/0.0 | FFFF020064003F78EC0078EC0078EC0078EC0078EC0078EC0005
+extremes_hot_wet | 1 | 100 | 255 | 100.0/100.0 | 100.0/100.0 | 100.0/100.0 | 100.0/100.0 | 100.0/100.0 | 100.0/100.0 | FFFF020164FF3F1027C81027C81027C81027C81027C81027C8C1
+rh_rounding | 2 | 50 | 0 | 20.0/45.2 | 20.0/45.3 | 20.0/45.74 | 20.0/45.76 | 20.0/0.0 | 20.0/100.0 | FFFF020232003FD0075AD0075BD0075BD0075CD00700D007C860
+cell_unknown | 3 | 255 | 0 | 20.0/50.0 | - | - | - | - | - | FFFF0203FF0001D0076400000000000000000000000000000001
+sequence_wrap_255 | 255 | 90 | 0 | 19.5/41.0 | - | - | - | - | - | FFFF02FF5A00019E0752000000000000000000000000000000BC
+sequence_wrap_0 | 0 | 90 | 0 | 19.5/41.0 | - | - | - | - | - | FFFF02005A00019E075200000000000000000000000000000068
+all_empty | 9 | 70 | 128 | - | - | - | - | - | - | FFFF02094680000000000000000000000000000000000000005D

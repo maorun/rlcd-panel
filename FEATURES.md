@@ -1067,9 +1067,18 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `DashboardView::activeTileCount` counts the tiles: the onboard tile and each slot that has a reading, a fixed MAC or a name. `DashboardView::layoutTiles` gives one rectangle for each tile in the area x = 6, y = 36, 388 x 256 px with a gap of 8 px.
 - Layouts: 1 tile 388 x 256. 2 tiles 190 x 256 side by side. 3 tiles one 388 x 124 tile above two 190 x 124 tiles. 4 tiles a 2 x 2 grid of 190 x 124. 5 tiles two 190 x 124 tiles above three 124 x 124 tiles. 6 tiles a 2 x 3 grid of 190 x 80.
 - `DashboardView::tileStyle` selects the draw style from the tile size. The standard style (190 x 124 and 388 x 124) is unchanged. The large style (height 200 px or more) shows a big temperature text and humidity text, each with a curve. The compact style (190 x 80 and 124 x 124) shows short text lines and one curve. A battery text that is too wide for a tile drops to scale 1.
-- The sensor stats view, the CSV logs (`climate_v4`, `daily_v2`), the offset keys and the console command `CALIB` keep slots 1 to 3. The console commands `STATUS` and `HISTORY` list all 6 sources. The BLE telemetry frame keeps 4 tiles.
+- The sensor stats view, the CSV logs (`climate_v4`, `daily_v2`), the offset keys and the console command `CALIB` keep slots 1 to 3. The console commands `STATUS` and `HISTORY` list all 6 sources.
 - The macOS companion app knows the new keys (`ConfigSchema`, 44 keys), accepts an empty value for `slot4_mac` and `slot5_mac`, finds a duplicate MAC across the 5 slots, and names 6 sensors in the history charts.
 - The early scan stop (`ScanCompletion`) still keeps the full scan while a slot is empty, so a new sensor can fill it. With fewer than 5 external sensors the scan always runs the full 4 s. This costs battery runtime.
 - `DeviceConfigText::MAX_SIZE` is 1152 bytes. A host test fills every key with its longest value.
 - Preview images: `docs/display_preview_tiles1.png`, `display_preview_tiles2.png` and `display_preview_tiles6.png`. The 4 tile layout is `display_preview_dashboard.png`.
 - Host tests cover the geometry and the bounds of each layout from 1 to 6 tiles, the render for each count with the widest texts, the tile count, the registry and the fixed MACs for 5 slots, the parser and the checked `SET` for the new keys, the template sync, the RTC round trip with 5 slots, the alerts and latches for slot 5, and the unchanged log format.
+
+## Dynamic 1-to-6 tile telemetry frame and companion app display
+
+- **Code:** `rlcd_panel/ble_telemetry.h`, `macos/RlcdCompanion/Sources/RlcdProtocol/TelemetryFrame.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `tests/fixtures/ble_telemetry_vectors.txt`, `tests/test_firmware_logic.cpp`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/TelemetryFrameTests.swift`.
+- `BleTelemetryCodec` broadcasts up to 6 tiles: format version 2, sequence, cell percentage, alert mask, valid tile mask (bits 0 to 5) and 6 tiles (int16 0.01 C LE, uint8 0.5 %RH) protected by CRC-8 (`0x31`).
+- The payload size is 24 bytes. The Manufacturer Data field uses 26 bytes. The advertising frame uses 31 of 31 bytes.
+- The macOS companion app decodes 6 tiles (`TelemetryFrame.formatVersion = 2`, size 26 bytes).
+- The companion app view adapts the tile grid dynamically for 1 to 6 active sensors using configured names and slot labels.
+- Shared vectors in `tests/fixtures/ble_telemetry_vectors.txt` verify both C++ and Swift decoders across all tile combinations.

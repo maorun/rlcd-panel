@@ -24,15 +24,21 @@ struct MainView: View {
             Text(model.bluetoothState).font(.caption).foregroundStyle(.secondary)
             panelsView
             if let frame = model.frame {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: 4)) {
-                    ForEach(0..<4, id: \.self) { i in
-                        VStack {
-                            Text(tileNames[i]).font(.caption)
+                let activeIndices = (0..<min(frame.tiles.count, tileNames.count)).filter { i in
+                    i == 0 || frame.tiles[i].isValid || model.config?.name(forSlot: i) != nil || model.config?.mac(forSlot: i) != nil
+                }
+                let visibleIndices = activeIndices.isEmpty ? Array(0..<min(4, frame.tiles.count)) : activeIndices
+                let columnCount = visibleIndices.count <= 2 ? max(1, visibleIndices.count) : (visibleIndices.count == 3 ? 3 : (visibleIndices.count <= 4 ? 2 : 3))
+                LazyVGrid(columns: Array(repeating: GridItem(.flexible()), count: columnCount), spacing: 8) {
+                    ForEach(visibleIndices, id: \.self) { i in
+                        VStack(spacing: 4) {
+                            Text(model.config?.name(forSlot: i) ?? tileNames[i]).font(.caption).lineLimit(1)
                             if let t = frame.tiles[i].temperatureC, let h = frame.tiles[i].humidityPct {
                                 Text(String(format: "%.1f °C", t)).font(.title2)
                                 Text(String(format: "%.1f %%RH", h)).foregroundStyle(.secondary)
                             } else {
                                 Text("--").font(.title2)
+                                Text("-- %RH").foregroundStyle(.secondary)
                             }
                         }
                         .frame(maxWidth: .infinity).padding(8)

@@ -16054,45 +16054,47 @@ static std::string telemetryHex(const uint8_t* data, size_t len) {
   return out;
 }
 
-static std::string telemetryFrameHex(const BleTelemetryTile tiles[4], uint8_t seq, uint8_t cell, uint8_t alerts) {
+static std::string telemetryFrameHex(const BleTelemetryTile tiles[6], uint8_t seq, uint8_t cell, uint8_t alerts) {
   uint8_t frame[BleTelemetryCodec::MANUFACTURER_DATA_SIZE];
   BleTelemetryCodec::encode(tiles, seq, cell, alerts, frame);
   return telemetryHex(frame, sizeof(frame));
 }
 
 void testBleTelemetryFrameLayout() {
-  assert(BleTelemetryCodec::PAYLOAD_SIZE == 18);
-  assert(BleTelemetryCodec::MANUFACTURER_DATA_SIZE == 20); // company ID FF FF plus 18 payload bytes
-  // flags AD (3) + AD length and type (2) + 20 bytes = 25 of 31 bytes
-  assert(BleTelemetryCodec::ADVERTISING_SIZE == 25 && BleTelemetryCodec::ADVERTISING_SIZE <= 31);
-  BleTelemetryTile t[4] = {telemetryTile(true, 21.5f, 45.0f), telemetryTile(true, -3.25f, 60.5f),
-                           telemetryTile(true, 30.0f, 100.0f), telemetryTile(true, 0.0f, 0.0f)};
+  assert(BleTelemetryCodec::PAYLOAD_SIZE == 24);
+  assert(BleTelemetryCodec::MANUFACTURER_DATA_SIZE == 26); // company ID FF FF plus 24 payload bytes
+  // flags AD (3) + AD length and type (2) + 26 bytes = 31 of 31 bytes
+  assert(BleTelemetryCodec::ADVERTISING_SIZE == 31 && BleTelemetryCodec::ADVERTISING_SIZE <= 31);
+  BleTelemetryTile t[6] = {telemetryTile(true, 21.5f, 45.0f), telemetryTile(true, -3.25f, 60.5f),
+                           telemetryTile(true, 30.0f, 100.0f), telemetryTile(true, 0.0f, 0.0f),
+                           telemetryTile(true, 18.25f, 55.0f), telemetryTile(true, 25.5f, 62.0f)};
   uint8_t f[BleTelemetryCodec::MANUFACTURER_DATA_SIZE];
   BleTelemetryCodec::encode(t, 7, 80, 0, f);
-  assert(f[0] == 0xFF && f[1] == 0xFF && f[2] == 1 && f[3] == 7 && f[4] == 80 && f[5] == 0 && f[6] == 0x0F);
+  assert(f[0] == 0xFF && f[1] == 0xFF && f[2] == 2 && f[3] == 7 && f[4] == 80 && f[5] == 0 && f[6] == 0x3F);
   assert(f[7] == 0x66 && f[8] == 0x08 && f[9] == 90); // 2150 = 0x0866 little-endian, 45.0 %RH = 90
   assert(f[10] == 0xBB && f[11] == 0xFE); // -325 as int16
-  assert(f[19] == Shtc3Codec::computeCrc8(f + 2, 17));
+  assert(f[25] == Shtc3Codec::computeCrc8(f + 2, 23));
 }
 
 void testBleTelemetryEmptyAndStale() {
-  BleTelemetryTile t[4] = {telemetryTile(true, 22.0f, 40.0f), telemetryTile(false, 99.0f, 99.0f),
-                           telemetryTile(true, 18.75f, 52.5f), telemetryTile(false, 1.0f, 1.0f)};
+  BleTelemetryTile t[6] = {telemetryTile(true, 22.0f, 40.0f), telemetryTile(false, 99.0f, 99.0f),
+                           telemetryTile(true, 18.75f, 52.5f), telemetryTile(false, 1.0f, 1.0f),
+                           telemetryTile(true, 20.5f, 48.0f), telemetryTile(false, 0.0f, 0.0f)};
   uint8_t f[BleTelemetryCodec::MANUFACTURER_DATA_SIZE];
   BleTelemetryCodec::encode(t, 8, 55, 1, f);
-  assert(f[6] == 0x05); // bit 0 and bit 2 only
-  for (size_t i : {size_t{10}, size_t{11}, size_t{12}, size_t{16}, size_t{17}, size_t{18}}) {
+  assert(f[6] == 0x15); // bit 0, bit 2, bit 4
+  for (size_t i : {size_t{10}, size_t{11}, size_t{12}, size_t{16}, size_t{17}, size_t{18}, size_t{22}, size_t{23}, size_t{24}}) {
     assert(f[i] == 0); // an empty or stale tile has zero bytes
   }
   // A NaN reading is no usable tile
   t[0].temperature_c = NAN;
   BleTelemetryCodec::encode(t, 8, 55, 1, f);
-  assert(f[6] == 0x04 && f[7] == 0 && f[8] == 0 && f[9] == 0);
+  assert(f[6] == 0x14 && f[7] == 0 && f[8] == 0 && f[9] == 0);
 }
 
 void testBleTelemetryExtremesAndRounding() {
-  BleTelemetryTile cold[4], hot[4];
-  for (int i = 0; i < 4; ++i) {
+  BleTelemetryTile cold[6], hot[6];
+  for (int i = 0; i < 6; ++i) {
     cold[i] = telemetryTile(true, -50.0f, 0.0f);
     hot[i] = telemetryTile(true, 100.0f, 100.0f);
   }
@@ -16121,23 +16123,23 @@ void testBleTelemetryCellAndSequence() {
   assert(BleTelemetryCodec::cellPercent(b) == 255);
   assert(BleTelemetryCodec::sequenceFrom(255) == 255 && BleTelemetryCodec::sequenceFrom(256) == 0);
   assert(static_cast<uint8_t>(BleTelemetryCodec::sequenceFrom(255) + 1) == BleTelemetryCodec::sequenceFrom(256));
-  BleTelemetryTile t[4] = {telemetryTile(true, 19.5f, 41.0f), telemetryTile(false, 0, 0), telemetryTile(false, 0, 0),
-                           telemetryTile(false, 0, 0)};
+  BleTelemetryTile t[6] = {telemetryTile(true, 19.5f, 41.0f), telemetryTile(false, 0, 0), telemetryTile(false, 0, 0),
+                           telemetryTile(false, 0, 0), telemetryTile(false, 0, 0), telemetryTile(false, 0, 0)};
   assert(telemetryFrameHex(t, 255, 90, 0) != telemetryFrameHex(t, 0, 90, 0));
-  assert(telemetryFrameHex(t, 255, 90, 0).substr(0, 8) == "FFFF01FF");
-  assert(telemetryFrameHex(t, 0, 90, 0).substr(0, 8) == "FFFF0100");
+  assert(telemetryFrameHex(t, 255, 90, 0).substr(0, 8) == "FFFF02FF");
+  assert(telemetryFrameHex(t, 0, 90, 0).substr(0, 8) == "FFFF0200");
 }
 
 void testBleTelemetryCrc8() {
   const uint8_t check[] = {0xBE, 0xEF}; // Sensirion datasheet value
   assert(Shtc3Codec::computeCrc8(check, 2) == 0x92);
-  BleTelemetryTile t[4] = {telemetryTile(true, 20.0f, 50.0f), telemetryTile(false, 0, 0), telemetryTile(false, 0, 0),
-                           telemetryTile(false, 0, 0)};
+  BleTelemetryTile t[6] = {telemetryTile(true, 20.0f, 50.0f), telemetryTile(false, 0, 0), telemetryTile(false, 0, 0),
+                           telemetryTile(false, 0, 0), telemetryTile(false, 0, 0), telemetryTile(false, 0, 0)};
   uint8_t f[BleTelemetryCodec::MANUFACTURER_DATA_SIZE];
   BleTelemetryCodec::encode(t, 3, 255, 0, f);
-  assert(f[19] == 0x83);
+  assert(f[25] == 0x01);
   f[8] ^= 1; // one flipped bit changes the CRC
-  assert(Shtc3Codec::computeCrc8(f + 2, 17) != f[19]);
+  assert(Shtc3Codec::computeCrc8(f + 2, 23) != f[25]);
 }
 
 void testBleTelemetrySkipRules() {
@@ -16161,12 +16163,12 @@ void testBleTelemetryBuildTiles() {
   reg.upsert(r, BleFormat::WOIO); // may need a distinct MAC; the first free slot takes it
   Shtc3Reading onboard;
   onboard.valid = true; onboard.temperature_c = 21.0f; onboard.humidity_pct = 40.0f;
-  BleTelemetryTile tiles[4];
+  BleTelemetryTile tiles[6];
   const uint32_t stale = 30UL * 60UL * 1000UL;
   BleTelemetryCodec::buildTiles(onboard, reg, 2000, stale, tiles);
   assert(tiles[0].valid && tiles[0].temperature_c == 21.0f && tiles[0].humidity_pct == 40.0f);
   assert(tiles[1].valid && tiles[1].temperature_c == 18.5f && tiles[1].humidity_pct == 55.0f);
-  assert(!tiles[2].valid && !tiles[3].valid); // empty slots
+  assert(!tiles[2].valid && !tiles[3].valid && !tiles[4].valid && !tiles[5].valid); // empty slots
   // A stale slot is no valid tile; unsigned arithmetic also holds over a clock wrap
   BleTelemetryCodec::buildTiles(onboard, reg, 1000 + stale + 1, stale, tiles);
   assert(!tiles[1].valid && tiles[0].valid);
@@ -16198,9 +16200,9 @@ void testBleTelemetryFixtureVectors() {
       if (bar == std::string::npos) break;
       start = bar + 3;
     }
-    assert(f.size() == 9);
-    BleTelemetryTile tiles[4];
-    for (int i = 0; i < 4; ++i) {
+    assert(f.size() == 11);
+    BleTelemetryTile tiles[6];
+    for (int i = 0; i < 6; ++i) {
       const std::string& tf = f[4 + i];
       if (tf == "-") {
         tiles[i] = telemetryTile(false, 0.0f, 0.0f);
@@ -16214,11 +16216,11 @@ void testBleTelemetryFixtureVectors() {
     const std::string hex = telemetryFrameHex(tiles, static_cast<uint8_t>(atoi(f[1].c_str())),
                                               static_cast<uint8_t>(atoi(f[2].c_str())),
                                               static_cast<uint8_t>(atoi(f[3].c_str())));
-    assert(hex == f[8]);
+    assert(hex == f[10]);
     assert(hex.size() == 2 * BleTelemetryCodec::MANUFACTURER_DATA_SIZE);
     ++vectors;
   }
-  assert(vectors == 9);
+  assert(vectors == 13);
 }
 
 void testBleBroadcastConfig() {
