@@ -1102,3 +1102,11 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - "Sync clock" action synchronizes the panel RTC via `TIME SET` followed by `TIME`, gated by USB serial or `ble_console=2`.
 - Chime test menu triggers alert chimes `BEEP 0` to `BEEP 7` and shows duration or mute error.
 - Display test menu sends `PATTERN 0`, `1` or `2` after user confirmation dialog.
+
+## Standalone macOS desktop `.app` bundle and build pipeline
+
+- **Code:** `scripts/build-app.sh`, `macos/RlcdCompanion/Info.plist`, `macos/RlcdCompanion/Sources/RlcdCompanion/RlcdCompanionApp.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/PanelClockTests.swift`.
+- `scripts/build-app.sh` builds the release binary of `RlcdCompanion`, stages `RLCD Companion.app` with `Contents/Info.plist` (`com.maorun.rlcd-companion`, `NSBluetoothAlwaysUsageDescription`, `NSHighResolutionCapable`), validates the plist with `plutil -lint`, signs the bundle with ad-hoc `codesign --force --deep --sign -`, verifies the signature with `codesign --verify --deep --strict`, and installs it into `~/Applications/RLCD Companion.app` (or `--dest <dir>`).
+- Passing `--rebuild` quits a running instance, replaces the bundle, and reopens `RLCD Companion.app`. Without `--rebuild`, the script refuses while `RlcdCompanion` runs.
+- `RlcdCompanionApp` uses `WindowGroup` as the primary scene and sets `NSApplication.ActivationPolicy.regular` via `AppDelegate` so the main desktop window opens immediately on launch alongside the `MenuBarExtra`.
+- `AppModel` guards `UNUserNotificationCenter.current()` when running without a bundle identifier.
