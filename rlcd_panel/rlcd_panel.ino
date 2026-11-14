@@ -236,6 +236,11 @@ bool readOnboardShtc3(Shtc3Reading& out) {
                                 config().rh_offset_pct);
 }
 
+// Events that happen before the RTC is read (config load, release of the empty protection) wait here
+// until refreshSensors() has the time. -1 means none.
+int32_t g_pending_config_rejects = -1;
+bool g_pending_protection_release = false;
+
 void updateRtc() {
   if (!g_rtc.present()) {
     g_rtc.begin(Wire); // retry after a failed probe at boot
@@ -265,6 +270,10 @@ bool syncNtpTime(bool key_wakeup) {
   }
   const NtpResult result = NtpClient::sync(g_rtc, RLCD_WIFI_SSID, RLCD_WIFI_PASSWORD, tz, g_state.rtc_drift);
   NtpSchedule::record(g_state.ntp, nowMs(), result == NtpResult::OK);
+  if (result == NtpResult::OK) {
+    updateRtc(); // the event takes the new time
+  }
+  g_state.events.record(g_rtc_time, EventCode::NTP_SYNC, static_cast<uint16_t>(result));
   Serial.printf("NTP sync result: %u\n", static_cast<unsigned>(result));
   return result == NtpResult::OK;
 }
@@ -494,6 +503,18 @@ void refreshSensors() {
   g_state.battery_history.record(nowMs(), g_state.battery);
   updateCycles();
   updateRtc();
+  if (was_low != g_state.battery.low_battery) {
+    const uint16_t pct = g_state.battery.percentage > 0 ? static_cast<uint16_t>(g_state.battery.percentage) : 0;
+    g_state.events.record(g_rtc_time, g_state.battery.low_battery ? EventCode::BATTERY_LOW_SET : EventCode::BATTERY_LOW_CLEAR, pct);
+  }
+  if (g_pending_config_rejects >= 0) {
+    g_state.events.record(g_rtc_time, EventCode::CONFIG_LOAD, static_cast<uint16_t>(g_pending_config_rejects));
+    g_pending_config_rejects = -1;
+  }
+  if (g_pending_protection_release) {
+    g_state.events.record(g_rtc_time, EventCode::EMPTY_PROTECTION, 0);
+    g_pending_protection_release = false;
+  }
   // One sample per hour and sensor; the gate lives in the persisted state.
   g_state.history.record(
       nowMs(),
@@ -522,6 +543,12 @@ void refreshSensors() {
 // Stores the new mask and plays the chimes of the step. The amplifier is off again before this
 // function returns.
 void applyAlertStep(const AlertEvaluator::Step& step) {
+  const uint8_t changed = static_cast<uint8_t>((g_state.alert_mask ^ step.mask) & ALERT_MASK_ALL);
+  for (uint8_t bit = 1; bit != 0 && bit <= ALERT_MASK_ALL; bit = static_cast<uint8_t>(bit << 1)) {
+    if ((changed & bit) != 0) {
+      g_state.events.record(g_rtc_time, (step.mask & bit) != 0 ? EventCode::ALERT_RISE : EventCode::ALERT_FALL, bit);
+    }
+  }
   g_state.alert_mask = step.mask;
   if (step.chime != ALERT_NONE) {
     Es8311Hal hal;
@@ -542,6 +569,7 @@ void chimeOnNoise(bool have_noise, const MicCalibration& cal) {
 }
 
 void logDailySummary(uint32_t now, bool card_ok);
+void logEvents(bool card_ok);
 
 // Appends one hourly record to the MicroSD card. A missing card or a failed write never blocks
 // the cycle; the next attempt follows after a short retry interval. The wake cycle that writes the
@@ -606,9 +634,23 @@ void logToSdCard() {
     g_state.last_log_ms = SdLogCodec::retryStamp(now);
     Serial.printf("SD log failed: %u\n", static_cast<unsigned>(result));
   }
-  logDailySummary(now, result != SdLogResult::MOUNT_FAILED && result != SdLogResult::NO_CARD);
+  const bool card_ok = result != SdLogResult::MOUNT_FAILED && result != SdLogResult::NO_CARD;
+  logDailySummary(now, card_ok);
+  logEvents(card_ok);
 }
 
+// Appends the events of the ring to the yearly events file at the hourly write. The ring is cleared
+// only after a successful write, so a failed write keeps the events for the next attempt. A card
+// that did not mount for the hourly write skips the second mount.
+void logEvents(bool card_ok) {
+  if (!card_ok || g_state.events.size() == 0) {
+    return;
+  }
+  const SdLogResult result = SdLogger::appendEvents(g_rtc_time, g_state.events);
+  if (!EventFlush::apply(g_state.events, result)) {
+    Serial.printf("SD events log failed: %u\n", static_cast<unsigned>(result));
+  }
+}
 // Writes the daily row at the first hourly write after local midnight. The RTC holds local time, so
 // CET and CEST need no case. The 24 h histories in the RTC state are the source. A failed write leaves
 // the day unstamped, and the next hourly write retries. The first run and a stale history only stamp
@@ -660,6 +702,9 @@ void loadConfigFromCard(WakeupCause cause) {
   portENTER_CRITICAL(&g_registry_mux);
   g_state.applyConfig(loaded, result == SdConfigResult::LOADED, rejects);
   portEXIT_CRITICAL(&g_registry_mux);
+  if (result == SdConfigResult::LOADED) {
+    g_pending_config_rejects = rejects.count; // recorded once the RTC time is known
+  }
 }
 
 // Evaluates the climate thresholds and the sensor dropout, and sounds a chime for each alert that
@@ -732,6 +777,11 @@ void setup() {
   const bool was_protected = g_state.battery.empty_protection;
   const BatteryReading protect_reading = BatteryMonitor::readAveraged(config().battery_offset_mv);
   g_state.battery.empty_protection = BatteryMonitor::updateEmptyProtection(protect_reading, was_protected);
+  if (g_state.battery.empty_protection && !was_protected) {
+    g_state.events.record(g_rtc_time, EventCode::EMPTY_PROTECTION, 1); // the RTC is not read here: no time
+  } else if (was_protected && !g_state.battery.empty_protection) {
+    g_pending_protection_release = true;
+  }
   if (!PowerManager::modulesAllowed(g_state.battery)) {
     ++g_state.boot_count;
     g_state.battery = protect_reading;
@@ -782,8 +832,7 @@ void setup() {
   logToSdCard(); // after the render: the display shows fresh data even if the card is slow
   // The sync runs after the first render, so a slow or absent network never delays the display.
   // A new time redraws the header clock.
-  if (syncNtpTime(cause == WakeupCause::KEY_BUTTON)) {
-    updateRtc();
+  if (syncNtpTime(cause == WakeupCause::KEY_BUTTON)) { // syncNtpTime read the new time
     renderDashboard();
   }
   measureNoiseAndRedraw(cause != WakeupCause::TIMER);

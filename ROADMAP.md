@@ -20,13 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-
-- [ ] Event log file on the MicroSD card
-  - Rank: [Total: 30, Use: 6, Setup: 8, Harmony: 9, Safety: 7, Effort: M]
-  - Location: `rlcd_panel/sd_logger.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
-  - Goal: Add `EventRing`, a ring of 16 events in `PersistentState`. An event has the local RTC time, a code and a 16-bit detail. Record an event for each rising and falling edge of an alert bit, for each config load (detail: count of rejected lines), for each NTP sync result, for the set and the release of the low battery alert, and for the empty protection. The hourly write appends the events to `/sdcard/events_v1_YYYY.csv` (columns `time,event,detail`) while the card is mounted, and then clears the ring. A full ring drops the oldest event and adds the row `EVENTS_DROPPED <N>` at the next write. A failed write keeps the ring. `LIST`, `DUMP`, the retention rule (as for the daily file) and `scripts/dump-logs.sh` accept the new name. Increase the state version. Thus the user sees when an alert started and ended.
-  - Acceptance test: Host tests cover the ring with 1, 16 and 17 events, the dropped row, each event code, the CSV header and rows, a failed write with a retry, an invalid RTC time, the file name check of the console, the retention rule, and the RTC round trip with a corrupt ring.
-
 - [ ] Fahrenheit display unit in config.ini
   - Rank: [Total: 29, Use: 7, Setup: 4, Harmony: 8, Safety: 10, Effort: M]
   - Location: `rlcd_panel/device_config.h`, `rlcd_panel/climate_math.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`

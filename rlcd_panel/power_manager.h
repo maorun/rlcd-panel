@@ -99,6 +99,7 @@ struct PersistentState {
   ConfigRejects config_rejects; // rejected lines of the last config.ini parse
   SdStatus sd_status = SdStatus::UNKNOWN; // result of the last card access (hourly write or config load)
   uint32_t sd_status_ms = 0;  // clock value of that result; meaningless while sd_status is UNKNOWN
+  EventRing events;           // events since the last successful hourly write (events_v1_YYYY.csv)
 
   // Stores the result of a card access. A wake cycle without card access never calls it, so the
   // stored status stays.
@@ -286,7 +287,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 36;
+  static constexpr uint8_t STATE_VERSION = 37;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -323,7 +324,11 @@ public:
   // Header: magic, version, mode, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + 4;
+  // Event ring trailer (just before the checksum): count, dropped count (uint16), then 16 entries of
+  // time flag, year (uint16), month, day, hour, minute, second, code, detail (uint16).
+  static constexpr size_t EVENT_ENTRY_SIZE = 1 + 2 + 5 + 1 + 2;
+  static constexpr size_t EVENTS_SIZE = 1 + 2 + EventRing::CAPACITY * EVENT_ENTRY_SIZE;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -596,6 +601,23 @@ public:
       out[pos++] = static_cast<uint8_t>(state.config_rejects.lines[i] & 0xFF);
       out[pos++] = static_cast<uint8_t>(state.config_rejects.lines[i] >> 8);
     }
+    out[pos++] = static_cast<uint8_t>(state.events.size());
+    out[pos++] = static_cast<uint8_t>(state.events.dropped() & 0xFF);
+    out[pos++] = static_cast<uint8_t>(state.events.dropped() >> 8);
+    for (size_t i = 0; i < EventRing::CAPACITY; ++i) {
+      const LogEvent e = state.events.at(i); // unused entries stay zero
+      out[pos++] = e.has_time ? 1 : 0;
+      out[pos++] = static_cast<uint8_t>(e.year & 0xFF);
+      out[pos++] = static_cast<uint8_t>(e.year >> 8);
+      out[pos++] = e.month;
+      out[pos++] = e.day;
+      out[pos++] = e.hour;
+      out[pos++] = e.minute;
+      out[pos++] = e.second;
+      out[pos++] = static_cast<uint8_t>(e.code);
+      out[pos++] = static_cast<uint8_t>(e.detail & 0xFF);
+      out[pos++] = static_cast<uint8_t>(e.detail >> 8);
+    }
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -862,6 +884,31 @@ public:
     }
     if ((config_flags & ~1u) != 0 || !s.config.valid() || !rejectsValid(s.config_rejects)) {
       return false; // a corrupt record never reaches the alert limits
+    }
+    const uint8_t event_count = data[pos++];
+    const uint16_t event_dropped = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    pos += 2;
+    LogEvent event_items[EventRing::CAPACITY];
+    for (size_t i = 0; i < EventRing::CAPACITY; ++i) {
+      const uint8_t time_flag = data[pos++];
+      LogEvent& e = event_items[i];
+      e.year = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+      pos += 2;
+      e.month = data[pos++];
+      e.day = data[pos++];
+      e.hour = data[pos++];
+      e.minute = data[pos++];
+      e.second = data[pos++];
+      e.code = static_cast<EventCode>(data[pos++]);
+      e.detail = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+      pos += 2;
+      if (time_flag > 1) {
+        return false;
+      }
+      e.has_time = time_flag == 1;
+    }
+    if (!s.events.restore(event_count, event_dropped, event_items)) {
+      return false; // a corrupt ring never reaches the card
     }
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       s.registry.setFixedMac(i, s.config.hasSlotMac(i) ? s.config.slot_mac[i] : nullptr);

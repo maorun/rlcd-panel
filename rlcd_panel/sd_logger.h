@@ -76,6 +76,122 @@ private:
   static constexpr uint16_t SD_MIN_TRUSTED_YEAR = 2025;
 };
 
+// Kind of a logged event. The values are stored in the RTC memory, so never renumber them.
+enum class EventCode : uint8_t {
+  NONE = 0,
+  ALERT_RISE = 1,       // an alert bit went on; detail is the alert bit
+  ALERT_FALL = 2,       // an alert bit went off; detail is the alert bit
+  CONFIG_LOAD = 3,      // config.ini was loaded; detail is the count of rejected lines
+  NTP_SYNC = 4,         // an NTP sync attempt ended; detail is the NtpResult (0 is OK)
+  BATTERY_LOW_SET = 5,  // the low battery alert went on; detail is the cell percentage
+  BATTERY_LOW_CLEAR = 6, // the low battery alert went off; detail is the cell percentage
+  EMPTY_PROTECTION = 7, // the empty battery protection; detail 1 is set, 0 is release
+};
+
+struct LogEvent {
+  bool has_time = false; // false: the RTC time was invalid, the time column stays empty
+  uint16_t year = 0;
+  uint8_t month = 0;
+  uint8_t day = 0;
+  uint8_t hour = 0;
+  uint8_t minute = 0;
+  uint8_t second = 0;
+  EventCode code = EventCode::NONE;
+  uint16_t detail = 0;
+};
+
+// Ring of the last 16 events. It lives in the RTC memory (PersistentState). The hourly write appends
+// the events to the yearly events file and clears the ring. A full ring drops the oldest event and
+// counts it, so the next write reports the loss.
+class EventRing {
+public:
+  static constexpr size_t CAPACITY = 16;
+  static constexpr uint8_t MAX_CODE = static_cast<uint8_t>(EventCode::EMPTY_PROTECTION);
+
+  size_t size() const { return count_; }
+  uint16_t dropped() const { return dropped_; }
+
+  // Event `index`, 0 is the oldest. Out of range gives an empty event.
+  LogEvent at(size_t index) const { return index < count_ ? items_[index] : LogEvent{}; }
+
+  // Adds an event. An invalid RTC time (or one with the oscillator-stop flag) stores no time.
+  void record(const RtcTime& now, EventCode code, uint16_t detail) {
+    if (code == EventCode::NONE) {
+      return;
+    }
+    LogEvent e;
+    e.code = code;
+    e.detail = detail;
+    if (timeUsable(now)) {
+      e.has_time = true;
+      e.year = now.year;
+      e.month = now.month;
+      e.day = now.day;
+      e.hour = now.hour;
+      e.minute = now.minute;
+      e.second = now.second;
+    }
+    if (count_ == CAPACITY) {
+      memmove(&items_[0], &items_[1], sizeof(LogEvent) * (CAPACITY - 1));
+      --count_;
+      if (dropped_ < 0xFFFF) {
+        ++dropped_;
+      }
+    }
+    items_[count_++] = e;
+  }
+
+  void clear() { *this = EventRing{}; }
+
+  // Restores a stored ring. `items` holds CAPACITY entries; entries from `count` on must be empty.
+  // False for a count above CAPACITY, a bad code, date or time, a dirty unused entry, or a dropped
+  // count without a full ring. The ring is unchanged on failure.
+  bool restore(uint8_t count, uint16_t dropped, const LogEvent* items) {
+    if (items == nullptr || count > CAPACITY || (dropped != 0 && count != CAPACITY)) {
+      return false;
+    }
+    for (size_t i = 0; i < CAPACITY; ++i) {
+      const LogEvent& e = items[i];
+      if (i >= count) {
+        if (e.code != EventCode::NONE || e.detail != 0 || e.has_time || e.year != 0 || e.month != 0 ||
+            e.day != 0 || e.hour != 0 || e.minute != 0 || e.second != 0) {
+          return false;
+        }
+        continue;
+      }
+      if (static_cast<uint8_t>(e.code) < 1 || static_cast<uint8_t>(e.code) > MAX_CODE) {
+        return false;
+      }
+      if (!e.has_time) {
+        if (e.year != 0 || e.month != 0 || e.day != 0 || e.hour != 0 || e.minute != 0 || e.second != 0) {
+          return false;
+        }
+      } else if (e.year < 2000 || e.year > 2099 || !NtpTime::isValidDate(e.year, e.month, e.day) ||
+                 e.hour > 23 || e.minute > 59 || e.second > 59) {
+        return false;
+      }
+    }
+    EventRing r;
+    for (size_t i = 0; i < count; ++i) {
+      r.items_[i] = items[i];
+    }
+    r.count_ = count;
+    r.dropped_ = dropped;
+    *this = r;
+    return true;
+  }
+
+private:
+  static bool timeUsable(const RtcTime& t) {
+    return t.valid && !t.oscillator_stopped && t.year >= 2000 && t.year <= 2099 &&
+           NtpTime::isValidDate(t.year, t.month, t.day) && t.hour <= 23 && t.minute <= 59 && t.second <= 59;
+  }
+
+  LogEvent items_[CAPACITY];
+  size_t count_ = 0;
+  uint16_t dropped_ = 0;
+};
+
 // Decoupled CSV codec. It has no Arduino or SD_MMC dependency, so the host tests build it.
 class SdLogCodec {
 public:
@@ -83,6 +199,8 @@ public:
   static constexpr uint32_t RETRY_INTERVAL_MS = 600000; // after a failed write, retry in 10 min
   static constexpr size_t MAX_PATH_SIZE = 32;
   static constexpr size_t MAX_ROW_SIZE = 256;
+  // One event row: time, longest name, 5-digit detail and newline fit in far less.
+  static constexpr size_t MAX_EVENT_ROW_SIZE = 96;
   // Header line of the daily summary file, with the terminator.
   static constexpr size_t DAILY_HEADER_SIZE = 512;
   static constexpr const char* MOUNT_POINT = "/sdcard";
@@ -162,22 +280,21 @@ public:
 
   // ---- Daily summary file "daily_v1_YYYY.csv" ----
 
-  // Splits a bare daily file name "daily_v1_YYYY.csv" into the year 2000..2099.
-  static bool parseDailyFileName(const char* name, int& year) {
-    static const char PREFIX[] = "daily_v1_";
+  // Splits a bare yearly file name "<prefix>YYYY.csv" into the year 2000..2099.
+  static bool parseYearFileName(const char* name, const char* prefix, int& year) {
     static const char SUFFIX[] = ".csv";
-    constexpr size_t PREFIX_LEN = sizeof(PREFIX) - 1;
+    const size_t prefix_len = strlen(prefix);
     constexpr size_t SUFFIX_LEN = sizeof(SUFFIX) - 1;
-    if (name == nullptr || strlen(name) != PREFIX_LEN + 4 + SUFFIX_LEN ||
-        memcmp(name, PREFIX, PREFIX_LEN) != 0 || memcmp(name + PREFIX_LEN + 4, SUFFIX, SUFFIX_LEN) != 0) {
+    if (name == nullptr || strlen(name) != prefix_len + 4 + SUFFIX_LEN ||
+        memcmp(name, prefix, prefix_len) != 0 || memcmp(name + prefix_len + 4, SUFFIX, SUFFIX_LEN) != 0) {
       return false;
     }
     int y = 0;
     for (size_t i = 0; i < 4; ++i) {
-      if (name[PREFIX_LEN + i] < '0' || name[PREFIX_LEN + i] > '9') {
+      if (name[prefix_len + i] < '0' || name[prefix_len + i] > '9') {
         return false;
       }
-      y = y * 10 + (name[PREFIX_LEN + i] - '0');
+      y = y * 10 + (name[prefix_len + i] - '0');
     }
     if (y < 2000 || y > 2099) {
       return false;
@@ -186,21 +303,36 @@ public:
     return true;
   }
 
+  // Splits a bare daily file name "daily_v1_YYYY.csv" into the year 2000..2099.
+  static bool parseDailyFileName(const char* name, int& year) {
+    return parseYearFileName(name, "daily_v1_", year);
+  }
+
   static bool isDailyFileName(const char* name) {
     int year = 0;
     return parseDailyFileName(name, year);
   }
 
-  // True for each file that the serial console lists and dumps: hourly and daily files.
-  static bool isConsoleFileName(const char* name) {
-    return isLogFileName(name) || isDailyFileName(name);
+  // Splits a bare event file name "events_v1_YYYY.csv" into the year 2000..2099.
+  static bool parseEventsFileName(const char* name, int& year) {
+    return parseYearFileName(name, "events_v1_", year);
   }
 
-  // True when `name` is an hourly or daily file that the retention deletes. A daily file counts as
-  // December of its year, so it stays until the whole year is older than the retention.
+  static bool isEventsFileName(const char* name) {
+    int year = 0;
+    return parseEventsFileName(name, year);
+  }
+
+  // True for each file that the serial console lists and dumps: hourly, daily and event files.
+  static bool isConsoleFileName(const char* name) {
+    return isLogFileName(name) || isDailyFileName(name) || isEventsFileName(name);
+  }
+
+  // True when `name` is an hourly, daily or event file that the retention deletes. A daily or event
+  // file counts as December of its year, so it stays until the whole year is older than the retention.
   static bool shouldDeleteFile(const char* name, const RtcTime& now, uint8_t retention_months) {
     int year = 0;
-    if (!parseDailyFileName(name, year)) {
+    if (!parseDailyFileName(name, year) && !parseEventsFileName(name, year)) {
       return shouldDeleteLog(name, now, retention_months);
     }
     if (!retentionActive(retention_months) || !now.valid || now.oscillator_stopped ||
@@ -303,6 +435,98 @@ public:
       return 0;
     }
     return pos;
+  }
+
+  // Writes "/sdcard/events_v1_YYYY.csv". Returns the length, or 0 for a null or small buffer or a
+  // year outside 2000..2099.
+  static size_t formatEventsFilename(uint16_t year, char* out, size_t capacity) {
+    if (out == nullptr || capacity == 0) {
+      return 0;
+    }
+    out[0] = '\0';
+    if (year < 2000 || year > 2099) {
+      return 0;
+    }
+    const int n = snprintf(out, capacity, "%s/events_v1_%04u.csv", MOUNT_POINT, static_cast<unsigned>(year));
+    if (n <= 0 || static_cast<size_t>(n) >= capacity) {
+      out[0] = '\0';
+      return 0;
+    }
+    return static_cast<size_t>(n);
+  }
+
+  // Header line of the events file, with the newline. Returns the length, or 0 for a null or small buffer.
+  static size_t formatEventsHeader(char* out, size_t capacity) {
+    static const char HEADER[] = "time,event,detail\n";
+    const size_t len = sizeof(HEADER) - 1;
+    if (out == nullptr || capacity < len + 1) {
+      return 0;
+    }
+    memcpy(out, HEADER, len + 1);
+    return len;
+  }
+
+  static const char* eventName(EventCode code) {
+    switch (code) {
+      case EventCode::ALERT_RISE: return "ALERT_RISE";
+      case EventCode::ALERT_FALL: return "ALERT_FALL";
+      case EventCode::CONFIG_LOAD: return "CONFIG_LOAD";
+      case EventCode::NTP_SYNC: return "NTP_SYNC";
+      case EventCode::BATTERY_LOW_SET: return "BATTERY_LOW_SET";
+      case EventCode::BATTERY_LOW_CLEAR: return "BATTERY_LOW_CLEAR";
+      case EventCode::EMPTY_PROTECTION: return "EMPTY_PROTECTION";
+      case EventCode::NONE: break;
+    }
+    return nullptr;
+  }
+
+  // Writes one event row "YYYY-MM-DD hh:mm:ss,NAME,detail" with the newline. An event without a time
+  // has an empty first column. Returns the length, or 0 for a null or small buffer or a bad code.
+  static size_t formatEventRow(const LogEvent& event, char* out, size_t capacity) {
+    if (out == nullptr || capacity == 0) {
+      return 0;
+    }
+    out[0] = '\0';
+    const char* name = eventName(event.code);
+    if (name == nullptr || capacity < MAX_EVENT_ROW_SIZE) {
+      return 0;
+    }
+    int n = 0;
+    if (event.has_time) {
+      n = snprintf(out, capacity, "%04u-%02u-%02u %02u:%02u:%02u,%s,%u\n", static_cast<unsigned>(event.year),
+                   static_cast<unsigned>(event.month), static_cast<unsigned>(event.day),
+                   static_cast<unsigned>(event.hour), static_cast<unsigned>(event.minute),
+                   static_cast<unsigned>(event.second), name, static_cast<unsigned>(event.detail));
+    } else {
+      n = snprintf(out, capacity, ",%s,%u\n", name, static_cast<unsigned>(event.detail));
+    }
+    if (n <= 0 || static_cast<size_t>(n) >= capacity) {
+      out[0] = '\0';
+      return 0;
+    }
+    return static_cast<size_t>(n);
+  }
+
+  // Writes the row that reports lost events: "YYYY-MM-DD hh:mm:ss,EVENTS_DROPPED,<N>" with the time of
+  // the write. Returns the length, or 0 for a null or small buffer, a zero count or an invalid time.
+  static size_t formatEventsDroppedRow(const RtcTime& now, uint16_t dropped, char* out, size_t capacity) {
+    if (out == nullptr || capacity == 0) {
+      return 0;
+    }
+    out[0] = '\0';
+    if (dropped == 0 || !now.valid || capacity < MAX_EVENT_ROW_SIZE) {
+      return 0;
+    }
+    const int n = snprintf(out, capacity, "%04u-%02u-%02u %02u:%02u:%02u,EVENTS_DROPPED,%u\n",
+                           static_cast<unsigned>(now.year), static_cast<unsigned>(now.month),
+                           static_cast<unsigned>(now.day), static_cast<unsigned>(now.hour),
+                           static_cast<unsigned>(now.minute), static_cast<unsigned>(now.second),
+                           static_cast<unsigned>(dropped));
+    if (n <= 0 || static_cast<size_t>(n) >= capacity) {
+      out[0] = '\0';
+      return 0;
+    }
+    return static_cast<size_t>(n);
   }
 
   // Free space in whole MB from the card totals. -1 (unknown) when the totals are not plausible.
@@ -475,6 +699,20 @@ enum class SdLogResult : uint8_t {
   NO_CARD,      // no card, or a card that does not mount
 };
 
+// Decides what the hourly write does with the event ring after a write result.
+class EventFlush {
+public:
+  // Clears the ring after OK only. Each other result (also NO_TIME) keeps the ring for the next write.
+  // Returns true when the ring was cleared. An empty ring needs no write, so it counts as cleared.
+  static bool apply(EventRing& ring, SdLogResult result) {
+    if (result != SdLogResult::OK) {
+      return false;
+    }
+    ring.clear();
+    return true;
+  }
+};
+
 enum class SdConfigResult : uint8_t {
   LOADED = 0,  // the file was parsed
   NO_FILE,     // card mounted, but no usable file
@@ -619,6 +857,49 @@ public:
       return mounted == SdStatus::NO_CARD ? SdLogResult::NO_CARD : SdLogResult::MOUNT_FAILED;
     }
     const SdLogResult result = writeRecord(path, row, row_len, true);
+    SD_MMC.end();
+    return result;
+  }
+
+  // Appends the events of `ring` to "/sdcard/events_v1_YYYY.csv" (year of `now`), with the header for
+  // a new file, then reports like append(). A ring with lost events starts with the EVENTS_DROPPED row.
+  // The caller clears the ring only after OK (EventFlush::apply). An empty ring writes nothing and gives OK.
+  // A short write to an existing file can leave part of the batch: the File class cannot truncate, so the
+  // retry may repeat rows. A new file is removed instead.
+  static SdLogResult appendEvents(const RtcTime& now, const EventRing& ring) {
+    if (ring.size() == 0) {
+      return SdLogResult::OK;
+    }
+    char path[SdLogCodec::MAX_PATH_SIZE];
+    if (!now.valid || SdLogCodec::formatEventsFilename(now.year, path, sizeof(path)) == 0) {
+      return SdLogResult::NO_TIME;
+    }
+    const SdStatus mounted = tryMount();
+    if (mounted != SdStatus::OK) {
+      return mounted == SdStatus::NO_CARD ? SdLogResult::NO_CARD : SdLogResult::MOUNT_FAILED;
+    }
+    const char* fs_path = path + strlen(SdLogCodec::MOUNT_POINT);
+    const bool is_new = !SD_MMC.exists(fs_path);
+    File file = SD_MMC.open(fs_path, FILE_APPEND);
+    SdLogResult result = SdLogResult::OPEN_FAILED;
+    if (file) {
+      // One buffer for the whole batch: a short write keeps the ring, so the retry repeats it.
+      static char buf[SdLogCodec::MAX_EVENT_ROW_SIZE * (EventRing::CAPACITY + 2)];
+      size_t len = 0;
+      if (is_new || file.size() == 0) {
+        len += SdLogCodec::formatEventsHeader(buf, sizeof(buf));
+      }
+      len += SdLogCodec::formatEventsDroppedRow(now, ring.dropped(), buf + len, sizeof(buf) - len);
+      for (size_t i = 0; i < ring.size(); ++i) {
+        len += SdLogCodec::formatEventRow(ring.at(i), buf + len, sizeof(buf) - len);
+      }
+      const bool ok = len > 0 && file.write(reinterpret_cast<const uint8_t*>(buf), len) == len;
+      file.close();
+      if (!ok && is_new) {
+        SD_MMC.remove(fs_path); // never leave a partial header: the next attempt writes a new one
+      }
+      result = ok ? SdLogResult::OK : SdLogResult::WRITE_FAILED;
+    }
     SD_MMC.end();
     return result;
   }
