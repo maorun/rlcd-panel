@@ -1,0 +1,25 @@
+# Shared test vectors of ClimateMath (rlcd_panel/climate_math.h).
+# Read by the C++ host tests and the macOS companion app tests.
+# Columns: temp_c | rh_pct | dew_point_c | abs_humidity_gm3 | heat_index_c | comfort_zone
+# '-' means invalid / NaN / out-of-range.
+21.0 | 45.0 | 8.61 | 8.22 | 21.00 | OK
+20.0 | 50.0 | 9.26 | 8.62 | 20.00 | OK
+0.0 | 100.0 | 0.00 | 4.85 | 0.00 | COLD
+30.0 | 100.0 | 30.00 | 30.24 | 44.36 | WARM
+-10.0 | 50.0 | -18.47 | 1.18 | -10.00 | COLD
+32.0 | 70.0 | 25.84 | 23.57 | 40.41 | WARM
+26.7 | 40.0 | 11.98 | 10.10 | 26.65 | WARM
+35.0 | 40.0 | 19.38 | 15.78 | 37.22 | WARM
+17.9 | 45.0 | 5.79 | 6.85 | 17.90 | COLD
+26.1 | 45.0 | 13.24 | 10.98 | 26.10 | WARM
+21.0 | 29.9 | 2.70 | 5.46 | 21.00 | DRY
+21.0 | 60.1 | 12.96 | 10.98 | 21.00 | HUMID
+20.0 | 0.0 | - | 0.00 | 20.00 | DRY
+-45.0 | 100.0 | -45.00 | 0.11 | -45.00 | COLD
+60.0 | 10.0 | 17.53 | 13.00 | 60.00 | WARM
+-50.0 | 50.0 | - | - | - | INVALID
+70.0 | 50.0 | - | - | - | INVALID
+25.0 | -5.0 | - | - | - | INVALID
+25.0 | 105.0 | - | - | - | INVALID
+nan | 50.0 | - | - | - | INVALID
+25.0 | nan | - | - | - | INVALID
