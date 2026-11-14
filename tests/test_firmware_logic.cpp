@@ -1182,6 +1182,139 @@ void testComfortZone() {
   assert(PowerManager::STATE_VERSION == 41);
 }
 
+void testAbsHumidityStats() {
+  const uint32_t now = 10000000;
+  SwitchBotReading sb;
+  sb.valid = true;
+  sb.temperature_c = 20.0f;
+  sb.humidity_pct = 50;
+  sb.updated_ms = now - 1000;
+  char text[24];
+  DashboardView::formatAbsHumidity(text, sizeof(text), sb, now);
+  assert(strcmp(text, "AH 8.6G") == 0);
+  sb.humidity_pct = 0;
+  DashboardView::formatAbsHumidity(text, sizeof(text), sb, now);
+  assert(strcmp(text, "AH 0.0G") == 0);
+  sb.humidity_pct = 50;
+  sb.temperature_c = NAN;
+  DashboardView::formatAbsHumidity(text, sizeof(text), sb, now);
+  assert(strcmp(text, "AH --") == 0);
+  sb.temperature_c = 20.0f;
+  sb.updated_ms = now - SENSOR_STALE_TIMEOUT_MS - 1;
+  DashboardView::formatAbsHumidity(text, sizeof(text), sb, now);
+  assert(strcmp(text, "AH --") == 0);
+  sb.updated_ms = now + 1000; // future stamp under 65 s counts as live
+  DashboardView::formatAbsHumidity(text, sizeof(text), sb, now);
+  assert(strcmp(text, "AH 8.6G") == 0);
+  DashboardView::formatAbsHumidity(text, sizeof(text), SwitchBotReading{}, now);
+  assert(strcmp(text, "AH --") == 0);
+  assert(PowerManager::STATE_VERSION == 40); // no RTC state change
+
+  // Rendering: right edge at x = 392, line y + 54, no overlap with the widest record text
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    slots[i].valid = true;
+    slots[i].temperature_c = 20.0f;
+    slots[i].humidity_pct = 50;
+    slots[i].updated_ms = now - 1000;
+  }
+  slots[2].valid = false; // empty slot: "AH --"
+  const char* texts[MAX_SWITCHBOT_SENSORS] = {"AH 8.6G", "AH 8.6G", "AH --"};
+  ClimateHistory history;
+  for (size_t i = 0; i < 2; ++i) { // short record text on slots 1 and 2
+    history.temperatures[1 + i].pushCelsius(10.0f);
+    history.temperatures[1 + i].pushCelsius(20.0f);
+    history.slots[1 + i].pushPercent(40.0f);
+    history.slots[1 + i].pushPercent(60.0f);
+  }
+  for (char unit : {'C', 'F'}) {
+    DeviceConfig config;
+    config.temp_unit = unit;
+    St7305Framebuffer fb;
+    DashboardView::renderSensorStats(fb, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
+                                     &history, &config);
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      const uint16_t y0 = static_cast<uint16_t>(34 + i * DashboardView::SENSOR_BLOCK_PITCH);
+      const uint16_t left = static_cast<uint16_t>(DashboardView::COMFORT_RIGHT_X - strlen(texts[i]) * 6);
+      St7305Framebuffer ref;
+      ref.clear(false);
+      ref.drawText(left, static_cast<uint16_t>(y0 + 54), texts[i], 1, true);
+      bool ink = false;
+      for (uint16_t y = y0 + 54; y < y0 + 61; ++y) {
+        for (uint16_t x = left; x < DashboardView::COMFORT_RIGHT_X; ++x) {
+          assert(fb.getPixel(x, y) == ref.getPixel(x, y));
+          ink = ink || fb.getPixel(x, y);
+        }
+      }
+      assert(ink);
+      for (uint16_t y = y0 + 54; y < y0 + 61; ++y) {
+        for (uint16_t x = DashboardView::COMFORT_RIGHT_X; x < RLCD_WIDTH; ++x) {
+          assert(!fb.getPixel(x, y));
+        }
+      }
+    }
+  }
+
+  // Gap boundary: "AH 8.6G" starts at x = 350. A record text of 28 glyphs ends at x = 346 (gap 4 px,
+  // drawn); a record text of 29 glyphs ends at x = 358 (gap below 4 px, not drawn).
+  {
+    DeviceConfig config;
+    SwitchBotReading live = slots[0];
+    for (size_t chars : {static_cast<size_t>(28), static_cast<size_t>(29)}) {
+      St7305Framebuffer fb;
+      fb.clear(false);
+      DashboardView::drawAbsHumidity(fb, 0, live, now, &config, chars);
+      bool ink = false;
+      for (uint16_t y = DashboardView::ABS_HUMIDITY_Y_OFFSET; y < DashboardView::ABS_HUMIDITY_Y_OFFSET + 7; ++y) {
+        for (uint16_t x = 0; x < RLCD_WIDTH; ++x) {
+          ink = ink || fb.getPixel(x, y);
+        }
+      }
+      assert(ink == (chars == 28));
+    }
+  }
+
+  // Widest record text (30 glyphs, ends at x = 370) in Celsius and in Fahrenheit: the AH text
+  // would come closer than 4 px, so it stays off and the record text is unchanged.
+  ClimateHistory wide;
+  wide.temperatures[1].pushCelsius(-100.0f);
+  wide.temperatures[1].pushCelsius(-100.0f); // Celsius: "24H T-100.0 TO -100.0 H100-100"
+  wide.slots[1].pushPercent(100.0f);
+  wide.slots[1].pushPercent(100.0f);
+  ClimateHistory wide_f;
+  wide_f.temperatures[1].pushCelsius(-100.0f);
+  wide_f.temperatures[1].pushCelsius(100.0f); // Fahrenheit: "24H T-148.0 TO 212.0F H100-100"
+  wide_f.slots[1].pushPercent(100.0f);
+  wide_f.slots[1].pushPercent(100.0f);
+  for (char unit : {'C', 'F'}) {
+    DeviceConfig config;
+    config.temp_unit = unit;
+    char rec[40];
+    const ClimateHistory& wh = unit == 'F' ? wide_f : wide;
+    DashboardView::formatRecords(rec, sizeof(rec), &wh, 1, unit);
+    assert(strlen(rec) == 30);
+    const uint16_t rec_right = static_cast<uint16_t>(10 + strlen(rec) * 12);
+    St7305Framebuffer fb;
+    DashboardView::renderSensorStats(fb, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
+                                     &wh, &config);
+    St7305Framebuffer ref;
+    ref.clear(false);
+    ref.drawText(10, 34 + 54, rec, 2, true);
+    for (uint16_t y = 34 + 54; y < 34 + 54 + 14; ++y) {
+      for (uint16_t x = 10; x < RLCD_WIDTH; ++x) {
+        assert(fb.getPixel(x, y) == ref.getPixel(x, y)); // identical to the bare record line
+        if (x >= rec_right) {
+          assert(!fb.getPixel(x, y));
+        }
+      }
+    }
+  }
+}
+
 void testFeelsLikeStats() {
   auto near = [](float a, float b, float tol) { return fabsf(a - b) <= tol; };
   auto f2c = [](float f) { return (f - 32.0f) * 5.0f / 9.0f; };
@@ -2609,7 +2742,11 @@ void testRecordsStatsView() {
     for (uint16_t x = 10; x < text_end; ++x) {
       ink = ink || with.getPixel(x, y);
     }
-    for (uint16_t x = text_end; x < RLCD_WIDTH; ++x) {
+    // The tail up to the AH text ("AH 0.0G", 42 px, starts at x = 350) stays blank
+    for (uint16_t x = text_end; x < DashboardView::COMFORT_RIGHT_X - 42; ++x) {
+      assert(!with.getPixel(x, y));
+    }
+    for (uint16_t x = DashboardView::COMFORT_RIGHT_X; x < RLCD_WIDTH; ++x) {
       assert(!with.getPixel(x, y));
     }
   }
@@ -14983,6 +15120,7 @@ int main() {
   testComfortZone();
   testMoldHoursStats();
   testFeelsLikeStats();
+  testAbsHumidityStats();
   testDashboardClimateLine();
   testDashboardStaleIndicator();
   testButtonDebounceAndModeTransitions();
