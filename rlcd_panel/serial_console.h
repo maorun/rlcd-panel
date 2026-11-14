@@ -35,14 +35,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CALIB without a reference, with a reference above 3 or with extra text; BEEP without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text
+  BAD_ARG,  // CALIB without a reference, with a reference above 3 or with extra text; BEEP without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '=')
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv or events_v1_YYYY.csv
@@ -68,7 +68,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "EVENTS", "PATTERN 0..2", "VERSION", "SET <key>=<value>" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "EVENTS", "PATTERN 0..2", "SCAN", "VERSION", "SET <key>=<value>" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -148,6 +148,13 @@ public:
       }
       out.kind = SerialCommandKind::PATTERN;
       out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "SCAN")) {
+      if (cmd_len != len) {
+        return SerialParseStatus::BAD_ARG; // SCAN takes no argument
+      }
+      out.kind = SerialCommandKind::SCAN;
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "EVENTS")) {
@@ -365,6 +372,10 @@ struct SerialStatusSnapshot {
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
 //   PATTERN N -> "OK PATTERN <N>" after the framebuffer shows test pattern N (0 black, 1 checkerboard, 2 border with cross) and the
 //   panel got it without display_invert; the next wake cycle renders the normal view. showPattern() needs no card: execute() ignores PATTERN.
+//   SCAN -> one 4 s BLE scan, then "BEGIN SCAN", the header "mac,format,rssi,slot,temp_c,rh_pct,battery_pct", one row for each MAC (format WOIO|METER|BTHOME|ATC,
+//   the strongest RSSI wins, slot 1 to 3 or "-", battery empty when the packet has none, temperature always in Celsius), up to 16 MACs, "DROPPED,<N>" when packets of further MACs found
+//   no entry, then "CRC32 <8 hex digits>" over all lines before it; "ERR SCAN_FAILED" when the scan does not start. The registry, the fixed MACs
+//   and the persistent state stay unchanged. scan() needs no card: execute() ignores SCAN.
 //   TIME -> "TIME <YYYY-MM-DDTHH:MM:SS> valid=<0|1> osf=<0|1>" with the local time of the RTC (osf: oscillator stop flag);
 //   TIME SET <YYYY-MM-DDTHH:MM:SS> -> "OK TIME" after the write (the write clears the oscillator stop flag and the
 //   RtcDrift baseline), or "ERR RTC_FAILED". A bad format or date or a year outside 2025 to 2099 gives "ERR BAD_ARG"
@@ -557,6 +568,65 @@ public:
     for (size_t i = 0; i < ring.size(); ++i) {
       const size_t len = SdLogCodec::formatEventRow(ring.at(i), row, sizeof(row));
       if (len > 0 && !emit(row, len)) {
+        return;
+      }
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
+  // Sends the result of one BLE scan. `run_scan(ScanCollector&)` runs the scan and fills the collector; it returns false
+  // when the scan does not start ("ERR SCAN_FAILED"). `registry` only gives the slot column: nothing is stored.
+  // A short write ends the reply, so the host sees no CRC32 line.
+  template <typename RunScan>
+  static void scan(Sink& sink, const SwitchBotRegistry& registry, RunScan run_scan) {
+    ScanCollector collector;
+    if (!run_scan(collector)) {
+      send(sink, "ERR SCAN_FAILED\n");
+      return;
+    }
+    showScan(sink, collector, registry);
+  }
+
+  static void showScan(Sink& sink, const ScanCollector& collector, const SwitchBotRegistry& registry) {
+    SerialCrc32 crc;
+    auto emit = [&](const char* text) {
+      const size_t len = strlen(text);
+      if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+        return false;
+      }
+      crc.update(reinterpret_cast<const uint8_t*>(text), len);
+      return true;
+    };
+    if (!emit("BEGIN SCAN\nmac,format,rssi,slot,temp_c,rh_pct,battery_pct\n")) {
+      return;
+    }
+    for (size_t i = 0; i < collector.size(); ++i) {
+      const ScanCollector::Entry& e = collector.at(i);
+      const SwitchBotReading& r = e.reading;
+      char slot[4] = "-", temp[16], battery[8] = "";
+      const uint8_t slot_no = ScanCollector::slotOf(registry, r.mac);
+      if (slot_no != 0) {
+        snprintf(slot, sizeof(slot), "%u", static_cast<unsigned>(slot_no));
+      }
+      formatTenths(temp, sizeof(temp), tenths(r.temperature_c));
+      if (r.battery_pct >= 0) {
+        snprintf(battery, sizeof(battery), "%d", static_cast<int>(r.battery_pct));
+      }
+      char row[96];
+      snprintf(row, sizeof(row), "%02X:%02X:%02X:%02X:%02X:%02X,%s,%d,%s,%s,%u,%s\n", static_cast<unsigned>(r.mac[0]),
+               static_cast<unsigned>(r.mac[1]), static_cast<unsigned>(r.mac[2]), static_cast<unsigned>(r.mac[3]),
+               static_cast<unsigned>(r.mac[4]), static_cast<unsigned>(r.mac[5]), ScanCollector::formatName(e.format),
+               static_cast<int>(r.rssi), slot, temp, static_cast<unsigned>(r.humidity_pct), battery);
+      if (!emit(row)) {
+        return;
+      }
+    }
+    if (collector.dropped() > 0) {
+      char row[32];
+      snprintf(row, sizeof(row), "DROPPED,%u\n", static_cast<unsigned>(collector.dropped()));
+      if (!emit(row)) {
         return;
       }
     }
@@ -880,6 +950,7 @@ public:
         command.kind == SerialCommandKind::BEEP || command.kind == SerialCommandKind::TIME ||
         command.kind == SerialCommandKind::HISTORY || command.kind == SerialCommandKind::VERSION ||
         command.kind == SerialCommandKind::EVENTS || command.kind == SerialCommandKind::PATTERN ||
+        command.kind == SerialCommandKind::SCAN ||
         command.kind == SerialCommandKind::SET) {
       return;
     }
@@ -900,6 +971,7 @@ public:
       case SerialCommandKind::HISTORY:
       case SerialCommandKind::EVENTS:
       case SerialCommandKind::PATTERN:
+      case SerialCommandKind::SCAN:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;

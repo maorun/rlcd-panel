@@ -95,6 +95,21 @@ uint32_t nowMs() {
   return PowerPlatform::clockMs();
 }
 
+// Set only while the console command SCAN runs: the callback then fills the collector and leaves the registry alone.
+// Read and written inside g_registry_mux.
+ScanCollector* g_scan_collector = nullptr;
+
+// True when SCAN took the packet. The registry, the scan completion and the reject counters stay untouched.
+bool collectForConsoleScan(const SwitchBotReading& reading, BleFormat format) {
+  portENTER_CRITICAL(&g_registry_mux);
+  const bool taken = g_scan_collector != nullptr;
+  if (taken) {
+    g_scan_collector->add(reading, format);
+  }
+  portEXIT_CRITICAL(&g_registry_mux);
+  return taken;
+}
+
 class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
   // BTHome v2 packets carry no MAC address, so the BLE address identifies the sensor.
   static void handleBtHome(BLEAdvertisedDevice& advertisedDevice) {
@@ -113,6 +128,9 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
     reading.rssi = SwitchBotBleParser::clampRssi(advertisedDevice.getRSSI());
     reading.updated_ms = nowMs();
 
+    if (collectForConsoleScan(reading, BleFormat::BTHOME)) {
+      return;
+    }
     portENTER_CRITICAL(&g_registry_mux);
     g_state.registry.upsert(reading, BleFormat::BTHOME);
     g_scan_completion.onPacket(g_state.registry, reading);
@@ -133,6 +151,9 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
     reading.rssi = SwitchBotBleParser::clampRssi(advertisedDevice.getRSSI());
     reading.updated_ms = nowMs();
 
+    if (collectForConsoleScan(reading, BleFormat::ATC)) {
+      return;
+    }
     portENTER_CRITICAL(&g_registry_mux);
     g_state.registry.upsert(reading, BleFormat::ATC);
     g_scan_completion.onPacket(g_state.registry, reading);
@@ -184,6 +205,9 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
     // never appears to lie in the future (unsigned subtraction would flag it stale).
     reading.updated_ms = nowMs();
 
+    if (collectForConsoleScan(reading, format)) {
+      return;
+    }
     portENTER_CRITICAL(&g_registry_mux);
     g_state.registry.upsert(reading, format);
     g_scan_completion.onPacket(g_state.registry, reading);
@@ -490,6 +514,41 @@ void scanOnce(bool full_scan) {
     g_scan_running = false;
     delay(100); // let a late completion callback from the BLE task finish
   }
+}
+
+// Console command SCAN: one 4 s scan that fills `collector` and changes no registry state. Blocks for the scan.
+// The wake cycle stopped BLE after its own scan, or skipped it, so this function starts BLE and stops it again.
+// BLEDevice::deinit() runs before the collector is released: no late callback reaches the registry.
+constexpr uint32_t CONSOLE_SCAN_S = 4;
+bool consoleScanOnce(ScanCollector& collector) {
+  initBle();
+  if (g_ble_scan == nullptr) {
+    BLEDevice::deinit(false);
+    return false;
+  }
+  portENTER_CRITICAL(&g_registry_mux);
+  g_scan_collector = &collector;
+  portEXIT_CRITICAL(&g_registry_mux);
+  g_scan_running = true;
+  const bool started = g_ble_scan->start(CONSOLE_SCAN_S, onScanComplete, false);
+  if (!started) {
+    g_scan_running = false;
+  }
+  const uint32_t begin = millis();
+  while (g_scan_running && millis() - begin < CONSOLE_SCAN_S * 1000 + SCAN_WATCHDOG_MARGIN_MS) {
+    delay(10);
+  }
+  if (g_scan_running) {
+    g_ble_scan->stop();
+    g_scan_running = false;
+    delay(100); // let a late completion callback from the BLE task finish
+  }
+  BLEDevice::deinit(false);
+  g_ble_scan = nullptr; // after deinit: the BLE task no longer calls onScanComplete()
+  portENTER_CRITICAL(&g_registry_mux);
+  g_scan_collector = nullptr;
+  portEXIT_CRITICAL(&g_registry_mux);
+  return started;
 }
 
 // Adds the discharge of this wake cycle. NVS is written only when update() reports a charge event
@@ -992,6 +1051,13 @@ void setup() {
           g_rtc.readTime(now_time);
           SerialConsoleRunner<SdLogStorage, SerialSink>::showTime(console_sink, now_time);
         }
+      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SCAN) {
+        // The scan fills a collector only; the registry copy gives the slot column (only a wake cycle scan writes the
+        // registry, and none runs while the console is active). No card access. The BLE radio is not the I2S bus.
+        portENTER_CRITICAL(&g_registry_mux);
+        const SwitchBotRegistry scan_registry = g_state.registry;
+        portEXIT_CRITICAL(&g_registry_mux);
+        SerialConsoleRunner<SdLogStorage, SerialSink>::scan(console_sink, scan_registry, consoleScanOnce);
       } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::PATTERN) {
         // Raw flush without display_invert: g_panel.flush, not flushFramebuffer(); keep it so (the host test checks the raw bytes). No card access. The pattern
         // stays until the next render; the next wake cycle draws the normal view again.

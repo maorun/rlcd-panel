@@ -38,12 +38,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Storage, and Configuration (Score 28–33)
 
-- [ ] Serial console command SCAN to list nearby BLE sensors
-  - Rank: [Total: 33, Use: 5, Setup: 10, Harmony: 9, Safety: 9, Effort: S]
-  - Location: `rlcd_panel/serial_console.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `README.md`
-  - Goal: Add the console command `SCAN`. It runs one 4 s BLE scan and collects each decoded packet of the formats `WOIO`, `METER`, `BTHOME` and `ATC` in a `ScanCollector` with up to 16 MAC addresses. It replies `BEGIN SCAN`, the header `mac,format,rssi,slot,temp_c,rh_pct,battery_pct`, one row for each MAC (the strongest RSSI wins, `slot` is 1 to 3 or `-`), and a `CRC32` line. A 17th MAC increases a counter, and the reply then ends with the row `DROPPED,<N>` before the `CRC32` line. The command does not change the registry, the fixed MAC slots or `PersistentState`. The command runs on USB power only. Thus the user finds the MAC of a new sensor for a `slotN_mac` entry.
-  - Acceptance test: Host tests cover the parser for `SCAN` and `SCAN` with extra text (`ERR BAD_ARG`), an empty scan, one packet of each format, two packets of one MAC with different RSSI, the slot column for an assigned and a free MAC, 17 MAC addresses with the `DROPPED` row, the CRC-32 value, the unchanged registry after the command, and the USB power gate. `arduino-cli compile rlcd_panel` passes.
-
 - [ ] Native macOS companion app for the BLE telemetry and the BLE console
   - Rank: [Total: 33, Use: 9, Setup: 8, Harmony: 7, Safety: 9, Effort: M]
   - Location: `macos/RlcdCompanion/` (new Swift package: library `RlcdProtocol`, app target `RlcdCompanion`, tests `RlcdProtocolTests`), `tests/fixtures/ble_telemetry_vectors.txt`, `.github/workflows/ci.yml`, `README.md`

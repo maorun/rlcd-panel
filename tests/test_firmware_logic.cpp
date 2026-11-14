@@ -12064,6 +12064,157 @@ void testSerialPatternShowFlushesWithoutInvertAndGate() {
   assert(PowerManager::serialConsoleAllowed(battery));
 }
 
+SwitchBotReading scanReading(uint8_t last_mac_byte, float temp, uint8_t rh, int8_t battery, int8_t rssi) {
+  SwitchBotReading r;
+  const uint8_t mac[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, last_mac_byte};
+  memcpy(r.mac, mac, 6);
+  r.temperature_c = temp;
+  r.humidity_pct = rh;
+  r.battery_pct = battery;
+  r.rssi = rssi;
+  r.valid = true;
+  return r;
+}
+
+void testSerialScanParser() {
+  SerialCommand cmd;
+  assert(parseText("SCAN", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SCAN);
+  assert(parseText("SCAN\r\n", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SCAN);
+  assert(parseText("SCAN 1", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("SCAN ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("SCANX", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("scan", cmd) == SerialParseStatus::UNKNOWN);
+  FakeSink sink;
+  TestRunner::reject(sink, SerialParseStatus::BAD_ARG);
+  assert(sink.out == "ERR BAD_ARG\n");
+}
+
+void testSerialScanEmptyAndCrc() {
+  SwitchBotRegistry registry;
+  FakeSink sink;
+  TestRunner::scan(sink, registry, [](ScanCollector&) { return true; });
+  static const char body[] = "BEGIN SCAN\nmac,format,rssi,slot,temp_c,rh_pct,battery_pct\n";
+  assert(sink.out.compare(0, sizeof(body) - 1, body) == 0);
+  SerialCrc32 crc;
+  crc.update(reinterpret_cast<const uint8_t*>(body), sizeof(body) - 1);
+  char expected[40];
+  snprintf(expected, sizeof(expected), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+  assert(sink.out == std::string(body) + expected);
+  assert(sink.out.find("DROPPED") == std::string::npos);
+  // failed scan start
+  FakeSink failed;
+  TestRunner::scan(failed, registry, [](ScanCollector&) { return false; });
+  assert(failed.out == "ERR SCAN_FAILED\n");
+}
+
+void testSerialScanOneRowForEachFormat() {
+  SwitchBotRegistry registry;
+  FakeSink sink;
+  TestRunner::scan(sink, registry, [](ScanCollector& c) {
+    c.add(scanReading(0x01, 21.5f, 45, 88, -60), BleFormat::WOIO);
+    c.add(scanReading(0x02, -3.2f, 70, -1, -71), BleFormat::METER);
+    c.add(scanReading(0x03, 0.0f, 0, 100, -80), BleFormat::BTHOME);
+    c.add(scanReading(0x04, 30.0f, 100, 5, -90), BleFormat::ATC);
+    return true;
+  });
+  const std::string head = "BEGIN SCAN\nmac,format,rssi,slot,temp_c,rh_pct,battery_pct\n";
+  const std::string rows =
+      "AA:BB:CC:DD:EE:01,WOIO,-60,-,21.5,45,88\n"
+      "AA:BB:CC:DD:EE:02,METER,-71,-,-3.2,70,\n"
+      "AA:BB:CC:DD:EE:03,BTHOME,-80,-,0.0,0,100\n"
+      "AA:BB:CC:DD:EE:04,ATC,-90,-,30.0,100,5\n";
+  assert(sink.out.compare(0, head.size() + rows.size(), head + rows) == 0);
+  SerialCrc32 crc;
+  const std::string body = head + rows;
+  crc.update(reinterpret_cast<const uint8_t*>(body.data()), body.size());
+  char expected[24];
+  snprintf(expected, sizeof(expected), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+  assert(sink.out == body + expected);
+}
+
+void testSerialScanStrongestRssiWinsAndSlotColumn() {
+  SwitchBotRegistry registry;
+  registry.upsert(scanReading(0x10, 20.0f, 50, 90, -50), BleFormat::WOIO);   // slot 1 by reading
+  registry.setFixedMac(2, scanReading(0x11, 0, 0, 0, 0).mac);                // slot 3 by fixed MAC
+  FakeSink sink;
+  TestRunner::scan(sink, registry, [](ScanCollector& c) {
+    c.add(scanReading(0x20, 10.0f, 40, 50, -80), BleFormat::METER);
+    c.add(scanReading(0x20, 12.0f, 41, 51, -55), BleFormat::BTHOME); // stronger: replaces
+    c.add(scanReading(0x20, 99.0f, 99, 99, -70), BleFormat::ATC);     // weaker: ignored
+    c.add(scanReading(0x10, 21.0f, 51, 89, -40), BleFormat::WOIO);
+    c.add(scanReading(0x11, 22.0f, 52, 88, -45), BleFormat::WOIO);
+    return true;
+  });
+  assert(sink.out.find("AA:BB:CC:DD:EE:20,BTHOME,-55,-,12.0,41,51\n") != std::string::npos);
+  assert(sink.out.find("EE:20,METER") == std::string::npos && sink.out.find("EE:20,ATC") == std::string::npos);
+  assert(sink.out.find("AA:BB:CC:DD:EE:10,WOIO,-40,1,21.0,51,89\n") != std::string::npos);
+  assert(sink.out.find("AA:BB:CC:DD:EE:11,WOIO,-45,3,22.0,52,88\n") != std::string::npos);
+}
+
+void testSerialScanDroppedRowAndUnchangedRegistry() {
+  SwitchBotRegistry registry;
+  registry.upsert(scanReading(0x10, 20.0f, 50, 90, -50), BleFormat::WOIO);
+  registry.setFixedMac(1, scanReading(0x11, 0, 0, 0, 0).mac);
+  const SwitchBotRegistry before = registry;
+  FakeSink sink;
+  TestRunner::scan(sink, registry, [](ScanCollector& c) {
+    for (uint8_t i = 0; i < 17; ++i) {
+      c.add(scanReading(static_cast<uint8_t>(0x30 + i), 20.0f, 50, 80, -60), BleFormat::WOIO);
+    }
+    c.add(scanReading(0x40, 20.0f, 50, 80, -60), BleFormat::WOIO); // an 18th MAC counts too
+    c.add(scanReading(0x30, 20.0f, 50, 80, -10), BleFormat::WOIO); // a known MAC is no drop
+    return true;
+  });
+  size_t rows = 0;
+  for (size_t pos = sink.out.find("AA:BB"); pos != std::string::npos; pos = sink.out.find("AA:BB", pos + 1)) {
+    ++rows;
+  }
+  assert(rows == 16);
+  const size_t dropped = sink.out.find("DROPPED,2\n");
+  const size_t crc_line = sink.out.find("CRC32 ");
+  assert(dropped != std::string::npos && crc_line != std::string::npos && dropped < crc_line);
+  assert(sink.out.find("EE:3F") != std::string::npos && sink.out.find("EE:40") == std::string::npos);
+  assert(sink.out.find("EE:30,WOIO,-10,") != std::string::npos);
+  assert(sink.out.substr(0, crc_line).size() == crc_line && sink.out.size() == crc_line + 15);
+  SerialCrc32 crc;
+  crc.update(reinterpret_cast<const uint8_t*>(sink.out.data()), crc_line);
+  char expected[24];
+  snprintf(expected, sizeof(expected), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+  assert(sink.out.substr(crc_line) == expected);
+  // the registry, its fixed MACs and its reject counters stay as before
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    assert(memcmp(&registry.slot(i), &before.slot(i), sizeof(SwitchBotReading)) == 0);
+    assert(registry.isFixed(i) == before.isFixed(i));
+  }
+  assert(registry.rejects().total() == 0 && registry.activeCount() == 1);
+  // a short write ends the reply without a CRC32 line
+  FakeSink shortSink;
+  shortSink.limit = 20;
+  TestRunner::scan(shortSink, registry, [](ScanCollector&) { return true; });
+  assert(shortSink.out.size() == 20 && shortSink.out.find("CRC32") == std::string::npos);
+}
+
+void testSerialScanCollectorIgnoresInvalidAndGate() {
+  ScanCollector collector;
+  collector.add(SwitchBotReading{}, BleFormat::WOIO); // valid is false
+  assert(collector.size() == 0 && collector.dropped() == 0);
+  // execute() ignores SCAN: no mount, no output
+  FakeConsoleStorage storage;
+  FakeSink quiet;
+  SerialCommand cmd;
+  assert(parseText("SCAN", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, quiet, cmd);
+  assert(storage.mounts == 0 && storage.unmounts == 0 && quiet.out.empty());
+  BatteryReading battery;
+  battery.valid = true;
+  battery.usb_powered = false;
+  assert(!PowerManager::serialConsoleAllowed(battery));
+  battery.usb_powered = true;
+  assert(PowerManager::serialConsoleAllowed(battery));
+  battery.valid = false;
+  assert(!PowerManager::serialConsoleAllowed(battery));
+}
+
 void testDumpLogsScriptHistorySmokeCheck() {
   std::string here = __FILE__;
   const size_t cut = here.rfind("tests/");
@@ -16043,6 +16194,12 @@ testSerialEventsCrcShortWriteAndGate();
 testSerialPatternParser();
 testFramebufferFillPatternBitExact();
 testSerialPatternShowFlushesWithoutInvertAndGate();
+  testSerialScanParser();
+  testSerialScanEmptyAndCrc();
+  testSerialScanOneRowForEachFormat();
+  testSerialScanStrongestRssiWinsAndSlotColumn();
+  testSerialScanDroppedRowAndUnchangedRegistry();
+  testSerialScanCollectorIgnoresInvalidAndGate();
 testDumpLogsScriptHistorySmokeCheck();
 testSerialConfigNegativeSmallOffset();
   testRtcDriftFirstSyncHasNoRate();

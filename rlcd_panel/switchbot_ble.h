@@ -398,6 +398,83 @@ private:
   BleRejectStats rejects_;
 };
 
+// Result list of the console command SCAN: one entry for each MAC that sent a decoded packet during
+// one scan. A second packet of a known MAC replaces the entry only with a stronger RSSI (equal RSSI
+// keeps the first). Packets of a 17th and further MAC find no entry: each one raises dropped() (stops
+// at 65535). The collector reads and writes no registry and no persistent state.
+class ScanCollector {
+public:
+  static constexpr size_t CAPACITY = 16;
+
+  struct Entry {
+    SwitchBotReading reading;
+    BleFormat format = BleFormat::WOIO;
+  };
+
+  void add(const SwitchBotReading& reading, BleFormat format) {
+    if (!reading.valid) {
+      return;
+    }
+    for (size_t i = 0; i < count_; ++i) {
+      if (memcmp(entries_[i].reading.mac, reading.mac, 6) == 0) {
+        if (reading.rssi > entries_[i].reading.rssi) {
+          entries_[i].reading = reading;
+          entries_[i].format = format;
+        }
+        return;
+      }
+    }
+    if (count_ >= CAPACITY) {
+      if (dropped_ < UINT16_MAX) {
+        ++dropped_;
+      }
+      return;
+    }
+    entries_[count_].reading = reading;
+    entries_[count_].format = format;
+    ++count_;
+  }
+
+  size_t size() const {
+    return count_;
+  }
+
+  const Entry& at(size_t index) const {
+    static const Entry kEmpty{};
+    return index < count_ ? entries_[index] : kEmpty;
+  }
+
+  uint16_t dropped() const {
+    return dropped_;
+  }
+
+  // Slot number 1 to 3 of `mac` in `registry` (a stored reading or a fixed MAC), 0 for a free MAC.
+  static uint8_t slotOf(const SwitchBotRegistry& registry, const uint8_t* mac) {
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if ((registry.slot(i).valid && memcmp(registry.slot(i).mac, mac, 6) == 0) ||
+          (registry.isFixed(i) && memcmp(registry.fixedMac(i), mac, 6) == 0)) {
+        return static_cast<uint8_t>(i + 1);
+      }
+    }
+    return 0;
+  }
+
+  static const char* formatName(BleFormat format) {
+    switch (format) {
+      case BleFormat::WOIO: return "WOIO";
+      case BleFormat::METER: return "METER";
+      case BleFormat::BTHOME: return "BTHOME";
+      case BleFormat::ATC: return "ATC";
+      default: return "WOIO";
+    }
+  }
+
+private:
+  Entry entries_[CAPACITY];
+  size_t count_ = 0;
+  uint16_t dropped_ = 0;
+};
+
 // Per slot low battery latch of the external sensors (config.ini key sensor_battery_limit_pct).
 // Bits 0 to 2 are the registry slots. A bit sets when the reported battery is at or below the
 // limit. It releases at the limit plus RELEASE_MARGIN_PCT or more; between the two it holds. A
