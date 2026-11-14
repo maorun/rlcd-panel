@@ -739,7 +739,7 @@ void testBatteryOffsetMv() {
   bad[pos] = 0xD3; bad[pos + 1] = 0xFE; // -301 mV
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 38);
+  assert(PowerManager::STATE_VERSION == 39);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 33; // old state version without the offset
   seal();
@@ -1179,7 +1179,7 @@ void testComfortZone() {
   assert(memcmp(ok_fb.data(), cold_fb.data(), RLCD_BUFFER_SIZE) != 0);
 
   // No RTC state change
-  assert(PowerManager::STATE_VERSION == 38);
+  assert(PowerManager::STATE_VERSION == 39);
 }
 
 void testMoldHoursStats() {
@@ -1300,7 +1300,7 @@ void testMoldHoursStats() {
     }
     assert(i == 2 ? !differs : differs); // empty slot shows "MOLD --" in both renders
   }
-  assert(PowerManager::STATE_VERSION == 38); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 39); // no RTC state change
 }
 
 void testDashboardClimateLine() {
@@ -1529,14 +1529,15 @@ void testButtonDebounceAndModeTransitions() {
   assert(wrapped.update(true, 0x00000016u));  // 30 ms elapsed
 
   // Each debounced press cycles DASHBOARD -> SENSOR_STATS -> SYSTEM_DIAGNOSTICS -> AUDIO_SPECTRUM
-  // -> DASHBOARD.
+  // -> CLIMATE_CHART -> DASHBOARD.
   DisplayModeController controller;
   assert(controller.mode() == DisplayMode::DASHBOARD);
   uint32_t t = 0;
-  const DisplayMode expected[5] = {
+  const DisplayMode expected[6] = {
       DisplayMode::SENSOR_STATS,
       DisplayMode::SYSTEM_DIAGNOSTICS,
       DisplayMode::AUDIO_SPECTRUM,
+      DisplayMode::CLIMATE_CHART,
       DisplayMode::DASHBOARD,
       DisplayMode::SENSOR_STATS};
   controller.update(false, t);
@@ -1646,7 +1647,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 38);
+  assert(PowerManager::STATE_VERSION == 39);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -1686,7 +1687,8 @@ void testDisplayModesRenderWithoutClipping() {
       DisplayMode::DASHBOARD,
       DisplayMode::SENSOR_STATS,
       DisplayMode::SYSTEM_DIAGNOSTICS,
-      DisplayMode::AUDIO_SPECTRUM};
+      DisplayMode::AUDIO_SPECTRUM,
+      DisplayMode::CLIMATE_CHART};
   St7305Framebuffer frames[DISPLAY_MODE_COUNT];
   for (uint8_t m = 0; m < DISPLAY_MODE_COUNT; ++m) {
     St7305Framebuffer& fb = frames[m];
@@ -1976,9 +1978,10 @@ void testPowerStateSerialization() {
   const size_t slot0_off = PowerManager::HEADER_SIZE;
   const Patch patches[] = {
       {5, 9},                       // mode
-      {6, 16},                      // battery flags (unknown bit)
-      {7, 101},                     // battery percentage
-      {11, 0x7F},                   // battery voltage exponent byte -> huge value
+      {6, 4},                       // chart sensor
+      {7, 16},                      // battery flags (unknown bit)
+      {8, 101},                     // battery percentage
+      {12, 0x7F},                   // battery voltage exponent byte -> huge value
       {slot0_off, 2},               // slot valid flag
       {slot0_off + 11, 101},        // slot humidity
       {slot0_off + 12, 101},        // slot battery
@@ -2077,7 +2080,7 @@ void testPowerWakeupAndStateMachine() {
   assert(ctrl.mode() == DisplayMode::SYSTEM_DIAGNOSTICS);
   ctrl.setMode(DisplayMode::AUDIO_SPECTRUM);
   assert(ctrl.mode() == DisplayMode::AUDIO_SPECTRUM);
-  ctrl.setMode(static_cast<DisplayMode>(4));
+  ctrl.setMode(static_cast<DisplayMode>(5));
   assert(ctrl.mode() == DisplayMode::AUDIO_SPECTRUM);
   ctrl.setMode(static_cast<DisplayMode>(9));
   assert(ctrl.mode() == DisplayMode::AUDIO_SPECTRUM);
@@ -2536,7 +2539,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 38);
+  assert(PowerManager::STATE_VERSION == 39);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -3172,7 +3175,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 38);
+  assert(PowerManager::STATE_VERSION == 39);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -5002,7 +5005,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 38);
+  assert(PowerManager::STATE_VERSION == 39);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -5802,7 +5805,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 38);
+  assert(PowerManager::STATE_VERSION == 39);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -5972,7 +5975,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 38);
+  assert(PowerManager::STATE_VERSION == 39);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -6154,7 +6157,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 38);
+  assert(PowerManager::STATE_VERSION == 39);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -7938,14 +7941,14 @@ void testSpectrumKeyHandling() {
   assert(c.mode() == DisplayMode::AUDIO_SPECTRUM);
   assert(!c.pressPending());
 
-  // A hold of 2 s leaves the view: the next mode is the dashboard.
+  // A hold of 2 s leaves the view: the next mode is the climate chart.
   t += 100;
   c.updateWithLongPress(true, t);
   t += 40;
   c.updateWithLongPress(true, t);
   t += LongPressDetector::LONG_PRESS_MS;
   assert(c.updateWithLongPress(true, t) == ButtonEvent::MODE_CHANGED);
-  assert(c.mode() == DisplayMode::DASHBOARD);
+  assert(c.mode() == DisplayMode::CLIMATE_CHART);
 
   // Entry from the diagnostics view: a short press goes to the spectrum view at once on release.
   DisplayModeController d;
@@ -7962,13 +7965,209 @@ void testSpectrumKeyHandling() {
   assert(d.updateWithLongPress(false, t) == ButtonEvent::MODE_CHANGED);
   assert(d.mode() == DisplayMode::AUDIO_SPECTRUM);
 
-  // Plain update() still cycles through all four modes.
+  // Plain update() still cycles through all five modes.
   DisplayModeController e;
   for (uint8_t i = 0; i < DISPLAY_MODE_COUNT; ++i) {
     e.next();
   }
   assert(e.mode() == DisplayMode::DASHBOARD);
-  assert(DISPLAY_MODE_COUNT == 4 && static_cast<uint8_t>(DisplayMode::AUDIO_SPECTRUM) == 3);
+  assert(DISPLAY_MODE_COUNT == 5 && static_cast<uint8_t>(DisplayMode::AUDIO_SPECTRUM) == 3);
+}
+
+// Presses KEY once (debounce edge, release) and returns the event of the release.
+ButtonEvent pressKeyShort(DisplayModeController& c, uint32_t& t) {
+  t += 100;
+  c.updateWithLongPress(true, t);
+  t += 40;
+  c.updateWithLongPress(true, t);
+  t += 100;
+  c.updateWithLongPress(false, t);
+  t += 40;
+  return c.updateWithLongPress(false, t);
+}
+
+void testClimateChartKeyHandling() {
+  DisplayModeController c;
+  c.setMode(DisplayMode::CLIMATE_CHART);
+  assert(c.mode() == DisplayMode::CLIMATE_CHART && c.chartSensor() == 0);
+  uint32_t t = 0;
+  assert(c.updateWithLongPress(false, t) == ButtonEvent::NONE);
+  // A short press selects the next sensor and keeps the mode; the sensor wraps 0..3 -> 0
+  for (uint8_t want = 1; want <= 3; ++want) {
+    assert(pressKeyShort(c, t) == ButtonEvent::NEXT_SENSOR);
+    assert(c.chartSensor() == want && c.mode() == DisplayMode::CLIMATE_CHART);
+  }
+  assert(pressKeyShort(c, t) == ButtonEvent::NEXT_SENSOR);
+  assert(c.chartSensor() == 0 && c.mode() == DisplayMode::CLIMATE_CHART);
+
+  // A hold of 2 s changes the view to the dashboard and keeps the sensor
+  c.setChartSensor(2);
+  t += 100;
+  c.updateWithLongPress(true, t);
+  t += 40;
+  c.updateWithLongPress(true, t);
+  t += LongPressDetector::LONG_PRESS_MS;
+  assert(c.updateWithLongPress(true, t) == ButtonEvent::MODE_CHANGED);
+  assert(c.mode() == DisplayMode::DASHBOARD && c.chartSensor() == 2);
+
+  // The press that woke the board (button already down at the first call) raises no event
+  DisplayModeController w;
+  w.setMode(DisplayMode::CLIMATE_CHART);
+  uint32_t wt = 0;
+  assert(w.updateWithLongPress(true, wt) == ButtonEvent::NONE);
+  wt += 40;
+  assert(w.updateWithLongPress(true, wt) == ButtonEvent::NONE);
+  assert(w.mode() == DisplayMode::CLIMATE_CHART && w.chartSensor() == 0);
+
+  // Entry from the spectrum view: a hold of 2 s leads to the chart
+  DisplayModeController s;
+  s.setMode(DisplayMode::AUDIO_SPECTRUM);
+  s.next();
+  assert(s.mode() == DisplayMode::CLIMATE_CHART);
+
+  // setChartSensor ignores an index above 3
+  s.setChartSensor(3);
+  s.setChartSensor(4);
+  assert(s.chartSensor() == 3);
+}
+
+void testClimateChartRtcRoundTrip() {
+  assert(PowerManager::STATE_VERSION == 39);
+  PersistentState s;
+  s.mode = DisplayMode::CLIMATE_CHART;
+  s.chart_sensor = 3;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r));
+  assert(r.mode == DisplayMode::CLIMATE_CHART && r.chart_sensor == 3);
+
+  // A stored mode above 4 and a stored sensor above 3 are rejected (the CRC is recomputed)
+  auto refresh_crc = [](uint8_t* b) {
+    const size_t crc_pos = PowerManager::SERIALIZED_SIZE - 4;
+    const uint32_t crc = PowerManager::crc32(b, crc_pos);
+    for (size_t i = 0; i < 4; ++i) {
+      b[crc_pos + i] = static_cast<uint8_t>(crc >> (8 * i)); // little endian, as putU32
+    }
+  };
+  uint8_t bad[PowerManager::SERIALIZED_SIZE];
+  memcpy(bad, buf, sizeof(bad));
+  bad[5] = 5;
+  refresh_crc(bad);
+  assert(!PowerManager::deserialize(bad, sizeof(bad), r));
+  memcpy(bad, buf, sizeof(bad));
+  bad[6] = 4;
+  refresh_crc(bad);
+  assert(!PowerManager::deserialize(bad, sizeof(bad), r));
+  // The previous state version is rejected
+  memcpy(bad, buf, sizeof(bad));
+  bad[4] = 38;
+  refresh_crc(bad);
+  assert(!PowerManager::deserialize(bad, sizeof(bad), r));
+}
+
+void testSparklineTemperatureMinimumSpan() {
+  // A flat curve gets a span of 2.0 degC (20 steps) centered on the value
+  TemperatureHistory flat;
+  for (int i = 0; i < 24; ++i) {
+    flat.pushCelsius(21.0f);
+  }
+  Sparkline::Scale scale;
+  assert(Sparkline::computeTemperatureScale(flat, scale));
+  assert(scale.hi - scale.lo == 20 && scale.lo == 200 && scale.hi == 220);
+  // A span above the minimum stays unchanged
+  TemperatureHistory wide;
+  wide.pushCelsius(10.0f);
+  wide.pushCelsius(15.0f);
+  assert(Sparkline::computeTemperatureScale(wide, scale) && scale.lo == 100 && scale.hi == 150);
+  // The scale stays inside -100..+100 degC
+  TemperatureHistory hot;
+  hot.pushCelsius(100.0f);
+  hot.pushCelsius(100.0f);
+  assert(Sparkline::computeTemperatureScale(hot, scale) && scale.hi == 1000 && scale.hi - scale.lo == 20);
+  TemperatureHistory cold;
+  cold.pushCelsius(-100.0f);
+  assert(Sparkline::computeTemperatureScale(cold, scale) && scale.lo == -1000 && scale.hi - scale.lo == 20);
+  TemperatureHistory empty;
+  assert(!Sparkline::computeTemperatureScale(empty, scale));
+
+  // A 1.0 degC swing uses a part of the box only: the curve does not reach the box edges
+  TemperatureHistory small;
+  small.pushCelsius(20.5f);
+  small.pushCelsius(21.5f);
+  St7305Framebuffer fb;
+  fb.clear(false);
+  assert(Sparkline::renderTemperature(fb, 10, 20, 100, 50, small));
+  bool top_row = false;
+  bool bottom_row = false;
+  for (uint16_t x = 10; x < 110; ++x) {
+    top_row = top_row || fb.getPixel(x, 20);
+    bottom_row = bottom_row || fb.getPixel(x, 69);
+  }
+  assert(!top_row && !bottom_row);
+  assert(!Sparkline::renderTemperature(fb, 10, 20, 100, 50, empty));
+}
+
+void testClimateChartRendering() {
+  using namespace rlcd_panel::preview;
+  assert(DashboardView::CHART_W == 360 && DashboardView::CHART_H == 90);
+
+  Shtc3Reading onboard;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  BatteryReading battery;
+  SystemInfo info;
+  ClimateHistory history;
+  for (int hour = 0; hour < 24; ++hour) {
+    history.temperatures[1].pushCelsius(4.0f + 6.0f * sinf(static_cast<float>(hour) * 0.2618f));
+    history.slots[1].pushPercent(58.0f + 9.0f * sinf(static_cast<float>(hour) * 0.2618f));
+  }
+  history.temperatures[2].pushCelsius(18.0f); // one sample only
+  history.slots[2].pushPercent(50.0f);
+
+  auto render = [&](uint8_t sensor, St7305Framebuffer& fb) {
+    info.chart_sensor = sensor;
+    fb.clear(true);
+    DashboardView::renderMode(
+        fb, DisplayMode::CLIMATE_CHART, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info, "12:00", 0,
+        &history);
+  };
+  auto ink_in = [](const St7305Framebuffer& fb, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+    size_t n = 0;
+    for (uint16_t yy = y; yy < y + h; ++yy) {
+      for (uint16_t xx = x; xx < x + w; ++xx) {
+        n += fb.getPixel(xx, yy) ? 1 : 0;
+      }
+    }
+    return n;
+  };
+
+  St7305Framebuffer full;
+  render(1, full);
+  // Curves stay inside their 360 x 90 boxes and draw ink there
+  assert(ink_in(full, DashboardView::CHART_X, DashboardView::CHART_TEMP_Y, 360, 90) > 20);
+  assert(ink_in(full, DashboardView::CHART_X, DashboardView::CHART_HUMIDITY_Y, 360, 90) > 20);
+  assert(DashboardView::CHART_TEMP_Y + DashboardView::CHART_H < DashboardView::CHART_HUMIDITY_LABEL_Y);
+  assert(DashboardView::CHART_X + DashboardView::CHART_W < RLCD_WIDTH);
+  assert(DashboardView::CHART_HUMIDITY_Y + DashboardView::CHART_H < DashboardView::CHART_FOOTER_Y);
+
+  // Fewer than 2 samples: "NO DATA", an empty box and a different image
+  St7305Framebuffer one;
+  render(2, one);
+  St7305Framebuffer none;
+  render(3, none);
+  assert(ink_in(one, DashboardView::CHART_X + 1, DashboardView::CHART_TEMP_Y, 118, 90) == 0);
+  assert(ink_in(none, DashboardView::CHART_X + 120, DashboardView::CHART_TEMP_Y + 38, 90, 14) > 20);
+  assert(ink_in(none, DashboardView::CHART_X + 120, DashboardView::CHART_HUMIDITY_Y + 38, 90, 14) > 20);
+  assert(ink_in(full, DashboardView::CHART_X + 120, DashboardView::CHART_TEMP_Y + 38, 90, 14) !=
+         ink_in(none, DashboardView::CHART_X + 120, DashboardView::CHART_TEMP_Y + 38, 90, 14));
+
+  // Each sensor draws its own image; an index above 3 falls back to the onboard sensor
+  St7305Framebuffer a;
+  St7305Framebuffer b;
+  render(0, a);
+  render(9, b);
+  assert(memcmp(a.data(), b.data(), St7305Framebuffer::BYTE_COUNT) == 0);
+  assert(memcmp(a.data(), full.data(), St7305Framebuffer::BYTE_COUNT) != 0);
 }
 
 void testSpectrumStoredViewMode() {
@@ -7980,8 +8179,8 @@ void testSpectrumStoredViewMode() {
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(r.mode == DisplayMode::AUDIO_SPECTRUM);
 
-  // A stored mode above 3 fails, also behind a valid checksum.
-  for (const uint8_t bad_mode : {uint8_t(4), uint8_t(5), uint8_t(255)}) {
+  // A stored mode above 4 fails, also behind a valid checksum.
+  for (const uint8_t bad_mode : {uint8_t(5), uint8_t(6), uint8_t(255)}) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
     memcpy(bad, buf, sizeof(buf));
     bad[5] = bad_mode; // magic (4) + version (1), then the mode byte
@@ -9381,7 +9580,7 @@ void testSlotRelease() {
   bad[pos] = 169;
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 38);
+  assert(PowerManager::STATE_VERSION == 39);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 34; // old state version without the key
   seal();
@@ -9492,7 +9691,7 @@ void testNightWakeInterval() {
   bad[pos] = 0x09; bad[pos + 1] = 0x07; // 1801 s: above range
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 38);
+  assert(PowerManager::STATE_VERSION == 39);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 35; // old state version without the key
   seal();
@@ -12275,7 +12474,7 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 38);
+  assert(PowerManager::STATE_VERSION == 39);
 
   // A valid checksum with the same MAC in two keys is rejected
   const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
@@ -12789,7 +12988,7 @@ void testSensorBatteryLatchRtcRoundTrip() {
     }
   }
   // The version is increased
-  assert(PowerManager::STATE_VERSION == 38);
+  assert(PowerManager::STATE_VERSION == 39);
   // Corrupt records: latch bit above bit 2, flag byte above 3, limit above 50, old version
   st.sensor_battery_latch = 1;
   st.alert_mask = ALERT_NONE;
@@ -13012,7 +13211,7 @@ void testSensorStaleMinConfig() {
 
   // RTC round trip, corrupt values and the version bump
   PersistentState st;
-  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 38);
+  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 39);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(5), uint16_t(30), uint16_t(240)}) {
@@ -13097,7 +13296,7 @@ void testDisplayInvert() {
 
   // RTC round trip, corrupt value and version bump
   PersistentState st;
-  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 38);
+  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 39);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(1)}) {
@@ -13236,7 +13435,7 @@ void testClimateAlertTiles() {
 
   // RTC round trip, corrupt value and the old state version
   PersistentState st;
-  assert(st.config.climate_alert_tiles == 15 && PowerManager::STATE_VERSION == 38);
+  assert(st.config.climate_alert_tiles == 15 && PowerManager::STATE_VERSION == 39);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(5), uint8_t(15)}) {
@@ -13443,7 +13642,7 @@ void testSdCardStatus() {
   assert(unknown_lines[4] == "SD status=UNKNOWN age=--");
 
   // RTC round trip, a corrupt status byte and the old state version
-  assert(PowerManager::STATE_VERSION == 38);
+  assert(PowerManager::STATE_VERSION == 39);
   PersistentState st;
   st.setSdStatus(SdStatus::FULL, 4242);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -13484,7 +13683,7 @@ void testSdCardStatus() {
 }
 
 void testEventLog() {
-  assert(PowerManager::STATE_VERSION == 38);
+  assert(PowerManager::STATE_VERSION == 39);
   const RtcTime t1 = localTime(2026, 11, 14, 9, 30);
   const RtcTime bad_time{}; // invalid
   // Empty ring and one event
@@ -13840,7 +14039,7 @@ void testTempUnitRtcRoundTrip() {
   // The unit byte follows the night wake interval in the config trailer
   const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   assert(buf[cfg_pos + 34] == 'C');
-  assert(PowerManager::STATE_VERSION == 38);
+  assert(PowerManager::STATE_VERSION == 39);
 }
 
 int main() {
@@ -13944,6 +14143,10 @@ int main() {
   testNoiseHistoryPersistence();
   testPreviewStatsShowNoiseCurve();
   testPreviewScenesCoverAllDisplayModes();
+  testClimateChartKeyHandling();
+  testClimateChartRtcRoundTrip();
+  testSparklineTemperatureMinimumSpan();
+  testClimateChartRendering();
   testSdLogCodec();
   testNoisePercentilesSteadyTone();
   testNoisePercentilesSingleLoudBlock();

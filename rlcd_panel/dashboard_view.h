@@ -37,6 +37,7 @@ struct SystemInfo {
   uint8_t config_rejected = 0; // rejected config.ini lines; above 0 shows "(N ERR)"
   LoopbackResult loopback;     // last speaker to microphone test of this wake cycle
   SpectrumReading spectrum;    // last spectrum capture; invalid shows "NO DATA"
+  uint8_t chart_sensor = 0;    // sensor of the climate chart view: 0 onboard, 1 to 3 registry slots
   BatteryRuntime runtime;      // remaining battery runtime; invalid shows "--"
   int32_t cycle_tenths = -1;   // battery charge cycles in tenths; negative (unknown) shows "--"
   RtcDriftState rtc_drift;     // RTC drift of the last NTP sync; no figure shows "--"
@@ -121,6 +122,17 @@ public:
   static constexpr uint16_t SPECTRUM_BASE_Y = 240;
   static constexpr uint16_t SPECTRUM_LABEL_Y = 248;
   static constexpr uint16_t SPECTRUM_PEAK_H = 2;
+  // Climate chart view: two curve boxes of 360 x 90 px with a 1 px frame. The sensor name sits at
+  // y = 34, each curve has a label line (scale 1) above its frame.
+  static constexpr uint16_t CHART_X = 20;
+  static constexpr uint16_t CHART_W = 360;
+  static constexpr uint16_t CHART_H = 90;
+  static constexpr uint16_t CHART_NAME_Y = 34;
+  static constexpr uint16_t CHART_TEMP_LABEL_Y = 52;
+  static constexpr uint16_t CHART_TEMP_Y = 62;
+  static constexpr uint16_t CHART_HUMIDITY_LABEL_Y = 160;
+  static constexpr uint16_t CHART_HUMIDITY_Y = 170;
+  static constexpr uint16_t CHART_FOOTER_Y = 272;
 
   static void renderBatteryIcon(
       St7305Framebuffer& fb,
@@ -838,6 +850,71 @@ public:
     fb.drawText(static_cast<uint16_t>(x), y, text, 2, true);
   }
 
+  // Frame and label (with the minimum and maximum) of one curve box of the chart view. The caller
+  // draws the curve, or "NO DATA" for a history with fewer than 2 samples.
+  static void drawChartFrame(
+      St7305Framebuffer& fb, uint16_t label_y, uint16_t box_y, const char* label, bool has_range,
+      const char* range_text) {
+    char text[64];
+    if (has_range) {
+      snprintf(text, sizeof(text), "%s %s", label, range_text);
+    } else {
+      snprintf(text, sizeof(text), "%s", label);
+    }
+    fb.drawText(CHART_X, label_y, text, 1, true);
+    fb.drawRect(CHART_X - 1, box_y - 1, CHART_W + 2, CHART_H + 2, true);
+  }
+
+  static void renderClimateChart(
+      St7305Framebuffer& fb,
+      const BatteryReading& battery,
+      const SystemInfo& info,
+      const char* clock_text,
+      const ClimateHistory* history,
+      const DeviceConfig* config) {
+    renderHeader(fb, "CLIMATE CHART", battery, clock_text, info.quiet_hours);
+    const size_t sensor = info.chart_sensor < ClimateHistory::SLOT_COUNT ? info.chart_sensor : 0;
+    char title[40];
+    tileTitle(title, sizeof(title), config, sensor);
+    fb.drawText(CHART_X, CHART_NAME_Y, title, 2, true);
+
+    const TemperatureHistory empty_temperature;
+    const HumidityHistory empty_humidity;
+    const TemperatureHistory& temperature =
+        history != nullptr ? history->temperatures[sensor] : empty_temperature;
+    const HumidityHistory& humidity = history != nullptr ? history->slots[sensor] : empty_humidity;
+    const char unit = config != nullptr ? config->temp_unit : 'C';
+
+    int16_t lo = 0;
+    int16_t hi = 0;
+    char range_text[40];
+    const bool temp_ok = temperature.range(lo, hi);
+    if (temp_ok) {
+      snprintf(range_text, sizeof(range_text), "MIN %.1f MAX %.1f %c",
+               static_cast<double>(ClimateMath::toDisplay(lo / 10.0f, unit)),
+               static_cast<double>(ClimateMath::toDisplay(hi / 10.0f, unit)), unit == 'F' ? 'F' : 'C');
+    }
+    drawChartFrame(fb, CHART_TEMP_LABEL_Y, CHART_TEMP_Y, "TEMPERATURE", temp_ok, range_text);
+    if (temp_ok) {
+      Sparkline::renderTemperature(fb, CHART_X, CHART_TEMP_Y, CHART_W, CHART_H, temperature);
+    } else {
+      drawLine(fb, CHART_X + 120, CHART_TEMP_Y + 38, "NO DATA");
+    }
+
+    const bool rh_ok = humidity.range(lo, hi);
+    if (rh_ok) {
+      snprintf(range_text, sizeof(range_text), "MIN %.1f MAX %.1f %%",
+               static_cast<double>(lo / 10.0f), static_cast<double>(hi / 10.0f));
+    }
+    drawChartFrame(fb, CHART_HUMIDITY_LABEL_Y, CHART_HUMIDITY_Y, "HUMIDITY", rh_ok, range_text);
+    if (rh_ok) {
+      Sparkline::render(fb, CHART_X, CHART_HUMIDITY_Y, CHART_W, CHART_H, humidity);
+    } else {
+      drawLine(fb, CHART_X + 120, CHART_HUMIDITY_Y + 38, "NO DATA");
+    }
+    fb.drawText(CHART_X, CHART_FOOTER_Y, "LAST 24 H  KEY: NEXT SENSOR  HOLD: VIEW", 1, true);
+  }
+
   static void renderSpectrum(
       St7305Framebuffer& fb,
       const BatteryReading& battery,
@@ -925,6 +1002,9 @@ public:
         break;
       case DisplayMode::AUDIO_SPECTRUM:
         renderSpectrum(fb, battery, info, clock_text);
+        break;
+      case DisplayMode::CLIMATE_CHART:
+        renderClimateChart(fb, battery, info, clock_text, history, config);
         break;
       case DisplayMode::DASHBOARD:
       default:

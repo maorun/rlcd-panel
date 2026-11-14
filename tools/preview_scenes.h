@@ -28,7 +28,7 @@ struct PreviewScene {
   bool invert = false;        // config.ini display_invert=1: light text on a dark background
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 10;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 11;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
@@ -36,6 +36,7 @@ constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_diagnostics", DisplayMode::SYSTEM_DIAGNOSTICS, false, false},
     {"display_preview_runtime", DisplayMode::SYSTEM_DIAGNOSTICS, false, false, true},
     {"display_preview_spectrum", DisplayMode::AUDIO_SPECTRUM, false, false},
+    {"display_preview_chart", DisplayMode::CLIMATE_CHART, false, false},
     {"display_preview_low_battery", DisplayMode::DASHBOARD, true, false},
     {"display_preview_quiet_hours", DisplayMode::DASHBOARD, false, true},
     {"display_preview_battery_empty", DisplayMode::DASHBOARD, false, false, false, true},
@@ -155,6 +156,7 @@ inline void renderScene(
   info.noise.l10_rms = 1000; // L10 60 DBA
   info.noise.l90_rms = 316;  // L90 50 DBA
   info.quiet_hours = quiet_hours;
+  info.chart_sensor = 1; // the climate chart view shows the garden sensor
   info.ventilate = ventilate;
   // Tile badges from the default limit (60 %RH): the humid sensor 2 shows the "V" badge.
   info.ventilate_tiles = VentilateLatch::update(0, onboard, slots, MAX_SWITCHBOT_SENSORS, now_ms, DeviceConfig::DEFAULT_VENTILATE_LIMIT_RH);

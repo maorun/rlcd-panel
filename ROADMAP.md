@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] 24-hour climate chart view for one sensor
-  - Rank: [Total: 28, Use: 8, Setup: 2, Harmony: 9, Safety: 9, Effort: M]
-  - Location: `rlcd_panel/button_handler.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/render_display_preview.cpp`, `tools/preview_scenes.h`, `scripts/generate-display-preview.sh`, `tests/test_firmware_logic.cpp`
-  - Goal: Add `DisplayMode::CLIMATE_CHART` (value 4) after `AUDIO_SPECTRUM` and set `DISPLAY_MODE_COUNT` to 5. The view shows the name of one sensor, a 360 x 90 px temperature curve and a 360 x 90 px humidity curve of the last 24 hours, each with its minimum and maximum. Add `Sparkline::renderTemperature` with a minimum span of 2.0 C. In this view a short `KEY` press selects the next sensor (`ButtonEvent::NEXT_SENSOR`) and a hold of 2 s changes the view, as in the spectrum view. Store the selected sensor in `PersistentState` (1 byte) and increase the state version. A sensor with fewer than 2 samples shows `NO DATA`. The view reads only the RTC histories, so it needs no sensor read and no microphone. Thus the user sees the course of one room in detail.
-  - Acceptance test: Host tests cover the mode cycle with 5 modes, the rejection of a stored mode above 4, the `KEY` handling (short press, long press, wake press), the sensor selection with wrap, the curve bounds, the minimum span, `NO DATA`, and the RTC round trip. `./scripts/generate-display-preview.sh` writes the new file `docs/display_preview_chart.png`, and the other preview files stay bit-exact.
-
 ## Priority 3: Audio Expansions (Score 22–27)
 
 - [ ] Serial console command SET to change one config.ini key

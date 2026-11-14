@@ -74,7 +74,7 @@ Der ESP32-S3 befindet sich nun im ROM Download Mode (`0x0`) und akzeptiert Flash
 
 ## Display Views
 
-The panel renders four views. The `KEY` button on `GPIO18` (active low, internal pull-up) cycles them in this fixed order: **Dashboard → Sensor Stats → System Diagnostics → Audio Spectrum → Dashboard**. The source of truth is `DisplayMode` in `rlcd_panel/button_handler.h`, the pin is `PIN_BTN_KEY` in `rlcd_panel/board_pins.h`. All images below are bit-exact renderings from `./scripts/generate-display-preview.sh` with fixed sample data.
+The panel renders five views. The `KEY` button on `GPIO18` (active low, internal pull-up) cycles them in this fixed order: **Dashboard → Sensor Stats → System Diagnostics → Audio Spectrum → Climate Chart → Dashboard**. The source of truth is `DisplayMode` in `rlcd_panel/button_handler.h`, the pin is `PIN_BTN_KEY` in `rlcd_panel/board_pins.h`. All images below are bit-exact renderings from `./scripts/generate-display-preview.sh` with fixed sample data.
 
 ### Mode 0: Dashboard
 
@@ -99,6 +99,12 @@ Power source (battery or USB), battery voltage and percentage, free heap, and up
 ![Audio Spectrum view](docs/display_preview_spectrum.png)
 
 32 bars show the sound spectrum from 100 Hz to 8 kHz on a log axis, with a peak marker above each bar and the labels `100`, `1K` and `8K`. The view captures 1 s of audio on entry. A short `KEY` press in this view captures again. A hold of 2 s changes the view. Timer wakeups keep the microphones off, so a timer redraw of this view shows `NO DATA`.
+
+### Mode 4: Climate Chart
+
+![Climate Chart view](docs/display_preview_chart.png)
+
+The view shows the name of one sensor, a 360 x 90 px temperature curve and a 360 x 90 px humidity curve of the last 24 hours. Each curve has its minimum and maximum. A short `KEY` press selects the next sensor (onboard, then the three SwitchBot slots, then onboard again). A hold of 2 s changes the view. A sensor with fewer than 2 samples shows `NO DATA`. The view reads only the RTC histories, so it needs no sensor read and no microphone.
 
 ### Low Battery Alert
 

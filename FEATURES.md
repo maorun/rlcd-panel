@@ -779,3 +779,17 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The `CONFIG` reply shows the line `temp_unit=C` or `temp_unit=F`. `docs/config.example.ini` lists the key.
 - Thus a user who reads Fahrenheit can use the panel.
 - Host tests cover the parser for `C`, `F`, `f`, `K`, an empty value and a longer text, the conversion at -40 C, 0 C, 37 C and 100 C, the text bounds of the widest Fahrenheit values in a tile, in the dew point line and in the record line, the unchanged CSV row, the `CONFIG` line, the `STATUS` temperatures, and the RTC round trip with corrupt unit bytes. The default preview scenes stay bit-exact.
+
+## 24-hour climate chart view for one sensor
+
+- **Code:** `rlcd_panel/button_handler.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`
+- `DisplayMode::CLIMATE_CHART` (value 4) follows `AUDIO_SPECTRUM`, and `DISPLAY_MODE_COUNT` is 5. A stored view mode above 4 gives a clean start.
+- The view shows the name of one sensor (the configured name, else `ONBOARD SHTC3` or `SENSOR n`). It shows a 360 x 90 px temperature curve and a 360 x 90 px humidity curve of the last 24 hours. Each curve has a label with its minimum and maximum. The temperature follows `temp_unit`.
+- `Sparkline::renderTemperature` draws the temperature curve. The minimum span is 2.0 °C (`TEMPERATURE_MIN_SPAN`), centered on the value and limited to -100 to +100 °C. This prevents a flat room from filling the box with sensor noise.
+- A short `KEY` press returns `ButtonEvent::NEXT_SENSOR` and selects the next sensor: onboard, slot 1, slot 2, slot 3, then onboard again. The mode stays. A hold of 2 s changes the view, as in the spectrum view. The press that wakes the board starts no sensor change.
+- `PersistentState::chart_sensor` stores the sensor as 1 byte after the mode byte. A sensor above 3 gives a clean start. `STATE_VERSION` is 39. A record of version 38 gives a clean start.
+- A sensor with fewer than 2 samples shows `NO DATA` in the box of the curve.
+- The view reads only the RTC histories. It needs no sensor read and no microphone, so a `KEY` press redraws the view at once.
+- `tools/preview_scenes.h` adds the scene `display_preview_chart` (garden sensor). `./scripts/generate-display-preview.sh` writes `docs/display_preview_chart.png`. The other preview files stay bit-exact.
+- Thus the user sees the course of one room in detail.
+- Host tests cover the mode cycle with 5 modes, the rejection of a stored mode above 4 and of a stored sensor above 3, the `KEY` handling (short press, hold, wake press), the sensor wrap, the curve bounds, the minimum span, `NO DATA` and the RTC round trip with the new state version.

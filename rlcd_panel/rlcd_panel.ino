@@ -344,6 +344,7 @@ void renderDashboard() {
   info.sensor_battery_latch = g_state.sensor_battery_latch;
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;
+  info.chart_sensor = g_mode_controller.chartSensor();
   info.runtime = g_state.battery_history.estimate(g_state.battery, g_scan_saved_ms);
   info.rtc_drift = g_state.rtc_drift;
   info.sd_free_mb = g_sd_free_mb;
@@ -770,6 +771,7 @@ void setup() {
     cycle.begin(cause);
   }
   g_mode_controller.setMode(g_state.mode);
+  g_mode_controller.setChartSensor(g_state.chart_sensor);
   g_cycles.fromRtc(g_cycle_rtc); // blank memory after a power-on keeps the empty tracker
 
   // Empty battery protection: check the cell before any module starts. A set latch skips the BLE
@@ -995,6 +997,9 @@ void setup() {
         g_spectrum = SpectrumReading{}; // old bars never show while the new capture runs
         captureSpectrumAndRedraw(true);
         break;
+      case ButtonEvent::NEXT_SENSOR:
+        renderDashboard(); // the chart reads only the RTC histories: no sensor read, no microphone
+        break;
       case ButtonEvent::RECAPTURE:
         clap_listener.release(); // the spectrum capture uses the same I2S bus
         captureSpectrumAndRedraw(true, true);
@@ -1016,6 +1021,7 @@ void setup() {
 
   cycle.advance(); // SAVE
   g_state.mode = g_mode_controller.mode();
+  g_state.chart_sensor = g_mode_controller.chartSensor();
   if (!PowerPlatform::saveState(g_state)) {
     Serial.println("RTC state save failed");
   }

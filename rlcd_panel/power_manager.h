@@ -79,6 +79,7 @@ struct PersistentState {
   uint32_t boot_count = 0;    // wake cycles since power-on
   uint32_t last_scan_ms = 0;  // clock value at the start of the last BLE scan
   DisplayMode mode = DisplayMode::DASHBOARD;
+  uint8_t chart_sensor = 0; // sensor of the climate chart view: 0 onboard, 1 to 3 registry slots
   BatteryReading battery;
   SwitchBotRegistry registry;
   ClimateHistory history; // hourly humidity samples for the trend curves
@@ -287,7 +288,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 38;
+  static constexpr uint8_t STATE_VERSION = 39;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -321,9 +322,9 @@ public:
   // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
   // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, ventilate limit, sensor battery limit, display invert, climate alert tiles, battery offset (int16), slot release hours, night wake interval (uint16), temperature unit (one byte, 'C' or 'F'), RH offset (float), three slot temperature offsets and three slot RH offsets (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
   static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 1 + 2 + 1 + 4 + 6 * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
-  // Header: magic, version, mode, battery flags, battery pct, battery voltage, boot_count,
+  // Header: magic, version, mode, chart sensor, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
-  static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
+  static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
   // Event ring trailer (just before the checksum): count, dropped count (uint16), then 16 entries of
   // time flag, year (uint16), month, day, hour, minute, second, code, detail (uint16).
   static constexpr size_t EVENT_ENTRY_SIZE = 1 + 2 + 5 + 1 + 2;
@@ -466,6 +467,7 @@ public:
     putU32(out, pos, STATE_MAGIC);
     out[pos++] = STATE_VERSION;
     out[pos++] = static_cast<uint8_t>(state.mode);
+    out[pos++] = state.chart_sensor;
     out[pos++] = static_cast<uint8_t>((state.battery.valid ? 1 : 0) | (state.battery.usb_powered ? 2 : 0) |
                                      (state.battery.low_battery ? 4 : 0) | (state.battery.empty_protection ? 8 : 0));
     out[pos++] = static_cast<uint8_t>(state.battery.percentage);
@@ -646,6 +648,10 @@ public:
       return false;
     }
     s.mode = static_cast<DisplayMode>(mode);
+    s.chart_sensor = data[pos++];
+    if (s.chart_sensor >= CHART_SENSOR_COUNT) {
+      return false;
+    }
     const uint8_t flags = data[pos++];
     if ((flags & ~15u) != 0) {
       return false;
