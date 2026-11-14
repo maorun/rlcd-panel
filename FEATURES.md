@@ -947,3 +947,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The key uses 1 byte in the config trailer after `heat_alert_limit_c`. The state version is 44. The console command `CONFIG` shows `ble_broadcast_enabled=<N>`.
 - Thus a host reads all four tiles without a cable.
 - Host tests cover four valid tiles, an empty and a stale slot, the extreme values, the rounding to 0.5 %RH, the unknown cell percentage, the sequence wrap, the CRC-8, the frame size, the skip rules, the parser, the `CONFIG` line, the template sync and the RTC round trip with a corrupt field and the old state version. A test compares each shared hex vector byte for byte.
+
+## Event codes for resets and sensor slot changes
+
+- The event ring has three more event codes: `RESET` (8), `SLOT_ASSIGN` (9) and `SLOT_RELEASE` (10).
+- The firmware records `RESET` for each start that is not a deep sleep wakeup. The detail is the `ResetReason` value. A deep sleep wakeup records no event.
+- The firmware records `SLOT_ASSIGN` when a new MAC takes a registry slot. The detail has the slot number (1 to 3) in the high byte and the `BleFormat` in the low byte. A known MAC records no event.
+- The firmware records `SLOT_RELEASE` when `PersistentState::releaseDeadSlots` clears a slot. The detail is the slot number (1 to 3). A slot with a fixed MAC never releases and records no event.
+- `SdLogCodec::formatEventRow` writes the names `RESET`, `SLOT_ASSIGN` and `SLOT_RELEASE`. The file `events_v1_YYYY.csv` and the console command `EVENTS` show them.
+- The RTC validation of the ring accepts the codes 0 to 10 and rejects the code 11 and higher.
+- The ring layout does not change. `STATE_VERSION` stays the same.

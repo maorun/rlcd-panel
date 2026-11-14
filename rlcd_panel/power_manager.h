@@ -154,6 +154,27 @@ struct PersistentState {
     return released;
   }
 
+  // Records the slot changes of this wake cycle. `released` is the mask from releaseDeadSlots (before the
+  // scan): one SLOT_RELEASE event for each slot, detail is the slot number 1 to 3. Then one SLOT_ASSIGN
+  // event for each slot that took a new MAC in the scan: detail is the slot number in the high byte and
+  // the BleFormat in the low byte. A known MAC and a fixed MAC slot that never released give no event.
+  // Only releaseDeadSlots records SLOT_RELEASE: applyConfig clears a slot without an event. After a
+  // power-on each sensor takes a slot again, so the first cycle can add up to three SLOT_ASSIGN events.
+  void recordSlotEvents(const RtcTime& now, uint8_t released) {
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if ((released & (1u << i)) != 0) {
+        events.record(now, EventCode::SLOT_RELEASE, static_cast<uint16_t>(i + 1));
+      }
+    }
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      BleFormat format = BleFormat::WOIO;
+      if (registry.takeAssigned(i, format)) {
+        events.record(now, EventCode::SLOT_ASSIGN,
+                      static_cast<uint16_t>(((i + 1) << 8) | static_cast<uint8_t>(format)));
+      }
+    }
+  }
+
   // Clears the reading, both 24-hour histories and the battery and ventilation latches of slot `index`.
   void resetSlot(size_t index) {
     if (index >= MAX_SWITCHBOT_SENSORS) {
@@ -1116,6 +1137,20 @@ public:
       case ResetReason::SDIO: return "SDIO";
       default: return "UNKNOWN";
     }
+  }
+
+  // True when the start gets a RESET event: each start except a deep sleep wakeup.
+  static bool recordsEvent(ResetReason r) {
+    return r != ResetReason::DEEPSLEEP;
+  }
+
+  // Detail of the RESET event of this start, or -1 for no event. A failed RTC restore after a deep sleep
+  // wakeup also counts as a start: the ring is gone, the wakeup cause is a power-on, the reason is unknown.
+  static int32_t eventDetail(ResetReason r, bool restore_failed) {
+    if (recordsEvent(r)) {
+      return static_cast<int32_t>(r);
+    }
+    return restore_failed ? static_cast<int32_t>(ResetReason::UNKNOWN) : -1;
   }
 
   // A crash, a watchdog or a brownout. A power-on, a deep sleep wakeup and a software reset are normal.
