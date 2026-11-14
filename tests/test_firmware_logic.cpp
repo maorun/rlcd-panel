@@ -9013,6 +9013,64 @@ struct FakeConsoleStorage {
   size_t index = 0;
   size_t max_read = 1000;
   bool fail_read = false;
+  // SET: config.ini, config.tmp and one failing step
+  bool has_config = false;
+  std::string config_text;
+  bool has_tmp = false;
+  std::string tmp_text;
+  enum class Fail { NONE, READ, WRITE, REMOVE, RENAME } fail = Fail::NONE;
+
+  bool readConfig(char* buf, size_t cap, size_t& len, bool& exists) {
+    len = 0;
+    exists = has_config;
+    if (fail == Fail::READ) {
+      return false;
+    }
+    if (!has_config) {
+      return true;
+    }
+    len = std::min(cap, config_text.size());
+    memcpy(buf, config_text.data(), len);
+    return true;
+  }
+  bool writeTemp(const char* d, size_t n) {
+    has_tmp = true;
+    tmp_text.assign(d, n);
+    return fail != Fail::WRITE;
+  }
+  bool removeConfig() {
+    if (fail == Fail::REMOVE) {
+      return false;
+    }
+    has_config = false;
+    config_text.clear();
+    return true;
+  }
+  bool renameTemp() {
+    if (fail == Fail::RENAME) {
+      return false;
+    }
+    has_config = true;
+    config_text = tmp_text;
+    has_tmp = false;
+    tmp_text.clear();
+    return true;
+  }
+  void removeTemp() {
+    has_tmp = false;
+    tmp_text.clear();
+  }
+  bool fail_restore = false;
+  bool restoreConfig(const char* d, size_t n) {
+    if (fail_restore) {
+      return false;
+    }
+    has_config = true;
+    config_text.assign(d, n);
+    ++restores;
+    return true;
+  }
+  int restores = 0;
 
   bool mount() {
     ++mounts;
@@ -9420,6 +9478,224 @@ void testSerialConfigFrameAndCrc() {
   // The card stays untouched
   assert(storage.mounts == 0);
 }
+
+void testSerialSetParser() {
+  SerialCommand cmd;
+  assert(parseText("SET wake_interval_s=120", cmd) == SerialParseStatus::OK);
+  assert(cmd.kind == SerialCommandKind::SET);
+  assert(strcmp(cmd.set_key, "wake_interval_s") == 0 && strcmp(cmd.set_value, "120") == 0);
+  assert(parseText("SET onboard_name=KITCHEN", cmd) == SerialParseStatus::OK);
+  assert(strcmp(cmd.set_value, "KITCHEN") == 0);
+  assert(parseText("SET slot1_mac=AA:BB:CC:DD:EE:FF", cmd) == SerialParseStatus::OK);
+  // unknown key, key variants and a missing '='
+  assert(parseText("SET nope=1", cmd) == SerialParseStatus::BAD_KEY);
+  assert(parseText("SET Wake_interval_s=120", cmd) == SerialParseStatus::BAD_KEY);
+  assert(parseText("SET wake_interval_s =120", cmd) == SerialParseStatus::BAD_KEY);
+  assert(parseText("SET wifi_ssid=x", cmd) == SerialParseStatus::BAD_KEY);
+  assert(parseText("SET wake_interval_s", cmd) == SerialParseStatus::BAD_KEY);
+  assert(parseText("SET", cmd) == SerialParseStatus::BAD_KEY);
+  assert(parseText("SET =5", cmd) == SerialParseStatus::BAD_KEY);
+  // bad values
+  assert(parseText("SET wake_interval_s=5", cmd) == SerialParseStatus::BAD_VALUE);
+  assert(parseText("SET wake_interval_s=", cmd) == SerialParseStatus::BAD_VALUE);
+  assert(parseText("SET wake_interval_s=abc", cmd) == SerialParseStatus::BAD_VALUE);
+  assert(parseText("SET display_invert=2", cmd) == SerialParseStatus::BAD_VALUE);
+  assert(parseText("SET onboard_name=lower", cmd) == SerialParseStatus::BAD_VALUE);
+  assert(cmd.kind == SerialCommandKind::NONE);
+  assert(strcmp(SerialConsole::errorLine(SerialParseStatus::BAD_KEY), "ERR BAD_KEY\n") == 0);
+  assert(strcmp(SerialConsole::errorLine(SerialParseStatus::BAD_VALUE), "ERR BAD_VALUE\n") == 0);
+  // line limit: 40 bytes pass, 41 bytes give TOO_LONG
+  std::string pad = "SET temp_offset_c=";
+  pad += std::string(SerialConsole::MAX_LINE_SIZE - pad.size() - 3, ' ') + "0.5"; // the parser trims spaces
+  assert(pad.size() == 40 && parseText(pad, cmd) == SerialParseStatus::OK);
+  assert(parseText(pad + "0", cmd) == SerialParseStatus::TOO_LONG);
+  // CRLF at the end is tolerated
+  assert(parseText("SET wake_interval_s=120\r\n", cmd) == SerialParseStatus::OK);
+  // SET never reaches the card through execute()
+  FakeConsoleStorage storage;
+  FakeSink sink;
+  assert(parseText("SET wake_interval_s=120", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, sink, cmd);
+  assert(storage.mounts == 0 && sink.out.empty());
+}
+
+void testDeviceConfigEditor() {
+  char out[DeviceConfigParser::MAX_FILE_SIZE + 1];
+  size_t n = 0;
+  auto edit = [&](const std::string& in, const char* k, const char* v) {
+    const auto r = DeviceConfigEditor::set(in.data(), in.size(), k, v, out, n);
+    return r == DeviceConfigEditor::Result::OK ? std::string(out, n) : std::string("<TOO_LARGE>");
+  };
+  // append to an empty file and to a file without a final line end
+  assert(edit("", "wake_interval_s", "90") == "wake_interval_s=90\n");
+  assert(edit("# c\ndisplay_invert=1", "wake_interval_s", "90") == "# c\ndisplay_invert=1\nwake_interval_s=90\n");
+  assert(edit("# c\n", "wake_interval_s", "90") == "# c\nwake_interval_s=90\n");
+  // replace the last line of a key; earlier lines and comments stay
+  assert(edit("wake_interval_s=30\n# keep\nwake_interval_s=60\ndisplay_invert=1\n", "wake_interval_s", "90") ==
+         "wake_interval_s=30\n# keep\nwake_interval_s=90\ndisplay_invert=1\n");
+  // a comment line with the key text is no key line
+  assert(edit("# wake_interval_s=30\n; wake_interval_s=40\n", "wake_interval_s", "90") ==
+         "# wake_interval_s=30\n; wake_interval_s=40\nwake_interval_s=90\n");
+  // CRLF: the line end stays; an appended line takes the style of the file
+  assert(edit("a=1\r\nwake_interval_s=30\r\n# x\r\n", "wake_interval_s", "90") == "a=1\r\nwake_interval_s=90\r\n# x\r\n");
+  assert(edit("# x\r\ndisplay_invert=1\r\n", "wake_interval_s", "90") == "# x\r\ndisplay_invert=1\r\nwake_interval_s=90\r\n");
+  assert(edit("# x\r\ndisplay_invert=1", "wake_interval_s", "90") == "# x\r\ndisplay_invert=1\r\nwake_interval_s=90\r\n");
+  // spaces around the key and the value are ignored when the line is found; a BOM stays
+  assert(edit("  wake_interval_s = 30  \n", "wake_interval_s", "90") == "wake_interval_s=90\n");
+  assert(edit("\xEF\xBB\xBFwake_interval_s=30\n", "wake_interval_s", "90") == "\xEF\xBB\xBFwake_interval_s=90\n");
+  // the replaced line loses its indent and its spaces around '='; its line end stays
+  assert(edit("  wake_interval_s  =  30\r\nx=1\r\n", "wake_interval_s", "90") == "wake_interval_s=90\r\nx=1\r\n");
+  // a similar key does not match
+  assert(edit("wake_interval_s2=1\n", "wake_interval_s", "90") == "wake_interval_s2=1\nwake_interval_s=90\n");
+  // the result parses with the new value and keeps the other values
+  DeviceConfig cfg;
+  const std::string edited = edit("display_invert=1\nwake_interval_s=30\n", "wake_interval_s", "90");
+  const ConfigParseResult pr = DeviceConfigParser::parse(edited.data(), edited.size(), cfg);
+  assert(pr.file_ok && pr.rejected == 0 && cfg.wake_interval_s == 90 && cfg.display_invert);
+  // size limit: exactly 4096 passes, 4097 gives TOO_LARGE
+  const std::string pair = "wake_interval_s=90\n";
+  std::string fill(DeviceConfigParser::MAX_FILE_SIZE - pair.size() - 1, 'x');
+  const std::string exact = "#" + fill.substr(1) + "\n"; // one comment line, 4096 - 19 bytes
+  assert(exact.size() + pair.size() == DeviceConfigParser::MAX_FILE_SIZE);
+  assert(edit(exact, "wake_interval_s", "90") == exact + pair);
+  assert(edit(exact + "x", "wake_interval_s", "90") == "<TOO_LARGE>"); // 4097 bytes in total
+  // a longer value in a replaced line can exceed the limit
+  const std::string line_file = "wake_interval_s=9\n" + std::string(DeviceConfigParser::MAX_FILE_SIZE - 18, '#');
+  assert(line_file.size() == DeviceConfigParser::MAX_FILE_SIZE);
+  assert(edit(line_file, "wake_interval_s", "90") == "<TOO_LARGE>");
+  assert(edit(line_file, "wake_interval_s", "9") == line_file);
+  // an input above the limit
+  assert(edit(std::string(DeviceConfigParser::MAX_FILE_SIZE + 1, '#'), "wake_interval_s", "90") == "<TOO_LARGE>");
+}
+
+void testSerialSetConfigFlow() {
+  SerialCommand cmd;
+  assert(parseText("SET wake_interval_s=90", cmd) == SerialParseStatus::OK);
+  // success: replace, write tmp, remove old, rename, apply, reply
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    st.has_config = true;
+    st.config_text = "# keep me\r\nwake_interval_s=30\r\ndisplay_invert=1\r\n";
+    PersistentState state;
+    int applied = 0;
+    assert(TestRunner::setConfig(st, sink, cmd, [&](const char* text, size_t len) {
+      DeviceConfig loaded;
+      const ConfigParseResult pr = DeviceConfigParser::parse(text, len, loaded);
+      state.applyConfig(loaded, pr.file_ok, pr.rejects());
+      ++applied;
+    }));
+    assert(applied == 1 && sink.out == "OK SET wake_interval_s\n");
+    assert(st.config_text == "# keep me\r\nwake_interval_s=90\r\ndisplay_invert=1\r\n");
+    assert(!st.has_tmp && st.mounts == 1 && st.unmounts == 1);
+    assert(state.config.wake_interval_s == 90 && state.config.display_invert && state.config_from_sd);
+  }
+  // no file yet: the new file holds the pair only
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    assert(TestRunner::setConfig(st, sink, cmd, [](const char*, size_t) {}));
+    assert(st.has_config && st.config_text == "wake_interval_s=90\n" && sink.out == "OK SET wake_interval_s\n");
+  }
+  // no card
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    st.card = false;
+    int applied = 0;
+    assert(!TestRunner::setConfig(st, sink, cmd, [&](const char*, size_t) { ++applied; }));
+    assert(sink.out == "ERR NO_CARD\n" && applied == 0 && st.mounts == 1);
+  }
+  // each failing step: no apply, ERR WRITE_FAILED, unmount, old file kept when possible
+  const FakeConsoleStorage::Fail steps[] = {FakeConsoleStorage::Fail::READ, FakeConsoleStorage::Fail::WRITE,
+                                            FakeConsoleStorage::Fail::REMOVE, FakeConsoleStorage::Fail::RENAME};
+  for (const FakeConsoleStorage::Fail step : steps) {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    st.has_config = true;
+    st.config_text = "wake_interval_s=30\n";
+    st.fail = step;
+    int applied = 0;
+    assert(!TestRunner::setConfig(st, sink, cmd, [&](const char*, size_t) { ++applied; }));
+    assert(sink.out == "ERR WRITE_FAILED\n" && applied == 0 && st.unmounts == 1);
+    if (step != FakeConsoleStorage::Fail::RENAME) {
+      assert(st.has_config && st.config_text == "wake_interval_s=30\n" && !st.has_tmp); // old file kept
+    } else {
+      assert(st.has_config && st.config_text == "wake_interval_s=30\n" && !st.has_tmp && st.restores == 1); // old text restored
+    }
+  }
+  // failed restore after a failed rename: config.tmp stays with the new text
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    st.has_config = true;
+    st.config_text = "wake_interval_s=30\n";
+    st.fail = FakeConsoleStorage::Fail::RENAME;
+    st.fail_restore = true;
+    assert(!TestRunner::setConfig(st, sink, cmd, [](const char*, size_t) {}));
+    assert(sink.out == "ERR WRITE_FAILED\n" && !st.has_config && st.has_tmp && st.tmp_text == "wake_interval_s=90\n" &&
+           st.unmounts == 1);
+  }
+  // empty file: remove runs (target exists), a failing rename restores the empty file
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    st.has_config = true;
+    st.fail = FakeConsoleStorage::Fail::RENAME;
+    assert(!TestRunner::setConfig(st, sink, cmd, [](const char*, size_t) {}));
+    assert(sink.out == "ERR WRITE_FAILED\n" && st.has_config && st.config_text.empty() && st.restores == 1 && !st.has_tmp);
+    FakeConsoleStorage ok;
+    FakeSink sink2;
+    ok.has_config = true;
+    assert(TestRunner::setConfig(ok, sink2, cmd, [](const char*, size_t) {}));
+    assert(ok.config_text == "wake_interval_s=90\n");
+  }
+  // absent file with a failing rename: nothing to restore, no file
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    st.fail = FakeConsoleStorage::Fail::RENAME;
+    assert(!TestRunner::setConfig(st, sink, cmd, [](const char*, size_t) {}));
+    assert(sink.out == "ERR WRITE_FAILED\n" && !st.has_config && st.restores == 0 && !st.has_tmp);
+  }
+  // too large: nothing is written, no remove, no apply
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    st.has_config = true;
+    st.config_text = "#" + std::string(DeviceConfigParser::MAX_FILE_SIZE - 2, 'x') + "\n";
+    int applied = 0;
+    assert(!TestRunner::setConfig(st, sink, cmd, [&](const char*, size_t) { ++applied; }));
+    assert(sink.out == "ERR TOO_LARGE\n" && applied == 0 && !st.has_tmp && st.config_text.size() == DeviceConfigParser::MAX_FILE_SIZE && st.has_config);
+  }
+  // an oversized existing file (above 4096 bytes) gives TOO_LARGE too
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    st.has_config = true;
+    st.config_text = std::string(DeviceConfigParser::MAX_FILE_SIZE + 1, '#');
+    assert(!TestRunner::setConfig(st, sink, cmd, [](const char*, size_t) {}));
+    assert(sink.out == "ERR TOO_LARGE\n" && !st.has_tmp && st.has_config);
+  }
+  // a SET command with a bad value (built by hand) gives BAD_VALUE and no card access
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    SerialCommand bad = cmd;
+    snprintf(bad.set_value, sizeof(bad.set_value), "%s", "5");
+    assert(!TestRunner::setConfig(st, sink, bad, [](const char*, size_t) {}));
+    assert(sink.out == "ERR BAD_VALUE\n" && st.mounts == 0);
+  }
+  // a command that is not SET is refused without card access
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    SerialCommand other;
+    assert(!TestRunner::setConfig(st, sink, other, [](const char*, size_t) {}));
+    assert(st.mounts == 0);
+  }
+}
+
 
 void testSerialConfigRunsWithoutMountingCard() {
   FakeConsoleStorage storage;
@@ -14309,6 +14585,9 @@ testSerialConfigParser();
 testSerialConfigLineFormat();
 testSerialConfigFrameAndCrc();
 testSerialConfigRunsWithoutMountingCard();
+testSerialSetParser();
+testDeviceConfigEditor();
+testSerialSetConfigFlow();
 testSerialConfigRoundTrip();
 testSerialConfigRejectedLines();
 testSerialConfigStopsOnShortWrite();

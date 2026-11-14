@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 
-- [ ] Serial console command SET to change one config.ini key
-  - Rank: [Total: 27, Use: 5, Setup: 9, Harmony: 8, Safety: 5, Effort: M]
-  - Location: `rlcd_panel/serial_console.h`, `rlcd_panel/device_config.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the console command `SET <key>=<value>` (line limit 40 bytes). The command accepts only a key of `DeviceConfigParser` and checks the value with the parser rules. A bad key gives `ERR BAD_KEY`, a bad value gives `ERR BAD_VALUE`. The command reads `/sdcard/config.ini` (4096-byte limit), replaces the last line of the key or appends a new line, and keeps each other line and each comment. It writes the result to `/sdcard/config.tmp`, removes the old file, and renames the new file. A failed step keeps the old file when possible and gives `ERR WRITE_FAILED`. A result above 4096 bytes gives `ERR TOO_LARGE` and writes nothing. After a success the firmware applies the new config with `PersistentState::applyConfig`, as a `KEY` wakeup does, and replies `OK SET <key>`. The command runs on USB power only. Thus the user changes a setting without a card removal.
-  - Acceptance test: Host tests cover the parser, an unknown key, a bad value, the replacement of the last line of a key, a new key, kept comments and CRLF lines, the size limit, each failure step of the file write, the applied config, and the USB power gate. `arduino-cli compile rlcd_panel` passes.
-
 - [ ] Chime reminder for an alert that stays active
   - Rank: [Total: 26, Use: 6, Setup: 3, Harmony: 9, Safety: 8, Effort: M]
   - Location: `rlcd_panel/audio_alert.h`, `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
