@@ -182,6 +182,28 @@ public:
   }
 };
 
+// Packet format of a decoded advertisement. WOIO is the Manufacturer Data of a WoIOSensor, METER the
+// Service Data of a Meter or Meter Plus.
+enum class BleFormat : uint8_t { WOIO = 0, METER = 1, BTHOME = 2, ATC = 3 };
+constexpr size_t BLE_FORMAT_COUNT = 4;
+
+// Packets the registry rejected during the current scan. The registry rejects a packet when no slot is
+// free or when each free slot has a fixed MAC of another sensor. Each counter stops at 65535. This is
+// no persistent state: resetRejects() clears it at the start of each scan.
+struct BleRejectStats {
+  uint16_t by_format[BLE_FORMAT_COUNT] = {0, 0, 0, 0};
+  uint8_t last_mac[6] = {0, 0, 0, 0, 0, 0};
+  bool has_last = false;
+
+  uint32_t total() const {
+    uint32_t sum = 0;
+    for (size_t i = 0; i < BLE_FORMAT_COUNT; ++i) {
+      sum += by_format[i];
+    }
+    return sum;
+  }
+};
+
 class SwitchBotRegistry {
 public:
   // Fixes a slot to one MAC (nullptr or an all-zero MAC removes the fix). A fixed slot accepts packets
@@ -224,7 +246,9 @@ public:
     return true;
   }
 
-  bool upsert(const SwitchBotReading& reading) {
+  // Stores one packet. `format` only feeds the reject counters of the current scan. A false result
+  // for a valid reading counts as a reject and leaves the slots unchanged.
+  bool upsert(const SwitchBotReading& reading, BleFormat format = BleFormat::WOIO) {
     if (!reading.valid) {
       return false;
     }
@@ -261,7 +285,22 @@ public:
       }
     }
 
+    uint16_t& count = rejects_.by_format[static_cast<size_t>(format) < BLE_FORMAT_COUNT ? static_cast<size_t>(format) : 0];
+    if (count < UINT16_MAX) {
+      ++count;
+    }
+    memcpy(rejects_.last_mac, reading.mac, 6);
+    rejects_.has_last = true;
     return false;
+  }
+
+  const BleRejectStats& rejects() const {
+    return rejects_;
+  }
+
+  // Call at the start of each scan.
+  void resetRejects() {
+    rejects_ = BleRejectStats{};
   }
 
   const SwitchBotReading& slot(size_t index) const {
@@ -356,6 +395,7 @@ private:
   SwitchBotReading slots_[MAX_SWITCHBOT_SENSORS];
   bool fixed_[MAX_SWITCHBOT_SENSORS] = {false, false, false};
   uint8_t fixed_mac_[MAX_SWITCHBOT_SENSORS][6] = {{0}, {0}, {0}};
+  BleRejectStats rejects_;
 };
 
 // Per slot low battery latch of the external sensors (config.ini key sensor_battery_limit_pct).

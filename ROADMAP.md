@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] Rejected BLE packet counter in STATUS
-  - Rank: [Total: 33, Use: 5, Setup: 10, Harmony: 9, Safety: 9, Effort: S]
-  - Location: `rlcd_panel/switchbot_ble.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add a per-scan counter to `SwitchBotRegistry`. It counts the decoded packets of each format (`WOIO`, `METER`, `BTHOME`, `ATC`) that the registry rejected because no slot was free or because each free slot has a fixed MAC of a different sensor. It also records the MAC of the last rejected packet. Reset the counters at the start of each scan; do not store them in `PersistentState`. Add the line `BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>` to the `STATUS` reply before `POWER`. Thus the user finds a wrong `slotN_mac` entry or a fourth sensor that takes no slot.
-  - Acceptance test: Host tests cover a full registry with a new MAC, a fixed slot with a different MAC, a fixed slot with the correct MAC (no count), each format counter, the saturation of each counter at 65535, the reset at the scan start, the last MAC, the `STATUS` line format with and without a rejected packet, and the unchanged slot contents. `arduino-cli compile rlcd_panel` passes.
-
 - [ ] Heat alert chime for a high feels-like temperature
   - Rank: [Total: 32, Use: 9, Setup: 6, Harmony: 9, Safety: 8, Effort: M]
   - Location: `rlcd_panel/audio_alert.h`, `rlcd_panel/climate_math.h`, `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `docs/config.example.ini`, `tests/test_firmware_logic.cpp`
