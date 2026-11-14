@@ -580,6 +580,66 @@ public:
     return true;
   }
 
+  // A flatter temperature curve than 2.0 degC would amplify sensor noise into full-height swings.
+  static constexpr int16_t TEMPERATURE_MIN_SPAN = 20; // 0.1 degC steps
+
+  // Value range of a temperature history. A flat curve gets a span of TEMPERATURE_MIN_SPAN centered
+  // on the value, shifted to stay inside -100..+100 degC. Returns false for an empty history.
+  static bool computeTemperatureScale(const TemperatureHistory& history, Scale& out) {
+    if (history.size() == 0) {
+      return false;
+    }
+    int16_t lo = history.at(0);
+    int16_t hi = lo;
+    for (size_t i = 1; i < history.size(); ++i) {
+      const int16_t v = history.at(i);
+      if (v < lo) lo = v;
+      if (v > hi) hi = v;
+    }
+    if (hi - lo < TEMPERATURE_MIN_SPAN) {
+      const int center = (static_cast<int>(lo) + hi) / 2;
+      int lo_v = center - TEMPERATURE_MIN_SPAN / 2;
+      if (lo_v < TemperatureHistory::MIN_VALUE) lo_v = TemperatureHistory::MIN_VALUE;
+      if (lo_v > TemperatureHistory::MAX_VALUE - TEMPERATURE_MIN_SPAN) {
+        lo_v = TemperatureHistory::MAX_VALUE - TEMPERATURE_MIN_SPAN;
+      }
+      out.lo = static_cast<int16_t>(lo_v);
+      out.hi = static_cast<int16_t>(lo_v + TEMPERATURE_MIN_SPAN);
+    } else {
+      out.lo = lo;
+      out.hi = hi;
+    }
+    return true;
+  }
+
+  // Draws the temperature curve into the box (x, y, w, h). Every pixel stays inside the box.
+  // Returns false and draws nothing for an empty history or an empty box.
+  static bool renderTemperature(
+      St7305Framebuffer& fb,
+      uint16_t x,
+      uint16_t y,
+      uint16_t w,
+      uint16_t h,
+      const TemperatureHistory& history,
+      bool black = true) {
+    Scale scale;
+    if (w == 0 || h == 0 || !computeTemperatureScale(history, scale)) {
+      return false;
+    }
+    const size_t n = history.size();
+    int px = sampleColumn(0, n, w);
+    int py = valueToRow(history.at(0), scale, h);
+    plot(fb, x, y, w, h, px, py, black);
+    for (size_t i = 1; i < n; ++i) {
+      const int cx = sampleColumn(i, n, w);
+      const int cy = valueToRow(history.at(i), scale, h);
+      line(fb, x, y, w, h, px, py, cx, cy, black);
+      px = cx;
+      py = cy;
+    }
+    return true;
+  }
+
   // A flatter noise curve than 10 dB would amplify the measurement noise into full-height swings.
   static constexpr int16_t NOISE_MIN_SPAN = 10;
 
