@@ -330,6 +330,259 @@ private:
   bool done_ = false;
 };
 
+// Output sink of the BLE console: collects the reply bytes and sends them in notifications of
+// max(1, mtu - 3) bytes, in the same byte order as on USB serial. Only the last chunk of a reply is
+// shorter; flush() sends it. Notifier: bool notify(const uint8_t*, size_t); false means that the
+// central is gone. The BLE stack gives no result per notification: a drop inside the stack shows only in
+// the CRC32 line, which the central checks. A failed notification ends the reply (short write count),
+// like a short USB write: the host sees no CRC32 line.
+// ATT default MTU: payload 20 bytes until the central negotiates a larger one.
+constexpr uint16_t BLE_CONSOLE_DEFAULT_MTU = 23;
+
+template <typename Notifier>
+class BleChunkSink {
+public:
+  static constexpr uint16_t DEFAULT_MTU = BLE_CONSOLE_DEFAULT_MTU;
+  static constexpr uint16_t MAX_MTU = 517;
+  static constexpr size_t BUFFER_SIZE = MAX_MTU;
+
+  explicit BleChunkSink(Notifier& notifier, uint16_t mtu = DEFAULT_MTU) : notifier_(notifier) {
+    setMtu(mtu);
+  }
+
+  static size_t payloadSize(uint16_t mtu) {
+    return mtu > 3 ? static_cast<size_t>(mtu) - 3 : 1;
+  }
+
+  void setMtu(uint16_t mtu) {
+    payload_ = payloadSize(mtu > MAX_MTU ? MAX_MTU : mtu);
+  }
+
+  size_t write(const uint8_t* data, size_t len) {
+    size_t taken = 0;
+    while (taken < len && !failed_) {
+      const size_t room = payload_ - used_;
+      const size_t n = len - taken < room ? len - taken : room;
+      memcpy(buffer_ + used_, data + taken, n);
+      used_ += n;
+      taken += n;
+      if (used_ == payload_) {
+        send();
+      }
+    }
+    return taken;
+  }
+
+  // Sends the rest of the reply. Returns false when any notification of the reply failed.
+  bool flush() {
+    if (used_ > 0 && !failed_) {
+      send();
+    }
+    const bool ok = !failed_;
+    used_ = 0;
+    failed_ = false;
+    return ok;
+  }
+
+private:
+  void send() {
+    if (!notifier_.notify(buffer_, used_)) {
+      failed_ = true;
+    }
+    used_ = 0;
+  }
+
+  Notifier& notifier_;
+  size_t payload_ = payloadSize(DEFAULT_MTU);
+  size_t used_ = 0;
+  bool failed_ = false;
+  uint8_t buffer_[BUFFER_SIZE] = {0};
+};
+
+// Line side of the BLE console. The RX characteristic feeds feed(); a complete line goes through
+// the same SerialConsole parser as on USB. The bridge only decides what a central may run:
+//   ble_console 0: nothing (the service does not run)
+//   ble_console 1: the read commands; SET and TIME SET reply "ERR READ_ONLY"
+//   ble_console 2: also SET and TIME SET
+//   DUMP (a monthly file is too large for BLE) and SCAN (the scan stops the BLE stack that carries
+//   the console) reply "ERR NOT_OVER_BLE" at each level.
+// Only one central connects. A disconnect clears the partial line.
+class BleConsoleBridge {
+public:
+  enum class Action : uint8_t {
+    NONE = 0, // partial line, blank line or console off
+    RUN,      // `command` is valid: run it with the runner and a BleChunkSink
+    REPLY,    // send `reply` (fixed text with LF)
+  };
+
+  void setLevel(uint8_t level) {
+    level_ = level;
+  }
+  uint8_t level() const {
+    return level_;
+  }
+
+  // True when the central is accepted. A second central is refused.
+  bool onConnect() {
+    if (connected_) {
+      return false;
+    }
+    connected_ = true;
+    line_ = SerialLineAssembler();
+    return true;
+  }
+
+  void onDisconnect() {
+    connected_ = false;
+    line_ = SerialLineAssembler(); // the partial line is gone
+  }
+
+  bool connected() const {
+    return connected_;
+  }
+
+  // Drops the partial line (after lost RX bytes) so a spliced tail never runs as a command.
+  void resetLine() {
+    line_ = SerialLineAssembler();
+  }
+
+  Action feed(uint8_t byte, SerialCommand& command, const char*& reply) {
+    reply = "";
+    if (!connected_ || level_ == 0) {
+      return Action::NONE;
+    }
+    const SerialLineAssembler::Event event = line_.feed(byte);
+    if (event == SerialLineAssembler::Event::NONE) {
+      return Action::NONE;
+    }
+    const SerialParseStatus status = event == SerialLineAssembler::Event::LINE_TOO_LONG
+        ? SerialParseStatus::TOO_LONG
+        : SerialConsole::parse(line_.line(), line_.length(), command);
+    if (status == SerialParseStatus::EMPTY) {
+      return Action::NONE;
+    }
+    if (status != SerialParseStatus::OK) {
+      reply = SerialConsole::errorLine(status);
+      return Action::REPLY;
+    }
+    reply = gate(command, level_);
+    return reply[0] == '\0' ? Action::RUN : Action::REPLY;
+  }
+
+  // Empty text: the command may run at this level.
+  static const char* gate(const SerialCommand& command, uint8_t level) {
+    if (command.kind == SerialCommandKind::DUMP || command.kind == SerialCommandKind::SCAN) {
+      return "ERR NOT_OVER_BLE\n";
+    }
+    const bool writes = command.kind == SerialCommandKind::SET ||
+                        (command.kind == SerialCommandKind::TIME && command.time_set);
+    if (writes && level < 2) {
+      return "ERR READ_ONLY\n";
+    }
+    return "";
+  }
+
+private:
+  uint8_t level_ = 0;
+  bool connected_ = false;
+  SerialLineAssembler line_;
+};
+
+// Queue between the BLE task (connect, disconnect and RX write events) and the loop task. It has
+// no lock: the caller holds one around each call. A disconnect clears the queued bytes of the old
+// central. Connect and disconnect events stay in order (disconnect first), so a quick reconnect
+// keeps its connect event. A full ring drops the rest of a write and all later writes until the
+// loop task pops the overflow (once the ring is empty); the loop task then drops the partial line
+// and replies ERR TOO_LONG. No byte after the gap joins a line before the gap.
+class BleConsoleIngress {
+public:
+  static constexpr size_t RING_SIZE = 256;
+  static constexpr uint8_t EVENT_CONNECT = 1;
+  static constexpr uint8_t EVENT_DISCONNECT = 2;
+  static constexpr uint16_t DEFAULT_MTU = BLE_CONSOLE_DEFAULT_MTU;
+
+  struct Step {
+    uint8_t events = 0;    // EVENT_* bits since the last pop
+    bool have = false;     // `byte` is valid
+    uint8_t byte = 0;
+    bool overflow = false; // bytes were lost; the ring is empty
+    bool connected = false; // a central is connected now (the last event wins)
+  };
+
+  void connect() {
+    connected_ = true;
+    events_ = static_cast<uint8_t>(events_ | EVENT_CONNECT);
+    mtu_ = DEFAULT_MTU; // until the central negotiates
+  }
+
+  void disconnect() {
+    connected_ = false;
+    events_ = static_cast<uint8_t>(events_ | EVENT_DISCONNECT);
+    head_ = tail_ = 0;
+    overflow_ = false;
+  }
+
+  void setMtu(uint16_t mtu) {
+    mtu_ = mtu;
+  }
+
+  uint16_t mtu() const {
+    return mtu_;
+  }
+
+  void push(const uint8_t* data, size_t len) {
+    if (overflow_) {
+      return; // gap: bytes after it must not join the partial line before it
+    }
+    for (size_t i = 0; i < len; ++i) {
+      const size_t next = (head_ + 1) % RING_SIZE;
+      if (next == tail_) {
+        overflow_ = true;
+        return;
+      }
+      ring_[head_] = data[i];
+      head_ = next;
+    }
+  }
+
+  bool pending() const {
+    return head_ != tail_ || events_ != 0 || overflow_;
+  }
+
+  Step pop() {
+    Step step;
+    step.events = events_;
+    step.connected = connected_;
+    events_ = 0;
+    if (head_ != tail_) {
+      step.have = true;
+      step.byte = ring_[tail_];
+      tail_ = (tail_ + 1) % RING_SIZE;
+    } else if (overflow_) {
+      step.overflow = true;
+      overflow_ = false;
+    }
+    return step;
+  }
+
+  void clear() {
+    head_ = tail_ = 0;
+    events_ = 0;
+    connected_ = false;
+    overflow_ = false;
+    mtu_ = DEFAULT_MTU;
+  }
+
+private:
+  uint8_t ring_[RING_SIZE] = {0};
+  size_t head_ = 0;
+  size_t tail_ = 0;
+  uint8_t events_ = 0;
+  bool overflow_ = false;
+  bool connected_ = false;
+  uint16_t mtu_ = DEFAULT_MTU;
+};
+
 // RTC copy of the values that STATUS reports. The pointers stay valid during the call.
 struct SerialStatusSnapshot {
   const SwitchBotRegistry* registry = nullptr;

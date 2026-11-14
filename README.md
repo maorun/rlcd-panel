@@ -219,6 +219,12 @@ sensor_battery_limit_pct=10
 
 A value that is missing, malformed, or outside its range keeps the default. The file limit is 4096 bytes. Use LF or CRLF line ends. Equal start and end hours switch the quiet hours off. Wi-Fi credentials never come from the card. The `slotN_*` offsets and `slotN_name` names belong to the slot position, not to the sensor. A name replaces the tile title and the `S1` to `S3` label in the stats view; a name with a lowercase letter, another symbol or more than 12 characters is rejected. The ranges are in `FEATURES.md`.
 
+### BLE console
+
+With `ble_console=1` or `ble_console=2`, the board starts a BLE service with the Nordic UART layout while it runs on USB power and stays awake. Service UUID: `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`. Write console lines to the RX characteristic `6E400002-B5A3-F393-E0A9-E50E24DCCA9E`. Subscribe to the TX characteristic `6E400003-B5A3-F393-E0A9-E50E24DCCA9E` for the reply. The reply has the same bytes as on USB serial, in notifications of `MTU - 3` bytes. The key is 0 (off) by default. On battery power the board never advertises the service.
+
+With value 1, only the read commands run; `SET` gives `ERR READ_ONLY`. With value 2, `SET` and `TIME SET` also run. `DUMP` and `SCAN` give `ERR NOT_OVER_BLE` at each level. Only one central connects; the board disconnects a second one. A USB `SCAN` stops the BLE stack, so it drops a connected central; the central reconnects. Level 1 allows every command except `SET`, `TIME SET`, `DUMP` and `SCAN`; `BEEP` and `PATTERN` run. The GATT characteristics need no pairing or bonding: any device in range can connect on USB power, so keep `ble_console=0` in untrusted places and use 2 only for a short setup.
+
 ### BLE telemetry broadcast
 
 With `ble_broadcast_enabled=1`, the wake cycle advertises the four climate tiles after each scan. The advertisement is non-connectable, lasts 100 ms (interval 20 ms) and stops before the deep sleep. A low battery alert and the empty battery protection skip it. The key is 0 by default.
