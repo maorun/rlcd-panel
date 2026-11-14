@@ -1,33 +1,115 @@
 import RlcdProtocol
 import SwiftUI
 
-/// Hardware diagnostics from the `STATUS` and `VERSION` replies. A red mark shows a sensor or reset fault.
+/// Hardware diagnostics from the `STATUS` and `VERSION` replies, and maintenance actions.
 struct DiagnosticsView: View {
-    let model: AppModel
+    @Bindable var model: AppModel
 
     var body: some View {
-        GroupBox("Hardware diagnostics") {
-            VStack(alignment: .leading, spacing: 8) {
-                HStack {
-                    Button("Refresh STATUS and VERSION") { model.refreshDiagnostics() }
-                        .disabled(!model.consoleConnected)
-                    Spacer()
+        VStack(spacing: 12) {
+            GroupBox("Hardware diagnostics") {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Button("Refresh STATUS and VERSION") { model.refreshDiagnostics() }
+                            .disabled(!model.consoleConnected || !model.isIdle)
+                        Spacer()
+                    }
+                    if let v = model.version {
+                        Text("Firmware \(v.firmware) (git \(v.git), core \(v.core), state \(v.state), built \(v.built))")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let d = model.diagnostics {
+                        group("SHTC3 sensor") { shtc3(d.shtc3) }
+                        group("BLE rejected packets") { ble(d.ble) }
+                        group("Resets") { reset(d.reset) }
+                        group("Battery runtime") { runtime(d.runtime) }
+                        group("Awake time") { awake(d.awake) }
+                    } else {
+                        Text("No diagnostics yet. Press the refresh button.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            GroupBox("Maintenance and tests") {
+                VStack(alignment: .leading, spacing: 8) {
+                    group("Panel clock") {
+                        if let t = model.panelTime {
+                            HStack(spacing: 8) {
+                                Text("Time: \(t.timeString)")
+                                if t.valid {
+                                    Text("VALID").font(.caption.bold()).foregroundStyle(.green)
+                                } else {
+                                    Text("INVALID").font(.caption.bold()).foregroundStyle(.white)
+                                        .padding(.horizontal, 4).background(Color.red, in: RoundedRectangle(cornerRadius: 4))
+                                }
+                                if t.osf {
+                                    Text("OSCILLATOR STOPPED").font(.caption.bold()).foregroundStyle(.white)
+                                        .padding(.horizontal, 4).background(Color.red, in: RoundedRectangle(cornerRadius: 4))
+                                }
+                            }
+                            if let off = model.panelOffsetSeconds {
+                                Text("Offset to Mac: \(off >= 0 ? "+" : "")\(off) s")
+                            }
+                        } else {
+                            Text("not read yet").foregroundStyle(.secondary)
+                        }
+                    }
+
+                    HStack(spacing: 12) {
+                        Button("Sync clock") { model.syncClock() }
+                            .disabled(!model.canTimeSet || !model.isIdle)
+                        Button("Read clock") { model.readTime() }
+                            .disabled(!model.consoleConnected || !model.isIdle)
+
+                        Menu("Chime test...") {
+                            ForEach(0..<8) { bit in
+                                Button("BEEP \(bit) (\(AppModel.chimeName(bit)))") {
+                                    model.beep(bit)
+                                }
+                            }
+                        }
+                        .disabled(!model.canBeep || !model.isIdle)
+
+                        Menu("Display test...") {
+                            Button("PATTERN 0 (Black)") { confirmPattern(0) }
+                            Button("PATTERN 1 (Checkerboard)") { confirmPattern(1) }
+                            Button("PATTERN 2 (Border with cross)") { confirmPattern(2) }
+                        }
+                        .disabled(!model.canPattern || !model.isIdle)
+                    }
+
+                    if let r = model.lastChimeResult {
+                        Text("Chime reply: \(r)").font(.caption.monospaced())
+                    }
+                    if let r = model.lastPatternResult {
+                        Text("Display pattern reply: \(r)").font(.caption.monospaced())
+                    }
                 }
-                if let v = model.version {
-                    Text("Firmware \(v.firmware) (git \(v.git), core \(v.core), state \(v.state), built \(v.built))")
-                        .font(.caption).foregroundStyle(.secondary)
-                }
-                if let d = model.diagnostics {
-                    group("SHTC3 sensor") { shtc3(d.shtc3) }
-                    group("BLE rejected packets") { ble(d.ble) }
-                    group("Resets") { reset(d.reset) }
-                    group("Battery runtime") { runtime(d.runtime) }
-                    group("Awake time") { awake(d.awake) }
-                } else {
-                    Text("No diagnostics yet. Press the refresh button.").font(.caption).foregroundStyle(.secondary)
-                }
-            }.frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
+        .confirmationDialog(
+            "Show test pattern?",
+            isPresented: $model.showingPatternAlert,
+            titleVisibility: .visible
+        ) {
+            Button("Show Pattern", role: .destructive) {
+                if let p = model.pendingPattern {
+                    model.pattern(p)
+                }
+                model.pendingPattern = nil
+            }
+            Button("Cancel", role: .cancel) {
+                model.pendingPattern = nil
+            }
+        } message: {
+            Text("The panel will show this test pattern until the next wake cycle.")
+        }
+    }
+
+    private func confirmPattern(_ n: Int) {
+        model.pendingPattern = n
+        model.showingPatternAlert = true
     }
 
     private func group<C: View>(_ title: String, @ViewBuilder _ content: () -> C) -> some View {

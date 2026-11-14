@@ -60,7 +60,7 @@ public struct ReplyAssembler {
     }
 
     private mutating func consume(line: String, raw: Data) -> ConsoleReply? {
-        if lines.isEmpty && (line.hasPrefix("OK ") || line.hasPrefix("ERR ")) {
+        if lines.isEmpty && (line.hasPrefix("OK ") || line.hasPrefix("ERR ") || line.hasPrefix("TIME ") || line == "TIME") {
             return .status(line)
         }
         if line.hasPrefix("CRC32 ") {

@@ -110,6 +110,58 @@ public struct VersionReply: Equatable {
     }
 }
 
+/// Parsed `TIME` reply: `TIME <YYYY-MM-DDTHH:MM:SS> valid=<0|1> osf=<0|1>`.
+public struct TimeReply: Equatable {
+    public let timeString: String
+    public let date: Date?
+    public let valid: Bool
+    public let osf: Bool
+
+    public init(timeString: String, date: Date?, valid: Bool, osf: Bool) {
+        self.timeString = timeString
+        self.date = date
+        self.valid = valid
+        self.osf = osf
+    }
+
+    public static func parse(_ line: String) throws -> TimeReply {
+        let parts = line.split(separator: " ", omittingEmptySubsequences: true)
+        guard parts.count >= 4, parts[0] == "TIME" else {
+            throw ParseError.badLine(line)
+        }
+        let timeStr = String(parts[1])
+        var valid: Bool?
+        var osf: Bool?
+        for part in parts.dropFirst(2) {
+            if let eq = part.firstIndex(of: "=") {
+                let key = part[..<eq]
+                let val = part[part.index(after: eq)...]
+                if key == "valid" {
+                    valid = val == "1"
+                } else if key == "osf" {
+                    osf = val == "1"
+                }
+            }
+        }
+        guard let valid, let osf else {
+            throw ParseError.badLine(line)
+        }
+        let date = PanelClock.parse(text: timeStr)
+        return TimeReply(timeString: timeStr, date: date, valid: valid, osf: osf)
+    }
+
+    public static func parse(line: String) throws -> TimeReply {
+        try parse(line)
+    }
+
+    public static func parse(lines: [String]) throws -> TimeReply {
+        guard let line = lines.first(where: { $0.hasPrefix("TIME ") || $0 == "TIME" }) else {
+            throw ParseError.missingLine("TIME")
+        }
+        return try parse(line)
+    }
+}
+
 /// One `HISTORY` row. A missing value is `nil`.
 public struct HistoryRow: Hashable {
     public let sensor: Int
@@ -305,7 +357,14 @@ public struct ConfigReply: Equatable {
 /// The console commands that the app may send. The app sends one only after a user action.
 public enum ConsoleCommand: Equatable {
     case status, history, events, config, version, scan
+    case time
+    case timeSet(Date)
+    case beep(Int)
+    case pattern(Int)
     case set(key: String, value: String)
+
+    public static func beep(bit: Int) -> ConsoleCommand { .beep(bit) }
+    public static func pattern(n: Int) -> ConsoleCommand { .pattern(n) }
 
     /// Keys whose empty value the firmware accepts (no fixed MAC).
     static let emptyAllowedKeys: Set<String> = ["slot1_mac", "slot2_mac", "slot3_mac", "slot4_mac", "slot5_mac"]
@@ -320,6 +379,16 @@ public enum ConsoleCommand: Equatable {
         case .config: return "CONFIG"
         case .version: return "VERSION"
         case .scan: return "SCAN"
+        case .time: return "TIME"
+        case let .timeSet(date):
+            guard let formatted = PanelClock.format(date: date) else { return nil }
+            return "TIME SET \(formatted)"
+        case let .beep(bit):
+            guard (0...7).contains(bit) else { return nil }
+            return "BEEP \(bit)"
+        case let .pattern(n):
+            guard (0...2).contains(n) else { return nil }
+            return "PATTERN \(n)"
         case let .set(key, value):
             let text = "SET \(key)=\(value)"
             let bad = CharacterSet.whitespacesAndNewlines.union(.controlCharacters)

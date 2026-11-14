@@ -1091,3 +1091,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Tile views in the companion app display Dew Point (`DP`), Heat Index (`HI`), Comfort zone tags, and Mold hours count from history samples.
 - `AlertTransitions` detects rising alert mask bits across consecutive telemetry frames with distinct sequence numbers.
 - `AppModel` dispatches macOS user notification banners via `UserNotifications` when rising alert bits occur and notifications are enabled by the user.
+
+## Clock sync, chime test and display test actions in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/PanelClock.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/ReplyAssembler.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/PanelClockTests.swift`.
+- Added `ConsoleCommand.time`, `.timeSet(Date)`, `.beep(bit)` and `.pattern(n)`.
+- `TimeReply` parses `TIME <YYYY-MM-DDTHH:MM:SS> valid=<0|1> osf=<0|1>`.
+- `PanelClock` converts and formats Mac time in `Europe/Berlin` (CET/CEST), validates years within 2025...2099, and computes seconds offset between panel and Mac.
+- `DiagnosticsView` displays panel local time, offset, oscillator stop flag status, and maintenance controls.
+- "Sync clock" action synchronizes the panel RTC via `TIME SET` followed by `TIME`, gated by USB serial or `ble_console=2`.
+- Chime test menu triggers alert chimes `BEEP 0` to `BEEP 7` and shows duration or mute error.
+- Display test menu sends `PATTERN 0`, `1` or `2` after user confirmation dialog.

@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Storage, and Configuration (Score 28–33)
 
-- [ ] Clock sync, chime test and display test actions in the macOS app
-  - Rank: [Total: 30, Use: 5, Setup: 9, Harmony: 8, Safety: 8, Effort: S]
-  - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/PanelClock.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/PanelClockTests.swift` (new)
-  - Goal: Add `ConsoleCommand.time`, `.timeSet(Date)`, `.beep(bit)` and `.pattern(n)`. `TimeReply` parses `TIME <YYYY-MM-DDTHH:MM:SS> valid=<0|1> osf=<0|1>`. `PanelClock` formats the Mac time as the local time in `Europe/Berlin` (the RTC holds CET or CEST), refuses a year outside 2025 to 2099, and gives the offset between the panel and the Mac in seconds. The maintenance group shows the panel time, the offset and the oscillator stop flag. A "Sync clock" button sends `TIME SET` and then `TIME`. A chime menu sends `BEEP 0` to `BEEP 7` and shows the duration of `OK BEEP` or the text of `ERR MUTED`. A pattern menu sends `PATTERN 0`, `1` or `2` after a confirmation, because the panel then shows the test image until the next wake cycle. The actions run only on the USB serial link or with `ble_console=2` for `TIME SET`. Thus the user fixes a wrong clock and tests the speaker and the display with one click.
-  - Acceptance test: `swift test` in `macos/RlcdCompanion` passes. New tests format a fixed winter and a fixed summer `Date` as CET and CEST text, handle the two DST change hours, refuse the years 2024 and 2100, parse a recorded `TIME` reply with `valid=0` and `osf=1`, compute the offset, build each `BEEP` and `PATTERN` line, refuse `BEEP 8` and `PATTERN 3`, and refuse `TIME SET` on BLE with `ble_console=1`. `swift build -c release` passes. The C++ host tests stay unchanged and pass.
-
 - [ ] SD card log archive over USB serial `LIST` and `DUMP` in the macOS app
   - Rank: [Total: 28, Use: 6, Setup: 7, Harmony: 8, Safety: 7, Effort: M]
   - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/ReplyAssembler.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/LogArchive.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ArchiveView.swift` (new), `macos/RlcdCompanion/Tests/RlcdProtocolTests/LogArchiveTests.swift` (new)
