@@ -14,6 +14,7 @@
 #include "../rlcd_panel/audio_loopback.h"
 #include "../rlcd_panel/audio_spectrum.h"
 #include "../rlcd_panel/battery_monitor.h"
+#include "../rlcd_panel/ble_telemetry.h"
 #include "../rlcd_panel/board_pins.h"
 #include "../rlcd_panel/bthome_ble.h"
 #include "../rlcd_panel/atc_ble.h"
@@ -739,7 +740,7 @@ void testBatteryOffsetMv() {
   bad[pos] = 0xD3; bad[pos + 1] = 0xFE; // -301 mV
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 33; // old state version without the offset
   seal();
@@ -1179,7 +1180,7 @@ void testComfortZone() {
   assert(memcmp(ok_fb.data(), cold_fb.data(), RLCD_BUFFER_SIZE) != 0);
 
   // No RTC state change
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
 }
 
 void testAbsHumidityStats() {
@@ -1208,7 +1209,7 @@ void testAbsHumidityStats() {
   assert(strcmp(text, "AH 8.6G") == 0);
   DashboardView::formatAbsHumidity(text, sizeof(text), SwitchBotReading{}, now);
   assert(strcmp(text, "AH --") == 0);
-  assert(PowerManager::STATE_VERSION == 43); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 44); // no RTC state change
 
   // Rendering: right edge at x = 392, line y + 54, no overlap with the widest record text
   BatteryReading battery;
@@ -1452,7 +1453,7 @@ void testFeelsLikeStats() {
   DashboardView::renderSensorStats(dashed, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
                                    nullptr, &config);
   assert(memcmp(fb.data(), dashed.data(), RLCD_BUFFER_SIZE) != 0);
-  assert(PowerManager::STATE_VERSION == 43); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 44); // no RTC state change
 }
 
 void testMoldHoursStats() {
@@ -1573,7 +1574,7 @@ void testMoldHoursStats() {
     }
     assert(i == 2 ? !differs : differs); // empty slot shows "MOLD --" in both renders
   }
-  assert(PowerManager::STATE_VERSION == 43); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 44); // no RTC state change
 }
 
 void testDashboardClimateLine() {
@@ -1920,7 +1921,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -2816,7 +2817,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -3452,7 +3453,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -5282,7 +5283,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -5997,7 +5998,9 @@ void testDeviceConfigRtcRoundTrip() {
       {36, 26},  // heat alert limit below range
       {36, 46},  // heat alert limit above range
       {36, 255}, // heat alert limit far above range
-      {65, 2},   // invalid character in the onboard name
+      {37, 2},   // BLE broadcast flag above range
+      {37, 255}, // BLE broadcast flag far above range
+      {66, 2},   // invalid character in the onboard name
       {PowerManager::CONFIG_SIZE - PowerManager::REJECTS_SIZE - 1, 2}, // unknown flag bit
   };
   for (const Corrupt& c : cases) {
@@ -6012,7 +6015,7 @@ void testDeviceConfigRtcRoundTrip() {
   const float nan_value = NAN;
   const float far_value = 99.0f;
   for (const float f : {nan_value, far_value}) {
-    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(37)}) {
+    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(38)}) {
       memcpy(bad, buf, sizeof(bad));
       memcpy(bad + cfg_pos + off, &f, 4);
       const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
@@ -6085,7 +6088,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6255,7 +6258,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -6437,7 +6440,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -8312,7 +8315,7 @@ void testClimateChartKeyHandling() {
 }
 
 void testClimateChartRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
   PersistentState s;
   s.mode = DisplayMode::CLIMATE_CHART;
   s.chart_sensor = 3;
@@ -9727,7 +9730,7 @@ void testSerialConfigLineFormat() {
   assert(text.find("\ndisplay_invert=0\n") != std::string::npos);
   assert(text.find("\nbattery_offset_mv=0\n") != std::string::npos);
   assert(text.find("\ntemp_unit=C\n") != std::string::npos);
-  assert(lines == 31);
+  assert(lines == 32);
   assert(text.find("wifi") == std::string::npos && text.find("ssid") == std::string::npos &&
          text.find("pass") == std::string::npos);
   // Too small a buffer gives 0 and an empty string
@@ -10112,7 +10115,7 @@ void testChimeRepeat() {
   assert(AlertEvaluator::repeatableBits(static_cast<uint8_t>(ALERT_FREEZER | ALERT_CHARGE_FULL)) == ALERT_FREEZER);
 
   // RTC round trip: stamp, key and state version
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
   PersistentState st;
   st.last_chime_ms = 0xFFFFFF00u;
   st.config.chime_repeat_h = 24;
@@ -10256,7 +10259,7 @@ void testSlotRelease() {
   bad[pos] = 169;
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 34; // old state version without the key
   seal();
@@ -10367,7 +10370,7 @@ void testNightWakeInterval() {
   bad[pos] = 0x09; bad[pos + 1] = 0x07; // 1801 s: above range
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 35; // old state version without the key
   seal();
@@ -10379,7 +10382,7 @@ void testSerialConfigRoundTrip() {
       "temp_offset_c=-3.25\nrh_offset_pct=4.5\nfreeze_alert_limit_c=-7.5\nmold_alert_limit_rh=85\n"
       "chime_volume_pct=100\nquiet_hours_start_hour=0\nquiet_hours_end_hour=23\nmic_spl_offset_db=-12.75\n"
       "log_retention_months=120\nnoise_alert_limit_db=40\nchime_alert_mask=5\nntp_sync_interval_h=168\noutdoor_slot=3\nventilate_limit_rh=73\nsensor_battery_limit_pct=25\nbattery_offset_mv=-120\ntemp_unit=F\nchime_repeat_h=12\n"
-      "heat_alert_limit_c=33\nslot1_temp_offset_c=0.5\nslot2_temp_offset_c=-5.0\nslot3_temp_offset_c=4.75\n"
+      "heat_alert_limit_c=33\nble_broadcast_enabled=1\nslot1_temp_offset_c=0.5\nslot2_temp_offset_c=-5.0\nslot3_temp_offset_c=4.75\n"
       "slot1_rh_offset_pct=-10.0\nslot2_rh_offset_pct=3.5\nslot3_rh_offset_pct=10.0\n";
   DeviceConfig original;
   DeviceConfigParser::parse(ini, strlen(ini), original);
@@ -10390,7 +10393,7 @@ void testSerialConfigRoundTrip() {
   assert(source_at != std::string::npos);
   DeviceConfig back;
   const ConfigParseResult result = DeviceConfigParser::parse(sink.out.data(), source_at, back);
-  assert(result.file_ok && result.rejected == 0 && result.keys_set == 31);
+  assert(result.file_ok && result.rejected == 0 && result.keys_set == 32);
   assert(back.heat_alert_limit_c == 33 && sink.out.find("\nheat_alert_limit_c=33\n") != std::string::npos);
   assert(back.battery_offset_mv == -120 && back.temp_unit == 'F' && back.chime_repeat_h == 12);
   assert(back.ventilate_limit_rh == 73 && back.sensor_battery_limit_pct == 25);
@@ -11023,7 +11026,7 @@ void testShtc3DiagnosticsInverted() {
 }
 
 void testShtc3RtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
   PersistentState s;
   s.shtc3.nack = 513;
   s.shtc3.short_reads = 65535;
@@ -12511,7 +12514,7 @@ void testNoiseAlertConfigKey() {
   assert(kept.noise_alert_limit_db == 80 && r.rejected == 1 && r.keys_set == 1);
   // Three distinct keys count as three
   parseText("temp_offset_c=1\nnoise_alert_limit_db=60\nlog_retention_months=3\n", &r);
-  assert(r.keys_set == 3 && DeviceConfigParser::KEY_COUNT == 38); // grows with each new key
+  assert(r.keys_set == 3 && DeviceConfigParser::KEY_COUNT == 39); // grows with each new key
   // valid() and isDefault() cover the new field
   DeviceConfig c;
   assert(c.isDefault() && c.valid());
@@ -12545,7 +12548,7 @@ void testNoiseAlertStatePersistence() {
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 24 - 25;
+  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 24 - 26;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -14111,7 +14114,7 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
 
   // A valid checksum with the same MAC in two keys is rejected
   const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
@@ -14625,7 +14628,7 @@ void testSensorBatteryLatchRtcRoundTrip() {
     }
   }
   // The version is increased
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
   // Corrupt records: latch bit above bit 2, flag byte above 7, limit above 50, old version
   st.sensor_battery_latch = 1;
   st.alert_mask = ALERT_NONE;
@@ -14848,7 +14851,7 @@ void testSensorStaleMinConfig() {
 
   // RTC round trip, corrupt values and the version bump
   PersistentState st;
-  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 43);
+  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 44);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(5), uint16_t(30), uint16_t(240)}) {
@@ -14933,7 +14936,7 @@ void testDisplayInvert() {
 
   // RTC round trip, corrupt value and version bump
   PersistentState st;
-  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 43);
+  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 44);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(1)}) {
@@ -15072,7 +15075,7 @@ void testClimateAlertTiles() {
 
   // RTC round trip, corrupt value and the old state version
   PersistentState st;
-  assert(st.config.climate_alert_tiles == 15 && PowerManager::STATE_VERSION == 43);
+  assert(st.config.climate_alert_tiles == 15 && PowerManager::STATE_VERSION == 44);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(5), uint8_t(15)}) {
@@ -15279,7 +15282,7 @@ void testSdCardStatus() {
   assert(unknown_lines[4] == "SD status=UNKNOWN age=--");
 
   // RTC round trip, a corrupt status byte and the old state version
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
   PersistentState st;
   st.setSdStatus(SdStatus::FULL, 4242);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -15320,7 +15323,7 @@ void testSdCardStatus() {
 }
 
 void testEventLog() {
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
   const RtcTime t1 = localTime(2026, 11, 14, 9, 30);
   const RtcTime bad_time{}; // invalid
   // Empty ring and one event
@@ -15676,7 +15679,257 @@ void testTempUnitRtcRoundTrip() {
   // The unit byte follows the night wake interval in the config trailer
   const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   assert(buf[cfg_pos + 34] == 'C');
-  assert(PowerManager::STATE_VERSION == 43);
+  assert(PowerManager::STATE_VERSION == 44);
+}
+
+// ---- BLE telemetry broadcast (BleTelemetryCodec, ble_broadcast_enabled) ----
+static BleTelemetryTile telemetryTile(bool valid, float t, float rh) {
+  BleTelemetryTile tile;
+  tile.valid = valid;
+  tile.temperature_c = t;
+  tile.humidity_pct = rh;
+  return tile;
+}
+
+static std::string telemetryHex(const uint8_t* data, size_t len) {
+  std::string out;
+  char b[8];
+  for (size_t i = 0; i < len; ++i) {
+    snprintf(b, sizeof(b), "%02X", static_cast<unsigned>(data[i]));
+    out += b;
+  }
+  return out;
+}
+
+static std::string telemetryFrameHex(const BleTelemetryTile tiles[4], uint8_t seq, uint8_t cell, uint8_t alerts) {
+  uint8_t frame[BleTelemetryCodec::MANUFACTURER_DATA_SIZE];
+  BleTelemetryCodec::encode(tiles, seq, cell, alerts, frame);
+  return telemetryHex(frame, sizeof(frame));
+}
+
+void testBleTelemetryFrameLayout() {
+  assert(BleTelemetryCodec::PAYLOAD_SIZE == 18);
+  assert(BleTelemetryCodec::MANUFACTURER_DATA_SIZE == 20); // company ID FF FF plus 18 payload bytes
+  // flags AD (3) + AD length and type (2) + 20 bytes = 25 of 31 bytes
+  assert(BleTelemetryCodec::ADVERTISING_SIZE == 25 && BleTelemetryCodec::ADVERTISING_SIZE <= 31);
+  BleTelemetryTile t[4] = {telemetryTile(true, 21.5f, 45.0f), telemetryTile(true, -3.25f, 60.5f),
+                           telemetryTile(true, 30.0f, 100.0f), telemetryTile(true, 0.0f, 0.0f)};
+  uint8_t f[BleTelemetryCodec::MANUFACTURER_DATA_SIZE];
+  BleTelemetryCodec::encode(t, 7, 80, 0, f);
+  assert(f[0] == 0xFF && f[1] == 0xFF && f[2] == 1 && f[3] == 7 && f[4] == 80 && f[5] == 0 && f[6] == 0x0F);
+  assert(f[7] == 0x66 && f[8] == 0x08 && f[9] == 90); // 2150 = 0x0866 little-endian, 45.0 %RH = 90
+  assert(f[10] == 0xBB && f[11] == 0xFE); // -325 as int16
+  assert(f[19] == Shtc3Codec::computeCrc8(f + 2, 17));
+}
+
+void testBleTelemetryEmptyAndStale() {
+  BleTelemetryTile t[4] = {telemetryTile(true, 22.0f, 40.0f), telemetryTile(false, 99.0f, 99.0f),
+                           telemetryTile(true, 18.75f, 52.5f), telemetryTile(false, 1.0f, 1.0f)};
+  uint8_t f[BleTelemetryCodec::MANUFACTURER_DATA_SIZE];
+  BleTelemetryCodec::encode(t, 8, 55, 1, f);
+  assert(f[6] == 0x05); // bit 0 and bit 2 only
+  for (size_t i : {size_t{10}, size_t{11}, size_t{12}, size_t{16}, size_t{17}, size_t{18}}) {
+    assert(f[i] == 0); // an empty or stale tile has zero bytes
+  }
+  // A NaN reading is no usable tile
+  t[0].temperature_c = NAN;
+  BleTelemetryCodec::encode(t, 8, 55, 1, f);
+  assert(f[6] == 0x04 && f[7] == 0 && f[8] == 0 && f[9] == 0);
+}
+
+void testBleTelemetryExtremesAndRounding() {
+  BleTelemetryTile cold[4], hot[4];
+  for (int i = 0; i < 4; ++i) {
+    cold[i] = telemetryTile(true, -50.0f, 0.0f);
+    hot[i] = telemetryTile(true, 100.0f, 100.0f);
+  }
+  uint8_t f[BleTelemetryCodec::MANUFACTURER_DATA_SIZE];
+  BleTelemetryCodec::encode(cold, 0, 100, 0, f);
+  assert(f[7] == 0x78 && f[8] == 0xEC && f[9] == 0); // -5000
+  BleTelemetryCodec::encode(hot, 1, 100, 255, f);
+  assert(f[7] == 0x10 && f[8] == 0x27 && f[9] == 200 && f[5] == 255); // 10000, 100 %RH
+  assert(BleTelemetryCodec::encodeHumidity(45.2f) == 90 && BleTelemetryCodec::encodeHumidity(45.3f) == 91);
+  assert(BleTelemetryCodec::encodeHumidity(45.74f) == 91 && BleTelemetryCodec::encodeHumidity(45.76f) == 92);
+  assert(BleTelemetryCodec::encodeHumidity(150.0f) == 200 && BleTelemetryCodec::encodeHumidity(-5.0f) == 0);
+  assert(BleTelemetryCodec::encodeTemperature(1000.0f) == 32767 && BleTelemetryCodec::encodeTemperature(-1000.0f) == -32768);
+}
+
+void testBleTelemetryCellAndSequence() {
+  BatteryReading b;
+  assert(BleTelemetryCodec::cellPercent(b) == 255); // invalid reading
+  b.valid = true;
+  b.percentage = -1;
+  assert(BleTelemetryCodec::cellPercent(b) == 255);
+  b.percentage = 0;
+  assert(BleTelemetryCodec::cellPercent(b) == 0);
+  b.percentage = 100;
+  assert(BleTelemetryCodec::cellPercent(b) == 100);
+  b.percentage = 101;
+  assert(BleTelemetryCodec::cellPercent(b) == 255);
+  assert(BleTelemetryCodec::sequenceFrom(255) == 255 && BleTelemetryCodec::sequenceFrom(256) == 0);
+  assert(static_cast<uint8_t>(BleTelemetryCodec::sequenceFrom(255) + 1) == BleTelemetryCodec::sequenceFrom(256));
+  BleTelemetryTile t[4] = {telemetryTile(true, 19.5f, 41.0f), telemetryTile(false, 0, 0), telemetryTile(false, 0, 0),
+                           telemetryTile(false, 0, 0)};
+  assert(telemetryFrameHex(t, 255, 90, 0) != telemetryFrameHex(t, 0, 90, 0));
+  assert(telemetryFrameHex(t, 255, 90, 0).substr(0, 8) == "FFFF01FF");
+  assert(telemetryFrameHex(t, 0, 90, 0).substr(0, 8) == "FFFF0100");
+}
+
+void testBleTelemetryCrc8() {
+  const uint8_t check[] = {0xBE, 0xEF}; // Sensirion datasheet value
+  assert(Shtc3Codec::computeCrc8(check, 2) == 0x92);
+  BleTelemetryTile t[4] = {telemetryTile(true, 20.0f, 50.0f), telemetryTile(false, 0, 0), telemetryTile(false, 0, 0),
+                           telemetryTile(false, 0, 0)};
+  uint8_t f[BleTelemetryCodec::MANUFACTURER_DATA_SIZE];
+  BleTelemetryCodec::encode(t, 3, 255, 0, f);
+  assert(f[19] == 0x83);
+  f[8] ^= 1; // one flipped bit changes the CRC
+  assert(Shtc3Codec::computeCrc8(f + 2, 17) != f[19]);
+}
+
+void testBleTelemetrySkipRules() {
+  BatteryReading ok;
+  ok.valid = true;
+  ok.percentage = 80;
+  assert(BleTelemetryCodec::shouldBroadcast(1, ok));
+  assert(!BleTelemetryCodec::shouldBroadcast(0, ok)); // key off
+  BatteryReading low = ok;
+  low.low_battery = true;
+  assert(!BleTelemetryCodec::shouldBroadcast(1, low));
+  BatteryReading empty = ok;
+  empty.empty_protection = true;
+  assert(!BleTelemetryCodec::shouldBroadcast(1, empty));
+}
+
+void testBleTelemetryBuildTiles() {
+  SwitchBotRegistry reg;
+  SwitchBotReading r;
+  r.valid = true; r.temperature_c = 18.5f; r.humidity_pct = 55; r.updated_ms = 1000;
+  reg.upsert(r, BleFormat::WOIO); // may need a distinct MAC; the first free slot takes it
+  Shtc3Reading onboard;
+  onboard.valid = true; onboard.temperature_c = 21.0f; onboard.humidity_pct = 40.0f;
+  BleTelemetryTile tiles[4];
+  const uint32_t stale = 30UL * 60UL * 1000UL;
+  BleTelemetryCodec::buildTiles(onboard, reg, 2000, stale, tiles);
+  assert(tiles[0].valid && tiles[0].temperature_c == 21.0f && tiles[0].humidity_pct == 40.0f);
+  assert(tiles[1].valid && tiles[1].temperature_c == 18.5f && tiles[1].humidity_pct == 55.0f);
+  assert(!tiles[2].valid && !tiles[3].valid); // empty slots
+  // A stale slot is no valid tile; unsigned arithmetic also holds over a clock wrap
+  BleTelemetryCodec::buildTiles(onboard, reg, 1000 + stale + 1, stale, tiles);
+  assert(!tiles[1].valid && tiles[0].valid);
+  BleTelemetryCodec::buildTiles(onboard, reg, 1000 + stale, stale, tiles);
+  assert(tiles[1].valid); // exactly at the limit is not stale
+  onboard.valid = false;
+  BleTelemetryCodec::buildTiles(onboard, reg, 2000, stale, tiles);
+  assert(!tiles[0].valid);
+  uint8_t f[BleTelemetryCodec::MANUFACTURER_DATA_SIZE];
+  BleTelemetryCodec::encode(tiles, 1, 50, 0, f);
+  assert(f[6] == 0x02); // only slot 1
+}
+
+void testBleTelemetryFixtureVectors() {
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  std::ifstream in(root + "tests/fixtures/ble_telemetry_vectors.txt");
+  assert(in.good());
+  std::string line;
+  int vectors = 0;
+  while (std::getline(in, line)) {
+    if (line.empty() || line[0] == '#') continue;
+    std::vector<std::string> f;
+    size_t start = 0;
+    while (true) {
+      const size_t bar = line.find(" | ", start);
+      f.push_back(line.substr(start, bar == std::string::npos ? std::string::npos : bar - start));
+      if (bar == std::string::npos) break;
+      start = bar + 3;
+    }
+    assert(f.size() == 9);
+    BleTelemetryTile tiles[4];
+    for (int i = 0; i < 4; ++i) {
+      const std::string& tf = f[4 + i];
+      if (tf == "-") {
+        tiles[i] = telemetryTile(false, 0.0f, 0.0f);
+      } else {
+        const size_t slash = tf.find('/');
+        assert(slash != std::string::npos);
+        tiles[i] = telemetryTile(true, strtof(tf.substr(0, slash).c_str(), nullptr),
+                                 strtof(tf.substr(slash + 1).c_str(), nullptr));
+      }
+    }
+    const std::string hex = telemetryFrameHex(tiles, static_cast<uint8_t>(atoi(f[1].c_str())),
+                                              static_cast<uint8_t>(atoi(f[2].c_str())),
+                                              static_cast<uint8_t>(atoi(f[3].c_str())));
+    assert(hex == f[8]);
+    assert(hex.size() == 2 * BleTelemetryCodec::MANUFACTURER_DATA_SIZE);
+    ++vectors;
+  }
+  assert(vectors == 9);
+}
+
+void testBleBroadcastConfig() {
+  DeviceConfig d;
+  assert(d.ble_broadcast_enabled == 0 && parseText("").ble_broadcast_enabled == 0);
+  ConfigParseResult r;
+  DeviceConfig c;
+  for (int v : {0, 1}) {
+    char line[48];
+    snprintf(line, sizeof(line), "ble_broadcast_enabled=%d\n", v);
+    c = DeviceConfig{};
+    r = DeviceConfigParser::parse(line, strlen(line), c);
+    assert(c.ble_broadcast_enabled == v && r.keys_set == 1 && r.rejected == 0);
+  }
+  for (const char* t : {"ble_broadcast_enabled=2\n", "ble_broadcast_enabled=-1\n", "ble_broadcast_enabled=abc\n",
+                        "ble_broadcast_enabled=\n", "ble_broadcast_enabled=1.5\n", "ble_broadcast_enabled=256\n"}) {
+    c = DeviceConfig{};
+    r = DeviceConfigParser::parse(t, strlen(t), c);
+    assert(c.ble_broadcast_enabled == 0 && r.rejected == 1 && r.keys_set == 0);
+  }
+  DeviceConfig inv;
+  inv.ble_broadcast_enabled = 2;
+  assert(!inv.valid());
+  inv.ble_broadcast_enabled = 1;
+  assert(inv.valid() && !inv.isDefault());
+  // CONFIG reply line
+  DeviceConfig cfg;
+  cfg.ble_broadcast_enabled = 1;
+  FakeSink on;
+  TestRunner::showConfig(on, cfg, true);
+  assert(on.out.find("\nble_broadcast_enabled=1\n") != std::string::npos);
+  FakeSink off;
+  TestRunner::showConfig(off, DeviceConfig{}, false);
+  assert(off.out.find("\nble_broadcast_enabled=0\n") != std::string::npos);
+  assert(DeviceConfigParser::checkSetting("ble_broadcast_enabled", 21, "1", 1) == DeviceConfigParser::SettingCheck::OK);
+  assert(DeviceConfigParser::checkSetting("ble_broadcast_enabled", 21, "2", 1) == DeviceConfigParser::SettingCheck::BAD_VALUE);
+}
+
+void testBleBroadcastRtcRoundTrip() {
+  PersistentState s;
+  s.config.ble_broadcast_enabled = 1;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(s, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.ble_broadcast_enabled == 1);
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE -
+                     PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 24 - 4 - 1 - 1;
+  assert(buf[pos] == 1);
+  auto seal = [](uint8_t* b) {
+    const uint32_t crc = PowerManager::crc32(b, PowerManager::SERIALIZED_SIZE - 4);
+    for (int i = 0; i < 4; ++i) b[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+  };
+  uint8_t bad[PowerManager::SERIALIZED_SIZE];
+  for (uint8_t v : {uint8_t{2}, uint8_t{255}}) { // corrupt field
+    memcpy(bad, buf, sizeof(bad));
+    bad[pos] = v;
+    seal(bad);
+    assert(!PowerManager::deserialize(bad, sizeof(bad), r));
+  }
+  memcpy(bad, buf, sizeof(bad));
+  bad[4] = 43; // old state version without the key
+  seal(bad);
+  assert(!PowerManager::deserialize(bad, sizeof(bad), r));
+  assert(PowerManager::STATE_VERSION == 44);
 }
 
 // ---- Heat alert (ALERT_HEAT, heat_alert_limit_c) ----
@@ -16013,6 +16266,16 @@ int main() {
   testNoiseAlertStepWiring();
   testNoiseAlertStatePersistence();
   testChimeAlertMask();
+  testBleTelemetryFrameLayout();
+  testBleTelemetryEmptyAndStale();
+  testBleTelemetryExtremesAndRounding();
+  testBleTelemetryCellAndSequence();
+  testBleTelemetryCrc8();
+  testBleTelemetrySkipRules();
+  testBleTelemetryBuildTiles();
+  testBleTelemetryFixtureVectors();
+  testBleBroadcastConfig();
+  testBleBroadcastRtcRoundTrip();
   testHeatAlert();
   testHeatAlertRtcRoundTrip();
   testHeatAlertEventsAndBeep();
@@ -16244,6 +16507,6 @@ testSerialConfigNegativeSmallOffset();
   testSensorStaleMinConfig();
   testConfigCheckTool();
   testSdCardStatus();
-  printf("All 170 firmware logic test suites passed.\n");
+  printf("All 180 firmware logic test suites passed.\n");
   return 0;
 }

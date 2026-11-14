@@ -3,6 +3,7 @@
 #include <BLEDevice.h>
 #include <BLEAdvertisedDevice.h>
 #include <BLEScan.h>
+#include <BLEAdvertising.h>
 #include <atomic>
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
@@ -12,6 +13,7 @@
 #include "audio_spectrum.h"
 #include "board_pins.h"
 #include "battery_monitor.h"
+#include "ble_telemetry.h"
 #include "button_handler.h"
 #include "clap_detector.h"
 #include "dashboard_view.h"
@@ -606,6 +608,47 @@ void refreshSensors() {
       config().staleTimeoutMs());
 }
 
+// Advertises the climate tiles as one non-connectable frame for 100 ms (interval 20 ms) and stops
+// the advertising again before the deep sleep. A low battery alert and the empty battery protection
+// skip it (BleTelemetryCodec::shouldBroadcast). Call it after refreshSensors() (tiles and cell) and
+// after the chime functions (chimeOnAlerts() stores the alert mask). The BLE scan is stopped here, so the registry needs no lock.
+void broadcastTelemetry() {
+  if (!BleTelemetryCodec::shouldBroadcast(config().ble_broadcast_enabled, g_state.battery)) {
+    return;
+  }
+  BleTelemetryTile tiles[BleTelemetryCodec::TILE_COUNT];
+  BleTelemetryCodec::buildTiles(g_onboard_reading, calibratedRegistry(), nowMs(), config().staleTimeoutMs(), tiles);
+  // AD structure: length, type 0xFF (Manufacturer Specific Data), company ID and payload. The frame
+  // holds NUL bytes, so addData(char*, size_t) takes it, not a String.
+  uint8_t ad[2 + BleTelemetryCodec::MANUFACTURER_DATA_SIZE];
+  ad[0] = static_cast<uint8_t>(1 + BleTelemetryCodec::MANUFACTURER_DATA_SIZE);
+  ad[1] = 0xFF;
+  BleTelemetryCodec::encode(tiles, BleTelemetryCodec::sequenceFrom(g_state.boot_count),
+                            BleTelemetryCodec::cellPercent(g_state.battery), g_state.alert_mask, ad + 2);
+  // The scan phase called deinit(false) before: init again for the advertising. A failed init skips the broadcast.
+  if (!BLEDevice::init("rlcd-panel")) {
+    Serial.println("BLE telemetry init failed");
+    return;
+  }
+  BLEAdvertising* advertising = BLEDevice::getAdvertising();
+  if (advertising != nullptr) {
+    BLEAdvertisementData adv_data;
+    adv_data.setFlags(0x06); // general discoverable, no BR/EDR
+    adv_data.addData(reinterpret_cast<char*>(ad), sizeof(ad));
+    advertising->setAdvertisementData(adv_data);
+    advertising->setAdvertisementType(BLE_GAP_CONN_MODE_NON); // non-connectable (NimBLE conn_mode)
+    advertising->setMinInterval(BleTelemetryCodec::INTERVAL_UNITS);
+    advertising->setMaxInterval(BleTelemetryCodec::INTERVAL_UNITS);
+    if (advertising->start()) {
+      delay(BleTelemetryCodec::ADVERTISE_MS);
+      advertising->stop();
+    } else {
+      Serial.println("BLE telemetry start failed");
+    }
+  }
+  BLEDevice::deinit(false);
+}
+
 void playChime(uint8_t bits) {
   if (bits != ALERT_NONE) {
     Es8311Hal hal;
@@ -900,7 +943,8 @@ void setup() {
 
   g_state.releaseDeadSlots(nowMs()); // before the scan, so a free slot takes a new sensor in this cycle
 
-  if (cycle.advance() == PowerPhase::SCAN) {
+  const bool scanned = cycle.advance() == PowerPhase::SCAN;
+  if (scanned) {
     g_state.last_scan_ms = nowMs();
     initBle();
     // The battery reading is from the last wake cycle: one cycle after a plug-in keeps the old power state.
@@ -921,6 +965,9 @@ void setup() {
   chimeOnChargeFull();
   chimeOnSensorBattery();
   chimeRepeat();
+  if (scanned) { // only a cycle with a scan broadcasts, so the frame follows each scan
+    broadcastTelemetry();
+  }
   logToSdCard(); // after the render: the display shows fresh data even if the card is slow
   // The sync runs after the first render, so a slow or absent network never delays the display.
   // A new time redraws the header clock.
