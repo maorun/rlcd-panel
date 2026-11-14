@@ -283,6 +283,23 @@ public struct ConfigReply: Equatable {
 
     /// `ble_console` value; 0 when the firmware does not report the key.
     public var bleConsoleLevel: Int { Int(values["ble_console"] ?? "") ?? 0 }
+
+    /// Sensor name for tile index (0 = onboard_name, 1..5 = slot1_name..slot5_name).
+    public func name(forSlot slot: Int) -> String? {
+        if slot == 0 {
+            if let n = values["onboard_name"], !n.isEmpty { return n }
+        } else if (1...5).contains(slot) {
+            if let n = values["slot\(slot)_name"], !n.isEmpty { return n }
+        }
+        return nil
+    }
+
+    /// Fixed MAC for slot index (1..5 = slot1_mac..slot5_mac).
+    public func mac(forSlot slot: Int) -> String? {
+        guard (1...5).contains(slot) else { return nil }
+        if let m = values["slot\(slot)_mac"], !m.isEmpty { return m }
+        return nil
+    }
 }
 
 /// The console commands that the app may send. The app sends one only after a user action.

@@ -27,22 +27,22 @@ struct BleTelemetryTile {
 
 // Manufacturer Data frame of the BLE telemetry broadcast.
 //
-// Payload (after the company ID), 18 bytes:
-//   0     format version (1)
+// Payload (after the company ID), 24 bytes:
+//   0     format version (2)
 //   1     sequence number (low byte of the wake cycle counter)
 //   2     cell percentage (0..100, 255 = unknown)
 //   3     active alert mask (ALERT_* bits)
-//   4     valid tile mask (bit 0 onboard, bits 1..3 slots 1..3; slots 4 and 5 are not broadcast)
-//   5..16 four tiles, each: temperature int16 little-endian in 0.01 C, humidity uint8 in 0.5 %RH
-//   17    CRC-8 (0x31, Shtc3Codec::computeCrc8) over bytes 0..16
-// Manufacturer Data field: company ID 0xFFFF (bytes FF FF) + payload = 20 bytes.
-// Advertising data: flags (3 bytes) + length and type AD (2 bytes) + 20 bytes = 25 bytes of 31.
+//   4     valid tile mask (bit 0 onboard, bits 1..5 slots 1..5)
+//   5..22 six tiles, each: temperature int16 little-endian in 0.01 C, humidity uint8 in 0.5 %RH
+//   23    CRC-8 (0x31, Shtc3Codec::computeCrc8) over bytes 0..22
+// Manufacturer Data field: company ID 0xFFFF (bytes FF FF) + payload = 26 bytes.
+// Advertising data: flags (3 bytes) + length and type AD (2 bytes) + 26 bytes = 31 bytes of 31.
 class BleTelemetryCodec {
 public:
   static constexpr uint16_t COMPANY_ID = 0xFFFF;
-  static constexpr uint8_t FORMAT_VERSION = 1;
+  static constexpr uint8_t FORMAT_VERSION = 2;
   static constexpr uint8_t CELL_UNKNOWN = 255;
-  static constexpr size_t TILE_COUNT = 4;
+  static constexpr size_t TILE_COUNT = 6;
   static constexpr size_t PAYLOAD_SIZE = 5 + TILE_COUNT * 3 + 1;
   static constexpr size_t MANUFACTURER_DATA_SIZE = 2 + PAYLOAD_SIZE;
   static constexpr size_t FLAGS_AD_SIZE = 3;
@@ -108,7 +108,7 @@ public:
     encodePayload(tiles, sequence, cell_pct, alert_mask, out + 2);
   }
 
-  // Builds the four tiles: tile 0 is the onboard reading, tiles 1..3 are the registry slots. A slot
+  // Builds the six tiles: tile 0 is the onboard reading, tiles 1..5 are the registry slots. A slot
   // that is empty or stale (older than `stale_timeout_ms`) is no valid tile. Pass the calibrated
   // registry, so the frame shows the same values as the screen.
   static void buildTiles(const Shtc3Reading& onboard, const SwitchBotRegistry& registry, uint32_t now_ms,

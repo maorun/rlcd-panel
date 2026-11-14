@@ -44,14 +44,14 @@ public enum TelemetryError: Error, Equatable {
 
 /// Decoded Manufacturer Data frame of the BLE telemetry broadcast (`ble_telemetry.h`).
 ///
-/// Layout (20 bytes): company ID `FF FF`, version, sequence, cell percentage (255 unknown),
-/// alert mask, valid tile mask, four tiles (int16 LE in 0.01 C, uint8 in 0.5 %RH), CRC-8 over
-/// the 17 bytes before it.
+/// Layout (26 bytes): company ID `FF FF`, version, sequence, cell percentage (255 unknown),
+/// alert mask, valid tile mask, six tiles (int16 LE in 0.01 C, uint8 in 0.5 %RH), CRC-8 over
+/// the 23 bytes before it.
 public struct TelemetryFrame: Equatable {
     public static let companyId: UInt16 = 0xFFFF
-    public static let formatVersion: UInt8 = 1
-    public static let size = 20
-    public static let tileCount = 4
+    public static let formatVersion: UInt8 = 2
+    public static let size = 26
+    public static let tileCount = 6
 
     public let sequence: UInt8
     /// `nil` when the cell percentage is unknown (255) or out of range.
@@ -66,8 +66,8 @@ public struct TelemetryFrame: Equatable {
         let company = UInt16(b[0]) | UInt16(b[1]) << 8
         guard company == companyId else { throw TelemetryError.wrongCompanyId(company) }
         guard b[2] == formatVersion else { throw TelemetryError.unknownVersion(b[2]) }
-        let expected = Checksums.crc8(b[2..<19])
-        guard b[19] == expected else { throw TelemetryError.badCrc(expected: expected, actual: b[19]) }
+        let expected = Checksums.crc8(b[2..<25])
+        guard b[25] == expected else { throw TelemetryError.badCrc(expected: expected, actual: b[25]) }
 
         let validMask = b[6]
         var tiles: [TelemetryTile] = []
