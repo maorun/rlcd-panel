@@ -23,6 +23,10 @@ final class AppModel: ConsoleLinkDelegate {
     var message: String?
     /// Wall clock for the age of the last frame. A 30 s tick refreshes it, so the menu bar shows `--` for a silent panel.
     var now = Date()
+    /// Peripherals that sent a valid frame or the console service, strongest signal first.
+    var discovered = DiscoveryList()
+    /// The pinned panel, `nil` without a pin.
+    var pinnedPanel: UUID?
     var setKey = ""
     var setValue = ""
     private var pendingCommand: ConsoleCommand?
@@ -30,6 +34,7 @@ final class AppModel: ConsoleLinkDelegate {
     private var assembler = ReplyAssembler()
     private var timeout: Task<Void, Never>?
 
+    private let pin = PanelPin(store: UserDefaults.standard)
     let scanner = BluetoothScanner()
     private let serial = SerialLink()
 
@@ -38,6 +43,8 @@ final class AppModel: ConsoleLinkDelegate {
     var canSet: Bool { consoleConnected && (transport == .usb || consoleLevel == 2) }
     /// A frame older than this shows `--`. It exceeds the longest firmware wake interval (night, 1800 s), so a silent panel never looks current.
     static let staleSeconds: TimeInterval = 1900
+    /// A discovered peripheral leaves the list after this time without a packet.
+    static let discoveryKeepSeconds: TimeInterval = 120
     /// The menu bar text.
     var menuBarText: String {
         guard let date = frameDate, now.timeIntervalSince(date) < Self.staleSeconds else { return "-- °C" }
@@ -53,9 +60,15 @@ final class AppModel: ConsoleLinkDelegate {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
                 self?.now = Date()
+                self?.discovered.prune(olderThan: Self.discoveryKeepSeconds, at: Date())
             }
         }
+        pinnedPanel = pin.pinned
+        scanner.pin = pin
         scanner.delegate = self
+        scanner.onPeripheral = { [weak self] id, name, r in
+            self?.discovered.record(id: id, name: name, rssi: r, at: Date())
+        }
         serial.delegate = self
         scanner.onBluetoothState = { [weak self] in self?.bluetoothState = $0 }
         scanner.onConsoleAvailable = { [weak self] in self?.consoleAvailable = $0 }
@@ -70,6 +83,34 @@ final class AppModel: ConsoleLinkDelegate {
     /// Starts the BLE console connection. The user presses the button; the scan alone never connects.
     func connectConsole() {
         if transport == .bluetooth { scanner.setConsoleWanted(true) } else if let e = serial.open() { consoleState = e }
+    }
+
+    /// Pins one panel. The app then shows only its frames and connects the console only to it.
+    func pinPanel(_ id: UUID) {
+        pin.pin(id)
+        pinnedPanel = id
+        if transport == .bluetooth { disconnectConsole() }
+        discovered.keepOnly(id)
+        clearPanelData() // the data may come from another panel
+    }
+
+    /// "Forget panel": clears the pin. The app then behaves as without a pin.
+    func forgetPanel() {
+        pin.clear()
+        pinnedPanel = nil
+        if transport == .bluetooth { disconnectConsole() }
+        clearPanelData()
+    }
+
+    private func clearPanelData() {
+        consoleAvailable = false
+        frame = nil
+        frameDate = nil
+        rssi = nil
+        status = nil
+        history = []
+        events = []
+        config = nil
     }
 
     func disconnectConsole() {
@@ -95,6 +136,7 @@ final class AppModel: ConsoleLinkDelegate {
 
     /// Drops the running command, the queue, the half-received reply and the timeout of the old link.
     private func abandonCommands() {
+        if transport == .bluetooth { scanner.commandDidFinish() }
         timeout?.cancel()
         timeout = nil
         pendingCommand = nil
@@ -133,6 +175,7 @@ final class AppModel: ConsoleLinkDelegate {
 
     /// Fails the running command after 10 s without a received chunk. Each chunk restarts the timer.
     private func armTimeout(for cmd: ConsoleCommand) {
+        guard transport == .usb else { return } // the BLE watchdog of the scanner owns the BLE timeouts
         timeout?.cancel()
         timeout = Task { [weak self] in
             try? await Task.sleep(for: .seconds(10))
@@ -172,6 +215,7 @@ final class AppModel: ConsoleLinkDelegate {
         guard let cmd = pendingCommand else { return } // an unrequested reply is ignored
         timeout?.cancel()
         pendingCommand = nil
+        activeLink.commandDidFinish()
         defer { sendNext() }
         do {
             switch (cmd, reply) {

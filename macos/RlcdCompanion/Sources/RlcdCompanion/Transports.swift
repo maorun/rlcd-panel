@@ -12,12 +12,22 @@ protocol ConsoleLinkDelegate: AnyObject {
 protocol ConsoleLink: AnyObject {
     var delegate: ConsoleLinkDelegate? { get set }
     func send(_ data: Data)
+    /// The reply of the running command is complete or the command is dropped.
+    func commandDidFinish()
     func close()
+}
+
+extension ConsoleLink {
+    func commandDidFinish() {}
 }
 
 /// Passive scanner for the telemetry frame and the console bridge. It writes nothing to the panel.
 final class BluetoothScanner: NSObject, CBCentralManagerDelegate, CBPeripheralDelegate, ConsoleLink {
     var onFrame: ((TelemetryFrame, Int) -> Void)?
+    /// Called for each accepted peripheral that sends a valid frame or the console service: identifier, name, RSSI.
+    var onPeripheral: ((UUID, String?, Int) -> Void)?
+    /// With a pin, the scanner passes only packets of the pinned UUID and connects only to it.
+    var pin: PanelPin?
     var onBluetoothState: ((String) -> Void)?
     /// Called when a peripheral advertises the console service.
     var onConsoleAvailable: ((Bool) -> Void)?
@@ -27,11 +37,31 @@ final class BluetoothScanner: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     private var peripheral: CBPeripheral?
     private var rx: CBCharacteristic?
     private var wantsConsole = false
+    private var watchdog = LinkWatchdog(clock: { ProcessInfo.processInfo.systemUptime })
+    private var watchdogTimer: Timer?
+    /// Chunks of the running command. The next chunk goes out after the write response of the last one.
+    private var pendingChunks: [Data] = []
+    private var writing = false
+    /// A write response is due. A reply can arrive before it, so it may outlive its command.
+    private var writeInFlight = false
+    /// A command waits for its reply. Without it, the last write response starts no command timer.
+    private var commandActive = false
     private let service = CBUUID(string: ConsoleBridge.serviceUUID)
 
     override init() {
         super.init()
         central = CBCentralManager(delegate: self, queue: .main)
+        watchdogTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in
+            MainActor.assumeIsolated { self?.tickWatchdog() }
+        }
+    }
+
+    deinit { watchdogTimer?.invalidate() }
+
+    /// A timeout closes the link and drops the command queue (the model abandons its queue on the state change).
+    private func tickWatchdog() {
+        guard let failure = watchdog.check() else { return }
+        fail(failure.reason)
     }
 
     /// Allows the connection to a console bridge that the scan finds. The user switches it on with a button. No command goes out by itself.
@@ -54,16 +84,24 @@ final class BluetoothScanner: NSObject, CBCentralManagerDelegate, CBPeripheralDe
 
     func centralManager(_ c: CBCentralManager, didDiscover p: CBPeripheral,
                         advertisementData ad: [String: Any], rssi: NSNumber) {
+        guard pin?.accepts(p.identifier) ?? true else { return } // a neighbor panel stays invisible
+        let name = p.name ?? ad[CBAdvertisementDataLocalNameKey] as? String
+        var listed = false
         if let data = ad[CBAdvertisementDataManufacturerDataKey] as? Data,
            data.count == TelemetryFrame.size, let frame = try? TelemetryFrame.decode(data) {
+            listed = true
             onFrame?(frame, rssi.intValue)
         }
-        if let uuids = ad[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID], uuids.contains(service) {
+        let hasConsole = (ad[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID])?.contains(service) == true
+        // RSSI 127 means "not available": it would sort to the top of the list.
+        if (listed || hasConsole), rssi.intValue != 127 { onPeripheral?(p.identifier, name, rssi.intValue) }
+        if hasConsole {
             onConsoleAvailable?(true)
             if wantsConsole, peripheral == nil {
                 peripheral = p
                 p.delegate = self
                 c.connect(p)
+                watchdog.beginConnect()
                 delegate?.linkDidChange(self, state: "Connecting to console", connected: false)
             }
         }
@@ -78,6 +116,7 @@ final class BluetoothScanner: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         guard p === peripheral else { return }
         peripheral = nil
         wantsConsole = false // a new connection needs a new button press
+        resetWrites()
         delegate?.linkDidChange(self, state: "Console connection failed", connected: false)
     }
 
@@ -86,6 +125,7 @@ final class BluetoothScanner: NSObject, CBCentralManagerDelegate, CBPeripheralDe
         peripheral = nil
         wantsConsole = false // a new connection needs a new button press
         rx = nil
+        resetWrites()
         delegate?.linkDidChange(self, state: "Console disconnected", connected: false)
         onConsoleAvailable?(false)
     }
@@ -118,29 +158,79 @@ final class BluetoothScanner: NSObject, CBCentralManagerDelegate, CBPeripheralDe
     func peripheral(_ p: CBPeripheral, didUpdateNotificationStateFor ch: CBCharacteristic, error: Error?) {
         guard p === peripheral else { return }
         guard error == nil, ch.isNotifying, rx != nil else { return fail("Console notification failed") }
+        watchdog.connected()
         delegate?.linkDidChange(self, state: "Console connected (BLE)", connected: true)
     }
 
     func peripheral(_ p: CBPeripheral, didUpdateValueFor ch: CBCharacteristic, error: Error?) {
         guard p === peripheral else { return }
-        if ch.uuid == CBUUID(string: ConsoleBridge.txUUID), let v = ch.value { delegate?.linkDidReceive(self, v) }
+        if ch.uuid == CBUUID(string: ConsoleBridge.txUUID), let v = ch.value {
+            watchdog.chunkReceived()
+            delegate?.linkDidReceive(self, v)
+        }
     }
 
+    func peripheral(_ p: CBPeripheral, didWriteValueFor ch: CBCharacteristic, error: Error?) {
+        guard p === peripheral else { return }
+        guard writing, writeInFlight else { return }
+        writeInFlight = false
+        watchdog.writeCompleted()
+        guard error == nil else { return fail("Console write failed") }
+        writeNextChunk()
+    }
+
+    /// Writes the chunks one after the other. Each chunk waits for the write response of the last one.
     func send(_ data: Data) {
-        guard let p = peripheral, let rx else { return }
+        guard let p = peripheral, rx != nil else {
+            // No link to write to: end the command now, so it never waits without an end.
+            delegate?.linkDidChange(self, state: "Console not connected", connected: false)
+            return
+        }
         let size = max(20, p.maximumWriteValueLength(for: .withResponse))
         var offset = 0
         while offset < data.count {
             let end = min(offset + size, data.count)
-            p.writeValue(data.subdata(in: offset..<end), for: rx, type: .withResponse)
+            pendingChunks.append(data.subdata(in: offset..<end))
             offset = end
         }
+        commandActive = true
+        if !writing { writeNextChunk() }
+    }
+
+    private func writeNextChunk() {
+        guard let p = peripheral, let rx else { return resetWrites() }
+        guard !pendingChunks.isEmpty else {
+            writing = false
+            if commandActive { watchdog.beginCommand() } // all chunks are out: the panel must answer
+            return
+        }
+        writing = true
+        writeInFlight = true
+        watchdog.beginWrite()
+        p.writeValue(pendingChunks.removeFirst(), for: rx, type: .withResponse)
+    }
+
+    private func resetWrites() {
+        pendingChunks.removeAll()
+        writing = false
+        writeInFlight = false
+        commandActive = false
+        watchdog.cancel()
+    }
+
+    /// The command ended: the reply is complete, or the model dropped it. A write response may still be due.
+    /// CoreBluetooth answers each write, so the 5 s write timer keeps guarding it and the next write waits for it.
+    func commandDidFinish() {
+        commandActive = false
+        pendingChunks.removeAll()
+        watchdog.commandFinished()
     }
 
     /// Ends the console connection. The scanner reports the change itself, because the disconnect
     /// callback of the dropped peripheral no longer matches `peripheral`.
     func close() {
         wantsConsole = false // a new connection needs a new button press
+        resetWrites()
         guard let p = peripheral else { return }
         central.cancelPeripheralConnection(p)
         peripheral = nil
@@ -214,4 +304,8 @@ final class SerialLink: ConsoleLink {
         fd = -1
         delegate?.linkDidChange(self, state: "Console closed", connected: false)
     }
+}
+
+extension UserDefaults: PinStore {
+    public func set(_ value: String?, forKey key: String) { set(value as Any?, forKey: key) }
 }

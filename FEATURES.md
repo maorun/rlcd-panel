@@ -1011,3 +1011,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The app stores no data on the panel.
 - The tests read `tests/fixtures/ble_telemetry_vectors.txt` and decode each vector with the values of the C++ test. They also test the four rejection cases, the parsers of the four replies, the CRC-32, a changed byte and a reply split over several notifications.
 - The CI job `macOS companion tests` runs `swift test` and `swift build -c release` on `macos-latest`.
+
+## Panel pinning and deterministic connection timeouts in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/PanelPin.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/LinkWatchdog.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/Transports.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift`.
+- The window lists each peripheral that sends a valid telemetry frame or the console service. Each row shows the name, the RSSI and the age of the last packet. The strongest signal is first. A peripheral without a packet for 120 s leaves the list.
+- The `Pin` button stores the `CBPeripheral.identifier` UUID through `PanelPin`. `PinStore` is a small key-value protocol: the app uses `UserDefaults`, the tests use `InMemoryPinStore`. A stored text that is not a UUID counts as no pin.
+- With a pin, `BluetoothScanner` drops each packet of another UUID and connects the console only to the pinned UUID. Without a pin, the behavior does not change. The `Forget panel` button clears the pin.
+- `LinkWatchdog` is a pure state machine with an injected clock. It fails a connection attempt after 10 s without `Console connected`, a BLE write after 5 s without `didWriteValueFor`, and a command after 10 s without a chunk. Each received chunk restarts the command timer. A cancel ends all timers without a failure.
+- Each failure gives one fixed reason text, closes the link and drops the command queue.
+- `BluetoothScanner.send` splits a command into chunks. It writes one chunk and waits for its write response before it writes the next chunk. A failed write closes the link.
+- USB serial keeps the 10 s command timer of `AppModel`.
+- The tests step `LinkWatchdog` with a fake clock: a connect timeout at 10 s, no timeout at 9.9 s, a write timeout at 5 s, a restart of the command timer by each chunk and no timeout after a cancel. They also store, read and clear a pin, reject a malformed UUID text and filter the frames of a second UUID.
