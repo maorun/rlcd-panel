@@ -269,6 +269,8 @@ The console command `STATUS` also shows the line `RUNTIME h=<N|--> samples=<N> c
 
 The console command `STATUS` also shows the line `AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>` after the `RUNTIME` line and before the `CRC32` line. The wake cycle measures `millis()` just before the deep sleep. Only a timer wakeup on battery power adds a sample. A power-on, a `KEY` wakeup and a cycle on USB power add none. `last_ms` is the last value, `max_ms` the maximum and `avg_ms` the mean of the last 24 samples (32 ms steps). Each value saturates at 65535 ms. All fields show `--` while `samples` is 0. From 8 samples the runtime estimate uses `avg_ms` instead of the constant 10 s awake time.
 
+A timer wakeup skips the panel start and the flush, when the frame equals the last flushed frame (CRC-32 after `display_invert`) and the view did not change. The reflective panel keeps its image without power. A power-on, a `KEY` wakeup, a view change, the console command `PATTERN` and each 61st cycle in a row flush. The CRC-32 and the skip counter (5 bytes) stay in RTC memory. The code is in `rlcd_panel/frame_refresh.h`.
+
 The firmware keeps the last 16 events (alert edges, config loads, NTP results, low battery alert, empty protection, resets and sensor slot changes) in the RTC memory. The hourly write appends them to `/sdcard/events_v1_YYYY.csv` (columns `time,event,detail`) and clears the ring. A lost event adds the row `EVENTS_DROPPED,<N>`. `LIST`, `DUMP events_v1_YYYY.csv` and `./scripts/dump-logs.sh` handle the file, and the retention counts it as December of its year. The code is in `rlcd_panel/sd_logger.h`.
 
 ## Ambient Noise Monitor
