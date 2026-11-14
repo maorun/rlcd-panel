@@ -1,0 +1,19 @@
+# Shared test vectors of the BLE telemetry frame (rlcd_panel/ble_telemetry.h).
+# Read by the C++ host tests; the macOS companion app reads the same file.
+# Layout: the Manufacturer Data field after the AD length and type bytes (0xFF) is 20 bytes:
+#   company ID FF FF (2 bytes), then the 18 byte payload:
+#   version (1), sequence (1), cell pct (1, 255 unknown), alert mask (1), valid tile mask (1),
+#   four tiles of temperature int16 little-endian in 0.01 C and humidity uint8 in 0.5 %RH (12),
+#   CRC-8 (poly 0x31, init 0xFF) over the 17 bytes before it (1).
+# With the 3 byte flags AD (02 01 06) and the 2 byte AD header the advertising data is 25 of 31 bytes.
+# Line: name | sequence | cell | alerts | tile0 | tile1 | tile2 | tile3 | hex
+# A tile is "temp_c/rh_pct" or "-" for an empty or stale tile. The hex has no spaces.
+four_valid | 7 | 80 | 0 | 21.5/45.0 | -3.25/60.5 | 30.0/100.0 | 0.0/0.0 | FFFF010750000F66085ABBFE79B80BC8000000B3
+empty_slot_and_stale_slot | 8 | 55 | 1 | 22.0/40.0 | - | 18.75/52.5 | - | FFFF0108370105980850000000530769000000B0
+extremes_cold_dry | 0 | 100 | 0 | -50.0/0.0 | -50.0/0.0 | -50.0/0.0 | -50.0/0.0 | FFFF010064000F78EC0078EC0078EC0078EC001E
+extremes_hot_wet | 1 | 100 | 255 | 100.0/100.0 | 100.0/100.0 | 100.0/100.0 | 100.0/100.0 | FFFF010164FF0F1027C81027C81027C81027C852
+rh_rounding | 2 | 50 | 0 | 20.0/45.2 | 20.0/45.3 | 20.0/45.74 | 20.0/45.76 | FFFF010232000FD0075AD0075BD0075BD0075CB5
+cell_unknown | 3 | 255 | 0 | 20.0/50.0 | - | - | - | FFFF0103FF0001D0076400000000000000000083
+sequence_wrap_255 | 255 | 90 | 0 | 19.5/41.0 | - | - | - | FFFF01FF5A00019E0752000000000000000000DC
+sequence_wrap_0 | 0 | 90 | 0 | 19.5/41.0 | - | - | - | FFFF01005A00019E075200000000000000000013
+all_empty | 9 | 70 | 128 | - | - | - | - | FFFF0109468000000000000000000000000000F4

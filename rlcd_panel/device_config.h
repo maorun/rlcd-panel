@@ -76,6 +76,8 @@ struct DeviceConfig {
   static constexpr uint8_t DEFAULT_HEAT_ALERT_LIMIT_C = 0; // 0 switches the heat alert off
   static constexpr uint8_t MIN_HEAT_ALERT_LIMIT_C = 27;
   static constexpr uint8_t MAX_HEAT_ALERT_LIMIT_C = 45;
+  static constexpr uint8_t DEFAULT_BLE_BROADCAST_ENABLED = 0; // 0 sends no BLE telemetry
+  static constexpr uint8_t MAX_BLE_BROADCAST_ENABLED = 1;
   static constexpr uint8_t DEFAULT_CLIMATE_ALERT_TILES = 15; // all four tiles feed the freezer and mold alerts
   static constexpr uint8_t MAX_CLIMATE_ALERT_TILES = 15;
   static constexpr uint32_t SCAN_DURATION_S = 4; // scan time that adds to the wake interval
@@ -124,6 +126,7 @@ struct DeviceConfig {
   char temp_unit = DEFAULT_TEMP_UNIT; // 'C' or 'F': only the screen and the console command STATUS use it; the card files, limits and alerts stay in Celsius
   uint8_t chime_repeat_h = DEFAULT_CHIME_REPEAT_H; // hours until the chime of an active alert sounds again, 0 = off, else 1..24
   uint8_t heat_alert_limit_c = DEFAULT_HEAT_ALERT_LIMIT_C; // feels-like limit of the heat alert in C, 0 = off, else 27..45
+  uint8_t ble_broadcast_enabled = DEFAULT_BLE_BROADCAST_ENABLED; // 1 = advertise the climate tiles after each scan (ble_telemetry.h), 0 = off
   uint8_t climate_alert_tiles = DEFAULT_CLIMATE_ALERT_TILES; // bit 0 onboard, bits 1..3 slots 1..3: tiles of the freezer and mold alerts, 0..15
 
   // Release time in ms of a silent slot without a fixed MAC (0 = never). 168 h fit into 32 bits.
@@ -231,6 +234,7 @@ struct DeviceConfig {
            slot_release_h <= MAX_SLOT_RELEASE_H && chime_repeat_h <= MAX_CHIME_REPEAT_H &&
            (heat_alert_limit_c == 0 ||
             (heat_alert_limit_c >= MIN_HEAT_ALERT_LIMIT_C && heat_alert_limit_c <= MAX_HEAT_ALERT_LIMIT_C)) &&
+           ble_broadcast_enabled <= MAX_BLE_BROADCAST_ENABLED &&
            (night_wake_interval_s == 0 ||
             (night_wake_interval_s >= MIN_NIGHT_WAKE_INTERVAL_S && night_wake_interval_s <= MAX_NIGHT_WAKE_INTERVAL_S));
   }
@@ -261,7 +265,7 @@ struct DeviceConfig {
            climate_alert_tiles == d.climate_alert_tiles && battery_offset_mv == d.battery_offset_mv &&
            slot_release_h == d.slot_release_h && night_wake_interval_s == d.night_wake_interval_s &&
            temp_unit == d.temp_unit && chime_repeat_h == d.chime_repeat_h &&
-           heat_alert_limit_c == d.heat_alert_limit_c;
+           heat_alert_limit_c == d.heat_alert_limit_c && ble_broadcast_enabled == d.ble_broadcast_enabled;
   }
 };
 
@@ -309,7 +313,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 4096;
-  static constexpr size_t KEY_COUNT = 38;
+  static constexpr size_t KEY_COUNT = 39;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -325,7 +329,7 @@ public:
       "slot1_name", "slot2_name", "slot3_name",
       "slot1_mac", "slot2_mac", "slot3_mac",
       "slot_release_h", "night_wake_interval_s", "temp_unit",
-      "chime_repeat_h", "heat_alert_limit_c",
+      "chime_repeat_h", "heat_alert_limit_c", "ble_broadcast_enabled",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -706,6 +710,9 @@ private:
     } else if (keyIs(key, key_len, "heat_alert_limit_c")) {
       index = 37;
       ok = parseHeatLimit(val, val_len, cfg.heat_alert_limit_c);
+    } else if (keyIs(key, key_len, "ble_broadcast_enabled")) {
+      index = 38;
+      ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_BLE_BROADCAST_ENABLED, cfg.ble_broadcast_enabled);
     } else if (keyIs(key, key_len, "outdoor_slot")) {
       index = 26;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_OUTDOOR_SLOT, cfg.outdoor_slot);
@@ -775,6 +782,7 @@ public:
     ok = ok && putLine(out, cap, pos, "temp_unit", cfg.temp_unit == 'F' ? "F" : "C");
     ok = ok && putInt(out, cap, pos, "chime_repeat_h", cfg.chime_repeat_h);
     ok = ok && putInt(out, cap, pos, "heat_alert_limit_c", cfg.heat_alert_limit_c);
+    ok = ok && putInt(out, cap, pos, "ble_broadcast_enabled", cfg.ble_broadcast_enabled);
     ok = ok && putInt(out, cap, pos, "outdoor_slot", cfg.outdoor_slot);
     ok = ok && putInt(out, cap, pos, "ventilate_limit_rh", cfg.ventilate_limit_rh);
     ok = ok && putInt(out, cap, pos, "sensor_battery_limit_pct", cfg.sensor_battery_limit_pct);

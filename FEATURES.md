@@ -934,3 +934,16 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - During the command, the BLE callback fills the collector only. The registry, the fixed MAC slots, the reject counters and `PersistentState` stay unchanged. The command needs no card. It runs on USB power only (`PowerManager::serialConsoleAllowed`).
 - Thus the user finds the MAC of a new sensor for a `slotN_mac` entry.
 - Host tests cover the parser, the rejection of arguments, an empty scan, one packet of each format, two packets of one MAC with different RSSI, the slot column for an assigned, a fixed and a free MAC, 17 and 18 MAC addresses with the `DROPPED` row, the CRC-32 value, the unchanged registry, the short write, the failed scan start and the USB power gate.
+
+## BLE telemetry broadcast of the climate tiles
+
+- **Code:** `rlcd_panel/ble_telemetry.h`, `rlcd_panel/rlcd_panel.ino`, `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `docs/config.example.ini`, `tests/fixtures/ble_telemetry_vectors.txt`.
+- The `config.ini` key `ble_broadcast_enabled` (0 or 1, default 0) switches the broadcast on. The parser rejects 2 and a malformed value.
+- `BleTelemetryCodec` encodes one Manufacturer Data frame of 20 bytes: the company ID `0xFFFF` and an 18-byte payload. The flags field (3 bytes) and the AD header (2 bytes) bring the advertising data to 25 bytes. The limit is 31 bytes.
+- The payload holds the format version (1), the sequence number, the cell percentage (255 is unknown), the alert mask, the valid tile mask, four tiles and a CRC-8 (`0x31`).
+- Each tile holds the temperature (`int16`, 0.01 C, little-endian) and the relative humidity (`uint8`, 0.5 %RH). An empty or stale tile has its bit cleared in the valid mask and zero bytes. The temperature stays in Celsius.
+- After the scan, the wake cycle advertises the frame as non-connectable for 100 ms (interval 20 ms). The advertising stops before the deep sleep.
+- A low battery alert and the empty battery protection skip the broadcast.
+- The key uses 1 byte in the config trailer after `heat_alert_limit_c`. The state version is 44. The console command `CONFIG` shows `ble_broadcast_enabled=<N>`.
+- Thus a host reads all four tiles without a cable.
+- Host tests cover four valid tiles, an empty and a stale slot, the extreme values, the rounding to 0.5 %RH, the unknown cell percentage, the sequence wrap, the CRC-8, the frame size, the skip rules, the parser, the `CONFIG` line, the template sync and the RTC round trip with a corrupt field and the old state version. A test compares each shared hex vector byte for byte.

@@ -204,6 +204,8 @@ temp_unit=C
 chime_repeat_h=0
 # Feels-like temperature in C at which the heat alert starts: 0 is off, else 27 to 45 (releases 2 C below)
 heat_alert_limit_c=0
+# BLE telemetry of the four climate tiles after each scan: 0 is off, 1 is on (a low battery alert and the empty battery protection skip it)
+ble_broadcast_enabled=0
 # Tiles of the freezer and mold alerts: bit 0 onboard, bits 1 to 3 slots 1 to 3 (0 to 15)
 climate_alert_tiles=15
 outdoor_slot=0
@@ -216,6 +218,24 @@ sensor_battery_limit_pct=10
 ```
 
 A value that is missing, malformed, or outside its range keeps the default. The file limit is 4096 bytes. Use LF or CRLF line ends. Equal start and end hours switch the quiet hours off. Wi-Fi credentials never come from the card. The `slotN_*` offsets and `slotN_name` names belong to the slot position, not to the sensor. A name replaces the tile title and the `S1` to `S3` label in the stats view; a name with a lowercase letter, another symbol or more than 12 characters is rejected. The ranges are in `FEATURES.md`.
+
+### BLE telemetry broadcast
+
+With `ble_broadcast_enabled=1`, the wake cycle advertises the four climate tiles after each scan. The advertisement is non-connectable, lasts 100 ms (interval 20 ms) and stops before the deep sleep. A low battery alert and the empty battery protection skip it. The key is 0 by default.
+
+The Manufacturer Data field has 20 bytes: the company ID `0xFFFF` (`FF FF`) and an 18-byte payload. With the 3-byte flags field and the 2-byte AD header, the advertising data has 25 of 31 bytes.
+
+| Byte | Content |
+| ---- | ------- |
+| 0 | Format version (1) |
+| 1 | Sequence number (wake cycle counter, wraps 255 to 0) |
+| 2 | Cell percentage (255 is unknown) |
+| 3 | Active alert mask |
+| 4 | Valid tile mask (bit 0 onboard, bits 1 to 3 slots 1 to 3) |
+| 5 to 16 | Four tiles: temperature (`int16`, 0.01 C, little-endian), humidity (`uint8`, 0.5 %RH) |
+| 17 | CRC-8 (`0x31`, initial value `0xFF`) over bytes 0 to 16 |
+
+An empty or stale tile has its bit cleared and zero bytes. The temperature stays in Celsius. Only a wake cycle with a scan broadcasts. The frame has no encryption and no authentication: the CRC-8 detects a transmission error only. Anyone in radio range can read or forge it, so enable the key only where this is acceptable. `tests/fixtures/ble_telemetry_vectors.txt` holds the shared hex vectors.
 
 ## MicroSD Noise Logging
 
