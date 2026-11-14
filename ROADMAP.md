@@ -16,6 +16,14 @@ Do the work in priority order, unless the maintainer gives a different order.
 - Priority 1 holds the most critical user-facing enhancements and core hardware integrations.
 - Do not record review findings in this file. Name them in the review report and in the pull request description.
 
+## Priority 1: Core Tooling and Calibration (Score 34–40)
+
+- [ ] Standalone macOS desktop `.app` bundle and build pipeline (`~/Applications/RLCD Companion.app`)
+  - Rank: [Total: 36, Use: 10, Setup: 10, Harmony: 8, Safety: 8, Effort: S]
+  - Location: `scripts/build-app.sh` (new), `macos/RlcdCompanion/Info.plist` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/RlcdCompanionApp.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`
+  - Goal: Package the SwiftUI companion app like `dactyl_configurator` into a signed standalone macOS `.app` bundle under `~/Applications/RLCD Companion.app` with `scripts/build-app.sh` (and `--rebuild` to quit a running instance, build, install, and reopen the app). Include `Contents/Info.plist` with `CFBundleIdentifier` (`com.maorun.rlcd-companion`), `NSBluetoothAlwaysUsageDescription`, `NSHighResolutionCapable`, and ad-hoc `codesign`. Set `NSApplication.ActivationPolicy.regular` and use `WindowGroup` as the primary scene so the main desktop window opens immediately on launch alongside the `MenuBarExtra`. Guard `UNUserNotificationCenter.current()` when running without a bundle identifier so `swift test` and unbundled runs never crash. Thus the user starts the companion app directly from `~/Applications`, `Spotlight` or the `Dock` and sees the main window immediately.
+  - Acceptance test: `./scripts/build-app.sh` compiles the release binary, creates `~/Applications/RLCD Companion.app`, validates `Contents/Info.plist` with `plutil -lint`, and verifies the signature with `codesign --verify --deep --strict`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass. The C++ host tests stay unchanged and pass.
+
 ## Priority 2: Storage, and Configuration (Score 28–33)
 
 - [ ] SD card log archive over USB serial `LIST` and `DUMP` in the macOS app
