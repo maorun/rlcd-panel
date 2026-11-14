@@ -1151,7 +1151,7 @@ void testComfortZone() {
   DashboardView::renderSensorStats(fb, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now);
   const uint16_t label_left = DashboardView::COMFORT_RIGHT_X - 13 * 6;
   const uint16_t label_dy[MAX_SWITCHBOT_SENSORS] = {
-      DashboardView::COMFORT_Y_OFFSET, DashboardView::COMFORT_Y_OFFSET, 3};
+      DashboardView::COMFORT_Y_OFFSET, DashboardView::COMFORT_Y_OFFSET, DashboardView::COMFORT_EMPTY_Y_OFFSET};
   for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
     const uint16_t y0 = static_cast<uint16_t>(34 + i * DashboardView::SENSOR_BLOCK_PITCH);
     bool ink = false;
@@ -1180,6 +1180,146 @@ void testComfortZone() {
 
   // No RTC state change
   assert(PowerManager::STATE_VERSION == 39);
+}
+
+void testFeelsLikeStats() {
+  auto near = [](float a, float b, float tol) { return fabsf(a - b) <= tol; };
+  auto f2c = [](float f) { return (f - 32.0f) * 5.0f / 9.0f; };
+  // NOAA table reference values (within 1 F rounding of the chart)
+  assert(near(ClimateMath::heatIndexC(f2c(90.0f), 70.0f), f2c(105.0f), 0.6f));
+  assert(near(ClimateMath::heatIndexC(f2c(90.0f), 50.0f), f2c(95.0f), 0.6f));
+  assert(near(ClimateMath::heatIndexC(f2c(100.0f), 40.0f), f2c(109.0f), 0.6f));
+  assert(near(ClimateMath::heatIndexC(32.0f, 70.0f), 40.41f, 0.05f));
+  assert(ClimateMath::heatIndexC(32.0f, 70.0f) > 32.0f);
+  // Limits: below 26.7 C or below 40 %RH the air temperature is returned
+  assert(ClimateMath::heatIndexC(26.69f, 90.0f) == 26.69f);
+  assert(ClimateMath::heatIndexC(35.0f, 39.9f) == 35.0f);
+  assert(ClimateMath::heatIndexC(-10.0f, 50.0f) == -10.0f);
+  assert(ClimateMath::heatIndexC(20.0f, 0.0f) == 20.0f);
+  assert(ClimateMath::heatIndexC(26.7f, 40.0f) != 26.7f); // limits are inclusive: regression runs
+  assert(near(ClimateMath::heatIndexC(26.7f, 40.0f), 26.65f, 0.05f));
+  assert(near(ClimateMath::heatIndexC(35.0f, 40.0f), 37.22f, 0.05f));
+  // Correction 1: below 13 %RH with 80..112 F subtracts; the same input without it is higher
+  // Below 40 %RH the function returns the air temperature, so call the regression directly
+  const double dry_raw = ClimateMath::rothfuszF(104.0, 10.0);
+  const double dry_plain = -42.379 + 2.04901523 * 104.0 + 10.14333127 * 10.0 - 0.22475541 * 104.0 * 10.0 -
+                           0.00683783 * 104.0 * 104.0 - 0.05481717 * 100.0 + 0.00122874 * 104.0 * 104.0 * 10.0 +
+                           0.00085282 * 104.0 * 100.0 - 0.00000199 * 104.0 * 104.0 * 100.0;
+  assert(dry_raw < dry_plain);
+  assert(fabs((dry_plain - dry_raw) - (3.0 / 4.0) * sqrt((17.0 - 9.0) / 17.0)) < 1e-9);
+  // Correction 2: above 85 %RH with 80..87 F adds
+  const double wet_raw = ClimateMath::rothfuszF(85.0, 90.0);
+  const double wet_plain = -42.379 + 2.04901523 * 85.0 + 10.14333127 * 90.0 - 0.22475541 * 85.0 * 90.0 -
+                           0.00683783 * 85.0 * 85.0 - 0.05481717 * 8100.0 + 0.00122874 * 85.0 * 85.0 * 90.0 +
+                           0.00085282 * 85.0 * 8100.0 - 0.00000199 * 85.0 * 85.0 * 8100.0;
+  assert(fabs((wet_raw - wet_plain) - (5.0 / 10.0) * (2.0 / 5.0)) < 1e-9);
+  const double none_raw = ClimateMath::rothfuszF(88.0, 90.0); // above 87 F: no correction
+  const double none_plain = -42.379 + 2.04901523 * 88.0 + 10.14333127 * 90.0 - 0.22475541 * 88.0 * 90.0 -
+                            0.00683783 * 88.0 * 88.0 - 0.05481717 * 8100.0 + 0.00122874 * 88.0 * 88.0 * 90.0 +
+                            0.00085282 * 88.0 * 8100.0 - 0.00000199 * 88.0 * 88.0 * 8100.0;
+  assert(fabs(none_raw - none_plain) < 1e-9);
+  // Invalid input gives NaN
+  const float inf = INFINITY;
+  assert(isnan(ClimateMath::heatIndexC(NAN, 50.0f)));
+  assert(isnan(ClimateMath::heatIndexC(30.0f, NAN)));
+  assert(isnan(ClimateMath::heatIndexC(inf, 50.0f)));
+  assert(isnan(ClimateMath::heatIndexC(30.0f, -inf)));
+  assert(isnan(ClimateMath::heatIndexC(60.1f, 50.0f)));
+  assert(isnan(ClimateMath::heatIndexC(-45.1f, 50.0f)));
+  assert(isnan(ClimateMath::heatIndexC(30.0f, 100.1f)));
+  assert(isnan(ClimateMath::heatIndexC(30.0f, -0.1f)));
+
+  // Text
+  const uint32_t now = 10000000;
+  SwitchBotReading sb;
+  sb.valid = true;
+  sb.temperature_c = 32.0f;
+  sb.humidity_pct = 70;
+  sb.updated_ms = now - 1000;
+  char text[24];
+  DashboardView::formatFeels(text, sizeof(text), sb, now);
+  assert(strcmp(text, "FEELS 40C") == 0);
+  DashboardView::formatFeels(text, sizeof(text), sb, now, SENSOR_STALE_TIMEOUT_MS, 'F');
+  assert(strcmp(text, "FEELS 105F") == 0);
+  sb.temperature_c = 20.0f; // below 26.7 C: air temperature
+  DashboardView::formatFeels(text, sizeof(text), sb, now);
+  assert(strcmp(text, "FEELS 20C") == 0);
+  sb.temperature_c = -5.0f;
+  DashboardView::formatFeels(text, sizeof(text), sb, now);
+  assert(strcmp(text, "FEELS -5C") == 0);
+  sb.temperature_c = -0.3f; // rounds to zero: no "-0"
+  DashboardView::formatFeels(text, sizeof(text), sb, now);
+  assert(strcmp(text, "FEELS 0C") == 0);
+  sb.temperature_c = 99.0f; // invalid
+  DashboardView::formatFeels(text, sizeof(text), sb, now);
+  assert(strcmp(text, "FEELS --") == 0);
+  sb.temperature_c = 32.0f;
+  sb.updated_ms = now - SENSOR_STALE_TIMEOUT_MS - 1; // stale
+  DashboardView::formatFeels(text, sizeof(text), sb, now);
+  assert(strcmp(text, "FEELS --") == 0);
+  DashboardView::formatFeels(text, sizeof(text), SwitchBotReading{}, now); // empty
+  assert(strcmp(text, "FEELS --") == 0);
+
+  // Render bounds with 12-glyph names: right-aligned to x = 392 at y + 3, gap >= 4 px to RSSI
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    slots[i].valid = true;
+    slots[i].temperature_c = 32.0f;
+    slots[i].humidity_pct = 70;
+    slots[i].rssi = -100;
+    slots[i].updated_ms = now - 1000;
+  }
+  slots[1].temperature_c = -45.0f; // widest text "FEELS -45C"
+  slots[2].valid = false;          // empty slot: "FEELS --"
+  DeviceConfig config;
+  for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
+    strcpy(config.slot_name[i], "WWWWWWWWWWWW");
+  }
+  St7305Framebuffer fb;
+  DashboardView::renderSensorStats(fb, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
+                                   nullptr, &config);
+  const char* texts[MAX_SWITCHBOT_SENSORS] = {"FEELS 40C", "FEELS -45C", "FEELS --"};
+  const uint16_t rssi_right = 10 + static_cast<uint16_t>(strlen("WWWWWWWWWWWW RSSI -100 DBM") * 12);
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    const uint16_t y0 = static_cast<uint16_t>(34 + i * DashboardView::SENSOR_BLOCK_PITCH);
+    const uint16_t left = static_cast<uint16_t>(DashboardView::COMFORT_RIGHT_X - strlen(texts[i]) * 6);
+    if (i < 2) {
+      assert(left >= rssi_right + 4);
+    }
+    St7305Framebuffer ref;
+    ref.clear(false);
+    ref.drawText(left, static_cast<uint16_t>(y0 + 3), texts[i], 1, true);
+    bool ink = false;
+    for (uint16_t y = y0 + 3; y < y0 + 10; ++y) {
+      for (uint16_t x = left; x < DashboardView::COMFORT_RIGHT_X; ++x) {
+        assert(fb.getPixel(x, y) == ref.getPixel(x, y));
+        ink = ink || fb.getPixel(x, y);
+      }
+    }
+    assert(ink);
+    for (uint16_t y = y0; y < y0 + DashboardView::SENSOR_BLOCK_PITCH; ++y) {
+      for (uint16_t x = DashboardView::COMFORT_RIGHT_X; x < RLCD_WIDTH; ++x) {
+        assert(!fb.getPixel(x, y));
+      }
+    }
+    // Gap between the RSSI/NO SIGNAL text and the FEELS text is blank on the first line
+    for (uint16_t y = y0; y < y0 + 10; ++y) { // below: the comfort label of the empty slot
+      for (uint16_t x = rssi_right; x < left; ++x) {
+        assert(!fb.getPixel(x, y));
+      }
+    }
+  }
+  // Live and dashed text differ in pixels; a dashed text of the empty slot shows no number
+  St7305Framebuffer dashed;
+  slots[0].updated_ms = now - SENSOR_STALE_TIMEOUT_MS - 1;
+  DashboardView::renderSensorStats(dashed, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
+                                   nullptr, &config);
+  assert(memcmp(fb.data(), dashed.data(), RLCD_BUFFER_SIZE) != 0);
+  assert(PowerManager::STATE_VERSION == 39); // no RTC state change
 }
 
 void testMoldHoursStats() {
@@ -1617,7 +1757,7 @@ void testBleSignalStrength() {
     size_t ink = 0;
     uint16_t max_x = 0;
     for (uint16_t y = y0; y < y0 + 14; ++y) {
-      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      for (uint16_t x = 0; x < 326; ++x) { // left of the FEELS text (starts at x >= 332)
         if (fb.getPixel(x, y)) {
           ++ink;
           max_x = x > max_x ? x : max_x;
@@ -14381,6 +14521,7 @@ int main() {
   testClimateMathInvalidInput();
   testComfortZone();
   testMoldHoursStats();
+  testFeelsLikeStats();
   testDashboardClimateLine();
   testDashboardStaleIndicator();
   testButtonDebounceAndModeTransitions();

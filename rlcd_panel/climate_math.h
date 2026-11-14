@@ -83,6 +83,36 @@ public:
     return ComfortZone::OK;
   }
 
+  // Heat index (feels-like temperature) in C. Below 26.7 C or below 40 %RH the air temperature is
+  // returned. NaN, infinite or out-of-range input gives NaN (use isfinite() to test the result).
+  static constexpr float HEAT_INDEX_MIN_TEMP_C = 26.7f;
+  static constexpr float HEAT_INDEX_MIN_RH = 40.0f;
+  static float heatIndexC(float temp_c, float rh_pct) {
+    if (!isfinite(temp_c) || !isfinite(rh_pct) || temp_c < MIN_TEMP_C || temp_c > MAX_TEMP_C ||
+        rh_pct < 0.0f || rh_pct > 100.0f) {
+      return NAN;
+    }
+    if (temp_c < HEAT_INDEX_MIN_TEMP_C || rh_pct < HEAT_INDEX_MIN_RH) {
+      return temp_c;
+    }
+    const double temp_f = static_cast<double>(temp_c) * 9.0 / 5.0 + 32.0;
+    return static_cast<float>((rothfuszF(temp_f, static_cast<double>(rh_pct)) - 32.0) * 5.0 / 9.0);
+  }
+
+  // NOAA Rothfusz regression in Fahrenheit with the two NOAA corrections: RH below 13 %RH with 80
+  // to 112 F subtracts, RH above 85 %RH with 80 to 87 F adds. No input check and no cut-off.
+  static double rothfuszF(double t, double rh) {
+    double hi = -42.379 + 2.04901523 * t + 10.14333127 * rh - 0.22475541 * t * rh -
+                0.00683783 * t * t - 0.05481717 * rh * rh + 0.00122874 * t * t * rh +
+                0.00085282 * t * rh * rh - 0.00000199 * t * t * rh * rh;
+    if (rh < 13.0 && t >= 80.0 && t <= 112.0) {
+      hi -= ((13.0 - rh) / 4.0) * sqrt((17.0 - fabs(t - 95.0)) / 17.0);
+    } else if (rh > 85.0 && t >= 80.0 && t <= 87.0) {
+      hi += ((rh - 85.0) / 10.0) * ((87.0 - t) / 5.0);
+    }
+    return hi;
+  }
+
   static const char* comfortLabel(ComfortZone zone) {
     switch (zone) {
       case ComfortZone::COLD: return "COLD";

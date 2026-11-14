@@ -28,12 +28,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Add the `config.ini` key `chime_repeat_h` (default `0` is off, range `0` to `24` hours). When an alert bit stays active for this time after its last chime, the chime of the lowest active bit sounds again. `ALERT_CHARGE_FULL` never repeats. Mute, quiet hours and a cleared bit of `chime_alert_mask` suppress the repeat. A suppressed repeat is skipped and not delayed, so no chime plays at the end of the quiet hours. A new rising edge resets the timer. Store the clock stamp of the last chime in `PersistentState` (4 bytes) and the key in the config trailer (1 byte), and increase the state version. Show the key in the `CONFIG` reply. Thus the user does not forget an open window or a freezer that is too warm.
   - Acceptance test: Host tests cover the parser for the default, the edges `0` and `24`, the value `25`, a malformed value, a repeat at the exact time and over the 32-bit clock wrap, no repeat for `ALERT_CHARGE_FULL`, the lowest active bit, mute, quiet hours and a cleared mask bit, the reset by a new edge, and the RTC round trip.
 
-- [ ] Feels-like temperature in the sensor stats view
-  - Rank: [Total: 25, Use: 6, Setup: 1, Harmony: 8, Safety: 10, Effort: S]
-  - Location: `rlcd_panel/climate_math.h`, `rlcd_panel/dashboard_view.h`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`
-  - Goal: Add `ClimateMath::heatIndexC(temp_c, rh_pct)` with the NOAA Rothfusz regression and its two NOAA corrections. Below 26.7 C or below 40 %RH the function returns the air temperature. NaN, infinite and out-of-range input gives an invalid result. Each sensor block of the stats view shows `FEELS <T>C` in scale-1 text, right-aligned to x = 392, on the first line (`y + 3`). A stale or empty slot and an invalid result show `FEELS --`. With a 12-glyph name the text keeps a gap of at least 4 px to the `RSSI` text. Calculate the value for each render. No RTC state changes. Thus the user sees the heat stress in a warm room.
-  - Acceptance test: Host tests cover reference values of the NOAA table (for example 32 C and 70 %RH), the limits 26.7 C and 40 %RH, both corrections, NaN, infinite and out-of-range input, the dashes for a stale and an empty slot, and the text bounds with a 12-glyph name. `docs/display_preview_stats.png` shows one value.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

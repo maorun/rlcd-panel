@@ -806,3 +806,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The `RTC` state layout does not change.
 - Thus the user changes a setting without a card removal.
 - Host tests cover the parser (valid pairs, unknown key, bad value, the 40-byte limit), the editor (replace, append, comments, CRLF, byte order mark, 4096-byte limit), each failing step of the file write, the empty file and the absent file, the applied config and the reply, and the ignore in `execute`.
+
+## Feels-like temperature in the sensor stats view
+
+- **Code:** `rlcd_panel/climate_math.h`, `rlcd_panel/dashboard_view.h`, `tests/test_firmware_logic.cpp`.
+- `ClimateMath::heatIndexC(temp_c, rh_pct)` returns the heat index in Celsius. It uses the NOAA Rothfusz regression in Fahrenheit and its two NOAA corrections: below 13 %RH with 80 to 112 F it subtracts, above 85 %RH with 80 to 87 F it adds. Below 26.7 C or below 40 %RH it returns the air temperature. NaN, infinite and out-of-range input (limits of `ClimateMath::compute`, humidity 0 to 100 %RH) gives NaN.
+- Each sensor block of the stats view shows `FEELS <T>C` in scale-1 text, right-aligned to x = 392, on the first line (`y + 3`). The text follows `temp_unit` (`FEELS 105F`). An empty slot, a stale slot and an invalid result show `FEELS --`. With a 12-glyph name the text keeps a gap of at least 4 px to the `RSSI` text.
+- The `COMFORT --` label of an empty slot moved from `y + 3` to `y + 11` (`COMFORT_EMPTY_Y_OFFSET`), so it does not touch the `FEELS` text.
+- The value is calculated for each render. No RTC state changes and the state version stays 39.
+- `docs/display_preview_stats.png` shows `FEELS 19C`, `FEELS 14C` and `FEELS --`.
+- Thus the user sees the heat stress in a warm room.
+- Host tests cover the NOAA table values (for example 32 C and 70 %RH), the limits 26.7 C and 40 %RH, both corrections, NaN, infinite and out-of-range input, the text in Celsius and Fahrenheit, the dashes for a stale and an empty slot, and the text bounds with a 12-glyph name.
