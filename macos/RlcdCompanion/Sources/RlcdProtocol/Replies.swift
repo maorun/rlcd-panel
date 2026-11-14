@@ -181,8 +181,11 @@ public enum ConsoleCommand: Equatable {
     case status, history, events, config
     case set(key: String, value: String)
 
+    /// Keys whose empty value the firmware accepts (no fixed MAC).
+    static let emptyAllowedKeys: Set<String> = ["slot1_mac", "slot2_mac", "slot3_mac"]
+
     /// Text without the line end. Returns `nil` for a key or value that the firmware cannot take
-    /// (empty, white space, `=` in the key, or a line above 40 bytes).
+    /// (empty value except for `slotN_mac`, white space, `=` in the key, or a line above 40 bytes).
     public var line: String? {
         switch self {
         case .status: return "STATUS"
@@ -192,7 +195,7 @@ public enum ConsoleCommand: Equatable {
         case let .set(key, value):
             let text = "SET \(key)=\(value)"
             let bad = CharacterSet.whitespacesAndNewlines.union(.controlCharacters)
-            guard !key.isEmpty, !value.isEmpty, !key.contains("="),
+            guard !key.isEmpty, !value.isEmpty || Self.emptyAllowedKeys.contains(key), !key.contains("="),
                   key.rangeOfCharacter(from: bad) == nil, value.rangeOfCharacter(from: bad) == nil,
                   text.utf8.count <= 40 else { return nil }
             return text

@@ -1023,3 +1023,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `BluetoothScanner.send` splits a command into chunks. It writes one chunk and waits for its write response before it writes the next chunk. A failed write closes the link.
 - USB serial keeps the 10 s command timer of `AppModel`.
 - The tests step `LinkWatchdog` with a fake clock: a connect timeout at 10 s, no timeout at 9.9 s, a write timeout at 5 s, a restart of the command timer by each chunk and no timeout after a cancel. They also store, read and clear a pin, reject a malformed UUID text and filter the frames of a second UUID.
+## Structured `config.ini` editor in the macOS companion app
+
+- `ConfigSchema` (`macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`) holds one entry for each of the 40 keys of `DeviceConfigParser::KEYS`: category (climate, alerts, power, sensors, BLE), value type, range or enum values, default value, unit and description.
+- `ConfigSchema.validate(key:value:)` applies the rules of `DeviceConfigParser`. Examples: `heat_alert_limit_c` accepts 0 or 27 to 45, `noise_alert_limit_db` accepts 0 or 40 to 100, `temp_unit` accepts `C` or `F`, a name has 1 to 12 characters of A-Z, 0-9, space and `-`, and `slotN_mac` accepts `AA:BB:CC:DD:EE:FF` or an empty value.
+- `ConfigSchema.diff` compares two `ConfigReply` values. A key that the reply lacks has its default value. `ConfigSchema.batch` gives the `SET` commands in the fixed schema order. `ble_console` is the last key.
+- `ConfigSchema.problems` also finds a MAC that two slots would hold. It replays the batch order, so a MAC move needs a clear of the old slot first.
+- `ConsoleCommand.set` accepts an empty value for `slot1_mac` to `slot3_mac`. This clears the fixed MAC.
+- `ConfigEditorView` shows the keys in five groups. A marker shows each changed key. A diff sheet lists each change as `key: old -> new` before the apply.
+- `ConfigBatch` sends one `SET` for each changed key and then one `CONFIG`. The first `ERR` reply stops the remaining `SET` commands. The `CONFIG` refresh still runs.
+- The apply is off when no `SET` is possible (BLE with `ble_console` below 2), when a value fails the validation, or when a command line has more than 40 bytes. The form warns when the batch lowers `ble_console` over BLE.
+- A lost link, a timeout or a changed link ends the batch and clears the edits.
+- The tests read `docs/config.example.ini` and compare the keys and the default values with the schema. They test the limits, the enum values, the diff, the batch order, the stop at `ERR BAD_VALUE` and the limits against the firmware constants.

@@ -108,6 +108,7 @@ struct MainView: View {
             if let s = model.status { statusView(s) }
             if !model.history.isEmpty { chartsView }
             if let c = model.config { configView(c) }
+            ConfigEditorView(model: model)
             if !model.events.isEmpty { eventsView }
         }
     }
@@ -150,16 +151,6 @@ struct MainView: View {
             VStack(alignment: .leading) {
                 ForEach(c.keys, id: \.self) { k in
                     Text("\(k)=\(c.values[k] ?? "")").font(.system(.caption, design: .monospaced))
-                }
-                if model.canSet {
-                    HStack {
-                        TextField("key", text: $model.setKey)
-                        TextField("value", text: $model.setValue)
-                        Button("SET") { model.set(key: model.setKey, value: model.setValue) }
-                            .disabled(model.setKey.isEmpty || model.setValue.isEmpty)
-                    }
-                } else {
-                    Text("SET needs ble_console=2 or the USB serial link.").font(.caption).foregroundStyle(.secondary)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }

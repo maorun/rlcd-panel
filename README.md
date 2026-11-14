@@ -299,4 +299,6 @@ The console section connects only after you press "Connect console" (the scan al
 
 The window lists each panel in range with its name, RSSI and the age of the last packet. The `Pin` button pins one panel by its `CBPeripheral.identifier` UUID (`PanelPin`, stored in `UserDefaults`). With a pin, the app shows only the frames of this panel and connects the console only to it. `Forget panel` clears the pin. `LinkWatchdog` ends a connection attempt after 10 s without `Console connected`, a BLE write after 5 s without a write response and a command after 10 s without a reply chunk. Each failure shows a fixed reason text, closes the link and drops the command queue.
 
+The window has a config editor. It shows the keys of `config.ini` in the groups climate, alerts, power, sensors and BLE, with the unit and a short description. It marks each changed key and checks each value with the rules of the firmware. The button "Review changes" shows each change as `key: old -> new`. "Apply" sends one `SET` for each changed key in a fixed order, stops at the first `ERR` reply and reads `CONFIG` at the end. Apply needs the USB serial link or `ble_console=2`. Clear a fixed MAC with an empty value.
+
 Run the tests with `swift test` in `macos/RlcdCompanion`. They read `tests/fixtures/ble_telemetry_vectors.txt`. CI runs them on `macos-latest`.
