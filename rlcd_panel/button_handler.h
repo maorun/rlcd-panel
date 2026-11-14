@@ -151,8 +151,8 @@ enum class DisplayMode : uint8_t {
 
 constexpr uint8_t DISPLAY_MODE_COUNT = 5;
 
-// Number of sensors the climate chart view selects from: onboard + 3 SwitchBot slots.
-constexpr uint8_t CHART_SENSOR_COUNT = 4;
+// Number of sensors the climate chart view selects from: onboard + 5 SwitchBot slots.
+constexpr uint8_t CHART_SENSOR_COUNT = 6;
 
 // Display mode state machine: every debounced press cycles DASHBOARD -> SENSOR_STATS ->
 // SYSTEM_DIAGNOSTICS -> AUDIO_SPECTRUM -> CLIMATE_CHART -> DASHBOARD.
@@ -168,7 +168,7 @@ public:
     }
   }
 
-  // Sensor shown by the climate chart view: 0 is the onboard sensor, 1 to 3 the registry slots.
+  // Sensor shown by the climate chart view: 0 is the onboard sensor, 1 to 5 the registry slots.
   uint8_t chartSensor() const {
     return chart_sensor_;
   }

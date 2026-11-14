@@ -9,7 +9,7 @@
 namespace rlcd_panel {
 
 // Per tile ventilation badge latch (config.ini key ventilate_limit_rh). One bit for each tile:
-// bit 0 is the onboard sensor, bits 1 to 3 are the registry slots. A bit sets when the calibrated
+// bit 0 is the onboard sensor, bits 1 to 5 are the registry slots. A bit sets when the calibrated
 // humidity of the tile is above the limit. It releases when the humidity is RELEASE_MARGIN_PCT or
 // more below the limit. Between the two limits the bit keeps its previous state. A stale slot,
 // an empty slot and an invalid reading clear the bit. The latch is independent of ALERT_VENTILATE

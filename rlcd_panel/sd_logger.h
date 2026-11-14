@@ -23,6 +23,10 @@
 
 namespace rlcd_panel {
 
+// The CSV formats (climate_v4, daily_v2) hold the onboard sensor and slots 1 to 3 only.
+// Slots 4 and 5 are not logged: a column change needs a new format version.
+constexpr size_t LOG_SOURCE_COUNT = 4;
+
 // Noise summary of one day: the loudest hourly level, its local hour and the sum of the transient
 // counts. It lives in the RTC memory (PersistentState) inside DailyLogState.
 struct DailyNoiseStats {
@@ -445,7 +449,7 @@ public:
     size_t pos = static_cast<size_t>(snprintf(
         out, capacity, "%04u-%02u-%02u", static_cast<unsigned>(year), static_cast<unsigned>(month),
         static_cast<unsigned>(day)));
-    for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
+    for (size_t i = 0; i < LOG_SOURCE_COUNT; ++i) {
       int16_t lo = 0, hi = 0, mean = 0;
       const bool has_t = history.temperatures[i].summary(lo, hi, mean);
       pos = appendTenths(out, capacity, pos, has_t, lo);
@@ -688,7 +692,7 @@ public:
       pos += snprintf(out + pos, capacity - pos, ",,");
     }
 
-    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    for (size_t i = 0; i < LOG_SOURCE_COUNT - 1; ++i) {
       const SwitchBotReading* r = (slots != nullptr && i < slot_count) ? &slots[i] : nullptr;
       if (r != nullptr && r->valid && !r->isStale(now_ms, stale_timeout_ms) && isfinite(r->temperature_c)) {
         pos += snprintf(out + pos, capacity - pos, ",%.1f,%u,", static_cast<double>(r->temperature_c),

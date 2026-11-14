@@ -2,7 +2,7 @@ import Charts
 import RlcdProtocol
 import SwiftUI
 
-private let tileNames = ["Onboard", "Slot 1", "Slot 2", "Slot 3"]
+private let tileNames = ["Onboard", "Slot 1", "Slot 2", "Slot 3", "Slot 4", "Slot 5"]
 
 struct MainView: View {
     @Bindable var model: AppModel
@@ -136,13 +136,13 @@ struct MainView: View {
             Text("Temperature, last 24 h").font(.subheadline)
             Chart(rows.filter { $0.temperatureC != nil }, id: \.self) { r in
                 LineMark(x: .value("Hours ago", r.ageHours), y: .value("°C", r.temperatureC ?? 0))
-                    .foregroundStyle(by: .value("Sensor", tileNames[min(r.sensor, 3)]))
+                    .foregroundStyle(by: .value("Sensor", tileNames[min(r.sensor, tileNames.count - 1)]))
             }
             .chartXScale(domain: .automatic(reversed: true)).frame(height: 160)
             Text("Relative humidity, last 24 h").font(.subheadline)
             Chart(rows.filter { $0.humidityPct != nil }, id: \.self) { r in
                 LineMark(x: .value("Hours ago", r.ageHours), y: .value("%RH", r.humidityPct ?? 0))
-                    .foregroundStyle(by: .value("Sensor", tileNames[min(r.sensor, 3)]))
+                    .foregroundStyle(by: .value("Sensor", tileNames[min(r.sensor, tileNames.count - 1)]))
             }
             .chartXScale(domain: .automatic(reversed: true)).frame(height: 160)
         }

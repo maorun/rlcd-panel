@@ -70,6 +70,8 @@ public:
   static constexpr uint16_t SPARKLINE_W = 72;
   static constexpr uint16_t SPARKLINE_H = 16;
   static constexpr uint16_t SPARKLINE_RIGHT_MARGIN = 6;
+  static constexpr uint16_t WIDE_SPARKLINE_W = 200; // wide standard tile (388 x 124): curve beside the text lines
+  static constexpr uint16_t WIDE_SPARKLINE_H = 46;
   static constexpr uint16_t SPARKLINE_Y_OFFSET = 66;
   // Ventilation badge: inverted 9x9 box with a "V" (scale 1). It sits right of the humidity line
   // ("H: 100 %" ends at x + 106), directly above the sparkline box (starts at y + 66) and below the
@@ -150,6 +152,126 @@ public:
   static constexpr uint16_t CHART_HUMIDITY_Y = 170;
   static constexpr uint16_t CHART_FOOTER_Y = 272;
 
+  // Dynamic tile grid. The area below the header is x = 6, y = 36, 388 x 256 px with an 8 px gap.
+  // Tile 0 is the onboard sensor. A registry slot gets a tile when it holds a reading, has a fixed
+  // MAC or has a name. N = 1 + active slots (1 to 6):
+  //   1: one tile 388 x 256            2: two tiles 190 x 256 side by side
+  //   3: one tile 388 x 124 + two 190 x 124   4: 2 x 2 grid of 190 x 124
+  //   5: two 190 x 124 + three 124 x 124      6: 2 x 3 grid of 190 x 80
+  static constexpr uint16_t GRID_X = 6;
+  static constexpr uint16_t GRID_Y = 36;
+  static constexpr uint16_t GRID_W = 388;
+  static constexpr uint16_t GRID_H = 256;
+  static constexpr uint16_t GRID_GAP = 8;
+  static constexpr size_t MAX_TILES = 1 + MAX_SWITCHBOT_SENSORS;
+  // The stats view has room for three slot blocks (72 px pitch).
+  static constexpr size_t STATS_SLOT_COUNT = 3;
+
+  struct TileRect {
+    uint16_t x = 0;
+    uint16_t y = 0;
+    uint16_t w = 0;
+    uint16_t h = 0;
+  };
+
+  enum class TileStyle : uint8_t { STANDARD, COMPACT, LARGE };
+
+  // Tile style by size: LARGE from 200 px height, COMPACT below 100 px height or 160 px width.
+  static TileStyle tileStyle(uint16_t w, uint16_t h) {
+    if (h >= 200) {
+      return TileStyle::LARGE;
+    }
+    if (h < 100 || w < 160) {
+      return TileStyle::COMPACT;
+    }
+    return TileStyle::STANDARD;
+  }
+
+  // Fills `out` with the rectangles of `count` tiles (clamped to 1..6). Returns the tile count.
+  static size_t layoutTiles(size_t count, TileRect (&out)[MAX_TILES]) {
+    const size_t n = count < 1 ? 1 : (count > MAX_TILES ? MAX_TILES : count);
+    const uint16_t half_w = static_cast<uint16_t>((GRID_W - GRID_GAP) / 2);                  // 190
+    const uint16_t third_w = static_cast<uint16_t>((GRID_W - 2 * GRID_GAP) / 3);             // 124
+    const uint16_t half_h = static_cast<uint16_t>((GRID_H - GRID_GAP) / 2);                  // 124
+    const uint16_t third_h = static_cast<uint16_t>((GRID_H - 2 * GRID_GAP) / 3);             // 80
+    const uint16_t col2_x = static_cast<uint16_t>(GRID_X + half_w + GRID_GAP);
+    const uint16_t row2_y = static_cast<uint16_t>(GRID_Y + half_h + GRID_GAP);
+    auto set = [&out](size_t i, uint16_t x, uint16_t y, uint16_t w, uint16_t h) {
+      out[i].x = x;
+      out[i].y = y;
+      out[i].w = w;
+      out[i].h = h;
+    };
+    switch (n) {
+      case 1:
+        set(0, GRID_X, GRID_Y, GRID_W, GRID_H);
+        break;
+      case 2:
+        set(0, GRID_X, GRID_Y, half_w, GRID_H);
+        set(1, col2_x, GRID_Y, half_w, GRID_H);
+        break;
+      case 3:
+        set(0, GRID_X, GRID_Y, GRID_W, half_h);
+        set(1, GRID_X, row2_y, half_w, half_h);
+        set(2, col2_x, row2_y, half_w, half_h);
+        break;
+      case 4:
+        set(0, GRID_X, GRID_Y, half_w, half_h);
+        set(1, col2_x, GRID_Y, half_w, half_h);
+        set(2, GRID_X, row2_y, half_w, half_h);
+        set(3, col2_x, row2_y, half_w, half_h);
+        break;
+      case 5:
+        set(0, GRID_X, GRID_Y, half_w, half_h);
+        set(1, col2_x, GRID_Y, half_w, half_h);
+        for (size_t i = 0; i < 3; ++i) {
+          set(2 + i, static_cast<uint16_t>(GRID_X + i * (third_w + GRID_GAP)), row2_y, third_w, half_h);
+        }
+        break;
+      default:
+        for (size_t i = 0; i < 6; ++i) {
+          set(i, i % 2 == 0 ? GRID_X : col2_x,
+              static_cast<uint16_t>(GRID_Y + (i / 2) * (third_h + GRID_GAP)), half_w, third_h);
+        }
+        break;
+    }
+    return n;
+  }
+
+  // True when registry slot `slot` gets a tile.
+  static bool slotActive(const SwitchBotReading* slots, size_t slot_count, const DeviceConfig* config, size_t slot) {
+    if (slots != nullptr && slot < slot_count && slots[slot].valid) {
+      return true;
+    }
+    return config != nullptr && slot < DeviceConfig::SLOT_COUNT &&
+           (config->hasSlotMac(slot) || config->slot_name[slot][0] != '\0');
+  }
+
+  // Number of tiles (1 to 6): the onboard tile plus each active slot. `slot_of_tile[t]` gets the
+  // registry slot of tile t >= 1 (index 0 is unused).
+  static size_t activeTileCount(const SwitchBotReading* slots, size_t slot_count, const DeviceConfig* config,
+                                size_t (&slot_of_tile)[MAX_TILES]) {
+    size_t n = 1;
+    slot_of_tile[0] = 0;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS && n < MAX_TILES; ++i) {
+      if (slotActive(slots, slot_count, config, i)) {
+        slot_of_tile[n++] = i;
+      }
+    }
+    return n;
+  }
+
+  // Largest scale (1 to max_scale) at which `text` fits into max_w px.
+  static uint8_t fitScale(const char* text, uint16_t max_w, uint8_t max_scale) {
+    const size_t glyphs = strlen(text);
+    for (uint8_t sc = max_scale; sc > 1; --sc) {
+      if (glyphs * 6u * sc <= static_cast<size_t>(max_w) + sc) {
+        return sc;
+      }
+    }
+    return 1;
+  }
+
   static void renderBatteryIcon(
       St7305Framebuffer& fb,
       uint16_t x,
@@ -211,7 +333,7 @@ public:
     fb.drawText(x + 12, y + CLIMATE_LINE_Y_OFFSET, line, 1, true);
   }
 
-  // Tile title: the configured name, else "ONBOARD SHTC3" (tile 0) or "SENSOR n" (tile n = 1..3).
+  // Tile title: the configured name, else "ONBOARD SHTC3" (tile 0) or "SENSOR n" (tile n = 1..5).
   // A name has at most 12 glyphs (142 px at scale 2), so it ends at x + 150 and stays left of the
   // STALE badge, which starts at x + 151.
   static void tileTitle(char* out, size_t capacity, const DeviceConfig* config, size_t tile) {
@@ -257,6 +379,17 @@ public:
       const TemperatureHistory* temperature_history = nullptr,
       bool battery_low = false,
       char unit = 'C') {
+    const TileStyle style = tileStyle(w, h);
+    if (style == TileStyle::COMPACT) {
+      renderTileCompact(fb, x, y, w, h, title, valid, temp_c, humidity_pct, battery_pct, battery_voltage_v, is_stale,
+                        history, ventilate_badge, temperature_history, battery_low, unit);
+      return;
+    }
+    if (style == TileStyle::LARGE) {
+      renderTileLarge(fb, x, y, w, h, title, valid, temp_c, humidity_pct, battery_pct, battery_voltage_v, is_stale,
+                      history, ventilate_badge, temperature_history, battery_low, unit);
+      return;
+    }
     fb.drawRect(x, y, w, h, true);
     fb.drawHLine(x, y + 24, w, true);
     fb.drawText(x + 8, y + 6, title, 2, true);
@@ -277,6 +410,13 @@ public:
     snprintf(line_rh, sizeof(line_rh), "H: %.0f %%", humidity_pct);
     fb.drawText(x + 12, y + HUMIDITY_LINE_Y_OFFSET, line_rh, 2, true);
 
+    // A wide tile (388 px) draws a larger curve at the right, beside both text lines.
+    const bool wide = w > 250;
+    if (wide && history != nullptr && history->size() >= 2) {
+      Sparkline::render(fb, static_cast<uint16_t>(x + w - WIDE_SPARKLINE_W - SPARKLINE_RIGHT_MARGIN),
+                        static_cast<uint16_t>(y + 32), WIDE_SPARKLINE_W, WIDE_SPARKLINE_H, *history, true);
+    }
+
     // Trend marks from the hourly samples; no history and a stale tile give no mark.
     if (temperature_history != nullptr && !is_stale) {
       renderTrendAfterLine(
@@ -284,7 +424,8 @@ public:
           TrendClassifier::temperature(*temperature_history));
     }
     if (history != nullptr && !is_stale) {
-      const uint16_t box_x = static_cast<uint16_t>(x + w - SPARKLINE_W - SPARKLINE_RIGHT_MARGIN);
+      const uint16_t box_x = wide ? static_cast<uint16_t>(x + w - WIDE_SPARKLINE_W - SPARKLINE_RIGHT_MARGIN)
+                                  : static_cast<uint16_t>(x + w - SPARKLINE_W - SPARKLINE_RIGHT_MARGIN);
       renderTrendAfterLine(
           fb, x, static_cast<uint16_t>(y + HUMIDITY_LINE_Y_OFFSET), strlen(line_rh), box_x,
           TrendClassifier::humidity(*history));
@@ -300,7 +441,7 @@ public:
     }
 
     // A curve needs two samples. One sample would draw a single dot.
-    if (history != nullptr && history->size() >= 2 && w > SPARKLINE_W + SPARKLINE_RIGHT_MARGIN &&
+    if (!wide && history != nullptr && history->size() >= 2 && w > SPARKLINE_W + SPARKLINE_RIGHT_MARGIN &&
         h > SPARKLINE_Y_OFFSET + SPARKLINE_H) {
       Sparkline::render(
           fb,
@@ -328,7 +469,10 @@ public:
       } else {
         snprintf(line_bat, sizeof(line_bat), "BAT: %d %%", static_cast<int>(battery_pct));
       }
-      fb.drawText(x + 12, y + 96, line_bat, 2, true);
+      // The widest text "BAT: 4.20V 100%" is 180 px at scale 2 and would reach x + 192 in a 190 px tile.
+      // Such a text drops to scale 1; every shorter text keeps scale 2.
+      const uint8_t bat_scale = fitScale(line_bat, static_cast<uint16_t>(w - 16), 2);
+      fb.drawText(x + 12, y + (bat_scale == 2 ? 96 : 99), line_bat, bat_scale, true);
     }
 
     if (is_stale) {
@@ -339,6 +483,178 @@ public:
       fb.fillRect(bx, by, STALE_BADGE_W, STALE_BADGE_H, true);
       fb.drawText(bx + 3, by + 5, "STALE", 1, false);
     }
+  }
+
+  // Title in the band of a tile (scale 2, scale 1 when the tile is too narrow) and the STALE badge.
+  static void drawTileFrame(St7305Framebuffer& fb, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
+                            const char* title, bool is_stale) {
+    fb.drawRect(x, y, w, h, true);
+    fb.drawHLine(x, y + 24, w, true);
+    const uint16_t badge_w = is_stale ? static_cast<uint16_t>(STALE_BADGE_W + 8) : 0;
+    const uint16_t room = static_cast<uint16_t>(w - 16 - badge_w);
+    const uint8_t sc = fitScale(title, room, 2);
+    fb.drawText(x + 8, y + (sc == 2 ? 6 : 9), title, sc, true);
+    if (is_stale) {
+      const uint16_t bx = static_cast<uint16_t>(x + w - STALE_BADGE_W - 4);
+      fb.fillRect(bx, y + 4, STALE_BADGE_W, STALE_BADGE_H, true);
+      fb.drawText(bx + 3, y + 9, "STALE", 1, false);
+    }
+  }
+
+  // Battery text of a tile: inverted "BAT LOW", else "BAT: 4.20V 100%" or "BAT: 80 %". A tile
+  // without a battery figure draws nothing. `scale` is 1 or 2.
+  static void drawTileBattery(St7305Framebuffer& fb, uint16_t x, uint16_t y, int8_t battery_pct, float voltage_v,
+                              bool battery_low, uint8_t scale) {
+    if (battery_low) {
+      const uint16_t bw = static_cast<uint16_t>(7 * 6 * scale - scale + 4);
+      fb.fillRect(x, y - 2, bw, static_cast<uint16_t>(7 * scale + 4), true);
+      fb.drawText(x + 2, y, "BAT LOW", scale, false);
+    } else if (battery_pct >= 0) {
+      char line[24];
+      if (voltage_v >= 0.0f) {
+        snprintf(line, sizeof(line), "BAT: %.2fV %d%%", static_cast<double>(voltage_v), static_cast<int>(battery_pct));
+      } else {
+        snprintf(line, sizeof(line), "BAT: %d %%", static_cast<int>(battery_pct));
+      }
+      fb.drawText(x, y, line, scale, true);
+    }
+  }
+
+  // Tile of a 190 x 80 or 124 x 124 cell: title band, short temperature and humidity lines (scale 2)
+  // and a curve. A 124 px wide tile has the title at scale 1 and the curve below the text.
+  static void renderTileCompact(
+      St7305Framebuffer& fb, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* title, bool valid,
+      float temp_c, float humidity_pct, int8_t battery_pct, float battery_voltage_v, bool is_stale,
+      const HumidityHistory* history, bool ventilate_badge, const TemperatureHistory* temperature_history,
+      bool battery_low, char unit) {
+    drawTileFrame(fb, x, y, w, h, title, is_stale);
+    const bool narrow = w < 160;
+    const uint16_t pad = narrow ? 8 : 12;
+    if (!valid) {
+      fb.drawText(x + pad, y + (h > 100 ? 56 : 36), "NO SIGNAL", 2, true);
+      return;
+    }
+    char line_temp[24];
+    snprintf(line_temp, sizeof(line_temp), "%.1f %c", static_cast<double>(ClimateMath::toDisplay(temp_c, unit)),
+             unit == 'F' ? 'F' : 'C');
+    char line_rh[16];
+    snprintf(line_rh, sizeof(line_rh), "%.0f %%", static_cast<double>(humidity_pct));
+    const uint16_t temp_y = static_cast<uint16_t>(y + 30);
+    const uint16_t rh_y = static_cast<uint16_t>(y + 48);
+    fb.drawText(x + pad, temp_y, line_temp, 2, true);
+    fb.drawText(x + pad, rh_y, line_rh, 2, true);
+
+    // Curve: right of the text lines (190 x 80) or below them (124 x 124).
+    uint16_t box_x = 0;
+    if (!narrow) {
+      box_x = static_cast<uint16_t>(x + w - SPARKLINE_W - SPARKLINE_RIGHT_MARGIN);
+      if (history != nullptr && history->size() >= 2) {
+        Sparkline::render(fb, box_x, static_cast<uint16_t>(y + 32), SPARKLINE_W, 30, *history, true);
+      }
+    } else if (history != nullptr && history->size() >= 2) {
+      Sparkline::render(fb, static_cast<uint16_t>(x + 8), static_cast<uint16_t>(y + 68),
+                        static_cast<uint16_t>(w - 16), 18, *history, true);
+    }
+    if (!is_stale) {
+      if (temperature_history != nullptr) {
+        const uint16_t mx = static_cast<uint16_t>(x + pad + strlen(line_temp) * 12 - 2 + TREND_MARK_GAP);
+        if (box_x == 0 || mx + TREND_MARK_SIZE < box_x) {
+          renderTrendMark(fb, mx, static_cast<uint16_t>(temp_y + TREND_MARK_Y_INSET),
+                          TrendClassifier::temperature(*temperature_history));
+        }
+      }
+      if (history != nullptr) {
+        const uint16_t mx = static_cast<uint16_t>(x + pad + strlen(line_rh) * 12 - 2 + TREND_MARK_GAP);
+        if (box_x == 0 || mx + TREND_MARK_SIZE < box_x) {
+          renderTrendMark(fb, mx, static_cast<uint16_t>(rh_y + TREND_MARK_Y_INSET),
+                          TrendClassifier::humidity(*history));
+        }
+      }
+    }
+    if (ventilate_badge && !is_stale) {
+      const uint16_t bx = static_cast<uint16_t>(narrow ? x + w - 22 : x + 92);
+      const uint16_t by = static_cast<uint16_t>(rh_y + 2);
+      fb.fillRect(bx, by, VENT_BADGE_SIZE, VENT_BADGE_SIZE, true);
+      fb.drawText(bx + 2, by + 1, "V", 1, false);
+    }
+    if (narrow) {
+      // Dew point and VPD line (113 px at most) from x + 6 so it ends inside the 124 px tile.
+      char climate[ClimateMath::LINE_MAX_CHARS + 1];
+      ClimateMath::format(climate, sizeof(climate), !is_stale, temp_c, humidity_pct, unit);
+      fb.drawText(x + 6, y + 106, climate, 1, true);
+    }
+    drawTileBattery(fb, static_cast<uint16_t>(x + pad), static_cast<uint16_t>(y + (narrow ? 92 : 66)), battery_pct,
+                    battery_voltage_v, battery_low, 1);
+  }
+
+  // Tile of 190 x 256 or 388 x 256: big temperature and humidity text, each with its own curve.
+  static void renderTileLarge(
+      St7305Framebuffer& fb, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* title, bool valid,
+      float temp_c, float humidity_pct, int8_t battery_pct, float battery_voltage_v, bool is_stale,
+      const HumidityHistory* history, bool ventilate_badge, const TemperatureHistory* temperature_history,
+      bool battery_low, char unit) {
+    drawTileFrame(fb, x, y, w, h, title, is_stale);
+    if (!valid) {
+      fb.drawText(x + 12, y + h / 2 - 7, "NO SIGNAL", 2, true);
+      return;
+    }
+    const uint16_t pad = 12;
+    const uint16_t inner_w = static_cast<uint16_t>(w - 2 * pad);
+    char line_temp[24];
+    snprintf(line_temp, sizeof(line_temp), "%.1f %c", static_cast<double>(ClimateMath::toDisplay(temp_c, unit)),
+             unit == 'F' ? 'F' : 'C');
+    char line_rh[16];
+    snprintf(line_rh, sizeof(line_rh), "%.0f %%", static_cast<double>(humidity_pct));
+    const uint8_t ts = w >= 300 ? 4 : 3;
+    const uint16_t text_h = static_cast<uint16_t>(7 * ts);
+    const uint16_t gap = 6;
+    // 24 px title band, two text lines, climate line (7), battery line (14) and 7 gaps.
+    const uint16_t fixed = static_cast<uint16_t>(24 + 2 * text_h + 7 + 14 + 7 * gap);
+    uint16_t spark_h = static_cast<uint16_t>((h - fixed) / 2);
+    if (spark_h > 60) {
+      spark_h = 60;
+    }
+    uint16_t cy = static_cast<uint16_t>(y + 24 + gap);
+    fb.drawText(x + pad, cy, line_temp, ts, true);
+    if (!is_stale && temperature_history != nullptr) {
+      renderTrendMark(fb, static_cast<uint16_t>(x + pad + strlen(line_temp) * 6 * ts + TREND_MARK_GAP),
+                      static_cast<uint16_t>(cy + (text_h - TREND_MARK_SIZE) / 2),
+                      TrendClassifier::temperature(*temperature_history));
+    }
+    cy = static_cast<uint16_t>(cy + text_h + gap);
+    if (temperature_history != nullptr && temperature_history->size() >= 2) {
+      fb.drawRect(x + pad, cy, inner_w, spark_h, true);
+      Sparkline::renderTemperature(fb, static_cast<uint16_t>(x + pad + 1), static_cast<uint16_t>(cy + 1),
+                                   static_cast<uint16_t>(inner_w - 2), static_cast<uint16_t>(spark_h - 2),
+                                   *temperature_history);
+    }
+    cy = static_cast<uint16_t>(cy + spark_h + gap);
+    fb.drawText(x + pad, cy, line_rh, ts, true);
+    const uint16_t rh_end = static_cast<uint16_t>(x + pad + strlen(line_rh) * 6 * ts);
+    if (!is_stale && history != nullptr) {
+      renderTrendMark(fb, static_cast<uint16_t>(rh_end + TREND_MARK_GAP),
+                      static_cast<uint16_t>(cy + (text_h - TREND_MARK_SIZE) / 2), TrendClassifier::humidity(*history));
+    }
+    if (ventilate_badge && !is_stale) {
+      const uint16_t bx = static_cast<uint16_t>(rh_end + 4 * TREND_MARK_GAP + TREND_MARK_SIZE);
+      const uint16_t by = static_cast<uint16_t>(cy + (text_h - VENT_BADGE_SIZE) / 2);
+      fb.fillRect(bx, by, VENT_BADGE_SIZE, VENT_BADGE_SIZE, true);
+      fb.drawText(bx + 2, by + 1, "V", 1, false);
+    }
+    cy = static_cast<uint16_t>(cy + text_h + gap);
+    if (history != nullptr && history->size() >= 2) {
+      fb.drawRect(x + pad, cy, inner_w, spark_h, true);
+      Sparkline::render(fb, static_cast<uint16_t>(x + pad + 1), static_cast<uint16_t>(cy + 1),
+                        static_cast<uint16_t>(inner_w - 2), static_cast<uint16_t>(spark_h - 2), *history, true);
+    }
+    cy = static_cast<uint16_t>(cy + spark_h + gap);
+    char climate[ClimateMath::LINE_MAX_CHARS + 1];
+    ClimateMath::format(climate, sizeof(climate), !is_stale, temp_c, humidity_pct, unit);
+    fb.drawText(x + pad, cy, climate, 1, true);
+    cy = static_cast<uint16_t>(cy + 7 + gap);
+    // Battery text at scale 2 when the longest text ("BAT: 4.20V 100%") fits the tile, else scale 1.
+    const uint8_t bs = fitScale("BAT: 4.20V 100%", inner_w, 2);
+    drawTileBattery(fb, static_cast<uint16_t>(x + pad), cy, battery_pct, battery_voltage_v, battery_low, bs);
   }
 
   // Clears the framebuffer and draws the header bar: title, optional clock and battery indicator.
@@ -412,18 +728,20 @@ public:
       uint8_t sensor_battery_latch = 0) {
     renderHeader(fb, "RLCD CLIMATE PANEL", battery, clock_text, quiet_hours, ventilate);
 
-    const uint16_t tile_w = 190;
-    const uint16_t tile_h = 124;
+    size_t slot_of_tile[MAX_TILES] = {};
+    const size_t n = activeTileCount(switchbot_slots, switchbot_count, config, slot_of_tile);
+    TileRect rects[MAX_TILES];
+    layoutTiles(n, rects);
 
     // Tile 0: Onboard SHTC3 and 18650 Battery
     char onboard_title[24];
     tileTitle(onboard_title, sizeof(onboard_title), config, 0);
     renderTile(
         fb,
-        6,
-        36,
-        tile_w,
-        tile_h,
+        rects[0].x,
+        rects[0].y,
+        rects[0].w,
+        rects[0].h,
         onboard_title,
         onboard.valid,
         onboard.temperature_c,
@@ -437,13 +755,9 @@ public:
         false,
         tempUnit(config));
 
-    // Tiles 1..3: SwitchBot Outdoor Meters (WoIOSensor) and BTHome v2 sensors
-    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
-      const uint16_t col = static_cast<uint16_t>((i + 1) % 2);
-      const uint16_t row = static_cast<uint16_t>((i + 1) / 2);
-      const uint16_t tx = static_cast<uint16_t>(6 + col * 198);
-      const uint16_t ty = static_cast<uint16_t>(36 + row * 132);
-
+    // Tiles 1..5: SwitchBot Outdoor Meters (WoIOSensor), BTHome v2 and ATC sensors
+    for (size_t t = 1; t < n; ++t) {
+      const size_t i = slot_of_tile[t];
       char title[24];
       tileTitle(title, sizeof(title), config, i + 1);
 
@@ -453,10 +767,10 @@ public:
 
       renderTile(
           fb,
-          tx,
-          ty,
-          tile_w,
-          tile_h,
+          rects[t].x,
+          rects[t].y,
+          rects[t].w,
+          rects[t].h,
           title,
           sb.valid,
           sb.temperature_c,
@@ -671,7 +985,7 @@ public:
       const DeviceConfig* config = nullptr) {
     renderHeader(fb, "SENSOR STATS", battery, clock_text, quiet_hours);
 
-    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    for (size_t i = 0; i < STATS_SLOT_COUNT; ++i) {
       const uint16_t y = static_cast<uint16_t>(34 + i * SENSOR_BLOCK_PITCH);
       const bool have_slot = (switchbot_slots != nullptr && i < switchbot_count);
       const SwitchBotReading empty_reading{};

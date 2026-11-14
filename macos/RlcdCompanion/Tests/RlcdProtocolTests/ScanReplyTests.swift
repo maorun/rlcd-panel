@@ -77,7 +77,8 @@ import Testing
 
     @Test func emptyValueOnlyForSlotMacKeys() {
         #expect(ConsoleCommand.set(key: "slot2_mac", value: "").line == "SET slot2_mac=")
-        #expect(ConsoleCommand.set(key: "slot4_mac", value: "").line == nil)
+        #expect(ConsoleCommand.set(key: "slot4_mac", value: "").line == "SET slot4_mac=")
+        #expect(ConsoleCommand.set(key: "slot6_mac", value: "").line == nil)
         #expect(ConsoleCommand.set(key: "temp_unit", value: "").line == nil)
         #expect(ConsoleCommand.scan.line == "SCAN")
     }
