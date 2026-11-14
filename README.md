@@ -215,6 +215,8 @@ The console command `VERSION` shows the build identity: `VERSION fw=<version> gi
 
 The console command `STATUS` shows the line `RESET reason=<TEXT> abnormal=<N>` before the `POWER` line. The reason is `POWERON`, `EXT`, `SW`, `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT`, `DEEPSLEEP`, `BROWNOUT`, `SDIO` or `UNKNOWN`. A reset by `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT` or `BROWNOUT` is abnormal. NVS (namespace `rlcd`, key `abn_resets`) counts these resets up to 65535. NVS is written only after an abnormal reset, so a deep sleep wakeup causes no flash write. The line shows `abnormal=--` when NVS is unreadable.
 
+The firmware keeps the last 16 events (alert edges, config loads, NTP results, low battery alert, empty protection) in the RTC memory. The hourly write appends them to `/sdcard/events_v1_YYYY.csv` (columns `time,event,detail`) and clears the ring. A lost event adds the row `EVENTS_DROPPED,<N>`. `LIST`, `DUMP events_v1_YYYY.csv` and `./scripts/dump-logs.sh` handle the file, and the retention counts it as December of its year. The code is in `rlcd_panel/sd_logger.h`.
+
 ## Ambient Noise Monitor
 
 The onboard `ES7210` ADC and the dual microphone array measure the ambient noise level. The diagnostics view (third `KEY` view) shows `QUIET`, `MODERATE` or `LOUD` and the level in dBFS. The firmware measures a 5 s window after a `KEY` wakeup or a power-on, only while this view is on screen. A timer wakeup measures only when the hourly CSV record is due (see "MicroSD Noise Logging"); otherwise the microphones stay off. The levels are relative to full scale, not calibrated sound pressure levels. The code is in `rlcd_panel/es7210_mic.h`.

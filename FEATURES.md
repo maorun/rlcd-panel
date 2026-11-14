@@ -753,3 +753,16 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The console command `STATUS` adds the line `RESET reason=<TEXT> abnormal=<N>` before the `POWER` line. The line shows `abnormal=--` when NVS is unreadable.
 - Thus the user sees a brownout of a weak cell or a crash of the firmware.
 - Host tests cover each reason text, the abnormal classification, the counter with a portable NVS stand-in (0 writes after 10 deep sleep wakeups, 1 write after one panic), the saturation, an unreadable NVS, a failed write and the `STATUS` line.
+
+## Event log file on the MicroSD card
+
+- **Code:** `rlcd_panel/sd_logger.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
+- `EventRing` holds the last 16 events in `PersistentState`. An event has the local RTC time, a code (`EventCode`) and a 16-bit detail. An invalid RTC time or a stopped oscillator gives an event without a time, and the time column stays empty.
+- The firmware records an event for: each rising edge (`ALERT_RISE`) and falling edge (`ALERT_FALL`) of an alert bit (detail: the alert bit), each config load from the card (`CONFIG_LOAD`, detail: count of rejected lines), each NTP sync result (`NTP_SYNC`, detail: `NtpResult`, `0` is OK), the set and the release of the low battery alert (`BATTERY_LOW_SET`, `BATTERY_LOW_CLEAR`, detail: cell percentage) and the set and the release of the empty protection (`EMPTY_PROTECTION`, detail `1` or `0`).
+- The hourly write calls `SdLogger::appendEvents` while the card is mounted. The function appends the events to `/sdcard/events_v1_YYYY.csv` (year of the RTC time) and the firmware then clears the ring. A new file gets the header `time,event,detail` first. A row has the format `YYYY-MM-DD hh:mm:ss,NAME,detail`.
+- A full ring drops the oldest event and counts the loss. The next write starts with the row `<time>,EVENTS_DROPPED,<N>`. The time of this summary row is the time of the write. The set of the empty protection has an empty time column, because the RTC is not read yet at that point.
+- A failed write keeps the ring (`EventFlush::apply` clears it after `OK` only). The next hourly write repeats it. A short write to an existing file can leave part of the rows, so a retry can repeat rows; the `File` class cannot truncate. A card that does not mount for the hourly write skips the event write.
+- `LIST` and `DUMP events_v1_YYYY.csv` accept the file (`SdLogCodec::isConsoleFileName`). `scripts/dump-logs.sh` copies it. The retention rule treats the file like the daily file: it counts as December of its year.
+- `PersistentState` stores the ring before the checksum (3 bytes plus 16 entries of 11 bytes). `STATE_VERSION` is 37. A corrupt ring (bad count, code, date or time, dirty unused entry, dropped count without a full ring) and a record of version 36 give a clean start.
+- Thus the user sees when an alert started and ended.
+- Host tests cover the ring with 1, 16 and 17 events, the dropped row, each event code, the CSV header and rows, a failed write with a retry, an invalid RTC time, the file name check of the console, the retention rule and the RTC round trip with a corrupt ring.
