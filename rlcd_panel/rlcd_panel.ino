@@ -962,6 +962,9 @@ void setup() {
         snap.sd_status = g_state.sd_status;
         snap.sd_status_ms = g_state.sd_status_ms;
         snap.shtc3 = g_state.shtc3;
+        snap.battery_history = &g_state.battery_history;
+        snap.cycle_tenths = g_cycles.cycleTenths();
+        snap.scan_saved_ms = g_scan_saved_ms;
         snap.reset_reason = ResetReasonCodec::text(g_reset_reason);
         ResetCountStore reset_store;
         snap.abnormal_resets = AbnormalResetCounter::read(reset_store);

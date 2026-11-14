@@ -10488,13 +10488,13 @@ void testSerialStatusParser() {
 void testSerialStatusEmptyAndMissingValues() {
   StatusFixture f;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 10);
+  assert(lines.size() == 11);
   assert(lines[0] == "SENSOR 0 onboard temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
   assert(lines[1] == "SENSOR 1 slot1 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
   assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
   assert(lines[5] == "RESET reason=UNKNOWN abnormal=--");
   assert(lines[8] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
-  assert(lines[9].rfind("CRC32 ", 0) == 0);
+  assert(lines[10].rfind("CRC32 ", 0) == 0);
 }
 
 void testSerialStatusStates() {
@@ -10548,8 +10548,8 @@ void testSerialStatusWorstCaseLineLength() {
   f.snap.reset_reason = ResetReasonCodec::text(ResetReason::TASK_WDT); // the longest text
   f.snap.abnormal_resets = 65535;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 10 && lines[4].rfind("SD status=", 0) == 0 && lines[5] == "RESET reason=TASK_WDT abnormal=65535" &&
-         lines[6].rfind("SHTC3 ", 0) == 0 && lines[7].rfind("BLE ", 0) == 0 && lines[8].rfind("POWER ", 0) == 0 && lines[9].size() == 14);
+  assert(lines.size() == 11 && lines[4].rfind("SD status=", 0) == 0 && lines[5] == "RESET reason=TASK_WDT abnormal=65535" &&
+         lines[6].rfind("SHTC3 ", 0) == 0 && lines[7].rfind("BLE ", 0) == 0 && lines[8].rfind("POWER ", 0) == 0 && lines[9].rfind("RUNTIME ", 0) == 0 && lines[10].size() == 14);
   for (size_t i = 0; i < 4; ++i) {
     assert(lines[i].rfind("SENSOR ", 0) == 0 && lines[i].find(" state=") != std::string::npos);
   }
@@ -10647,7 +10647,7 @@ void testBleRejectSaturationAndReset() {
 void testBleRejectStatusLine() {
   StatusFixture f;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 10);
+  assert(lines.size() == 11);
   assert(lines[7] == "BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0");
   assert(lines[8].rfind("POWER ", 0) == 0);
   fillRegistry(f.registry);
@@ -10655,7 +10655,7 @@ void testBleRejectStatusLine() {
   f.registry.upsert(rejectReading(0xCD), BleFormat::ATC);
   f.registry.upsert(rejectReading(0xCD), BleFormat::ATC);
   lines = statusLines(f.run());
-  assert(lines.size() == 10);
+  assert(lines.size() == 11);
   assert(lines[7] == "BLE rejected=3 last=AA:00:00:00:00:CD woio=0 meter=0 bthome=1 atc=2");
   assert(lines[8].rfind("POWER ", 0) == 0);
   // The slot lines stay as before.
@@ -10676,8 +10676,123 @@ void testBleRejectStatusWorstCaseLength() {
     f.registry.upsert(r, BleFormat::ATC);
   }
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 10);
+  assert(lines.size() == 11);
   assert(lines[7] == "BLE rejected=262140 last=FF:FF:FF:FF:FF:FF woio=65535 meter=65535 bthome=65535 atc=65535");
+}
+
+namespace {
+BatteryHistory runtimeHistory(size_t samples) {
+  BatteryHistory h;
+  for (size_t hour = 0; hour < samples; ++hour) {
+    h.push(4.00f - 0.02f * static_cast<float>(hour));
+  }
+  return h;
+}
+} // namespace
+
+void testStatusRuntimeLineValid() {
+  StatusFixture f;
+  const BatteryHistory h = runtimeHistory(12);
+  f.snap.battery_history = &h;
+  f.snap.battery.usb_powered = false;
+  f.snap.battery.voltage_v = 3.78f;
+  f.snap.cycle_tenths = 123;
+  f.snap.scan_saved_ms = 0;
+  const std::vector<std::string> lines = statusLines(f.run());
+  assert(lines.size() == 11);
+  assert(lines[9] == "RUNTIME h=29 samples=12 cycles=12.3 scan_saved_ms=0");
+  // An early scan stop saves awake time and raises the runtime by the same ratio as the diagnostics view.
+  f.snap.scan_saved_ms = 4000;
+  const BatteryRuntime expected = h.estimate(f.snap.battery, 4000);
+  assert(expected.valid && expected.hours > 29);
+  assert(statusLines(f.run())[9] ==
+         "RUNTIME h=" + std::to_string(expected.hours) + " samples=12 cycles=12.3 scan_saved_ms=4000");
+}
+
+void testStatusRuntimeLineNoEstimate() {
+  StatusFixture f;
+  f.snap.battery.usb_powered = false;
+  f.snap.battery.voltage_v = 3.78f;
+  f.snap.cycle_tenths = 0;
+  // Too few samples
+  const BatteryHistory few = runtimeHistory(BatteryHistory::MIN_SAMPLES - 1);
+  f.snap.battery_history = &few;
+  assert(statusLines(f.run())[9] == "RUNTIME h=-- samples=5 cycles=0.0 scan_saved_ms=0");
+  // Flat slope
+  BatteryHistory flat;
+  for (size_t i = 0; i < 12; ++i) {
+    flat.push(3.90f);
+  }
+  f.snap.battery_history = &flat;
+  assert(statusLines(f.run())[9] == "RUNTIME h=-- samples=12 cycles=0.0 scan_saved_ms=0");
+  // USB power gives no estimate, a missing history reads as no samples
+  const BatteryHistory ok = runtimeHistory(12);
+  f.snap.battery_history = &ok;
+  f.snap.battery.usb_powered = true;
+  assert(statusLines(f.run())[9] == "RUNTIME h=-- samples=12 cycles=0.0 scan_saved_ms=0");
+  f.snap.battery_history = nullptr;
+  assert(statusLines(f.run())[9] == "RUNTIME h=-- samples=0 cycles=0.0 scan_saved_ms=0");
+}
+
+void testStatusRuntimeLineUnknownCycles() {
+  StatusFixture f;
+  const BatteryHistory h = runtimeHistory(12);
+  f.snap.battery_history = &h;
+  f.snap.battery.usb_powered = false;
+  f.snap.battery.voltage_v = 3.78f;
+  f.snap.cycle_tenths = -1;
+  assert(statusLines(f.run())[9] == "RUNTIME h=29 samples=12 cycles=-- scan_saved_ms=0");
+}
+
+void testStatusRuntimeLineWorstCaseLength() {
+  StatusFixture f;
+  BatteryHistory h;
+  for (size_t hour = 0; hour < BatteryHistory::CAPACITY; ++hour) {
+    h.push(4.00f - 0.0001f * static_cast<float>(hour)); // a slow discharge gives the 4-digit maximum
+  }
+  f.snap.battery_history = &h;
+  f.snap.battery.usb_powered = false;
+  f.snap.battery.voltage_v = 4.00f;
+  f.snap.cycle_tenths = 99999;
+  f.snap.scan_saved_ms = 0xFFFFFFFFu;
+  const BatteryRuntime expected = h.estimate(f.snap.battery, f.snap.scan_saved_ms);
+  assert(expected.valid && expected.hours == 99u * 24u + 12u);
+  const std::vector<std::string> lines = statusLines(f.run());
+  assert(lines.size() == 11);
+  assert(lines[9] == "RUNTIME h=2388 samples=24 cycles=9999.9 scan_saved_ms=4294967295");
+  assert(lines[10].size() == 14);
+}
+
+void testStatusRuntimeLinePositionCrcAndNoSideEffect() {
+  StatusFixture f;
+  const BatteryHistory h = runtimeHistory(12);
+  const BatteryHistory before = h;
+  f.snap.battery_history = &h;
+  f.snap.battery.usb_powered = false;
+  f.snap.battery.voltage_v = 3.78f;
+  f.snap.battery.percentage = 42;
+  f.snap.cycle_tenths = 123;
+  const std::string out = f.run();
+  const std::vector<std::string> lines = statusLines(out);
+  assert(lines.size() == 11);
+  assert(lines[8].rfind("POWER ", 0) == 0);
+  assert(lines[9].rfind("RUNTIME ", 0) == 0);
+  assert(lines[10].rfind("CRC32 ", 0) == 0 && lines[10].size() == 14);
+  // The CRC-32 covers the RUNTIME line too.
+  const size_t crc_at = out.rfind("CRC32 ");
+  SerialCrc32 crc;
+  crc.update(reinterpret_cast<const uint8_t*>(out.data()), crc_at);
+  char expected[24];
+  snprintf(expected, sizeof(expected), "CRC32 %08lx", static_cast<unsigned long>(crc.value()));
+  assert(lines[10] == expected);
+  assert(out.find("RUNTIME ") < crc_at);
+  assert(lines[10] == "CRC32 4c5d85d4"); // fixed value of the whole reply
+  // The command leaves the history unchanged.
+  assert(h.size() == before.size() && h.head() == before.head() && h.last_sample_ms == before.last_sample_ms &&
+         h.has_sampled == before.has_sampled);
+  for (size_t k = 0; k < BatteryHistory::CAPACITY; ++k) {
+    assert(h.rawSample(k) == before.rawSample(k) && h.rawTime(k) == before.rawTime(k));
+  }
 }
 
 void testSerialStatusPowerLine() {
@@ -10861,7 +10976,7 @@ void testShtc3StatusLine() {
   f.snap.shtc3.crc = 65535;
   f.snap.shtc3.run = 4;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 10);
+  assert(lines.size() == 11);
   assert(lines[5].rfind("RESET ", 0) == 0);
   assert(lines[6] == "SHTC3 nack=1 short=22 crc=65535 run=4");
   assert(lines[8].rfind("POWER ", 0) == 0);
@@ -14770,7 +14885,7 @@ void testSdCardStatus() {
     f.snap.sd_status = n.status;
     f.snap.sd_status_ms = f.snap.now_ms - 125000;
     const std::vector<std::string> lines = statusLines(f.run());
-    assert(lines.size() == 10);
+    assert(lines.size() == 11);
     assert(lines[4] == std::string("SD status=") + n.name + " age=125");
     assert(lines[8].rfind("POWER ", 0) == 0);
   }
@@ -15467,6 +15582,11 @@ testBleRejectEachFormatAndSlotsUnchanged();
 testBleRejectSaturationAndReset();
 testBleRejectStatusLine();
 testBleRejectStatusWorstCaseLength();
+testStatusRuntimeLineValid();
+testStatusRuntimeLineNoEstimate();
+testStatusRuntimeLineUnknownCycles();
+testStatusRuntimeLineWorstCaseLength();
+testStatusRuntimeLinePositionCrcAndNoSideEffect();
 testSerialStatusResetLine();
 testShtc3Classification();
 testShtc3HealthCounters();
