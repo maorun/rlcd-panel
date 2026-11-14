@@ -922,3 +922,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `LIST` and `DUMP` accept `daily_v1_YYYY.csv` and `daily_v2_YYYY.csv`. `scripts/dump-logs.sh` copies both. The retention rule treats both files in the same way.
 - Thus the user sees the loudest hour of each day without the hourly file.
 - Host tests cover the header and the row format with 30 columns, a day with one peak, two equal peaks, a day without a noise reading, the sum saturation at 65535, the file name, `DUMP` and `LIST` with both daily files, the retention of both file names, and the RTC round trip with a corrupt field and the old state version.
+
+## Serial console command SCAN to list nearby BLE sensors
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- The console command `SCAN` (no argument) runs one 4 s BLE scan. `SCAN` with an argument gives `ERR BAD_ARG`. A scan that does not start gives `ERR SCAN_FAILED`.
+- `ScanCollector` collects each decoded packet of the formats `WOIO`, `METER`, `BTHOME` and `ATC` for up to 16 MAC addresses. For one MAC, the packet with the strongest RSSI wins.
+- The reply starts with `BEGIN SCAN` and the header `mac,format,rssi,slot,temp_c,rh_pct,battery_pct`. Each MAC gives one row. The `slot` column is `1` to `3` for a MAC in a registry slot or a fixed MAC, and `-` for a free MAC. The temperature is in Celsius. The `battery_pct` field is empty when the packet has no battery value.
+- A 17th MAC and each further new MAC increase a counter. The reply then ends with the row `DROPPED,<N>` before the `CRC32` line.
+- The reply ends with `CRC32 <8 hex digits>` over all bytes before this line. A short write stops the reply, so the host sees no `CRC32` line.
+- During the command, the BLE callback fills the collector only. The registry, the fixed MAC slots, the reject counters and `PersistentState` stay unchanged. The command needs no card. It runs on USB power only (`PowerManager::serialConsoleAllowed`).
+- Thus the user finds the MAC of a new sensor for a `slotN_mac` entry.
+- Host tests cover the parser, the rejection of arguments, an empty scan, one packet of each format, two packets of one MAC with different RSSI, the slot column for an assigned, a fixed and a free MAC, 17 and 18 MAC addresses with the `DROPPED` row, the CRC-32 value, the unchanged registry, the short write, the failed scan start and the USB power gate.
