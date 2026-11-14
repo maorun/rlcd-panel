@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] Fahrenheit display unit in config.ini
-  - Rank: [Total: 29, Use: 7, Setup: 4, Harmony: 8, Safety: 10, Effort: M]
-  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/climate_math.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the `config.ini` key `temp_unit` (default `C`, values `C` and `F`). With `F`, the tiles, the dew point line, the 24-hour record line and the console command `STATUS` show the temperature in Fahrenheit with the glyph `F`. Add `ClimateMath::toDisplay(temp_c, unit)`. The MicroSD files, the `config.ini` limits and offsets, the alerts, the trend limits and the comfort limits stay in Celsius. A malformed value is rejected and counts in `ConfigRejects`. Store the unit in the config trailer of `PersistentState` (1 byte) and increase the state version. Show the key in the `CONFIG` reply. Thus a user who reads Fahrenheit can use the panel.
-  - Acceptance test: Host tests cover the parser for `C`, `F`, `f`, `K` and an empty value, the conversion at -40 C, 0 C, 37 C and 100 C, the text bounds of the widest Fahrenheit values in each tile and in the record line, the unchanged CSV row, the `CONFIG` line, and the RTC round trip. `docs/display_preview_dashboard.png` stays bit-exact for the default scenes.
-
 - [ ] 24-hour climate chart view for one sensor
   - Rank: [Total: 28, Use: 8, Setup: 2, Harmony: 9, Safety: 9, Effort: M]
   - Location: `rlcd_panel/button_handler.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/render_display_preview.cpp`, `tools/preview_scenes.h`, `scripts/generate-display-preview.sh`, `tests/test_firmware_logic.cpp`

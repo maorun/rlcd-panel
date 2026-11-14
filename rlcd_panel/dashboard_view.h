@@ -174,12 +174,12 @@ public:
   // Dew point and VPD line; shows "DP -- VPD --" for a stale, invalid or NaN reading.
   static void renderClimateLine(
       St7305Framebuffer& fb, uint16_t x, uint16_t y, uint16_t h, bool usable, float temp_c,
-      float humidity_pct) {
+      float humidity_pct, char unit = 'C') {
     if (h <= CLIMATE_LINE_Y_OFFSET + CLIMATE_LINE_H) {
       return;
     }
     char line[ClimateMath::LINE_MAX_CHARS + 1];
-    ClimateMath::format(line, sizeof(line), usable, temp_c, humidity_pct);
+    ClimateMath::format(line, sizeof(line), usable, temp_c, humidity_pct, unit);
     fb.drawText(x + 12, y + CLIMATE_LINE_Y_OFFSET, line, 1, true);
   }
 
@@ -227,19 +227,22 @@ public:
       const HumidityHistory* history = nullptr,
       bool ventilate_badge = false,
       const TemperatureHistory* temperature_history = nullptr,
-      bool battery_low = false) {
+      bool battery_low = false,
+      char unit = 'C') {
     fb.drawRect(x, y, w, h, true);
     fb.drawHLine(x, y + 24, w, true);
     fb.drawText(x + 8, y + 6, title, 2, true);
 
     if (!valid) {
       fb.drawText(x + 12, y + 56, "NO SIGNAL", 2, true);
-      renderClimateLine(fb, x, y, h, false, 0.0f, 0.0f);
+      renderClimateLine(fb, x, y, h, false, 0.0f, 0.0f, unit);
       return;
     }
 
-    char line_temp[24];
-    snprintf(line_temp, sizeof(line_temp), "T: %.1f C", temp_c);
+    // Widest text: "T: -148.0 F" (-100 C) = 11 glyphs = 132 px, so it ends at x + 144, inside the 190 px tile.
+    char line_temp[32];
+    snprintf(line_temp, sizeof(line_temp), "T: %.1f %c", static_cast<double>(ClimateMath::toDisplay(temp_c, unit)),
+             unit == 'F' ? 'F' : 'C');
     fb.drawText(x + 12, y + TEMP_LINE_Y_OFFSET, line_temp, 2, true);
 
     char line_rh[24];
@@ -259,7 +262,7 @@ public:
           TrendClassifier::humidity(*history));
     }
 
-    renderClimateLine(fb, x, y, h, !is_stale, temp_c, humidity_pct);
+    renderClimateLine(fb, x, y, h, !is_stale, temp_c, humidity_pct, unit);
 
     if (ventilate_badge && !is_stale) {
       const uint16_t bx = static_cast<uint16_t>(x + VENT_BADGE_X_OFFSET);
@@ -402,7 +405,9 @@ public:
         false,
         history != nullptr ? &history->slots[ClimateHistory::ONBOARD] : nullptr,
         VentilateLatch::isSet(ventilate_tiles, 0),
-        history != nullptr ? &history->temperatures[ClimateHistory::ONBOARD] : nullptr);
+        history != nullptr ? &history->temperatures[ClimateHistory::ONBOARD] : nullptr,
+        false,
+        tempUnit(config));
 
     // Tiles 1..3: SwitchBot Outdoor Meters (WoIOSensor) and BTHome v2 sensors
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
@@ -434,7 +439,8 @@ public:
           history != nullptr ? &history->slots[1 + i] : nullptr,
           VentilateLatch::isSet(ventilate_tiles, 1 + i),
           history != nullptr ? &history->temperatures[1 + i] : nullptr,
-          SensorBatteryLatch::isSet(sensor_battery_latch, i));
+          SensorBatteryLatch::isSet(sensor_battery_latch, i),
+          tempUnit(config));
     }
   }
 
@@ -465,14 +471,23 @@ public:
   // Formats the 24 h records of one history slot: "24H T-15.0 TO 5.0 H41-63" (lowest, highest degC; lowest-
   // highest %RH; the 5x7 font has no slash, and "TO" keeps a negative highest value unambiguous). Each range shows "--" for fewer than 2 samples. The longest text is
   // "24H T-100.0 TO -100.0 H100-100" (30 glyphs, 360 px), so it always fits the 400 px width.
-  static void formatRecords(char* out, size_t capacity, const ClimateHistory* history, size_t slot) {
-    char temp[28] = "--";
+  // With unit 'F' both temperatures are in Fahrenheit and the highest one ends with 'F':
+  // "24H T-148.0 TO 212.0F H100-100" is the longest text (30 glyphs, 360 px), as wide as in Celsius.
+  static void formatRecords(char* out, size_t capacity, const ClimateHistory* history, size_t slot,
+                            char unit = 'C') {
+    char temp[40] = "--";
     char hum[12] = "--";
     if (history != nullptr && slot < ClimateHistory::SLOT_COUNT) {
       int16_t lo = 0;
       int16_t hi = 0;
       if (history->temperatures[slot].range(lo, hi)) {
-        snprintf(temp, sizeof(temp), "%.1f TO %.1f", lo / 10.0, hi / 10.0);
+        if (unit == 'F') {
+          snprintf(temp, sizeof(temp), "%.1f TO %.1fF",
+                   static_cast<double>(ClimateMath::toDisplay(lo / 10.0f, unit)),
+                   static_cast<double>(ClimateMath::toDisplay(hi / 10.0f, unit)));
+        } else {
+          snprintf(temp, sizeof(temp), "%.1f TO %.1f", lo / 10.0, hi / 10.0);
+        }
       }
       if (history->slots[slot].range(lo, hi)) {
         snprintf(hum, sizeof(hum), "%d-%d", (lo + 5) / 10, (hi + 5) / 10);
@@ -481,13 +496,18 @@ public:
     snprintf(out, capacity, "24H T%s H%s", temp, hum);
   }
 
-  // "COMFORT OK" for a live slot, "COMFORT --" for an empty, stale or out-of-range slot. Computed on
-  // each render; nothing is stored.
+  // Display unit of the config, or Celsius without a config.
+  static char tempUnit(const DeviceConfig* config) {
+    return config != nullptr && config->temp_unit == 'F' ? 'F' : 'C';
+  }
+
   // Stale timeout of the config, or the default timeout without a config.
   static uint32_t staleTimeoutMs(const DeviceConfig* config) {
     return config != nullptr ? config->staleTimeoutMs() : SENSOR_STALE_TIMEOUT_MS;
   }
 
+  // "COMFORT OK" for a live slot, "COMFORT --" for an empty, stale or out-of-range slot. Computed on
+  // each render; nothing is stored.
   static void formatComfort(char* out, size_t capacity, const SwitchBotReading& sb, uint32_t now_ms,
                             uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS) {
     const bool future = (now_ms - sb.updated_ms) >= 0xFFFF0000u;
@@ -615,7 +635,7 @@ public:
       drawComfort(fb, y, COMFORT_Y_OFFSET, sb, now_ms, staleTimeoutMs(config));
       drawMold(fb, y, sb, now_ms, config, history, i);
 
-      formatRecords(line, sizeof(line), history, 1 + i);
+      formatRecords(line, sizeof(line), history, 1 + i, tempUnit(config));
       drawLine(fb, 10, static_cast<uint16_t>(y + 54), line);
     }
 

@@ -482,12 +482,12 @@ public:
       for (char* c = name; *c != '\0'; ++c) {
         *c = *c == ' ' ? '_' : *c;
       }
-      char temp[12] = "--", rh[8] = "--", bat[8] = "--", rssi[8] = "--", age[12] = "--";
+      char temp[16] = "--", rh[8] = "--", bat[8] = "--", rssi[8] = "--", age[12] = "--";
       const char* state = "EMPTY";
       if (i == 0) {
         const ClimateHistory& h = *snap.history;
         if (h.temperatures[0].size() > 0) {
-          formatTenths(temp, sizeof(temp), h.temperatures[0].at(h.temperatures[0].size() - 1));
+          formatTemp(temp, sizeof(temp), h.temperatures[0].at(h.temperatures[0].size() - 1) / 10.0f, cfg.temp_unit);
         }
         if (h.slots[0].size() > 0) {
           snprintf(rh, sizeof(rh), "%d", static_cast<int>((h.slots[0].at(h.slots[0].size() - 1) + 5) / 10));
@@ -501,7 +501,7 @@ public:
       } else {
         const SwitchBotReading& r = cal.slot(i - 1);
         if (r.valid) {
-          formatTenths(temp, sizeof(temp), tenths(r.temperature_c));
+          formatTemp(temp, sizeof(temp), r.temperature_c, cfg.temp_unit);
           snprintf(rh, sizeof(rh), "%u", static_cast<unsigned>(r.humidity_pct));
           if (r.battery_pct >= 0) {
             snprintf(bat, sizeof(bat), "%d", static_cast<int>(r.battery_pct));
@@ -701,6 +701,18 @@ private:
   }
 
   // Prints a value in 0.1 steps with one decimal; no "-0.0".
+  // Temperature text of the console command STATUS: tenths of a degree, with 'F' behind a value in
+  // Fahrenheit. Celsius keeps the plain number.
+  static void formatTemp(char* out, size_t size, float temp_c, char unit) {
+    if (unit == 'F') {
+      char num[12];
+      formatTenths(num, sizeof(num), tenths(ClimateMath::toDisplay(temp_c, unit)));
+      snprintf(out, size, "%sF", num);
+    } else {
+      formatTenths(out, size, tenths(temp_c));
+    }
+  }
+
   static void formatTenths(char* out, size_t size, int32_t value) {
     const int32_t mag = value < 0 ? -value : value;
     snprintf(out, size, "%s%ld.%ld", value < 0 ? "-" : "", static_cast<long>(mag / 10), static_cast<long>(mag % 10));

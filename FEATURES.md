@@ -171,6 +171,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
   | `sensor_stale_min` | `30` | `5` to `240` | minutes without a packet until a sensor is stale |
   | `display_invert` | `0` | `0` or `1` | `1` shows light text on a dark background |
   | `slot_release_h` | `0` | `0` to `168` | hours without a packet until a slot without a fixed MAC is released; `0` is off |
+  | `temp_unit` | `C` | `C` or `F` | display unit of the temperature on the screen and in `STATUS`; everything else stays in Celsius |
   | `night_wake_interval_s` | `0` | `0`, or `60` to `1800` | seconds between two scans on battery power in the quiet hours; `0` keeps `wake_interval_s` |
   | `climate_alert_tiles` | `15` | `0` to `15` | tiles of the freezer and mold alerts (bit 0 onboard, bits 1 to 3 slots 1 to 3); `0` switches both alerts off |
   | `outdoor_slot` | `0` | `0` (off) to `3` | registry slot of the outdoor sensor for the ventilation advice |
@@ -766,3 +767,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `PersistentState` stores the ring before the checksum (3 bytes plus 16 entries of 11 bytes). `STATE_VERSION` is 37. A corrupt ring (bad count, code, date or time, dirty unused entry, dropped count without a full ring) and a record of version 36 give a clean start.
 - Thus the user sees when an alert started and ended.
 - Host tests cover the ring with 1, 16 and 17 events, the dropped row, each event code, the CSV header and rows, a failed write with a retry, an invalid RTC time, the file name check of the console, the retention rule and the RTC round trip with a corrupt ring.
+
+## Fahrenheit display unit in config.ini
+
+- **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/climate_math.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `docs/config.example.ini`, `tests/test_firmware_logic.cpp`
+- The `config.ini` key `temp_unit` has the default `C`. The values are `C` and `F`. Each other value (for example `f`, `K`, `FF` or an empty value) is rejected and counts in `ConfigRejects`. A rejected line keeps the earlier value.
+- With `F`, these texts show the temperature in Fahrenheit with the glyph `F`: the temperature line of each tile (`T: 70.7 F` for 21.5 C), the dew point line (`DP 48.7F VPD 1.2K`), the 24-hour record line (`24H T5.0 TO 41.0F H41-63`) and the `temp=` fields of the console command `STATUS` (`temp=72.1F`).
+- `ClimateMath::toDisplay(temp_c, unit)` converts a value. The unit `F` gives `temp_c * 9 / 5 + 32`. Each other unit keeps Celsius.
+- The MicroSD files, the offsets and limits of `config.ini`, the alerts, the trend limits and the comfort limits stay in Celsius. The screen converts the value only when it draws the text.
+- `PersistentState` stores the unit as 1 byte in the config trailer, after `night_wake_interval_s`. `STATE_VERSION` is 38. A stored unit other than `C` and `F` and a record of version 37 give a clean start.
+- The `CONFIG` reply shows the line `temp_unit=C` or `temp_unit=F`. `docs/config.example.ini` lists the key.
+- Thus a user who reads Fahrenheit can use the panel.
+- Host tests cover the parser for `C`, `F`, `f`, `K`, an empty value and a longer text, the conversion at -40 C, 0 C, 37 C and 100 C, the text bounds of the widest Fahrenheit values in a tile, in the dew point line and in the record line, the unchanged CSV row, the `CONFIG` line, the `STATUS` temperatures, and the RTC round trip with corrupt unit bytes. The default preview scenes stay bit-exact.
