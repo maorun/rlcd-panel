@@ -34,14 +34,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CALIB without a reference, with a reference above 3 or with extra text; BEEP without a bit, above 6 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099
+  BAD_ARG,  // CALIB without a reference, with a reference above 3 or with extra text; BEEP without a bit, above 6 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '=')
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv or events_v1_YYYY.csv
@@ -67,7 +67,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..6", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "VERSION", "SET <key>=<value>" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..6", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "EVENTS", "VERSION", "SET <key>=<value>" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -138,6 +138,13 @@ public:
       memcpy(out.set_value, eq + 1, val_len);
       out.set_value[val_len] = '\0';
       out.kind = SerialCommandKind::SET;
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "EVENTS")) {
+      if (cmd_len != len) {
+        return SerialParseStatus::BAD_ARG; // EVENTS takes no argument
+      }
+      out.kind = SerialCommandKind::EVENTS;
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "HISTORY")) {
@@ -510,6 +517,38 @@ public:
     send(sink, line);
   }
 
+  // Sends the event ring from the RTC copy as CSV, oldest event first, with the rows of events_v1_YYYY.csv. A ring with
+  // lost events starts with the EVENTS_DROPPED row of the current time (no row for an invalid time, as in the file).
+  // The card and the ring stay untouched. A short write ends the reply, so the host sees no CRC32 line.
+  static void showEvents(Sink& sink, const EventRing& ring, const RtcTime& now) {
+    SerialCrc32 crc;
+    auto emit = [&](const char* text, size_t len) {
+      if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+        return false;
+      }
+      crc.update(reinterpret_cast<const uint8_t*>(text), len);
+      return true;
+    };
+    static const char begin[] = "BEGIN EVENTS\ntime,event,detail\n";
+    if (!emit(begin, sizeof(begin) - 1)) {
+      return;
+    }
+    char row[SdLogCodec::MAX_EVENT_ROW_SIZE];
+    const size_t dropped_len = SdLogCodec::formatEventsDroppedRow(now, ring.dropped(), row, sizeof(row));
+    if (dropped_len > 0 && !emit(row, dropped_len)) {
+      return;
+    }
+    for (size_t i = 0; i < ring.size(); ++i) {
+      const size_t len = SdLogCodec::formatEventRow(ring.at(i), row, sizeof(row));
+      if (len > 0 && !emit(row, len)) {
+        return;
+      }
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
   // Sends a live snapshot of all sensors and of the power state. The card stays untouched.
   static void showStatus(Sink& sink, const SerialStatusSnapshot& snap) {
     if (snap.registry == nullptr || snap.history == nullptr || snap.config == nullptr) {
@@ -764,6 +803,7 @@ public:
         command.kind == SerialCommandKind::CALIB || command.kind == SerialCommandKind::STATUS ||
         command.kind == SerialCommandKind::BEEP || command.kind == SerialCommandKind::TIME ||
         command.kind == SerialCommandKind::HISTORY || command.kind == SerialCommandKind::VERSION ||
+        command.kind == SerialCommandKind::EVENTS ||
         command.kind == SerialCommandKind::SET) {
       return;
     }
@@ -782,6 +822,7 @@ public:
       case SerialCommandKind::BEEP:
       case SerialCommandKind::TIME:
       case SerialCommandKind::HISTORY:
+      case SerialCommandKind::EVENTS:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;

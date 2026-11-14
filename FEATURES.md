@@ -633,6 +633,17 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `./scripts/dump-logs.sh --history [port]` sends `HISTORY`, checks the CRC-32 and writes `sd_logs/history_<host time>.csv`. Thus the user gets the last 24 hours also without a card.
 - Host tests cover the parser, the rejection of arguments, the header, a full and an empty history, an invalid noise hour, negative temperatures, the row order, the CRC-32 line, each short write, no card access, the USB power gate and the script option.
 
+## Serial console command EVENTS to read the event ring without a card
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
+- The console command `EVENTS` (no argument) sends the event ring of `PersistentState::events` from the RTC copy. `EVENTS` with an argument gives `ERR BAD_ARG`.
+- The reply starts with `BEGIN EVENTS` and the header `time,event,detail`. Each event gives one row, from the oldest to the newest. `SdLogCodec::formatEventRow` writes each row, so the rows are equal to the rows of `events_v1_YYYY.csv`. An event without a valid time has an empty first column.
+- A ring with lost events starts with the row from `SdLogCodec::formatEventsDroppedRow`, with the current RTC time. An empty ring gives only the header. The firmware reads the RTC again for the command. If the RTC time is invalid, the reply has no `EVENTS_DROPPED` row, as in the file.
+- The reply ends with `CRC32 <8 hex digits>` over all bytes before this line. A short write stops the reply, so the host sees no `CRC32` line.
+- The command does not mount the card and does not clear the ring, so the clap listener keeps running and the next hourly write still appends the events. It runs on USB power only (`PowerManager::serialConsoleAllowed`).
+- `./scripts/dump-logs.sh --events [port]` sends `EVENTS`, checks the CRC-32 and prints the rows. Thus the user reads the recent alerts and resets also without a MicroSD card.
+- Host tests cover the parser, the rejection of arguments, an empty ring, one event, a full ring, lost events, an event without time, the row equality with `formatEventRow`, the CRC-32 value, each short write, the unchanged ring, no card access, the USB power gate and the script option.
+
 ## SwitchBot Meter and Meter Plus support from Service Data
 
 - **Code:** `rlcd_panel/switchbot_ble.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `README.md`
