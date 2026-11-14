@@ -29,12 +29,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 
-- [ ] Display test pattern from the serial console
-  - Rank: [Total: 27, Use: 2, Setup: 9, Harmony: 7, Safety: 9, Effort: S]
-  - Location: `rlcd_panel/serial_console.h`, `rlcd_panel/st7305_framebuffer.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the console command `PATTERN <0|1|2>`. Pattern 0 fills each pixel black, pattern 1 is a 1-pixel checkerboard, pattern 2 is a 1-pixel border with a cross from corner to corner. Add `St7305Framebuffer::fillPattern(uint8_t)`. The command renders the pattern, flushes it without `display_invert`, and replies `OK PATTERN <N>`. The next wake cycle renders the normal view again. Another value gives `ERR BAD_ARG`. The command runs on USB power only and does not mount the card. Thus the user finds dead pixels, a bad row or a wrong packing after a hardware change.
-  - Acceptance test: Host tests cover the parser for each pattern, the values 3 and -1, extra text, the bit-exact framebuffer bytes of each pattern with the packing rule of the `ST7305` (corner pixels at (0,0), (399,0), (0,299) and (399,299)), the ignored `display_invert`, and the USB power gate. `arduino-cli compile rlcd_panel` passes.
-
 - [ ] Daily noise peak summary in the daily file
   - Rank: [Total: 25, Use: 6, Setup: 2, Harmony: 9, Safety: 8, Effort: M]
   - Location: `rlcd_panel/sd_logger.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`

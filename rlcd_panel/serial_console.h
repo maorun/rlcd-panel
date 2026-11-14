@@ -35,14 +35,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CALIB without a reference, with a reference above 3 or with extra text; BEEP without a bit, above 6 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text
+  BAD_ARG,  // CALIB without a reference, with a reference above 3 or with extra text; BEEP without a bit, above 6 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '=')
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv or events_v1_YYYY.csv
@@ -54,7 +54,7 @@ constexpr size_t SET_VALUE_SIZE = 41;
 struct SerialCommand {
   SerialCommandKind kind = SerialCommandKind::NONE;
   char file[SdLogCodec::LOG_NAME_SIZE] = {0};
-  uint8_t reference = 0; // CALIB: 0 onboard, 1 to 3 a slot; BEEP: alert bit number 0 to 6
+  uint8_t reference = 0; // CALIB: 0 onboard, 1 to 3 a slot; BEEP: alert bit number 0 to 6; PATTERN: pattern number 0 to 2
   bool time_set = false; // TIME: true for "TIME SET <time>"; `time` then holds the parsed local time
   RtcTime time;
   char set_key[SET_KEY_SIZE] = {0};     // SET: key of DeviceConfigParser::KEYS
@@ -68,7 +68,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..6", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "EVENTS", "VERSION", "SET <key>=<value>" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..6", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "EVENTS", "PATTERN 0..2", "VERSION", "SET <key>=<value>" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -139,6 +139,15 @@ public:
       memcpy(out.set_value, eq + 1, val_len);
       out.set_value[val_len] = '\0';
       out.kind = SerialCommandKind::SET;
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "PATTERN")) {
+      // exactly one digit 0 to 2
+      if (len != cmd_len + 2 || line[cmd_len + 1] < '0' || line[cmd_len + 1] > '2') {
+        return SerialParseStatus::BAD_ARG;
+      }
+      out.kind = SerialCommandKind::PATTERN;
+      out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "EVENTS")) {
@@ -354,6 +363,8 @@ struct SerialStatusSnapshot {
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 6), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
+//   PATTERN N -> "OK PATTERN <N>" after the framebuffer shows test pattern N (0 black, 1 checkerboard, 2 border with cross) and the
+//   panel got it without display_invert; the next wake cycle renders the normal view. showPattern() needs no card: execute() ignores PATTERN.
 //   TIME -> "TIME <YYYY-MM-DDTHH:MM:SS> valid=<0|1> osf=<0|1>" with the local time of the RTC (osf: oscillator stop flag);
 //   TIME SET <YYYY-MM-DDTHH:MM:SS> -> "OK TIME" after the write (the write clears the oscillator stop flag and the
 //   RtcDrift baseline), or "ERR RTC_FAILED". A bad format or date or a year outside 2025 to 2099 gives "ERR BAD_ARG"
@@ -784,6 +795,20 @@ public:
     send(sink, line);
   }
 
+  // Renders test pattern `pattern` (0 to 2) into `fb` and flushes it to `panel` as it is: display_invert is not
+  // applied, so the user sees the raw packing. Replies "OK PATTERN <pattern>". No card access, no state change.
+  template <typename Framebuffer, typename Panel>
+  static void showPattern(Sink& sink, Framebuffer& fb, Panel& panel, uint8_t pattern) {
+    if (!fb.fillPattern(pattern)) { // defense in depth: the parser already limits the pattern to 0 to 2
+      reject(sink, SerialParseStatus::BAD_ARG);
+      return;
+    }
+    panel.flush(fb);
+    char line[32];
+    snprintf(line, sizeof(line), "OK PATTERN %u\n", static_cast<unsigned>(pattern));
+    send(sink, line);
+  }
+
   // Changes one key of /sdcard/config.ini. `apply(const char* text, size_t len)` runs after the new file is in place and
   // takes over the new config (PersistentState::applyConfig); the reply "OK SET <key>" follows it. Returns true on success.
   template <typename Apply>
@@ -854,7 +879,7 @@ public:
         command.kind == SerialCommandKind::CALIB || command.kind == SerialCommandKind::STATUS ||
         command.kind == SerialCommandKind::BEEP || command.kind == SerialCommandKind::TIME ||
         command.kind == SerialCommandKind::HISTORY || command.kind == SerialCommandKind::VERSION ||
-        command.kind == SerialCommandKind::EVENTS ||
+        command.kind == SerialCommandKind::EVENTS || command.kind == SerialCommandKind::PATTERN ||
         command.kind == SerialCommandKind::SET) {
       return;
     }
@@ -874,6 +899,7 @@ public:
       case SerialCommandKind::TIME:
       case SerialCommandKind::HISTORY:
       case SerialCommandKind::EVENTS:
+      case SerialCommandKind::PATTERN:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;

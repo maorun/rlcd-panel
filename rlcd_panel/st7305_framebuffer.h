@@ -148,6 +148,38 @@ public:
     }
   }
 
+  // Test patterns for the serial console command PATTERN. 0: each pixel black. 1: checkerboard, the pixel
+  // (0,0) is black and each neighbour is white. 2: white, a 1-pixel black border and the two diagonals from
+  // corner to corner. Another value returns false and leaves the buffer unchanged.
+  bool fillPattern(uint8_t pattern) {
+    if (pattern > 2) {
+      return false;
+    }
+    if (pattern == 0) {
+      clear(true);
+      return true;
+    }
+    clear(false);
+    if (pattern == 1) {
+      for (uint16_t y = 0; y < HEIGHT; ++y) {
+        for (uint16_t x = 0; x < WIDTH; ++x) {
+          if (((x + y) & 1U) == 0) {
+            setPixel(x, y, true);
+          }
+        }
+      }
+      return true;
+    }
+    drawRect(0, 0, WIDTH, HEIGHT, true);
+    for (uint16_t x = 0; x < WIDTH; ++x) {
+      const uint16_t y = static_cast<uint16_t>(
+          (static_cast<uint32_t>(x) * (HEIGHT - 1) + (WIDTH - 1) / 2) / (WIDTH - 1));
+      setPixel(x, y, true);
+      setPixel(x, static_cast<uint16_t>((HEIGHT - 1) - y), true);
+    }
+    return true;
+  }
+
   // Flips every pixel: each of the BYTE_COUNT bytes is inverted. A second call restores the image.
   void invert() {
     for (uint32_t i = 0; i < BYTE_COUNT; ++i) {

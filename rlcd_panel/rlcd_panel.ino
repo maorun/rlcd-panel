@@ -985,6 +985,11 @@ void setup() {
           g_rtc.readTime(now_time);
           SerialConsoleRunner<SdLogStorage, SerialSink>::showTime(console_sink, now_time);
         }
+      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::PATTERN) {
+        // Raw flush without display_invert: g_panel.flush, not flushFramebuffer(); keep it so (the host test checks the raw bytes). No card access. The pattern
+        // stays until the next render; the next wake cycle draws the normal view again.
+        SerialConsoleRunner<SdLogStorage, SerialSink>::showPattern(console_sink, g_framebuffer, g_panel,
+                                                                  command.reference);
       } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::BEEP) {
         clap_listener.release(); // the chime uses the same I2S bus; the next poll() reopens it
         Es8311Hal beep_hal;
