@@ -601,6 +601,7 @@ struct SerialStatusSnapshot {
   const BatteryHistory* battery_history = nullptr; // RTC copy of the hourly cell voltages
   int32_t cycle_tenths = -1;              // CycleTracker::cycleTenths(); negative when NVS is unreadable
   uint32_t scan_saved_ms = 0;             // scan time that the last early stop saved
+  const AwakeTimeStats* awake = nullptr;  // measured awake time of the timer wakeups
 };
 
 // Runs one parsed command. Storage mounts the card for the command and unmounts it on every
@@ -619,7 +620,7 @@ struct SerialStatusSnapshot {
 //   so execute() ignores CONFIG.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 3 (slots, calibrated readings), a missing value gives "--";
-//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "SHTC3 nack=<N> short=<N> crc=<N> run=<N>", then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>" (packets of the current scan that no slot took), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "CRC32 <8 hex digits>" over all lines
+//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "SHTC3 nack=<N> short=<N> crc=<N> run=<N>", then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>" (packets of the current scan that no slot took), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 7), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
@@ -1004,7 +1005,7 @@ public:
       unsigned long samples = 0;
       if (snap.battery_history != nullptr) {
         samples = static_cast<unsigned long>(snap.battery_history->size());
-        const BatteryRuntime runtime = snap.battery_history->estimate(snap.battery, snap.scan_saved_ms);
+        const BatteryRuntime runtime = snap.battery_history->estimate(snap.battery, snap.scan_saved_ms, snap.awake);
         if (runtime.valid) {
           snprintf(hours, sizeof(hours), "%lu", static_cast<unsigned long>(runtime.hours));
         }
@@ -1016,6 +1017,22 @@ public:
       len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len,
                                           "RUNTIME h=%s samples=%lu cycles=%s scan_saved_ms=%lu\n", hours, samples,
                                           cycles, static_cast<unsigned long>(snap.scan_saved_ms)));
+    }
+    if (len >= sizeof(text)) {
+      return;
+    }
+    {
+      // Reads the RTC copy of the awake time stats; "--" until the first timer wakeup on battery.
+      char last[16] = "--", avg[16] = "--", max[16] = "--";
+      unsigned long samples = 0;
+      if (snap.awake != nullptr && snap.awake->samples() > 0) {
+        samples = snap.awake->samples();
+        snprintf(last, sizeof(last), "%lu", static_cast<unsigned long>(snap.awake->lastMs()));
+        snprintf(avg, sizeof(avg), "%lu", static_cast<unsigned long>(snap.awake->meanMs()));
+        snprintf(max, sizeof(max), "%lu", static_cast<unsigned long>(snap.awake->maxMs()));
+      }
+      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len,
+                                          "AWAKE last_ms=%s avg_ms=%s max_ms=%s samples=%lu\n", last, avg, max, samples));
     }
     if (len >= sizeof(text)) {
       return;

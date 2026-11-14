@@ -379,7 +379,7 @@ void renderDashboard() {
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;
   info.chart_sensor = g_mode_controller.chartSensor();
-  info.runtime = g_state.battery_history.estimate(g_state.battery, g_scan_saved_ms);
+  info.runtime = g_state.battery_history.estimate(g_state.battery, g_scan_saved_ms, &g_state.awake);
   info.rtc_drift = g_state.rtc_drift;
   info.sd_free_mb = g_sd_free_mb;
   info.sd_status = g_state.sd_status;
@@ -1284,6 +1284,7 @@ void setup() {
       snap.battery_history = &g_state.battery_history;
       snap.cycle_tenths = g_cycles.cycleTenths();
       snap.scan_saved_ms = g_scan_saved_ms;
+      snap.awake = &g_state.awake;
       snap.reset_reason = ResetReasonCodec::text(g_reset_reason);
       ResetCountStore reset_store;
       snap.abnormal_resets = AbnormalResetCounter::read(reset_store);
@@ -1441,6 +1442,11 @@ void setup() {
   clap_listener.stop(); // microphones off before deep sleep on each path
 
   cycle.advance(); // SAVE
+  // Awake time of this cycle; only a timer wakeup on battery power counts (millis() restarts after sleep).
+  // An invalid battery reading has an unknown power source and counts as USB power.
+  if (AwakeTimeStats::wanted(cause == WakeupCause::TIMER, !g_state.battery.valid || g_state.battery.usb_powered)) {
+    g_state.awake.record(millis());
+  }
   g_state.mode = g_mode_controller.mode();
   g_state.chart_sensor = g_mode_controller.chartSensor();
   if (!PowerPlatform::saveState(g_state)) {
