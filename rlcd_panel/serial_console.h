@@ -329,6 +329,9 @@ struct SerialStatusSnapshot {
   const char* reset_reason = "UNKNOWN";   // ResetReasonCodec::text of the last boot
   int32_t abnormal_resets = -1;           // NVS count; negative when NVS is unreadable
   Shtc3Health shtc3;                      // failed onboard SHTC3 reads by cause
+  const BatteryHistory* battery_history = nullptr; // RTC copy of the hourly cell voltages
+  int32_t cycle_tenths = -1;              // CycleTracker::cycleTenths(); negative when NVS is unreadable
+  uint32_t scan_saved_ms = 0;             // scan time that the last early stop saved
 };
 
 // Runs one parsed command. Storage mounts the card for the command and unmounts it on every
@@ -347,7 +350,7 @@ struct SerialStatusSnapshot {
 //   so execute() ignores CONFIG.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 3 (slots, calibrated readings), a missing value gives "--";
-//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "SHTC3 nack=<N> short=<N> crc=<N> run=<N>", then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>" (packets of the current scan that no slot took), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "CRC32 <8 hex digits>" over all lines
+//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "SHTC3 nack=<N> short=<N> crc=<N> run=<N>", then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>" (packets of the current scan that no slot took), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 6), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
@@ -559,7 +562,7 @@ public:
     static const char* const defaults[ClimateHistory::SLOT_COUNT] = {"onboard", "slot1", "slot2", "slot3"};
     const DeviceConfig& cfg = *snap.config;
     const SwitchBotRegistry cal = snap.registry->calibrated(cfg.slot_temp_offset_c, cfg.slot_rh_offset_pct);
-    char text[768];
+    char text[896];
     size_t len = 0;
     for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
       const char* raw = i == 0 ? cfg.onboard_name : cfg.slot_name[i - 1];
@@ -658,6 +661,28 @@ public:
     len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "POWER src=%s v=%s pct=%s alerts=%02x muted=%u\n",
                                         snap.battery.usb_powered ? "USB" : "BAT", volts, pct,
                                         static_cast<unsigned>(snap.alert_mask), snap.muted ? 1u : 0u));
+    if (len >= sizeof(text)) {
+      return;
+    }
+    {
+      // Reads the RTC copy of the history and the cycle total of the caller; nothing is recorded.
+      char hours[24] = "--", cycles[40] = "--";
+      unsigned long samples = 0;
+      if (snap.battery_history != nullptr) {
+        samples = static_cast<unsigned long>(snap.battery_history->size());
+        const BatteryRuntime runtime = snap.battery_history->estimate(snap.battery, snap.scan_saved_ms);
+        if (runtime.valid) {
+          snprintf(hours, sizeof(hours), "%lu", static_cast<unsigned long>(runtime.hours));
+        }
+      }
+      if (snap.cycle_tenths >= 0) {
+        snprintf(cycles, sizeof(cycles), "%ld.%ld", static_cast<long>(snap.cycle_tenths / 10),
+                 static_cast<long>(snap.cycle_tenths % 10));
+      }
+      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len,
+                                          "RUNTIME h=%s samples=%lu cycles=%s scan_saved_ms=%lu\n", hours, samples,
+                                          cycles, static_cast<unsigned long>(snap.scan_saved_ms)));
+    }
     if (len >= sizeof(text)) {
       return;
     }

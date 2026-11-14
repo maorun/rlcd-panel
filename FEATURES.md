@@ -876,3 +876,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The console command `STATUS` shows the line `BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>` before the `POWER` line. `<N>` after `rejected=` is the sum of the four counters. `last` has the format `AA:BB:CC:DD:EE:FF`, or `--` without a reject.
 - Thus the user finds a wrong `slotN_mac` entry or a fourth sensor that takes no slot.
 - Host tests cover a full registry with a new MAC, a fixed slot with a different MAC, a fixed slot with the correct MAC (no count), each format counter, the saturation of each counter at 65535, the reset at the scan start, the last MAC, the `STATUS` line with and without a reject, the longest line, and the unchanged slot contents.
+
+## Battery runtime line in STATUS
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- The console command `STATUS` shows the new line `RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>` after the `POWER` line and before the `CRC32` line. The `CRC32` value covers the new line.
+- `h` is the remaining runtime in whole hours from `BatteryHistory::estimate`, with the same scan time saving as the diagnostics view. `h` is `--` on USB power, without a battery, with fewer than 6 samples, and with a flat or rising curve.
+- `samples` is `BatteryHistory::size()`. `cycles` is `CycleTracker::cycleTenths()` with one decimal. `cycles` is `--` when the NVS total is unknown. `scan_saved_ms` is the value of `g_scan_saved_ms`.
+- The line reads the RTC copy and the NVS total only. It does not record a sample and does not change `BatteryHistory`. `PersistentState` does not change, so `STATE_VERSION` stays 41.
+- The console runs on USB power only and the estimate is invalid on USB power, so `h` shows `--` in practice, as `RUNTIME: --` does in the diagnostics view. `samples`, `cycles` and `scan_saved_ms` stay valid.
+- Thus the user logs the battery state on the host without a look at the display.
+- Host tests cover a valid runtime, a runtime with a saved scan time, too few samples, a flat slope, USB power, a missing history, an unknown cycle count, the position of the line after `POWER` and before `CRC32`, the fixed CRC-32 value, and an unchanged `BatteryHistory` after the command.

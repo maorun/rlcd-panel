@@ -27,12 +27,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Add the alert bit `ALERT_HEAT` (bit 7, value 128) and the `config.ini` key `heat_alert_limit_c` (0 is off, else 27 to 45 C, default 0). `AlertEvaluator` sets the bit when `ClimateMath::heatIndexC` of a tile in `climate_alert_tiles` is at or above the limit. It releases the bit when each such tile is 2 C below the limit, or has no usable reading. Increase `MAX_CHIME_ALERT_MASK` to 255 and add bit 7 to `chime_alert_mask`; the default mask keeps bit 7 on. The chime is a sequence of two short high notes. The rising and the falling edge go to the event ring as `ALERT_RISE` and `ALERT_FALL`. `BEEP 7` plays the chime. Store the limit in the config trailer (1 byte) and increase the state version. Thus the user gets a warning for a hot room in summer.
   - Acceptance test: Host tests cover the parser for 0, 27, 45, 26, 46 and a malformed value, the trigger at the limit, the release with hysteresis, a tile outside `climate_alert_tiles`, a stale tile, the limit 0, the old mask value 127 and the new value 255, `BEEP 7`, the event ring entries, the `CONFIG` line, the template sync test with `docs/config.example.ini`, and the RTC round trip with a corrupt field and the old state version. `arduino-cli compile rlcd_panel` passes.
 
-- [ ] Battery runtime line in the serial console command STATUS
-  - Rank: [Total: 31, Use: 6, Setup: 7, Harmony: 8, Safety: 10, Effort: S]
-  - Location: `rlcd_panel/serial_console.h`, `rlcd_panel/battery_monitor.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the line `RUNTIME h=<N|--> samples=<N> cycles=<N|--> scan_saved_ms=<N>` to the `STATUS` reply after `POWER` and before `CRC32`. The values come from `BatteryHistory`, `BatteryRuntime` and `CycleTracker`, which the diagnostics view already uses. `h` is the remaining runtime in whole hours, or `--` when no estimate exists. The line reads the RTC copy and NVS only and does not change the state. Thus the user logs the battery state on the host without a look at the display.
-  - Acceptance test: Host tests cover a valid runtime, too few samples, a flat slope, an unknown cycle count, the line position before `CRC32`, the new CRC-32 value, and an unchanged `BatteryHistory` after the command. `arduino-cli compile rlcd_panel` passes.
-
 ## Priority 3: Audio Expansions (Score 22–27)
 
 - [ ] Display test pattern from the serial console
