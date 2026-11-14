@@ -21,11 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Audio, Storage, and Configuration (Score 28–33)
 
-- [ ] Heat alert chime for a high feels-like temperature
-  - Rank: [Total: 32, Use: 9, Setup: 6, Harmony: 9, Safety: 8, Effort: M]
-  - Location: `rlcd_panel/audio_alert.h`, `rlcd_panel/climate_math.h`, `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/dashboard_view.h`, `docs/config.example.ini`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the alert bit `ALERT_HEAT` (bit 7, value 128) and the `config.ini` key `heat_alert_limit_c` (0 is off, else 27 to 45 C, default 0). `AlertEvaluator` sets the bit when `ClimateMath::heatIndexC` of a tile in `climate_alert_tiles` is at or above the limit. It releases the bit when each such tile is 2 C below the limit, or has no usable reading. Increase `MAX_CHIME_ALERT_MASK` to 255 and add bit 7 to `chime_alert_mask`; the default mask keeps bit 7 on. The chime is a sequence of two short high notes. The rising and the falling edge go to the event ring as `ALERT_RISE` and `ALERT_FALL`. `BEEP 7` plays the chime. Store the limit in the config trailer (1 byte) and increase the state version. Thus the user gets a warning for a hot room in summer.
-  - Acceptance test: Host tests cover the parser for 0, 27, 45, 26, 46 and a malformed value, the trigger at the limit, the release with hysteresis, a tile outside `climate_alert_tiles`, a stale tile, the limit 0, the old mask value 127 and the new value 255, `BEEP 7`, the event ring entries, the `CONFIG` line, the template sync test with `docs/config.example.ini`, and the RTC round trip with a corrupt field and the old state version. `arduino-cli compile rlcd_panel` passes.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 

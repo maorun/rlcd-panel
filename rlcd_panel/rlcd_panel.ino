@@ -691,6 +691,7 @@ AlertLimits alertLimits() {
   limits.humidity_trigger_pct = static_cast<float>(config().mold_alert_limit_rh);
   limits.outdoor_slot = config().outdoor_slot;
   limits.climate_tiles = config().climate_alert_tiles;
+  limits.heat_trigger_c = static_cast<float>(config().heat_alert_limit_c);
   limits.stale_timeout_ms = config().staleTimeoutMs();
   return limits;
 }

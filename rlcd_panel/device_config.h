@@ -42,8 +42,8 @@ struct DeviceConfig {
   static constexpr uint8_t DEFAULT_NOISE_ALERT_LIMIT_DB = 0; // 0 switches the noise alert off
   static constexpr uint8_t MIN_NOISE_ALERT_LIMIT_DB = 40;
   static constexpr uint8_t MAX_NOISE_ALERT_LIMIT_DB = 100;
-  static constexpr uint8_t DEFAULT_CHIME_ALERT_MASK = 127; // all seven alerts may sound
-  static constexpr uint8_t MAX_CHIME_ALERT_MASK = 127;
+  static constexpr uint8_t DEFAULT_CHIME_ALERT_MASK = 255; // all eight alerts may sound
+  static constexpr uint8_t MAX_CHIME_ALERT_MASK = 255;
   static constexpr uint8_t DEFAULT_SENSOR_BATTERY_LIMIT_PCT = 10; // 0 switches the sensor battery warning off
   static constexpr uint8_t MAX_SENSOR_BATTERY_LIMIT_PCT = 50;
   static constexpr uint8_t DEFAULT_OUTDOOR_SLOT = 0; // 0 switches the ventilation advice off
@@ -73,6 +73,9 @@ struct DeviceConfig {
   static constexpr char DEFAULT_TEMP_UNIT = 'C'; // display unit of the temperature: 'C' or 'F'
   static constexpr uint8_t DEFAULT_CHIME_REPEAT_H = 0; // 0 plays no reminder chime
   static constexpr uint8_t MAX_CHIME_REPEAT_H = 24;
+  static constexpr uint8_t DEFAULT_HEAT_ALERT_LIMIT_C = 0; // 0 switches the heat alert off
+  static constexpr uint8_t MIN_HEAT_ALERT_LIMIT_C = 27;
+  static constexpr uint8_t MAX_HEAT_ALERT_LIMIT_C = 45;
   static constexpr uint8_t DEFAULT_CLIMATE_ALERT_TILES = 15; // all four tiles feed the freezer and mold alerts
   static constexpr uint8_t MAX_CLIMATE_ALERT_TILES = 15;
   static constexpr uint32_t SCAN_DURATION_S = 4; // scan time that adds to the wake interval
@@ -107,7 +110,7 @@ struct DeviceConfig {
   float mic_spl_offset_db = DEFAULT_MIC_SPL_OFFSET_DB; // added to the microphone calibration offset
   uint8_t log_retention_months = DEFAULT_LOG_RETENTION_MONTHS; // log files older than this are deleted
   uint8_t noise_alert_limit_db = DEFAULT_NOISE_ALERT_LIMIT_DB; // 0 = off, else 40..100 dB
-  uint8_t chime_alert_mask = DEFAULT_CHIME_ALERT_MASK; // bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full, 5 ventilate, 6 sensor battery
+  uint8_t chime_alert_mask = DEFAULT_CHIME_ALERT_MASK; // bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full, 5 ventilate, 6 sensor battery, 7 heat
   uint8_t outdoor_slot = DEFAULT_OUTDOOR_SLOT; // registry slot (1..3) of the outdoor sensor for the ventilation advice, 0 = off
   uint8_t ventilate_limit_rh = DEFAULT_VENTILATE_LIMIT_RH; // a tile above this %RH shows the ventilation badge, 50..80
   uint8_t sensor_battery_limit_pct = DEFAULT_SENSOR_BATTERY_LIMIT_PCT; // an external sensor at or below this % shows BAT LOW, 0 = off, else 1..50
@@ -120,6 +123,7 @@ struct DeviceConfig {
   uint16_t night_wake_interval_s = DEFAULT_NIGHT_WAKE_INTERVAL_S; // seconds from one scan start to the next on battery power in the quiet hours, 0 = off, else 60..1800
   char temp_unit = DEFAULT_TEMP_UNIT; // 'C' or 'F': only the screen and the console command STATUS use it; the card files, limits and alerts stay in Celsius
   uint8_t chime_repeat_h = DEFAULT_CHIME_REPEAT_H; // hours until the chime of an active alert sounds again, 0 = off, else 1..24
+  uint8_t heat_alert_limit_c = DEFAULT_HEAT_ALERT_LIMIT_C; // feels-like limit of the heat alert in C, 0 = off, else 27..45
   uint8_t climate_alert_tiles = DEFAULT_CLIMATE_ALERT_TILES; // bit 0 onboard, bits 1..3 slots 1..3: tiles of the freezer and mold alerts, 0..15
 
   // Release time in ms of a silent slot without a fixed MAC (0 = never). 168 h fit into 32 bits.
@@ -225,6 +229,8 @@ struct DeviceConfig {
            display_invert <= MAX_DISPLAY_INVERT && (temp_unit == 'C' || temp_unit == 'F') && climate_alert_tiles <= MAX_CLIMATE_ALERT_TILES &&
            battery_offset_mv >= MIN_BATTERY_OFFSET_MV && battery_offset_mv <= MAX_BATTERY_OFFSET_MV &&
            slot_release_h <= MAX_SLOT_RELEASE_H && chime_repeat_h <= MAX_CHIME_REPEAT_H &&
+           (heat_alert_limit_c == 0 ||
+            (heat_alert_limit_c >= MIN_HEAT_ALERT_LIMIT_C && heat_alert_limit_c <= MAX_HEAT_ALERT_LIMIT_C)) &&
            (night_wake_interval_s == 0 ||
             (night_wake_interval_s >= MIN_NIGHT_WAKE_INTERVAL_S && night_wake_interval_s <= MAX_NIGHT_WAKE_INTERVAL_S));
   }
@@ -254,7 +260,8 @@ struct DeviceConfig {
            sensor_stale_min == d.sensor_stale_min && display_invert == d.display_invert &&
            climate_alert_tiles == d.climate_alert_tiles && battery_offset_mv == d.battery_offset_mv &&
            slot_release_h == d.slot_release_h && night_wake_interval_s == d.night_wake_interval_s &&
-           temp_unit == d.temp_unit && chime_repeat_h == d.chime_repeat_h;
+           temp_unit == d.temp_unit && chime_repeat_h == d.chime_repeat_h &&
+           heat_alert_limit_c == d.heat_alert_limit_c;
   }
 };
 
@@ -302,7 +309,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 4096;
-  static constexpr size_t KEY_COUNT = 37;
+  static constexpr size_t KEY_COUNT = 38;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -318,7 +325,7 @@ public:
       "slot1_name", "slot2_name", "slot3_name",
       "slot1_mac", "slot2_mac", "slot3_mac",
       "slot_release_h", "night_wake_interval_s", "temp_unit",
-      "chime_repeat_h",
+      "chime_repeat_h", "heat_alert_limit_c",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -468,6 +475,17 @@ private:
     uint16_t v = 0;
     if (!parseIntIn(s, n, 0, DeviceConfig::MAX_NIGHT_WAKE_INTERVAL_S, v) ||
         (v != 0 && v < DeviceConfig::MIN_NIGHT_WAKE_INTERVAL_S)) {
+      return false;
+    }
+    out = v;
+    return true;
+  }
+
+  // heat_alert_limit_c: 0 (off) or 27 to 45.
+  static bool parseHeatLimit(const char* s, size_t n, uint8_t& out) {
+    uint8_t v = 0;
+    if (!parseIntIn(s, n, 0, DeviceConfig::MAX_HEAT_ALERT_LIMIT_C, v) ||
+        (v != 0 && v < DeviceConfig::MIN_HEAT_ALERT_LIMIT_C)) {
       return false;
     }
     out = v;
@@ -685,6 +703,9 @@ private:
     } else if (keyIs(key, key_len, "chime_repeat_h")) {
       index = 36;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_CHIME_REPEAT_H, cfg.chime_repeat_h);
+    } else if (keyIs(key, key_len, "heat_alert_limit_c")) {
+      index = 37;
+      ok = parseHeatLimit(val, val_len, cfg.heat_alert_limit_c);
     } else if (keyIs(key, key_len, "outdoor_slot")) {
       index = 26;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_OUTDOOR_SLOT, cfg.outdoor_slot);
@@ -753,6 +774,7 @@ public:
     ok = ok && putInt(out, cap, pos, "night_wake_interval_s", cfg.night_wake_interval_s);
     ok = ok && putLine(out, cap, pos, "temp_unit", cfg.temp_unit == 'F' ? "F" : "C");
     ok = ok && putInt(out, cap, pos, "chime_repeat_h", cfg.chime_repeat_h);
+    ok = ok && putInt(out, cap, pos, "heat_alert_limit_c", cfg.heat_alert_limit_c);
     ok = ok && putInt(out, cap, pos, "outdoor_slot", cfg.outdoor_slot);
     ok = ok && putInt(out, cap, pos, "ventilate_limit_rh", cfg.ventilate_limit_rh);
     ok = ok && putInt(out, cap, pos, "sensor_battery_limit_pct", cfg.sensor_battery_limit_pct);
