@@ -22,11 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Audio Expansions (Score 22–27)
 
-- [ ] Chime reminder for an alert that stays active
-  - Rank: [Total: 26, Use: 6, Setup: 3, Harmony: 9, Safety: 8, Effort: M]
-  - Location: `rlcd_panel/audio_alert.h`, `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
-  - Goal: Add the `config.ini` key `chime_repeat_h` (default `0` is off, range `0` to `24` hours). When an alert bit stays active for this time after its last chime, the chime of the lowest active bit sounds again. `ALERT_CHARGE_FULL` never repeats. Mute, quiet hours and a cleared bit of `chime_alert_mask` suppress the repeat. A suppressed repeat is skipped and not delayed, so no chime plays at the end of the quiet hours. A new rising edge resets the timer. Store the clock stamp of the last chime in `PersistentState` (4 bytes) and the key in the config trailer (1 byte), and increase the state version. Show the key in the `CONFIG` reply. Thus the user does not forget an open window or a freezer that is too warm.
-  - Acceptance test: Host tests cover the parser for the default, the edges `0` and `24`, the value `25`, a malformed value, a repeat at the exact time and over the 32-bit clock wrap, no repeat for `ALERT_CHARGE_FULL`, the lowest active bit, mute, quiet hours and a cleared mask bit, the reset by a new edge, and the RTC round trip.
 
 ## Rules for ranking
 

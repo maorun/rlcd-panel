@@ -129,6 +129,48 @@ public:
     return static_cast<uint8_t>(current & ~previous & chime_mask & ALERT_MASK_ALL);
   }
 
+  // Reminder for an alert that stays active. `repeat_h` is chime_repeat_h (0 = off). The stamp is the
+  // clock value of the last chime or of the last rising edge. After `repeat_h` hours the chime of the
+  // lowest active bit sounds again. ALERT_CHARGE_FULL never repeats. Mute, quiet hours and a cleared
+  // bit of `chime_mask` suppress the sound, but the stamp advances in each due case (and always while repeat_h is 0): a suppressed
+  // reminder is skipped, so no chime plays at the end of the quiet hours. The unsigned difference
+  // is safe over the 32-bit clock wrap.
+  struct Repeat {
+    uint8_t chime;
+    uint32_t stamp;
+  };
+
+  static constexpr uint32_t REPEAT_MS_PER_H = 3600000UL;
+
+  static uint8_t repeatableBits(uint8_t mask) {
+    return static_cast<uint8_t>(mask & ALERT_MASK_ALL & ~ALERT_CHARGE_FULL);
+  }
+
+  // Stamp after one alert step: a rising edge of a bit that chime_alert_mask allows restarts the timer,
+  // also while mute or quiet hours suppress the sound. A bit that the mask silences, and ALERT_CHARGE_FULL,
+  // leave the timer as it is.
+  static uint32_t edgeStamp(uint8_t previous, uint8_t current, uint8_t chime_mask, uint32_t last_ms, uint32_t now_ms) {
+    const uint8_t rising = static_cast<uint8_t>(repeatableBits(current) & ~previous & chime_mask);
+    return rising != 0 ? now_ms : last_ms;
+  }
+
+  static Repeat repeat(bool muted, uint8_t mask, bool quiet, uint8_t chime_mask, uint8_t repeat_h,
+                       uint32_t last_ms, uint32_t now_ms) {
+    const uint8_t active = repeatableBits(mask);
+    if (repeat_h == 0) {
+      return {ALERT_NONE, now_ms}; // off: the stamp follows the clock, so enabling the key never chimes at once
+    }
+    if (active == 0 ||
+        static_cast<uint32_t>(now_ms - last_ms) < static_cast<uint32_t>(repeat_h) * REPEAT_MS_PER_H) {
+      return {ALERT_NONE, last_ms};
+    }
+    const uint8_t audible = static_cast<uint8_t>(active & chime_mask);
+    if (muted || quiet || audible == 0) {
+      return {ALERT_NONE, now_ms};
+    }
+    return {static_cast<uint8_t>(audible & static_cast<uint8_t>(-static_cast<int>(audible))), now_ms};
+  }
+
   // Mask to store and bits to sound for one alert step. The mask is stored in each case, so
   // unmuting or the end of the quiet hours never replays an old alert.
   struct Step {

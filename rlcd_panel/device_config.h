@@ -71,6 +71,8 @@ struct DeviceConfig {
   static constexpr uint8_t DEFAULT_DISPLAY_INVERT = 0; // 1 shows light text on a dark background
   static constexpr uint8_t MAX_DISPLAY_INVERT = 1;
   static constexpr char DEFAULT_TEMP_UNIT = 'C'; // display unit of the temperature: 'C' or 'F'
+  static constexpr uint8_t DEFAULT_CHIME_REPEAT_H = 0; // 0 plays no reminder chime
+  static constexpr uint8_t MAX_CHIME_REPEAT_H = 24;
   static constexpr uint8_t DEFAULT_CLIMATE_ALERT_TILES = 15; // all four tiles feed the freezer and mold alerts
   static constexpr uint8_t MAX_CLIMATE_ALERT_TILES = 15;
   static constexpr uint32_t SCAN_DURATION_S = 4; // scan time that adds to the wake interval
@@ -117,6 +119,7 @@ struct DeviceConfig {
   uint8_t slot_release_h = DEFAULT_SLOT_RELEASE_H; // hours without a packet until a slot without a fixed MAC is released, 0 = off, else 1..168
   uint16_t night_wake_interval_s = DEFAULT_NIGHT_WAKE_INTERVAL_S; // seconds from one scan start to the next on battery power in the quiet hours, 0 = off, else 60..1800
   char temp_unit = DEFAULT_TEMP_UNIT; // 'C' or 'F': only the screen and the console command STATUS use it; the card files, limits and alerts stay in Celsius
+  uint8_t chime_repeat_h = DEFAULT_CHIME_REPEAT_H; // hours until the chime of an active alert sounds again, 0 = off, else 1..24
   uint8_t climate_alert_tiles = DEFAULT_CLIMATE_ALERT_TILES; // bit 0 onboard, bits 1..3 slots 1..3: tiles of the freezer and mold alerts, 0..15
 
   // Release time in ms of a silent slot without a fixed MAC (0 = never). 168 h fit into 32 bits.
@@ -221,7 +224,7 @@ struct DeviceConfig {
            sensor_stale_min >= MIN_SENSOR_STALE_MIN && sensor_stale_min <= MAX_SENSOR_STALE_MIN &&
            display_invert <= MAX_DISPLAY_INVERT && (temp_unit == 'C' || temp_unit == 'F') && climate_alert_tiles <= MAX_CLIMATE_ALERT_TILES &&
            battery_offset_mv >= MIN_BATTERY_OFFSET_MV && battery_offset_mv <= MAX_BATTERY_OFFSET_MV &&
-           slot_release_h <= MAX_SLOT_RELEASE_H &&
+           slot_release_h <= MAX_SLOT_RELEASE_H && chime_repeat_h <= MAX_CHIME_REPEAT_H &&
            (night_wake_interval_s == 0 ||
             (night_wake_interval_s >= MIN_NIGHT_WAKE_INTERVAL_S && night_wake_interval_s <= MAX_NIGHT_WAKE_INTERVAL_S));
   }
@@ -251,7 +254,7 @@ struct DeviceConfig {
            sensor_stale_min == d.sensor_stale_min && display_invert == d.display_invert &&
            climate_alert_tiles == d.climate_alert_tiles && battery_offset_mv == d.battery_offset_mv &&
            slot_release_h == d.slot_release_h && night_wake_interval_s == d.night_wake_interval_s &&
-           temp_unit == d.temp_unit;
+           temp_unit == d.temp_unit && chime_repeat_h == d.chime_repeat_h;
   }
 };
 
@@ -299,7 +302,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 4096;
-  static constexpr size_t KEY_COUNT = 36;
+  static constexpr size_t KEY_COUNT = 37;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -315,6 +318,7 @@ public:
       "slot1_name", "slot2_name", "slot3_name",
       "slot1_mac", "slot2_mac", "slot3_mac",
       "slot_release_h", "night_wake_interval_s", "temp_unit",
+      "chime_repeat_h",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -678,6 +682,9 @@ private:
       if (ok) {
         cfg.temp_unit = val[0];
       }
+    } else if (keyIs(key, key_len, "chime_repeat_h")) {
+      index = 36;
+      ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_CHIME_REPEAT_H, cfg.chime_repeat_h);
     } else if (keyIs(key, key_len, "outdoor_slot")) {
       index = 26;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_OUTDOOR_SLOT, cfg.outdoor_slot);
@@ -745,6 +752,7 @@ public:
     ok = ok && putInt(out, cap, pos, "slot_release_h", cfg.slot_release_h);
     ok = ok && putInt(out, cap, pos, "night_wake_interval_s", cfg.night_wake_interval_s);
     ok = ok && putLine(out, cap, pos, "temp_unit", cfg.temp_unit == 'F' ? "F" : "C");
+    ok = ok && putInt(out, cap, pos, "chime_repeat_h", cfg.chime_repeat_h);
     ok = ok && putInt(out, cap, pos, "outdoor_slot", cfg.outdoor_slot);
     ok = ok && putInt(out, cap, pos, "ventilate_limit_rh", cfg.ventilate_limit_rh);
     ok = ok && putInt(out, cap, pos, "sensor_battery_limit_pct", cfg.sensor_battery_limit_pct);
