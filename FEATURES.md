@@ -957,3 +957,18 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `SdLogCodec::formatEventRow` writes the names `RESET`, `SLOT_ASSIGN` and `SLOT_RELEASE`. The file `events_v1_YYYY.csv` and the console command `EVENTS` show them.
 - The RTC validation of the ring accepts the codes 0 to 10 and rejects the code 11 and higher.
 - The ring layout does not change. `STATE_VERSION` stays the same.
+
+## BLE console bridge for the serial console commands
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/ble_telemetry.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/device_config.h`, `rlcd_panel/rlcd_panel.ino`, `docs/config.example.ini`, `tests/test_firmware_logic.cpp`
+- The board gives a GATT service with the Nordic UART layout. The service UUID is `6E400001-B5A3-F393-E0A9-E50E24DCCA9E`. The RX characteristic `6E400002-...` accepts writes. The TX characteristic `6E400003-...` sends notifications.
+- The `config.ini` key `ble_console` (0 to 2, default 0) controls the service. 0 is off. 1 allows the read commands. 2 also allows `SET` and `TIME SET`. The parser rejects 3 and a malformed value.
+- `PowerManager::bleConsoleAllowed` is true only on USB power with `ble_console` 1 or 2. On battery power the board never advertises the service. The service stops before the deep sleep.
+- `BleConsoleBridge` feeds each RX byte to a `SerialLineAssembler`. A complete line goes through the same `SerialConsole` parser as on USB. A line above 40 bytes gives `ERR TOO_LONG`.
+- The sketch runs each command with `SerialConsoleRunner`. `BleChunkSink` is the output sink. It sends the reply bytes in notifications of `max(1, mtu - 3)` bytes. The reply has the same bytes as on USB serial, with the same `BEGIN` and `CRC32` lines. A failed notification ends the reply, so the central sees no `CRC32` line.
+- With `ble_console` 1, `SET` and `TIME SET` give `ERR READ_ONLY`. At each level, `DUMP` gives `ERR NOT_OVER_BLE`, because a monthly file is too large for BLE. `SCAN` gives `ERR NOT_OVER_BLE`, because the scan stops the BLE stack that carries the console. USB serial `SET`, `DUMP` and `SCAN` work as before.
+- Only one central connects. The board disconnects a second central. A USB `SCAN` stops the BLE stack and drops the central. A disconnect clears the partial line. A quick reconnect keeps its connect event. A full receive ring drops the partial line and gives `ERR TOO_LONG`.
+- The service has no pairing or bonding. Any device in range can connect while the board runs on USB power. A `SET` of `ble_console` or the loss of USB power stops the service at once.
+- The key uses 1 byte in the config trailer after `ble_broadcast_enabled`. The state version is 45. The console command `CONFIG` shows `ble_console=<N>`.
+- Thus the user reads the climate values and the diagnostics from a phone or a computer without a cable.
+- Host tests cover the line assembly across several write packets, a line above 40 bytes, the reply split for MTU 23 (20-byte chunks) and MTU 185 (182-byte chunks) with byte equality to the USB reply, the CRC-32 line, `SET` with `ble_console` 1 and 2, `DUMP` over BLE, the gate on battery power and with `ble_console=0`, a disconnect in a partial line, the parser for 0, 1, 2, 3 and a malformed value, the `CONFIG` line, the template sync and the RTC round trip with a corrupt field and the old state version.

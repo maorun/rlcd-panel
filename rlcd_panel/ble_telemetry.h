@@ -10,6 +10,14 @@
 
 namespace rlcd_panel {
 
+// GATT layout of the BLE console (Nordic UART service): the central writes console lines to RX and
+// receives the reply bytes as notifications on TX. serial_console.h holds the bridge.
+struct BleConsoleUuids {
+  static constexpr const char* SERVICE = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E";
+  static constexpr const char* RX = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"; // write
+  static constexpr const char* TX = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"; // notify
+};
+
 // One climate tile of the telemetry frame. An empty or stale tile has valid = false.
 struct BleTelemetryTile {
   bool valid = false;

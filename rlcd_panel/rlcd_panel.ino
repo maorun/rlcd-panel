@@ -4,7 +4,10 @@
 #include <BLEAdvertisedDevice.h>
 #include <BLEScan.h>
 #include <BLEAdvertising.h>
+#include <BLEServer.h>
+#include <BLE2902.h>
 #include <atomic>
+#include <type_traits>
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
 
@@ -521,6 +524,201 @@ void scanOnce(bool full_scan) {
   }
 }
 
+// BLE console service (Nordic UART layout). The BLE task only queues the RX bytes and the
+// connection events; serve() runs in the loop task, so the commands (card, I2C, scan) never run in
+// the BLE callbacks. A disconnect clears the partial line. One central at a time.
+class BleConsoleService : public BLEServerCallbacks, public BLECharacteristicCallbacks {
+public:
+  void setLevel(uint8_t level) { bridge_.setLevel(level); }
+  uint8_t level() const { return bridge_.level(); }
+
+  void start() {
+    if (server_ != nullptr || bridge_.level() == 0 || start_failed_) {
+      return;
+    }
+    if (!BLEDevice::init("rlcd-panel")) {
+      start_failed_ = true; // no retry in each loop pass until the level drops to 0
+      Serial.println("BLE console init failed");
+      return;
+    }
+    BLEDevice::setMTU(185);
+    server_ = BLEDevice::createServer();
+    if (server_ == nullptr) {
+      start_failed_ = true;
+      Serial.println("BLE console server failed");
+      BLEDevice::deinit(false); // stop() returns early without a server: release the stack here
+      return;
+    }
+    BLEService* service = server_ != nullptr ? server_->createService(BleConsoleUuids::SERVICE) : nullptr;
+    BLECharacteristic* rx = service != nullptr
+        ? service->createCharacteristic(BleConsoleUuids::RX, BLECharacteristic::PROPERTY_WRITE |
+                                                              BLECharacteristic::PROPERTY_WRITE_NR)
+        : nullptr;
+    tx_ = service != nullptr ? service->createCharacteristic(BleConsoleUuids::TX, BLECharacteristic::PROPERTY_NOTIFY)
+                             : nullptr;
+    if (rx == nullptr || tx_ == nullptr) {
+      start_failed_ = true;
+      Serial.println("BLE console service failed");
+      stop();
+      return;
+    }
+    server_->setCallbacks(this);
+    server_->advertiseOnDisconnect(false); // one central: the advertising restarts in serve()
+    rx->setCallbacks(this);
+    tx_->addDescriptor(new BLE2902());
+    service->start();
+    advertising_ = BLEDevice::getAdvertising();
+    advertising_->addServiceUUID(BleConsoleUuids::SERVICE);
+    advertising_->setScanResponse(true);
+    advertising_->start();
+  }
+
+  // Clears the failure latch; the next start() tries again.
+  void resetFailure() { start_failed_ = false; }
+
+  void stop() {
+    if (server_ == nullptr) {
+      return;
+    }
+    if (advertising_ != nullptr) {
+      advertising_->stop();
+    }
+    BLEDevice::deinit(false); // no BLE callback runs after this: the reset below cannot race one
+    portENTER_CRITICAL(&mux_);
+    server_ = nullptr;
+    tx_ = nullptr;
+    advertising_ = nullptr;
+    central_ = false;
+    ingress_.clear();
+    portEXIT_CRITICAL(&mux_);
+    bridge_.onDisconnect(); // no stale central or partial line for the next start
+  }
+
+  bool pending() {
+    portENTER_CRITICAL(&mux_);
+    const bool any = ingress_.pending();
+    portEXIT_CRITICAL(&mux_);
+    return any;
+  }
+
+  // Applies the queued events and bytes. `run(sink, status, command)` runs one parsed command.
+  template <typename Run>
+  void serve(Run& run) {
+    for (;;) {
+      portENTER_CRITICAL(&mux_);
+      const BleConsoleIngress::Step step = ingress_.pop();
+      const uint16_t mtu = ingress_.mtu();
+      portEXIT_CRITICAL(&mux_);
+      if ((step.events & BleConsoleIngress::EVENT_DISCONNECT) != 0) {
+        bridge_.onDisconnect();
+        if (advertising_ != nullptr) {
+          advertising_->start();
+        }
+      }
+      if ((step.events & BleConsoleIngress::EVENT_CONNECT) != 0 && step.connected) { // after the disconnect: a quick reconnect works; a central that already left stays out
+        bridge_.onConnect();
+      }
+      if (step.overflow) {
+        bridge_.resetLine();
+        BleChunkSink<BleConsoleService> sink(*this, mtu);
+        sink.write(reinterpret_cast<const uint8_t*>("ERR TOO_LONG\n"), 13);
+        sink.flush();
+        return; // one reply per call: the loop task keeps USB serial and the clap listener running
+      }
+      if (!step.have) {
+        if (step.events == 0) {
+          return;
+        }
+        continue;
+      }
+      SerialCommand command;
+      const char* reply = "";
+      const BleConsoleBridge::Action action = bridge_.feed(step.byte, command, reply);
+      if (action == BleConsoleBridge::Action::NONE) {
+        continue;
+      }
+      BleChunkSink<BleConsoleService> sink(*this, mtu);
+      if (action == BleConsoleBridge::Action::REPLY) {
+        sink.write(reinterpret_cast<const uint8_t*>(reply), strlen(reply));
+      } else {
+        run(sink, SerialParseStatus::OK, command);
+      }
+      sink.flush();
+      return; // one command per call: the loop task keeps USB serial and the clap listener running
+    }
+  }
+
+  // False when no central is connected. The stack gives no per-notification result: a drop inside
+  // the stack shows only in the CRC32 line, which the central checks.
+  bool notify(const uint8_t* data, size_t len) {
+    if (tx_ == nullptr || !bridge_.connected()) {
+      return false;
+    }
+    tx_->setValue(const_cast<uint8_t*>(data), len);
+    tx_->notify();
+    delay(8); // pace the notifications: the stack drops them when its buffers are full
+    return true;
+  }
+
+  // One central: a second one is disconnected at once, and only the accepted handle ends the session.
+  void onConnect(BLEServer* server, ble_gap_conn_desc* desc) override {
+    bool accepted = false;
+    withLock([&] {
+      if (!central_) {
+        central_ = true;
+        handle_ = desc->conn_handle;
+        ingress_.connect();
+        accepted = true;
+      }
+    });
+    if (!accepted) {
+      server->disconnect(desc->conn_handle);
+    }
+  }
+  void onDisconnect(BLEServer*, ble_gap_conn_desc* desc) override {
+    withLock([&] {
+      if (central_ && desc->conn_handle == handle_) {
+        central_ = false;
+        ingress_.disconnect();
+      }
+    });
+  }
+  void onMtuChanged(BLEServer*, ble_gap_conn_desc* desc, uint16_t mtu) override {
+    withLock([&] {
+      if (central_ && desc->conn_handle == handle_) { // a refused second central never sets the MTU
+        ingress_.setMtu(mtu);
+      }
+    });
+  }
+  // Only the accepted central writes: bytes of a refused second central never reach the line.
+  void onWrite(BLECharacteristic* characteristic, ble_gap_conn_desc* desc) override {
+    const String value = characteristic->getValue();
+    withLock([&] {
+      if (central_ && desc->conn_handle == handle_) {
+        ingress_.push(reinterpret_cast<const uint8_t*>(value.c_str()), value.length());
+      }
+    });
+  }
+
+private:
+  template <typename Fn>
+  void withLock(Fn fn) {
+    portENTER_CRITICAL(&mux_);
+    fn();
+    portEXIT_CRITICAL(&mux_);
+  }
+
+  BleConsoleBridge bridge_;
+  BleConsoleIngress ingress_;
+  bool central_ = false; // a central is accepted (BLE task and loop task, under mux_)
+  uint16_t handle_ = 0;
+  bool start_failed_ = false;
+  BLEServer* server_ = nullptr;
+  BLECharacteristic* tx_ = nullptr;
+  BLEAdvertising* advertising_ = nullptr;
+  portMUX_TYPE mux_ = portMUX_INITIALIZER_UNLOCKED;
+};
+
 // Console command SCAN: one 4 s scan that fills `collector` and changes no registry state. Blocks for the scan.
 // The wake cycle stopped BLE after its own scan, or skipped it, so this function starts BLE and stops it again.
 // BLEDevice::deinit() runs before the collector is released: no late callback reaches the registry.
@@ -1019,8 +1217,120 @@ void setup() {
   SerialLineAssembler console_line;
   SerialSink console_sink;
   SdLogStorage console_storage;
+  // BLE console (serial_console.h BleConsoleBridge): runs on USB power while the board stays awake.
+  BleConsoleService ble_console;
+  ble_console.setLevel(PowerManager::bleConsoleAllowed(g_state.battery, config().ble_console) ? config().ble_console : 0);
   const bool wants_grace =
       cause != WakeupCause::TIMER || clap_mode == ClapListenMode::CONTINUOUS || console_active;
+  // One parsed command, shared by the USB serial console and the BLE console: only the sink differs.
+  auto run_console = [&](auto& sink, SerialParseStatus status, const SerialCommand& command) {
+    using Runner = SerialConsoleRunner<SdLogStorage, std::decay_t<decltype(sink)>>;
+    if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::CONFIG) {
+      // The RTC copy answers: no card access, so the clap listener keeps running.
+      Runner::showConfig(sink, g_state.config,
+                                                                g_state.config_from_sd, g_state.config_rejects);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::CALIB) {
+      // The RTC histories answer: no card access, so the clap listener keeps running.
+      Runner::showCalib(sink, command.reference, g_state.history,
+                                                               g_state.config);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::HISTORY) {
+      // The RTC histories answer: no card access, so the clap listener keeps running.
+      Runner::showHistory(sink, g_state.history,
+                                                                 g_state.noise_history);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::EVENTS) {
+      // The RTC ring answers: no card access, so the clap listener keeps running. The ring stays.
+      RtcTime events_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again
+      if (!g_rtc.readTime(events_now)) {
+        events_now = g_rtc_time;
+      }
+      Runner::showEvents(sink, g_state.events, events_now);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::VERSION) {
+      // Constants answer: no card access, so the clap listener keeps running.
+      Runner::showVersion(sink, FIRMWARE_VERSION, RLCD_GIT_HASH,
+                                                                 ARDUINO_CORE_VERSION, PowerManager::STATE_VERSION,
+                                                                 __DATE__, __TIME__);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SET) {
+      clap_listener.release(); // keep the I2S bus idle while the card transfers
+      // The new text takes effect as after a KEY wakeup: parse it and apply it inside the registry lock.
+      Runner::setConfig(
+          console_storage, sink, command, [](const char* text, size_t len) {
+            DeviceConfig loaded;
+            const ConfigParseResult parsed = DeviceConfigParser::parse(text, len, loaded);
+            portENTER_CRITICAL(&g_registry_mux);
+            g_state.applyConfig(loaded, parsed.file_ok, parsed.rejects());
+            portEXIT_CRITICAL(&g_registry_mux);
+            // Same follow-up as a KEY wakeup: card status, event, and the sleep and listen settings.
+            g_state.setSdStatus(SdStatus::OK, nowMs());
+            g_state.events.record(g_rtc_time, EventCode::CONFIG_LOAD, static_cast<uint16_t>(parsed.rejects().count));
+            g_power_config = PowerManager::powerConfig(config(), g_state.battery, quietHours(), g_rtc_time);
+          });
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::STATUS) {
+      // The RTC copy answers: no card access, so the clap listener keeps running.
+      portENTER_CRITICAL(&g_registry_mux); // the BLE callback writes the registry
+      const SwitchBotRegistry registry_copy = g_state.registry;
+      portEXIT_CRITICAL(&g_registry_mux);
+      SerialStatusSnapshot snap;
+      snap.registry = &registry_copy;
+      snap.history = &g_state.history;
+      snap.config = &g_state.config;
+      snap.battery = g_state.battery;
+      snap.alert_mask = g_state.alert_mask;
+      snap.sensor_battery_latch = g_state.sensor_battery_latch;
+      snap.muted = g_state.muted;
+      snap.now_ms = nowMs();
+      snap.sd_status = g_state.sd_status;
+      snap.sd_status_ms = g_state.sd_status_ms;
+      snap.shtc3 = g_state.shtc3;
+      snap.battery_history = &g_state.battery_history;
+      snap.cycle_tenths = g_cycles.cycleTenths();
+      snap.scan_saved_ms = g_scan_saved_ms;
+      snap.reset_reason = ResetReasonCodec::text(g_reset_reason);
+      ResetCountStore reset_store;
+      snap.abnormal_resets = AbnormalResetCounter::read(reset_store);
+      Runner::showStatus(sink, snap);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::TIME) {
+      // The RTC answers over I2C: no card access, so the clap listener keeps running.
+      if (command.time_set) {
+        if (Runner::setTime(sink, g_rtc, g_state.rtc_drift,
+                                                                   command.time)) {
+          RtcTime written;
+          if (g_rtc.readTime(written)) {
+            g_rtc_time = written; // a failed re-read keeps the old header clock
+          }
+          renderDashboard(); // the header clock shows the new time
+        }
+      } else {
+        RtcTime now_time;
+        g_rtc.readTime(now_time);
+        Runner::showTime(sink, now_time);
+      }
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SCAN) {
+      // The scan fills a collector only; the registry copy gives the slot column (only a wake cycle scan writes the
+      // registry, and none runs while the console is active). No card access. The BLE radio is not the I2S bus.
+      portENTER_CRITICAL(&g_registry_mux);
+      const SwitchBotRegistry scan_registry = g_state.registry;
+      portEXIT_CRITICAL(&g_registry_mux);
+      ble_console.stop();
+      Runner::scan(sink, scan_registry, consoleScanOnce);
+      ble_console.start(); // the scan stopped the BLE stack
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::PATTERN) {
+      // Raw flush without display_invert: g_panel.flush, not flushFramebuffer(); keep it so (the host test checks the raw bytes). No card access. The pattern
+      // stays until the next render; the next wake cycle draws the normal view again.
+      Runner::showPattern(sink, g_framebuffer, g_panel,
+                                                                command.reference);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::BEEP) {
+      clap_listener.release(); // the chime uses the same I2S bus; the next poll() reopens it
+      Es8311Hal beep_hal;
+      Runner::beep(sink, beep_hal, command.reference,
+                                                         g_state.muted, quietHours().isActive(g_rtc_time),
+                                                         config().chime_volume_pct);
+    } else if (status == SerialParseStatus::OK) {
+      clap_listener.release(); // keep the I2S bus idle while the card transfers
+      Runner::execute(console_storage, sink, command);
+    } else {
+      Runner::reject(sink, status);
+    }
+  };
   // Continuous listening ends when USB power ends or the listener fails; the grace window stays.
   bool continuous_listen = clap_mode == ClapListenMode::CONTINUOUS;
   UsbPowerWatch usb_watch(millis());
@@ -1034,6 +1344,19 @@ void setup() {
         !console_watch.update(BatteryMonitor::read(config().battery_offset_mv).usb_powered, millis())) {
       console_active = false;
     }
+    // The gate follows the USB watch and the config: SET ble_console=0 or an unplugged cable stops the service.
+    const uint8_t ble_level =
+        console_active && PowerManager::bleConsoleAllowed(g_state.battery, config().ble_console) ? config().ble_console : 0;
+    ble_console.setLevel(ble_level);
+    if (ble_level == 0) {
+      ble_console.resetFailure();
+      ble_console.stop(); // no-op when stopped
+    } else {
+      ble_console.start(); // no-op while running
+    }
+    if (ble_console.level() != 0 && ble_console.pending()) {
+      ble_console.serve(run_console); // one command per loop pass
+    }
     while (console_active && Serial.available() > 0) {
       const SerialLineAssembler::Event event = console_line.feed(static_cast<uint8_t>(Serial.read()));
       if (event == SerialLineAssembler::Event::NONE) {
@@ -1043,109 +1366,7 @@ void setup() {
       const SerialParseStatus status = event == SerialLineAssembler::Event::LINE_TOO_LONG
           ? SerialParseStatus::TOO_LONG
           : SerialConsole::parse(console_line.line(), console_line.length(), command);
-      if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::CONFIG) {
-        // The RTC copy answers: no card access, so the clap listener keeps running.
-        SerialConsoleRunner<SdLogStorage, SerialSink>::showConfig(console_sink, g_state.config,
-                                                                  g_state.config_from_sd, g_state.config_rejects);
-      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::CALIB) {
-        // The RTC histories answer: no card access, so the clap listener keeps running.
-        SerialConsoleRunner<SdLogStorage, SerialSink>::showCalib(console_sink, command.reference, g_state.history,
-                                                                 g_state.config);
-      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::HISTORY) {
-        // The RTC histories answer: no card access, so the clap listener keeps running.
-        SerialConsoleRunner<SdLogStorage, SerialSink>::showHistory(console_sink, g_state.history,
-                                                                   g_state.noise_history);
-      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::EVENTS) {
-        // The RTC ring answers: no card access, so the clap listener keeps running. The ring stays.
-        RtcTime events_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again
-        if (!g_rtc.readTime(events_now)) {
-          events_now = g_rtc_time;
-        }
-        SerialConsoleRunner<SdLogStorage, SerialSink>::showEvents(console_sink, g_state.events, events_now);
-      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::VERSION) {
-        // Constants answer: no card access, so the clap listener keeps running.
-        SerialConsoleRunner<SdLogStorage, SerialSink>::showVersion(console_sink, FIRMWARE_VERSION, RLCD_GIT_HASH,
-                                                                   ARDUINO_CORE_VERSION, PowerManager::STATE_VERSION,
-                                                                   __DATE__, __TIME__);
-      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SET) {
-        clap_listener.release(); // keep the I2S bus idle while the card transfers
-        // The new text takes effect as after a KEY wakeup: parse it and apply it inside the registry lock.
-        SerialConsoleRunner<SdLogStorage, SerialSink>::setConfig(
-            console_storage, console_sink, command, [](const char* text, size_t len) {
-              DeviceConfig loaded;
-              const ConfigParseResult parsed = DeviceConfigParser::parse(text, len, loaded);
-              portENTER_CRITICAL(&g_registry_mux);
-              g_state.applyConfig(loaded, parsed.file_ok, parsed.rejects());
-              portEXIT_CRITICAL(&g_registry_mux);
-              // Same follow-up as a KEY wakeup: card status, event, and the sleep and listen settings.
-              g_state.setSdStatus(SdStatus::OK, nowMs());
-              g_state.events.record(g_rtc_time, EventCode::CONFIG_LOAD, static_cast<uint16_t>(parsed.rejects().count));
-              g_power_config = PowerManager::powerConfig(config(), g_state.battery, quietHours(), g_rtc_time);
-            });
-      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::STATUS) {
-        // The RTC copy answers: no card access, so the clap listener keeps running.
-        portENTER_CRITICAL(&g_registry_mux); // the BLE callback writes the registry
-        const SwitchBotRegistry registry_copy = g_state.registry;
-        portEXIT_CRITICAL(&g_registry_mux);
-        SerialStatusSnapshot snap;
-        snap.registry = &registry_copy;
-        snap.history = &g_state.history;
-        snap.config = &g_state.config;
-        snap.battery = g_state.battery;
-        snap.alert_mask = g_state.alert_mask;
-        snap.sensor_battery_latch = g_state.sensor_battery_latch;
-        snap.muted = g_state.muted;
-        snap.now_ms = nowMs();
-        snap.sd_status = g_state.sd_status;
-        snap.sd_status_ms = g_state.sd_status_ms;
-        snap.shtc3 = g_state.shtc3;
-        snap.battery_history = &g_state.battery_history;
-        snap.cycle_tenths = g_cycles.cycleTenths();
-        snap.scan_saved_ms = g_scan_saved_ms;
-        snap.reset_reason = ResetReasonCodec::text(g_reset_reason);
-        ResetCountStore reset_store;
-        snap.abnormal_resets = AbnormalResetCounter::read(reset_store);
-        SerialConsoleRunner<SdLogStorage, SerialSink>::showStatus(console_sink, snap);
-      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::TIME) {
-        // The RTC answers over I2C: no card access, so the clap listener keeps running.
-        if (command.time_set) {
-          if (SerialConsoleRunner<SdLogStorage, SerialSink>::setTime(console_sink, g_rtc, g_state.rtc_drift,
-                                                                     command.time)) {
-            RtcTime written;
-            if (g_rtc.readTime(written)) {
-              g_rtc_time = written; // a failed re-read keeps the old header clock
-            }
-            renderDashboard(); // the header clock shows the new time
-          }
-        } else {
-          RtcTime now_time;
-          g_rtc.readTime(now_time);
-          SerialConsoleRunner<SdLogStorage, SerialSink>::showTime(console_sink, now_time);
-        }
-      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SCAN) {
-        // The scan fills a collector only; the registry copy gives the slot column (only a wake cycle scan writes the
-        // registry, and none runs while the console is active). No card access. The BLE radio is not the I2S bus.
-        portENTER_CRITICAL(&g_registry_mux);
-        const SwitchBotRegistry scan_registry = g_state.registry;
-        portEXIT_CRITICAL(&g_registry_mux);
-        SerialConsoleRunner<SdLogStorage, SerialSink>::scan(console_sink, scan_registry, consoleScanOnce);
-      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::PATTERN) {
-        // Raw flush without display_invert: g_panel.flush, not flushFramebuffer(); keep it so (the host test checks the raw bytes). No card access. The pattern
-        // stays until the next render; the next wake cycle draws the normal view again.
-        SerialConsoleRunner<SdLogStorage, SerialSink>::showPattern(console_sink, g_framebuffer, g_panel,
-                                                                  command.reference);
-      } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::BEEP) {
-        clap_listener.release(); // the chime uses the same I2S bus; the next poll() reopens it
-        Es8311Hal beep_hal;
-        SerialConsoleRunner<SdLogStorage, SerialSink>::beep(console_sink, beep_hal, command.reference,
-                                                           g_state.muted, quietHours().isActive(g_rtc_time),
-                                                           config().chime_volume_pct);
-      } else if (status == SerialParseStatus::OK) {
-        clap_listener.release(); // keep the I2S bus idle while the card transfers
-        SerialConsoleRunner<SdLogStorage, SerialSink>::execute(console_storage, console_sink, command);
-      } else {
-        SerialConsoleRunner<SdLogStorage, SerialSink>::reject(console_sink, status);
-      }
+      run_console(console_sink, status, command);
     }
     if (continuous_listen && usb_watch.due(millis()) &&
         !usb_watch.update(BatteryMonitor::read(config().battery_offset_mv).usb_powered, millis())) {
@@ -1216,6 +1437,7 @@ void setup() {
       delay(10);
     }
   }
+  ble_console.stop(); // the BLE service never outlives the awake window
   clap_listener.stop(); // microphones off before deep sleep on each path
 
   cycle.advance(); // SAVE
