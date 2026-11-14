@@ -26,12 +26,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Storage, and Configuration (Score 28–33)
 
-- [ ] Hardware diagnostics panel from `STATUS` and `VERSION` in the macOS app
-  - Rank: [Total: 32, Use: 6, Setup: 9, Harmony: 9, Safety: 8, Effort: S]
-  - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift` (new), `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift` (new), `macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsTests.swift` (new)
-  - Goal: Parse the `STATUS` lines that `StatusReply` keeps in `otherLines` into typed values: `SHTC3 nack short crc run`, `BLE rejected last woio meter bthome atc`, `RESET reason abnormal`, `RUNTIME h samples cycles scan_saved_ms` and `AWAKE last_ms avg_ms max_ms samples`. A `--` field gives `nil`. Add `ConsoleCommand.version` and the parser `VersionReply` (`fw`, `git`, `core`, `state`, `built`). A diagnostics view shows the values in groups. It marks the SHTC3 run in red at 3 or more, marks an abnormal reset reason (`PANIC`, `INT_WDT`, `TASK_WDT`, `WDT`, `BROWNOUT`), and shows the awake time and the remaining hours. The refresh button also sends `VERSION`. Thus the user finds a sensor or power fault from the desk.
-  - Acceptance test: `swift test` in `macos/RlcdCompanion` passes. New tests parse a recorded `STATUS` reply with all five lines, a reply with `--` fields, a reply without the new lines (older firmware gives `nil` values and no error), and a line with a non-numeric counter (a parse error). Other tests parse a recorded `VERSION` reply, classify each reset reason, and check the red mark at run 2 and run 3. `swift build -c release` passes. The C++ host tests stay unchanged and pass.
-
 - [ ] Climate badges and macOS notifications for alert bits in the companion app
   - Rank: [Total: 31, Use: 9, Setup: 4, Harmony: 8, Safety: 10, Effort: M]
   - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/ClimateMath.swift` (new), `macos/RlcdCompanion/Sources/RlcdProtocol/AlertTransitions.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ClimateMathTests.swift` (new), `tests/fixtures/climate_math_vectors.txt` (new), `tests/test_firmware_logic.cpp`
