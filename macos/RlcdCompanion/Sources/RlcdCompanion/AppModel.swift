@@ -27,8 +27,12 @@ final class AppModel: ConsoleLinkDelegate {
     var discovered = DiscoveryList()
     /// The pinned panel, `nil` without a pin.
     var pinnedPanel: UUID?
-    var setKey = ""
-    var setValue = ""
+    /// Values that the user edited in the config form (key to new text). Keys without an edit are absent.
+    var draft: [String: String] = [:]
+    /// The running or last batch of the config form.
+    var batch: ConfigBatch?
+    var batchSummary: String?
+    var showDiff = false
     private var pendingCommand: ConsoleCommand?
     private var queue: [ConsoleCommand] = []
     private var assembler = ReplyAssembler()
@@ -130,6 +134,7 @@ final class AppModel: ConsoleLinkDelegate {
         scanner.setConsoleWanted(false)
         serial.close()
         config = nil // the ble_console level of the old link must not gate SET on the new link
+        draft = [:] // edits belong to the panel that was read
         assembler.reset()
         abandonCommands()
     }
@@ -142,6 +147,14 @@ final class AppModel: ConsoleLinkDelegate {
         pendingCommand = nil
         queue.removeAll()
         assembler.reset()
+        endBatchAfterLoss()
+    }
+
+    /// A lost link, a timeout or a reset ends a running batch, so the form unlocks.
+    private func endBatchAfterLoss() {
+        guard let b = batch else { return }
+        batchSummary = b.summary + " (no reply)"
+        batch = nil
     }
 
     /// Sends the four read commands one after the other. Runs only on the user's button press.
@@ -152,13 +165,41 @@ final class AppModel: ConsoleLinkDelegate {
         sendNext()
     }
 
-    func set(key: String, value: String) {
-        guard pendingCommand == nil, queue.isEmpty else { message = "Wait for the running command"; return }
-        guard canSet else { message = "SET needs ble_console=2 or the USB serial port"; return }
-        let cmd = ConsoleCommand.set(key: key, value: value)
-        guard cmd.line != nil else { message = "Key or value not valid"; return }
+    /// Changes of the form against the last `CONFIG` reply, in schema order.
+    var changes: [ConfigChange] {
+        guard let config else { return [] }
+        let merged = config.values.merging(draft) { _, new in new }
+        return ConfigSchema.diff(old: config.values, new: merged)
+    }
+
+    /// Problem text by key for the changed values.
+    var problems: [String: String] { ConfigSchema.problems(changes: changes, allValues: config?.values ?? [:]) }
+
+    /// Warning when the batch lowers `ble_console` on the BLE link: later commands may get no reply.
+    var bleConsoleWarning: String? {
+        guard transport == .bluetooth,
+              let c = changes.first(where: { $0.key == "ble_console" }), (Int(c.new) ?? 0) < 2 else { return nil }
+        return "ble_console below 2 over BLE stops SET. Apply it alone, or use the USB serial link."
+    }
+
+    /// Apply is allowed with changes, no problem, an idle link and a console that takes `SET`.
+    var canApply: Bool {
+        canSet && !changes.isEmpty && problems.isEmpty
+            && pendingCommand == nil && queue.isEmpty && batch == nil
+    }
+
+    /// Sends one `SET` for each changed key, stops at the first `ERR` reply and reads `CONFIG` at the end.
+    func applyChanges() {
+        guard canApply else { message = "Apply not allowed"; return }
         message = nil
-        queue = [cmd, .config]
+        batchSummary = nil
+        batch = ConfigBatch(changes: changes)
+        sendNextBatchCommand()
+    }
+
+    private func sendNextBatchCommand() {
+        guard let cmd = batch?.next() else { return }
+        queue = [cmd]
         sendNext()
     }
 
@@ -184,7 +225,26 @@ final class AppModel: ConsoleLinkDelegate {
             message = "No reply to \(cmd.line ?? "command")"
             pendingCommand = nil
             queue.removeAll()
+            endBatchAfterLoss()
             assembler.reset() // a late reply must not reach the next command
+        }
+    }
+
+    /// Next step of the batch: the next `SET`, or at the end the `CONFIG` refresh and the summary.
+    private func advanceBatch() {
+        guard var b = batch else { return }
+        if b.isFinished {
+            batchSummary = b.summary
+            batch = nil
+            return
+        }
+        batch = b
+        sendNextBatchCommand()
+        // A send that failed abandoned the command; end the batch, so the form unlocks.
+        if pendingCommand == nil, queue.isEmpty {
+            b = batch ?? b
+            batchSummary = b.summary + " (link lost)"
+            batch = nil
         }
     }
 
@@ -198,6 +258,7 @@ final class AppModel: ConsoleLinkDelegate {
             consoleConnected = connected
             if !connected {
                 config = nil // the ble_console level of a lost link must not gate SET on the next link
+                draft = [:]
                 abandonCommands()
             }
         }
@@ -216,20 +277,27 @@ final class AppModel: ConsoleLinkDelegate {
         timeout?.cancel()
         pendingCommand = nil
         activeLink.commandDidFinish()
-        defer { sendNext() }
+        defer {
+            if batch != nil { advanceBatch() } else { sendNext() }
+        }
         do {
             switch (cmd, reply) {
             case (_, let .corrupt(e)):
                 message = "Reply rejected: \(e)"
                 queue.removeAll()
+                batch?.receive(status: "ERR CORRUPT")
             case (_, let .status(text)):
                 message = text
+                batch?.receive(status: text)
                 if text.hasPrefix("ERR") { queue.removeAll() }
             case let (.status, .frame(lines)): status = try StatusReply.parse(lines: lines)
             case let (.history, .frame(lines)): history = try HistoryReply.parse(lines: lines)
             case let (.events, .frame(lines)): events = try EventsReply.parse(lines: lines)
-            case let (.config, .frame(lines)): config = try ConfigReply.parse(lines: lines)
-            case (.set, .frame): break
+            case let (.config, .frame(lines)):
+                batch?.receiveFrame()
+                config = try ConfigReply.parse(lines: lines)
+                if batch != nil { draft = [:] } // the panel state replaces the edits
+            case (.set, .frame): batch?.receive(status: "ERR UNEXPECTED_REPLY")
             }
         } catch {
             message = "Reply not understood: \(error)"
