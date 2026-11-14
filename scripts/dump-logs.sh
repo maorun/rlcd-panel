@@ -58,9 +58,9 @@ import os, re, subprocess, sys, time, zlib
 
 port, baud, out_dir, timeout_s = sys.argv[1], int(sys.argv[2]), sys.argv[3], float(sys.argv[4])
 mode = sys.argv[5]
-NAME = re.compile(r"^(?:climate_v[234]_20\d\d(?:0[1-9]|1[0-2])|daily_v1_20\d\d|events_v1_20\d\d)\.csv$")
-FILE_LINE = re.compile(r"^FILE ((?:climate_v[234]_20\d\d(?:0[1-9]|1[0-2])|daily_v1_20\d\d|events_v1_20\d\d)\.csv) (\d{1,9})$")
-BEGIN_LINE = re.compile(r"^BEGIN ((?:climate_v[234]_20\d\d(?:0[1-9]|1[0-2])|daily_v1_20\d\d|events_v1_20\d\d)\.csv) (\d{1,9})$")
+NAME = re.compile(r"^(?:climate_v[234]_20\d\d(?:0[1-9]|1[0-2])|daily_v[12]_20\d\d|events_v1_20\d\d)\.csv$")
+FILE_LINE = re.compile(r"^FILE ((?:climate_v[234]_20\d\d(?:0[1-9]|1[0-2])|daily_v[12]_20\d\d|events_v1_20\d\d)\.csv) (\d{1,9})$")
+BEGIN_LINE = re.compile(r"^BEGIN ((?:climate_v[234]_20\d\d(?:0[1-9]|1[0-2])|daily_v[12]_20\d\d|events_v1_20\d\d)\.csv) (\d{1,9})$")
 MAX_FILE_BYTES = 16 * 1024 * 1024
 
 subprocess.run(["stty", "-f" if sys.platform == "darwin" else "-F", port, str(baud), "raw", "-echo"], check=True)

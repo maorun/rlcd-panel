@@ -650,6 +650,12 @@ void logToSdCard() {
   }
   const bool card_ok = result != SdLogResult::MOUNT_FAILED && result != SdLogResult::NO_CARD;
   logDailySummary(now, card_ok);
+  // After the daily row: the reading of the first write after midnight belongs to the new day (markDone
+  // in logDailySummary resets the stats first). A daily write that keeps failing keeps the stats, so
+  // the row of the old day then also holds later readings.
+  if (result == SdLogResult::OK && noise_measured && have_noise) {
+    g_state.daily.noise.add(NoiseHistory::encode(cal.splDb(g_noise.rms)), g_rtc_time.hour, g_noise.events);
+  }
   logEvents(card_ok);
 }
 
@@ -676,7 +682,7 @@ void logDailySummary(uint32_t now, bool card_ok) {
   if (action == DailyAction::MARK) {
     g_state.daily.markDone(g_rtc_time);
   } else if (action == DailyAction::WRITE && card_ok) {
-    const SdLogResult result = SdLogger::appendDaily(g_rtc_time, g_state.history, g_state.noise_history);
+    const SdLogResult result = SdLogger::appendDaily(g_rtc_time, g_state.history, g_state.noise_history, g_state.daily.noise);
     if (result == SdLogResult::OK) {
       g_state.daily.markDone(g_rtc_time);
     } else {
