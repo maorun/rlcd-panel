@@ -303,4 +303,6 @@ The window has a config editor. It shows the keys of `config.ini` in the groups 
 
 The diagnostics group shows the hardware metrics of the panel: the `SHTC3` read failures (red at 3 failures in a row), the rejected BLE packets by format, the last reset reason (red `ABNORMAL` badge for `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT` and `BROWNOUT`), the battery runtime estimate and the awake time, and the firmware identity from `VERSION`. The button "Refresh STATUS and VERSION" reads them. A line that an older firmware does not send shows `not reported by this firmware`.
 
+The scanner section sends `SCAN` on the USB serial link only (the firmware replies `ERR NOT_OVER_BLE` on BLE) and allows 10 s for the reply. It lists each sensor in range with format, RSSI, temperature, humidity, battery and slot, strongest RSSI first. The `Assign` menu sets `slot<N>_mac` of one sensor through `SET` (USB, or BLE with `ble_console=2`) and warns when another slot holds the MAC. `Clear slot` sends `SET slot<N>_mac=` with an empty value.
+
 Run the tests with `swift test` in `macos/RlcdCompanion`. They read `tests/fixtures/ble_telemetry_vectors.txt`. CI runs them on `macos-latest`.

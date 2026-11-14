@@ -156,6 +156,94 @@ public enum EventsReply {
     }
 }
 
+/// Digits with an optional leading minus; no plus sign, no space.
+private func plainInt(_ s: String) -> Int? {
+    let digits = s.hasPrefix("-") ? s.dropFirst() : Substring(s)
+    guard !digits.isEmpty, digits.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+    return Int(s)
+}
+
+/// `12`, `-3`, `21.5`: digits, one optional fraction and an optional leading minus.
+private func plainDecimal(_ s: String) -> Double? {
+    let body = s.hasPrefix("-") ? s.dropFirst() : Substring(s)
+    let parts = body.split(separator: ".", omittingEmptySubsequences: false)
+    guard (1...2).contains(parts.count),
+          parts.allSatisfy({ !$0.isEmpty && $0.allSatisfy { $0.isASCII && $0.isNumber } }) else { return nil }
+    return Double(s)
+}
+
+/// One `SCAN` row: one sensor in range.
+public struct ScanRow: Equatable, Identifiable {
+    public var id: String { mac }
+    public let mac: String
+    public let format: String
+    public let rssi: Int
+    /// Registry slot 1 to 3 that holds the sensor, `nil` for `-`.
+    public let slot: Int?
+    public let temperatureC: Double?
+    public let humidityPct: Double?
+    public let batteryPct: Double?
+}
+
+/// Parsed `SCAN` reply.
+public struct ScanReply: Equatable {
+    public static let header = "mac,format,rssi,slot,temp_c,rh_pct,battery_pct"
+    public static let formats: Set<String> = ["WOIO", "METER", "BTHOME", "ATC"]
+
+    /// Rows in the order of the reply.
+    public let rows: [ScanRow]
+    /// MACs that the firmware dropped (`DROPPED,<N>` row), 0 without that row.
+    public let dropped: Int
+    /// Rows with the strongest signal first; equal RSSI keeps the order of the reply.
+    public var sortedByRssi: [ScanRow] {
+        rows.enumerated().sorted { $0.element.rssi != $1.element.rssi ? $0.element.rssi > $1.element.rssi : $0.offset < $1.offset }.map(\.element)
+    }
+
+    /// `lines` hold `BEGIN SCAN`, the header and the rows.
+    public static func parse(lines: [String]) throws -> ScanReply {
+        guard lines.first == "BEGIN SCAN" else { throw ParseError.missingLine("BEGIN SCAN") }
+        guard lines.count >= 2, lines[1] == header else { throw ParseError.missingLine(header) }
+        var rows: [ScanRow] = []
+        var dropped = 0
+        var seenDropped = false
+        var seen = Set<String>()
+        for line in lines.dropFirst(2) {
+            let c = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+            if c.first == "DROPPED" {
+                guard line == lines.last else { throw ParseError.badLine(line) } // the firmware sends it last
+                guard c.count == 2, let n = plainInt(c[1]), n >= 0, !seenDropped else { throw ParseError.badLine(line) }
+                seenDropped = true
+                dropped = n
+                continue
+            }
+            guard c.count == 7, SlotAssignment.isValidMac(c[0]), formats.contains(c[1]), let rssi = plainInt(c[2]),
+                  (-127...0).contains(rssi) else {
+                throw ParseError.badLine(line)
+            }
+            guard seen.insert(c[0].uppercased()).inserted else { throw ParseError.badLine(line) } // one row per MAC
+            var slot: Int?
+            if c[3] != "-" {
+                guard let n = plainInt(c[3]), SlotAssignment.slots.contains(n) else { throw ParseError.badLine(line) }
+                slot = n
+            }
+            // A value is a plain number or empty/`--`; "nan" and "inf" are not.
+            let ranges: [ClosedRange<Double>] = [-50...100, 0...100, 0...100] // C, %RH, % as the firmware accepts them
+            let values = try zip(c[4...6], ranges).map { text, range -> Double? in
+                if text.isEmpty || text == "--" { return nil }
+                // Plain decimal text only: no hex float, nan, inf, "5.", ".5" or "1--2".
+                guard let v = plainDecimal(text), range.contains(v) else {
+                    throw ParseError.badLine(line)
+                }
+                return v
+            }
+            rows.append(ScanRow(
+                mac: c[0].uppercased(), format: c[1], rssi: rssi, slot: slot,
+                temperatureC: values[0], humidityPct: values[1], batteryPct: values[2]))
+        }
+        return ScanReply(rows: rows, dropped: dropped)
+    }
+}
+
 /// Parsed `CONFIG` reply.
 public struct ConfigReply: Equatable {
     public let values: [String: String]
@@ -199,7 +287,7 @@ public struct ConfigReply: Equatable {
 
 /// The console commands that the app may send. The app sends one only after a user action.
 public enum ConsoleCommand: Equatable {
-    case status, history, events, config, version
+    case status, history, events, config, version, scan
     case set(key: String, value: String)
 
     /// Keys whose empty value the firmware accepts (no fixed MAC).
@@ -214,6 +302,7 @@ public enum ConsoleCommand: Equatable {
         case .events: return "EVENTS"
         case .config: return "CONFIG"
         case .version: return "VERSION"
+        case .scan: return "SCAN"
         case let .set(key, value):
             let text = "SET \(key)=\(value)"
             let bad = CharacterSet.whitespacesAndNewlines.union(.controlCharacters)

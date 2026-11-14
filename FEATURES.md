@@ -1046,3 +1046,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `DiagnosticsView` shows five groups: SHTC3 sensor, BLE rejected packets, resets, battery runtime and awake time. It marks the SHTC3 `run` red at 3 or more and shows a red `ABNORMAL` badge for an abnormal reset reason. The refresh button sends `STATUS` and `VERSION` (`AppModel.refreshDiagnostics`). The app sends no command on its own.
 - A new panel pin, a forget and a lost link clear the diagnostics and the version.
 - `DiagnosticsTests.swift` covers a full reply, `--` fields, missing lines, non-numeric counters, the `VERSION` reply, each reset reason and the red mark at run 2 and run 3.
+
+## Nearby BLE sensor scanner and slot assignment in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/SlotAssignment.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ScannerView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ScanReplyTests.swift`.
+- `ConsoleCommand.scan` sends `SCAN`. `ScanReply` parses `BEGIN SCAN`, the header `mac,format,rssi,slot,temp_c,rh_pct,battery_pct`, one row for each MAC and the optional `DROPPED,<N>` row. The format is `WOIO`, `METER`, `BTHOME` or `ATC`. The slot is 1 to 3 or `-`. An empty battery field gives no value. A missing header, a bad MAC, an unknown format or a row with a wrong field count gives a parse error.
+- The app sends `SCAN` only on the USB serial link, because the firmware replies `ERR NOT_OVER_BLE` on BLE. The reply timeout is 10 s, because the scan takes about 4 s.
+- `ScannerView` lists the sensors with format, RSSI, temperature, humidity, battery and slot. The strongest RSSI is first.
+- `SlotAssignment` builds `SET slot<N>_mac=<MAC>` for slot 1 to 3. Slot 4 gives no command. It reports a MAC that another slot holds as fixed MAC, and refuses the all-zero MAC. The `Clear slot` action builds `SET slot<N>_mac=` with an empty value. `ConsoleCommand.set` accepts an empty value only for `slot1_mac` to `slot3_mac`.
+- After each `SET`, the app reads `CONFIG` and scans again. A scan reply that fails, times out or ends the link clears the list.
+- Tests parse a recorded reply with each format, an empty battery field, a slot `-` and a `DROPPED,3` row. They reject bad replies, build each `SET` line and the clear line, refuse an empty value for other keys, refuse slot 4, report a duplicate MAC and refuse `SCAN` on BLE.
