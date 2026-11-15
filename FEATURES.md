@@ -1191,3 +1191,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `SLOT_ASSIGN` gives the slot (high byte) and the `BleFormat` name (low byte), for example `514` gives `slot 2 BTHOME`. `SLOT_RELEASE` gives the slot number.
 - An unknown event name (for example `EVENTS_DROPPED`) or a detail outside the range gives the raw text `<event>,<detail>`.
 - The `Open events file` button of `ArchiveView` reads a downloaded `events_v1_YYYY.csv` with `EventsReply.parse(file:)` and shows it in the same events list. A wrong header or row gives a message in the archive summary.
+
+## Diagnostics report for the clipboard in the macOS app
+
+- The `Copy report` button of `DiagnosticsView` sends `VERSION`, `STATUS`, `CONFIG` and `EVENTS` one after the other (`AppModel.copyReport`). It runs only on a user action.
+- `DiagnosticsReport.build` joins the verified reply lines in this order, with one `## <COMMAND>` heading each. The first lines give the app version and the link type (`Link: USB` or `Link: BLE`).
+- A failed reply (`ERR` text, wrong CRC-32, timeout or lost link) gives the line `ERROR <reason>` below its heading. The other sections stay.
+- The report has no `CRC32` line.
+- The report replaces the value of each key that `ConfigSchema` marks as a name or a MAC with `<hidden>`, for example `slot1_mac=<hidden>` and `onboard_name=<hidden>`. The toggle `Include names and MACs` keeps the values.
+- `AppModel` puts the text on `NSPasteboard.general`. The report holds no Wi-Fi data, because the firmware sends none.
+- `DiagnosticsReportTests` cover the section order, the missing `CRC32` lines, the hidden and the kept values, and a failed `EVENTS` reply.

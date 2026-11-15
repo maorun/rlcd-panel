@@ -12,6 +12,10 @@ struct DiagnosticsView: View {
                     HStack {
                         Button("Refresh STATUS and VERSION") { model.refreshDiagnostics() }
                             .disabled(!model.consoleConnected || !model.isIdle)
+                        Button("Copy report") { model.copyReport() }
+                            .disabled(!model.canCopyReport)
+                        Toggle("Include names and MACs", isOn: $model.reportIncludeNames)
+                            .toggleStyle(.checkbox)
                         Spacer()
                     }
                     if let v = model.version {
