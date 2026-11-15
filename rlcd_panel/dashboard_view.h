@@ -37,6 +37,7 @@ struct SystemInfo {
   uint8_t config_rejected = 0; // rejected config.ini lines; above 0 shows "(N ERR)"
   LoopbackResult loopback;     // last speaker to microphone test of this wake cycle
   SpectrumReading spectrum;    // last spectrum capture; invalid shows "NO DATA"
+  uint8_t stats_page = 0;      // stats view page: 0 slots 1 to 3, 1 slots 4 and 5 (needs an active slot 4 or 5)
   uint8_t chart_sensor = 0;    // sensor of the climate chart view: 0 onboard, 1 to 3 registry slots
   BatteryRuntime runtime;      // remaining battery runtime; invalid shows "--"
   int32_t cycle_tenths = -1;   // battery charge cycles in tenths; negative (unknown) shows "--"
@@ -972,6 +973,12 @@ public:
     snprintf(out, capacity, "RSSI %d DBM", static_cast<int>(sb.rssi));
   }
 
+  // True when slot 4 or slot 5 is active: the stats view has a second page.
+  static bool statsHasSecondPage(const SwitchBotReading* slots, size_t slot_count, const DeviceConfig* config) {
+    return slotActive(slots, slot_count, config, STATS_SLOT_COUNT) ||
+           slotActive(slots, slot_count, config, STATS_SLOT_COUNT + 1);
+  }
+
   static void renderSensorStats(
       St7305Framebuffer& fb,
       const BatteryReading& battery,
@@ -982,11 +989,19 @@ public:
       bool quiet_hours = false,
       const NoiseHistory* noise_history = nullptr,
       const ClimateHistory* history = nullptr,
-      const DeviceConfig* config = nullptr) {
-    renderHeader(fb, "SENSOR STATS", battery, clock_text, quiet_hours);
+      const DeviceConfig* config = nullptr,
+      uint8_t page = 0) {
+    // The title shows the page ("1/2", "2/2") only when slot 4 or 5 is active; page 1 needs that too.
+    const bool two_pages = statsHasSecondPage(switchbot_slots, switchbot_count, config);
+    const uint8_t shown_page = two_pages && page == 1 ? 1 : 0;
+    renderHeader(fb, two_pages ? (shown_page == 1 ? "SENSOR STATS 2/2" : "SENSOR STATS 1/2") : "SENSOR STATS",
+                 battery, clock_text, quiet_hours);
 
-    for (size_t i = 0; i < STATS_SLOT_COUNT; ++i) {
-      const uint16_t y = static_cast<uint16_t>(34 + i * SENSOR_BLOCK_PITCH);
+    const size_t first_slot = shown_page == 1 ? STATS_SLOT_COUNT : 0;
+    const size_t block_count = shown_page == 1 ? MAX_SWITCHBOT_SENSORS - STATS_SLOT_COUNT : STATS_SLOT_COUNT;
+    for (size_t k = 0; k < block_count; ++k) {
+      const size_t i = first_slot + k;
+      const uint16_t y = static_cast<uint16_t>(34 + k * SENSOR_BLOCK_PITCH);
       const bool have_slot = (switchbot_slots != nullptr && i < switchbot_count);
       const SwitchBotReading empty_reading{};
       const SwitchBotReading& sb = have_slot ? switchbot_slots[i] : empty_reading;
@@ -1396,7 +1411,7 @@ public:
     }
     switch (mode) {
       case DisplayMode::SENSOR_STATS:
-        renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms, info.quiet_hours, noise_history, history, config);
+        renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms, info.quiet_hours, noise_history, history, config, info.stats_page);
         break;
       case DisplayMode::SYSTEM_DIAGNOSTICS:
         renderDiagnostics(fb, battery, info, clock_text);

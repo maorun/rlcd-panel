@@ -1208,7 +1208,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `ReceptionHistory` keeps one 24-bit mask and one scan count for each of the 5 registry slots. Bit 0 is the newest scan. The count stops at 24.
 - After each BLE scan, `ReceptionHistory::recordScan` shifts the mask of each occupied slot by one bit. It sets bit 0 when the `packet_count` of the slot grew in this scan. An empty slot keeps mask 0 and count 0.
 - `PersistentState::resetSlot` clears the mask and the count of the slot.
-- `PersistentState::reception` uses 16 bytes just before the checksum. `STATE_VERSION` is 50, and an RTC image of version 49 is rejected. A count above 24, a mask bit beyond the counted scans and a value for an empty slot are rejected too. A power-on sets all values to 0.
+- `PersistentState::reception` uses 16 bytes just before the checksum. `STATE_VERSION` was 50 then, and an RTC image of version 49 is rejected. A count above 24, a mask bit beyond the counted scans and a value for an empty slot are rejected too. A power-on sets all values to 0.
 - The console command `STATUS` shows `RECEPTION s1=<N>/<M> s2=<N>/<M> s3=<N>/<M> s4=<N>/<M> s5=<N>/<M>` after `BLE`. `<N>` is the number of 1-bits in the mask and `<M>` is the scan count. An empty slot shows `--`.
 - `ReceptionMetrics` parses the line. `--` gives `nil`, and a bad value such as `s1=x/24` throws `ParseError.badLine`.
 - `DiagnosticsView` shows the rate of each slot and a warning symbol (`exclamationmark.triangle.fill`) when the rate is below 50 %.
@@ -1221,3 +1221,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `ClimateLog.isClimateFileName`, `ClimateLog.month(of:)` and `ClimateLog.availableMonths(in:)` use the name check of `LogArchive`. `ClimateLog.load(from:month:)` reads the files of one month (`YYYYMM`) from the folder and lists a file that fails to parse in `failedFiles`. For the same timestamp the newer format wins.
 - The button `Show climate charts` in `ArchiveView` shows `ClimateChartView`: a month picker, for each sensor one Swift Charts view with the hourly temperature and humidity, and one chart with `noise_db`, `noise_l10` and `noise_l90`. The view reads local files only and sends no console command.
 - `ClimateLogTests` cover all four formats, empty fields, a row with a wrong column count, an unknown header, the file names and the month load with the newer-format rule.
+
+## Second stats page for slots 4 and 5
+
+- **Code:** `rlcd_panel/dashboard_view.h`, `rlcd_panel/button_handler.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`
+- The stats view has room for three slot blocks (`STATS_SLOT_COUNT` 3). A second page shows slots 4 and 5 with the same lines (comfort, mold, heat index, absolute humidity, records).
+- `DashboardView::statsHasSecondPage` is true when slot 4 or slot 5 is active (`activeTileCount` rules). Only then the title shows `SENSOR STATS 1/2` or `SENSOR STATS 2/2`. Without slot 4 and slot 5 the render is bit-exact against the old one, and a page request is ignored.
+- In the stats view a short `KEY` press returns `ButtonEvent::NEXT_PAGE` and selects the other page while the second page exists. A hold of 2 s changes the view (`MODE_CHANGED`), the same as in the chart view. Without slot 4 and slot 5 a press changes the view as before. A view change returns to page 0.
+- `PersistentState::stats_page` stores the page as 1 byte after `chart_sensor`. A value above 1 is rejected. `STATE_VERSION` is 51, and an RTC image of version 50 is rejected. `flushFramebuffer()` counts a page change as a view change, so the panel always flushes it.
+- `tools/preview_scenes.h` adds the scene `display_preview_stats2`. `./scripts/generate-display-preview.sh` writes `docs/display_preview_stats2.png`.
+- Host tests cover `NEXT_PAGE`, `MODE_CHANGED` without slot 4 and slot 5, the hold of 2 s, the bit-exact first page, a page byte of 2 and the old `STATE_VERSION`.

@@ -753,7 +753,7 @@ void testBatteryOffsetMv() {
   bad[pos] = 0xD3; bad[pos + 1] = 0xFE; // -301 mV
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 33; // old state version without the offset
   seal();
@@ -1193,7 +1193,7 @@ void testComfortZone() {
   assert(memcmp(ok_fb.data(), cold_fb.data(), RLCD_BUFFER_SIZE) != 0);
 
   // No RTC state change
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
 }
 
 void testAbsHumidityStats() {
@@ -1222,7 +1222,7 @@ void testAbsHumidityStats() {
   assert(strcmp(text, "AH 8.6G") == 0);
   DashboardView::formatAbsHumidity(text, sizeof(text), SwitchBotReading{}, now);
   assert(strcmp(text, "AH --") == 0);
-  assert(PowerManager::STATE_VERSION == 50); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 51); // no RTC state change
 
   // Rendering: right edge at x = 392, line y + 54, no overlap with the widest record text
   BatteryReading battery;
@@ -1466,7 +1466,7 @@ void testFeelsLikeStats() {
   DashboardView::renderSensorStats(dashed, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
                                    nullptr, &config);
   assert(memcmp(fb.data(), dashed.data(), RLCD_BUFFER_SIZE) != 0);
-  assert(PowerManager::STATE_VERSION == 50); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 51); // no RTC state change
 }
 
 void testMoldHoursStats() {
@@ -1587,7 +1587,7 @@ void testMoldHoursStats() {
     }
     assert(i == 2 ? !differs : differs); // empty slot shows "MOLD --" in both renders
   }
-  assert(PowerManager::STATE_VERSION == 50); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 51); // no RTC state change
 }
 
 void testDashboardClimateLine() {
@@ -1939,7 +1939,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -2271,9 +2271,10 @@ void testPowerStateSerialization() {
   const Patch patches[] = {
       {5, 9},                       // mode
       {6, 6},                       // chart sensor
-      {7, 16},                      // battery flags (unknown bit)
-      {8, 101},                     // battery percentage
-      {12, 0x7F},                   // battery voltage exponent byte -> huge value
+      {7, 2},                       // stats page
+      {8, 16},                      // battery flags (unknown bit)
+      {9, 101},                     // battery percentage
+      {13, 0x7F},                   // battery voltage exponent byte -> huge value
       {slot0_off, 2},               // slot valid flag
       {slot0_off + 11, 101},        // slot humidity
       {slot0_off + 12, 101},        // slot battery
@@ -2835,7 +2836,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -3475,7 +3476,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3531,7 +3532,7 @@ void testPreviewScenesCoverAllDisplayModes() {
     renderScene(
         frames[i], PREVIEW_SCENES[i].mode, PREVIEW_SCENES[i].low_battery, PREVIEW_SCENES[i].quiet_hours,
         PREVIEW_SCENES[i].long_runtime, PREVIEW_SCENES[i].battery_empty, PREVIEW_SCENES[i].ventilate,
-        PREVIEW_SCENES[i].invert, PREVIEW_SCENES[i].tiles);
+        PREVIEW_SCENES[i].invert, PREVIEW_SCENES[i].tiles, PREVIEW_SCENES[i].stats_page);
     size_t ink = 0;
     for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
       for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
@@ -5305,7 +5306,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6112,7 +6113,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6319,7 +6320,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -6501,7 +6502,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -8330,6 +8331,113 @@ ButtonEvent pressKeyShort(DisplayModeController& c, uint32_t& t) {
   return c.updateWithLongPress(false, t);
 }
 
+void testStatsPageKeyHandling() {
+  // Slot 4 or 5 active: a short press selects the other page and keeps the mode
+  DisplayModeController c;
+  c.setMode(DisplayMode::SENSOR_STATS);
+  c.setStatsSecondPage(true);
+  uint32_t t = 0;
+  assert(c.updateWithLongPress(false, t) == ButtonEvent::NONE);
+  assert(pressKeyShort(c, t) == ButtonEvent::NEXT_PAGE);
+  assert(c.statsPage() == 1 && c.mode() == DisplayMode::SENSOR_STATS);
+  assert(pressKeyShort(c, t) == ButtonEvent::NEXT_PAGE);
+  assert(c.statsPage() == 0 && c.mode() == DisplayMode::SENSOR_STATS);
+
+  // A hold of 2 s changes the view and the next entry starts on the first page
+  assert(pressKeyShort(c, t) == ButtonEvent::NEXT_PAGE);
+  t += 100;
+  c.updateWithLongPress(true, t);
+  t += 40;
+  c.updateWithLongPress(true, t);
+  t += LongPressDetector::LONG_PRESS_MS;
+  assert(c.updateWithLongPress(true, t) == ButtonEvent::MODE_CHANGED);
+  assert(c.mode() == DisplayMode::SYSTEM_DIAGNOSTICS && c.statsPage() == 0);
+
+  // No slot 4 and no slot 5: a short press changes the view as before
+  DisplayModeController n;
+  n.setMode(DisplayMode::SENSOR_STATS);
+  n.setStatsSecondPage(false);
+  uint32_t nt = 0;
+  assert(n.updateWithLongPress(false, nt) == ButtonEvent::NONE);
+  bool changed = false; // every press changes the mode at once, at the press edge
+  for (int step = 0; step < 4; ++step) {
+    nt += 40;
+    changed = changed || n.updateWithLongPress(step < 2, nt) == ButtonEvent::MODE_CHANGED;
+  }
+  assert(changed);
+  assert(n.mode() == DisplayMode::SYSTEM_DIAGNOSTICS && n.statsPage() == 0);
+
+  // setStatsPage ignores a value above 1
+  n.setStatsPage(1);
+  n.setStatsPage(2);
+  assert(n.statsPage() == 1);
+
+  // A restored second page falls back to the first page as soon as slot 4 and slot 5 are inactive
+  n.setStatsSecondPage(false);
+  assert(n.statsPage() == 0);
+  n.setStatsSecondPage(true);
+  n.setStatsPage(1);
+  n.setStatsSecondPage(true);
+  assert(n.statsPage() == 1);
+}
+
+void testStatsPageRenderAndState() {
+  const uint32_t now = 1000000;
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < 3; ++i) {
+    slots[i].valid = true;
+    slots[i].temperature_c = 20.0f + static_cast<float>(i);
+    slots[i].humidity_pct = 50;
+    slots[i].updated_ms = now - 1000;
+  }
+  // Without slot 4 and slot 5 the first page is bit-exact against the old render, and a page request is ignored
+  assert(!DashboardView::statsHasSecondPage(slots, MAX_SWITCHBOT_SENSORS, nullptr));
+  St7305Framebuffer base, page0, page1;
+  DashboardView::renderSensorStats(base, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now);
+  DashboardView::renderSensorStats(page0, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr, nullptr, nullptr, 0);
+  DashboardView::renderSensorStats(page1, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr, nullptr, nullptr, 1);
+  assert(memcmp(base.data(), page0.data(), St7305Framebuffer::BYTE_COUNT) == 0);
+  assert(memcmp(base.data(), page1.data(), St7305Framebuffer::BYTE_COUNT) == 0);
+
+  // With slot 4 active both pages differ from each other and show the page number
+  slots[3].valid = true;
+  slots[3].temperature_c = 18.0f;
+  slots[3].humidity_pct = 55;
+  slots[3].updated_ms = now - 1000;
+  assert(DashboardView::statsHasSecondPage(slots, MAX_SWITCHBOT_SENSORS, nullptr));
+  St7305Framebuffer a, b;
+  DashboardView::renderSensorStats(a, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr, nullptr, nullptr, 0);
+  DashboardView::renderSensorStats(b, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr, nullptr, nullptr, 1);
+  assert(memcmp(a.data(), b.data(), St7305Framebuffer::BYTE_COUNT) != 0);
+  assert(memcmp(a.data(), base.data(), St7305Framebuffer::BYTE_COUNT) != 0);
+
+  // RTC state: the page byte round-trips, 2 is rejected, and the old version 50 is rejected
+  assert(PowerManager::STATE_VERSION == 51);
+  PersistentState st;
+  st.stats_page = 1;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  PersistentState out;
+  assert(PowerManager::deserialize(buf, sizeof(buf), out) && out.stats_page == 1);
+  auto seal = [&](uint8_t* b2) {
+    const uint32_t c = PowerManager::crc32(b2, PowerManager::SERIALIZED_SIZE - 4);
+    for (int i = 0; i < 4; ++i) b2[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(c >> (8 * i));
+  };
+  uint8_t bad[PowerManager::SERIALIZED_SIZE];
+  memcpy(bad, buf, sizeof(bad));
+  bad[7] = 2;
+  seal(bad);
+  assert(!PowerManager::deserialize(bad, sizeof(bad), out));
+  memcpy(bad, buf, sizeof(bad));
+  bad[4] = 50;
+  seal(bad);
+  assert(!PowerManager::deserialize(bad, sizeof(bad), out));
+}
+
 void testClimateChartKeyHandling() {
   DisplayModeController c;
   c.setMode(DisplayMode::CLIMATE_CHART);
@@ -8376,7 +8484,7 @@ void testClimateChartKeyHandling() {
 }
 
 void testClimateChartRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   PersistentState s;
   s.mode = DisplayMode::CLIMATE_CHART;
   s.chart_sensor = 5;
@@ -10047,7 +10155,7 @@ void testChimeRepeat() {
   assert(AlertEvaluator::repeatableBits(static_cast<uint8_t>(ALERT_FREEZER | ALERT_CHARGE_FULL)) == ALERT_FREEZER);
 
   // RTC round trip: stamp, key and state version
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   PersistentState st;
   st.last_chime_ms = 0xFFFFFF00u;
   st.config.chime_repeat_h = 24;
@@ -10191,7 +10299,7 @@ void testSlotRelease() {
   bad[pos] = 169;
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 34; // old state version without the key
   seal();
@@ -10302,7 +10410,7 @@ void testNightWakeInterval() {
   bad[pos] = 0x09; bad[pos + 1] = 0x07; // 1801 s: above range
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 35; // old state version without the key
   seal();
@@ -11168,7 +11276,7 @@ void testAwakeStatsStatusLine() {
 }
 
 void testAwakeStatsRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   assert(PowerManager::AWAKE_SIZE == 6);
   PersistentState s;
   for (int i = 0; i < 9; ++i) s.awake.record(4000 + 100 * static_cast<uint32_t>(i));
@@ -11229,7 +11337,7 @@ void testAwakeStatsRtcRoundTrip() {
 }
 
 void testShtc3RtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   PersistentState s;
   s.shtc3.nack = 513;
   s.shtc3.short_reads = 65535;
@@ -14456,7 +14564,7 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
 
   // A valid checksum with the same MAC in two keys is rejected
   const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
@@ -14970,7 +15078,7 @@ void testSensorBatteryLatchRtcRoundTrip() {
     }
   }
   // The version is increased
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   // Corrupt records: latch bit above bit 4, flag byte above 7, limit above 50, old version
   st.sensor_battery_latch = 1;
   st.alert_mask = ALERT_NONE;
@@ -15193,7 +15301,7 @@ void testSensorStaleMinConfig() {
 
   // RTC round trip, corrupt values and the version bump
   PersistentState st;
-  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 50);
+  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 51);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(5), uint16_t(30), uint16_t(240)}) {
@@ -15278,7 +15386,7 @@ void testDisplayInvert() {
 
   // RTC round trip, corrupt value and version bump
   PersistentState st;
-  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 50);
+  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 51);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(1)}) {
@@ -15417,7 +15525,7 @@ void testClimateAlertTiles() {
 
   // RTC round trip, corrupt value and the old state version
   PersistentState st;
-  assert(st.config.climate_alert_tiles == 63 && PowerManager::STATE_VERSION == 50);
+  assert(st.config.climate_alert_tiles == 63 && PowerManager::STATE_VERSION == 51);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(5), uint8_t(63)}) {
@@ -15624,7 +15732,7 @@ void testSdCardStatus() {
   assert(unknown_lines[6] == "SD status=UNKNOWN age=--");
 
   // RTC round trip, a corrupt status byte and the old state version
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   PersistentState st;
   st.setSdStatus(SdStatus::FULL, 4242);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -15665,7 +15773,7 @@ void testSdCardStatus() {
 }
 
 void testEventLog() {
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   const RtcTime t1 = localTime(2026, 11, 14, 9, 30);
   const RtcTime bad_time{}; // invalid
   // Empty ring and one event
@@ -16142,7 +16250,7 @@ void testTempUnitRtcRoundTrip() {
   // The unit byte follows the night wake interval in the config trailer
   const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   assert(buf[cfg_pos + 34] == 'C');
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
 }
 
 // ---- BLE telemetry broadcast (BleTelemetryCodec, ble_broadcast_enabled) ----
@@ -16453,7 +16561,7 @@ void testBleBroadcastRtcRoundTrip() {
   bad[4] = 43; // old state version without the key
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
 }
 
 
@@ -16561,7 +16669,7 @@ void testBleConsoleRtcRoundTrip() {
   bad[4] = 44; // old state version without the key
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
 }
 
 void testBleConsoleGate() {
@@ -17099,7 +17207,7 @@ void testFrameRefreshPatternInvalidates() {
 }
 
 void testFrameRefreshRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   assert(PowerManager::FRAME_SIZE == 5);
   PersistentState s;
   s.frame.recordFlush(0xDEADBEEFU);
@@ -17436,7 +17544,7 @@ void testFiveSlotRegistryAndFixedMac() {
 }
 
 void testFiveSlotRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 50);
+  assert(PowerManager::STATE_VERSION == 51);
   PersistentState s;
   DeviceConfig cfg;
   strcpy(cfg.slot_name[3], "GARAGE");
@@ -17771,6 +17879,8 @@ int main() {
   testPreviewStatsShowNoiseCurve();
   testPreviewScenesCoverAllDisplayModes();
   testClimateChartKeyHandling();
+  testStatsPageKeyHandling();
+  testStatsPageRenderAndState();
   testClimateChartRtcRoundTrip();
   testSparklineTemperatureMinimumSpan();
   testClimateChartRendering();

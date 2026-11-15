@@ -139,6 +139,7 @@ enum class ButtonEvent : uint8_t {
   CALIBRATE, // long press in the diagnostics view; the mode stays
   RECAPTURE, // short press in the spectrum view; the mode stays
   NEXT_SENSOR, // short press in the climate chart view; the mode stays
+  NEXT_PAGE, // short press in the stats view with an active slot 4 or 5; the mode stays
 };
 
 enum class DisplayMode : uint8_t {
@@ -153,6 +154,9 @@ constexpr uint8_t DISPLAY_MODE_COUNT = 5;
 
 // Number of sensors the climate chart view selects from: onboard + 5 SwitchBot slots.
 constexpr uint8_t CHART_SENSOR_COUNT = 6;
+
+// Pages of the stats view: slots 1 to 3, then slots 4 and 5.
+constexpr uint8_t STATS_PAGE_COUNT = 2;
 
 // Display mode state machine: every debounced press cycles DASHBOARD -> SENSOR_STATS ->
 // SYSTEM_DIAGNOSTICS -> AUDIO_SPECTRUM -> CLIMATE_CHART -> DASHBOARD.
@@ -185,7 +189,28 @@ public:
     chart_sensor_ = static_cast<uint8_t>((chart_sensor_ + 1) % CHART_SENSOR_COUNT);
   }
 
+  // Page of the stats view: 0 shows slots 1 to 3, 1 shows slots 4 and 5. Ignores a value above 1.
+  uint8_t statsPage() const {
+    return stats_page_;
+  }
+
+  void setStatsPage(uint8_t page) {
+    if (page < STATS_PAGE_COUNT) {
+      stats_page_ = page;
+    }
+  }
+
+  // True while slot 4 or slot 5 is active. Only then a short press in the stats view selects the
+  // other page (NEXT_PAGE); else it changes the view as before.
+  void setStatsSecondPage(bool available) {
+    stats_second_page_ = available;
+    if (!available) {
+      stats_page_ = 0; // page 2 is not reachable and not rendered without slot 4 and slot 5
+    }
+  }
+
   void next() {
+    stats_page_ = 0; // every entry to the stats view starts on the first page
     mode_ = static_cast<DisplayMode>((static_cast<uint8_t>(mode_) + 1) % DISPLAY_MODE_COUNT);
   }
 
@@ -205,12 +230,15 @@ public:
   // board cannot start a calibration. In the spectrum view a short press returns RECAPTURE and
   // keeps the mode, and a hold of 2 s or more changes the mode. The press that woke the board
   // changes the mode through next(), so it never starts a capture. The climate chart view works
-  // the same way: a short press selects the next sensor (NEXT_SENSOR) and keeps the mode.
+  // the same way: a short press selects the next sensor (NEXT_SENSOR) and keeps the mode. The
+  // stats view works the same way while slot 4 or 5 is active: a short press selects the other
+  // page (NEXT_PAGE). Without such a slot every press changes the mode at once.
   ButtonEvent updateWithLongPress(bool raw_pressed, uint32_t now_ms) {
     const bool edge = button_.update(raw_pressed, now_ms);
     if (edge) {
+      const bool stats_pages = mode_ == DisplayMode::SENSOR_STATS && stats_second_page_;
       if (mode_ != DisplayMode::SYSTEM_DIAGNOSTICS && mode_ != DisplayMode::AUDIO_SPECTRUM &&
-          mode_ != DisplayMode::CLIMATE_CHART) {
+          mode_ != DisplayMode::CLIMATE_CHART && !stats_pages) {
         next();
         return ButtonEvent::MODE_CHANGED;
       }
@@ -225,10 +253,15 @@ public:
           nextChartSensor();
           return ButtonEvent::NEXT_SENSOR;
         }
+        if (mode_ == DisplayMode::SENSOR_STATS && stats_second_page_) {
+          stats_page_ = static_cast<uint8_t>((stats_page_ + 1) % STATS_PAGE_COUNT);
+          return ButtonEvent::NEXT_PAGE;
+        }
         next();
         return ButtonEvent::MODE_CHANGED;
       case LongPressDetector::Result::LONG:
-        if (mode_ == DisplayMode::AUDIO_SPECTRUM || mode_ == DisplayMode::CLIMATE_CHART) {
+        if (mode_ == DisplayMode::AUDIO_SPECTRUM || mode_ == DisplayMode::CLIMATE_CHART ||
+            mode_ == DisplayMode::SENSOR_STATS) {
           next();
           return ButtonEvent::MODE_CHANGED;
         }
@@ -255,6 +288,8 @@ private:
   LongPressDetector long_press_;
   DisplayMode mode_ = DisplayMode::DASHBOARD;
   uint8_t chart_sensor_ = 0;
+  uint8_t stats_page_ = 0;
+  bool stats_second_page_ = false;
 };
 
 } // namespace rlcd_panel
