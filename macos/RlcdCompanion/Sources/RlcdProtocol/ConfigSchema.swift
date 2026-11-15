@@ -108,10 +108,10 @@ public enum ConfigSchema {
             e("mic_spl_offset_db", .sensors, .decimal(min: -20, max: 20), "0.0", "dB", "Add this value to the microphone level."),
             e("outdoor_slot", .sensors, .integer(min: 0, max: 5), "0", "", "Select the outdoor slot for the ventilation advice. 0 is off."),
         ]
-        for n in 1...3 {
+        for n in 1...5 {
             out.append(e("slot\(n)_temp_offset_c", .sensors, .decimal(min: -5, max: 5), "0.0", "°C", "Add this value to the slot \(n) temperature."))
         }
-        for n in 1...3 {
+        for n in 1...5 {
             out.append(e("slot\(n)_rh_offset_pct", .sensors, .decimal(min: -10, max: 10), "0.0", "%RH", "Add this value to the slot \(n) humidity."))
         }
         out.append(e("onboard_name", .sensors, .name, "", "", "Name of the onboard tile."))

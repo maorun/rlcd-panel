@@ -505,7 +505,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 ## Serial console command CALIB with suggested offsets
 
 - **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`.
-- The console command `CALIB N` (`N` is `0` for the onboard sensor or `1` to `3` for a slot) compares each other sensor with the reference. A missing argument, `CALIB 4` and extra text give `ERR BAD_ARG`.
+- The console command `CALIB N` (`N` is `0` for the onboard sensor or `1` to `5` for a slot) compares each other sensor with the reference. A missing argument, `CALIB 6` and extra text give `ERR BAD_ARG`.
 - The command pairs the hourly samples of `ClimateHistory` by age. Only hours with a temperature and a humidity sample in both histories count.
 - A sensor with at least 6 common hours gets one line `SENSOR <name> hours=<n> temp_offset=<x> rh_offset=<x> temp_diff=<x> rh_diff=<x>`. The offsets are the active `config.ini` values. The differences are the mean values (sensor minus reference). A sensor with fewer hours gets `SKIP <name> hours=<n>`.
 - The suggested lines follow, for example `slot2_temp_offset_c=-0.4` and `slot2_rh_offset_pct=2.1`. Each value is the active offset minus the mean difference, clamped to the key range. The onboard sensor uses the keys `temp_offset_c` and `rh_offset_pct`.
@@ -1071,7 +1071,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `DashboardView::activeTileCount` counts the tiles: the onboard tile and each slot that has a reading, a fixed MAC or a name. `DashboardView::layoutTiles` gives one rectangle for each tile in the area x = 6, y = 36, 388 x 256 px with a gap of 8 px.
 - Layouts: 1 tile 388 x 256. 2 tiles 190 x 256 side by side. 3 tiles one 388 x 124 tile above two 190 x 124 tiles. 4 tiles a 2 x 2 grid of 190 x 124. 5 tiles two 190 x 124 tiles above three 124 x 124 tiles. 6 tiles a 2 x 3 grid of 190 x 80.
 - `DashboardView::tileStyle` selects the draw style from the tile size. The standard style (190 x 124 and 388 x 124) is unchanged. The large style (height 200 px or more) shows a big temperature text and humidity text, each with a curve. The compact style (190 x 80 and 124 x 124) shows short text lines and one curve. A battery text that is too wide for a tile drops to scale 1.
-- The sensor stats view, the CSV logs (`climate_v4`, `daily_v2`), the offset keys and the console command `CALIB` keep slots 1 to 3. The console commands `STATUS` and `HISTORY` list all 6 sources.
+- The sensor stats view, the CSV logs (`climate_v4`, `daily_v2`), keep slots 1 to 3. The offset keys and the console command `CALIB` cover slots 1 to 5. The console commands `STATUS` and `HISTORY` list all 6 sources.
 - The macOS companion app knows the new keys (`ConfigSchema`, 44 keys), accepts an empty value for `slot4_mac` and `slot5_mac`, finds a duplicate MAC across the 5 slots, and names 6 sensors in the history charts.
 - The early scan stop (`ScanCompletion`) still keeps the full scan while a slot is empty, so a new sensor can fill it. With fewer than 5 external sensors the scan always runs the full 4 s. This costs battery runtime.
 - `DeviceConfigText::MAX_SIZE` is 1152 bytes. A host test fills every key with its longest value.
@@ -1126,7 +1126,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 ## Calibration assistant in the macOS app
 
 - **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift`, `Replies.swift`, `Sources/RlcdCompanion/CalibrationView.swift`, `AppModel.swift`, `Tests/RlcdProtocolTests/CalibrationTests.swift`.
-- `ConsoleCommand.calib(N)` sends `CALIB N`. It gives no line for `N` outside 0 to 3. The app sends it only after the user presses `Compare`.
+- `ConsoleCommand.calib(N)` sends `CALIB N`. It gives no line for `N` outside 0 to 5. The app sends it only after the user presses `Compare`.
 - `CalibrationReply.parse(lines:)` reads `REFERENCE`, `SENSOR` and `SKIP` lines and the proposed `key=value` lines. A bad number (for example `nan`) throws `ParseError.badLine`. A reply without `REFERENCE` throws `ParseError.missingLine`.
 - The parser keeps only proposed offset keys that `ConfigSchema.validate(key:value:)` accepts. A value outside the key range is dropped.
 - `CalibrationView` shows the sensors, the common hours, the differences and the active offsets. The user selects the proposals. `Apply selected` sends them through `ConfigBatch` (`SET` commands, then `CONFIG`).
@@ -1148,3 +1148,10 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `Save backup…` writes the values of the last `CONFIG` reply as a `config.ini` text file through `NSSavePanel`. `ConfigBackup.render` writes each `ConfigSchema` key once in schema order, one `key=value` line, LF line ends, no CR. A value that the schema rejects (an empty name) is a comment line `# key=`. The file holds no Wi-Fi credentials, because only schema keys are written.
 - `Restore backup…` reads a file through `NSOpenPanel`. `ConfigBackup.parse` uses the rules of `docs/config.example.ini`: blank lines and lines with `#` or `;` are skipped, unknown keys are ignored, CR before LF is tolerated. Each value goes through `ConfigSchema.validate(key:value:)`. A file above 4096 bytes (`ConfigBackup.maxBytes`) or invalid UTF-8 is refused.
 - The restore sheet lists each rejected line with its line number and the `ConfigSchema.diff` against the current values. `Restore` is disabled with a rejected line, a problem, no changes or a console that takes no `SET`. It sends only the changed keys through `ConfigBatch`. A backup equal to the current values gives an empty batch.
+
+## Calibration offsets for slots 4 and 5
+
+- **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `docs/config.example.ini`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `Replies.swift`; tests in `tests/test_firmware_logic.cpp`, `ConfigSchemaTests.swift`, `CalibrationTests.swift`.
+- `DeviceConfig::OFFSET_SLOT_COUNT` is 5. The keys `slot4_temp_offset_c`, `slot5_temp_offset_c` (-5 to 5 C), `slot4_rh_offset_pct` and `slot5_rh_offset_pct` (-10 to 10 %RH) end `DeviceConfigParser::KEYS` (`KEY_COUNT` 48). A value outside the range is a rejected line.
+- `PersistentState` already stored five offset entries, so the config trailer keeps its size. `STATE_VERSION` is 49, and an RTC image of version 48 is rejected.
+- `CALIB N` accepts 0 to 5. The macOS app sends it for slots 4 and 5 and proposes the new keys. The CSV logs and the BLE telemetry frame stay unchanged.

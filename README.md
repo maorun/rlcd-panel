@@ -86,7 +86,7 @@ One to six climate tiles: the onboard `SHTC3` and up to five external sensors. A
 |---|---|---|
 | ![1 tile](docs/display_preview_tiles1.png) | ![2 tiles](docs/display_preview_tiles2.png) | ![6 tiles](docs/display_preview_tiles6.png) |
 
-The sensor stats view and the CSV logs cover the onboard sensor and slots 1 to 3. The offset keys (`slotN_temp_offset_c`, `slotN_rh_offset_pct`) exist for slots 1 to 3. The BLE telemetry frame carries four tiles.
+The sensor stats view and the CSV logs cover the onboard sensor and slots 1 to 3. The offset keys (`slotN_temp_offset_c`, `slotN_rh_offset_pct`) exist for slots 1 to 5. The BLE telemetry frame carries four tiles.
 
 ### Mode 1: Sensor Stats
 
@@ -181,9 +181,13 @@ rh_offset_pct=0.0
 slot1_temp_offset_c=0.0
 slot2_temp_offset_c=0.0
 slot3_temp_offset_c=0.0
+slot4_temp_offset_c=0.0
+slot5_temp_offset_c=0.0
 slot1_rh_offset_pct=0.0
 slot2_rh_offset_pct=0.0
 slot3_rh_offset_pct=0.0
+slot4_rh_offset_pct=0.0
+slot5_rh_offset_pct=0.0
 freeze_alert_limit_c=0.0
 mold_alert_limit_rh=70
 chime_volume_pct=30

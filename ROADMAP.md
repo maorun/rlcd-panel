@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Add temperature and humidity offsets for slots 4 and 5
-  - Rank: [Total: 30, Use: 6, Setup: 9, Harmony: 8, Safety: 7, Effort: M]
-  - Location: `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `docs/config.example.ini`, `tests/test_firmware_logic.cpp`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ConfigSchemaTests.swift`, `AGENTS.md`
-  - Goal: `DeviceConfig::OFFSET_SLOT_COUNT` is 3. Thus the sensors in slots 4 and 5 have no calibration offset. Add the keys `slot4_temp_offset_c`, `slot5_temp_offset_c` (-5 to 5 C) and `slot4_rh_offset_pct`, `slot5_rh_offset_pct` (-10 to 10 %RH). Append them to `DeviceConfigParser::KEYS` and increase `KEY_COUNT`. Set `OFFSET_SLOT_COUNT` to 5. Store the new values at the end of the config trailer of `PersistentState` and increase `STATE_VERSION`. Make `CALIB N` accept 1 to 5. Keep the CSV logs and the BLE telemetry frame unchanged. Add the keys to `docs/config.example.ini` and to `ConfigSchema.entries`.
-  - Acceptance test: Host tests assert that `slot5_temp_offset_c=-1.5` gives -1.5 C on a slot 5 reading, that `slot4_rh_offset_pct=11` is a rejected line, that an RTC image of the old `STATE_VERSION` is rejected, and that `CALIB 5` parses. `testConfigExampleTemplateInSync` passes. `ConfigSchemaTests.rangesMatchFirmwareConstants` covers the four keys. `./scripts/check-config.sh tools/sample_config.ini`, the C++ host tests, `arduino-cli compile rlcd_panel`, `swift test` and `swift build -c release` pass.
-
 - [ ] Show daily summary charts from the downloaded logs in the macOS app
   - Rank: [Total: 29, Use: 8, Setup: 3, Harmony: 8, Safety: 10, Effort: M]
   - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/DailyLog.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/DailyChartView.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/ArchiveView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/DailyLogTests.swift` (new)

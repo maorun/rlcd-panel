@@ -502,7 +502,7 @@ final class AppModel: ConsoleLinkDelegate {
     /// Reads the histories comparison of `CALIB N`. Runs only on the user's button press; the firmware reads the RTC copy.
     func calibrate(reference: Int) {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
-        guard ConsoleCommand.calib(reference).line != nil else { message = "Reference must be 0 to 3"; return }
+        guard ConsoleCommand.calib(reference).line != nil else { message = "Reference must be 0 to 5"; return }
         message = nil
         batchSummary = nil // an old batch result must not look like the result of this run
         calibration = nil

@@ -11,7 +11,7 @@ struct CalibrationView: View {
                 HStack {
                     Picker("Reference", selection: $model.calibrationReference) {
                         Text("Onboard").tag(0)
-                        ForEach(1...3, id: \.self) { Text("Slot \($0)").tag($0) }
+                        ForEach(1...5, id: \.self) { Text("Slot \($0)").tag($0) }
                     }.frame(maxWidth: 220)
                     Button("Compare") { model.calibrate(reference: model.calibrationReference) }
                         .disabled(!model.isIdle)
