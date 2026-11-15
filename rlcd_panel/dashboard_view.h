@@ -157,6 +157,8 @@ public:
   static constexpr uint16_t CHART_HUMIDITY_LABEL_Y = 160;
   static constexpr uint16_t CHART_HUMIDITY_Y = 170;
   static constexpr uint16_t CHART_FOOTER_Y = 272;
+  // Week chart: the same boxes as the climate chart; the weekday labels sit below the humidity box.
+  static constexpr uint16_t WEEK_LABEL_OFFSET_Y = CHART_H + 3;
 
   // Dynamic tile grid. The area below the header is x = 6, y = 36, 388 x 256 px with an 8 px gap.
   // Tile 0 is the onboard sensor. A registry slot gets a tile when it holds a reading, has a fixed
@@ -1360,6 +1362,88 @@ public:
     fb.drawText(CHART_X, CHART_FOOTER_Y, "LAST 24 H  KEY: NEXT SENSOR  HOLD: VIEW", 1, true);
   }
 
+  // Weekday text for the bars: two letters, from the RTC weekday (0 = Sunday).
+  static const char* weekdayText(uint8_t weekday) {
+    static const char* const NAMES[7] = {"SU", "MO", "TU", "WE", "TH", "FR", "SA"};
+    return weekday < 7 ? NAMES[weekday] : "--";
+  }
+
+  static void drawWeekLabels(St7305Framebuffer& fb, uint16_t box_y, const WeekHistory& week) {
+    for (size_t k = 0; k < WeekHistory::DAYS; ++k) {
+      const size_t col = WeekHistory::DAYS - 1 - k;
+      const uint16_t x = static_cast<uint16_t>(
+          CHART_X + Sparkline::weekBarX(col, CHART_W) + (Sparkline::WEEK_BAR_W - 11) / 2);
+      fb.drawText(x, static_cast<uint16_t>(box_y + WEEK_LABEL_OFFSET_Y), weekdayText(week.weekdayOf(k)), 1, true);
+    }
+  }
+
+  // Lowest minimum or highest maximum over the valid days of one quantity; only for a week with a valid day.
+  static int16_t weekExtreme(const WeekHistory& w, size_t sensor, bool humidity, bool want_max) {
+    int16_t v = 0;
+    bool found = false;
+    for (size_t k = 0; k < WeekHistory::DAYS; ++k) {
+      if (!(humidity ? w.hasHumidity(sensor, k) : w.hasTemperature(sensor, k))) {
+        continue;
+      }
+      const int16_t d = want_max ? (humidity ? w.humidityMax(sensor, k) : w.temperatureMax(sensor, k))
+                                 : (humidity ? w.humidityMin(sensor, k) : w.temperatureMin(sensor, k));
+      v = (!found || (want_max ? d > v : d < v)) ? d : v;
+      found = true;
+    }
+    return v;
+  }
+
+  // Seven bars (daily minimum to maximum) of the temperature and of the humidity of one sensor. It
+  // reads only the RTC copy. A day without samples leaves a gap; with no valid day the box shows NO DATA.
+  static void renderWeekChart(
+      St7305Framebuffer& fb,
+      const BatteryReading& battery,
+      const SystemInfo& info,
+      const char* clock_text,
+      const WeekHistory* week,
+      const DeviceConfig* config) {
+    renderHeader(fb, "WEEK CHART", battery, clock_text, info.quiet_hours);
+    const size_t sensor = info.chart_sensor < WeekHistory::SENSORS ? info.chart_sensor : 0;
+    char title[40];
+    tileTitle(title, sizeof(title), config, sensor);
+    fb.drawText(CHART_X, CHART_NAME_Y, title, 2, true);
+
+    const WeekHistory empty;
+    const WeekHistory& w = week != nullptr ? *week : empty;
+    const char unit = config != nullptr ? config->temp_unit : 'C';
+
+    for (int quantity = 0; quantity < 2; ++quantity) {
+      const bool humidity = quantity == 1;
+      const uint16_t box_y = humidity ? CHART_HUMIDITY_Y : CHART_TEMP_Y;
+      const uint16_t label_y = humidity ? CHART_HUMIDITY_LABEL_Y : CHART_TEMP_LABEL_Y;
+      Sparkline::Scale scale;
+      const bool ok = Sparkline::computeWeekScale(w, sensor, humidity, scale);
+      char range_text[40] = "";
+      if (ok) {
+        const float lo = weekExtreme(w, sensor, humidity, false) / 10.0f;
+        const float hi = weekExtreme(w, sensor, humidity, true) / 10.0f;
+        if (humidity) {
+          snprintf(range_text, sizeof(range_text), "MIN %.1f MAX %.1f %%", static_cast<double>(lo),
+                   static_cast<double>(hi));
+        } else {
+          snprintf(range_text, sizeof(range_text), "MIN %.1f MAX %.1f %c",
+                   static_cast<double>(ClimateMath::toDisplay(lo, unit)),
+                   static_cast<double>(ClimateMath::toDisplay(hi, unit)), unit == 'F' ? 'F' : 'C');
+        }
+      }
+      drawChartFrame(fb, label_y, box_y, humidity ? "HUMIDITY" : "TEMPERATURE", ok, range_text);
+      if (ok) {
+        Sparkline::renderWeek(fb, CHART_X, box_y, CHART_W, CHART_H, w, sensor, humidity);
+      } else {
+        drawLine(fb, CHART_X + 120, box_y + 38, "NO DATA");
+      }
+    }
+    if (w.hasDate()) {
+      drawWeekLabels(fb, CHART_HUMIDITY_Y, w);
+    }
+    fb.drawText(CHART_X, CHART_FOOTER_Y, "LAST 7 D  KEY: NEXT SENSOR  HOLD: VIEW", 1, true);
+  }
+
   static void renderSpectrum(
       St7305Framebuffer& fb,
       const BatteryReading& battery,
@@ -1433,7 +1517,8 @@ public:
       uint32_t now_ms,
       const ClimateHistory* history = nullptr,
       const NoiseHistory* noise_history = nullptr,
-      const DeviceConfig* config = nullptr) {
+      const DeviceConfig* config = nullptr,
+      const WeekHistory* week = nullptr) {
     if (battery.empty_protection) {
       renderEmptyBattery(fb, battery);
       return;
@@ -1450,6 +1535,9 @@ public:
         break;
       case DisplayMode::CLIMATE_CHART:
         renderClimateChart(fb, battery, info, clock_text, history, config);
+        break;
+      case DisplayMode::WEEK_CHART:
+        renderWeekChart(fb, battery, info, clock_text, week, config);
         break;
       case DisplayMode::DASHBOARD:
       default:

@@ -23,11 +23,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Seven-day minimum and maximum chart view
-  - Rank: [Total: 27, Use: 8, Setup: 2, Harmony: 8, Safety: 9, Effort: M]
-  - Location: rlcd_panel/sparkline.h, rlcd_panel/dashboard_view.h, rlcd_panel/button_handler.h, rlcd_panel/power_manager.h, rlcd_panel/rlcd_panel.ino, tools/preview_scenes.h, scripts/generate-display-preview.sh, tests/test_firmware_logic.cpp
-  - Goal: Add `WeekHistory` to `sparkline.h`: for each of the 6 sensors, 7 days of temperature minimum and maximum (int8 in 0.5 C) and humidity minimum and maximum (uint8 in 0.5 %RH), 168 bytes plus one day stamp in `PersistentState`. At the first hourly write after local midnight the firmware shifts the ring and stores the previous day from the 24-hour history of each sensor. An invalid RTC time skips the shift. A day without samples stores the marker 0xFF and shows a gap. Add the view `WEEK_CHART` (`DisplayMode` 5, `DISPLAY_MODE_COUNT` 6) after `CLIMATE_CHART`. It uses the same `chart_sensor`: a short `KEY` press returns `ButtonEvent::NEXT_SENSOR`, and a hold of 2 s changes the view. The page draws 7 vertical bars from minimum to maximum for temperature and humidity, with weekday labels from the RTC. The view reads only the RTC copy and does not mount the card. Increase `STATE_VERSION`; a stored mode above 5 is rejected. Add `display_preview_chart_week.png`.
-  - Acceptance test: Host tests assert the shift at midnight, the store of the previous day from a known 24-hour history, the gap marker, the skip for an invalid RTC time, the RTC round trip and the rejected mode 6, the view order with `DISPLAY_MODE_COUNT` 6, `NEXT_SENSOR` on a short press in the new view, and the bar pixels for a known day. The preview script writes the new image.
 
 ## Rules for ranking
 

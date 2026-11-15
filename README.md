@@ -116,6 +116,12 @@ Power source (battery or USB), battery voltage and percentage, free heap, and up
 
 The view shows the name of one sensor, a 360 x 90 px temperature curve and a 360 x 90 px humidity curve of the last 24 hours. Each curve has its minimum and maximum. A short `KEY` press selects the next sensor (onboard, then the five external slots, then onboard again). A hold of 2 s changes the view. A sensor with fewer than 2 samples shows `NO DATA`. The view reads only the RTC histories, so it needs no sensor read and no microphone.
 
+### Mode 5: Week Chart
+
+![Week Chart view](docs/display_preview_chart_week.png)
+
+The view shows the name of one sensor and, for the last 7 days, one bar for each day from the daily minimum to the daily maximum: temperature above, humidity below. The weekday labels come from the RTC. The newest day is at the right edge. A day without samples leaves a gap. A short `KEY` press selects the next sensor (as in the climate chart), and a hold of 2 s changes the view. The firmware stores the previous day at the first hourly write after local midnight, so the first day appears after the first midnight with a valid RTC time. The view reads only the RTC memory, so it needs no sensor read, no microphone and no card.
+
 ### Low Battery Alert
 
 ![Low battery alert on the dashboard](docs/display_preview_low_battery.png)
@@ -129,7 +135,7 @@ If the battery is low, an inverted warning banner replaces the header bar in eve
 3. A press while the board sleeps wakes it through `ext0` on `GPIO18`. This press also moves to the next view.
 4. The selected view stays in RTC memory across deep sleep, so the timer wakeups redraw the same view.
 
-To render a single view by hand, run `render_display_preview <out.bmp> [mode 0..3] [low]` (source: `tools/render_display_preview.cpp`). The scene list for all previews is `PREVIEW_SCENES` in `tools/preview_scenes.h`.
+To render a single view by hand, run `render_display_preview <out.bmp> [mode 0..5] [low]` (source: `tools/render_display_preview.cpp`). The scene list for all previews is `PREVIEW_SCENES` in `tools/preview_scenes.h`.
 
 ## Power Management
 

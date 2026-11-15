@@ -111,6 +111,7 @@ struct PersistentState {
   AwakeTimeStats awake;       // measured awake time of the timer wakeups on battery power
   FrameRefresh frame;         // CRC-32 of the last flushed frame and the skipped cycles in a row
   ReceptionHistory reception; // BLE reception mask and scan count of each registry slot
+  WeekHistory week;           // daily minimum and maximum of the last 7 days for the week chart
 
   // Stores the result of a card access. A wake cycle without card access never calls it, so the
   // stored status stays.
@@ -194,6 +195,7 @@ struct PersistentState {
     history.slots[1 + index].clear();
     history.temperatures[1 + index].clear();
     reception.clear(index);
+    week.clear(1 + index);
   }
 
 private:
@@ -321,7 +323,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 54;
+  static constexpr uint8_t STATE_VERSION = 55;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -371,7 +373,9 @@ public:
   static constexpr size_t RECEPTION_SIZE = ReceptionHistory::SERIALIZED_SIZE;
   // Dry air badge latch (one byte, bits 0..5, just before the checksum).
   static constexpr size_t DRY_SIZE = 1;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + 4;
+  // Week chart trailer (just before the checksum): 6 sensors x 7 days x 4 bytes, then the day stamp.
+  static constexpr size_t WEEK_SIZE = WeekHistory::SERIALIZED_SIZE;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -693,6 +697,8 @@ public:
       out[pos++] = state.reception.scans(i);
     }
     out[pos++] = static_cast<uint8_t>(state.dry_tiles & DryLatch::ALL_MASK);
+    state.week.serialize(out + pos);
+    pos += WEEK_SIZE;
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -1048,6 +1054,10 @@ public:
     if ((s.dry_tiles & ~DryLatch::ALL_MASK) != 0) {
       return false;
     }
+    if (!s.week.restore(data + pos)) {
+      return false;
+    }
+    pos += WEEK_SIZE;
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       s.registry.setFixedMac(i, s.config.hasSlotMac(i) ? s.config.slot_mac[i] : nullptr);
     }

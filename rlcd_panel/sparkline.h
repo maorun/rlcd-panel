@@ -2,8 +2,11 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 #include <math.h>
 
+#include "ntp_sync.h"
+#include "pcf85063_rtc.h"
 #include "st7305_framebuffer.h"
 #include "switchbot_ble.h"
 
@@ -489,6 +492,277 @@ struct ClimateHistory {
   }
 };
 
+// Daily minimum and maximum of the last 7 days for each of the 6 sensors (onboard + 5 slots). A day is
+// 4 bytes: temperature minimum and maximum (0.5 degC steps, int8 with a bias of 128, so -64.0 to
+// +63.0 degC) and humidity minimum and maximum (0.5 %RH steps, 0 to 100 %RH). The value 0xFF in both bytes
+// of a pair marks a day without samples, which the chart shows as a gap. Day 0 is the newest day: the
+// day before the stamped date. With the 5-byte day stamp the block needs 173 bytes in the RTC memory.
+class WeekHistory {
+public:
+  static constexpr size_t DAYS = 7;
+  static constexpr size_t SENSORS = ClimateHistory::SLOT_COUNT;
+  static constexpr size_t DAY_SIZE = 4;
+  static constexpr size_t STAMP_SIZE = 1 + 2 + 1 + 1; // flag, year (uint16), month, day
+  static constexpr size_t SERIALIZED_SIZE = SENSORS * DAYS * DAY_SIZE + STAMP_SIZE;
+  static constexpr uint8_t GAP = 0xFF;
+  static constexpr int TEMPERATURE_BIAS = 128;
+  static constexpr uint8_t MAX_HUMIDITY = 200; // 100 %RH in 0.5 %RH steps
+  static constexpr uint16_t MIN_TRUSTED_YEAR = 2025;
+
+  WeekHistory() {
+    memset(days_, GAP, sizeof(days_));
+  }
+
+  // Rounds a value in 0.1 steps to 0.5 steps, half away from zero.
+  static int roundToHalf(int16_t tenths) {
+    return (tenths + (tenths >= 0 ? 2 : -2)) / 5;
+  }
+
+  // 0.1 degC to the stored byte. Clamps to -64.0 .. +63.0 degC, so the byte never equals GAP.
+  static uint8_t encodeTemperature(int16_t tenths) {
+    int half = roundToHalf(tenths);
+    half = half < -128 ? -128 : (half > 126 ? 126 : half);
+    return static_cast<uint8_t>(half + TEMPERATURE_BIAS);
+  }
+
+  static int16_t decodeTemperature(uint8_t stored) {
+    return static_cast<int16_t>((static_cast<int>(stored) - TEMPERATURE_BIAS) * 5);
+  }
+
+  // 0.1 %RH to the stored byte. Clamps to 0 .. 100 %RH.
+  static uint8_t encodeHumidity(int16_t tenths) {
+    const int half = roundToHalf(tenths);
+    return static_cast<uint8_t>(half < 0 ? 0 : (half > MAX_HUMIDITY ? MAX_HUMIDITY : half));
+  }
+
+  static int16_t decodeHumidity(uint8_t stored) {
+    return static_cast<int16_t>(static_cast<int>(stored) * 5);
+  }
+
+  bool hasDate() const {
+    return has_date_;
+  }
+
+  // Calendar date of day 0 is the day before this stamp.
+  uint16_t stampYear() const {
+    return year_;
+  }
+  uint8_t stampMonth() const {
+    return month_;
+  }
+  uint8_t stampDay() const {
+    return day_;
+  }
+
+  bool hasTemperature(size_t sensor, size_t day) const {
+    return sensor < SENSORS && day < DAYS && days_[sensor][day][0] != GAP;
+  }
+
+  bool hasHumidity(size_t sensor, size_t day) const {
+    return sensor < SENSORS && day < DAYS && days_[sensor][day][2] != GAP;
+  }
+
+  // Values in 0.1 steps; 0 for a gap or an index out of range (check hasTemperature first).
+  int16_t temperatureMin(size_t sensor, size_t day) const {
+    return hasTemperature(sensor, day) ? decodeTemperature(days_[sensor][day][0]) : 0;
+  }
+  int16_t temperatureMax(size_t sensor, size_t day) const {
+    return hasTemperature(sensor, day) ? decodeTemperature(days_[sensor][day][1]) : 0;
+  }
+  int16_t humidityMin(size_t sensor, size_t day) const {
+    return hasHumidity(sensor, day) ? decodeHumidity(days_[sensor][day][2]) : 0;
+  }
+  int16_t humidityMax(size_t sensor, size_t day) const {
+    return hasHumidity(sensor, day) ? decodeHumidity(days_[sensor][day][3]) : 0;
+  }
+
+  // Stores one day from values in 0.1 steps. Swaps a reversed pair.
+  void setDay(size_t sensor, size_t day, bool has_temperature, int16_t t_min, int16_t t_max, bool has_humidity,
+              int16_t h_min, int16_t h_max) {
+    if (sensor >= SENSORS || day >= DAYS) {
+      return;
+    }
+    uint8_t* d = days_[sensor][day];
+    if (has_temperature) {
+      d[0] = encodeTemperature(t_min < t_max ? t_min : t_max);
+      d[1] = encodeTemperature(t_min < t_max ? t_max : t_min);
+    } else {
+      d[0] = d[1] = GAP;
+    }
+    if (has_humidity) {
+      d[2] = encodeHumidity(h_min < h_max ? h_min : h_max);
+      d[3] = encodeHumidity(h_min < h_max ? h_max : h_min);
+    } else {
+      d[2] = d[3] = GAP;
+    }
+  }
+
+  // Weekday (0 = Sunday) of day `day` counted back from the stamp, or 0xFF without a stamp.
+  uint8_t weekdayOf(size_t day) const {
+    if (!has_date_ || day >= DAYS) {
+      return 0xFF;
+    }
+    const int64_t days = NtpTime::daysFromCivil(year_, month_, day_) - 1 - static_cast<int64_t>(day);
+    return static_cast<uint8_t>(((days + 4) % 7 + 7) % 7); // 1970-01-01 was a Thursday
+  }
+
+  // Clears all days of one sensor to gaps (a slot that lost its sensor).
+  void clear(size_t sensor) {
+    if (sensor < SENSORS) {
+      memset(days_[sensor], GAP, sizeof(days_[sensor]));
+    }
+  }
+
+  static constexpr uint8_t ALL_SENSORS = (1u << SENSORS) - 1;
+
+  // Bit mask of the sensors that took part in the last 24 hours: bit 0 is the onboard sensor with a valid
+  // reading, bits 1 to 5 are the registry slots with a valid reading that is at most 24 h old. A dead slot
+  // keeps its old samples in the 24-hour history, so only this mask tells that they are not from today.
+  static uint8_t liveSensors(bool onboard_valid, const SwitchBotRegistry& registry, uint32_t now_ms) {
+    uint8_t mask = onboard_valid ? 1 : 0;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      const SwitchBotReading& r = registry.slot(i);
+      if (r.valid && !r.isStale(now_ms, 24UL * ClimateHistory::SAMPLE_INTERVAL_MS)) {
+        mask = static_cast<uint8_t>(mask | (2u << i));
+      }
+    }
+    return mask;
+  }
+
+  // Midnight step, called at the hourly write. An invalid RTC time changes nothing. The first valid
+  // call only stamps the date. A later date shifts the ring by the days that passed (at most 7) and
+  // stores the previous day from the 24-hour histories of the sensors in `live_mask` when
+  // `history_fresh`; the days in between, a stale history and a sensor outside the mask give gaps. The
+  // same day, or a clock that ran back by up to 7 days, changes nothing. A clock that ran back by more
+  // than 7 days (a wrong date that a sync corrected) only takes the new stamp. Returns true when the
+  // state changed.
+  bool advance(const RtcTime& now, const ClimateHistory& history, bool history_fresh,
+               uint8_t live_mask = ALL_SENSORS) {
+    if (!now.valid || now.oscillator_stopped || now.year < MIN_TRUSTED_YEAR ||
+        !NtpTime::isValidDate(now.year, now.month, now.day)) {
+      return false;
+    }
+    if (!has_date_) {
+      stamp(now);
+      return true;
+    }
+    const int64_t today = NtpTime::daysFromCivil(now.year, now.month, now.day);
+    const int64_t last = NtpTime::daysFromCivil(year_, month_, day_);
+    if (today <= last) {
+      if (last - today > static_cast<int64_t>(DAYS)) {
+        stamp(now); // the stored date was wrong: the bars keep their data, new days follow the right date
+        return true;
+      }
+      return false;
+    }
+    const size_t shift = (today - last) > static_cast<int64_t>(DAYS) ? DAYS : static_cast<size_t>(today - last);
+    for (size_t s = 0; s < SENSORS; ++s) {
+      for (size_t k = DAYS; k-- > 0;) {
+        if (k >= shift) {
+          memcpy(days_[s][k], days_[s][k - shift], DAY_SIZE);
+        } else {
+          memset(days_[s][k], GAP, DAY_SIZE);
+        }
+      }
+    }
+    if (history_fresh) {
+      for (size_t s = 0; s < SENSORS; ++s) {
+        if ((live_mask & (1u << s)) == 0) {
+          continue; // the shift already left a gap
+        }
+        int16_t t_lo = 0, t_hi = 0, t_mean = 0, h_lo = 0, h_hi = 0, h_mean = 0;
+        const bool has_t = history.temperatures[s].summary(t_lo, t_hi, t_mean);
+        const bool has_h = history.slots[s].summary(h_lo, h_hi, h_mean);
+        setDay(s, 0, has_t, t_lo, t_hi, has_h, h_lo, h_hi);
+      }
+    }
+    stamp(now);
+    return true;
+  }
+
+  void serialize(uint8_t* out) const {
+    size_t pos = 0;
+    for (size_t s = 0; s < SENSORS; ++s) {
+      for (size_t k = 0; k < DAYS; ++k) {
+        memcpy(out + pos, days_[s][k], DAY_SIZE);
+        pos += DAY_SIZE;
+      }
+    }
+    out[pos++] = has_date_ ? 1 : 0;
+    out[pos++] = static_cast<uint8_t>(year_ & 0xFF);
+    out[pos++] = static_cast<uint8_t>(year_ >> 8);
+    out[pos++] = month_;
+    out[pos++] = day_;
+  }
+
+  // Returns false for a corrupt block; `*this` is then unchanged. A day needs both bytes of a pair
+  // as GAP or both in range with minimum <= maximum. Without a stamp every day is a gap.
+  bool restore(const uint8_t* in) {
+    WeekHistory w;
+    size_t pos = 0;
+    for (size_t s = 0; s < SENSORS; ++s) {
+      for (size_t k = 0; k < DAYS; ++k) {
+        const uint8_t* d = in + pos;
+        const bool t_gap = d[0] == GAP && d[1] == GAP;
+        const bool t_ok = d[0] != GAP && d[1] != GAP && d[0] <= d[1];
+        const bool h_gap = d[2] == GAP && d[3] == GAP;
+        const bool h_ok = d[2] <= d[3] && d[3] <= MAX_HUMIDITY;
+        if (!(t_gap || t_ok) || !(h_gap || h_ok)) {
+          return false;
+        }
+        memcpy(w.days_[s][k], d, DAY_SIZE);
+        pos += DAY_SIZE;
+      }
+    }
+    const uint8_t flag = in[pos++];
+    const uint16_t year = static_cast<uint16_t>(in[pos] | (in[pos + 1] << 8));
+    pos += 2;
+    const uint8_t month = in[pos++];
+    const uint8_t day = in[pos++];
+    if (flag > 1) {
+      return false;
+    }
+    if (flag == 1) {
+      if (year < 2000 || year > 2099 || !NtpTime::isValidDate(year, month, day)) {
+        return false;
+      }
+      w.has_date_ = true;
+      w.year_ = year;
+      w.month_ = month;
+      w.day_ = day;
+    } else {
+      if (year != 0 || month != 0 || day != 0) {
+        return false;
+      }
+      for (size_t s = 0; s < SENSORS; ++s) {
+        for (size_t k = 0; k < DAYS; ++k) {
+          for (size_t b = 0; b < DAY_SIZE; ++b) {
+            if (w.days_[s][k][b] != GAP) {
+              return false;
+            }
+          }
+        }
+      }
+    }
+    *this = w;
+    return true;
+  }
+
+private:
+  void stamp(const RtcTime& now) {
+    has_date_ = true;
+    year_ = now.year;
+    month_ = now.month;
+    day_ = now.day;
+  }
+
+  uint8_t days_[SENSORS][DAYS][DAY_SIZE];
+  bool has_date_ = false;
+  uint16_t year_ = 0;
+  uint8_t month_ = 0;
+  uint8_t day_ = 0;
+};
+
 // Auto-scaling and 1-bpp line renderer for a compact trend curve.
 class Sparkline {
 public:
@@ -700,6 +974,84 @@ public:
       px = cx;
       py = cy;
       have_prev = true;
+    }
+    return true;
+  }
+
+  // Bars of the week chart: 7 slots of w / 7 px, the newest day at the right edge. A bar is WEEK_BAR_W px
+  // wide, centered in its slot.
+  static constexpr uint16_t WEEK_BAR_W = 24;
+
+  // Left edge (offset inside the box) of the bar in column `col` (0 is the oldest day).
+  static uint16_t weekBarX(size_t col, uint16_t w) {
+    const uint16_t slot = static_cast<uint16_t>(w / WeekHistory::DAYS);
+    return static_cast<uint16_t>(col * slot + (slot > WEEK_BAR_W ? (slot - WEEK_BAR_W) / 2 : 0));
+  }
+
+  // Scale over the valid days of one sensor. `humidity` selects the quantity. A flat week gets the
+  // minimum span (2.0 degC or 5.0 %RH), shifted to stay in range. Returns false without a valid day.
+  static bool computeWeekScale(const WeekHistory& week, size_t sensor, bool humidity, Scale& out) {
+    bool found = false;
+    int lo = 0;
+    int hi = 0;
+    for (size_t k = 0; k < WeekHistory::DAYS; ++k) {
+      const bool has = humidity ? week.hasHumidity(sensor, k) : week.hasTemperature(sensor, k);
+      if (!has) {
+        continue;
+      }
+      const int d_lo = humidity ? week.humidityMin(sensor, k) : week.temperatureMin(sensor, k);
+      const int d_hi = humidity ? week.humidityMax(sensor, k) : week.temperatureMax(sensor, k);
+      lo = found && lo < d_lo ? lo : d_lo;
+      hi = found && hi > d_hi ? hi : d_hi;
+      found = true;
+    }
+    if (!found) {
+      return false;
+    }
+    const int min_span = humidity ? MIN_SPAN : TEMPERATURE_MIN_SPAN;
+    const int min_value = humidity ? HumidityHistory::MIN_VALUE : -640;
+    const int max_value = humidity ? HumidityHistory::MAX_VALUE : 630;
+    if (hi - lo < min_span) {
+      int lo_v = (lo + hi) / 2 - min_span / 2;
+      lo_v = lo_v < min_value ? min_value : lo_v;
+      lo_v = lo_v > max_value - min_span ? max_value - min_span : lo_v;
+      lo = lo_v;
+      hi = lo_v + min_span;
+    }
+    out.lo = static_cast<int16_t>(lo);
+    out.hi = static_cast<int16_t>(hi);
+    return true;
+  }
+
+  // Draws one bar from the minimum to the maximum for each valid day into the box (x, y, w, h). A day
+  // without samples leaves its slot empty. Every pixel stays inside the box. Returns false and draws
+  // nothing without a valid day or for an empty box.
+  static bool renderWeek(
+      St7305Framebuffer& fb,
+      uint16_t x,
+      uint16_t y,
+      uint16_t w,
+      uint16_t h,
+      const WeekHistory& week,
+      size_t sensor,
+      bool humidity,
+      bool black = true) {
+    Scale scale;
+    if (w < WeekHistory::DAYS || h == 0 || !computeWeekScale(week, sensor, humidity, scale)) {
+      return false;
+    }
+    for (size_t k = 0; k < WeekHistory::DAYS; ++k) {
+      const bool has = humidity ? week.hasHumidity(sensor, k) : week.hasTemperature(sensor, k);
+      if (!has) {
+        continue;
+      }
+      const int16_t v_lo = humidity ? week.humidityMin(sensor, k) : week.temperatureMin(sensor, k);
+      const int16_t v_hi = humidity ? week.humidityMax(sensor, k) : week.temperatureMax(sensor, k);
+      const uint16_t top = valueToRow(v_hi, scale, h);
+      const uint16_t bottom = valueToRow(v_lo, scale, h);
+      const uint16_t bx = weekBarX(WeekHistory::DAYS - 1 - k, w);
+      fb.fillRect(static_cast<uint16_t>(x + bx), static_cast<uint16_t>(y + top), WEEK_BAR_W,
+                  static_cast<uint16_t>(bottom - top + 1), black);
     }
     return true;
   }

@@ -837,6 +837,19 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Thus the user sees the course of one room in detail.
 - Host tests cover the mode cycle with 5 modes, the rejection of a stored mode above 4 and of a stored sensor above 3, the `KEY` handling (short press, hold, wake press), the sensor wrap, the curve bounds, the minimum span, `NO DATA` and the RTC round trip with the new state version.
 
+## Seven-day minimum and maximum chart view
+
+- **Code:** `rlcd_panel/sparkline.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/button_handler.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `scripts/generate-display-preview.sh`, `tests/test_firmware_logic.cpp`
+- `WeekHistory` (`sparkline.h`) keeps the daily minimum and maximum of the last 7 days for each of the 6 sensors (onboard and 5 slots). A day is 4 bytes: temperature minimum and maximum (`int8` in 0.5 C steps with bias 128) and humidity minimum and maximum (`uint8` in 0.5 %RH steps). The marker `0xFF` in both bytes of a pair is a day without samples and shows a gap. The block is 173 bytes (168 bytes plus the day stamp) in `PersistentState::week`.
+- At the first hourly write after local midnight (`logWeekSummary` in `rlcd_panel.ino`) the firmware shifts the ring and stores the previous day from the 24-hour histories of each sensor. A missed day gives a gap. A stale history, a dead slot (no reading in the last 24 hours, `WeekHistory::liveSensors`) or a sensor without samples stores gaps. The first valid RTC time only stamps the date. An invalid RTC time (invalid, stopped oscillator, year before 2025, impossible date) skips the shift. A clock that ran back by up to 7 days changes nothing; a larger step back (a wrong date that a sync corrected) only takes the new stamp and keeps the bars. The render of the wake cycle runs before the step, so the view shows the new day one wake cycle later. The step needs no card.
+- `DisplayMode::WEEK_CHART` (value 5) follows `CLIMATE_CHART`, and `DISPLAY_MODE_COUNT` is 6. A stored view mode above 5 gives a clean start.
+- The view shows the name of the `chart_sensor` sensor, a temperature box and a humidity box (360 x 90 px each) with 7 vertical bars from the daily minimum to the daily maximum, the newest day at the right edge, and the weekday labels from the RTC below the bars. Each box has a label with the minimum and maximum of the week; the temperature follows `temp_unit`. A flat week uses the minimum span 2.0 C or 5.0 %RH. A box without a valid day shows `NO DATA`.
+- The `KEY` handling equals the climate chart: a short press returns `ButtonEvent::NEXT_SENSOR` and selects the next sensor, a hold of 2 s changes the view (`MODE_CHANGED`).
+- The view reads only the RTC copy. It needs no sensor read, no microphone and no card.
+- `STATE_VERSION` is 55. A record of version 54 gives a clean start.
+- `tools/preview_scenes.h` adds the scene `display_preview_chart_week` (sensor 1 with one day without samples). `./scripts/generate-display-preview.sh` writes `docs/display_preview_chart_week.png`.
+- Thus the user sees the course of one room over a week.
+
 ## Serial console command SET to change one config.ini key
 
 - **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/device_config.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`

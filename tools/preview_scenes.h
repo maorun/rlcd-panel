@@ -31,7 +31,7 @@ struct PreviewScene {
   bool dry = false;           // dry air: the onboard tile and slot 1 show the "D" badge
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 16;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 17;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
@@ -41,6 +41,7 @@ constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_runtime", DisplayMode::SYSTEM_DIAGNOSTICS, false, false, true},
     {"display_preview_spectrum", DisplayMode::AUDIO_SPECTRUM, false, false},
     {"display_preview_chart", DisplayMode::CLIMATE_CHART, false, false},
+    {"display_preview_chart_week", DisplayMode::WEEK_CHART, false, false},
     {"display_preview_low_battery", DisplayMode::DASHBOARD, true, false},
     {"display_preview_quiet_hours", DisplayMode::DASHBOARD, false, true},
     {"display_preview_battery_empty", DisplayMode::DASHBOARD, false, false, false, true},
@@ -160,6 +161,36 @@ inline void renderScene(
     }
   }
 
+  // Preview week: 7 days of minimum and maximum per sensor. The stamp is Sunday 2026-11-15, so day 0 is
+  // Saturday 14 November. Sensor 1 (the chart sensor) has one day without samples: a gap.
+  WeekHistory week;
+  {
+    RtcTime today;
+    today.valid = true;
+    today.year = 2026;
+    today.month = 11;
+    today.day = 15;
+    ClimateHistory day_history;
+    for (size_t d = 0; d <= WeekHistory::DAYS; ++d) {
+      // The first call only stamps 2026-11-08; each later call stores the day before its date.
+      for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
+        day_history.slots[s].clear();
+        day_history.temperatures[s].clear();
+        const float phase = static_cast<float>(d) * 0.9f + static_cast<float>(s);
+        for (int hour = 0; hour < 24; hour += 3) {
+          if (s == 1 && d == 4) {
+            continue; // a day without samples
+          }
+          day_history.slots[s].pushPercent(base[s] + swing[s] * sinf(static_cast<float>(hour) * 0.2618f + phase));
+          day_history.temperatures[s].pushCelsius(
+              tbase[s] + tswing[s] * sinf(static_cast<float>(hour - 6) * 0.2618f) + 1.5f * sinf(phase));
+        }
+      }
+      today.day = static_cast<uint8_t>(8 + d);
+      week.advance(today, day_history, true);
+    }
+  }
+
   // Preview noise: 24 hourly levels, quiet at night and louder by day, with two hours without a reading
   NoiseHistory noise_history;
   for (int hour = 0; hour < 24; ++hour) {
@@ -253,7 +284,8 @@ inline void renderScene(
       now_ms,
       &history,
       &noise_history,
-      &config);
+      &config,
+      &week);
   if (invert) {
     fb.invert(); // the same step as the firmware before St7305Panel::flush
   }

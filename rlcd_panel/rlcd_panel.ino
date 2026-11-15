@@ -444,7 +444,8 @@ void renderDashboard() {
       nowMs(),
       &g_state.history,
       &g_state.noise_history,
-      &g_state.config);
+      &g_state.config,
+      &g_state.week);
   flushFramebuffer();
 }
 
@@ -944,6 +945,7 @@ void chimeOnNoise(bool have_noise, const MicCalibration& cal) {
 }
 
 void logDailySummary(uint32_t now, bool card_ok);
+void logWeekSummary(uint32_t now);
 void logEvents(bool card_ok);
 
 // Appends one hourly record to the MicroSD card. A missing card or a failed write never blocks
@@ -1010,6 +1012,7 @@ void logToSdCard() {
   }
   const bool card_ok = result != SdLogResult::MOUNT_FAILED && result != SdLogResult::NO_CARD;
   logDailySummary(now, card_ok);
+  logWeekSummary(now);
   // After the daily row: the reading of the first write after midnight belongs to the new day (markDone
   // in logDailySummary resets the stats first). A daily write that keeps failing keeps the stats, so
   // the row of the old day then also holds later readings.
@@ -1050,6 +1053,18 @@ void logDailySummary(uint32_t now, bool card_ok) {
       Serial.printf("SD daily log failed: %u\n", static_cast<unsigned>(result));
     }
   }
+}
+
+// Shifts the 7-day ring of the week chart at the first hourly write after local midnight and stores
+// the previous day from the 24 h histories. It needs no card: the RTC memory is the only store. An
+// invalid RTC time skips the shift. A stale history and a sensor without a reading in the last 24 hours
+// store gaps. The render of the wake cycle runs before this step, so the week chart shows the new day
+// one wake cycle later. After a gap of several days the step stores the newest 24 hours as day 0 and
+// leaves gaps for the days in between.
+void logWeekSummary(uint32_t now) {
+  g_state.week.advance(
+      g_rtc_time, g_state.history, g_state.history.freshWithin24h(now),
+      WeekHistory::liveSensors(g_onboard_reading.valid, g_state.registry, now));
 }
 
 AlertLimits alertLimits() {
