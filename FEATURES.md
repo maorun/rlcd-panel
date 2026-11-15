@@ -1213,3 +1213,11 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `ReceptionMetrics` parses the line. `--` gives `nil`, and a bad value such as `s1=x/24` throws `ParseError.badLine`.
 - `DiagnosticsView` shows the rate of each slot and a warning symbol (`exclamationmark.triangle.fill`) when the rate is below 50 %.
 - Host tests cover 12/24 for each second scan, N/3 for a young slot, `resetSlot`, the old `STATE_VERSION` and a count above 24. `DiagnosticsTests` cover the parser.
+
+## Hourly climate charts in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/ClimateLog.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ArchiveView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ClimateLogTests.swift`.
+- `ClimateLog.parse(text:)` reads `climate_v2` (18 columns), `climate_v3` (19), `climate_v4` (21) and `climate_v5` (27, six sensors). The header row selects the format. An empty field gives `nil`. A row with a wrong column count or a bad field throws `ParseError.badLine`. An unknown header throws `ParseError.missingLine`. Formats before v5 hold four sensors; fields that a format lacks (`noise_events`, `noise_l10`, `noise_l90`) give `nil`.
+- `ClimateLog.isClimateFileName`, `ClimateLog.month(of:)` and `ClimateLog.availableMonths(in:)` use the name check of `LogArchive`. `ClimateLog.load(from:month:)` reads the files of one month (`YYYYMM`) from the folder and lists a file that fails to parse in `failedFiles`. For the same timestamp the newer format wins.
+- The button `Show climate charts` in `ArchiveView` shows `ClimateChartView`: a month picker, for each sensor one Swift Charts view with the hourly temperature and humidity, and one chart with `noise_db`, `noise_l10` and `noise_l90`. The view reads local files only and sends no console command.
+- `ClimateLogTests` cover all four formats, empty fields, a row with a wrong column count, an unknown header, the file names and the month load with the newer-format rule.
