@@ -13,6 +13,8 @@ struct ArchiveView: View {
                     Button("List card files") { model.listArchive() }
                         .disabled(!model.canArchive)
                     Button("Choose folder…") { chooseFolder() }
+                    Button("Show daily charts") { model.dailyFolder = model.archiveFolder.map(DailyLog.load(from:)) }
+                        .disabled(model.archiveFolder == nil)
                     Button("Select new files") { model.selectNewArchiveFiles() }
                         .disabled(model.archiveFolder == nil || model.archiveFiles.isEmpty)
                     Button("Download selected") { model.downloadSelected() }
@@ -37,6 +39,7 @@ struct ArchiveView: View {
                     }
                 }
                 if let summary = model.archiveSummary { Text(summary).font(.caption).foregroundStyle(.secondary) }
+                if let daily = model.dailyFolder { DailyChartView(folder: daily) }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -49,6 +52,7 @@ struct ArchiveView: View {
         panel.prompt = "Choose"
         if panel.runModal() == .OK {
             model.archiveFolder = panel.url
+            model.dailyFolder = nil
             model.selectNewArchiveFiles() // the plan depends on the local copies in the folder
         }
     }

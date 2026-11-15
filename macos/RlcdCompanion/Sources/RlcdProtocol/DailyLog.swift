@@ -1,0 +1,119 @@
+import Foundation
+
+/// Minimum, maximum and mean of one sensor for one day. A sensor without samples gives `nil` fields.
+public struct DailySensorStats: Equatable {
+    public let tempMinC: Double?
+    public let tempMaxC: Double?
+    public let tempMeanC: Double?
+    public let rhMin: Double?
+    public let rhMax: Double?
+    public let rhMean: Double?
+}
+
+/// One row of `daily_v1_YYYY.csv` or `daily_v2_YYYY.csv`. The noise peak fields exist only in `daily_v2`.
+public struct DailyRow: Equatable {
+    public let date: String
+    /// Onboard sensor first, then slots 1 to 3.
+    public let sensors: [DailySensorStats]
+    public let noiseMinDb: Int?
+    public let noiseMaxDb: Int?
+    public let noisePeakDb: Int?
+    public let noisePeakHour: Int?
+    public let noiseEventsSum: Int?
+}
+
+/// Rows of every readable daily file of a folder, oldest day first.
+public struct DailyFolder: Equatable {
+    public let rows: [DailyRow]
+    public let failedFiles: [String]
+}
+
+public struct DailyLog: Equatable {
+    public enum Format: Equatable { case v1, v2 }
+
+    public static let sensorNames = ["onboard", "s1", "s2", "s3"]
+    private static let statColumns = ["temp_min_c", "temp_max_c", "temp_mean_c", "rh_min", "rh_max", "rh_mean"]
+
+    public let format: Format
+    public let rows: [DailyRow]
+
+    private static func header(_ format: Format) -> String {
+        var names = ["date"] + sensorNames.flatMap { s in statColumns.map { "\(s)_\($0)" } }
+        names += ["noise_min_db", "noise_max_db"]
+        if format == .v2 { names += ["noise_peak_db", "noise_peak_hour", "noise_events_sum"] }
+        return names.joined(separator: ",")
+    }
+
+    /// The header row selects the format (27 or 30 columns). An unknown header throws `missingLine`; a row with a
+    /// wrong column count or a non-numeric field throws `badLine`. An empty field gives `nil`.
+    public static func parse(text: String) throws -> DailyLog {
+        let lines = text.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
+        guard let first = lines.first else { throw ParseError.missingLine("header") }
+        let head = (first.hasPrefix("\u{FEFF}") ? String(first.dropFirst()) : first)
+            .trimmingCharacters(in: .whitespaces)
+        let format: Format
+        switch head {
+        case header(.v1): format = .v1
+        case header(.v2): format = .v2
+        default: throw ParseError.missingLine("header")
+        }
+        let columns = format == .v1 ? 27 : 30
+        let rows = try lines.dropFirst().map { line -> DailyRow in
+            let f = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+            guard f.count == columns, isDate(f[0]) else { throw ParseError.badLine(line) }
+            func decimal(_ i: Int) throws -> Double? {
+                if f[i].isEmpty { return nil }
+                guard let v = Double(f[i]), v.isFinite else { throw ParseError.badLine(line) }
+                return v
+            }
+            func integer(_ i: Int) throws -> Int? {
+                if f[i].isEmpty { return nil }
+                guard let v = Int(f[i]) else { throw ParseError.badLine(line) }
+                return v
+            }
+            let sensors = try (0..<sensorNames.count).map { s -> DailySensorStats in
+                let b = 1 + s * statColumns.count
+                return DailySensorStats(
+                    tempMinC: try decimal(b), tempMaxC: try decimal(b + 1), tempMeanC: try decimal(b + 2),
+                    rhMin: try decimal(b + 3), rhMax: try decimal(b + 4), rhMean: try decimal(b + 5))
+            }
+            let n = 1 + sensorNames.count * statColumns.count
+            return DailyRow(
+                date: f[0], sensors: sensors, noiseMinDb: try integer(n), noiseMaxDb: try integer(n + 1),
+                noisePeakDb: format == .v2 ? try integer(n + 2) : nil,
+                noisePeakHour: format == .v2 ? try integer(n + 3) : nil,
+                noiseEventsSum: format == .v2 ? try integer(n + 4) : nil)
+        }
+        return DailyLog(format: format, rows: rows)
+    }
+
+    /// True for `daily_v1_YYYY.csv` and `daily_v2_YYYY.csv`; the check of `LogArchive` decides the name.
+    public static func isDailyFileName(_ name: String) -> Bool {
+        LogArchive.isValidName(name) && name.hasPrefix("daily_")
+    }
+
+    private static func isDate(_ text: String) -> Bool {
+        let p = text.split(separator: "-", omittingEmptySubsequences: false)
+        guard p.count == 3, p[0].count == 4, p[1].count == 2, p[2].count == 2,
+              let y = Int(p[0]), let m = Int(p[1]), let d = Int(p[2]) else { return false }
+        return (2000...2099).contains(y) && (1...12).contains(m) && (1...31).contains(d)
+    }
+
+    /// Reads every daily file of the folder (local files only). A file that fails to parse is listed in
+    /// `failedFiles`. When two files hold the same date, the `daily_v2` row wins.
+    public static func load(from folder: URL) -> DailyFolder {
+        let names = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
+            .filter(isDailyFileName).sorted()
+        var byDate: [String: DailyRow] = [:]
+        var failed: [String] = []
+        for name in names {
+            let url = folder.appendingPathComponent(name)
+            let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize ?? Int.max
+            guard size <= ReplyAssembler.maxFileBytes, let data = try? Data(contentsOf: url),
+                  let text = String(data: data, encoding: .utf8),
+                  let log = try? parse(text: text) else { failed.append(name); continue }
+            for row in log.rows { byDate[row.date] = row } // v2 sorts after v1 for the same year
+        }
+        return DailyFolder(rows: byDate.values.sorted { $0.date < $1.date }, failedFiles: failed)
+    }
+}

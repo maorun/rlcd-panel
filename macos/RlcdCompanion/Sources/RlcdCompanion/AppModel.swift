@@ -38,6 +38,8 @@ final class AppModel: ConsoleLinkDelegate {
     var archiveFiles: [LogFile] = []
     var archiveSelection: Set<String> = []
     var archiveFolder: URL?
+    /// Rows of the daily summary files in `archiveFolder`, read from local files only.
+    var dailyFolder: DailyFolder?
     var archiveSummary: String?
     /// Folder of the running download. A later folder choice does not split the files of one run.
     private var downloadFolder: URL?
@@ -567,6 +569,7 @@ final class AppModel: ConsoleLinkDelegate {
         guard case let .dump(name) = cmd else { return }
         if let text { downloadStats.failed += 1; message = "\(name): \(text)" }
         if queue.isEmpty {
+            if dailyFolder != nil, let folder = downloadFolder { dailyFolder = DailyLog.load(from: folder) } // visible charts follow the new files
             downloadFolder = nil
             archiveSummary = "Saved \(downloadStats.saved), failed \(downloadStats.failed)"
         }
