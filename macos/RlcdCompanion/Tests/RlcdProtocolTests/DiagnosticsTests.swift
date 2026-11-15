@@ -41,12 +41,32 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
 
     @Test func missingLinesGiveNilWithoutError() throws {
         let d = try DiagnosticsReply.parse(otherLines: [:])
-        #expect(d == DiagnosticsReply(shtc3: nil, ble: nil, reset: nil, runtime: nil, awake: nil))
+        #expect(d == DiagnosticsReply(shtc3: nil, ble: nil, reset: nil, runtime: nil, awake: nil, reception: nil))
         // An older firmware reply without the AWAKE line.
         let s = try StatusReply.parse(lines: lines(statusText))
         let old = try DiagnosticsReply.parse(status: s)
         #expect(old.awake == nil)
         #expect(old.shtc3 != nil)
+    }
+
+    @Test func receptionLineParses() throws {
+        let m = try ReceptionMetrics.parse(line: "RECEPTION s1=12/24 s2=-- s3=24/24 s4=-- s5=1/3")
+        #expect(m.slots == [
+            .init(received: 12, scans: 24), nil, .init(received: 24, scans: 24), nil, .init(received: 1, scans: 3),
+        ])
+        #expect(m.slots[0]?.isWeak == false)  // exactly 50 %
+        #expect(m.slots[4]?.isWeak == true)
+        #expect(m.slots[2]?.percent == 100)
+        let d = try DiagnosticsReply.parse(otherLines: ["RECEPTION": "RECEPTION s1=-- s2=-- s3=-- s4=-- s5=--"])
+        #expect(d.reception?.slots.allSatisfy { $0 == nil } == true)
+    }
+
+    @Test func receptionLineRejectsBadValues() {
+        #expect(throws: ParseError.self) { try ReceptionMetrics.parse(line: "RECEPTION s1=x/24 s2=-- s3=-- s4=-- s5=--") }
+        #expect(throws: ParseError.self) { try ReceptionMetrics.parse(line: "RECEPTION s1=1/25 s2=-- s3=-- s4=-- s5=--") }
+        #expect(throws: ParseError.self) { try ReceptionMetrics.parse(line: "RECEPTION s1=4/3 s2=-- s3=-- s4=-- s5=--") }
+        #expect(throws: ParseError.self) { try ReceptionMetrics.parse(line: "RECEPTION s1=1/0 s2=-- s3=-- s4=-- s5=--") }
+        #expect(throws: ParseError.self) { try ReceptionMetrics.parse(line: "RECEPTION s1=-- s2=-- s3=-- s4=--") }
     }
 
     @Test func nonNumericCounterThrows() {

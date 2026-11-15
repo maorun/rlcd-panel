@@ -419,6 +419,64 @@ private:
   BleRejectStats rejects_;
 };
 
+// Reception rate of each registry slot over the last 24 BLE scans. Bit 0 of a mask is the newest scan; a set
+// bit means the slot got a valid packet in that scan. `scans` counts the scans since the slot took its
+// sensor (stops at 24), so a young slot reports N/3 instead of N/24. An empty slot keeps mask 0 and
+// count 0. Lives in the RTC state; a power-on clears it.
+class ReceptionHistory {
+public:
+  static constexpr uint8_t WINDOW = 24;
+  static constexpr uint32_t MASK_BITS = 0xFFFFFFu;
+  static constexpr size_t SERIALIZED_SIZE = MAX_SWITCHBOT_SENSORS * (3 + 1);
+
+  // Call once after each BLE scan. `packets_before` holds the packet_count of each slot from before the
+  // scan: a higher count in `registry` means the slot got a valid packet. An empty slot is cleared.
+  void recordScan(const SwitchBotRegistry& registry, const uint32_t* packets_before) {
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      const SwitchBotReading& r = registry.slot(i);
+      if (!r.valid) {
+        clear(i);
+        continue;
+      }
+      const bool got = packets_before == nullptr || r.packet_count != packets_before[i];
+      masks_[i] = ((masks_[i] << 1) | (got ? 1u : 0u)) & MASK_BITS;
+      if (scans_[i] < WINDOW) {
+        ++scans_[i];
+      }
+    }
+  }
+
+  void clear(size_t index) {
+    if (index < MAX_SWITCHBOT_SENSORS) {
+      masks_[index] = 0;
+      scans_[index] = 0;
+    }
+  }
+
+  uint32_t mask(size_t index) const { return index < MAX_SWITCHBOT_SENSORS ? masks_[index] : 0; }
+  uint8_t scans(size_t index) const { return index < MAX_SWITCHBOT_SENSORS ? scans_[index] : 0; }
+
+  // Scans with a packet in the active window.
+  uint8_t received(size_t index) const {
+    return static_cast<uint8_t>(__builtin_popcount(mask(index)));
+  }
+
+  // Restores one slot. Rejects a count above 24 and mask bits outside the counted window.
+  bool restore(size_t index, uint32_t mask, uint8_t scans) {
+    if (index >= MAX_SWITCHBOT_SENSORS || scans > WINDOW || (mask & ~MASK_BITS) != 0 ||
+        (scans < WINDOW && (mask >> scans) != 0)) {
+      return false;
+    }
+    masks_[index] = mask;
+    scans_[index] = scans;
+    return true;
+  }
+
+private:
+  uint32_t masks_[MAX_SWITCHBOT_SENSORS] = {};
+  uint8_t scans_[MAX_SWITCHBOT_SENSORS] = {};
+};
+
 // Result list of the console command SCAN: one entry for each MAC that sent a decoded packet during
 // one scan. A second packet of a known MAC replaces the entry only with a stronger RSSI (equal RSSI
 // keeps the first). Packets of a 17th and further MAC find no entry: each one raises dropped() (stops

@@ -620,6 +620,7 @@ struct SerialStatusSnapshot {
   int32_t cycle_tenths = -1;              // CycleTracker::cycleTenths(); negative when NVS is unreadable
   uint32_t scan_saved_ms = 0;             // scan time that the last early stop saved
   const AwakeTimeStats* awake = nullptr;  // measured awake time of the timer wakeups
+  const ReceptionHistory* reception = nullptr; // BLE reception rate of each registry slot
 };
 
 // Runs one parsed command. Storage mounts the card for the command and unmounts it on every
@@ -638,7 +639,7 @@ struct SerialStatusSnapshot {
 //   so execute() ignores CONFIG.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 5 (slots, calibrated readings), a missing value gives "--";
-//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "SHTC3 nack=<N> short=<N> crc=<N> run=<N>", then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>" (packets of the current scan that no slot took), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "CRC32 <8 hex digits>" over all lines
+//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "SHTC3 nack=<N> short=<N> crc=<N> run=<N>", then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>" (packets of the current scan that no slot took), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 7), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
@@ -1009,6 +1010,24 @@ public:
                                           static_cast<unsigned long>(rej.total()), last,
                                           static_cast<unsigned>(rej.by_format[0]), static_cast<unsigned>(rej.by_format[1]),
                                           static_cast<unsigned>(rej.by_format[2]), static_cast<unsigned>(rej.by_format[3])));
+    }
+    if (len >= sizeof(text)) {
+      return;
+    }
+    {
+      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "RECEPTION"));
+      for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS && len < sizeof(text); ++i) {
+        if (snap.reception == nullptr || snap.reception->scans(i) == 0) {
+          len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, " s%u=--", static_cast<unsigned>(i + 1)));
+        } else {
+          len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, " s%u=%u/%u", static_cast<unsigned>(i + 1),
+                                              static_cast<unsigned>(snap.reception->received(i)),
+                                              static_cast<unsigned>(snap.reception->scans(i))));
+        }
+      }
+      if (len < sizeof(text)) {
+        len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "\n"));
+      }
     }
     if (len >= sizeof(text)) {
       return;

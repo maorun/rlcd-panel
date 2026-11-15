@@ -67,6 +67,39 @@ public struct BleRejectMetrics: Equatable {
     }
 }
 
+/// `RECEPTION s1=<N>/<M> ... s5=<N>/<M>`: scans with a packet of the last `M` scans (`M` up to 24) for each
+/// registry slot. `--` is an empty slot and gives `nil`.
+public struct ReceptionMetrics: Equatable {
+    public struct Rate: Equatable {
+        /// A rate below this share counts as weak.
+        public static let warnBelowPercent = 50
+        public let received: Int
+        public let scans: Int
+
+        public var percent: Int { scans > 0 ? received * 100 / scans : 0 }
+        public var isWeak: Bool { scans > 0 && received * 100 < Self.warnBelowPercent * scans }
+    }
+
+    public static let slotCount = 5
+    /// One entry for each slot 1 to 5.
+    public let slots: [Rate?]
+
+    public static func parse(line: String) throws -> ReceptionMetrics {
+        let f = fieldMap(line)
+        var slots: [Rate?] = []
+        for i in 1...slotCount {
+            guard let s = f["s\(i)"] else { throw ParseError.badLine(line) }
+            if s == "--" { slots.append(nil); continue }
+            let parts = s.split(separator: "/", omittingEmptySubsequences: false)
+            guard parts.count == 2,
+                  parts.allSatisfy({ !$0.isEmpty && $0.utf8.allSatisfy { $0 >= 0x30 && $0 <= 0x39 } }),
+                  let n = Int(parts[0]), let m = Int(parts[1]), m >= 1, m <= 24, n <= m else { throw ParseError.badLine(line) }
+            slots.append(Rate(received: n, scans: m))
+        }
+        return ReceptionMetrics(slots: slots)
+    }
+}
+
 /// `RESET reason=<TEXT> abnormal=<N|-->`.
 public struct ResetMetrics: Equatable {
     /// Reset reasons that point to a fault (`ResetReasonCodec` of the firmware).
@@ -127,6 +160,7 @@ public struct DiagnosticsReply: Equatable {
     public let reset: ResetMetrics?
     public let runtime: RuntimeMetrics?
     public let awake: AwakeMetrics?
+    public let reception: ReceptionMetrics?
 
     /// `otherLines` of `StatusReply`. A present line with a bad counter throws `ParseError.badLine`.
     public static func parse(otherLines: [String: String]) throws -> DiagnosticsReply {
@@ -135,7 +169,8 @@ public struct DiagnosticsReply: Equatable {
             ble: try otherLines["BLE"].map(BleRejectMetrics.parse(line:)),
             reset: try otherLines["RESET"].map(ResetMetrics.parse(line:)),
             runtime: try otherLines["RUNTIME"].map(RuntimeMetrics.parse(line:)),
-            awake: try otherLines["AWAKE"].map(AwakeMetrics.parse(line:)))
+            awake: try otherLines["AWAKE"].map(AwakeMetrics.parse(line:)),
+            reception: try otherLines["RECEPTION"].map(ReceptionMetrics.parse(line:)))
     }
 
     public static func parse(status: StatusReply) throws -> DiagnosticsReply {

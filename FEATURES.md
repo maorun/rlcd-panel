@@ -1154,7 +1154,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 
 - **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `docs/config.example.ini`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `Replies.swift`; tests in `tests/test_firmware_logic.cpp`, `ConfigSchemaTests.swift`, `CalibrationTests.swift`.
 - `DeviceConfig::OFFSET_SLOT_COUNT` is 5. The keys `slot4_temp_offset_c`, `slot5_temp_offset_c` (-5 to 5 C), `slot4_rh_offset_pct` and `slot5_rh_offset_pct` (-10 to 10 %RH) end `DeviceConfigParser::KEYS` (`KEY_COUNT` 48). A value outside the range is a rejected line.
-- `PersistentState` already stored five offset entries, so the config trailer keeps its size. `STATE_VERSION` is 49, and an RTC image of version 48 is rejected.
+- `PersistentState` already stored five offset entries, so the config trailer keeps its size. `STATE_VERSION` was 49 here, and an RTC image of version 48 is rejected.
 - `CALIB N` accepts 0 to 5. The macOS app sends it for slots 4 and 5 and proposes the new keys. The CSV logs and the BLE telemetry frame stay unchanged.
 
 ## Daily summary charts in the macOS app
@@ -1201,3 +1201,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The report replaces the value of each key that `ConfigSchema` marks as a name or a MAC with `<hidden>`, for example `slot1_mac=<hidden>` and `onboard_name=<hidden>`. The toggle `Include names and MACs` keeps the values.
 - `AppModel` puts the text on `NSPasteboard.general`. The report holds no Wi-Fi data, because the firmware sends none.
 - `DiagnosticsReportTests` cover the section order, the missing `CRC32` lines, the hidden and the kept values, and a failed `EVENTS` reply.
+
+## BLE reception rate of each registry slot
+
+- **Code:** `rlcd_panel/switchbot_ble.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `tests/test_firmware_logic.cpp`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsTests.swift`
+- `ReceptionHistory` keeps one 24-bit mask and one scan count for each of the 5 registry slots. Bit 0 is the newest scan. The count stops at 24.
+- After each BLE scan, `ReceptionHistory::recordScan` shifts the mask of each occupied slot by one bit. It sets bit 0 when the `packet_count` of the slot grew in this scan. An empty slot keeps mask 0 and count 0.
+- `PersistentState::resetSlot` clears the mask and the count of the slot.
+- `PersistentState::reception` uses 16 bytes just before the checksum. `STATE_VERSION` is 50, and an RTC image of version 49 is rejected. A count above 24, a mask bit beyond the counted scans and a value for an empty slot are rejected too. A power-on sets all values to 0.
+- The console command `STATUS` shows `RECEPTION s1=<N>/<M> s2=<N>/<M> s3=<N>/<M> s4=<N>/<M> s5=<N>/<M>` after `BLE`. `<N>` is the number of 1-bits in the mask and `<M>` is the scan count. An empty slot shows `--`.
+- `ReceptionMetrics` parses the line. `--` gives `nil`, and a bad value such as `s1=x/24` throws `ParseError.badLine`.
+- `DiagnosticsView` shows the rate of each slot and a warning symbol (`exclamationmark.triangle.fill`) when the rate is below 50 %.
+- Host tests cover 12/24 for each second scan, N/3 for a young slot, `resetSlot`, the old `STATE_VERSION` and a count above 24. `DiagnosticsTests` cover the parser.
