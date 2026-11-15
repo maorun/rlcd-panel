@@ -20,6 +20,8 @@ struct ConfigEditorView: View {
                         Button("Review changes (\(model.changes.count))") { model.showDiff = true }
                             .disabled(model.changes.isEmpty)
                         Button("Discard") { model.draft = [:] }.disabled(model.draft.isEmpty)
+                        Button("Save backup…") { model.saveBackup() }
+                        Button("Restore backup…") { model.loadBackup() }
                     }
                     if !model.canSet {
                         Text("SET needs ble_console=2 or the USB serial link.").font(.caption).foregroundStyle(.secondary)
@@ -32,6 +34,8 @@ struct ConfigEditorView: View {
         }
         .disabled(model.batch != nil) // a running batch must not lose edits
         .sheet(isPresented: $model.showDiff) { diffSheet }
+        .sheet(isPresented: $model.showRestore) { restoreSheet }
+        .onChange(of: model.showRestore) { _, shown in if !shown { model.restore = nil; model.restoreFileName = nil } }
     }
 
     private func binding(_ entry: ConfigEntry, _ reply: ConfigReply) -> Binding<String> {
@@ -77,6 +81,39 @@ struct ConfigEditorView: View {
                 Button("Cancel") { model.showDiff = false }
                 Button("Apply") { model.showDiff = false; model.applyChanges() }
                     .disabled(!model.canApply).keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding().frame(minWidth: 420)
+    }
+
+    private var restoreSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Restore \(model.restoreFileName ?? "backup")").font(.headline)
+            if let rejected = model.restore?.rejected, !rejected.isEmpty {
+                Text("Rejected lines (fix the file to restore):").foregroundStyle(.red)
+                ForEach(rejected, id: \.line) { r in
+                    Text(r.text).font(.system(.caption, design: .monospaced)).foregroundStyle(.red)
+                }
+            }
+            if model.restoreChanges.isEmpty {
+                Text("The backup equals the current values.").foregroundStyle(.secondary)
+            } else {
+                Text("Changes to apply").font(.subheadline)
+                ForEach(model.restoreChanges, id: \.key) { c in
+                    Text(c.text).font(.system(.body, design: .monospaced))
+                }
+            }
+            ForEach(model.restoreChanges.filter { model.restoreProblems[$0.key] != nil }, id: \.key) { c in
+                Text("\(c.key): \(model.restoreProblems[c.key] ?? "")").foregroundStyle(.red)
+            }
+            if let w = model.restoreWarning { Text(w).foregroundStyle(.orange) }
+            if !model.canSet {
+                Text("SET needs ble_console=2 or the USB serial link.").font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                Button("Cancel") { model.closeRestore() }
+                Button("Restore") { model.applyRestore() }
+                    .disabled(!model.canRestore).keyboardShortcut(.defaultAction)
             }
         }
         .padding().frame(minWidth: 420)

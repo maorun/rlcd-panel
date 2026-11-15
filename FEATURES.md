@@ -1141,3 +1141,10 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `MUTE 0` plays no confirmation beep, unlike the unmute by a short `BOOT` press.
 - The command needs no card. The next save of the wake cycle writes the flag to RTC memory with the existing audio trailer. `STATE_VERSION` is unchanged.
 - `ConsoleCommand.mute(Bool)` sends `MUTE 0` or `MUTE 1`. `DiagnosticsView` shows the toggle `Mute alerts` with the value of `muted=` in the `POWER` line of `STATUS`. `AppModel.setMute` sends `MUTE` and then `STATUS`, so the toggle follows the state of the panel. The app sends `MUTE` only after the user changes the toggle.
+
+## Back up and restore `config.ini` in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigBackup.swift`, `ConfigEditorView.swift`, `AppModel.swift`; tests in `ConfigBackupTests.swift`.
+- `Save backup…` writes the values of the last `CONFIG` reply as a `config.ini` text file through `NSSavePanel`. `ConfigBackup.render` writes each `ConfigSchema` key once in schema order, one `key=value` line, LF line ends, no CR. A value that the schema rejects (an empty name) is a comment line `# key=`. The file holds no Wi-Fi credentials, because only schema keys are written.
+- `Restore backup…` reads a file through `NSOpenPanel`. `ConfigBackup.parse` uses the rules of `docs/config.example.ini`: blank lines and lines with `#` or `;` are skipped, unknown keys are ignored, CR before LF is tolerated. Each value goes through `ConfigSchema.validate(key:value:)`. A file above 4096 bytes (`ConfigBackup.maxBytes`) or invalid UTF-8 is refused.
+- The restore sheet lists each rejected line with its line number and the `ConfigSchema.diff` against the current values. `Restore` is disabled with a rejected line, a problem, no changes or a console that takes no `SET`. It sends only the changed keys through `ConfigBatch`. A backup equal to the current values gives an empty batch.

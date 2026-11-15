@@ -60,6 +60,10 @@ final class AppModel: ConsoleLinkDelegate {
     var batch: ConfigBatch?
     var batchSummary: String?
     var showDiff = false
+    /// Parsed backup file that waits for the restore review, with its file name.
+    var restore: ConfigBackup.Parsed?
+    var restoreFileName: String?
+    var showRestore = false
     var pendingPattern: Int?
     var showingPatternAlert = false
     private var downloadStats = (saved: 0, failed: 0)
@@ -405,6 +409,84 @@ final class AppModel: ConsoleLinkDelegate {
         message = nil
         queue = [.scan]
         sendNext()
+    }
+
+    /// Saves the values of the last `CONFIG` reply as a `config.ini` text file. Runs only on a user action.
+    func saveBackup() {
+        guard let config else { message = "Read CONFIG first"; return }
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "config.ini"
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try Data(ConfigBackup.render(values: config.values).utf8).write(to: url, options: .atomic)
+            message = "Backup saved: \(url.lastPathComponent)"
+        } catch {
+            message = "Backup failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// Reads a backup file and opens the restore review. The file is not sent before the user confirms.
+    func loadBackup() {
+        guard config != nil else { message = "Read CONFIG first"; return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.allowsMultipleSelection = false
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let values = try url.resourceValues(forKeys: [.fileSizeKey, .isRegularFileKey])
+            guard values.isRegularFile == true else { message = "Backup refused: not a regular file"; return }
+            let size = values.fileSize ?? 0
+            guard size <= ConfigBackup.maxBytes else { throw ConfigBackupError.tooLarge } // no read of a large file
+            restore = try ConfigBackup.parse(Data(contentsOf: url))
+            restoreFileName = url.lastPathComponent
+            showRestore = true
+            message = nil
+        } catch let error as ConfigBackupError {
+            message = "Backup refused: \(error.text)"
+        } catch {
+            message = "Backup not readable: \(error.localizedDescription)"
+        }
+    }
+
+    /// Changes of the loaded backup against the last `CONFIG` reply, in schema order.
+    var restoreChanges: [ConfigChange] {
+        guard let config, let restore else { return [] }
+        return restore.changes(current: config.values)
+    }
+
+    var restoreProblems: [String: String] {
+        ConfigSchema.problems(changes: restoreChanges, allValues: config?.values ?? [:])
+    }
+
+    var restoreWarning: String? {
+        guard transport == .bluetooth,
+              let c = restoreChanges.first(where: { $0.key == "ble_console" }), (Int(c.new) ?? 0) < 2 else { return nil }
+        return "ble_console below 2 over BLE stops SET. Apply it alone, or use the USB serial link."
+    }
+
+    /// Restore is allowed with changes, no problem, no rejected line, an idle link and a console that takes `SET`.
+    var canRestore: Bool {
+        canSet && !restoreChanges.isEmpty && restoreProblems.isEmpty && restore?.rejected.isEmpty == true
+            && pendingCommand == nil && queue.isEmpty && batch == nil
+    }
+
+    func closeRestore() {
+        showRestore = false
+        restore = nil
+        restoreFileName = nil
+    }
+
+    /// Sends only the changed keys of the backup through `ConfigBatch` (`SET` commands, then `CONFIG`).
+    func applyRestore() {
+        guard canRestore else { message = "Restore not allowed"; return }
+        let changes = restoreChanges
+        closeRestore()
+        message = nil
+        batchSummary = nil
+        if changes.contains(where: { SlotAssignment.isMacKey($0.key) }) { scanResult = nil }
+        batch = ConfigBatch(changes: changes)
+        sendNextBatchCommand()
     }
 
     /// Calibration changes of the selected proposals against the last `CONFIG` reply.
