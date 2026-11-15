@@ -95,7 +95,8 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("CONFIG_SET", 0x0100 | 12)) == "Config set: wake_interval_s (BLE)")
         #expect(EventText.describe(row("CONFIG_SET", 0x0100)) == "Config set: temp_offset_c (BLE)")
         #expect(EventText.describe(row("CONFIG_SET", 0x0100 | 48)) == "Config set: usb_temp_offset_c (BLE)")
-        #expect(EventText.describe(row("CONFIG_SET", 49)) == "Config set: key #49")
+        #expect(EventText.describe(row("CONFIG_SET", 49)) == "Config set: dry_alert_limit_rh (USB)")
+        #expect(EventText.describe(row("CONFIG_SET", 50)) == "Config set: key #50")
         #expect(EventText.describe(row("CONFIG_SET", 0x0100 | 200)) == "Config set: key #200")
         #expect(EventText.describe(row("CONFIG_SET", 0x0200)) == "CONFIG_SET,512")
     }

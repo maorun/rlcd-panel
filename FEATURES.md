@@ -1108,7 +1108,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The sensor stats view keeps slots 1 to 3. The CSV logs (`climate_v5`, `daily_v3`) hold slots 1 to 5. The offset keys and the console command `CALIB` cover slots 1 to 5. The console commands `STATUS` and `HISTORY` list all 6 sources.
 - The macOS companion app knows the new keys (`ConfigSchema`, 44 keys), accepts an empty value for `slot4_mac` and `slot5_mac`, finds a duplicate MAC across the 5 slots, and names 6 sensors in the history charts.
 - The early scan stop (`ScanCompletion`) still keeps the full scan while a slot is empty, so a new sensor can fill it. With fewer than 5 external sensors the scan always runs the full 4 s. This costs battery runtime.
-- `DeviceConfigText::MAX_SIZE` is 1152 bytes. A host test fills every key with its longest value.
+- `DeviceConfigText::MAX_SIZE` is 1184 bytes (1152 before the dry limit key). A host test fills every key with its longest value.
 - Preview images: `docs/display_preview_tiles1.png`, `display_preview_tiles2.png` and `display_preview_tiles6.png`. The 4 tile layout is `display_preview_dashboard.png`.
 - Host tests cover the geometry and the bounds of each layout from 1 to 6 tiles, the render for each count with the widest texts, the tile count, the registry and the fixed MACs for 5 slots, the parser and the checked `SET` for the new keys, the template sync, the RTC round trip with 5 slots, the alerts and latches for slot 5, and the unchanged log format.
 
@@ -1186,7 +1186,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 ## Calibration offsets for slots 4 and 5
 
 - **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `docs/config.example.ini`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `Replies.swift`; tests in `tests/test_firmware_logic.cpp`, `ConfigSchemaTests.swift`, `CalibrationTests.swift`.
-- `DeviceConfig::OFFSET_SLOT_COUNT` is 5. The keys `slot4_temp_offset_c`, `slot5_temp_offset_c` (-5 to 5 C), `slot4_rh_offset_pct` and `slot5_rh_offset_pct` (-10 to 10 %RH) end `DeviceConfigParser::KEYS` (`KEY_COUNT` 49). A value outside the range is a rejected line.
+- `DeviceConfig::OFFSET_SLOT_COUNT` is 5. The keys `slot4_temp_offset_c`, `slot5_temp_offset_c` (-5 to 5 C), `slot4_rh_offset_pct` and `slot5_rh_offset_pct` (-10 to 10 %RH) ended `DeviceConfigParser::KEYS` at that time (`KEY_COUNT` 48). A value outside the range is a rejected line.
 - `PersistentState` already stored five offset entries, so the config trailer keeps its size. `STATE_VERSION` was 49 here, and an RTC image of version 48 is rejected.
 - `CALIB N` accepts 0 to 5. The macOS app sends it for slots 4 and 5 and proposes the new keys. The CSV logs and the BLE telemetry frame stay unchanged.
 
@@ -1279,9 +1279,19 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 
 ## USB power temperature offset
 
-- The key `usb_temp_offset_c` (-5.0 to 0.0 C, default 0.0, 0.1 C steps) is the last entry of `DeviceConfigParser::KEYS` (`KEY_COUNT` 49). A value outside the range is a rejected line and keeps the default.
+- The key `usb_temp_offset_c` (-5.0 to 0.0 C, default 0.0, 0.1 C steps) was the last entry of `DeviceConfigParser::KEYS` (`KEY_COUNT` 49) until `dry_alert_limit_rh` followed. A value outside the range is a rejected line and keeps the default.
 - `DeviceConfig::onboardTempOffsetC(usb_powered)` returns `temp_offset_c + usb_temp_offset_c` on USB power and `temp_offset_c` on battery power. `refreshSensors()` reads the `SHTC3` after the battery reading and passes the power source to `readOnboardShtc3`.
 - The 24-hour history, the CSV logs, the telemetry frame and `CALIB` use the corrected value.
 - The console command `STATUS` shows `SHTC3 nack=<N> short=<N> crc=<N> run=<N> usb_offset=<x>` only on USB power.
 - The config trailer stores the key as 1 byte (`int8`, 0.1 C) after `ble_console`. `STATE_VERSION` is 53, and an RTC image of version 51 gives a clean start.
 - Host test `testUsbTempOffset` asserts 21.9 C on USB power and 23.1 C on battery power with `temp_offset_c=-1.9` and `usb_temp_offset_c=-1.2`, the rejected lines `-5.1` and `0.1`, and the trailer round trip.
+
+## Dry air badge and dry limit
+
+- The key `dry_alert_limit_rh` (0 is off, else 20 to 45 %RH, default 0) is the last entry of `DeviceConfigParser::KEYS` (`KEY_COUNT` 50). A value outside the range, for example `19` or `46`, is a rejected line and keeps the earlier value. `DeviceConfigText::MAX_SIZE` is 1184 (worst case 1168 bytes).
+- `DryLatch` (`dry_latch.h`) keeps one bit for each tile (bit 0 onboard, bits 1 to 5 the slots). The bit sets when the calibrated humidity is at or below the limit. It releases when the humidity is 3 %RH or more above the limit. Between the two limits the bit keeps its state. A stale slot, an empty slot, an invalid reading and a tile outside `climate_alert_tiles` clear the bit. The limit 0 never sets a bit.
+- A set bit draws the inverted badge `D` beside the `V` badge in the STANDARD, LARGE and COMPACT tiles. A tile that shows both badges puts `D` 10 px beside `V`. The latch has no chime, because `chime_alert_mask` has no free bit. The telemetry frame keeps format version 2 and has no dry flag.
+- The config trailer stores the limit as 1 byte after `heat_alert_limit_c`. `PersistentState::dry_tiles` is 1 byte just before the checksum (`PowerManager::DRY_SIZE`). A bit above bit 5 is rejected. `PersistentState::resetSlot` clears the bit of the slot. `STATE_VERSION` is 54, and an RTC image of version 53 gives a clean start.
+- **Preview:** `docs/display_preview_dry.png` shows the badge on the onboard tile and on slot 1.
+- The macOS `ConfigSchema` has the entry `dry_alert_limit_rh`, and `docs/config.example.ini` lists the key.
+- Host tests `testDryLatchConfig`, `testDryLatchLogic`, `testDryLatchRtcRoundTrip`, `testDryBadgeBounds` and `testDryPreviewScene` assert the set at 30 %RH with limit 30, the hold at 32 %RH, the release at 33 %RH, the clear for a stale tile and for a tile outside `climate_alert_tiles`, the limit 0, the rejected values 19 and 46, the RTC round trip, the rejected bit 6 and the badge pixels in each tile style. `ConfigSchemaTests` cover the range.

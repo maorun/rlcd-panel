@@ -17,6 +17,7 @@
 #include "sparkline.h"
 #include "st7305_framebuffer.h"
 #include "switchbot_ble.h"
+#include "dry_latch.h"
 #include "ventilate_latch.h"
 
 namespace rlcd_panel {
@@ -33,6 +34,7 @@ struct SystemInfo {
   bool ventilate = false;   // ventilation advice is active; the dashboard header shows the banner
   uint8_t ventilate_tiles = 0; // VentilateLatch bits: the tiles that show the "V" badge
   uint8_t sensor_battery_latch = 0; // SensorBatteryLatch bits: the slot tiles that show "BAT LOW"
+  uint8_t dry_tiles = 0;       // DryLatch bits: the tiles that show the "D" badge
   bool config_from_sd = false; // true: settings come from /sdcard/config.ini
   uint8_t config_rejected = 0; // rejected config.ini lines; above 0 shows "(N ERR)"
   LoopbackResult loopback;     // last speaker to microphone test of this wake cycle
@@ -80,6 +82,9 @@ public:
   static constexpr uint16_t VENT_BADGE_X_OFFSET = 108;
   static constexpr uint16_t VENT_BADGE_Y_OFFSET = 56;
   static constexpr uint16_t VENT_BADGE_SIZE = 9;
+  // Dry air badge "D": same box as the "V" badge, one pixel gap beside it (right of it, except in the narrow
+  // compact tile, where the tile border is on the right and the badge sits left of it).
+  static constexpr uint16_t DRY_BADGE_STEP = VENT_BADGE_SIZE + 1;
   static constexpr uint16_t BAT_LOW_Y_OFFSET = 96;
   static constexpr uint16_t BAT_LOW_W = 86;
   static constexpr uint16_t BAT_LOW_H = 18;
@@ -379,16 +384,17 @@ public:
       bool ventilate_badge = false,
       const TemperatureHistory* temperature_history = nullptr,
       bool battery_low = false,
-      char unit = 'C') {
+      char unit = 'C',
+      bool dry_badge = false) {
     const TileStyle style = tileStyle(w, h);
     if (style == TileStyle::COMPACT) {
       renderTileCompact(fb, x, y, w, h, title, valid, temp_c, humidity_pct, battery_pct, battery_voltage_v, is_stale,
-                        history, ventilate_badge, temperature_history, battery_low, unit);
+                        history, ventilate_badge, temperature_history, battery_low, unit, dry_badge);
       return;
     }
     if (style == TileStyle::LARGE) {
       renderTileLarge(fb, x, y, w, h, title, valid, temp_c, humidity_pct, battery_pct, battery_voltage_v, is_stale,
-                      history, ventilate_badge, temperature_history, battery_low, unit);
+                      history, ventilate_badge, temperature_history, battery_low, unit, dry_badge);
       return;
     }
     fb.drawRect(x, y, w, h, true);
@@ -439,6 +445,12 @@ public:
       const uint16_t by = static_cast<uint16_t>(y + VENT_BADGE_Y_OFFSET);
       fb.fillRect(bx, by, VENT_BADGE_SIZE, VENT_BADGE_SIZE, true);
       fb.drawText(bx + 2, by + 1, "V", 1, false);
+    }
+    if (dry_badge && !is_stale) {
+      const uint16_t bx = static_cast<uint16_t>(x + VENT_BADGE_X_OFFSET + (ventilate_badge ? DRY_BADGE_STEP : 0));
+      const uint16_t by = static_cast<uint16_t>(y + VENT_BADGE_Y_OFFSET);
+      fb.fillRect(bx, by, VENT_BADGE_SIZE, VENT_BADGE_SIZE, true);
+      fb.drawText(bx + 2, by + 1, "D", 1, false);
     }
 
     // A curve needs two samples. One sample would draw a single dot.
@@ -527,7 +539,7 @@ public:
       St7305Framebuffer& fb, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* title, bool valid,
       float temp_c, float humidity_pct, int8_t battery_pct, float battery_voltage_v, bool is_stale,
       const HumidityHistory* history, bool ventilate_badge, const TemperatureHistory* temperature_history,
-      bool battery_low, char unit) {
+      bool battery_low, char unit, bool dry_badge) {
     drawTileFrame(fb, x, y, w, h, title, is_stale);
     const bool narrow = w < 160;
     const uint16_t pad = narrow ? 8 : 12;
@@ -578,6 +590,13 @@ public:
       fb.fillRect(bx, by, VENT_BADGE_SIZE, VENT_BADGE_SIZE, true);
       fb.drawText(bx + 2, by + 1, "V", 1, false);
     }
+    if (dry_badge && !is_stale) {
+      const uint16_t vx = static_cast<uint16_t>(narrow ? x + w - 22 : x + 92);
+      const uint16_t bx = static_cast<uint16_t>(!ventilate_badge ? vx : (narrow ? vx - DRY_BADGE_STEP : vx + DRY_BADGE_STEP));
+      const uint16_t by = static_cast<uint16_t>(rh_y + 2);
+      fb.fillRect(bx, by, VENT_BADGE_SIZE, VENT_BADGE_SIZE, true);
+      fb.drawText(bx + 2, by + 1, "D", 1, false);
+    }
     if (narrow) {
       // Dew point and VPD line (113 px at most) from x + 6 so it ends inside the 124 px tile.
       char climate[ClimateMath::LINE_MAX_CHARS + 1];
@@ -593,7 +612,7 @@ public:
       St7305Framebuffer& fb, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* title, bool valid,
       float temp_c, float humidity_pct, int8_t battery_pct, float battery_voltage_v, bool is_stale,
       const HumidityHistory* history, bool ventilate_badge, const TemperatureHistory* temperature_history,
-      bool battery_low, char unit) {
+      bool battery_low, char unit, bool dry_badge) {
     drawTileFrame(fb, x, y, w, h, title, is_stale);
     if (!valid) {
       fb.drawText(x + 12, y + h / 2 - 7, "NO SIGNAL", 2, true);
@@ -641,6 +660,13 @@ public:
       const uint16_t by = static_cast<uint16_t>(cy + (text_h - VENT_BADGE_SIZE) / 2);
       fb.fillRect(bx, by, VENT_BADGE_SIZE, VENT_BADGE_SIZE, true);
       fb.drawText(bx + 2, by + 1, "V", 1, false);
+    }
+    if (dry_badge && !is_stale) {
+      const uint16_t vx = static_cast<uint16_t>(rh_end + 4 * TREND_MARK_GAP + TREND_MARK_SIZE);
+      const uint16_t bx = static_cast<uint16_t>(ventilate_badge ? vx + DRY_BADGE_STEP : vx);
+      const uint16_t by = static_cast<uint16_t>(cy + (text_h - VENT_BADGE_SIZE) / 2);
+      fb.fillRect(bx, by, VENT_BADGE_SIZE, VENT_BADGE_SIZE, true);
+      fb.drawText(bx + 2, by + 1, "D", 1, false);
     }
     cy = static_cast<uint16_t>(cy + text_h + gap);
     if (history != nullptr && history->size() >= 2) {
@@ -726,7 +752,8 @@ public:
       const DeviceConfig* config = nullptr,
       bool ventilate = false,
       uint8_t ventilate_tiles = 0,
-      uint8_t sensor_battery_latch = 0) {
+      uint8_t sensor_battery_latch = 0,
+      uint8_t dry_tiles = 0) {
     renderHeader(fb, "RLCD CLIMATE PANEL", battery, clock_text, quiet_hours, ventilate);
 
     size_t slot_of_tile[MAX_TILES] = {};
@@ -754,7 +781,8 @@ public:
         VentilateLatch::isSet(ventilate_tiles, 0),
         history != nullptr ? &history->temperatures[ClimateHistory::ONBOARD] : nullptr,
         false,
-        tempUnit(config));
+        tempUnit(config),
+        DryLatch::isSet(dry_tiles, 0));
 
     // Tiles 1..5: SwitchBot Outdoor Meters (WoIOSensor), BTHome v2 and ATC sensors
     for (size_t t = 1; t < n; ++t) {
@@ -783,7 +811,8 @@ public:
           VentilateLatch::isSet(ventilate_tiles, 1 + i),
           history != nullptr ? &history->temperatures[1 + i] : nullptr,
           SensorBatteryLatch::isSet(sensor_battery_latch, i),
-          tempUnit(config));
+          tempUnit(config),
+          DryLatch::isSet(dry_tiles, 1 + i));
     }
   }
 
@@ -1424,7 +1453,7 @@ public:
         break;
       case DisplayMode::DASHBOARD:
       default:
-        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours, config, info.ventilate, info.ventilate_tiles, info.sensor_battery_latch);
+        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours, config, info.ventilate, info.ventilate_tiles, info.sensor_battery_latch, info.dry_tiles);
         break;
     }
   }

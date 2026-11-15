@@ -419,6 +419,7 @@ void renderDashboard() {
   info.quiet_hours = quietHours().isActive(g_rtc_time);
   info.ventilate = (g_state.alert_mask & ALERT_VENTILATE) != 0;
   info.ventilate_tiles = g_state.ventilate_tiles;
+  info.dry_tiles = g_state.dry_tiles;
   info.sensor_battery_latch = g_state.sensor_battery_latch;
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;
@@ -857,6 +858,9 @@ void refreshSensors() {
   g_state.ventilate_tiles = VentilateLatch::update(
       g_state.ventilate_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
       config().ventilate_limit_rh, config().staleTimeoutMs());
+  g_state.dry_tiles = DryLatch::update(
+      g_state.dry_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
+      config().dry_alert_limit_rh, config().climate_alert_tiles, config().staleTimeoutMs());
   // The sensor battery latch updates before the first render. The chime follows in chimeOnSensorBattery().
   g_state.sensor_battery_latch = SensorBatteryLatch::update(
       g_state.sensor_battery_latch, tiles, MAX_SWITCHBOT_SENSORS, nowMs(), config().sensor_battery_limit_pct,
