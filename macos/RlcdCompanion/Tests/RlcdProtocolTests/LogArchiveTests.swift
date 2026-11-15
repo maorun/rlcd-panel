@@ -62,17 +62,18 @@ import Testing
         #expect(ConsoleCommand.dump("daily_v1_2025.csv").line == "DUMP daily_v1_2025.csv")
         #expect(ConsoleCommand.dump("climate_v5_202611.csv").line == "DUMP climate_v5_202611.csv")
         #expect(ConsoleCommand.dump("daily_v3_2026.csv").line == "DUMP daily_v3_2026.csv")
+        #expect(ConsoleCommand.dump("daily_v4_2026.csv").line == "DUMP daily_v4_2026.csv")
         #expect(ConsoleCommand.dump("events_v1_2026.csv").line == "DUMP events_v1_2026.csv")
     }
 
     @Test func refusesPathsAndUnknownPatterns() {
         for bad in ["../climate_v4_202611.csv", "/etc/passwd", "sub/climate_v4_202611.csv", "climate_v6_202611.csv",
-                    "climate_v4_202613.csv", "climate_v1_202611.csv", "daily_v4_2026.csv", "climate_v5_202613.csv", "daily_v2_202611.csv",
+                    "climate_v4_202613.csv", "climate_v1_202611.csv", "daily_v5_2026.csv", "climate_v5_202613.csv", "daily_v2_202611.csv",
                     "events_v1_202611.csv", "other.csv", "climate_v4_202611.csv ", "climate_v4_202611.csv\n", ""] {
             #expect(!LogArchive.isValidName(bad), "\(bad)")
             #expect(ConsoleCommand.dump(bad).line == nil, "\(bad)")
         }
-        for good in ["climate_v2_202601.csv", "climate_v3_202612.csv", "climate_v5_202611.csv", "daily_v3_2026.csv", "daily_v1_2024.csv", "daily_v2_2026.csv", "events_v1_2026.csv"] {
+        for good in ["climate_v2_202601.csv", "climate_v3_202612.csv", "climate_v5_202611.csv", "daily_v3_2026.csv", "daily_v4_2026.csv", "daily_v1_2024.csv", "daily_v2_2026.csv", "events_v1_2026.csv"] {
             #expect(LogArchive.isValidName(good), "\(good)")
         }
     }

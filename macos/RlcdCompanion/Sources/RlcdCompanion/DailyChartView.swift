@@ -3,7 +3,8 @@ import RlcdProtocol
 import SwiftUI
 
 /// One chart pair for each sensor: daily minimum, mean and maximum of temperature and humidity, and the daily noise
-/// peak for rows of `daily_v2` and `daily_v3`. Reads only the rows that `DailyLog.load` gave; sends no console command.
+/// peak for rows of `daily_v2` to `daily_v4`, and the mold hours
+/// of each sensor as a bar chart for rows of `daily_v4`. Reads only the rows that `DailyLog.load` gave; sends no console command.
 struct DailyChartView: View {
     let folder: DailyFolder
     var temperatureUnit = "°C"
@@ -40,6 +41,25 @@ struct DailyChartView: View {
         }
     }
 
+    private func moldPoints(_ sensor: Int) -> [Point] {
+        folder.rows.compactMap { row in
+            guard let date = Self.parser.date(from: row.date), sensor < row.moldHours.count,
+                  let hours = row.moldHours[sensor] else { return nil }
+            return Point(id: row.date, date: date, series: "Mold", value: Double(hours))
+        }
+    }
+
+    private func moldChart(_ data: [Point]) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Hours above mold limit").font(.caption).foregroundStyle(.secondary)
+            Chart(data) {
+                BarMark(x: .value("Day", $0.date, unit: .day), y: .value("Hours", $0.value))
+            }
+            .chartYScale(domain: 0...24)
+            .frame(height: 110)
+        }
+    }
+
     private func chart(_ title: String, _ data: [Point]) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.caption).foregroundStyle(.secondary)
@@ -72,6 +92,8 @@ struct DailyChartView: View {
                             chart("Temperature (\(temperatureUnit))", temp)
                             chart("Humidity (%RH)", rh)
                         }
+                        let mold = moldPoints(sensor)
+                        if !mold.isEmpty { moldChart(mold) } // only daily_v4 rows hold the mold hours
                     }
                 }
                 Text("Noise").font(.headline)
