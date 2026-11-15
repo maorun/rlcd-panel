@@ -1114,3 +1114,11 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Passing `--rebuild` quits a running instance, replaces the bundle, and reopens `RLCD Companion.app`. Without `--rebuild`, the script refuses while `RlcdCompanion` runs.
 - `RlcdCompanionApp` uses `WindowGroup` as the primary scene and sets `NSApplication.ActivationPolicy.regular` via `AppDelegate` so the main desktop window opens immediately on launch alongside the `MenuBarExtra`.
 - `AppModel` guards `UNUserNotificationCenter.current()` when running without a bundle identifier.
+
+## Local telemetry history and CSV export in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/TelemetryLog.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/CsvExport.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/TelemetryLogTests.swift`.
+- `TelemetryLog` stores each telemetry frame with a new sequence number: time, sequence, cell percentage, alert mask and all tiles. A frame with the sequence of the last row adds no row. The log keeps 7 days or 20,000 rows, oldest out first.
+- `TelemetryLogStore` loads `~/Library/Application Support/RlcdCompanion/telemetry.json` at start and writes it at most once a minute, through `telemetry.json.tmp` and a rename. A missing or corrupt file gives an empty log.
+- The window shows a 7-day temperature chart and a 7-day humidity chart for each tile from the log.
+- `CsvExport` writes the log, the last `HISTORY` rows and the last `EVENTS` rows as CSV with a header line, Celsius values and empty fields for missing values. A save panel selects the target file.
