@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Show daily summary charts from the downloaded logs in the macOS app
-  - Rank: [Total: 29, Use: 8, Setup: 3, Harmony: 8, Safety: 10, Effort: M]
-  - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/DailyLog.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/DailyChartView.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/ArchiveView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/DailyLogTests.swift` (new)
-  - Goal: `ArchiveView` downloads `daily_v1_YYYY.csv` (27 columns) and `daily_v2_YYYY.csv` (30 columns) into a folder, but the app does not show them. Add `DailyLog.parse(text:)` for both formats. Use the header row to select the format. Give `nil` for an empty field. Throw `ParseError.badLine` for a row with a wrong column count. Read all daily files of the selected folder. Show one Swift Charts view per sensor with the daily minimum, mean and maximum of temperature and humidity. Show the daily noise peak for `daily_v2` rows. Read only local files. Send no console command.
-  - Acceptance test: `DailyLogTests` parse one `daily_v1` and one `daily_v2` sample from `SdLogCodec` output and assert the values of one row. An empty field gives `nil`. A row with 29 columns throws `badLine`. A file with an unknown header throws `missingLine`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Show the alert state and each tile in the macOS menu bar

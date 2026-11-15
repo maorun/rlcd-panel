@@ -1155,3 +1155,10 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `DeviceConfig::OFFSET_SLOT_COUNT` is 5. The keys `slot4_temp_offset_c`, `slot5_temp_offset_c` (-5 to 5 C), `slot4_rh_offset_pct` and `slot5_rh_offset_pct` (-10 to 10 %RH) end `DeviceConfigParser::KEYS` (`KEY_COUNT` 48). A value outside the range is a rejected line.
 - `PersistentState` already stored five offset entries, so the config trailer keeps its size. `STATE_VERSION` is 49, and an RTC image of version 48 is rejected.
 - `CALIB N` accepts 0 to 5. The macOS app sends it for slots 4 and 5 and proposes the new keys. The CSV logs and the BLE telemetry frame stay unchanged.
+
+## Daily summary charts in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/DailyLog.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DailyChartView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ArchiveView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/DailyLogTests.swift`
+- `DailyLog.parse(text:)` reads `daily_v1_YYYY.csv` (27 columns) and `daily_v2_YYYY.csv` (30 columns). The header row selects the format; an unknown header throws `ParseError.missingLine`. An empty field gives `nil`. A row with a wrong column count or a non-numeric field throws `ParseError.badLine`.
+- `DailyLog.load(from:)` reads each daily file of the folder, lists unreadable files in `failedFiles` and sorts the rows by date. A `daily_v2` row replaces a `daily_v1` row of the same date.
+- The button `Show daily charts` in `ArchiveView` shows `DailyChartView`: for each sensor one Swift Charts view with the daily minimum, mean and maximum of temperature and humidity, and one chart with the daily noise peak of `daily_v2` rows. The view reads local files only and sends no console command.
