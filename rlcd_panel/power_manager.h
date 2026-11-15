@@ -10,7 +10,6 @@
 #include "battery_monitor.h"
 #include "board_pins.h"
 #include "button_handler.h"
-#include "clap_detector.h"
 #include "device_config.h"
 #include "ntp_sync.h"
 #include "sd_logger.h"
@@ -285,7 +284,7 @@ private:
   bool reported_[MAX_SWITCHBOT_SENSORS] = {};
 };
 
-// Watches the USB power during continuous clap listening. due() is true every RECHECK_MS. The
+// Watches the USB power while the serial console runs. due() is true every RECHECK_MS. The
 // caller then reads the battery and passes the result to update(). One low sample can come from a
 // bad ADC read, so LOST_SAMPLES samples in a row without USB power end the watch. Unsigned
 // subtraction keeps the timing correct when the clock wraps around.
@@ -390,8 +389,7 @@ public:
     return cause == WakeupCause::POWER_ON || cause == WakeupCause::KEY_BUTTON;
   }
 
-  // While the protection is set, the wake cycle skips the BLE scan, the audio (chimes, microphones,
-  // clap listener), the MicroSD card and Wi-Fi. Only the battery read, the warning and the sleep run.
+  // While the protection is set, the wake cycle skips the BLE scan, the audio (chimes, microphones), the MicroSD card and Wi-Fi. Only the battery read, the warning and the sleep run.
   static bool modulesAllowed(const BatteryReading& battery) {
     return !battery.empty_protection;
   }
@@ -400,20 +398,6 @@ public:
   // without power, so every later wake cycle with a set latch leaves the display alone.
   static bool needsProtectionRender(bool was_latched, bool latched) {
     return latched && !was_latched;
-  }
-
-  // Where the board listens for a double clap in this wake cycle. USB power: listen
-  // continuously, also after a timer wakeup. Battery: listen in the KEY grace window only, which
-  // runs after a KEY wakeup or a power-on. A timer wakeup on battery keeps the microphones off.
-  // A low battery alert on battery power keeps them off.
-  static ClapListenMode clapListenMode(const BatteryReading& battery, WakeupCause cause) {
-    if (battery.valid && battery.usb_powered) {
-      return ClapListenMode::CONTINUOUS;
-    }
-    if (battery.valid && battery.low_battery) {
-      return ClapListenMode::OFF;
-    }
-    return (cause == WakeupCause::TIMER) ? ClapListenMode::OFF : ClapListenMode::GRACE;
   }
 
   // The USB serial console takes commands on USB power only. On battery the board neither reads
@@ -448,7 +432,7 @@ public:
     return c.sanitized();
   }
 
-  // True while a continuous listener may keep the board awake: the next scan is not yet due.
+  // True while the console may keep the board awake: the next scan is not yet due.
   static bool continuousListenAllowed(const PowerConfig& config, uint32_t now_ms, uint32_t last_scan_ms) {
     return sleepMicros(config, now_ms, last_scan_ms) > MIN_SLEEP_US;
   }

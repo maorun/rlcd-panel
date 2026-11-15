@@ -8674,138 +8674,7 @@ struct FakeClapHal {
   void endBus() { ++end_calls; }
 };
 
-void testClapListenerDetectsDoubleClapFromAudio() {
-  FakeClapHal hal;
-  ClapEnvelope e(4000);
-  // The listener skips the first 100 ms of settling
-  e.clap(1000);
-  e.clap(1300);
-  hal.level = e.level;
-  int hits = 0;
-  {
-    ClapListener<FakeClapHal> listener(hal);
-    for (int i = 0; i < 200; ++i) {
-      if (listener.poll()) ++hits;
-    }
-    assert(listener.listening());
-    assert(hal.begin_calls == 1 && hal.config_calls == 1);
-  }
-  assert(hits == 1);
-  assert(!hal.powered && hal.shutdown_calls == 1 && hal.end_calls == 1);
-}
-
-void testClapListenerPowersDownOnEveryPath() {
-  // Bus failure
-  FakeClapHal bus;
-  bus.bus_ok = false;
-  {
-    ClapListener<FakeClapHal> l(bus);
-    assert(!l.poll() && !l.listening());
-    assert(bus.shutdown_calls == 1 && bus.end_calls == 1);
-    assert(!l.poll()); // stays stopped
-    assert(bus.begin_calls == 1);
-  }
-  // ADC failure
-  FakeClapHal adc;
-  adc.adc_ok = false;
-  {
-    ClapListener<FakeClapHal> l(adc);
-    assert(!l.poll() && !l.listening());
-    assert(adc.shutdown_calls == 1);
-  }
-  // Read failure after two frames
-  FakeClapHal rd;
-  rd.reads_before_fail = 2;
-  {
-    ClapListener<FakeClapHal> l(rd);
-    l.poll();
-    l.poll();
-    assert(l.listening() && rd.powered);
-    assert(!l.poll() && !l.listening() && !rd.powered);
-  }
-  // Explicit stop, then the destructor adds nothing
-  FakeClapHal st;
-  {
-    ClapListener<FakeClapHal> l(st);
-    l.poll();
-    l.stop();
-    assert(!st.powered && st.shutdown_calls == 1 && st.end_calls == 1);
-    l.stop();
-    assert(st.shutdown_calls == 1);
-  }
-  assert(st.shutdown_calls == 1);
-  // Scope exit without stop powers down
-  FakeClapHal sc;
-  {
-    ClapListener<FakeClapHal> l(sc);
-    l.poll();
-    assert(sc.powered);
-  }
-  assert(!sc.powered && sc.end_calls == 1);
-  // Never polled: the hardware stays untouched
-  FakeClapHal idle;
-  {
-    ClapListener<FakeClapHal> l(idle);
-  }
-  assert(idle.begin_calls == 0 && idle.shutdown_calls == 0);
-}
-
-void testClapListenerReleaseAndReopen() {
-  FakeClapHal hal;
-  ClapListener<FakeClapHal> l(hal);
-  l.poll();
-  l.release();
-  assert(!hal.powered && !l.listening());
-  l.poll();
-  assert(l.listening() && hal.begin_calls == 2);
-  l.stop();
-  assert(!hal.powered && hal.end_calls == 2);
-}
-
-void testClapListenerReopenFailurePowersDown() {
-  FakeClapHal hal;
-  ClapListener<FakeClapHal> l(hal);
-  l.poll();
-  l.release();
-  hal.bus_ok = false;
-  assert(!l.poll() && !l.listening() && !l.available());
-  assert(!hal.powered && hal.shutdown_calls == 2 && hal.end_calls == 2);
-}
-
-void testClapListenModeGate() {
-  BatteryReading usb;
-  usb.valid = true;
-  usb.usb_powered = true;
-  BatteryReading bat;
-  bat.valid = true;
-  bat.percentage = 80;
-  BatteryReading low = bat;
-  low.low_battery = true;
-  BatteryReading none; // no reading
-
-  // USB: continuous, also after a timer wakeup
-  assert(PowerManager::clapListenMode(usb, WakeupCause::TIMER) == ClapListenMode::CONTINUOUS);
-  assert(PowerManager::clapListenMode(usb, WakeupCause::KEY_BUTTON) == ClapListenMode::CONTINUOUS);
-  assert(PowerManager::clapListenMode(usb, WakeupCause::POWER_ON) == ClapListenMode::CONTINUOUS);
-  // Battery: grace window only
-  assert(PowerManager::clapListenMode(bat, WakeupCause::KEY_BUTTON) == ClapListenMode::GRACE);
-  assert(PowerManager::clapListenMode(bat, WakeupCause::POWER_ON) == ClapListenMode::GRACE);
-  assert(PowerManager::clapListenMode(bat, WakeupCause::TIMER) == ClapListenMode::OFF);
-  assert(PowerManager::clapListenMode(none, WakeupCause::TIMER) == ClapListenMode::OFF);
-  assert(PowerManager::clapListenMode(none, WakeupCause::KEY_BUTTON) == ClapListenMode::GRACE);
-  // Low battery alert: off
-  assert(PowerManager::clapListenMode(low, WakeupCause::KEY_BUTTON) == ClapListenMode::OFF);
-  assert(PowerManager::clapListenMode(low, WakeupCause::TIMER) == ClapListenMode::OFF);
-
-  // A continuous listener ends when the next scan is due
-  PowerConfig cfg;
-  assert(PowerManager::continuousListenAllowed(cfg, 10000, 0));
-  assert(PowerManager::continuousListenAllowed(cfg, 58000, 0));
-  assert(!PowerManager::continuousListenAllowed(cfg, 60000, 0));
-  assert(!PowerManager::continuousListenAllowed(cfg, 90000, 0));
-}
-
-void testClapUsbPowerWatch() {
+void testUsbPowerWatch() {
   UsbPowerWatch w(1000);
   assert(!w.due(1000) && !w.due(5999) && w.due(6000));
   assert(w.update(true, 6000));
@@ -11781,6 +11650,32 @@ void testSerialVersionCoreMatchesSketchProfile() {
   const std::string profile = readRepoFile("rlcd_panel/sketch.yaml");
   const std::string expect = std::string("esp32:esp32 (") + ARDUINO_CORE_VERSION + ")";
   assert(profile.find(expect) != std::string::npos);
+}
+
+void testModeChangesOnlyOnKeyButton() {
+  // The display mode changes on a KEY wakeup or a KEY press only. The sketch has no clap listener,
+  // and g_mode_controller.next() runs only in the KEY wakeup branch. Comment lines do not count.
+  const std::string raw = readRepoFile("rlcd_panel/rlcd_panel.ino");
+  std::string sketch;
+  std::stringstream lines(raw);
+  for (std::string line; std::getline(lines, line);) {
+    const size_t first = line.find_first_not_of(" \t");
+    if (first != std::string::npos && line.compare(first, 2, "//") != 0) {
+      sketch += line.substr(first) + "\n";
+    }
+  }
+  assert(sketch.find("ClapListener") == std::string::npos);
+  assert(sketch.find("clap_listener") == std::string::npos);
+  assert(sketch.find("ClapListenMode") == std::string::npos);
+  assert(sketch.find("clapListenMode") == std::string::npos);
+  const std::string call = "g_mode_controller.next();";
+  const std::string branch = "if (cause == WakeupCause::KEY_BUTTON) {\n" + call + "\n}\n";
+  size_t calls = 0;
+  for (size_t at = sketch.find(call); at != std::string::npos; at = sketch.find(call, at + 1)) {
+    ++calls;
+  }
+  assert(calls == 1);
+  assert(sketch.find(branch) != std::string::npos);
 }
 
 void testFlashScriptPassesGitHashSmokeCheck() {
@@ -17691,12 +17586,7 @@ int main() {
   testClapSpeechLikeBursts();
   testClapBelowMinimumPeak();
   testClapTimeWrapAround();
-  testClapListenerDetectsDoubleClapFromAudio();
-  testClapListenerPowersDownOnEveryPath();
-  testClapListenerReleaseAndReopen();
-  testClapListenerReopenFailurePowersDown();
-  testClapListenModeGate();
-  testClapUsbPowerWatch();
+  testUsbPowerWatch();
   testBatteryRuntimeLinearDischarge();
   testBatteryRuntimeDaysFormat();
   testBatteryRuntimeFlatCurve();
@@ -17799,6 +17689,7 @@ testSerialTimeNeedsNoCardAndUsbPower();
 testDumpLogsScriptSetTimeSmokeCheck();
 testSerialVersionParser();
 testSerialVersionCoreMatchesSketchProfile();
+testModeChangesOnlyOnKeyButton();
 testFlashScriptPassesGitHashSmokeCheck();
 testSerialVersionReplyFormat();
 testSerialVersionBuildIdentity();

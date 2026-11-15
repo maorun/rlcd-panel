@@ -18,7 +18,6 @@
 #include "battery_monitor.h"
 #include "ble_telemetry.h"
 #include "button_handler.h"
-#include "clap_detector.h"
 #include "dashboard_view.h"
 #include "device_config.h"
 #include "es7210_mic.h"
@@ -651,7 +650,7 @@ public:
         BleChunkSink<BleConsoleService> sink(*this, mtu);
         sink.write(reinterpret_cast<const uint8_t*>("ERR TOO_LONG\n"), 13);
         sink.flush();
-        return; // one reply per call: the loop task keeps USB serial and the clap listener running
+        return; // one reply per call: the loop task keeps USB serial running
       }
       if (!step.have) {
         if (step.events == 0) {
@@ -672,7 +671,7 @@ public:
         run(sink, SerialParseStatus::OK, command);
       }
       sink.flush();
-      return; // one command per call: the loop task keeps USB serial and the clap listener running
+      return; // one command per call: the loop task keeps USB serial running
     }
   }
 
@@ -927,8 +926,7 @@ void logEvents(bool card_ok);
 // Appends one hourly record to the MicroSD card. A missing card or a failed write never blocks
 // the cycle; the next attempt follows after a short retry interval. The wake cycle that writes the
 // record, also a timer wakeup, runs one 5 s noise window first. It is skipped with a low battery
-// alert, and then the noise fields stay empty. Other wake cycles keep the microphones off, except
-// the clap listener on USB power.
+// alert, and then the noise fields stay empty. Other wake cycles keep the microphones off.
 // The window outlasts the 3 s KEY grace window start: KEY presses during it are not seen. A failed
 // window gives a row with empty noise fields; the record is not repeated.
 void logToSdCard() {
@@ -1235,13 +1233,8 @@ void setup() {
   // Grace window after a KEY wakeup or a power-on: further KEY presses redraw without a new
   // wakeup. A timer wakeup skips it to save battery.
   const uint32_t grace_start = millis();
-  // A double clap acts like a KEY press. On USB power the board listens until the next scan is due;
-  // on battery it listens in the grace window only.
-  const ClapListenMode clap_mode = PowerManager::clapListenMode(g_state.battery, cause);
-  Es7210Hal clap_hal;
-  ClapListener<Es7210Hal> clap_listener(clap_hal);
-  // The serial console runs on USB power only and has its own USB watch, so a failed clap listener
-  // does not end it. A command mounts the card for itself only.
+  // The display mode changes on a KEY press only. The serial console runs on USB power only and has
+  // its own USB watch. A command mounts the card for itself only.
   bool console_active = PowerManager::serialConsoleAllowed(g_state.battery);
   UsbPowerWatch console_watch(millis());
   if (console_active) {
@@ -1254,36 +1247,35 @@ void setup() {
   BleConsoleService ble_console;
   ble_console.setLevel(PowerManager::bleConsoleAllowed(g_state.battery, config().ble_console) ? config().ble_console : 0);
   const bool wants_grace =
-      cause != WakeupCause::TIMER || clap_mode == ClapListenMode::CONTINUOUS || console_active;
+      cause != WakeupCause::TIMER || console_active;
   // One parsed command, shared by the USB serial console and the BLE console: only the sink differs.
   auto run_console = [&](auto& sink, SerialParseStatus status, const SerialCommand& command) {
     using Runner = SerialConsoleRunner<SdLogStorage, std::decay_t<decltype(sink)>>;
     if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::CONFIG) {
-      // The RTC copy answers: no card access, so the clap listener keeps running.
+      // The RTC copy answers: no card access, so the console keeps running.
       Runner::showConfig(sink, g_state.config,
                                                                 g_state.config_from_sd, g_state.config_rejects);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::CALIB) {
-      // The RTC histories answer: no card access, so the clap listener keeps running.
+      // The RTC histories answer: no card access, so the console keeps running.
       Runner::showCalib(sink, command.reference, g_state.history,
                                                                g_state.config);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::HISTORY) {
-      // The RTC histories answer: no card access, so the clap listener keeps running.
+      // The RTC histories answer: no card access, so the console keeps running.
       Runner::showHistory(sink, g_state.history,
                                                                  g_state.noise_history);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::EVENTS) {
-      // The RTC ring answers: no card access, so the clap listener keeps running. The ring stays.
+      // The RTC ring answers: no card access, so the console keeps running. The ring stays.
       RtcTime events_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again
       if (!g_rtc.readTime(events_now)) {
         events_now = g_rtc_time;
       }
       Runner::showEvents(sink, g_state.events, events_now);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::VERSION) {
-      // Constants answer: no card access, so the clap listener keeps running.
+      // Constants answer: no card access, so the console keeps running.
       Runner::showVersion(sink, FIRMWARE_VERSION, RLCD_GIT_HASH,
                                                                  ARDUINO_CORE_VERSION, PowerManager::STATE_VERSION,
                                                                  __DATE__, __TIME__);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SET) {
-      clap_listener.release(); // keep the I2S bus idle while the card transfers
       // The new text takes effect as after a KEY wakeup: parse it and apply it inside the registry lock.
       Runner::setConfig(
           console_storage, sink, command, [](const char* text, size_t len) {
@@ -1298,7 +1290,7 @@ void setup() {
             g_power_config = PowerManager::powerConfig(config(), g_state.battery, quietHours(), g_rtc_time);
           });
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::STATUS) {
-      // The RTC copy answers: no card access, so the clap listener keeps running.
+      // The RTC copy answers: no card access, so the console keeps running.
       portENTER_CRITICAL(&g_registry_mux); // the BLE callback writes the registry
       const SwitchBotRegistry registry_copy = g_state.registry;
       portEXIT_CRITICAL(&g_registry_mux);
@@ -1323,7 +1315,7 @@ void setup() {
       snap.abnormal_resets = AbnormalResetCounter::read(reset_store);
       Runner::showStatus(sink, snap);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::TIME) {
-      // The RTC answers over I2C: no card access, so the clap listener keeps running.
+      // The RTC answers over I2C: no card access, so the console keeps running.
       if (command.time_set) {
         if (Runner::setTime(sink, g_rtc, g_state.rtc_drift,
                                                                    command.time)) {
@@ -1354,26 +1346,21 @@ void setup() {
       Runner::showPattern(sink, g_framebuffer, g_panel,
                                                                 command.reference, &g_state.frame);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::BEEP) {
-      clap_listener.release(); // the chime uses the same I2S bus; the next poll() reopens it
       Es8311Hal beep_hal;
       Runner::beep(sink, beep_hal, command.reference,
                                                          g_state.muted, quietHours().isActive(g_rtc_time),
                                                          config().chime_volume_pct);
     } else if (status == SerialParseStatus::OK) {
-      clap_listener.release(); // keep the I2S bus idle while the card transfers
       Runner::execute(console_storage, sink, command);
     } else {
       Runner::reject(sink, status);
     }
   };
-  // Continuous listening ends when USB power ends or the listener fails; the grace window stays.
-  bool continuous_listen = clap_mode == ClapListenMode::CONTINUOUS;
-  UsbPowerWatch usb_watch(millis());
   // A pending KEY or BOOT press (long press check) keeps the window open; it ends within 2 s.
   while (wants_grace &&
          (millis() - grace_start < KEY_GRACE_MS || g_mode_controller.pressPending() ||
           g_boot_button.pressPending() ||
-          ((continuous_listen || console_active) &&
+          (console_active &&
            PowerManager::continuousListenAllowed(g_power_config, nowMs(), g_state.last_scan_ms)))) {
     if (console_active && console_watch.due(millis()) &&
         !console_watch.update(BatteryMonitor::read(config().battery_offset_mv).usb_powered, millis())) {
@@ -1403,23 +1390,6 @@ void setup() {
           : SerialConsole::parse(console_line.line(), console_line.length(), command);
       run_console(console_sink, status, command);
     }
-    if (continuous_listen && usb_watch.due(millis()) &&
-        !usb_watch.update(BatteryMonitor::read(config().battery_offset_mv).usb_powered, millis())) {
-      continuous_listen = false;
-    }
-    if (continuous_listen && !clap_listener.available()) {
-      continuous_listen = false;
-    }
-    // The read blocks for one 20 ms audio frame, so the CPU idles between frames.
-    if (clap_mode != ClapListenMode::OFF && clap_listener.poll()) {
-      clap_listener.release(); // a noise window uses the same I2S bus; the next poll() reopens it
-      g_mode_controller.next();
-      renderDashboard();
-      measureNoiseAndRedraw(true);
-      g_spectrum_attempted = false; // a new entry to the view captures again
-      g_spectrum = SpectrumReading{};
-      captureSpectrumAndRedraw(true);
-    }
     // A short BOOT press in the grace window toggles the mute flag; a short beep confirms
     // unmuting. A long BOOT press in the diagnostics view runs the loopback test instead.
     switch (g_boot_button.update(
@@ -1429,13 +1399,11 @@ void setup() {
       case BootEvent::TOGGLE_MUTE:
         g_state.muted = !g_state.muted;
         if (!g_state.muted) {
-          clap_listener.release(); // the confirm beep uses the same I2S bus
           Es8311Hal hal;
           AudioSequencer::playConfirm(hal, config().chime_volume_pct);
         }
         break;
       case BootEvent::LOOPBACK:
-        clap_listener.release(); // the loopback test uses the same I2S bus
         runLoopbackTest();
         g_boot_button.cancelPress();
         break;
@@ -1445,7 +1413,6 @@ void setup() {
     }
     switch (g_mode_controller.updateWithLongPress(digitalRead(PIN_BTN_KEY) == LOW, millis())) {
       case ButtonEvent::MODE_CHANGED:
-        clap_listener.release(); // a noise window uses the same I2S bus
         renderDashboard();
         measureNoiseAndRedraw(true);
         g_spectrum_attempted = false; // a new entry to the view captures again
@@ -1456,11 +1423,9 @@ void setup() {
         renderDashboard(); // the chart reads only the RTC histories: no sensor read, no microphone
         break;
       case ButtonEvent::RECAPTURE:
-        clap_listener.release(); // the spectrum capture uses the same I2S bus
         captureSpectrumAndRedraw(true, true);
         break;
       case ButtonEvent::CALIBRATE:
-        clap_listener.release(); // the calibration window uses the same I2S bus
         calibrateMicrophone();
         g_mode_controller.cancelPress();
         break;
@@ -1468,12 +1433,9 @@ void setup() {
       default:
         break;
     }
-    if (!clap_listener.listening()) { // an open listener blocks in poll() instead
-      delay(10);
-    }
+    delay(10);
   }
   ble_console.stop(); // the BLE service never outlives the awake window
-  clap_listener.stop(); // microphones off before deep sleep on each path
 
   cycle.advance(); // SAVE
   // Awake time of this cycle; only a timer wakeup on battery power counts (millis() restarts after sleep).
