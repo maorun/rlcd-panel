@@ -1,10 +1,13 @@
 import AppKit
 import RlcdProtocol
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// Lists the log files of the MicroSD card and downloads the selected ones into a folder. Needs the USB serial link.
 struct ArchiveView: View {
     @Bindable var model: AppModel
+    /// An events file holds a few rows for each day, so 4 MiB is far above any real file.
+    private static let maxEventsFileBytes = 4_194_304
 
     var body: some View {
         GroupBox("SD card log archive") {
@@ -15,6 +18,7 @@ struct ArchiveView: View {
                     Button("Choose folder…") { chooseFolder() }
                     Button("Show daily charts") { model.dailyFolder = model.archiveFolder.map(DailyLog.load(from:)) }
                         .disabled(model.archiveFolder == nil)
+                    Button("Open events file") { openEventsFile() }
                     Button("Select new files") { model.selectNewArchiveFiles() }
                         .disabled(model.archiveFolder == nil || model.archiveFiles.isEmpty)
                     Button("Download selected") { model.downloadSelected() }
@@ -41,6 +45,27 @@ struct ArchiveView: View {
                 if let summary = model.archiveSummary { Text(summary).font(.caption).foregroundStyle(.secondary) }
                 if let daily = model.dailyFolder { DailyChartView(folder: daily) }
             }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func openEventsFile() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = true
+        panel.canChooseDirectories = false
+        panel.directoryURL = model.archiveFolder
+        panel.allowedContentTypes = [.commaSeparatedText]
+        panel.prompt = "Open"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            let size = (try FileManager.default.attributesOfItem(atPath: url.path)[.size] as? NSNumber)?.intValue
+            guard let size, size <= Self.maxEventsFileBytes else {
+                model.archiveSummary = "\(url.lastPathComponent) is too large or has no known size"
+                return
+            }
+            model.events = try EventsReply.parse(file: String(contentsOf: url, encoding: .utf8))
+            model.archiveSummary = "Opened \(url.lastPathComponent): \(model.events.count) event(s)"
+        } catch {
+            model.archiveSummary = "Cannot open \(url.lastPathComponent): \(error)"
         }
     }
 

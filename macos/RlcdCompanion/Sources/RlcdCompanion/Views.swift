@@ -235,8 +235,9 @@ struct MainView: View {
         GroupBox("Events") {
             VStack(alignment: .leading) {
                 ForEach(Array(model.events.enumerated()), id: \.offset) { _, e in
-                    Text("\(e.time.isEmpty ? "--" : e.time)  \(e.event)  \(e.detail)")
+                    Text("\(e.time.isEmpty ? "--" : e.time)  \(EventText.describe(e))")
                         .font(.system(.caption, design: .monospaced))
+                        .foregroundStyle(EventText.isAbnormal(e) ? Color.red : Color.primary)
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }

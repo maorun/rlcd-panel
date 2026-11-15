@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Show the event log with readable texts in the macOS app
-  - Rank: [Total: 34, Use: 7, Setup: 9, Harmony: 8, Safety: 10, Effort: S]
-  - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ArchiveView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/EventTextTests.swift` (new)
-  - Goal: The events view shows the raw `event` name and the raw `detail` number. The user must know the codes of `sd_logger.h`. Add `EventText.describe(_ row: EventRow) -> String`. Decode the detail of each `EventCode`: `ALERT_RISE` and `ALERT_FALL` give the alert name of `AlertMask` (bit 0 to 7), `CONFIG_LOAD` gives the count of rejected lines, `NTP_SYNC` gives `OK`, `WIFI_FAILED`, `NTP_TIMEOUT` or `RTC_WRITE_FAILED`, `BATTERY_LOW_SET` and `BATTERY_LOW_CLEAR` give the cell percentage, `EMPTY_PROTECTION` gives `set` or `release`, `RESET` gives the `ResetReasonCodec` text, `SLOT_ASSIGN` gives the slot (high byte) and the `BleFormat` name (low byte), `SLOT_RELEASE` gives the slot number. An unknown event name or a detail outside the range gives the raw text. Mark the rows of `RESET` with an abnormal reason (`ResetMetrics.isAbnormal`). Show the decoded text in the events view. Add an `Open events file` button to `ArchiveView` that parses a downloaded `events_v1_YYYY.csv` with `EventsReply` rules and shows it in the same list. Send no new console command.
-  - Acceptance test: `EventTextTests` assert the text of one row of each of the ten event codes, for example `ALERT_RISE,7` gives `HEAT alert on`, `SLOT_ASSIGN,514` (0x0202) gives `slot 2 BTHOME`, and `RESET,4` gives `PANIC` with the abnormal mark. `ALERT_RISE,9` and an unknown name `FOO` give the raw text. A local `events_v1` file with an `EVENTS_DROPPED` first row parses. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass. The C++ host tests stay unchanged and pass.
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 - [ ] Copy one diagnostics report to the clipboard in the macOS app
