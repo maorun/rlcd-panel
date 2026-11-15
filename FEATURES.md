@@ -1321,3 +1321,9 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `DailyLog.parse(text:)` reads `daily_v4` (48 columns; 47 columns throw `ParseError.badLine`). `DailyRow.moldHours` holds one `Int?` for each sensor, `nil` for an empty field and `[]` for older formats. `LogArchive.isValidName` accepts the new name.
 - `DailyChartView` shows the mold hours as a bar chart (0 to 24 h) for each sensor that has a value.
 - Host tests `testDailyMoldHours`, `testDailySummaryRowFormat`, `testDailySummaryFileNames`, `testDailySummaryRetention`, `testDailySummaryConsole` and `testDailySlots4And5` assert the header, the row, the file name, the `DUMP` parser and the retention. `DailyLogTests` and `LogArchiveTests` assert the Swift parser and the name check.
+
+## Data age in the STALE badge
+
+- `DashboardView::formatStaleAge` gives the age of a stale slot: whole hours since `updated_ms`, `<N>H` from `1H` (also below 1 h) to `99H`, `>99H` above. A slot without a packet (`updated_ms` 0) or with a packet stamped after `now_ms` gives an empty text, so the badge shows `STALE`.
+- `DashboardView::drawStaleBadge` draws the inverted badge in the title band of the STANDARD, LARGE and COMPACT tiles: `STALE <age>`, or the age only when the title would touch the badge (3 px gap). The title scale follows the badge width. The text changes once an hour, so `FrameRefresh` still skips most frames of a stale dashboard. The stats view keeps `RSSI --`.
+- Acceptance criteria: host tests cover `1H`, `2H`, `99H`, `>99H`, the empty age, the badge pixels in each tile and the equal frame CRC-32 for two renders 10 min apart. `docs/display_preview.png` shows one stale tile.
