@@ -127,6 +127,26 @@ public enum ConfigSchema {
     }()
 
     public static let keys: [String] = entries.map(\.key)
+    /// Keys in the order of `DeviceConfigParser::KEYS`. The event `CONFIG_SET` stores the index in this order.
+    public static let firmwareKeys: [String] = [
+        "temp_offset_c", "rh_offset_pct", "freeze_alert_limit_c",
+        "mold_alert_limit_rh", "chime_volume_pct", "quiet_hours_start_hour",
+        "quiet_hours_end_hour", "mic_spl_offset_db", "log_retention_months",
+        "noise_alert_limit_db", "chime_alert_mask", "ntp_sync_interval_h",
+        "wake_interval_s", "sensor_stale_min", "display_invert",
+        "climate_alert_tiles", "battery_offset_mv", "outdoor_slot",
+        "ventilate_limit_rh", "sensor_battery_limit_pct", "slot1_temp_offset_c",
+        "slot2_temp_offset_c", "slot3_temp_offset_c", "slot1_rh_offset_pct",
+        "slot2_rh_offset_pct", "slot3_rh_offset_pct", "onboard_name",
+        "slot1_name", "slot2_name", "slot3_name",
+        "slot1_mac", "slot2_mac", "slot3_mac",
+        "slot_release_h", "night_wake_interval_s", "temp_unit",
+        "chime_repeat_h", "heat_alert_limit_c", "ble_broadcast_enabled",
+        "ble_console", "slot4_name", "slot5_name",
+        "slot4_mac", "slot5_mac", "slot4_temp_offset_c",
+        "slot5_temp_offset_c", "slot4_rh_offset_pct", "slot5_rh_offset_pct",
+        "usb_temp_offset_c",
+    ]
     private static let index: [String: Int] = Dictionary(uniqueKeysWithValues: keys.enumerated().map { ($1, $0) })
 
     public static func entry(for key: String) -> ConfigEntry? { index[key].map { entries[$0] } }

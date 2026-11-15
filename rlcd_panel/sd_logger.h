@@ -122,6 +122,7 @@ enum class EventCode : uint8_t {
   RESET = 8,            // a start that is no deep sleep wakeup; detail is the ResetReason
   SLOT_ASSIGN = 9,      // a new MAC took a registry slot; detail is slot (high byte) and BleFormat (low byte)
   SLOT_RELEASE = 10,    // releaseDeadSlots cleared a slot; detail is the slot number
+  CONFIG_SET = 11,      // a console SET succeeded; detail is the DeviceConfigParser::KEYS index (low byte), transport (high byte: 0 USB, 1 BLE)
 };
 
 struct LogEvent {
@@ -142,7 +143,7 @@ struct LogEvent {
 class EventRing {
 public:
   static constexpr size_t CAPACITY = 16;
-  static constexpr uint8_t MAX_CODE = static_cast<uint8_t>(EventCode::SLOT_RELEASE);
+  static constexpr uint8_t MAX_CODE = static_cast<uint8_t>(EventCode::CONFIG_SET);
 
   size_t size() const { return count_; }
   uint16_t dropped() const { return dropped_; }
@@ -526,6 +527,7 @@ public:
       case EventCode::RESET: return "RESET";
       case EventCode::SLOT_ASSIGN: return "SLOT_ASSIGN";
       case EventCode::SLOT_RELEASE: return "SLOT_RELEASE";
+      case EventCode::CONFIG_SET: return "CONFIG_SET";
       case EventCode::NONE: break;
     }
     return nullptr;

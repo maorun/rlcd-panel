@@ -46,6 +46,11 @@ public enum EventText {
         case "SLOT_RELEASE":
             guard (1...5).contains(d) else { return raw }
             return "slot \(d) released"
+        case "CONFIG_SET":
+            let index = d & 0xFF, transport = d >> 8
+            guard (0...0xFFFF).contains(d), transport <= 1 else { return raw }
+            guard ConfigSchema.firmwareKeys.indices.contains(index) else { return "Config set: key #\(index)" }
+            return "Config set: \(ConfigSchema.firmwareKeys[index]) (\(transport == 0 ? "USB" : "BLE"))"
         default:
             return raw
         }

@@ -1278,6 +1278,7 @@ void setup() {
   // One parsed command, shared by the USB serial console and the BLE console: only the sink differs.
   auto run_console = [&](auto& sink, SerialParseStatus status, const SerialCommand& command) {
     using Runner = SerialConsoleRunner<SdLogStorage, std::decay_t<decltype(sink)>>;
+    constexpr uint8_t transport = std::is_same_v<std::decay_t<decltype(sink)>, SerialSink> ? 0 : 1; // 0 USB, 1 BLE
     if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::CONFIG) {
       // The RTC copy answers: no card access, so the console keeps running.
       Runner::showConfig(sink, g_state.config,
@@ -1307,8 +1308,12 @@ void setup() {
                                                                  __DATE__, __TIME__);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SET) {
       // The new text takes effect as after a KEY wakeup: parse it and apply it inside the registry lock.
+      RtcTime set_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again
+      if (!g_rtc.readTime(set_now)) {
+        set_now = g_rtc_time;
+      }
       Runner::setConfig(
-          console_storage, sink, command, [](const char* text, size_t len) {
+          console_storage, sink, command, [&set_now](const char* text, size_t len) {
             DeviceConfig loaded;
             const ConfigParseResult parsed = DeviceConfigParser::parse(text, len, loaded);
             portENTER_CRITICAL(&g_registry_mux);
@@ -1316,9 +1321,10 @@ void setup() {
             portEXIT_CRITICAL(&g_registry_mux);
             // Same follow-up as a KEY wakeup: card status, event, and the sleep and listen settings.
             g_state.setSdStatus(SdStatus::OK, nowMs());
-            g_state.events.record(g_rtc_time, EventCode::CONFIG_LOAD, static_cast<uint16_t>(parsed.rejects().count));
+            g_state.events.record(set_now, EventCode::CONFIG_LOAD, static_cast<uint16_t>(parsed.rejects().count));
             g_power_config = PowerManager::powerConfig(config(), g_state.battery, quietHours(), g_rtc_time);
-          });
+          },
+          &g_state.events, &set_now, transport);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::STATUS) {
       // The RTC copy answers: no card access, so the console keeps running.
       portENTER_CRITICAL(&g_registry_mux); // the BLE callback writes the registry

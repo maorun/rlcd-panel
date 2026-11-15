@@ -89,6 +89,29 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("SLOT_RELEASE", 6)) == "SLOT_RELEASE,6")
     }
 
+    @Test func configSetGivesKeyAndTransport() {
+        // Literal indices of `DeviceConfigParser::KEYS`, not derived from the schema order.
+        #expect(EventText.describe(row("CONFIG_SET", 12)) == "Config set: wake_interval_s (USB)")
+        #expect(EventText.describe(row("CONFIG_SET", 0x0100 | 12)) == "Config set: wake_interval_s (BLE)")
+        #expect(EventText.describe(row("CONFIG_SET", 0x0100)) == "Config set: temp_offset_c (BLE)")
+        #expect(EventText.describe(row("CONFIG_SET", 0x0100 | 48)) == "Config set: usb_temp_offset_c (BLE)")
+        #expect(EventText.describe(row("CONFIG_SET", 49)) == "Config set: key #49")
+        #expect(EventText.describe(row("CONFIG_SET", 0x0100 | 200)) == "Config set: key #200")
+        #expect(EventText.describe(row("CONFIG_SET", 0x0200)) == "CONFIG_SET,512")
+    }
+
+    @Test func firmwareKeyOrderMatchesDeviceConfigHeader() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let header = try String(contentsOf: url.appendingPathComponent("rlcd_panel/device_config.h"), encoding: .utf8)
+        let start = try #require(header.range(of: "KEYS[KEY_COUNT] = {"))
+        let tail = header[start.upperBound...]
+        let block = tail[..<(try #require(tail.range(of: "};"))).lowerBound]
+        let keys = block.split(whereSeparator: { !($0.isLetter || $0.isNumber || $0 == "_") }).map(String.init)
+        #expect(ConfigSchema.firmwareKeys == keys)
+        #expect(Set(ConfigSchema.firmwareKeys) == Set(ConfigSchema.keys))
+    }
+
     @Test func unknownEventGivesRawText() {
         #expect(EventText.describe(row("FOO", 5)) == "FOO,5")
         #expect(EventText.describe(row("EVENTS_DROPPED", 3)) == "EVENTS_DROPPED,3")

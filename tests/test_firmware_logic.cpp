@@ -16210,7 +16210,7 @@ void testEventLog() {
       {0, 17},                        // count above 16
       {3 + 0, 2},                     // time flag above 1
       {3 + 8, 0},                     // code NONE in a used entry
-      {3 + 8, 11},                    // code above the last
+      {3 + 8, 12},                    // code above the last
       {3 + 3, 13},                    // month 13
       {3 + 4, 32},                    // day 32
       {3 + 5, 24},                    // hour 24
@@ -16342,7 +16342,7 @@ void testResetAndSlotEvents() {
   assert(rel.registry.slot(2).valid); // fixed slot stays, no event
   assert(rel.releaseDeadSlots(1000 + 3UL * 3600000UL) == 0);
 
-  // RTC validation: code 10 accepted, code 11 rejected
+  // RTC validation: code 10 accepted, code 12 rejected
   PersistentState save;
   save.events.record(t1, EventCode::SLOT_RELEASE, 3);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -16350,7 +16350,7 @@ void testResetAndSlotEvents() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.events.at(0).code == EventCode::SLOT_RELEASE);
   const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE;
-  buf[base + 3 + 8] = 11;
+  buf[base + 3 + 8] = 12;
   const uint32_t crc = PowerManager::crc32(buf, PowerManager::SERIALIZED_SIZE - 4);
   for (int i = 0; i < 4; ++i) buf[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState bad;
@@ -16368,6 +16368,69 @@ void testResetAndSlotEvents() {
   assert(lines[2] == "2026-11-14 09:30:00,RESET,1");
   assert(lines[3] == "2026-11-14 09:30:00,SLOT_ASSIGN,515");
   assert(lines[4] == "2026-11-14 09:30:00,SLOT_RELEASE,3");
+}
+
+void testConfigSetEvents() {
+  RtcTime t1;
+  t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 15; t1.hour = 8; t1.minute = 5; t1.second = 0;
+  assert(static_cast<uint8_t>(EventCode::CONFIG_SET) == 11 && EventRing::MAX_CODE == 11);
+  assert(strcmp(DeviceConfigParser::KEYS[0], "temp_offset_c") == 0);
+
+  // success over USB: one event, detail is the key index
+  size_t wake_index = 0;
+  while (strcmp(DeviceConfigParser::KEYS[wake_index], "wake_interval_s") != 0) ++wake_index;
+  SerialCommand cmd;
+  assert(parseText("SET wake_interval_s=90", cmd) == SerialParseStatus::OK);
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    EventRing ring;
+    assert(TestRunner::setConfig(st, sink, cmd, [](const char*, size_t) {}, &ring, &t1, 0));
+    assert(sink.out == "OK SET wake_interval_s\n" && ring.size() == 1);
+    assert(ring.at(0).code == EventCode::CONFIG_SET && ring.at(0).detail == wake_index);
+    char row[SdLogCodec::MAX_EVENT_ROW_SIZE];
+    assert(SdLogCodec::formatEventRow(ring.at(0), row, sizeof(row)) > 0);
+    assert(std::string(row) == "2026-11-15 08:05:00,CONFIG_SET," + std::to_string(wake_index) + "\n");
+  }
+  // BLE: first and last key, transport in the high byte
+  const size_t last = DeviceConfigParser::KEY_COUNT - 1;
+  const struct { size_t index; const char* value; } cases[] = {{0, "-1.0"}, {last, "-0.5"}};
+  for (const auto& c : cases) {
+    SerialCommand set;
+    const std::string line = std::string("SET ") + DeviceConfigParser::KEYS[c.index] + "=" + c.value;
+    assert(parseText(line.c_str(), set) == SerialParseStatus::OK);
+    FakeConsoleStorage st;
+    FakeSink sink;
+    EventRing ring;
+    assert(TestRunner::setConfig(st, sink, set, [](const char*, size_t) {}, &ring, &t1, 1));
+    assert(ring.size() == 1 && ring.at(0).detail == ((1u << 8) | c.index));
+  }
+  // a rejected SET records no event
+  {
+    SerialCommand bad = cmd;
+    strcpy(bad.set_value, "5"); // below the 30 s minimum
+    FakeConsoleStorage st;
+    FakeSink sink;
+    EventRing ring;
+    assert(!TestRunner::setConfig(st, sink, bad, [](const char*, size_t) {}, &ring, &t1, 0));
+    assert(sink.out.rfind("ERR BAD_VALUE", 0) == 0 && ring.size() == 0);
+  }
+  // no card: no event
+  {
+    FakeConsoleStorage st;
+    st.card = false;
+    FakeSink sink;
+    EventRing ring;
+    assert(!TestRunner::setConfig(st, sink, cmd, [](const char*, size_t) {}, &ring, &t1, 0) && ring.size() == 0);
+  }
+  // RTC ring check: code 11 passes, code 12 fails
+  LogEvent items[EventRing::CAPACITY] = {};
+  items[0].code = EventCode::CONFIG_SET;
+  items[0].detail = 0x0130;
+  EventRing back;
+  assert(back.restore(1, 0, items) && back.at(0).code == EventCode::CONFIG_SET);
+  items[0].code = static_cast<EventCode>(12);
+  assert(!back.restore(1, 0, items));
 }
 
 void testTempUnitConfig() {
@@ -18168,6 +18231,7 @@ int main() {
   testBatteryOffsetMv();
   testSlotRelease();
   testResetAndSlotEvents();
+  testConfigSetEvents();
   testChimeRepeat();
   testNightWakeInterval();
   testDashboardViewRendering();
