@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Show the hourly climate logs as charts in the macOS app
-  - Rank: [Total: 29, Use: 8, Setup: 3, Harmony: 8, Safety: 10, Effort: M]
-  - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/ClimateLog.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/ArchiveView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ClimateLogTests.swift` (new)
-  - Goal: `ArchiveView` downloads the monthly `climate_v2` to `climate_v5` files, but the app shows only the daily files. Add `ClimateLog.parse(text:)` for the four formats. Use the header row to select the format (`climate_v5` has 27 columns and six sensors, the older formats have four sensors). Give `nil` for an empty field. Throw `ParseError.badLine` for a row with a wrong column count and `ParseError.missingLine` for an unknown header. Add `ClimateLog.load(from:month:)` that reads the files of one month from the selected folder. Show one Swift Charts view per sensor with the hourly temperature and humidity, and one chart with `noise_db`, `noise_l10` and `noise_l90` for `climate_v5` rows. Let the user select the month. Read only local files. Send no console command.
-  - Acceptance test: `ClimateLogTests` parse one `climate_v5` sample from `SdLogCodec` output and one `climate_v4` sample, and assert the values of one row. An empty slot field gives `nil`. A `climate_v5` row with 26 columns throws `badLine`. A file with an unknown header throws `missingLine`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Show slots 4 and 5 on a second page of the stats view

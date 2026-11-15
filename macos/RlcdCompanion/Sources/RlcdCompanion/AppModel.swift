@@ -51,6 +51,10 @@ final class AppModel: ConsoleLinkDelegate {
     var archiveFolder: URL?
     /// Rows of the daily summary files in `archiveFolder`, read from local files only.
     var dailyFolder: DailyFolder?
+    /// Hourly climate charts: the months with a file in the archive folder, the selected month and its rows.
+    var climateMonths: [String] = []
+    var climateMonth = ""
+    var climateData: ClimateFolder?
     var archiveSummary: String?
     /// Folder of the running download. A later folder choice does not split the files of one run.
     private var downloadFolder: URL?
@@ -642,6 +646,7 @@ final class AppModel: ConsoleLinkDelegate {
         if let text { downloadStats.failed += 1; message = "\(name): \(text)" }
         if queue.isEmpty {
             if dailyFolder != nil, let folder = downloadFolder { dailyFolder = DailyLog.load(from: folder) } // visible charts follow the new files
+            if climateData != nil { showClimateCharts() } // the hourly charts follow the new files too
             downloadFolder = nil
             archiveSummary = "Saved \(downloadStats.saved), failed \(downloadStats.failed)"
         }
@@ -850,5 +855,24 @@ final class AppModel: ConsoleLinkDelegate {
         } catch {
             message = "Reply not understood: \(error)"
         }
+    }
+
+    /// Reads the months of the archive folder and shows the newest one (local files only).
+    /// `ArchiveView.chooseFolder` hides the charts when the folder changes, so `archiveFolder` is also the download folder.
+    func showClimateCharts() {
+        guard let folder = archiveFolder else { return }
+        climateMonths = ClimateLog.availableMonths(in: folder)
+        selectClimateMonth(climateMonths.contains(climateMonth) ? climateMonth : climateMonths.last ?? "")
+    }
+
+    func selectClimateMonth(_ month: String) {
+        climateMonth = month
+        guard let folder = archiveFolder, !month.isEmpty else { climateData = ClimateFolder(rows: [], failedFiles: []); return }
+        climateData = ClimateLog.load(from: folder, month: month)
+    }
+
+    func hideClimateCharts() {
+        climateMonths = []
+        climateData = nil
     }
 }
