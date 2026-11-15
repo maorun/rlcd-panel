@@ -3579,7 +3579,7 @@ void testSdLogCodec() {
   assert(buf[hl - 1] == '\n');
   size_t header_commas = 0;
   for (size_t i = 0; i < hl; ++i) header_commas += buf[i] == ',';
-  assert(header_commas == 20);
+  assert(header_commas == 26);
   assert(SdLogCodec::formatHeader(nullptr, 100) == 0);
   assert(SdLogCodec::formatHeader(buf, 0) == 0);
   assert(SdLogCodec::formatHeader(buf, hl) == 0); // no room for the terminator
@@ -3589,10 +3589,10 @@ void testSdLogCodec() {
   t.valid = true; t.year = 2026; t.month = 3; t.day = 9; t.hour = 7; t.minute = 5; t.second = 1;
   char path[SdLogCodec::MAX_PATH_SIZE];
   assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) > 0);
-  assert(strcmp(path, "/sdcard/climate_v4_202603.csv") == 0);
+  assert(strcmp(path, "/sdcard/climate_v5_202603.csv") == 0);
   t.month = 12;
   SdLogCodec::formatFilename(&t, path, sizeof(path));
-  assert(strcmp(path, "/sdcard/climate_v4_202612.csv") == 0);
+  assert(strcmp(path, "/sdcard/climate_v5_202612.csv") == 0);
   t.month = 3;
   assert(SdLogCodec::formatFilename(nullptr, path, sizeof(path)) == 0);
   assert(SdLogCodec::formatFilename(&t, nullptr, 32) == 0);
@@ -3622,7 +3622,7 @@ void testSdLogCodec() {
   slots[1].battery_pct = -1; slots[1].updated_ms = 1000;
   const size_t rl = SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 2000, nullptr, nullptr, buf, sizeof(buf));
   assert(rl == strlen(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,87,4.00,0,21.5,45.0,-3.5,80,90,19.0,50,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,87,4.00,0,21.5,45.0,-3.5,80,90,19.0,50,,,,,,,,,,,,,,,,\n") == 0);
 
   // Row with invalid battery, invalid onboard, a stale slot, a NaN slot, and a missing slot
   BatteryReading nobat;
@@ -3631,9 +3631,9 @@ void testSdLogCodec() {
   slots[1].temperature_c = NAN;
   const uint32_t late = SENSOR_STALE_TIMEOUT_MS + 5000;
   SdLogCodec::formatRow(&t, &nobat, &noonboard, slots, 3, late, nullptr, nullptr, buf, sizeof(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,,,,,,\n") == 0);
   SdLogCodec::formatRow(&t, &nobat, &noonboard, nullptr, 0, 0, nullptr, nullptr, buf, sizeof(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,,,,,,\n") == 0);
 
   // Every row has as many columns as the header
   size_t row_commas = 0;
@@ -3651,7 +3651,7 @@ void testSdLogCodec() {
   assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, nullptr, nullptr, buf, SdLogCodec::MAX_ROW_SIZE - 1) == 0);
   assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, nullptr, nullptr, buf, SdLogCodec::MAX_ROW_SIZE) > 0);
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, nullptr, nullptr, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,,,,,,\n") == 0);
 }
 
 void testSdLogSchedule() {
@@ -4496,15 +4496,15 @@ void testSdLogPercentileColumns() {
   assert(hl > 0);
   size_t header_commas = 0;
   for (size_t i = 0; i < hl; ++i) header_commas += buf[i] == ',';
-  assert(header_commas == 20); // 21 columns
-  assert(strstr(buf, "s3_battery_pct,noise_rms,noise_db,noise_band,noise_events,noise_l10,noise_l90\n") != nullptr);
+  assert(header_commas == 26); // 27 columns
+  assert(strstr(buf, "s5_battery_pct,noise_rms,noise_db,noise_band,noise_events,noise_l10,noise_l90\n") != nullptr);
 
   RtcTime t;
   t.valid = true; t.year = 2026; t.month = 3; t.day = 9; t.hour = 7; t.minute = 5; t.second = 1;
   char path[SdLogCodec::MAX_PATH_SIZE];
-  assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) == strlen("/sdcard/climate_v4_202603.csv"));
-  assert(strcmp(path, "/sdcard/climate_v4_202603.csv") == 0);
-  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v4_202603.csv")) == 0);
+  assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) == strlen("/sdcard/climate_v5_202603.csv"));
+  assert(strcmp(path, "/sdcard/climate_v5_202603.csv") == 0);
+  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v5_202603.csv")) == 0);
 
   const MicCalibration cal;
   NoiseReading noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 1000);
@@ -4512,7 +4512,7 @@ void testSdLogPercentileColumns() {
   noise.l10_rms = 1000; // 60 dB
   noise.l90_rms = 100;  // 40 dB
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,1000,60,MODERATE,0,60,40\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,1000,60,MODERATE,0,60,40\n") == 0);
   size_t row_commas = 0;
   for (size_t i = 0; buf[i] != '\0'; ++i) row_commas += buf[i] == ',';
   assert(row_commas == header_commas);
@@ -4525,7 +4525,7 @@ void testSdLogPercentileColumns() {
   // A failed window or no window: every noise field is empty
   const NoiseReading invalid;
   SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &invalid, &cal, buf, sizeof(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,,,,,,\n") == 0);
   SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, nullptr, &cal, buf, sizeof(buf));
   row_commas = 0;
   for (size_t i = 0; buf[i] != '\0'; ++i) row_commas += buf[i] == ',';
@@ -4555,7 +4555,7 @@ void testSdLogV4FileNames() {
   assert(SdLogCodec::isLogFileName("climate_v4_200001.csv"));
   assert(SdLogCodec::isLogFileName("climate_v4_202611.csv")); // old files stay valid
   assert(SdLogCodec::isLogFileName("climate_v2_202611.csv"));
-  assert(!SdLogCodec::isLogFileName("climate_v5_202611.csv"));
+  assert(!SdLogCodec::isLogFileName("climate_v6_202611.csv"));
   assert(!SdLogCodec::isLogFileName("climate_v4_202613.csv"));
   assert(!SdLogCodec::isLogFileName("climate_v4_202611.csv "));
   assert(!SdLogCodec::isLogFileName("../climate_v4_202611.csv"));
@@ -4573,20 +4573,20 @@ void testSdLogNoiseColumns() {
   assert(hl > 0);
   size_t header_commas = 0;
   for (size_t i = 0; i < hl; ++i) header_commas += buf[i] == ',';
-  assert(header_commas == 20); // 21 columns
-  assert(strstr(buf, "s3_battery_pct,noise_rms,noise_db,noise_band,noise_events,noise_l10,noise_l90\n") != nullptr);
+  assert(header_commas == 26); // 27 columns
+  assert(strstr(buf, "s5_battery_pct,noise_rms,noise_db,noise_band,noise_events,noise_l10,noise_l90\n") != nullptr);
 
   RtcTime t;
   t.valid = true; t.year = 2026; t.month = 3; t.day = 9; t.hour = 7; t.minute = 5; t.second = 1;
   // The v2 file name never matches the old 15-column file
   char path[SdLogCodec::MAX_PATH_SIZE];
-  assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) == strlen("/sdcard/climate_v4_202603.csv"));
-  assert(strcmp(path, "/sdcard/climate_v4_202603.csv") == 0);
-  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v4_202603.csv")) == 0); // no room for NUL
-  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v4_202603.csv") + 1) > 0);
+  assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) == strlen("/sdcard/climate_v5_202603.csv"));
+  assert(strcmp(path, "/sdcard/climate_v5_202603.csv") == 0);
+  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v5_202603.csv")) == 0); // no room for NUL
+  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v5_202603.csv") + 1) > 0);
   t.year = 2099; t.month = 12;
   assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) > 0);
-  assert(strcmp(path, "/sdcard/climate_v4_209912.csv") == 0);
+  assert(strcmp(path, "/sdcard/climate_v5_209912.csv") == 0);
   assert(strlen(path) < SdLogCodec::MAX_PATH_SIZE);
   t.year = 2026; t.month = 3;
 
@@ -4594,7 +4594,7 @@ void testSdLogNoiseColumns() {
   NoiseReading noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 1000);
   const MicCalibration cal;
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,1000,60,MODERATE,0,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,1000,60,MODERATE,0,,\n") == 0);
   // The calibration offset applies
   MicCalibration cal2;
   cal2.spl_offset_db = 100;
@@ -4617,9 +4617,9 @@ void testSdLogNoiseColumns() {
   // Invalid or missing noise: six empty fields, same column count
   const NoiseReading invalid;
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &invalid, &cal, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,,,,,,\n") == 0);
   SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, nullptr, &cal, buf, sizeof(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,,,,,,\n") == 0);
   row_commas = 0;
   for (size_t i = 0; buf[i] != '\0'; ++i) row_commas += buf[i] == ',';
   assert(row_commas == header_commas);
@@ -9394,7 +9394,7 @@ void testSerialParserValidCommands() {
   assert(parseText("INFO", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::INFO);
   assert(parseText("DUMP climate_v4_202611.csv", cmd) == SerialParseStatus::OK);
   assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "climate_v4_202611.csv") == 0);
-  assert(parseText("DUMP climate_v5_202611.csv", cmd) == SerialParseStatus::BAD_NAME);
+  assert(parseText("DUMP climate_v6_202611.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP ../climate_v4_202611.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP climate_v2_202611.csv", cmd) == SerialParseStatus::OK);
   assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "climate_v2_202611.csv") == 0);
@@ -13450,22 +13450,22 @@ void testDailySummaryRowFormat() {
   const size_t len = SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, stats, buf, sizeof(buf));
   assert(len == strlen(buf));
   const std::string expected = std::string("2026-03-08,20.0,22.5,21.2,40.0,50.0,45.0,-3.5,-3.5,-3.5,80.0,80.0,80.0") +
-                               std::string(12, ',') + ",40,55,55,14,7\n";
+                               std::string(24, ',') + ",40,55,55,14,7\n";
   assert(expected == buf);
 
-  // Header and row have the same column count, 30.
+  // Header and row have the same column count, 42.
   char header[SdLogCodec::DAILY_HEADER_SIZE];
   const size_t hl = SdLogCodec::formatDailyHeader(header, sizeof(header));
   assert(hl == strlen(header) && header[hl - 1] == '\n');
   assert(strncmp(header, "date,onboard_temp_min_c,", 24) == 0);
   assert(strstr(header, ",noise_min_db,noise_max_db,noise_peak_db,noise_peak_hour,noise_events_sum\n") != nullptr);
-  assert(std::count(header, header + hl, ',') == 29 && std::count(buf, buf + len, ',') == 29);
+  assert(std::count(header, header + hl, ',') == 41 && std::count(buf, buf + len, ',') == 41);
 
   // Sensors without samples and no valid noise: empty fields, same column count.
   NoiseHistory silent;
   silent.pushInvalid();
   const size_t empty_len = SdLogCodec::formatDailyRow(2026, 12, 31, ClimateHistory{}, silent, DailyNoiseStats{}, buf, sizeof(buf));
-  assert(empty_len > 0 && std::string(buf) == "2026-12-31" + std::string(29, ',') + "\n");
+  assert(empty_len > 0 && std::string(buf) == "2026-12-31" + std::string(41, ',') + "\n");
 
   // Bad arguments.
   assert(SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, stats, nullptr, 256) == 0);
@@ -13489,17 +13489,21 @@ void testDailySummaryRowFormat() {
   loud_stats.add(140, 23, 65535);
   assert(SdLogCodec::formatDailyRow(2099, 12, 31, wide, loud, loud_stats, buf, sizeof(buf)) > 0);
   assert(std::string(buf).find(",140,140,23,65535\n") != std::string::npos);
+  assert(strlen(buf) < SdLogCodec::MAX_ROW_SIZE);
+  char wide_header[SdLogCodec::DAILY_HEADER_SIZE];
+  assert(SdLogCodec::formatDailyHeader(wide_header, sizeof(wide_header)) > 0);
+  assert(strlen(wide_header) < SdLogCodec::DAILY_HEADER_SIZE);
 
-  // The hourly header has 21 columns (format version 4).
+  // The hourly header has 27 columns (format version 5).
   char hourly[SdLogCodec::MAX_ROW_SIZE];
   assert(SdLogCodec::formatHeader(hourly, sizeof(hourly)) > 0);
-  assert(std::count(hourly, hourly + strlen(hourly), ',') == 20);
+  assert(std::count(hourly, hourly + strlen(hourly), ',') == 26);
 }
 
 void testDailySummaryFileNames() {
   char path[SdLogCodec::MAX_PATH_SIZE];
   assert(SdLogCodec::formatDailyFilename(2026, path, sizeof(path)) > 0);
-  assert(strcmp(path, "/sdcard/daily_v2_2026.csv") == 0);
+  assert(strcmp(path, "/sdcard/daily_v3_2026.csv") == 0);
   assert(SdLogCodec::formatDailyFilename(1999, path, sizeof(path)) == 0 && path[0] == '\0');
   assert(SdLogCodec::formatDailyFilename(2100, path, sizeof(path)) == 0);
   assert(SdLogCodec::formatDailyFilename(2026, path, 10) == 0);
@@ -13513,7 +13517,8 @@ void testDailySummaryFileNames() {
   assert(!SdLogCodec::parseDailyFileName("daily_v1_26.csv", year));
   assert(!SdLogCodec::parseDailyFileName("daily_v1_202a.csv", year));
   assert(SdLogCodec::parseDailyFileName("daily_v2_2026.csv", year) && year == 2026);
-  assert(!SdLogCodec::parseDailyFileName("daily_v3_2026.csv", year));
+  assert(SdLogCodec::parseDailyFileName("daily_v3_2026.csv", year) && year == 2026);
+  assert(!SdLogCodec::parseDailyFileName("daily_v4_2026.csv", year));
   assert(!SdLogCodec::parseDailyFileName("daily_v2_2100.csv", year));
   assert(!SdLogCodec::parseDailyFileName("daily_v2_2026.txt", year));
   assert(!SdLogCodec::parseDailyFileName("daily_v1_2026.txt", year));
@@ -13523,6 +13528,7 @@ void testDailySummaryFileNames() {
   assert(SdLogCodec::isDailyFileName("daily_v1_2026.csv"));
   assert(SdLogCodec::isConsoleFileName("daily_v1_2026.csv"));
   assert(SdLogCodec::isConsoleFileName("daily_v2_2026.csv"));
+  assert(SdLogCodec::isConsoleFileName("daily_v3_2026.csv"));
   assert(!SdLogCodec::isLogFileName("daily_v2_2026.csv"));
   assert(SdLogCodec::isConsoleFileName("climate_v2_202611.csv"));
   assert(!SdLogCodec::isConsoleFileName("daily_v1_2026.csv/.."));
@@ -13726,7 +13732,7 @@ void testDailySummaryConsole() {
   assert(parseText("DUMP daily_v2_2026.csv", cmd) == SerialParseStatus::OK);
   assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "daily_v2_2026.csv") == 0);
   assert(parseText("DUMP daily_v2_1999.csv", cmd) == SerialParseStatus::BAD_NAME);
-  assert(parseText("DUMP daily_v3_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
+  assert(parseText("DUMP daily_v4_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP daily_v1_1999.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP daily_v1_2026.csv ", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP ../daily_v1_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
@@ -13810,9 +13816,9 @@ void testDailyNoisePeakStats() {
   // Row of a day with a peak and of a day without a reading.
   char buf[SdLogCodec::MAX_ROW_SIZE];
   assert(SdLogCodec::formatDailyRow(2026, 5, 10, ClimateHistory{}, NoiseHistory{}, one, buf, sizeof(buf)) > 0);
-  assert(std::string(buf) == "2026-05-10" + std::string(26, ',') + ",72,9,6\n");
+  assert(std::string(buf) == "2026-05-10" + std::string(38, ',') + ",72,9,6\n");
   assert(SdLogCodec::formatDailyRow(2026, 5, 10, ClimateHistory{}, NoiseHistory{}, DailyNoiseStats{}, buf, sizeof(buf)) > 0);
-  assert(std::string(buf) == "2026-05-10" + std::string(29, ',') + "\n");
+  assert(std::string(buf) == "2026-05-10" + std::string(41, ',') + "\n");
 }
 
 void testDailyNoisePeakRtcRoundTrip() {
@@ -13951,7 +13957,7 @@ void testSdLogEventsColumn() {
   assert(hl > 0 && strstr(buf, ",noise_rms,noise_db,noise_band,noise_events,noise_l10,noise_l90\n") != nullptr);
   size_t header_commas = 0;
   for (size_t i = 0; i < hl; ++i) header_commas += buf[i] == ',';
-  assert(header_commas == 20); // 21 columns
+  assert(header_commas == 26); // 27 columns
 
   RtcTime t;
   t.valid = true; t.year = 2026; t.month = 3; t.day = 9; t.hour = 7; t.minute = 5; t.second = 1;
@@ -13964,7 +13970,7 @@ void testSdLogEventsColumn() {
     noise.events = n;
     assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal, buf, sizeof(buf)) > 0);
     char expected[96];
-    snprintf(expected, sizeof(expected), "2026-03-09 07:05:01,,,,,,,,,,,,,,,1000,60,MODERATE,%u,,\n", static_cast<unsigned>(n));
+    snprintf(expected, sizeof(expected), "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,1000,60,MODERATE,%u,,\n", static_cast<unsigned>(n));
     assert(strcmp(buf, expected) == 0);
     size_t row_commas = 0;
     for (size_t i = 0; buf[i] != '\0'; ++i) row_commas += buf[i] == ',';
@@ -13975,9 +13981,9 @@ void testSdLogEventsColumn() {
   NoiseReading failed;
   failed.events = 7;
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &failed, &cal, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,,,,,,\n") == 0);
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, nullptr, &cal, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,,,,,,\n") == 0);
 
   // The longest row (all sensors, maximum events) stays inside the line bound
   BatteryReading bat;
@@ -13997,14 +14003,15 @@ void testSdLogEventsColumn() {
   // File names: the v4 name for new rows; the v2 files stay valid names for listing and retention
   char path[SdLogCodec::MAX_PATH_SIZE];
   assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) > 0);
-  assert(strcmp(path, "/sdcard/climate_v4_202603.csv") == 0);
+  assert(strcmp(path, "/sdcard/climate_v5_202603.csv") == 0);
+  assert(SdLogCodec::isLogFileName("climate_v5_202603.csv"));
   assert(SdLogCodec::isLogFileName("climate_v4_202603.csv"));
   assert(SdLogCodec::isLogFileName("climate_v2_202603.csv"));
-  assert(!SdLogCodec::isLogFileName("climate_v5_202603.csv"));
+  assert(!SdLogCodec::isLogFileName("climate_v6_202603.csv"));
   assert(!SdLogCodec::isLogFileName("climate_v5_202613.csv"));
   assert(SdLogCodec::shouldDeleteLog("climate_v3_202001.csv", rtcAt(2026, 3), 12));
   assert(SdLogCodec::shouldDeleteLog("climate_v2_202001.csv", rtcAt(2026, 3), 12));
-  assert(strlen("climate_v4_202603.csv") + 1 == SdLogCodec::LOG_NAME_SIZE);
+  assert(strlen("climate_v5_202603.csv") + 1 == SdLogCodec::LOG_NAME_SIZE);
   int py = 0, pm = 0;
   assert(SdLogCodec::parseLogFileName("climate_v3_202512.csv", py, pm) && py == 2025 && pm == 12);
   assert(SdLogCodec::parseLogFileName("climate_v2_202512.csv", py, pm) && py == 2025 && pm == 12);
@@ -15938,7 +15945,7 @@ void testTempUnitStaysCelsiusInCsv() {
   slots[0].battery_pct = 90; slots[0].updated_ms = 1000;
   char buf[SdLogCodec::MAX_ROW_SIZE];
   SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 2000, nullptr, nullptr, buf, sizeof(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,87,4.00,0,21.5,45.0,-3.5,80,90,,,,,,,,,,,,\n") == 0);
+  assert(strcmp(buf, "2026-03-09 07:05:01,87,4.00,0,21.5,45.0,-3.5,80,90,,,,,,,,,,,,,,,,,,\n") == 0);
 }
 
 void testTempUnitSerial() {
@@ -17418,7 +17425,91 @@ void testFiveSlotHistoryAndLogFormat() {
   assert(n > 0);
   size_t commas = 0;
   for (const char* c = row; *c; ++c) commas += *c == ',' ? 1 : 0;
-  assert(commas == 20); // 21 columns, as before
+  assert(commas == 26); // 27 columns
+}
+
+void testLogSlots4And5() {
+  RtcTime t;
+  t.valid = true; t.year = 2026; t.month = 11; t.day = 15; t.hour = 7; t.minute = 5; t.second = 1;
+  char buf[SdLogCodec::MAX_ROW_SIZE];
+  assert(LOG_SOURCE_COUNT == 6);
+
+  // Header: 27 columns with the slots 4 and 5 before the noise columns.
+  const size_t hl = SdLogCodec::formatHeader(buf, sizeof(buf));
+  assert(hl > 0 && std::count(buf, buf + hl, ',') == 26);
+  assert(strstr(buf, "s3_battery_pct,s4_temp_c,s4_rh,s4_battery_pct,s5_temp_c,s5_rh,s5_battery_pct,noise_rms,") != nullptr);
+
+  // Row: slot 5 holds a reading, slot 4 stays empty.
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  slots[4].valid = true;
+  slots[4].temperature_c = 18.5f;
+  slots[4].humidity_pct = 47;
+  slots[4].battery_pct = 80;
+  slots[4].updated_ms = 1000;
+  assert(SdLogCodec::formatRow(&t, nullptr, nullptr, slots, MAX_SWITCHBOT_SENSORS, 2000, nullptr, nullptr, buf,
+                               sizeof(buf)) > 0);
+  assert(std::count(buf, buf + strlen(buf), ',') == 26);
+  // 1 timestamp, 3 battery, 2 onboard, 12 slots 1 to 4 (all empty), then slot 5, then 6 empty noise fields.
+  assert(std::string(buf) == "2026-11-15 07:05:01" + std::string(17, ',') + ",18.5,47,80" + std::string(6, ',') + "\n");
+
+  // An empty slot 5 gives empty fields.
+  slots[4] = SwitchBotReading{};
+  assert(SdLogCodec::formatRow(&t, nullptr, nullptr, slots, MAX_SWITCHBOT_SENSORS, 2000, nullptr, nullptr, buf,
+                               sizeof(buf)) > 0);
+  assert(std::string(buf) == "2026-11-15 07:05:01" + std::string(26, ',') + "\n");
+
+  // A row with every field at its widest still fits.
+  BatteryReading bat;
+  bat.valid = true; bat.percentage = 100; bat.voltage_v = 4.2f; bat.usb_powered = true;
+  Shtc3Reading on;
+  on.valid = true; on.temperature_c = -40.0f; on.humidity_pct = 100.0f;
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    slots[i].valid = true; slots[i].temperature_c = -40.0f; slots[i].humidity_pct = 100;
+    slots[i].battery_pct = 100; slots[i].updated_ms = 1000;
+  }
+  NoiseReading noise;
+  noise.valid = true; noise.rms = 65535; noise.events = 65535; noise.levels_valid = true;
+  noise.l10_rms = 65535; noise.l90_rms = 65535;
+  const MicCalibration cal;
+  assert(SdLogCodec::formatRow(&t, &bat, &on, slots, MAX_SWITCHBOT_SENSORS, 2000, &noise, &cal, buf, sizeof(buf)) > 0);
+  assert(strlen(buf) < SdLogCodec::MAX_ROW_SIZE);
+
+  // File names and retention.
+  char path[SdLogCodec::MAX_PATH_SIZE];
+  assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) > 0);
+  assert(strcmp(path, "/sdcard/climate_v5_202611.csv") == 0);
+  assert(SdLogCodec::isLogFileName("climate_v5_202611.csv"));
+  assert(SdLogCodec::isConsoleFileName("climate_v5_202611.csv"));
+  assert(!SdLogCodec::isLogFileName("climate_v5_202613.csv"));
+  assert(SdLogCodec::shouldDeleteFile("climate_v5_202601.csv", rtcAt(2026, 11), 3));
+  assert(!SdLogCodec::shouldDeleteFile("climate_v5_202611.csv", rtcAt(2026, 11), 1));
+  assert(SdLogCodec::shouldDeleteFile("daily_v3_2024.csv", rtcAt(2026, 11), 12));
+  assert(!SdLogCodec::shouldDeleteFile("daily_v3_2026.csv", rtcAt(2026, 11), 12));
+
+  // DUMP accepts the new names.
+  SerialCommand cmd;
+  assert(parseText("DUMP climate_v5_202611.csv", cmd) == SerialParseStatus::OK);
+  assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "climate_v5_202611.csv") == 0);
+  assert(parseText("DUMP daily_v3_2026.csv", cmd) == SerialParseStatus::OK);
+  assert(strcmp(cmd.file, "daily_v3_2026.csv") == 0);
+  assert(parseText("DUMP climate_v6_202611.csv", cmd) == SerialParseStatus::BAD_NAME);
+}
+
+void testDailySlots4And5() {
+  ClimateHistory h;
+  h.temperatures[5].pushCelsius(10.0f);
+  h.temperatures[5].pushCelsius(20.0f);
+  h.slots[5].pushPercent(40.0f);
+  NoiseHistory noise;
+  char buf[SdLogCodec::MAX_ROW_SIZE];
+  const size_t len = SdLogCodec::formatDailyRow(2026, 11, 14, h, noise, DailyNoiseStats{}, buf, sizeof(buf));
+  assert(len > 0 && std::count(buf, buf + len, ',') == 41);
+  // Slot 5 is the last sensor: its six fields come right before the five noise fields.
+  assert(strstr(buf, ",10.0,20.0,15.0,40.0,40.0,40.0,,,,,\n") != nullptr);
+  char header[SdLogCodec::DAILY_HEADER_SIZE];
+  assert(SdLogCodec::formatDailyHeader(header, sizeof(header)) > 0);
+  assert(strstr(header, ",s4_temp_min_c,") != nullptr && strstr(header, ",s5_rh_mean,noise_min_db,") != nullptr);
+  assert(std::count(header, header + strlen(header), ',') == 41);
 }
 
 int main() {
@@ -17531,6 +17622,8 @@ int main() {
   testSparklineTemperatureMinimumSpan();
   testClimateChartRendering();
   testSdLogCodec();
+  testLogSlots4And5();
+  testDailySlots4And5();
   testNoisePercentilesSteadyTone();
   testNoisePercentilesSingleLoudBlock();
   testNoisePercentilesRamp();

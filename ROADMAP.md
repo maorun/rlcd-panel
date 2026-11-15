@@ -22,11 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Log registry slots 4 and 5 in the climate CSV files
-  - Rank: [Total: 24, Use: 6, Setup: 3, Harmony: 8, Safety: 7, Effort: M]
-  - Location: `rlcd_panel/sd_logger.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`, `macos/RlcdCompanion/Sources/RlcdProtocol/LogArchive.swift`, `AGENTS.md`
-  - Goal: `LOG_SOURCE_COUNT` is 4. Thus the monthly and the daily CSV files have no data for slots 4 and 5. Set `LOG_SOURCE_COUNT` to 6. Add format version 5 with the file names `climate_v5_YYYYMM.csv` and `daily_v3_YYYY.csv`. Keep the old files unchanged. Make `LIST`, `DUMP`, the retention, `scripts/dump-logs.sh` and `LogArchive.isValidName` accept the new names. Give empty fields for an empty or stale slot. Keep the BLE telemetry frame unchanged.
-  - Acceptance test: Host tests assert the column count of the v5 header and of one row, empty fields for an empty slot 5, that the retention deletes an old `climate_v5` file and never the current month, and that `DUMP climate_v5_202611.csv` parses. A Swift test asserts that `LogArchive.isValidName("climate_v5_202611.csv")` is true. The C++ host tests, `arduino-cli compile rlcd_panel`, `swift test` and `swift build -c release` pass.
 
 ## Rules for ranking
 
