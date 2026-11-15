@@ -81,6 +81,11 @@ struct PanelClockTests {
         #expect(ConsoleCommand.time.line == "TIME")
     }
 
+    @Test func buildMuteLine() {
+        #expect(ConsoleCommand.mute(true).line == "MUTE 1")
+        #expect(ConsoleCommand.mute(false).line == "MUTE 0")
+    }
+
     @Test func refuseBeep8AndPattern3() {
         #expect(ConsoleCommand.beep(8).line == nil)
         #expect(ConsoleCommand.beep(-1).line == nil)

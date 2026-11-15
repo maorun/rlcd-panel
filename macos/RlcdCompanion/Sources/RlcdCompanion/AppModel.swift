@@ -335,6 +335,15 @@ final class AppModel: ConsoleLinkDelegate {
         sendNext()
     }
 
+    /// Sets the mute flag of the panel, then reads `STATUS` again so the toggle follows the panel state.
+    /// Runs only on the user's toggle. The firmware answers `ERR READ_ONLY` on BLE with `ble_console` 1.
+    func setMute(_ on: Bool) {
+        guard isIdle else { return }
+        message = nil
+        queue = [.mute(on), .status]
+        sendNext()
+    }
+
     /// Chime alert name.
     static func chimeName(_ bit: Int) -> String {
         switch bit {
@@ -665,7 +674,7 @@ final class AppModel: ConsoleLinkDelegate {
                 queue.removeAll()
                 finishDownload(cmd, text: "unexpected reply")
             case (.set, .frame): batch?.receive(status: "ERR UNEXPECTED_REPLY")
-            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame):
+            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame):
                 message = "Unexpected frame reply"
             }
         } catch {

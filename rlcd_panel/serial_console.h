@@ -36,14 +36,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CALIB without a reference, with a reference above 3 or with extra text; BEEP without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text
+  BAD_ARG,  // CALIB without a reference, with a reference above 3 or with extra text; BEEP without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '=')
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv or events_v1_YYYY.csv
@@ -55,7 +55,7 @@ constexpr size_t SET_VALUE_SIZE = 41;
 struct SerialCommand {
   SerialCommandKind kind = SerialCommandKind::NONE;
   char file[SdLogCodec::LOG_NAME_SIZE] = {0};
-  uint8_t reference = 0; // CALIB: 0 onboard, 1 to 3 a slot; BEEP: alert bit number 0 to 7; PATTERN: pattern number 0 to 2
+  uint8_t reference = 0; // CALIB: 0 onboard, 1 to 3 a slot; BEEP: alert bit number 0 to 7; PATTERN: pattern number 0 to 2; MUTE: 0 or 1
   bool time_set = false; // TIME: true for "TIME SET <time>"; `time` then holds the parsed local time
   RtcTime time;
   char set_key[SET_KEY_SIZE] = {0};     // SET: key of DeviceConfigParser::KEYS
@@ -69,7 +69,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "EVENTS", "PATTERN 0..2", "SCAN", "VERSION", "SET <key>=<value>" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..3", "BEEP 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SCAN", "VERSION", "SET <key>=<value>" and "DUMP climate_v4_YYYYMM.csv" (or the old v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -148,6 +148,15 @@ public:
         return SerialParseStatus::BAD_ARG;
       }
       out.kind = SerialCommandKind::PATTERN;
+      out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "MUTE")) {
+      // exactly one digit 0 or 1
+      if (len != cmd_len + 2 || line[cmd_len + 1] < '0' || line[cmd_len + 1] > '1') {
+        return SerialParseStatus::BAD_ARG;
+      }
+      out.kind = SerialCommandKind::MUTE;
       out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
       return SerialParseStatus::OK;
     }
@@ -403,8 +412,8 @@ private:
 // Line side of the BLE console. The RX characteristic feeds feed(); a complete line goes through
 // the same SerialConsole parser as on USB. The bridge only decides what a central may run:
 //   ble_console 0: nothing (the service does not run)
-//   ble_console 1: the read commands; SET and TIME SET reply "ERR READ_ONLY"
-//   ble_console 2: also SET and TIME SET
+//   ble_console 1: the read commands; SET, MUTE and TIME SET reply "ERR READ_ONLY"
+//   ble_console 2: also SET, MUTE and TIME SET
 //   DUMP (a monthly file is too large for BLE) and SCAN (the scan stops the BLE stack that carries
 //   the console) reply "ERR NOT_OVER_BLE" at each level.
 // Only one central connects. A disconnect clears the partial line.
@@ -475,7 +484,7 @@ public:
     if (command.kind == SerialCommandKind::DUMP || command.kind == SerialCommandKind::SCAN) {
       return "ERR NOT_OVER_BLE\n";
     }
-    const bool writes = command.kind == SerialCommandKind::SET ||
+    const bool writes = command.kind == SerialCommandKind::SET || command.kind == SerialCommandKind::MUTE ||
                         (command.kind == SerialCommandKind::TIME && command.time_set);
     if (writes && level < 2) {
       return "ERR READ_ONLY\n";
@@ -625,6 +634,7 @@ struct SerialStatusSnapshot {
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 7), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
+//   MUTE N -> "OK MUTE <N>" after the mute flag of the RTC state is set (0 or 1); setMute() needs no card: execute() ignores MUTE.
 //   PATTERN N -> "OK PATTERN <N>" after the framebuffer shows test pattern N (0 black, 1 checkerboard, 2 border with cross) and the
 //   panel got it without display_invert; the next wake cycle renders the normal view. showPattern() needs no card: execute() ignores PATTERN.
 //   SCAN -> one 4 s BLE scan, then "BEGIN SCAN", the header "mac,format,rssi,slot,temp_c,rh_pct,battery_pct", one row for each MAC (format WOIO|METER|BTHOME|ATC,
@@ -1137,6 +1147,15 @@ public:
     send(sink, line);
   }
 
+  // Sets the mute flag (0 or 1) and replies "OK MUTE <0|1>". No card access. The flag lives in the RTC state; the next
+  // save of the wake cycle keeps it. A value above 1 never arrives (the parser limits it); it is treated as 1 here.
+  static void setMute(Sink& sink, bool& muted, uint8_t value) {
+    muted = value != 0;
+    char line[16];
+    snprintf(line, sizeof(line), "OK MUTE %u\n", muted ? 1u : 0u);
+    send(sink, line);
+  }
+
   // Renders test pattern `pattern` (0 to 2) into `fb` and flushes it to `panel` as it is: display_invert is not
   // applied, so the user sees the raw packing. Replies "OK PATTERN <pattern>". No card access. The pattern is no
   // dashboard frame: `frame` (when given) is invalidated, so the next wake cycle flushes the normal view.
@@ -1226,7 +1245,7 @@ public:
         command.kind == SerialCommandKind::BEEP || command.kind == SerialCommandKind::TIME ||
         command.kind == SerialCommandKind::HISTORY || command.kind == SerialCommandKind::VERSION ||
         command.kind == SerialCommandKind::EVENTS || command.kind == SerialCommandKind::PATTERN ||
-        command.kind == SerialCommandKind::SCAN ||
+        command.kind == SerialCommandKind::SCAN || command.kind == SerialCommandKind::MUTE ||
         command.kind == SerialCommandKind::SET) {
       return;
     }
@@ -1248,6 +1267,7 @@ public:
       case SerialCommandKind::EVENTS:
       case SerialCommandKind::PATTERN:
       case SerialCommandKind::SCAN:
+      case SerialCommandKind::MUTE:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;

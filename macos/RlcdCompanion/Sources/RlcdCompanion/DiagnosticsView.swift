@@ -78,6 +78,11 @@ struct DiagnosticsView: View {
                         .disabled(!model.canPattern || !model.isIdle)
                     }
 
+                    if let s = model.status {
+                        Toggle("Mute alerts", isOn: Binding(get: { s.muted }, set: { model.setMute($0) }))
+                            .disabled(!model.canSet || !model.isIdle)
+                    }
+
                     if let r = model.lastChimeResult {
                         Text("Chime reply: \(r)").font(.caption.monospaced())
                     }
