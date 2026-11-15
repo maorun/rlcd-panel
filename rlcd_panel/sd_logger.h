@@ -23,7 +23,7 @@
 
 namespace rlcd_panel {
 
-// The CSV formats (climate_v5, daily_v3) hold the onboard sensor and slots 1 to 5. The BLE
+// The CSV formats (climate_v5, daily_v4) hold the onboard sensor and slots 1 to 5. The BLE
 // telemetry frame and the older files (climate_v2 to v4, daily_v1 and v2) keep the onboard sensor and slots 1 to 3.
 constexpr size_t LOG_SOURCE_COUNT = 1 + MAX_SWITCHBOT_SENSORS;
 
@@ -316,7 +316,7 @@ public:
     return age > static_cast<int>(retention_months);
   }
 
-  // ---- Daily summary file "daily_v3_YYYY.csv" (the older "daily_v2" and "daily_v1" files stay readable) ----
+  // ---- Daily summary file "daily_v4_YYYY.csv" (the older "daily_v3", "daily_v2" and "daily_v1" files stay readable) ----
 
   // Splits a bare yearly file name "<prefix>YYYY.csv" into the year 2000..2099.
   static bool parseYearFileName(const char* name, const char* prefix, int& year) {
@@ -341,10 +341,10 @@ public:
     return true;
   }
 
-  // Splits a bare daily file name "daily_v1_YYYY.csv", "daily_v2_YYYY.csv" or "daily_v3_YYYY.csv" into the year 2000..2099.
+  // Splits a bare daily file name "daily_v1_YYYY.csv" to "daily_v4_YYYY.csv" into the year 2000..2099.
   static bool parseDailyFileName(const char* name, int& year) {
-    return parseYearFileName(name, "daily_v3_", year) || parseYearFileName(name, "daily_v2_", year) ||
-           parseYearFileName(name, "daily_v1_", year);
+    return parseYearFileName(name, "daily_v4_", year) || parseYearFileName(name, "daily_v3_", year) ||
+           parseYearFileName(name, "daily_v2_", year) || parseYearFileName(name, "daily_v1_", year);
   }
 
   static bool isDailyFileName(const char* name) {
@@ -382,7 +382,7 @@ public:
            static_cast<int>(retention_months);
   }
 
-  // Writes "/sdcard/daily_v3_YYYY.csv". Returns the length, or 0 for a null or small buffer or a
+  // Writes "/sdcard/daily_v4_YYYY.csv". Returns the length, or 0 for a null or small buffer or a
   // year outside 2000..2099.
   static size_t formatDailyFilename(uint16_t year, char* out, size_t capacity) {
     if (out == nullptr || capacity == 0) {
@@ -392,7 +392,7 @@ public:
     if (year < 2000 || year > 2099) {
       return 0;
     }
-    const int n = snprintf(out, capacity, "%s/daily_v3_%04u.csv", MOUNT_POINT, static_cast<unsigned>(year));
+    const int n = snprintf(out, capacity, "%s/daily_v4_%04u.csv", MOUNT_POINT, static_cast<unsigned>(year));
     if (n <= 0 || static_cast<size_t>(n) >= capacity) {
       out[0] = '\0';
       return 0;
@@ -401,7 +401,7 @@ public:
   }
 
   // Header line of the daily file: the date, six columns for each of the six sensors, the noise
-  // range and the noise peak summary (42 columns).
+  // range, the noise peak summary and the mold hours of each sensor (48 columns).
   static size_t formatDailyHeader(char* out, size_t capacity) {
     static const char* const SENSORS[] = {"onboard", "s1", "s2", "s3", "s4", "s5"};
     static_assert(sizeof(SENSORS) / sizeof(SENSORS[0]) == LOG_SOURCE_COUNT, "one name for each logged sensor");
@@ -422,9 +422,17 @@ public:
     if (n > 0) {
       pos += static_cast<size_t>(n);
       if (pos < capacity) {
-        n = snprintf(out + pos, capacity - pos, ",noise_min_db,noise_max_db,noise_peak_db,noise_peak_hour,noise_events_sum\n");
+        n = snprintf(out + pos, capacity - pos, ",noise_min_db,noise_max_db,noise_peak_db,noise_peak_hour,noise_events_sum");
         pos += n > 0 ? static_cast<size_t>(n) : capacity;
       }
+    }
+    for (size_t i = 0; pos < capacity && i < LOG_SOURCE_COUNT; ++i) {
+      const int n2 = snprintf(out + pos, capacity - pos, ",mold_h_%u", static_cast<unsigned>(i));
+      pos += n2 > 0 ? static_cast<size_t>(n2) : capacity;
+    }
+    if (pos < capacity) {
+      const int n3 = snprintf(out + pos, capacity - pos, "\n");
+      pos += n3 > 0 ? static_cast<size_t>(n3) : capacity;
     }
     if (pos >= capacity) {
       out[0] = '\0';
@@ -435,13 +443,14 @@ public:
 
   // Writes one daily row, including the newline: the date, then minimum, maximum and mean of the
   // temperature and of the humidity for the onboard sensor and the five slots, then the minimum and
-  // maximum noise level, then the peak level, its local hour and the event sum of `stats`. A sensor
-  // without samples, or a day without a valid noise reading, gives empty fields, so every row has 42
-  // columns.
+  // maximum noise level, then the peak level, its local hour and the event sum of `stats`, then for each
+  // sensor the hours above `mold_limit_rh` (HumidityHistory::countAbove). A sensor without samples, or a
+  // day without a valid noise reading, gives empty fields, so every row has 48 columns.
   // Returns the length, or 0 for a null or small buffer or an invalid date.
   static size_t formatDailyRow(
       uint16_t year, uint8_t month, uint8_t day, const ClimateHistory& history, const NoiseHistory& noise,
-      const DailyNoiseStats& stats, char* out, size_t capacity) {
+      const DailyNoiseStats& stats, char* out, size_t capacity,
+      uint8_t mold_limit_rh = DeviceConfig::DEFAULT_MOLD_ALERT_LIMIT_RH) {
     if (out == nullptr || capacity == 0) {
       return 0;
     }
@@ -477,6 +486,15 @@ public:
           static_cast<unsigned>(stats.peak_hour), static_cast<unsigned>(stats.events_sum)));
     } else {
       pos += static_cast<size_t>(snprintf(out + pos, capacity - pos, ",,,"));
+    }
+    for (size_t i = 0; i < LOG_SOURCE_COUNT; ++i) {
+      if (history.slots[i].size() == 0) {
+        pos += static_cast<size_t>(snprintf(out + pos, capacity - pos, ","));
+      } else {
+        pos += static_cast<size_t>(snprintf(
+            out + pos, capacity - pos, ",%u",
+            static_cast<unsigned>(history.slots[i].countAbove(static_cast<uint16_t>(mold_limit_rh * 10u)))));
+      }
     }
     pos += static_cast<size_t>(snprintf(out + pos, capacity - pos, "\n"));
     if (pos >= capacity) {
@@ -895,7 +913,7 @@ public:
   // of the summarized day, so the row of 31 December goes to the file of that year.
   static SdLogResult appendDaily(
       const RtcTime& now, const ClimateHistory& history, const NoiseHistory& noise,
-      const DailyNoiseStats& stats) {
+      const DailyNoiseStats& stats, uint8_t mold_limit_rh) {
     uint16_t year = 0;
     uint8_t month = 0, day = 0;
     DailyPlanner::previousDay(now, year, month, day);
@@ -904,7 +922,7 @@ public:
     if (SdLogCodec::formatDailyFilename(year, path, sizeof(path)) == 0) {
       return SdLogResult::NO_TIME;
     }
-    const size_t row_len = SdLogCodec::formatDailyRow(year, month, day, history, noise, stats, row, sizeof(row));
+    const size_t row_len = SdLogCodec::formatDailyRow(year, month, day, history, noise, stats, row, sizeof(row), mold_limit_rh);
     if (row_len == 0) {
       return SdLogResult::NO_TIME;
     }

@@ -14014,22 +14014,22 @@ void testDailySummaryRowFormat() {
   const size_t len = SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, stats, buf, sizeof(buf));
   assert(len == strlen(buf));
   const std::string expected = std::string("2026-03-08,20.0,22.5,21.2,40.0,50.0,45.0,-3.5,-3.5,-3.5,80.0,80.0,80.0") +
-                               std::string(24, ',') + ",40,55,55,14,7\n";
+                               std::string(24, ',') + ",40,55,55,14,7,0,1,,,,\n";
   assert(expected == buf);
 
-  // Header and row have the same column count, 42.
+  // Header and row have the same column count, 48.
   char header[SdLogCodec::DAILY_HEADER_SIZE];
   const size_t hl = SdLogCodec::formatDailyHeader(header, sizeof(header));
   assert(hl == strlen(header) && header[hl - 1] == '\n');
   assert(strncmp(header, "date,onboard_temp_min_c,", 24) == 0);
-  assert(strstr(header, ",noise_min_db,noise_max_db,noise_peak_db,noise_peak_hour,noise_events_sum\n") != nullptr);
-  assert(std::count(header, header + hl, ',') == 41 && std::count(buf, buf + len, ',') == 41);
+  assert(strstr(header, ",noise_min_db,noise_max_db,noise_peak_db,noise_peak_hour,noise_events_sum,mold_h_0,mold_h_1,mold_h_2,mold_h_3,mold_h_4,mold_h_5\n") != nullptr);
+  assert(std::count(header, header + hl, ',') == 47 && std::count(buf, buf + len, ',') == 47);
 
   // Sensors without samples and no valid noise: empty fields, same column count.
   NoiseHistory silent;
   silent.pushInvalid();
   const size_t empty_len = SdLogCodec::formatDailyRow(2026, 12, 31, ClimateHistory{}, silent, DailyNoiseStats{}, buf, sizeof(buf));
-  assert(empty_len > 0 && std::string(buf) == "2026-12-31" + std::string(41, ',') + "\n");
+  assert(empty_len > 0 && std::string(buf) == "2026-12-31" + std::string(47, ',') + "\n");
 
   // Bad arguments.
   assert(SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, stats, nullptr, 256) == 0);
@@ -14047,12 +14047,17 @@ void testDailySummaryRowFormat() {
     wide.temperatures[i].pushCelsius(100.0f);
     wide.slots[i].pushPercent(100.0f);
   }
+  for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
+    for (int k = 0; k < 24; ++k) {
+      wide.slots[i].pushPercent(100.0f); // 24 hours above the mold limit in every history
+    }
+  }
   NoiseHistory loud;
   loud.push(140);
   DailyNoiseStats loud_stats;
   loud_stats.add(140, 23, 65535);
   assert(SdLogCodec::formatDailyRow(2099, 12, 31, wide, loud, loud_stats, buf, sizeof(buf)) > 0);
-  assert(std::string(buf).find(",140,140,23,65535\n") != std::string::npos);
+  assert(std::string(buf).find(",140,140,23,65535,24,24,24,24,24,24\n") != std::string::npos);
   assert(strlen(buf) < SdLogCodec::MAX_ROW_SIZE);
   char wide_header[SdLogCodec::DAILY_HEADER_SIZE];
   assert(SdLogCodec::formatDailyHeader(wide_header, sizeof(wide_header)) > 0);
@@ -14064,10 +14069,26 @@ void testDailySummaryRowFormat() {
   assert(std::count(hourly, hourly + strlen(hourly), ',') == 26);
 }
 
+void testDailyMoldHours() {
+  ClimateHistory h;
+  const float rh[] = {71.0f, 70.0f, 85.0f, 90.0f, 70.1f, 69.9f, 95.0f}; // 5 above 70, the one at the limit does not count
+  for (float v : rh) {
+    h.slots[0].pushPercent(v);
+  }
+  h.slots[2].pushPercent(50.0f); // samples, none above the limit: 0 hours
+  char buf[SdLogCodec::MAX_ROW_SIZE];
+  const size_t len = SdLogCodec::formatDailyRow(2026, 11, 14, h, NoiseHistory{}, DailyNoiseStats{}, buf, sizeof(buf));
+  assert(len > 0 && std::count(buf, buf + len, ',') == 47);
+  assert(strstr(buf, ",,,,,,5,,0,,,\n") != nullptr); // onboard 5, s1 empty, s2 0, s3 to s5 empty
+  // Another limit changes the count: above 60 %RH, 6 samples.
+  assert(SdLogCodec::formatDailyRow(2026, 11, 14, h, NoiseHistory{}, DailyNoiseStats{}, buf, sizeof(buf), 60) > 0);
+  assert(strstr(buf, ",,,,,,7,,0,,,\n") != nullptr);
+}
+
 void testDailySummaryFileNames() {
   char path[SdLogCodec::MAX_PATH_SIZE];
   assert(SdLogCodec::formatDailyFilename(2026, path, sizeof(path)) > 0);
-  assert(strcmp(path, "/sdcard/daily_v3_2026.csv") == 0);
+  assert(strcmp(path, "/sdcard/daily_v4_2026.csv") == 0);
   assert(SdLogCodec::formatDailyFilename(1999, path, sizeof(path)) == 0 && path[0] == '\0');
   assert(SdLogCodec::formatDailyFilename(2100, path, sizeof(path)) == 0);
   assert(SdLogCodec::formatDailyFilename(2026, path, 10) == 0);
@@ -14082,7 +14103,8 @@ void testDailySummaryFileNames() {
   assert(!SdLogCodec::parseDailyFileName("daily_v1_202a.csv", year));
   assert(SdLogCodec::parseDailyFileName("daily_v2_2026.csv", year) && year == 2026);
   assert(SdLogCodec::parseDailyFileName("daily_v3_2026.csv", year) && year == 2026);
-  assert(!SdLogCodec::parseDailyFileName("daily_v4_2026.csv", year));
+  assert(SdLogCodec::parseDailyFileName("daily_v4_2026.csv", year) && year == 2026);
+  assert(!SdLogCodec::parseDailyFileName("daily_v5_2026.csv", year));
   assert(!SdLogCodec::parseDailyFileName("daily_v2_2100.csv", year));
   assert(!SdLogCodec::parseDailyFileName("daily_v2_2026.txt", year));
   assert(!SdLogCodec::parseDailyFileName("daily_v1_2026.txt", year));
@@ -14093,6 +14115,7 @@ void testDailySummaryFileNames() {
   assert(SdLogCodec::isConsoleFileName("daily_v1_2026.csv"));
   assert(SdLogCodec::isConsoleFileName("daily_v2_2026.csv"));
   assert(SdLogCodec::isConsoleFileName("daily_v3_2026.csv"));
+  assert(SdLogCodec::isConsoleFileName("daily_v4_2026.csv"));
   assert(!SdLogCodec::isLogFileName("daily_v2_2026.csv"));
   assert(SdLogCodec::isConsoleFileName("climate_v2_202611.csv"));
   assert(!SdLogCodec::isConsoleFileName("daily_v1_2026.csv/.."));
@@ -14296,7 +14319,9 @@ void testDailySummaryConsole() {
   assert(parseText("DUMP daily_v2_2026.csv", cmd) == SerialParseStatus::OK);
   assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "daily_v2_2026.csv") == 0);
   assert(parseText("DUMP daily_v2_1999.csv", cmd) == SerialParseStatus::BAD_NAME);
-  assert(parseText("DUMP daily_v4_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
+  assert(parseText("DUMP daily_v4_2026.csv", cmd) == SerialParseStatus::OK);
+  assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "daily_v4_2026.csv") == 0);
+  assert(parseText("DUMP daily_v5_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP daily_v1_1999.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP daily_v1_2026.csv ", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP ../daily_v1_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
@@ -14380,9 +14405,9 @@ void testDailyNoisePeakStats() {
   // Row of a day with a peak and of a day without a reading.
   char buf[SdLogCodec::MAX_ROW_SIZE];
   assert(SdLogCodec::formatDailyRow(2026, 5, 10, ClimateHistory{}, NoiseHistory{}, one, buf, sizeof(buf)) > 0);
-  assert(std::string(buf) == "2026-05-10" + std::string(38, ',') + ",72,9,6\n");
+  assert(std::string(buf) == "2026-05-10" + std::string(38, ',') + ",72,9,6" + std::string(6, ',') + "\n");
   assert(SdLogCodec::formatDailyRow(2026, 5, 10, ClimateHistory{}, NoiseHistory{}, DailyNoiseStats{}, buf, sizeof(buf)) > 0);
-  assert(std::string(buf) == "2026-05-10" + std::string(41, ',') + "\n");
+  assert(std::string(buf) == "2026-05-10" + std::string(47, ',') + "\n");
 }
 
 void testDailyNoisePeakRtcRoundTrip() {
@@ -18324,6 +18349,8 @@ void testLogSlots4And5() {
   assert(!SdLogCodec::shouldDeleteFile("climate_v5_202611.csv", rtcAt(2026, 11), 1));
   assert(SdLogCodec::shouldDeleteFile("daily_v3_2024.csv", rtcAt(2026, 11), 12));
   assert(!SdLogCodec::shouldDeleteFile("daily_v3_2026.csv", rtcAt(2026, 11), 12));
+  assert(SdLogCodec::shouldDeleteFile("daily_v4_2024.csv", rtcAt(2026, 11), 12));
+  assert(!SdLogCodec::shouldDeleteFile("daily_v4_2026.csv", rtcAt(2026, 11), 12));
 
   // DUMP accepts the new names.
   SerialCommand cmd;
@@ -18342,13 +18369,13 @@ void testDailySlots4And5() {
   NoiseHistory noise;
   char buf[SdLogCodec::MAX_ROW_SIZE];
   const size_t len = SdLogCodec::formatDailyRow(2026, 11, 14, h, noise, DailyNoiseStats{}, buf, sizeof(buf));
-  assert(len > 0 && std::count(buf, buf + len, ',') == 41);
-  // Slot 5 is the last sensor: its six fields come right before the five noise fields.
-  assert(strstr(buf, ",10.0,20.0,15.0,40.0,40.0,40.0,,,,,\n") != nullptr);
+  assert(len > 0 && std::count(buf, buf + len, ',') == 47);
+  // Slot 5 is the last sensor: its six fields come right before the five noise fields and the mold hours.
+  assert(strstr(buf, ",10.0,20.0,15.0,40.0,40.0,40.0,,,,,,,,,,,0\n") != nullptr);
   char header[SdLogCodec::DAILY_HEADER_SIZE];
   assert(SdLogCodec::formatDailyHeader(header, sizeof(header)) > 0);
   assert(strstr(header, ",s4_temp_min_c,") != nullptr && strstr(header, ",s5_rh_mean,noise_min_db,") != nullptr);
-  assert(std::count(header, header + strlen(header), ',') == 41);
+  assert(std::count(header, header + strlen(header), ',') == 47);
 }
 
 void testUsbTempOffset() {
@@ -18841,6 +18868,7 @@ testSerialConfigNegativeSmallOffset();
   testSerialSaltBleGate();
   testDailySummaryStatistics();
   testDailySummaryRowFormat();
+  testDailyMoldHours();
   testDailySummaryFileNames();
   testDailySummaryRetention();
   testDailyNoisePeakStats();

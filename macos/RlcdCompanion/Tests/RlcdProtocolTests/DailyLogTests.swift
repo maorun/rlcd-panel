@@ -46,6 +46,31 @@ struct DailyLogTests {
         #expect(DailyLog.isDailyFileName("daily_v3_2026.csv"))
     }
 
+    /// Header of `SdLogCodec::formatDailyHeader` (v4): the v3 header plus `mold_h_0` to `mold_h_5`.
+    private func headerV4() -> String {
+        headerV3() + "," + (0..<6).map { "mold_h_\($0)" }.joined(separator: ",")
+    }
+
+    @Test func parsesDailyV4WithMoldHours() throws {
+        let empty = Array(repeating: "", count: 6).joined(separator: ",")
+        let line = "2026-11-14,20.1,24.8,22.3,40.0,55.5,47.2,\(empty),\(empty),\(empty),\(empty),\(empty),35,62,71,18,12,5,,,,,0"
+        let log = try DailyLog.parse(text: headerV4() + "\n" + line + "\n")
+        #expect(log.format == .v4)
+        #expect(log.rows.count == 1)
+        #expect(log.rows[0].sensors.count == 6)
+        #expect(log.rows[0].noiseEventsSum == 12)
+        #expect(log.rows[0].moldHours == [5, nil, nil, nil, nil, 0])
+        #expect(DailyLog.isDailyFileName("daily_v4_2026.csv"))
+        // 47 columns: the last mold column is missing.
+        let short = String(line.dropLast(2))
+        #expect(throws: ParseError.badLine(short)) { try DailyLog.parse(text: headerV4() + "\n" + short + "\n") }
+        // A v3 row under the v4 header is wrong too.
+        #expect(throws: ParseError.self) { try DailyLog.parse(text: headerV4() + "\n" + row(v2: true) + "\n") }
+        // v3 rows keep an empty mold list.
+        let v3 = "2026-11-14,20.1,24.8,22.3,40.0,55.5,47.2,\(empty),\(empty),\(empty),\(empty),\(empty),35,62,71,18,12"
+        #expect(try DailyLog.parse(text: headerV3() + "\n" + v3 + "\n").rows[0].moldHours.isEmpty)
+    }
+
     @Test func parsesDailyV1() throws {
         let log = try DailyLog.parse(text: header(v2: false) + "\n" + row(v2: false) + "\n")
         #expect(log.format == .v1)
@@ -123,6 +148,20 @@ struct DailyLogTests {
         #expect(result.failedFiles == ["daily_v2_2027.csv"])
     }
 
+    @Test func daily4RowReplacesDaily3RowOfSameDate() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rlcd-daily-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let empty = Array(repeating: "", count: 6).joined(separator: ",")
+        let v3 = "2026-11-14,20.1,24.8,22.3,40.0,55.5,47.2,\(empty),\(empty),\(empty),\(empty),\(empty),35,62,71,18,12"
+        try (headerV3() + "\n" + v3 + "\n").write(to: dir.appendingPathComponent("daily_v3_2026.csv"), atomically: true, encoding: .utf8)
+        try (headerV4() + "\n" + v3 + ",7,,,,,\n").write(to: dir.appendingPathComponent("daily_v4_2026.csv"), atomically: true, encoding: .utf8)
+        let result = DailyLog.load(from: dir)
+        #expect(result.rows.count == 1)
+        #expect(result.rows[0].moldHours == [7, nil, nil, nil, nil, nil])
+        #expect(result.failedFiles.isEmpty)
+    }
+
     @Test func acceptsBomAndEmptyPeakFields() throws {
         let line = row(v2: true).replacingOccurrences(of: ",71,18,12", with: ",,,")
         let r = try DailyLog.parse(text: "\u{FEFF}" + header(v2: true) + "\n" + line + "\n").rows[0]
@@ -141,7 +180,7 @@ struct DailyLogTests {
         #expect(DailyLog.isDailyFileName("daily_v1_2025.csv"))
         #expect(DailyLog.isDailyFileName("daily_v2_2026.csv"))
         #expect(DailyLog.isDailyFileName("daily_v3_2026.csv"))
-        #expect(!DailyLog.isDailyFileName("daily_v4_2026.csv"))
+        #expect(!DailyLog.isDailyFileName("daily_v5_2026.csv"))
         #expect(!DailyLog.isDailyFileName("climate_v4_202611.csv"))
         #expect(!DailyLog.isDailyFileName("events_v1_2026.csv"))
         #expect(!DailyLog.isDailyFileName("../daily_v2_2026.csv"))
