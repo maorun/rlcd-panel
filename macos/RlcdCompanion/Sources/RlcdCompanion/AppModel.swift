@@ -24,6 +24,12 @@ final class AppModel: ConsoleLinkDelegate {
     var diagnostics: DiagnosticsReply?
     var version: VersionReply?
     var scanResult: ScanReply?
+    var archiveFiles: [LogFile] = []
+    var archiveSelection: Set<String> = []
+    var archiveFolder: URL?
+    var archiveSummary: String?
+    /// Folder of the running download. A later folder choice does not split the files of one run.
+    private var downloadFolder: URL?
     var panelTime: TimeReply?
     var panelOffsetSeconds: Int?
     var lastChimeResult: String?
@@ -45,6 +51,7 @@ final class AppModel: ConsoleLinkDelegate {
     var showDiff = false
     var pendingPattern: Int?
     var showingPatternAlert = false
+    private var downloadStats = (saved: 0, failed: 0)
     private var pendingCommand: ConsoleCommand?
     private var queue: [ConsoleCommand] = []
     private var assembler = ReplyAssembler()
@@ -177,14 +184,22 @@ final class AppModel: ConsoleLinkDelegate {
         diagnostics = nil
         version = nil
         scanResult = nil
+        clearArchive()
         panelTime = nil
         panelOffsetSeconds = nil
         lastChimeResult = nil
         lastPatternResult = nil
     }
 
+    private func clearArchive() {
+        archiveFiles = []
+        archiveSelection = []
+        archiveSummary = nil
+    }
+
     func disconnectConsole() {
         scanResult = nil
+        clearArchive()
         panelTime = nil
         panelOffsetSeconds = nil
         lastChimeResult = nil
@@ -196,6 +211,7 @@ final class AppModel: ConsoleLinkDelegate {
 
     func selectTransport(_ t: Transport) {
         scanResult = nil
+        clearArchive()
         transport = t
         resetLink()
         consoleConnected = false
@@ -216,6 +232,7 @@ final class AppModel: ConsoleLinkDelegate {
         if transport == .bluetooth { scanner.commandDidFinish() }
         timeout?.cancel()
         timeout = nil
+        if case .dump = pendingCommand { downloadFolder = nil; archiveSummary = "Download stopped, saved \(downloadStats.saved), failed \(downloadStats.failed)" }
         pendingCommand = nil
         queue.removeAll()
         assembler.reset()
@@ -347,6 +364,55 @@ final class AppModel: ConsoleLinkDelegate {
         sendNext()
     }
 
+    /// `LIST` and `DUMP` run only on the USB serial link; the firmware replies `ERR NOT_OVER_BLE` on BLE.
+    var canArchive: Bool { consoleConnected && transport == .usb }
+
+    /// Reads the file list of the MicroSD card.
+    func listArchive() {
+        guard canArchive else { message = "LIST needs the USB serial link"; return }
+        guard pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        message = nil
+        archiveSummary = nil
+        archiveFiles = []
+        archiveSelection = []
+        queue = [.list]
+        sendNext()
+    }
+
+    /// Selects the files that a folder lacks or holds with another size, and the file of the current month.
+    func selectNewArchiveFiles(now: Date = Date()) {
+        guard let folder = archiveFolder else { return }
+        let c = Calendar.current.dateComponents([.year, .month], from: now)
+        let plan = LogArchive.plan(remote: archiveFiles, localSizes: LogArchive.localSizes(in: folder),
+                                   year: c.year ?? 0, month: c.month ?? 0)
+        archiveSelection = Set(plan.map(\.name))
+    }
+
+    /// Downloads the selected files one after the other into the folder. Each file is stored only after a correct CRC-32.
+    func downloadSelected() {
+        guard canArchive else { message = "DUMP needs the USB serial link"; return }
+        guard let folder = archiveFolder else { message = "Choose a folder first"; return }
+        guard pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        let selected = archiveFiles.filter { archiveSelection.contains($0.name) }
+        let names = selected.filter(LogArchive.isDownloadable).map(\.name)
+        guard !names.isEmpty else { message = selected.isEmpty ? "No file selected" : "Selected files are too large"; return }
+        message = selected.count > names.count ? "Skipped \(selected.count - names.count) file(s) above 16 MiB" : nil
+        downloadStats = (0, 0)
+        downloadFolder = folder
+        archiveSummary = "Downloading \(names.count) file(s)"
+        queue = names.map { .dump($0) }
+        sendNext()
+    }
+
+    private func finishDownload(_ cmd: ConsoleCommand, text: String?) {
+        guard case let .dump(name) = cmd else { return }
+        if let text { downloadStats.failed += 1; message = "\(name): \(text)" }
+        if queue.isEmpty {
+            downloadFolder = nil
+            archiveSummary = "Saved \(downloadStats.saved), failed \(downloadStats.failed)"
+        }
+    }
+
     /// Sets (`mac`) or clears (`nil`) the fixed MAC of one slot, then reads `CONFIG` and scans again.
     func assign(slot: Int, mac: String?) {
         guard canSet else { message = "SET needs ble_console=2 or the USB serial link"; return }
@@ -386,6 +452,7 @@ final class AppModel: ConsoleLinkDelegate {
             guard !Task.isCancelled else { return }
             guard let self else { return }
             message = "No reply to \(cmd.line ?? "command")"
+            if case .dump = cmd { archiveSummary = "Download stopped, saved \(downloadStats.saved), failed \(downloadStats.failed)" }
             if cmd == .scan { scanResult = nil }
             pendingCommand = nil
             queue.removeAll()
@@ -449,13 +516,25 @@ final class AppModel: ConsoleLinkDelegate {
             switch (cmd, reply) {
             case (_, let .corrupt(e)):
                 message = "Reply rejected: \(e)"
-                queue.removeAll()
+                // A wrong CRC-32 follows a complete frame, so the stream stays in step and the next file may follow.
+                // Any other error leaves the stream out of step.
+                if case .badCrc = e, case .dump = cmd {} else { queue.removeAll() }
+                finishDownload(cmd, text: "rejected: \(e)")
                 batch?.receive(status: "ERR CORRUPT")
             case (_, let .status(text)):
                 message = text
+                // A file that the card no longer holds (log retention) does not stop the other files.
+                var keepQueue = false
+                if case .dump = cmd {
+                    // ERR READ_FAILED follows a complete frame of padded bytes, so the stream stays in step too.
+                    keepQueue = text == "ERR NOT_FOUND" || text == "ERR READ_FAILED"
+                    if !keepQueue { queue.removeAll() }
+                    finishDownload(cmd, text: text)
+                }
+                if cmd == .list { archiveFiles = [] }
                 if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
                 batch?.receive(status: text)
-                if text.hasPrefix("ERR") { queue.removeAll() }
+                if text.hasPrefix("ERR"), !keepQueue { queue.removeAll() }
                 if cmd == .time || text.hasPrefix("TIME ") || text == "TIME" {
                     if let t = try? TimeReply.parse(text) {
                         panelTime = t
@@ -485,6 +564,30 @@ final class AppModel: ConsoleLinkDelegate {
             case let (.scan, .frame(lines)):
                 scanResult = nil // a reply that fails to parse must not leave the old rows
                 scanResult = try ScanReply.parse(lines: lines)
+            case let (.list, .frame(lines)):
+                archiveFiles = []
+                archiveFiles = try ListReply.parse(lines: lines)
+                archiveSummary = "\(archiveFiles.count) file(s) on the card"
+                selectNewArchiveFiles()
+            case let (.dump(name), .file(gotName, bytes)):
+                guard gotName == name, let folder = downloadFolder else {
+                    queue.removeAll()
+                    finishDownload(cmd, text: "unexpected file \(gotName)")
+                    break
+                }
+                do {
+                    try LogArchive.store(bytes, name: name, in: folder)
+                    downloadStats.saved += 1
+                    finishDownload(cmd, text: nil)
+                } catch {
+                    queue.removeAll()
+                    finishDownload(cmd, text: "not saved: \(error.localizedDescription)")
+                }
+            case (_, .file): message = "Unexpected file reply"
+            case (.list, _): message = "Unexpected reply"
+            case (.dump, _):
+                queue.removeAll()
+                finishDownload(cmd, text: "unexpected reply")
             case (.set, .frame): batch?.receive(status: "ERR UNEXPECTED_REPLY")
             case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame):
                 message = "Unexpected frame reply"

@@ -1,0 +1,55 @@
+import AppKit
+import RlcdProtocol
+import SwiftUI
+
+/// Lists the log files of the MicroSD card and downloads the selected ones into a folder. Needs the USB serial link.
+struct ArchiveView: View {
+    @Bindable var model: AppModel
+
+    var body: some View {
+        GroupBox("SD card log archive") {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Button("List card files") { model.listArchive() }
+                        .disabled(!model.canArchive)
+                    Button("Choose folder…") { chooseFolder() }
+                    Button("Select new files") { model.selectNewArchiveFiles() }
+                        .disabled(model.archiveFolder == nil || model.archiveFiles.isEmpty)
+                    Button("Download selected") { model.downloadSelected() }
+                        .disabled(!model.canArchive || model.archiveFolder == nil || model.archiveSelection.isEmpty)
+                    if model.transport != .usb {
+                        Text("LIST and DUMP need the USB serial link.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                Text(model.archiveFolder?.path ?? "No folder chosen")
+                    .font(.caption).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                ForEach(model.archiveFiles) { file in
+                    Toggle(isOn: Binding(
+                        get: { model.archiveSelection.contains(file.name) },
+                        set: { on in
+                            if on { model.archiveSelection.insert(file.name) } else { model.archiveSelection.remove(file.name) }
+                        })) {
+                        HStack {
+                            Text(file.name).font(.system(.caption, design: .monospaced))
+                            Spacer()
+                            Text("\(file.bytes) B").foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if let summary = model.archiveSummary { Text(summary).font(.caption).foregroundStyle(.secondary) }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func chooseFolder() {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.prompt = "Choose"
+        if panel.runModal() == .OK {
+            model.archiveFolder = panel.url
+            model.selectNewArchiveFiles() // the plan depends on the local copies in the folder
+        }
+    }
+}
