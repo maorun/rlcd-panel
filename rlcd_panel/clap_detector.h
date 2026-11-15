@@ -6,15 +6,6 @@
 
 namespace rlcd_panel {
 
-// Where the board listens for a double clap. A sound cannot wake the board from deep sleep (the
-// ES7210 has no interrupt output and deep sleep cannot sample I2S), so the board listens only
-// while it is awake.
-enum class ClapListenMode : uint8_t {
-  OFF,        // the microphones stay off
-  GRACE,      // listen in the KEY grace window only (battery power)
-  CONTINUOUS, // listen until the next scan is due (USB power)
-};
-
 // Detects a double clap in a stream of level values. The caller gives one level in dBFS for each
 // step (1 ms) together with the time of the step. All times are in ms. Unsigned subtraction keeps
 // the timing correct when the time wraps around.
@@ -199,7 +190,6 @@ private:
 
 // Reduces interleaved stereo PCM (16 kHz) to the peak level of each millisecond, in dBFS, and counts
 // the transients with a ClapDetector. The time base is the sample count, so chunks of any size work.
-// ClapListener uses the same reduction for the double clap.
 class TransientCounter {
 public:
   static constexpr uint32_t SAMPLE_RATE_HZ = 16000;
@@ -247,128 +237,6 @@ private:
 
   ClapDetector detector_;
   uint32_t ms_ = 0;
-  size_t frames_in_ms_ = 0;
-  int peak_ = 0;
-};
-
-// Listens for a double clap on a microphone hardware layer. The layer type is the one that
-// NoiseSampler uses:
-//   bool beginBus(); bool configureAdc(); size_t read(int16_t* samples, size_t count);
-//   void shutdownAdc(); void endBus();
-// poll() reads one 20 ms frame (the read blocks, so the CPU idles between frames), reduces it to
-// the peak level of each millisecond, and feeds the detector. The time base is the audio time, so
-// it does not depend on the system clock. The first poll() opens the bus and configures the ADC;
-// the ADC settles for SETTLE_MS before the detector sees a level. release() and stop() power the
-// ADC down and close the bus. After release() the next poll() opens the microphone again. After
-// stop() or after a hardware failure, poll() does nothing. The destructor stops the listener.
-template <typename Hal>
-class ClapListener {
-public:
-  static constexpr uint32_t SAMPLE_RATE_HZ = 16000;
-  static constexpr size_t CHANNELS = 2;
-  static constexpr size_t FRAME_MS = 20;
-  static constexpr size_t FRAMES_PER_MS = SAMPLE_RATE_HZ / 1000;
-  static constexpr size_t FRAME_SAMPLES = FRAME_MS * FRAMES_PER_MS * CHANNELS;
-  static constexpr uint32_t SETTLE_MS = 100;
-
-  explicit ClapListener(Hal& hal) : hal_(hal) {}
-  ClapListener(const ClapListener&) = delete;
-  ClapListener& operator=(const ClapListener&) = delete;
-  ~ClapListener() {
-    stop();
-  }
-
-  // Returns true when a double clap ends in this frame.
-  bool poll() {
-    if (stopped_) {
-      return false;
-    }
-    if (!open_ && !open()) {
-      stop();
-      return false;
-    }
-    int16_t frame[FRAME_SAMPLES];
-    const size_t n = hal_.read(frame, FRAME_SAMPLES);
-    if (n == 0 || n > FRAME_SAMPLES) {
-      stop(); // a failed read: switch the microphone off for good
-      return false;
-    }
-    bool clap = false;
-    for (size_t i = 0; i + 1 < n; i += CHANNELS) {
-      const int a = abs16(frame[i]);
-      const int b = abs16(frame[i + 1]);
-      const int m = a > b ? a : b;
-      if (m > peak_) {
-        peak_ = m;
-      }
-      if (++frames_in_ms_ == FRAMES_PER_MS) {
-        clap = endMillisecond() || clap;
-      }
-    }
-    return clap;
-  }
-
-  // True while the microphone is powered.
-  bool listening() const {
-    return open_;
-  }
-
-  // False after stop() or a hardware failure: the listener does nothing any more.
-  bool available() const {
-    return !stopped_;
-  }
-
-  // Powers the microphone down. The next poll() opens it again.
-  void release() {
-    if (touched_) {
-      hal_.shutdownAdc(); // also when the bus never opened: the chip may still be powered
-      hal_.endBus();
-      touched_ = false;
-    }
-    open_ = false;
-  }
-
-  // Powers the microphone down for good.
-  void stop() {
-    release();
-    stopped_ = true;
-  }
-
-private:
-  static int abs16(int16_t v) {
-    return v < 0 ? -static_cast<int>(v) : static_cast<int>(v);
-  }
-
-  bool open() {
-    touched_ = true;
-    if (!hal_.beginBus() || !hal_.configureAdc()) {
-      return false;
-    }
-    open_ = true;
-    detector_.reset();
-    audio_ms_ = 0;
-    frames_in_ms_ = 0;
-    peak_ = 0;
-    return true;
-  }
-
-  bool endMillisecond() {
-    const int peak = peak_;
-    peak_ = 0;
-    frames_in_ms_ = 0;
-    const uint32_t now = audio_ms_++;
-    if (now < SETTLE_MS) {
-      return false;
-    }
-    return detector_.update(TransientCounter::peakToDb(peak), now);
-  }
-
-  Hal& hal_;
-  ClapDetector detector_;
-  bool open_ = false;
-  bool touched_ = false; // the hardware may be powered
-  bool stopped_ = false;
-  uint32_t audio_ms_ = 0;
   size_t frames_in_ms_ = 0;
   int peak_ = 0;
 };

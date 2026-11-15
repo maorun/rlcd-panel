@@ -101,7 +101,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - **Code:** `rlcd_panel/sd_logger.h`, `rlcd_panel/es7210_mic.h`, `rlcd_panel/rlcd_panel.ino`.
 - Format version 2 (since replaced by version 3, see "Hourly count of loud transient events"): the header had 18 columns: the 15 climate columns plus `noise_rms`, `noise_db` and `noise_band`. The file name is `/sdcard/climate_v2_YYYYMM.csv`, so the new header never mixed with rows of the old 15-column files. The old files stay unchanged on the card.
 - `noise_rms` is the 16-bit PCM RMS of the window. `noise_db` is the dB SPL value from the active `MicCalibration` (stored calibration plus the `config.ini` offset). `noise_band` is `QUIET`, `MODERATE` or `LOUD`. An invalid reading gives three empty fields.
-- `SdLogCodec::noiseMeasureWanted()` is the gate. The wake cycle runs one 5 s `NoiseSampler` window only when a record is due, the RTC time is valid, and no low battery alert is active. This also applies after a timer wakeup. Each other timer wakeup keeps the microphones off, except on USB power, where the clap listener runs.
+- `SdLogCodec::noiseMeasureWanted()` is the gate. The wake cycle runs one 5 s `NoiseSampler` window only when a record is due, the RTC time is valid, and no low battery alert is active. This also applies after a timer wakeup. Each other timer wakeup keeps the microphones off.
 - The window runs before the record is written. After a low battery skip or a failed window, the row is still written with empty noise fields, and the record is not repeated. A missing card skips the window (a card that mounts but rejects the write still costs one window per 10 min retry), so the 10 min retry costs no microphone power. KEY presses during the window are not seen. A due record in the diagnostics view redraws the view with the new level.
 - `NoiseSampler` powers down the ADC and closes I2S on every exit path (bus failure, ADC failure, short read, zero window).
 - Host tests cover the 18-column header, rows with valid and invalid noise data, the calibration offset, all band labels, the file name bounds, the gate (due, not due, invalid time, low battery, retry schedule), and the ADC power-down on each exit path.
@@ -221,20 +221,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The microphone gain, the dBFS scale and the band layout are estimates and are not verified on hardware.
 - Host tests cover the band edges, the FFT, sines at 250 Hz, 1 kHz and 4 kHz with band centers, silence, the level scale, the capture lifecycle on each failure path, the view bounds, the `KEY` handling, the mode cycle with 4 modes and the rejection of a stored mode above 3.
 
-## Acoustic double-clap detection in the awake window
+## Display mode switching with the KEY button only
 
-- **Code:** `rlcd_panel/clap_detector.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`.
-- A double clap cycles the display mode, as a `KEY` press does. The board listens only while it is awake: the `ES7210` has no interrupt output and deep sleep cannot sample I2S, so a sound cannot wake the board.
-- `PowerManager::clapListenMode` sets the gate. On USB power the board listens continuously, also after a timer wakeup, until the next scan is due (`continuousListenAllowed`). On battery the board listens only in the 3 s `KEY` grace window, which a `KEY` wakeup or a power-on opens. A timer wakeup on battery and a low battery alert on battery keep the microphones off.
-- `ClapListener` reads one 20 ms audio frame at a time. The read blocks, so the CPU idles between frames. It reduces each millisecond to a peak level in dBFS and ignores the first 100 ms (ADC settling).
-- `ClapDetector` finds a clap as a short transient: the level rises 20 dB above the noise floor in less than 5 ms, is at least -40 dBFS, and falls below floor + 10 dB in less than 100 ms. Speech (slow rise) and continuous noise (no decay) give no clap. The noise floor follows the level slowly and stands still during a transient.
-- Two claps with onsets 150 ms to 600 ms apart give a double clap. A closer clap is an echo. A third clap within 400 ms of the second clap is applause: all claps are dropped. The detector reports the double clap 400 ms after the second clap and then ignores claps for 1 s.
-- The microphone is powered down in the order `ES7210` shutdown, then I2S bus end. A render with a noise window releases it first, and the next frame opens it again. `stop()` runs before the state save on each path, and the destructor does it too.
-- On battery, the 3 s grace window limits the detection: the settling (100 ms), the gap (up to 600 ms), the triple window (400 ms) and the decay must all fit, so claps late in the window can miss. A pending press still keeps the window open; a pending clap does not.
-- Continuous listening checks the USB power every 5 s (`UsbPowerWatch`) and stops after two low samples in a row or when the listener fails. The listener then runs until the 3 s grace window ends. If the listener failed, it stays off.
-- A blocked I2S read has a timeout of 1 s, so the board can stay awake up to 1 s longer than the 3 s grace window.
-- The limits are estimates and are not verified on hardware. The USB idle current while the board listens is not measured yet.
-- Host tests cover one clap, two claps at 100 ms, 150 ms, 300 ms, 600 ms and 800 ms, three claps, loud steady noise, speech-like bursts, a rustle in a silent room, time wrap-around, the listener on scripted audio, the power-down on each failure path, the USB and battery gate, and the mode cycle.
+- **Code:** `rlcd_panel/rlcd_panel.ino`, `rlcd_panel/button_handler.h`, `rlcd_panel/clap_detector.h`.
+- The display mode changes only when the user presses the `KEY` button: a `KEY` wakeup (`g_mode_controller.next()`) or a press in the grace window (`ButtonEvent::MODE_CHANGED`). A sound never changes the mode.
+- Acoustic double-clap mode switching is removed. `ClapListener`, `ClapListenMode` and `PowerManager::clapListenMode` no longer exist, so the microphones stay off in the awake window, except for the noise window, the spectrum capture and the calibration.
+- `ClapDetector` and `TransientCounter` stay: the 5 s `NoiseSampler` window uses them for the `noise_events` CSV column.
+- On USB power the board stays awake while the serial console or the BLE console runs (`PowerManager::continuousListenAllowed`); the 3 s grace window applies as before.
+- A host test (`testModeChangesOnlyOnKeyButton`) checks that the sketch has no clap listener, that `next()` runs only in the `KEY` wakeup branch, and that the mode stays without a press.
 
 ## Battery runtime estimator in the diagnostics view
 
@@ -254,8 +248,8 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`.
 - The board reads the monthly CSV logs over USB serial (115200 baud), so the user does not remove the MicroSD card. The commands are `LIST`, `INFO` and `DUMP climate_v4_YYYYMM.csv` (the old v3 and v2 names also work). The parser (`SerialConsole::parse`) has no Arduino dependency. It accepts uppercase commands with single spaces and lines up to 40 bytes. `SerialLineAssembler` drops an overlong line whole, so its tail never runs as a command.
 - `SdLogCodec::isLogFileName` accepts only a bare name `climate_v4_YYYYMM.csv` or the old `climate_v3_YYYYMM.csv` or `climate_v2_YYYYMM.csv` with a year from 2000 to 2099 and a month from 01 to 12. A path separator, `..`, `config.ini` or an old v1 name gives `ERR BAD_NAME`. Unknown commands give `ERR UNKNOWN`, long lines `ERR TOO_LONG`.
-- `PowerManager::serialConsoleAllowed` is true on USB power only. On battery, or with an invalid battery reading, the board does not read the port and does not stay awake for it, so the awake time does not increase. The console has its own `UsbPowerWatch` (every 5 s, two low samples end it) and shares the awake window of the clap listener: on USB power the board stays awake until the next scan is due. The first command can wait for the next wake cycle; press `KEY` to wake the board.
-- `SerialConsoleRunner` mounts the card for one command and unmounts it after the command, on each path. A valid command releases the clap listener first, because the I2S bus and the card share the awake window.
+- `PowerManager::serialConsoleAllowed` is true on USB power only. On battery, or with an invalid battery reading, the board does not read the port and does not stay awake for it, so the awake time does not increase. The console has its own `UsbPowerWatch` (every 5 s, two low samples end it) and keeps the board awake: on USB power the board stays awake until the next scan is due. The first command can wait for the next wake cycle; press `KEY` to wake the board.
+- `SerialConsoleRunner` mounts the card for one command and unmounts it after the command, on each path. A valid command runs while the board is awake; the I2S bus and the card share the awake window.
 - Reply frames: `LIST` gives `FILE <name> <bytes>` per file (sorted by name, at most 48 files) and `END LIST <count>`. `INFO` gives `INFO total=<bytes> used=<bytes> files=<count>`. `DUMP` gives `BEGIN <name> <bytes>`, exactly that many raw bytes, and `CRC32 <8 hex digits>` (IEEE 802.3, the same value as `zlib.crc32`). Errors are `ERR NO_CARD`, `ERR NOT_FOUND` and `ERR READ_FAILED`.
 - A read error after `BEGIN` pads the payload with zero bytes to the announced length and sends `ERR READ_FAILED` in place of the CRC line. A short serial write ends the `DUMP` at once, and the host sees no CRC line. The setup sets a TX timeout of 1 s on the USB port.
 - `scripts/dump-logs.sh [port]` finds the port, sends `LIST` and one `DUMP` per file, checks the byte count and the CRC-32, and writes the files to the ignored directory `sd_logs/` (mode `0700`). It ignores boot log lines, rejects sizes above 16 MiB, drains the port after an error, and exits with 1 when a file fails.
@@ -417,7 +411,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/device_config.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`.
 - The new console command `CONFIG` shows the active settings. It takes no argument: `CONFIG now` gives `ERR UNKNOWN`. The command runs on USB power only, like the other console commands (`PowerManager::serialConsoleAllowed`).
 - The reply is one `key=value` line for each `DeviceConfig` setting (18 lines, key order of `DeviceConfigParser`), the line `SOURCE SD` or `SOURCE DEFAULT`, and `CRC32 <8 hex digits>`. The CRC-32 covers all bytes before the `CRC32` line. `DeviceConfigText::format` writes the lines. A float has one or two decimals, so `DeviceConfigParser` reads the text back to the same values.
-- The command reads the RTC copy (`g_state.config`, `g_state.config_from_sd`) only. It does not mount the card and does not release the clap listener. `SerialConsoleRunner::execute` ignores `CONFIG`; `SerialConsoleRunner::showConfig` sends the reply. A short serial write ends the reply, and the host sees no CRC line.
+- The command reads the RTC copy (`g_state.config`, `g_state.config_from_sd`) only. It does not mount the card . `SerialConsoleRunner::execute` ignores `CONFIG`; `SerialConsoleRunner::showConfig` sends the reply. A short serial write ends the reply, and the host sees no CRC line.
 - `DeviceConfig` holds no Wi-Fi setting, so the reply sends no credential.
 - `./scripts/dump-logs.sh --config [port]` sends `CONFIG`, checks the CRC-32 and prints the lines.
 - Acceptance criteria: host tests cover the parser for `CONFIG`, the rejection of `CONFIG` with arguments, the line format of each key, the CRC-32 of the output, the source line, no card access, the stop on a short write, and the parse of the output by `DeviceConfigParser` back to the same values (edge values and defaults).
@@ -515,7 +509,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The command pairs the hourly samples of `ClimateHistory` by age. Only hours with a temperature and a humidity sample in both histories count.
 - A sensor with at least 6 common hours gets one line `SENSOR <name> hours=<n> temp_offset=<x> rh_offset=<x> temp_diff=<x> rh_diff=<x>`. The offsets are the active `config.ini` values. The differences are the mean values (sensor minus reference). A sensor with fewer hours gets `SKIP <name> hours=<n>`.
 - The suggested lines follow, for example `slot2_temp_offset_c=-0.4` and `slot2_rh_offset_pct=2.1`. Each value is the active offset minus the mean difference, clamped to the key range. The onboard sensor uses the keys `temp_offset_c` and `rh_offset_pct`.
-- The answer comes from the RTC copy of the histories and the configuration. The command does not mount or write the MicroSD card, so the clap listener keeps running. The command runs on USB power only. The output ends with the `CRC32` line over all lines before it.
+- The answer comes from the RTC copy of the histories and the configuration. The command does not mount or write the MicroSD card, so the console keeps running. The command runs on USB power only. The output ends with the `CRC32` line over all lines before it.
 - Host tests cover the parser, a constant difference, a gap, fewer than 6 hours, an empty reference, an active offset, the clamp, the onboard key names, the CRC-32 line and the USB power gate.
 
 ## High-humidity ventilation badge on the sensor tiles
@@ -566,7 +560,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The reply has one line `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>` for index `0` (onboard) and for the slots `1` to `3`. A missing value gives `--`. The name is the configured name, or `onboard` and `slot1` to `slot3`; a space in a name becomes `_`.
 - The slot lines show the calibrated readings. The onboard line shows the newest hourly sample of the RTC history, so its `age` is the time since that sample; `bat` and `rssi` are `--`. `state` is `EMPTY` without a reading, `STALE` after 30 minutes without a packet (the onboard line: 90 minutes, one hourly sample interval plus 30 minutes), `BATLOW` when the `SensorBatteryLatch` bit of the slot is set, else `OK`. `STALE` has priority over `BATLOW`. The onboard `age` uses the shared hourly sample time (`ClimateHistory::last_sample_ms`): when only a slot delivered a sample in that hour, an old onboard value shows a small `age`.
 - Then one line `POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>` and the line `CRC32 <8 hex digits>` over all bytes before it.
-- The command reads the RTC copy (`g_state`) only. It does not mount the card and does not stop the clap listener. It runs on USB power only (`PowerManager::serialConsoleAllowed`). A short serial write ends the reply without the `CRC32` line.
+- The command reads the RTC copy (`g_state`) only. It does not mount the card and does not stop the console. It runs on USB power only (`PowerManager::serialConsoleAllowed`). A short serial write ends the reply without the `CRC32` line.
 - `./scripts/dump-logs.sh --status [port]` sends `STATUS`, checks the CRC-32 and prints the lines.
 
 ## Serial console command BEEP to test each alert chime
@@ -577,7 +571,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Mute, quiet hours and volume `0` give `ERR MUTED`; the hardware stays untouched. A failed playback gives `ERR PLAY_FAILED`.
 - A cleared bit in `chime_alert_mask` does not block the test. The command does not read or change the stored alert bits, so no alert is replayed or lost.
 - Reply after the playback: `OK BEEP <N> <duration ms>` (the sum of the note and pause durations of the pattern).
-- The console stops the clap listener before the playback (`release()`); the next `poll()` reopens it. The command needs no card. It runs on USB power only (`PowerManager::serialConsoleAllowed`).
+- The command needs no card. It runs on USB power only (`PowerManager::serialConsoleAllowed`).
 
 ## Configurable sensor stale timeout in config.ini
 
@@ -618,7 +612,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The command `TIME SET <YYYY-MM-DDTHH:MM:SS>` (28 bytes) writes a local time to the RTC and replies `OK TIME`. The write clears the oscillator stop flag. The firmware then reads the clock again and redraws the dashboard.
 - The parser accepts the years 2025 to 2099 and a real calendar date, with the leap year rule. A bad format, an impossible date, 24:00:00 and a year outside the range give `ERR BAD_ARG`. A failed I2C write gives `ERR RTC_FAILED`. In this case the firmware does not redraw.
 - A successful set clears the baseline of `RtcDrift`, as the seed from the compile stamp does. Thus the next NTP sync gives no false drift. The NTP schedule does not change.
-- The commands run on USB power only (`PowerManager::serialConsoleAllowed`). They do not mount the card, so the clap listener keeps running.
+- The commands run on USB power only (`PowerManager::serialConsoleAllowed`). They do not mount the card, so the console keeps running.
 - `./scripts/dump-logs.sh --set-time [port]` sends `TIME SET` with the local time of the host and prints the result. The accuracy is about 1 s. Thus a user without Wi-Fi sets the clock for the hourly log, the quiet hours and the retention rule.
 - Host tests cover the parser, 29 February in a leap year and in a common year, 24:00:00, the years 2024 and 2100, a missing `T`, extra text, the reply format with a valid and an invalid time, the cleared drift baseline, the failed write and the USB power gate.
 
@@ -629,7 +623,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The reply starts with `BEGIN HISTORY` and the header `sensor,age_h,temp_c,rh_pct,noise_db`. Each stored hour of each sensor gives one row: sensor `0` is the onboard sensor, `1` to `3` are the slots. `age_h` `0` is the newest sample.
 - The noise field holds a value in the rows of sensor `0` only. A missing sample or an invalid noise hour gives an empty field. Temperatures show one decimal and can be negative.
 - The reply ends with `CRC32 <8 hex digits>` over all bytes before this line. A short write stops the reply, so the host sees no `CRC32` line.
-- The command does not mount the card, so the clap listener keeps running. It runs on USB power only (`PowerManager::serialConsoleAllowed`).
+- The command does not mount the card, so the console keeps running. It runs on USB power only (`PowerManager::serialConsoleAllowed`).
 - `./scripts/dump-logs.sh --history [port]` sends `HISTORY`, checks the CRC-32 and writes `sd_logs/history_<host time>.csv`. Thus the user gets the last 24 hours also without a card.
 - Host tests cover the parser, the rejection of arguments, the header, a full and an empty history, an invalid noise hour, negative temperatures, the row order, the CRC-32 line, each short write, no card access, the USB power gate and the script option.
 
@@ -640,7 +634,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The reply starts with `BEGIN EVENTS` and the header `time,event,detail`. Each event gives one row, from the oldest to the newest. `SdLogCodec::formatEventRow` writes each row, so the rows are equal to the rows of `events_v1_YYYY.csv`. An event without a valid time has an empty first column.
 - A ring with lost events starts with the row from `SdLogCodec::formatEventsDroppedRow`, with the current RTC time. An empty ring gives only the header. The firmware reads the RTC again for the command. If the RTC time is invalid, the reply has no `EVENTS_DROPPED` row, as in the file.
 - The reply ends with `CRC32 <8 hex digits>` over all bytes before this line. A short write stops the reply, so the host sees no `CRC32` line.
-- The command does not mount the card and does not clear the ring, so the clap listener keeps running and the next hourly write still appends the events. It runs on USB power only (`PowerManager::serialConsoleAllowed`).
+- The command does not mount the card and does not clear the ring, so the console keeps running and the next hourly write still appends the events. It runs on USB power only (`PowerManager::serialConsoleAllowed`).
 - `./scripts/dump-logs.sh --events [port]` sends `EVENTS`, checks the CRC-32 and prints the rows. Thus the user reads the recent alerts and resets also without a MicroSD card.
 - Host tests cover the parser, the rejection of arguments, an empty ring, one event, a full ring, lost events, an event without time, the row equality with `formatEventRow`, the CRC-32 value, each short write, the unchanged ring, no card access, the USB power gate and the script option.
 
@@ -651,7 +645,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `St7305Framebuffer::fillPattern` draws the pattern. Pattern `0` makes each pixel black. Pattern `1` is a checkerboard of 1-pixel squares; the pixel (0,0) is black. Pattern `2` is a 1-pixel border with a cross from corner to corner. A value above `2` leaves the buffer unchanged.
 - The firmware flushes the pattern with `g_panel.flush` and not with `flushFramebuffer()`. Thus `display_invert` has no effect, and the user sees the raw packing of the `ST7305`.
 - The reply is `OK PATTERN <N>`. The pattern stays on the panel until the next render. The next wake cycle renders the normal view again.
-- The command does not mount the card, so the clap listener keeps running. It runs on USB power only (`PowerManager::serialConsoleAllowed`). `execute()` ignores `PATTERN`.
+- The command does not mount the card, so the console keeps running. It runs on USB power only (`PowerManager::serialConsoleAllowed`). `execute()` ignores `PATTERN`.
 - Thus the user finds dead pixels, a bad row or a wrong packing after a hardware change.
 - Host tests cover the parser for each pattern, the values `3` and `-1`, extra text, the bit-exact framebuffer bytes of each pattern with the `ST7305` packing rule, the corner pixels, the unchanged buffer for an invalid value, the raw flush without `display_invert`, no card access and the USB power gate.
 
@@ -750,7 +744,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The console command `VERSION` takes no argument. A command with an argument gives `ERR UNKNOWN`.
 - The reply is `VERSION fw=<version> git=<hash> core=3.3.12 state=<STATE_VERSION> built=<YYYY-MM-DDTHH:MM:SS>`, then `CRC32 <8 hex digits>` over the `VERSION` line.
 - The build time comes from `__DATE__` and `__TIME__` through `Pcf85063Codec::fromCompileStamp`. An unreadable stamp gives `built=unknown`.
-- The command runs on USB power only. It does not mount the card, so the clap listener keeps running.
+- The command runs on USB power only. It does not mount the card, so the console keeps running.
 - Thus the user knows which firmware runs on the panel.
 - Host tests cover the parser, the rejection of an argument, the reply format, the default hash, the build time from a fixed compile stamp, the CRC-32 line, a short write and the USB power gate.
 
