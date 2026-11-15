@@ -4,13 +4,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 
 ## Overview
 
-- **Sensors & BLE:** Onboard `SHTC3` plus 5 BLE slots (`SwitchBot`, `BTHome v2`, `ATC/pvvx`), early scan stop, dead-slot release, reception rate, per-slot calibration offsets, USB temperature offset.
-- **Display & Views:** 400×300 `ST7305` dashboard (1–6 dynamic tiles), 2-page stats view (comfort, dew point, VPD, mold, feels-like, AH, RSSI, records), 24 h climate & noise charts, 7-day min/max chart (`WEEK_CHART`), dry air badge (`D`), audio spectrum, diagnostics, `KEY` button navigation, frame-skip refresh, display invert.
+- **Sensors & BLE:** Onboard `SHTC3` plus 5 BLE slots (`SwitchBot`, `BTHome v2`, `ATC/pvvx`), early scan stop, dead-slot release, reception rate, per-slot calibration offsets & gain slopes (`rh_gain`), USB temperature offset with battery/USB separation.
+- **Display & Views:** 400×300 `ST7305` dashboard (1–6 dynamic tiles), 2-page stats view (comfort, dew point, VPD, mold, feels-like, AH, RSSI, records), 24 h climate & noise charts, 7-day min/max chart (`WEEK_CHART`), dry air badge (`D`), stale data age badge (`STALE <N>H`), audio spectrum, diagnostics, `KEY` button navigation, frame-skip refresh, display invert.
 - **Power & Battery:** Deep sleep with CRC-checked RTC state, wake & night intervals, USB detection, low-battery banner, empty-battery protection, runtime & cycle tracking, awake-time stats.
 - **Audio & Alerts:** `ES8311` chimes (freezer, mold, heat, noise, dropout, charge full) with repeat & quiet hours, `BOOT` mute, `ES7210` noise & transient monitor (L10/L90), mic self-test & speaker loopback.
-- **Logging & Time:** MicroSD hourly CSV (`climate_v5`), daily summaries (`daily_v4`), event log (`events_v1`), retention & free-space check, Wi-Fi NTP sync, `PCF85063A` RTC drift tracking & frequency trim (`RTC TRIM`).
-- **Configuration & Console:** MicroSD `config.ini` with host validator, USB serial & BLE console (`STATUS`, `CONFIG`, `SET`, `LIST`, `DUMP`, `SCAN`, `CALIB`, `SALT`, `RTC TRIM`, `MUTE`, `BEEP`, `PATTERN`, `SCREEN`, `TIME`, `HISTORY`, `WEEK`, `EVENTS`, `VERSION`), `CONFIG_SET` and `SD_FAULT` event recording.
-- **macOS Companion App:** Signed `.app` bundle & menu bar summary, live BLE telemetry, panel pinning, `config.ini` editor & backup, BLE scanner, calibration assistant with salt check, diagnostics & clipboard report, log archive & charts, remote screen, CSV export, open at login.
+- **Logging & Time:** MicroSD hourly CSV (`climate_v5`), daily summaries (`daily_v4` with mold hours), event log (`events_v1`), retention & free-space check, Wi-Fi NTP sync, `PCF85063A` RTC drift tracking & frequency trim (`RTC TRIM`).
+- **Configuration & Console:** MicroSD `config.ini` up to 8 KB with host validator, USB serial & BLE console (`STATUS`, `CONFIG`, `SET`, `LIST`, `DUMP`, `SCAN`, `CALIB`, `SALT`, `RTC TRIM`, `MUTE`, `BEEP`, `PATTERN`, `SCREEN`, `TIME`, `HISTORY`, `WEEK`, `EVENTS`, `VERSION`), `CONFIG_SET` and `SD_FAULT` event recording.
+- **macOS Companion App:** Signed `.app` bundle & menu bar summary, live BLE telemetry, panel pinning, `config.ini` editor & backup, BLE scanner with repeated scan mode, sensor health table, calibration assistant with single & two-point salt check, diagnostics & clipboard report, log archive & charts (including 7-day week chart), remote screen, CSV export, open at login.
 
 ## Deep sleep power management with periodic wakeup
 
