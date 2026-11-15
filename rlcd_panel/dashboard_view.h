@@ -343,7 +343,8 @@ public:
 
   // Tile title: the configured name, else "ONBOARD SHTC3" (tile 0) or "SENSOR n" (tile n = 1..5).
   // A name has at most 12 glyphs (142 px at scale 2), so it ends at x + 150 and stays left of the
-  // STALE badge, which starts at x + 151.
+  // STALE badge without age, which starts at x + 151. A badge with age falls back to the age only
+  // when the full text leaves a gap below 3 px.
   static void tileTitle(char* out, size_t capacity, const DeviceConfig* config, size_t tile) {
     const char* name = nullptr;
     if (config != nullptr) {
@@ -387,21 +388,25 @@ public:
       const TemperatureHistory* temperature_history = nullptr,
       bool battery_low = false,
       char unit = 'C',
-      bool dry_badge = false) {
+      bool dry_badge = false,
+      const char* stale_age = nullptr) {
     const TileStyle style = tileStyle(w, h);
     if (style == TileStyle::COMPACT) {
       renderTileCompact(fb, x, y, w, h, title, valid, temp_c, humidity_pct, battery_pct, battery_voltage_v, is_stale,
-                        history, ventilate_badge, temperature_history, battery_low, unit, dry_badge);
+                        history, ventilate_badge, temperature_history, battery_low, unit, dry_badge, stale_age);
       return;
     }
     if (style == TileStyle::LARGE) {
       renderTileLarge(fb, x, y, w, h, title, valid, temp_c, humidity_pct, battery_pct, battery_voltage_v, is_stale,
-                      history, ventilate_badge, temperature_history, battery_low, unit, dry_badge);
+                      history, ventilate_badge, temperature_history, battery_low, unit, dry_badge, stale_age);
       return;
     }
     fb.drawRect(x, y, w, h, true);
     fb.drawHLine(x, y + 24, w, true);
     fb.drawText(x + 8, y + 6, title, 2, true);
+    if (is_stale) {
+      drawStaleBadge(fb, x, y, w, static_cast<uint16_t>(8 + strlen(title) * 12 - 2), stale_age);
+    }
 
     if (!valid) {
       fb.drawText(x + 12, y + 56, "NO SIGNAL", 2, true);
@@ -489,30 +494,47 @@ public:
       const uint8_t bat_scale = fitScale(line_bat, static_cast<uint16_t>(w - 16), 2);
       fb.drawText(x + 12, y + (bat_scale == 2 ? 96 : 99), line_bat, bat_scale, true);
     }
+  }
 
-    if (is_stale) {
-      // Inverted "STALE" badge (5 glyphs at scale 1 = 29 px wide) in the title band, right of the
-      // title ("SENSOR 3" ends at x + 102) and above the divider line at y + 24.
-      const uint16_t bx = static_cast<uint16_t>(x + w - STALE_BADGE_W - 4);
-      const uint16_t by = static_cast<uint16_t>(y + 4);
-      fb.fillRect(bx, by, STALE_BADGE_W, STALE_BADGE_H, true);
-      fb.drawText(bx + 3, by + 5, "STALE", 1, false);
+  // Width of an inverted badge with `text`: glyphs at scale 1 plus 3 px padding on each side.
+  static uint16_t badgeWidth(const char* text) {
+    return static_cast<uint16_t>(strlen(text) * 6 - 1 + 6);
+  }
+
+  // "STALE <age>" or "STALE" without age. The badge is inverted, 17 px high, 4 px below the tile top
+  // and 4 px from its right border. `title_end` is the title end relative to x. The full text needs
+  // 3 px of free space after the title, else the badge shows the age only (or "STALE" without age).
+  static void drawStaleBadge(St7305Framebuffer& fb, uint16_t x, uint16_t y, uint16_t w, uint16_t title_end,
+                             const char* age) {
+    char text[16];
+    if (age != nullptr && age[0] != '\0') {
+      snprintf(text, sizeof(text), "STALE %s", age);
+      if (x + w - badgeWidth(text) - 4 < x + title_end + 3) {
+        snprintf(text, sizeof(text), "%s", age);
+      }
+    } else {
+      snprintf(text, sizeof(text), "STALE");
     }
+    const uint16_t bw = badgeWidth(text);
+    const uint16_t bx = static_cast<uint16_t>(x + w - bw - 4);
+    fb.fillRect(bx, y + 4, bw, STALE_BADGE_H, true);
+    fb.drawText(bx + 3, y + 9, text, 1, false);
   }
 
   // Title in the band of a tile (scale 2, scale 1 when the tile is too narrow) and the STALE badge.
   static void drawTileFrame(St7305Framebuffer& fb, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
-                            const char* title, bool is_stale) {
+                            const char* title, bool is_stale, const char* stale_age = nullptr) {
     fb.drawRect(x, y, w, h, true);
     fb.drawHLine(x, y + 24, w, true);
-    const uint16_t badge_w = is_stale ? static_cast<uint16_t>(STALE_BADGE_W + 8) : 0;
+    const bool has_age = stale_age != nullptr && stale_age[0] != '\0';
+    const uint16_t badge_w = !is_stale ? 0
+                             : has_age ? static_cast<uint16_t>(badgeWidth(stale_age) + 8)
+                                       : static_cast<uint16_t>(STALE_BADGE_W + 8);
     const uint16_t room = static_cast<uint16_t>(w - 16 - badge_w);
     const uint8_t sc = fitScale(title, room, 2);
     fb.drawText(x + 8, y + (sc == 2 ? 6 : 9), title, sc, true);
     if (is_stale) {
-      const uint16_t bx = static_cast<uint16_t>(x + w - STALE_BADGE_W - 4);
-      fb.fillRect(bx, y + 4, STALE_BADGE_W, STALE_BADGE_H, true);
-      fb.drawText(bx + 3, y + 9, "STALE", 1, false);
+      drawStaleBadge(fb, x, y, w, static_cast<uint16_t>(8 + strlen(title) * 6 * sc - sc), stale_age);
     }
   }
 
@@ -541,8 +563,8 @@ public:
       St7305Framebuffer& fb, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* title, bool valid,
       float temp_c, float humidity_pct, int8_t battery_pct, float battery_voltage_v, bool is_stale,
       const HumidityHistory* history, bool ventilate_badge, const TemperatureHistory* temperature_history,
-      bool battery_low, char unit, bool dry_badge) {
-    drawTileFrame(fb, x, y, w, h, title, is_stale);
+      bool battery_low, char unit, bool dry_badge, const char* stale_age) {
+    drawTileFrame(fb, x, y, w, h, title, is_stale, stale_age);
     const bool narrow = w < 160;
     const uint16_t pad = narrow ? 8 : 12;
     if (!valid) {
@@ -614,8 +636,8 @@ public:
       St7305Framebuffer& fb, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* title, bool valid,
       float temp_c, float humidity_pct, int8_t battery_pct, float battery_voltage_v, bool is_stale,
       const HumidityHistory* history, bool ventilate_badge, const TemperatureHistory* temperature_history,
-      bool battery_low, char unit, bool dry_badge) {
-    drawTileFrame(fb, x, y, w, h, title, is_stale);
+      bool battery_low, char unit, bool dry_badge, const char* stale_age) {
+    drawTileFrame(fb, x, y, w, h, title, is_stale, stale_age);
     if (!valid) {
       fb.drawText(x + 12, y + h / 2 - 7, "NO SIGNAL", 2, true);
       return;
@@ -795,6 +817,11 @@ public:
       const bool have_slot = (switchbot_slots != nullptr && i < switchbot_count);
       const SwitchBotReading empty_reading{};
       const SwitchBotReading& sb = have_slot ? switchbot_slots[i] : empty_reading;
+      const bool tile_stale = sb.isStale(now_ms, staleTimeoutMs(config));
+      char age[8] = "";
+      if (tile_stale) {
+        formatStaleAge(age, sizeof(age), sb, now_ms);
+      }
 
       renderTile(
           fb,
@@ -808,13 +835,14 @@ public:
           static_cast<float>(sb.humidity_pct),
           sb.battery_pct,
           -1.0f,
-          sb.isStale(now_ms, staleTimeoutMs(config)),
+          tile_stale,
           history != nullptr ? &history->slots[1 + i] : nullptr,
           VentilateLatch::isSet(ventilate_tiles, 1 + i),
           history != nullptr ? &history->temperatures[1 + i] : nullptr,
           SensorBatteryLatch::isSet(sensor_battery_latch, i),
           tempUnit(config),
-          DryLatch::isSet(dry_tiles, 1 + i));
+          DryLatch::isSet(dry_tiles, 1 + i),
+          age);
     }
   }
 
@@ -1002,6 +1030,24 @@ public:
       return;
     }
     snprintf(out, capacity, "RSSI %d DBM", static_cast<int>(sb.rssi));
+  }
+
+  // Data age of a stale slot for the tile badge: whole hours since the last packet, "<N>H" from 1H
+  // (30 min gives "1H") to 99H, ">99H" above. An empty string for a slot without a packet (never
+  // stamped) or a packet stamped up to 65 s after now_ms. A larger future stamp (a wrapped 32-bit
+  // clock) gives ">99H", like the stale rule of isStale and formatRssi. The age is valid up to 49 days (32-bit milliseconds). The text changes once an hour.
+  static void formatStaleAge(char* out, size_t capacity, const SwitchBotReading& sb, uint32_t now_ms) {
+    const uint32_t age_ms = now_ms - sb.updated_ms;
+    if (!sb.valid || sb.updated_ms == 0 || age_ms >= 0xFFFF0000u) {
+      snprintf(out, capacity, "%s", "");
+      return;
+    }
+    const uint32_t hours = age_ms / 3600000u;
+    if (hours > 99) {
+      snprintf(out, capacity, ">99H");
+    } else {
+      snprintf(out, capacity, "%uH", static_cast<unsigned>(hours < 1 ? 1 : hours));
+    }
   }
 
   // True when slot 4 or slot 5 is active: the stats view has a second page.

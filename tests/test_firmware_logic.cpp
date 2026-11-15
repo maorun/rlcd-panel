@@ -19000,6 +19000,151 @@ void testUsbTempOffset() {
   assert(sink.out.find("\nusb_temp_offset_c=-1.2\n") != std::string::npos);
 }
 
+static void testStaleAgeBadge() {
+  using DV = DashboardView;
+  const uint32_t H = 3600000u;
+  char out[8];
+  SwitchBotReading sb;
+  sb.valid = true;
+  const uint32_t now = 200 * H;
+  struct Case { uint32_t age_ms; const char* text; };
+  const Case cases[] = {{30 * 60000u, "1H"}, {H + 59 * 60000u, "1H"}, {2 * H, "2H"},
+                        {99 * H, "99H"}, {100 * H, ">99H"}};
+  for (const Case& c : cases) {
+    sb.updated_ms = now - c.age_ms;
+    DV::formatStaleAge(out, sizeof(out), sb, now);
+    assert(strcmp(out, c.text) == 0);
+  }
+  SwitchBotReading none; // no packet: no age
+  DV::formatStaleAge(out, sizeof(out), none, now);
+  assert(out[0] == '\0');
+  sb.updated_ms = 0;
+  DV::formatStaleAge(out, sizeof(out), sb, now);
+  assert(out[0] == '\0');
+
+  Shtc3Reading onboard;
+  onboard.valid = true;
+  onboard.temperature_c = 21.0f;
+  onboard.humidity_pct = 50.0f;
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  // 2 tiles = LARGE, 4 tiles = STANDARD, 6 tiles = COMPACT (190 x 80), 5 tiles has 124 px tiles
+  const size_t tile_counts[4] = {2, 4, 5, 6};
+  for (size_t tiles : tile_counts) {
+    SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+    for (size_t i = 0; i + 1 < tiles; ++i) {
+      slots[i].valid = true;
+      slots[i].temperature_c = 18.0f;
+      slots[i].humidity_pct = 55;
+      slots[i].battery_pct = 90;
+    }
+    DV::TileRect rects[DV::MAX_TILES];
+    assert(DV::layoutTiles(tiles, rects) == tiles);
+    St7305Framebuffer fresh, stale, later, hour_later;
+    for (size_t i = 0; i + 1 < tiles; ++i) {
+      slots[i].updated_ms = now;
+    }
+    DV::render(fresh, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now);
+    for (size_t i = 0; i + 1 < tiles; ++i) {
+      slots[i].updated_ms = now - 5 * H;
+    }
+    DV::render(stale, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now);
+    // Two renders 10 min apart inside one hour give the same frame
+    DV::render(later, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now + 10 * 60000u);
+    assert(stale.crc32() == later.crc32());
+    // The text changes at the hour boundary: 5H becomes 6H
+    DV::render(hour_later, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now + H);
+    assert(stale.crc32() != hour_later.crc32());
+    // The badge sits in the title band of each stale tile, and nothing changes outside the tiles
+    for (size_t t = 1; t < tiles; ++t) {
+      const DV::TileRect& r = rects[t];
+      bool ink = false;
+      for (uint16_t dy = 4; dy < 4 + DV::STALE_BADGE_H; ++dy) {
+        for (uint16_t dx = r.w - 4 - 29; dx < r.w - 4; ++dx) {
+          ink = ink || (stale.getPixel(r.x + dx, r.y + dy) != fresh.getPixel(r.x + dx, r.y + dy));
+        }
+      }
+      assert(ink);
+      assert(stale.getPixel(r.x + r.w - 4, r.y + 8) == fresh.getPixel(r.x + r.w - 4, r.y + 8));
+    }
+    for (uint16_t yy = 0; yy < 300; ++yy) {
+      for (uint16_t xx = 0; xx < 400; ++xx) {
+        bool inside = false;
+        for (size_t t = 0; t < tiles; ++t) {
+          inside = inside || (xx >= rects[t].x && xx < rects[t].x + rects[t].w && yy >= rects[t].y &&
+                              yy < rects[t].y + rects[t].h);
+        }
+        if (!inside) {
+          assert(stale.getPixel(xx, yy) == fresh.getPixel(xx, yy));
+        }
+      }
+    }
+  }
+  // A stale slot without a packet stamp shows "STALE" (35 px) without age
+  {
+    SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+    slots[0].valid = true;
+    slots[0].temperature_c = 18.0f;
+    slots[0].humidity_pct = 55;
+    slots[0].updated_ms = 0;
+    DV::TileRect rects[DV::MAX_TILES];
+    DV::layoutTiles(2, rects);
+    St7305Framebuffer fb;
+    DV::render(fb, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now);
+    uint16_t run = 0;
+    while (run < rects[1].w - 5 && fb.getPixel(rects[1].x + rects[1].w - 5 - run, rects[1].y + 4)) {
+      ++run;
+    }
+    assert(run == DV::STALE_BADGE_W);
+  }
+
+  // Badge width and title gap in each tile style: default titles leave room for "STALE 5H";
+  // 12-glyph names force the age only ("5H"). The title never touches the badge.
+  for (int long_names = 0; long_names < 2; ++long_names) {
+    for (size_t tiles : tile_counts) {
+      DeviceConfig names;
+      if (long_names != 0) {
+        strcpy(names.onboard_name, "WWWWWWWWWWWW");
+        for (size_t i = 0; i + 1 < tiles; ++i) { // a name activates its slot: name only the live ones
+          strcpy(names.slot_name[i], "WWWWWWWWWWWW");
+        }
+      }
+      SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+      for (size_t i = 0; i + 1 < tiles; ++i) {
+        slots[i].valid = true;
+        slots[i].temperature_c = 18.0f;
+        slots[i].humidity_pct = 55;
+        slots[i].battery_pct = 90;
+        slots[i].updated_ms = now - 5 * H;
+      }
+      DV::TileRect rects[DV::MAX_TILES];
+      DV::layoutTiles(tiles, rects);
+      St7305Framebuffer fb;
+      DV::render(fb, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, nullptr, false, &names);
+      for (size_t t = 1; t < tiles; ++t) {
+        const DV::TileRect& r = rects[t];
+        uint16_t run = 0;
+        while (run < r.w - 5 && fb.getPixel(r.x + r.w - 5 - run, r.y + 4)) {
+          ++run;
+        }
+        assert(run == (long_names != 0 ? 17 : 53));
+        const uint16_t bx = static_cast<uint16_t>(r.x + r.w - 4 - run);
+        int last_ink = -1;
+        for (uint16_t yy = r.y + 6; yy < r.y + 22; ++yy) {
+          for (uint16_t xx = r.x + 1; xx < bx; ++xx) {
+            if (fb.getPixel(xx, yy)) {
+              last_ink = std::max<int>(last_ink, xx);
+            }
+          }
+        }
+        assert(last_ink >= 0 && bx - last_ink - 1 >= 3);
+      }
+    }
+  }
+}
+
 int main() {
   testTempUnitConfig();
   testClimateMathToDisplay();
@@ -19477,6 +19622,7 @@ testSerialConfigNegativeSmallOffset();
   testConfigCheckTool();
   testSdCardStatus();
   testClimateMathFixtureVectors();
-  printf("All 215 firmware logic test suites passed.\n");
+  testStaleAgeBadge();
+  printf("All 216 firmware logic test suites passed.\n");
   return 0;
 }
