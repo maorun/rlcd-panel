@@ -1122,3 +1122,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `TelemetryLogStore` loads `~/Library/Application Support/RlcdCompanion/telemetry.json` at start and writes it at most once a minute, through `telemetry.json.tmp` and a rename. A missing or corrupt file gives an empty log.
 - The window shows a 7-day temperature chart and a 7-day humidity chart for each tile from the log.
 - `CsvExport` writes the log, the last `HISTORY` rows and the last `EVENTS` rows as CSV with a header line, Celsius values and empty fields for missing values. A save panel selects the target file.
+
+## Calibration assistant in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift`, `Replies.swift`, `Sources/RlcdCompanion/CalibrationView.swift`, `AppModel.swift`, `Tests/RlcdProtocolTests/CalibrationTests.swift`.
+- `ConsoleCommand.calib(N)` sends `CALIB N`. It gives no line for `N` outside 0 to 3. The app sends it only after the user presses `Compare`.
+- `CalibrationReply.parse(lines:)` reads `REFERENCE`, `SENSOR` and `SKIP` lines and the proposed `key=value` lines. A bad number (for example `nan`) throws `ParseError.badLine`. A reply without `REFERENCE` throws `ParseError.missingLine`.
+- The parser keeps only proposed offset keys that `ConfigSchema.validate(key:value:)` accepts. A value outside the key range is dropped.
+- `CalibrationView` shows the sensors, the common hours, the differences and the active offsets. The user selects the proposals. `Apply selected` sends them through `ConfigBatch` (`SET` commands, then `CONFIG`).
+- On the BLE link with `ble_console` 1 the firmware answers `ERR READ_ONLY`. The batch stops and shows this reply.
