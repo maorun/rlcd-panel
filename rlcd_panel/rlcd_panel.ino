@@ -363,7 +363,8 @@ void flushFramebuffer() {
   }
   const uint32_t frame_crc = g_framebuffer.crc32();
   const bool view_changed = g_mode_controller.mode() != g_state.mode ||
-                            g_mode_controller.chartSensor() != g_state.chart_sensor;
+                            g_mode_controller.chartSensor() != g_state.chart_sensor ||
+                            g_mode_controller.statsPage() != g_state.stats_page;
   // A redraw in the same cycle (for example after the NTP sync) counts once and keeps the skip, also at the 60th.
   const bool same_cycle_skip = g_skip_counted && g_timer_wakeup && !view_changed && frame_crc == g_state.frame.crc;
   if (same_cycle_skip || g_state.frame.shouldSkip(g_timer_wakeup, view_changed, frame_crc)) {
@@ -379,7 +380,21 @@ void flushFramebuffer() {
   g_skip_counted = false;
 }
 
+// Tells the mode controller whether slot 4 or 5 is active, so a short KEY press in the stats view
+// selects the other page.
+void updateStatsSecondPage() {
+  SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
+  portENTER_CRITICAL(&g_registry_mux);
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    snapshot[i] = g_state.registry.slot(i);
+  }
+  portEXIT_CRITICAL(&g_registry_mux);
+  g_mode_controller.setStatsSecondPage(
+      DashboardView::statsHasSecondPage(snapshot, MAX_SWITCHBOT_SENSORS, &g_state.config));
+}
+
 void renderDashboard() {
+  updateStatsSecondPage(); // before the first render: a restored page 2 falls back without slot 4 and 5
   SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
   portENTER_CRITICAL(&g_registry_mux);
   const SwitchBotRegistry calibrated = calibratedRegistry();
@@ -408,6 +423,7 @@ void renderDashboard() {
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;
   info.chart_sensor = g_mode_controller.chartSensor();
+  info.stats_page = g_mode_controller.statsPage();
   info.runtime = g_state.battery_history.estimate(g_state.battery, g_scan_saved_ms, &g_state.awake);
   info.rtc_drift = g_state.rtc_drift;
   info.sd_free_mb = g_sd_free_mb;
@@ -1150,6 +1166,7 @@ void setup() {
   g_timer_wakeup = cause == WakeupCause::TIMER; // after the restore: a failed restore is a power-on
   g_mode_controller.setMode(g_state.mode);
   g_mode_controller.setChartSensor(g_state.chart_sensor);
+  g_mode_controller.setStatsPage(g_state.stats_page);
   g_cycles.fromRtc(g_cycle_rtc); // blank memory after a power-on keeps the empty tracker
 
   // Empty battery protection: check the cell before any module starts. A set latch skips the BLE
@@ -1428,6 +1445,9 @@ void setup() {
       default:
         break;
     }
+    if (g_mode_controller.mode() == DisplayMode::SENSOR_STATS) {
+      updateStatsSecondPage(); // only this view reads the flag
+    }
     switch (g_mode_controller.updateWithLongPress(digitalRead(PIN_BTN_KEY) == LOW, millis())) {
       case ButtonEvent::MODE_CHANGED:
         renderDashboard();
@@ -1435,6 +1455,9 @@ void setup() {
         g_spectrum_attempted = false; // a new entry to the view captures again
         g_spectrum = SpectrumReading{}; // old bars never show while the new capture runs
         captureSpectrumAndRedraw(true);
+        break;
+      case ButtonEvent::NEXT_PAGE:
+        renderDashboard(); // the stats view reads only RTC state: no sensor read, no microphone
         break;
       case ButtonEvent::NEXT_SENSOR:
         renderDashboard(); // the chart reads only the RTC histories: no sensor read, no microphone
@@ -1462,6 +1485,7 @@ void setup() {
   }
   g_state.mode = g_mode_controller.mode();
   g_state.chart_sensor = g_mode_controller.chartSensor();
+  g_state.stats_page = g_mode_controller.statsPage();
   if (!PowerPlatform::saveState(g_state)) {
     Serial.println("RTC state save failed");
   }

@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Show slots 4 and 5 on a second page of the stats view
-  - Rank: [Total: 27, Use: 7, Setup: 3, Harmony: 8, Safety: 9, Effort: M]
-  - Location: `rlcd_panel/dashboard_view.h`, `rlcd_panel/button_handler.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `scripts/generate-display-preview.sh`, `tests/test_firmware_logic.cpp`, `AGENTS.md`
-  - Goal: The stats view has room for three slot blocks (`STATS_SLOT_COUNT` 3). Thus the comfort, mold, heat index and record lines of slots 4 and 5 do not show. Add a second stats page with slots 4 and 5. In the stats view a short `KEY` press returns `ButtonEvent::NEXT_PAGE` and selects the other page. A hold of 2 s changes the view, the same as in the chart view. Show the second page only when slot 4 or slot 5 is active (`activeTileCount` rules). Else a short press changes the view as before. Show `1/2` or `2/2` in the header. Store the page in one byte of `PersistentState` after `chart_sensor` (a value above 1 is rejected) and increase `STATE_VERSION`. Keep the first page bit-exact. Add the preview image `docs/display_preview_stats2.png`.
-  - Acceptance test: Host tests assert that a short press in the stats view with an active slot 4 gives `NEXT_PAGE`, that a short press without slot 4 and slot 5 gives `MODE_CHANGED`, that a hold of 2 s gives `MODE_CHANGED`, that the first page is bit-exact against the old render, and that an RTC page byte of 2 is rejected. `./scripts/generate-display-preview.sh` writes `docs/display_preview_stats2.png`. The C++ host tests and `arduino-cli compile rlcd_panel` pass.
-
 - [ ] Start the macOS app at login on user request
   - Rank: [Total: 23, Use: 6, Setup: 4, Harmony: 3, Safety: 10, Effort: S]
   - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/LoginItem.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/LoginItemTests.swift` (new)

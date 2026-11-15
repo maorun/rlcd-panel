@@ -86,11 +86,15 @@ One to six climate tiles: the onboard `SHTC3` and up to five external sensors. A
 |---|---|---|
 | ![1 tile](docs/display_preview_tiles1.png) | ![2 tiles](docs/display_preview_tiles2.png) | ![6 tiles](docs/display_preview_tiles6.png) |
 
-The sensor stats view and the CSV logs cover the onboard sensor and slots 1 to 3. The offset keys (`slotN_temp_offset_c`, `slotN_rh_offset_pct`) exist for slots 1 to 5. The BLE telemetry frame carries four tiles.
+The first page of the sensor stats view shows slots 1 to 3, and a second page shows slots 4 and 5. The CSV logs cover the onboard sensor and slots 1 to 5. The offset keys (`slotN_temp_offset_c`, `slotN_rh_offset_pct`) exist for slots 1 to 5. The BLE telemetry frame carries four tiles.
 
 ### Mode 1: Sensor Stats
 
 ![Sensor Stats view](docs/display_preview_stats.png)
+
+When slot 4 or slot 5 is active, a short `KEY` press selects the other page (`1/2`, `2/2` in the title). A hold of 2 s changes the view.
+
+![Sensor Stats view, page 2](docs/display_preview_stats2.png)
 
 One text block per SwitchBot sensor with `RSSI`, `MAC` address, received packet count (`PKT`), and the age of the last packet (`AGE`). The `MOLD <N>H` text at the right of the `MAC` line shows the hours of the last 24 hours above `mold_alert_limit_rh` (`MOLD --` for an empty or stale slot or fewer than 2 samples). The `FEELS <T>C` text at the right of the first line shows the heat index (NOAA Rothfusz regression with both NOAA corrections) of the sensor in the unit `temp_unit`. Below 26.7 C or below 40 %RH it equals the air temperature. An empty or stale slot and an invalid reading show `FEELS --`. The `AH <N.N>G` text at the right of the record line shows the absolute humidity in g/m3 (`AH --` for an empty or stale slot or an invalid reading). The firmware does not draw it when it would come closer than 4 px to the record text. The last line shows the onboard battery voltage.
 

@@ -27,13 +27,15 @@ struct PreviewScene {
   bool ventilate = false;     // ventilation advice: banner in the dashboard header
   bool invert = false;        // config.ini display_invert=1: light text on a dark background
   uint8_t tiles = 0;          // dashboard tile count 1 to 6 (onboard + slots); 0 is the classic sample with 3 slots, which is the 4-tile layout (display_preview_dashboard)
+  uint8_t stats_page = 0;     // stats view page 0 or 1 (page 1 shows slots 4 and 5)
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 14;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 15;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
     {"display_preview_stats", DisplayMode::SENSOR_STATS, false, false},
+    {"display_preview_stats2", DisplayMode::SENSOR_STATS, false, false, false, false, false, false, 6, 1},
     {"display_preview_diagnostics", DisplayMode::SYSTEM_DIAGNOSTICS, false, false},
     {"display_preview_runtime", DisplayMode::SYSTEM_DIAGNOSTICS, false, false, true},
     {"display_preview_spectrum", DisplayMode::AUDIO_SPECTRUM, false, false},
@@ -52,7 +54,7 @@ constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
 inline void renderScene(
     St7305Framebuffer& fb, DisplayMode mode, bool low_battery, bool quiet_hours = false,
     bool long_runtime = false, bool battery_empty = false, bool ventilate = false,
-    bool invert = false, uint8_t tiles = 0) {
+    bool invert = false, uint8_t tiles = 0, uint8_t stats_page = 0) {
   Shtc3Reading onboard;
   onboard.valid = true;
   onboard.temperature_c = 21.8f;
@@ -189,6 +191,7 @@ inline void renderScene(
   info.noise.l10_rms = 1000; // L10 60 DBA
   info.noise.l90_rms = 316;  // L90 50 DBA
   info.quiet_hours = quiet_hours;
+  info.stats_page = stats_page;
   info.chart_sensor = 1; // the climate chart view shows the garden sensor
   info.ventilate = ventilate;
   // Tile badges from the default limit (60 %RH): the humid sensor 2 shows the "V" badge.
