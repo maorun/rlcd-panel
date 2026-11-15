@@ -27,6 +27,7 @@ struct DiagnosticsView: View {
                         group("BLE rejected packets") { ble(d.ble) }
                         group("BLE reception (last 24 scans)") { reception(d.reception) }
                         group("Resets") { reset(d.reset) }
+                        group("RTC frequency trim") { rtcTrim(d.rtcTrim) }
                         group("Battery runtime") { runtime(d.runtime) }
                         group("Awake time") { awake(d.awake) }
                     } else {
@@ -175,6 +176,16 @@ struct DiagnosticsView: View {
                 }
             }
             Text("abnormal resets: \(n(m.abnormalCount))")
+        } else { unknown }
+    }
+
+    @ViewBuilder private func rtcTrim(_ m: RtcTrimMetrics?) -> some View {
+        if let m {
+            Text("offset register \(m.trim.map(String.init) ?? "--")  drift \(m.driftPpm.map { String(format: "%+d ppm", $0) } ?? "--")")
+            if m.canTrim {
+                Button("Trim RTC") { model.trimRtc() }
+                    .disabled(!model.canSet || !model.isIdle)
+            }
         } else { unknown }
     }
 

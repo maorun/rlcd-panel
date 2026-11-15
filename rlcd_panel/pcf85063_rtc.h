@@ -194,6 +194,7 @@ struct RtcDriftState {
   uint32_t last_sync_s = 0;  // UTC epoch seconds of the last successful sync
   int32_t drift_s = 0;       // RTC time minus NTP time before the write; positive: RTC ahead
   int32_t rate_ppm = 0;      // drift_s over the time since the previous sync
+  uint32_t interval_s = 0;   // time between the two syncs of the figure; 0 without a figure
 };
 
 // Drift maths. It has no Arduino dependency, so the host tests build it.
@@ -202,6 +203,7 @@ public:
   static constexpr int32_t MAX_DRIFT_S = 86400; // a larger offset means the RTC was never set
   static constexpr int32_t MAX_PPM = 99999;
   static constexpr int64_t MIN_INTERVAL_S = 3600; // a shorter interval gives a rate dominated by the 1 s resolution; the rate still moves in steps of 278 PPM at 1 h
+  static constexpr uint32_t MAX_INTERVAL_S = 100u * 366u * 86400u; // the span of the 2000..2099 sync window
   static constexpr int64_t EPOCH_2000 = 946684800;
   static constexpr int64_t EPOCH_2100 = 4102444800;
 
@@ -233,6 +235,7 @@ public:
     s.has_drift = false;
     s.drift_s = 0;
     s.rate_ppm = 0;
+    s.interval_s = 0;
     if (!had_sync || !rtc.valid || !reference.valid || utc_epoch < previous + MIN_INTERVAL_S) {
       return false;
     }
@@ -248,6 +251,7 @@ public:
     s.has_drift = true;
     s.drift_s = static_cast<int32_t>(drift);
     s.rate_ppm = static_cast<int32_t>(rate);
+    s.interval_s = static_cast<uint32_t>(interval);
     return true;
   }
 
@@ -262,6 +266,53 @@ public:
     }
     snprintf(buf, len, "RTC DRIFT: %+ld S (%+ld PPM)", static_cast<long>(s.drift_s),
              static_cast<long>(s.rate_ppm));
+  }
+};
+
+// Frequency trim of the PCF85063A: the offset register (0x02) in mode 0. Bit 7 is the mode bit (0:
+// one correction every 2 hours, 4.34 ppm per step), bits 6..0 hold the value in two's complement
+// (-64 to 63). A positive value adds pulses and speeds the clock up (datasheet table), so a fast
+// clock (positive drift rate) needs a negative correction. The register keeps its value through
+// deep sleep and a reset while the RTC has power, so the firmware stores no copy.
+class RtcTrim {
+public:
+  static constexpr uint8_t REG_OFFSET = 0x02;
+  static constexpr int32_t MIN_STEPS = -64;
+  static constexpr int32_t MAX_STEPS = 63;
+  static constexpr int32_t STEP_PPM_X100 = 434; // 4.34 ppm
+  static constexpr uint32_t MIN_INTERVAL_S = 86400; // a shorter interval gives a rate too coarse to trim
+
+  // The drift figure has an interval of 24 h or more.
+  static bool hasFigure(const RtcDriftState& s) {
+    return s.has_sync && s.has_drift && s.interval_s >= MIN_INTERVAL_S;
+  }
+
+  // Steps of the rate, rounded half away from zero. Positive for a fast clock.
+  static int32_t stepsForRate(int32_t rate_ppm) {
+    const int64_t scaled = static_cast<int64_t>(rate_ppm) * 100;
+    const int64_t half = STEP_PPM_X100 / 2;
+    return static_cast<int32_t>((scaled >= 0 ? scaled + half : scaled - half) / STEP_PPM_X100);
+  }
+
+  // New register value from the active value: a fast clock lowers it. Clamped to -64 to 63.
+  static int32_t targetValue(int32_t active, int32_t rate_ppm) {
+    int64_t value = static_cast<int64_t>(active) - stepsForRate(rate_ppm);
+    if (value > MAX_STEPS) value = MAX_STEPS;
+    if (value < MIN_STEPS) value = MIN_STEPS;
+    return static_cast<int32_t>(value);
+  }
+
+  // Register byte of a value: mode bit 0, 7-bit two's complement. A value outside the range clamps.
+  static uint8_t encode(int32_t value) {
+    if (value > MAX_STEPS) value = MAX_STEPS;
+    if (value < MIN_STEPS) value = MIN_STEPS;
+    return static_cast<uint8_t>(value & 0x7F);
+  }
+
+  // Value of a register byte; the mode bit is ignored.
+  static int32_t decode(uint8_t reg) {
+    const int32_t raw = reg & 0x7F;
+    return raw >= 64 ? raw - 128 : raw;
   }
 };
 
@@ -315,6 +366,32 @@ public:
     for (size_t i = 0; i < sizeof(regs); ++i) {
       wire_->write(regs[i]);
     }
+    return wire_->endTransmission() == 0;
+  }
+
+  // Reads the offset register as a value of -64 to 63.
+  bool readOffset(int32_t& value) {
+    if (!present_ || wire_ == nullptr) {
+      return false;
+    }
+    wire_->beginTransmission(I2C_ADDR_PCF85063);
+    wire_->write(RtcTrim::REG_OFFSET);
+    if (wire_->endTransmission() != 0 ||
+        wire_->requestFrom(static_cast<int>(I2C_ADDR_PCF85063), 1) != 1) {
+      return false;
+    }
+    value = RtcTrim::decode(static_cast<uint8_t>(wire_->read()));
+    return true;
+  }
+
+  // Writes the offset register in mode 0.
+  bool writeOffset(int32_t value) {
+    if (!present_ || wire_ == nullptr) {
+      return false;
+    }
+    wire_->beginTransmission(I2C_ADDR_PCF85063);
+    wire_->write(RtcTrim::REG_OFFSET);
+    wire_->write(RtcTrim::encode(value));
     return wire_->endTransmission() == 0;
   }
 

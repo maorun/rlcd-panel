@@ -39,6 +39,27 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         #expect(d.shtc3?.isAlert == false)
     }
 
+    @Test func parsesRtcTrimLine() throws {
+        let d = try DiagnosticsReply.parse(otherLines: ["RTC": "RTC trim=-8 drift_ppm=--"])
+        #expect(d.rtcTrim == RtcTrimMetrics(trim: -8, driftPpm: nil))
+        #expect(d.rtcTrim?.canTrim == false)
+        let figure = try RtcTrimMetrics.parse(line: "RTC trim=63 drift_ppm=-12")
+        #expect(figure == RtcTrimMetrics(trim: 63, driftPpm: -12) && figure.canTrim)
+        #expect(try RtcTrimMetrics.parse(line: "RTC trim=-- drift_ppm=35") == RtcTrimMetrics(trim: nil, driftPpm: 35))
+        #expect(try RtcTrimMetrics.parse(line: "RTC trim=-64 drift_ppm=0").trim == -64)
+        #expect(try !RtcTrimMetrics.parse(line: "RTC trim=0 drift_ppm=2").canTrim)
+        #expect(try RtcTrimMetrics.parse(line: "RTC trim=0 drift_ppm=-3").canTrim)
+    }
+
+    @Test func rejectsBadRtcTrimLine() {
+        for bad in ["RTC trim=x drift_ppm=--", "RTC trim=- drift_ppm=--", "RTC trim=64 drift_ppm=--",
+                    "RTC trim=-65 drift_ppm=--", "RTC trim=1 drift_ppm=y", "RTC drift_ppm=--", "RTC trim=1",
+                    "RTC trim=+1 drift_ppm=--"] {
+            #expect(throws: ParseError.self) { try RtcTrimMetrics.parse(line: bad) }
+        }
+        #expect(ConsoleCommand.rtcTrim.line == "RTC TRIM")
+    }
+
     @Test func missingLinesGiveNilWithoutError() throws {
         let d = try DiagnosticsReply.parse(otherLines: [:])
         #expect(d == DiagnosticsReply(shtc3: nil, ble: nil, reset: nil, runtime: nil, awake: nil, reception: nil))

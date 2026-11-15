@@ -318,7 +318,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 52;
+  static constexpr uint8_t STATE_VERSION = 53;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -341,8 +341,8 @@ public:
   // Audio trailer: last chime stamp (uint32), then one byte each: flags, muted | mask << 1 | band << 6, sensor battery latch, tile badge latch.
   static constexpr size_t AUDIO_SIZE = 4 + 4; // last chime stamp (uint32) first, then 4 bytes: flags byte (bit 0 ventilate, bit 1 sensor battery alert, bit 2 heat alert), muted | mask << 1 | band << 6, sensor battery latch bits, then the tile badge latch bits
   // NTP trailer: last attempt time, flags (bit 0 attempted, bit 1 last ok), failure count, then the
-  // RTC drift: flags (bit 0 synced, bit 1 drift known), last sync (UTC seconds), drift, rate (int32).
-  static constexpr size_t NTP_SIZE = 4 + 1 + 1 + 1 + 4 + 4 + 4;
+  // RTC drift: flags (bit 0 synced, bit 1 drift known), last sync (UTC seconds), drift, rate (int32), interval (uint32).
+  static constexpr size_t NTP_SIZE = 4 + 1 + 1 + 1 + 4 + 4 + 4 + 4;
   // Sensor names: the onboard name and one name for each slot, each with its terminator.
   static constexpr size_t NAMES_SIZE = (1 + DeviceConfig::SLOT_COUNT) * (DeviceConfig::NAME_MAX_CHARS + 1);
   // Fixed MACs: one 6-byte address for each slot, all zero for no fixed MAC.
@@ -587,12 +587,14 @@ public:
     const bool figure = rd.has_sync && rd.has_drift && rd.drift_s >= -RtcDrift::MAX_DRIFT_S &&
                         rd.drift_s <= RtcDrift::MAX_DRIFT_S && rd.rate_ppm >= -RtcDrift::MAX_PPM &&
                         rd.rate_ppm <= RtcDrift::MAX_PPM && !(rd.drift_s > 0 && rd.rate_ppm < 0) &&
-                        !(rd.drift_s < 0 && rd.rate_ppm > 0) && !(rd.drift_s == 0 && rd.rate_ppm != 0);
+                        !(rd.drift_s < 0 && rd.rate_ppm > 0) && !(rd.drift_s == 0 && rd.rate_ppm != 0) &&
+                        rd.interval_s >= RtcDrift::MIN_INTERVAL_S && rd.interval_s <= RtcDrift::MAX_INTERVAL_S;
     const bool synced = rd.has_sync && rd.last_sync_s >= RtcDrift::EPOCH_2000 && rd.last_sync_s < RtcDrift::EPOCH_2100;
     out[pos++] = static_cast<uint8_t>((synced ? 1 : 0) | (synced && figure ? 2 : 0));
     putU32(out, pos, synced ? rd.last_sync_s : 0);
     putU32(out, pos, synced && figure ? static_cast<uint32_t>(rd.drift_s) : 0);
     putU32(out, pos, synced && figure ? static_cast<uint32_t>(rd.rate_ppm) : 0);
+    putU32(out, pos, synced && figure ? rd.interval_s : 0);
     putFloat(out, pos, state.config.temp_offset_c);
     putFloat(out, pos, state.config.freeze_alert_limit_c);
     out[pos++] = state.config.mold_alert_limit_rh;
@@ -910,17 +912,20 @@ public:
     s.rtc_drift.last_sync_s = getU32(data, pos);
     s.rtc_drift.drift_s = static_cast<int32_t>(getU32(data, pos));
     s.rtc_drift.rate_ppm = static_cast<int32_t>(getU32(data, pos));
+    s.rtc_drift.interval_s = getU32(data, pos);
     s.rtc_drift.has_sync = (drift_flags & 1) != 0;
     s.rtc_drift.has_drift = (drift_flags & 2) != 0;
     // A figure needs a sync; without a figure the values stay zero; both stay within their limits,
     // the rate has the sign of the drift, and the sync time lies in 2000..2099.
     if ((drift_flags & ~3u) != 0 || (s.rtc_drift.has_drift && !s.rtc_drift.has_sync) ||
         (!s.rtc_drift.has_sync && s.rtc_drift.last_sync_s != 0) ||
-        (!s.rtc_drift.has_drift && (s.rtc_drift.drift_s != 0 || s.rtc_drift.rate_ppm != 0)) ||
+        (!s.rtc_drift.has_drift && (s.rtc_drift.drift_s != 0 || s.rtc_drift.rate_ppm != 0 || s.rtc_drift.interval_s != 0)) ||
         s.rtc_drift.drift_s > RtcDrift::MAX_DRIFT_S || s.rtc_drift.drift_s < -RtcDrift::MAX_DRIFT_S ||
         s.rtc_drift.rate_ppm > RtcDrift::MAX_PPM || s.rtc_drift.rate_ppm < -RtcDrift::MAX_PPM ||
         (s.rtc_drift.has_sync && (s.rtc_drift.last_sync_s < RtcDrift::EPOCH_2000 ||
                                   s.rtc_drift.last_sync_s >= RtcDrift::EPOCH_2100)) ||
+        (s.rtc_drift.has_drift && (s.rtc_drift.interval_s < RtcDrift::MIN_INTERVAL_S ||
+                                   s.rtc_drift.interval_s > RtcDrift::MAX_INTERVAL_S)) ||
         (s.rtc_drift.drift_s == 0 && s.rtc_drift.rate_ppm != 0) ||
         (s.rtc_drift.drift_s > 0 && s.rtc_drift.rate_ppm < 0) ||
         (s.rtc_drift.drift_s < 0 && s.rtc_drift.rate_ppm > 0)) {

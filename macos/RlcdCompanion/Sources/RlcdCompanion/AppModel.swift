@@ -440,6 +440,15 @@ final class AppModel: ConsoleLinkDelegate {
         sendNext()
     }
 
+    /// Trims the RTC frequency from the drift figure, then reads `STATUS` again. Runs only on the user's button.
+    /// The firmware answers `ERR NO_DRIFT` without a figure of 24 h or more and `ERR READ_ONLY` on BLE with `ble_console` 1.
+    func trimRtc() {
+        guard isIdle, canSet, diagnostics?.rtcTrim?.canTrim == true else { return }
+        message = nil
+        queue = [.rtcTrim, .status]
+        sendNext()
+    }
+
     /// Chime alert name.
     static func chimeName(_ bit: Int) -> String {
         switch bit {
@@ -905,7 +914,7 @@ final class AppModel: ConsoleLinkDelegate {
                 queue.removeAll()
                 finishDownload(cmd, text: "unexpected reply")
             case (.set, .frame): batch?.receive(status: "ERR UNEXPECTED_REPLY")
-            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame):
+            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.rtcTrim, .frame):
                 message = "Unexpected frame reply"
             }
         } catch {
