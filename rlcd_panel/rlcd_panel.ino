@@ -1202,10 +1202,17 @@ void setup() {
   if (scanned) {
     g_state.last_scan_ms = nowMs();
     initBle();
+    uint32_t packets_before[MAX_SWITCHBOT_SENSORS];
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      packets_before[i] = g_state.registry.slot(i).packet_count;
+    }
     // The battery reading is from the last wake cycle: one cycle after a plug-in keeps the old power state.
     scanOnce(ScanCompletion::fullScanRequired(
         cause, g_state.battery, g_state.registry, nowMs(), g_state.history.sampleDue(nowMs()), config().staleTimeoutMs()));
     BLEDevice::deinit(false);
+    portENTER_CRITICAL(&g_registry_mux);
+    g_state.reception.recordScan(g_state.registry, packets_before);
+    portEXIT_CRITICAL(&g_registry_mux);
     cycle.advance();
   }
 
@@ -1312,6 +1319,7 @@ void setup() {
       snap.cycle_tenths = g_cycles.cycleTenths();
       snap.scan_saved_ms = g_scan_saved_ms;
       snap.awake = &g_state.awake;
+      snap.reception = &g_state.reception;
       snap.reset_reason = ResetReasonCodec::text(g_reset_reason);
       ResetCountStore reset_store;
       snap.abnormal_resets = AbnormalResetCounter::read(reset_store);

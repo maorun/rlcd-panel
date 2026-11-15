@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Count the BLE reception rate of each registry slot
-  - Rank: [Total: 30, Use: 6, Setup: 9, Harmony: 8, Safety: 7, Effort: M]
-  - Location: `rlcd_panel/switchbot_ble.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsTests.swift`, `AGENTS.md`
-  - Goal: The `STATUS` reply shows the RSSI and the age of each sensor, but not how often the scan misses it. A weak sensor at the edge of the range is thus hard to find. Add `ReceptionHistory` to `switchbot_ble.h`: one 24-bit mask for each of the 5 slots. After each BLE scan, shift the mask of each occupied slot by one bit and set bit 0 when the slot got a valid packet in this scan. A slot without a MAC keeps mask 0 and count 0. `resetSlot` clears the mask. Store the masks and a count of the scans (up to 24) in `PersistentState` just before the checksum and increase `STATE_VERSION`. A power-on clears them. Add the line `RECEPTION s1=<N>/<M> s2=<N>/<M> s3=<N>/<M> s4=<N>/<M> s5=<N>/<M>` (`--` for an empty slot) after `BLE` in the `STATUS` reply. Parse the line in `Diagnostics.swift` and show the rate per slot in `DiagnosticsView`. Mark a rate below 50 % with a warning symbol.
-  - Acceptance test: Host tests assert that 24 scans with a packet in each second scan give `12/24`, that a slot with 3 scans gives `N/3`, that `resetSlot` gives `--`, that an RTC image of the old `STATE_VERSION` is rejected, and that a mask with a count above 24 is rejected. `DiagnosticsTests` parse `RECEPTION s1=12/24 s2=-- s3=24/24 s4=-- s5=1/3`, give `nil` for `--`, and throw `ParseError.badLine` for `s1=x/24`. The C++ host tests, `arduino-cli compile rlcd_panel`, `swift test` and `swift build -c release` pass.
-
 - [ ] Show the hourly climate logs as charts in the macOS app
   - Rank: [Total: 29, Use: 8, Setup: 3, Harmony: 8, Safety: 10, Effort: M]
   - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/ClimateLog.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/ArchiveView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ClimateLogTests.swift` (new)

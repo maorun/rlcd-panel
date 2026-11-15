@@ -106,6 +106,7 @@ struct PersistentState {
   Shtc3Health shtc3;          // failed reads of the onboard SHTC3 by cause; a power-on sets them to 0
   AwakeTimeStats awake;       // measured awake time of the timer wakeups on battery power
   FrameRefresh frame;         // CRC-32 of the last flushed frame and the skipped cycles in a row
+  ReceptionHistory reception; // BLE reception mask and scan count of each registry slot
 
   // Stores the result of a card access. A wake cycle without card access never calls it, so the
   // stored status stays.
@@ -187,6 +188,7 @@ struct PersistentState {
     ventilate_tiles = static_cast<uint8_t>(ventilate_tiles & ~(2u << index));
     history.slots[1 + index].clear();
     history.temperatures[1 + index].clear();
+    reception.clear(index);
   }
 
 private:
@@ -314,7 +316,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 49;
+  static constexpr uint8_t STATE_VERSION = 50;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -360,7 +362,9 @@ public:
   static constexpr size_t SHTC3_SIZE = Shtc3Health::SERIALIZED_SIZE;
   static constexpr size_t AWAKE_SIZE = AwakeTimeStats::SERIALIZED_SIZE;
   static constexpr size_t FRAME_SIZE = FrameRefresh::SERIALIZED_SIZE;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + 4;
+  // BLE reception trailer (just before the checksum): for each registry slot a 24-bit mask (3 bytes, little-endian) and the scan count.
+  static constexpr size_t RECEPTION_SIZE = ReceptionHistory::SERIALIZED_SIZE;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -665,6 +669,13 @@ public:
     pos += AWAKE_SIZE;
     state.frame.serialize(out + pos);
     pos += FRAME_SIZE;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      const uint32_t m = state.reception.mask(i);
+      out[pos++] = static_cast<uint8_t>(m & 0xFF);
+      out[pos++] = static_cast<uint8_t>((m >> 8) & 0xFF);
+      out[pos++] = static_cast<uint8_t>((m >> 16) & 0xFF);
+      out[pos++] = state.reception.scans(i);
+    }
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -998,6 +1009,15 @@ public:
       return false;
     }
     pos += FRAME_SIZE;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      const uint32_t m = static_cast<uint32_t>(data[pos]) | (static_cast<uint32_t>(data[pos + 1]) << 8) |
+                         (static_cast<uint32_t>(data[pos + 2]) << 16);
+      if ((!s.registry.slot(i).valid && (m != 0 || data[pos + 3] != 0)) ||
+          !s.reception.restore(i, m, data[pos + 3])) {
+        return false; // a count above 24 or a mask beyond the counted scans is corrupt
+      }
+      pos += 4;
+    }
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       s.registry.setFixedMac(i, s.config.hasSlotMac(i) ? s.config.slot_mac[i] : nullptr);
     }

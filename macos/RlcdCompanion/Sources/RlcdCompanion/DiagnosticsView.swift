@@ -25,6 +25,7 @@ struct DiagnosticsView: View {
                     if let d = model.diagnostics {
                         group("SHTC3 sensor") { shtc3(d.shtc3) }
                         group("BLE rejected packets") { ble(d.ble) }
+                        group("BLE reception (last 24 scans)") { reception(d.reception) }
                         group("Resets") { reset(d.reset) }
                         group("Battery runtime") { runtime(d.runtime) }
                         group("Awake time") { awake(d.awake) }
@@ -142,6 +143,25 @@ struct DiagnosticsView: View {
         if let m {
             Text("rejected \(n(m.rejected))  last \(m.lastMac ?? "--")")
             Text("woio \(n(m.woio))  meter \(n(m.meter))  bthome \(n(m.bthome))  atc \(n(m.atc))")
+        } else { unknown }
+    }
+
+    @ViewBuilder private func reception(_ m: ReceptionMetrics?) -> some View {
+        if let m {
+            ForEach(Array(m.slots.enumerated()), id: \.offset) { index, rate in
+                HStack(spacing: 4) {
+                    Text("slot \(index + 1)")
+                    if let rate {
+                        Text("\(rate.received)/\(rate.scans) (\(rate.percent) %)")
+                        if rate.isWeak {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                                .accessibilityLabel("Weak reception")
+                        }
+                    } else {
+                        Text("--").foregroundStyle(.secondary)
+                    }
+                }
+            }
         } else { unknown }
     }
 
