@@ -38,18 +38,15 @@ public:
   // temperature outside 10 to 35 C.
   static float saltReferenceRh(float temp_c) {
     static constexpr float TABLE[] = {75.7f, 75.6f, 75.5f, 75.3f, 75.1f, 74.9f};
-    constexpr float FIRST_C = 10.0f;
-    constexpr float STEP_C = 5.0f;
-    constexpr size_t LAST = sizeof(TABLE) / sizeof(TABLE[0]) - 1;
-    if (!isfinite(temp_c) || temp_c < FIRST_C || temp_c > FIRST_C + STEP_C * LAST) {
-      return NAN;
-    }
-    size_t i = static_cast<size_t>((temp_c - FIRST_C) / STEP_C);
-    if (i >= LAST) {
-      return TABLE[LAST];
-    }
-    const float frac = (temp_c - (FIRST_C + STEP_C * static_cast<float>(i))) / STEP_C;
-    return TABLE[i] + (TABLE[i + 1] - TABLE[i]) * frac;
+    return interpolateSaltTable(TABLE, sizeof(TABLE) / sizeof(TABLE[0]), temp_c);
+  }
+
+  // Equilibrium humidity above saturated magnesium chloride (MgCl2) in %RH from a fixed table: 10 C 33.5,
+  // 15 C 33.3, 20 C 33.1, 25 C 32.8, 30 C 32.4, 35 C 32.1, linear between the points. NaN for NaN, infinite or a
+  // temperature outside 10 to 35 C.
+  static float magnesiumReferenceRh(float temp_c) {
+    static constexpr float TABLE[] = {33.5f, 33.3f, 33.1f, 32.8f, 32.4f, 32.1f};
+    return interpolateSaltTable(TABLE, sizeof(TABLE) / sizeof(TABLE[0]), temp_c);
   }
 
   // Saturation vapor pressure in kPa.
@@ -155,6 +152,23 @@ public:
     }
     snprintf(buf, size, "DP %.1f%c VPD %.1fK", static_cast<double>(toDisplay(d.dew_point_c, unit)),
              unit == 'F' ? 'F' : 'C', static_cast<double>(d.vpd_kpa));
+  }
+
+private:
+  // Linear table lookup for the salt references: entries 5 C apart from 10 C on.
+  static float interpolateSaltTable(const float* table, size_t count, float temp_c) {
+    constexpr float FIRST_C = 10.0f;
+    constexpr float STEP_C = 5.0f;
+    const size_t last = count - 1;
+    if (!isfinite(temp_c) || temp_c < FIRST_C || temp_c > FIRST_C + STEP_C * static_cast<float>(last)) {
+      return NAN;
+    }
+    const size_t i = static_cast<size_t>((temp_c - FIRST_C) / STEP_C);
+    if (i >= last) {
+      return table[last];
+    }
+    const float frac = (temp_c - (FIRST_C + STEP_C * static_cast<float>(i))) / STEP_C;
+    return table[i] + (table[i + 1] - table[i]) * frac;
   }
 };
 

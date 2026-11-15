@@ -82,6 +82,7 @@ public enum ConfigSchema {
             e("temp_offset_c", .climate, .decimal(min: -10, max: 10), "-1.9", "°C", "Add this value to the onboard temperature."),
             e("usb_temp_offset_c", .climate, .decimal(min: -5, max: 0), "0.0", "°C", "Add this value to the onboard temperature on USB power only."),
             e("rh_offset_pct", .climate, .decimal(min: -10, max: 10), "0.0", "%RH", "Add this value to the onboard humidity."),
+            e("rh_gain", .climate, .decimal(min: 0.9, max: 1.1), "1.0", "", "Multiply the raw onboard humidity by this value before the offset. Steps of 0.002."),
             e("temp_unit", .climate, .enumeration(["C", "F"]), "C", "", "Show the temperature in Celsius or Fahrenheit. The card files and alerts stay in Celsius."),
             e("display_invert", .climate, .integer(min: 0, max: 1), "0", "", "0 is dark on light. 1 is light on dark."),
             e("freeze_alert_limit_c", .climate, .decimal(min: -20, max: 15), "0.0", "°C", "Start the freezer alert below this temperature."),
@@ -116,6 +117,9 @@ public enum ConfigSchema {
         for n in 1...5 {
             out.append(e("slot\(n)_rh_offset_pct", .sensors, .decimal(min: -10, max: 10), "0.0", "%RH", "Add this value to the slot \(n) humidity."))
         }
+        for n in 1...5 {
+            out.append(e("slot\(n)_rh_gain", .sensors, .decimal(min: 0.9, max: 1.1), "1.0", "", "Multiply the raw slot \(n) humidity by this value before the offset. Steps of 0.002."))
+        }
         out.append(e("onboard_name", .sensors, .name, "", "", "Name of the onboard tile."))
         for n in 1...5 { out.append(e("slot\(n)_name", .sensors, .name, "", "", "Name of the slot \(n) tile.")) }
         for n in 1...5 {
@@ -146,7 +150,9 @@ public enum ConfigSchema {
         "ble_console", "slot4_name", "slot5_name",
         "slot4_mac", "slot5_mac", "slot4_temp_offset_c",
         "slot5_temp_offset_c", "slot4_rh_offset_pct", "slot5_rh_offset_pct",
-        "usb_temp_offset_c", "dry_alert_limit_rh",
+        "usb_temp_offset_c", "dry_alert_limit_rh", "rh_gain",
+        "slot1_rh_gain", "slot2_rh_gain", "slot3_rh_gain",
+        "slot4_rh_gain", "slot5_rh_gain",
     ]
     private static let index: [String: Int] = Dictionary(uniqueKeysWithValues: keys.enumerated().map { ($1, $0) })
 

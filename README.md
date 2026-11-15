@@ -189,6 +189,7 @@ Check a `config.ini` on the host before you copy it to the card: `./scripts/chec
 temp_offset_c=-1.9
 usb_temp_offset_c=0.0
 rh_offset_pct=0.0
+rh_gain=1.0
 slot1_temp_offset_c=0.0
 slot2_temp_offset_c=0.0
 slot3_temp_offset_c=0.0
@@ -199,6 +200,11 @@ slot2_rh_offset_pct=0.0
 slot3_rh_offset_pct=0.0
 slot4_rh_offset_pct=0.0
 slot5_rh_offset_pct=0.0
+slot1_rh_gain=1.0
+slot2_rh_gain=1.0
+slot3_rh_gain=1.0
+slot4_rh_gain=1.0
+slot5_rh_gain=1.0
 freeze_alert_limit_c=0.0
 mold_alert_limit_rh=70
 chime_volume_pct=30
@@ -279,6 +285,8 @@ The console command `SCAN` runs one 4 s BLE scan and lists each nearby sensor of
 The console command `SCREEN` sends the 15,000 bytes of the last rendered frame (`BEGIN screen.bin 15000`, the bytes, a `CRC32` line). It gives `ERR NO_FRAME` before the first render and `ERR NOT_OVER_BLE` on the BLE console; it needs no card and does not flush the panel. The macOS app shows the frame in the panel view (USB link only).
 
 The console command `SALT N` (`N` is `0` for the onboard sensor or `1` to `5` for a slot) checks the humidity of one sensor against saturated sodium chloride. Put the sensor in a closed box with saturated salt for 6 hours at least. The reply is `SALT <name> hours=<n> rh_mean=<x> rh_span=<x> temp_mean=<x> reference=<x>`, the line `<key>=<value>` (the active humidity offset plus the reference minus the mean, clamped to the key range) and the `CRC32` line. Fewer than 6 hourly samples give `SKIP <name> hours=<n>`, a humidity span above 1.0 %RH gives `UNSTABLE <name> span=<x>`, and a mean temperature outside 10 to 35 C gives `ERR BAD_TEMP`. The command reads the RTC copy only, runs on USB power only and does not write the card. The macOS companion has a salt check section in the calibration assistant.
+
+The console command `SALT N MGCL2` gives the same checks and the same reply with the reference of saturated magnesium chloride (10 C 33.5 %RH to 35 C 32.1 %RH) and no proposal line. Any other salt name gives `ERR BAD_ARG`. The keys `rh_gain` and `slot1_rh_gain` to `slot5_rh_gain` (0.90 to 1.10, default 1.00, steps of 0.002) correct a slope error: the firmware calculates `rh = raw * gain + offset`, clamped to 0 to 100 %RH, before it stores a reading. Check one sensor with `SALT N` (NaCl, about 75 %RH) and with `SALT N MGCL2` (about 33 %RH). The calibration assistant calculates the raw means from the active gain and offset, then the new gain and offset from the two points, and applies them through `ConfigBatch`. A gain outside 0.90 to 1.10 gives an error text and no `SET`.
 
 The console command `PATTERN N` (`N` is `0`, `1` or `2`) shows a test pattern: `0` all pixels black, `1` a 1-pixel checkerboard, `2` a 1-pixel border with a cross from corner to corner. The panel gets the pattern without `display_invert`; the reply is `OK PATTERN <N>`, and the next wake cycle renders the normal view again. Another value gives `ERR BAD_ARG`. It needs no MicroSD card. The code is in `rlcd_panel/st7305_framebuffer.h` (`fillPattern`).
 

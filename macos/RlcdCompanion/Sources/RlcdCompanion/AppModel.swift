@@ -47,6 +47,9 @@ final class AppModel: ConsoleLinkDelegate {
     var salt: SaltReply?
     var saltSensor = 0
     var saltSelected = true
+    /// Result of `SALT N MGCL2`: the second point of the two-point calibration.
+    var saltMagnesium: SaltReply?
+    var twoPointMessage: String?
     /// Proposal keys that the user selected.
     var calibrationSelection: Set<String> = []
     var archiveFiles: [LogFile] = []
@@ -608,6 +611,48 @@ final class AppModel: ConsoleLinkDelegate {
         calibration = nil
         calibrationSelection = []
         salt = nil
+        saltMagnesium = nil
+        twoPointMessage = nil
+    }
+
+    /// Gain and offset from the two salt results, or the reason why there is none.
+    var twoPoint: Result<TwoPointCalibration.Result, TwoPointCalibration.Failure>? {
+        guard salt != nil, saltMagnesium != nil else { return nil }
+        do {
+            return .success(try TwoPointCalibration.compute(naCl: salt, mgCl2: saltMagnesium, current: config?.values))
+        } catch let failure as TwoPointCalibration.Failure {
+            return .failure(failure)
+        } catch {
+            return .failure(.notMeasured)
+        }
+    }
+
+    /// Reads `SALT N MGCL2`. Runs only on the user's button press; the firmware reads the RTC copy.
+    func saltMagnesiumCheck(sensor: Int) {
+        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        guard ConsoleCommand.saltMagnesium(sensor).line != nil else { message = "Sensor must be 0 to 5"; return }
+        message = nil
+        batchSummary = nil
+        saltMagnesium = nil
+        twoPointMessage = nil
+        queue = [.saltMagnesium(sensor)]
+        sendNext()
+    }
+
+    /// Sends the two-point result through `ConfigBatch`. A gain outside the key range gives an error text and no `SET`.
+    func applyTwoPoint() {
+        guard case let .success(result)? = twoPoint else {
+            if case let .failure(failure)? = twoPoint { twoPointMessage = failure.text }
+            return
+        }
+        twoPointMessage = nil
+        let changes = result.changes(current: config?.values ?? [:])
+        guard !changes.isEmpty else { message = "Gain and offset are already active"; return }
+        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        message = nil
+        batchSummary = nil
+        batch = ConfigBatch(changes: changes)
+        sendNextBatchCommand()
     }
 
     /// Calibration changes of the salt proposal against the last `CONFIG` reply.
@@ -623,6 +668,7 @@ final class AppModel: ConsoleLinkDelegate {
         batchSummary = nil
         salt = nil
         saltSelected = true
+        twoPointMessage = nil
         queue = [.salt(sensor)]
         sendNext()
     }
@@ -842,6 +888,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if cmd == .list { archiveFiles = [] }
                 if case .calib = cmd { calibration = nil }
                 if case .salt = cmd { salt = nil }
+                if case .saltMagnesium = cmd { saltMagnesium = nil }
                 if cmd == .screen { panelImage = nil } // ERR NO_FRAME must not leave an old image
                 if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
                 batch?.receive(status: text)
@@ -889,6 +936,9 @@ final class AppModel: ConsoleLinkDelegate {
             case let (.salt, .frame(lines)):
                 salt = nil
                 salt = try SaltReply.parse(lines: lines)
+            case let (.saltMagnesium, .frame(lines)):
+                saltMagnesium = nil
+                saltMagnesium = try SaltReply.parse(lines: lines)
             case let (.list, .frame(lines)):
                 archiveFiles = []
                 archiveFiles = try ListReply.parse(lines: lines)

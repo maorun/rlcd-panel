@@ -55,7 +55,9 @@ struct CalibrationView: View {
                     Text("Onboard").tag(0)
                     ForEach(1...5, id: \.self) { Text("Slot \($0)").tag($0) }
                 }.frame(maxWidth: 220)
-                Button("Check") { model.saltCheck(sensor: model.saltSensor) }
+                Button("Check NaCl") { model.saltCheck(sensor: model.saltSensor) }
+                    .disabled(!model.isIdle)
+                Button("Check MgCl2") { model.saltMagnesiumCheck(sensor: model.saltSensor) }
                     .disabled(!model.isIdle)
             }
             if let reply = model.salt {
@@ -79,6 +81,39 @@ struct CalibrationView: View {
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
+            twoPointSection
+        }
+    }
+
+    /// Gain and offset from the NaCl check (about 75 %RH) and the MgCl2 check (about 33 %RH) of the same sensor.
+    @ViewBuilder private var twoPointSection: some View {
+        if let mg = model.saltMagnesium, case let .measured(m, _) = mg.outcome {
+            Text("MgCl2: \(m.name), mean \(String(format: "%.1f", m.rhMean)) %RH, reference \(String(format: "%.1f", m.reference)) %RH")
+                .font(.callout)
+        } else if let mg = model.saltMagnesium {
+            Text(describe(mg.outcome)).font(.caption).foregroundStyle(.secondary)
+        }
+        if let two = model.twoPoint {
+            Text("Two-point calibration").font(.headline)
+            switch two {
+            case let .success(r):
+                Text("Raw means \(String(format: "%.1f", r.rawNaCl)) and \(String(format: "%.1f", r.rawMgCl2)) %RH")
+                    .font(.caption).foregroundStyle(.secondary)
+                Text("\(r.gainKey) = \(r.gain)\n\(r.offsetKey) = \(r.offset)").font(.system(.caption, design: .monospaced))
+            case let .failure(failure):
+                Text(failure.text).font(.caption).foregroundStyle(.red)
+            }
+            Button("Apply two-point result") { model.applyTwoPoint() }
+                .disabled(!model.isIdle)
+            if let text = model.twoPointMessage { Text(text).font(.caption).foregroundStyle(.red) }
+        }
+    }
+
+    private func describe(_ outcome: SaltReply.Outcome) -> String {
+        switch outcome {
+        case let .skipped(name, hours): return "\(name): \(hours) h, too few samples (6 needed)"
+        case let .unstable(name, span): return "\(name): humidity span \(String(format: "%.1f", span)) %RH is above 1.0 %RH, wait and check again"
+        case .measured: return ""
         }
     }
 

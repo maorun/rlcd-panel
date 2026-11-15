@@ -283,3 +283,111 @@ import Testing
         #expect(r.changes(selected: true, current: nil).map(\.key) == ["rh_offset_pct"])
     }
 }
+
+@Suite struct TwoPointCalibrationTests {
+    private static func reply(_ name: String, mean: Double, reference: Double) throws -> SaltReply {
+        try SaltReply.parse(lines: ["SALT \(name) hours=6 rh_mean=\(String(format: "%.1f", mean)) rh_span=0.2 temp_mean=25.0 reference=\(String(format: "%.1f", reference))"])
+    }
+
+    @Test func commandLine() {
+        for n in 0...5 { #expect(ConsoleCommand.saltMagnesium(n).line == "SALT \(n) MGCL2") }
+        #expect(ConsoleCommand.saltMagnesium(6).line == nil)
+        #expect(ConsoleCommand.saltMagnesium(-1).line == nil)
+    }
+
+    @Test func parsesReplyWithoutProposal() throws {
+        let r = try Self.reply("slot1", mean: 30.0, reference: 32.8)
+        guard case let .measured(m, proposal) = r.outcome else { Issue.record("not measured"); return }
+        #expect(m.reference == 32.8 && proposal == nil)
+    }
+
+    /// Active gain 1.0 and offset 0.0: the history means are the raw means 70.0 (NaCl) and 30.0 (MgCl2).
+    @Test func twoPointResultForKnownRawMeans() throws {
+        let na = try Self.reply("slot2", mean: 70.0, reference: 75.4)
+        let mg = try Self.reply("slot2", mean: 30.0, reference: 32.8)
+        let r = try TwoPointCalibration.compute(naCl: na, mgCl2: mg, current: [:])
+        #expect(r.gainKey == "slot2_rh_gain" && r.offsetKey == "slot2_rh_offset_pct")
+        // slope (75.4 - 32.8) / 40.0 = 1.065 -> 1.066; residuals at gain 1.066: 0.78 and 0.82 -> offset 0.8
+        #expect(r.gain == "1.066")
+        #expect(r.offset == "0.8")
+        #expect(r.rawNaCl == 70.0 && r.rawMgCl2 == 30.0)
+        #expect(r.changes(current: [:]).map(\.key) == ["slot2_rh_offset_pct", "slot2_rh_gain"])
+    }
+
+    @Test func rawMeansUseTheActiveGainAndOffset() throws {
+        // active gain 1.05, offset -2.0: raw = (mean + 2.0) / 1.05
+        let na = try Self.reply("onboard", mean: 73.0, reference: 75.3)
+        let mg = try Self.reply("onboard", mean: 31.0, reference: 32.8)
+        let r = try TwoPointCalibration.compute(naCl: na, mgCl2: mg, current: ["rh_gain": "1.05", "rh_offset_pct": "-2.0"])
+        #expect(abs(r.rawNaCl - 71.428571) < 0.001 && abs(r.rawMgCl2 - 31.428571) < 0.001)
+        #expect(r.gainKey == "rh_gain" && r.offsetKey == "rh_offset_pct")
+        #expect(r.gain == "1.062")
+    }
+
+    @Test func gainOutsideTheKeyRangeGivesAnErrorAndNoSet() throws {
+        // raw means 60.0 and 30.0 against 75.3 / 32.8: slope 1.417
+        let na = try Self.reply("onboard", mean: 60.0, reference: 75.3)
+        let mg = try Self.reply("onboard", mean: 30.0, reference: 32.8)
+        #expect(throws: TwoPointCalibration.Failure.self) { try TwoPointCalibration.compute(naCl: na, mgCl2: mg, current: [:]) }
+        // gain of 1.2 exactly
+        let na2 = try Self.reply("onboard", mean: 60.0, reference: 72.0)
+        let mg2 = try Self.reply("onboard", mean: 30.0, reference: 36.0)
+        do {
+            _ = try TwoPointCalibration.compute(naCl: na2, mgCl2: mg2, current: [:])
+            Issue.record("gain 1.2 must fail")
+        } catch let failure as TwoPointCalibration.Failure {
+            #expect(failure == .gainOutOfRange(1.2))
+            #expect(failure.text == "Gain 1.200 is outside 0.90 to 1.10, no SET sent")
+        }
+    }
+
+    @Test func otherFailures() throws {
+        let na = try Self.reply("slot1", mean: 70.0, reference: 75.3)
+        let mg = try Self.reply("slot2", mean: 30.0, reference: 32.8)
+        #expect(throws: TwoPointCalibration.Failure.differentSensors) { try TwoPointCalibration.compute(naCl: na, mgCl2: mg, current: [:]) }
+        #expect(throws: TwoPointCalibration.Failure.notMeasured) { try TwoPointCalibration.compute(naCl: na, mgCl2: nil, current: [:]) }
+        let skipped = try SaltReply.parse(lines: ["SKIP slot1 hours=3"])
+        #expect(throws: TwoPointCalibration.Failure.notMeasured) { try TwoPointCalibration.compute(naCl: na, mgCl2: skipped, current: [:]) }
+        let mg1 = try Self.reply("slot1", mean: 30.0, reference: 32.8)
+        #expect(throws: TwoPointCalibration.Failure.configUnknown) { try TwoPointCalibration.compute(naCl: na, mgCl2: mg1, current: nil) }
+        let close = try Self.reply("slot1", mean: 70.5, reference: 32.8)
+        #expect(throws: TwoPointCalibration.Failure.pointsTooClose) { try TwoPointCalibration.compute(naCl: na, mgCl2: close, current: [:]) }
+    }
+
+    @Test func resultGoesThroughConfigBatch() throws {
+        let na = try Self.reply("onboard", mean: 70.0, reference: 75.3)
+        let mg = try Self.reply("onboard", mean: 30.0, reference: 32.8)
+        let r = try TwoPointCalibration.compute(naCl: na, mgCl2: mg, current: [:])
+        let lines = ConfigBatch(changes: r.changes(current: [:])).pending.map(\.line)
+        #expect(lines.last == "CONFIG" && lines.contains("SET rh_gain=1.062"))
+    }
+
+    @Test func offsetOutOfRangeAndBadActiveValues() throws {
+        // raw means 70 and 30 with references 85 and 45.5: slope 0.9875, offset 15.9 -> outside -10 to 10
+        let na = try Self.reply("onboard", mean: 70.0, reference: 85.0)
+        let mg = try Self.reply("onboard", mean: 30.0, reference: 45.5)
+        do {
+            _ = try TwoPointCalibration.compute(naCl: na, mgCl2: mg, current: [:])
+            Issue.record("offset beyond 10 must fail")
+        } catch let failure as TwoPointCalibration.Failure {
+            guard case .offsetOutOfRange = failure else { Issue.record("wrong failure \(failure)"); return }
+        }
+        let ok1 = try Self.reply("onboard", mean: 70.0, reference: 75.3)
+        let ok2 = try Self.reply("onboard", mean: 30.0, reference: 32.8)
+        #expect(throws: TwoPointCalibration.Failure.badActiveValues) {
+            try TwoPointCalibration.compute(naCl: ok1, mgCl2: ok2, current: ["rh_gain": "abc"])
+        }
+        #expect(throws: TwoPointCalibration.Failure.badActiveValues) {
+            try TwoPointCalibration.compute(naCl: ok1, mgCl2: ok2, current: ["rh_gain": "0"])
+        }
+    }
+
+    @Test func clampedMeanGivesAnError() throws {
+        let na = try Self.reply("onboard", mean: 100.0, reference: 75.3)
+        let mg = try Self.reply("onboard", mean: 30.0, reference: 32.8)
+        #expect(throws: TwoPointCalibration.Failure.clampedSample) { try TwoPointCalibration.compute(naCl: na, mgCl2: mg, current: [:]) }
+        let low = try Self.reply("onboard", mean: 0.0, reference: 32.8)
+        let ok = try Self.reply("onboard", mean: 70.0, reference: 75.3)
+        #expect(throws: TwoPointCalibration.Failure.clampedSample) { try TwoPointCalibration.compute(naCl: ok, mgCl2: low, current: [:]) }
+    }
+}
