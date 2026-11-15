@@ -1286,6 +1286,9 @@ void setup() {
       // The RTC histories answer: no card access, so the console keeps running.
       Runner::showCalib(sink, command.reference, g_state.history,
                                                                g_state.config);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SALT) {
+      // The RTC histories answer: no card access, so the console keeps running.
+      Runner::showSalt(sink, command.reference, g_state.history, g_state.config);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::HISTORY) {
       // The RTC histories answer: no card access, so the console keeps running.
       Runner::showHistory(sink, g_state.history,

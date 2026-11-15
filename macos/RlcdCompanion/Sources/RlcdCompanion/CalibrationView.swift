@@ -37,7 +37,47 @@ struct CalibrationView: View {
                     }
                 }
                 if let s = model.batchSummary { Text(s).font(.caption).foregroundStyle(.secondary) }
+                Divider()
+                saltSection
             }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    /// Humidity check of one sensor in a closed box with saturated sodium chloride (6 hours at least).
+    private var saltSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Salt check").font(.headline)
+            Text("Put one sensor in a closed box with saturated sodium chloride for 6 hours at least, then check it.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Picker("Sensor", selection: $model.saltSensor) {
+                    Text("Onboard").tag(0)
+                    ForEach(1...5, id: \.self) { Text("Slot \($0)").tag($0) }
+                }.frame(maxWidth: 220)
+                Button("Check") { model.saltCheck(sensor: model.saltSensor) }
+                    .disabled(!model.isIdle)
+            }
+            if let reply = model.salt {
+                switch reply.outcome {
+                case let .measured(m, proposal):
+                    Text("\(m.name): \(m.hours) h, mean \(String(format: "%.1f", m.rhMean)) %RH at "
+                         + "\(String(format: "%.1f", m.tempMean)) °C, span \(String(format: "%.1f", m.rhSpan)) %RH, "
+                         + "reference \(String(format: "%.1f", m.reference)) %RH")
+                        .font(.callout)
+                    if let p = proposal {
+                        Toggle(isOn: $model.saltSelected) {
+                            Text("\(p.key) = \(p.value)").font(.system(.caption, design: .monospaced))
+                        }
+                        Button("Apply proposal") { model.applySalt() }
+                            .disabled(model.saltChanges.isEmpty || !model.isIdle)
+                    }
+                case let .skipped(name, hours):
+                    Text("\(name): \(hours) h, too few samples (6 needed)").font(.caption).foregroundStyle(.secondary)
+                case let .unstable(name, span):
+                    Text("\(name): humidity span \(String(format: "%.1f", span)) %RH is above 1.0 %RH, wait and check again")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
         }
     }
 

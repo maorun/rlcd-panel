@@ -44,6 +44,9 @@ final class AppModel: ConsoleLinkDelegate {
     var panelImage: PanelImage?
     var calibration: CalibrationReply?
     var calibrationReference = 0
+    var salt: SaltReply?
+    var saltSensor = 0
+    var saltSelected = true
     /// Proposal keys that the user selected.
     var calibrationSelection: Set<String> = []
     var archiveFiles: [LogFile] = []
@@ -595,6 +598,35 @@ final class AppModel: ConsoleLinkDelegate {
     private func clearCalibration() {
         calibration = nil
         calibrationSelection = []
+        salt = nil
+    }
+
+    /// Calibration changes of the salt proposal against the last `CONFIG` reply.
+    var saltChanges: [ConfigChange] {
+        salt?.changes(selected: saltSelected, current: config?.values) ?? []
+    }
+
+    /// Reads the salt check of `SALT N`. Runs only on the user's button press; the firmware reads the RTC copy.
+    func saltCheck(sensor: Int) {
+        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        guard ConsoleCommand.salt(sensor).line != nil else { message = "Sensor must be 0 to 5"; return }
+        message = nil
+        batchSummary = nil
+        salt = nil
+        saltSelected = true
+        queue = [.salt(sensor)]
+        sendNext()
+    }
+
+    /// Sends the salt proposal through `ConfigBatch` (`SET` command, then `CONFIG`).
+    func applySalt() {
+        let changes = saltChanges
+        guard !changes.isEmpty else { message = "No proposal selected"; return }
+        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        message = nil
+        batchSummary = nil
+        batch = ConfigBatch(changes: changes)
+        sendNextBatchCommand()
     }
 
     /// Reads the histories comparison of `CALIB N`. Runs only on the user's button press; the firmware reads the RTC copy.
@@ -800,6 +832,7 @@ final class AppModel: ConsoleLinkDelegate {
                 }
                 if cmd == .list { archiveFiles = [] }
                 if case .calib = cmd { calibration = nil }
+                if case .salt = cmd { salt = nil }
                 if cmd == .screen { panelImage = nil } // ERR NO_FRAME must not leave an old image
                 if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
                 batch?.receive(status: text)
@@ -844,6 +877,9 @@ final class AppModel: ConsoleLinkDelegate {
                 let parsed = try CalibrationReply.parse(lines: lines)
                 calibration = parsed
                 calibrationSelection = Set(parsed.proposals.map(\.key))
+            case let (.salt, .frame(lines)):
+                salt = nil
+                salt = try SaltReply.parse(lines: lines)
             case let (.list, .frame(lines)):
                 archiveFiles = []
                 archiveFiles = try ListReply.parse(lines: lines)

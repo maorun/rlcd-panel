@@ -12792,6 +12792,121 @@ void testSerialCalibShortWriteAndNoCard() {
   assert(PowerManager::serialConsoleAllowed(battery));
 }
 
+namespace {
+std::string saltOutput(uint8_t reference, const ClimateHistory& h, const DeviceConfig& cfg) {
+  FakeSink sink;
+  TestRunner::showSalt(sink, reference, h, cfg);
+  return sink.out;
+}
+} // namespace
+
+void testSaltReferenceTable() {
+  assert(fabsf(ClimateMath::saltReferenceRh(15.0f) - 75.6f) < 0.001f);
+  assert(fabsf(ClimateMath::saltReferenceRh(20.0f) - 75.5f) < 0.001f);
+  assert(fabsf(ClimateMath::saltReferenceRh(25.0f) - 75.3f) < 0.001f);
+  assert(fabsf(ClimateMath::saltReferenceRh(30.0f) - 75.1f) < 0.001f);
+  assert(fabsf(ClimateMath::saltReferenceRh(27.5f) - 75.2f) < 0.001f);
+  assert(fabsf(ClimateMath::saltReferenceRh(10.0f) - 75.7f) < 0.001f);
+  assert(fabsf(ClimateMath::saltReferenceRh(35.0f) - 74.9f) < 0.001f);
+  assert(isnan(ClimateMath::saltReferenceRh(9.0f)));
+  assert(isnan(ClimateMath::saltReferenceRh(35.1f)));
+  assert(isnan(ClimateMath::saltReferenceRh(NAN)));
+}
+
+void testSerialSaltParser() {
+  SerialCommand cmd;
+  for (int n = 0; n <= 5; ++n) {
+    assert(parseText(std::string("SALT ") + static_cast<char>('0' + n), cmd) == SerialParseStatus::OK);
+    assert(cmd.kind == SerialCommandKind::SALT && cmd.reference == n);
+  }
+  assert(parseText("SALT", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("SALT ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("SALT 6", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("SALT 1 x", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("SALT 10", cmd) == SerialParseStatus::BAD_ARG);
+  assert(std::string(SerialConsole::errorLine(SerialParseStatus::BAD_ARG)) == "ERR BAD_ARG\n");
+}
+
+void testSerialSaltReply() {
+  // A stable sensor at 73.0 %RH and 25 C needs +2.3 %RH on top of the active offset
+  ClimateHistory h;
+  fillCalib(h, 0, 6, 25.0f, 73.0f);
+  std::string out = saltOutput(0, h, DeviceConfig{});
+  assert(out.find("SALT onboard hours=6 rh_mean=73.0 rh_span=0.0 temp_mean=25.0 reference=75.3\n"
+                  "rh_offset_pct=2.3\n") == 0);
+  assert(calibCrcOk(out));
+  DeviceConfig cfg;
+  cfg.rh_offset_pct = -1.0f;
+  out = saltOutput(0, h, cfg);
+  assert(out.find("rh_offset_pct=1.3\n") != std::string::npos && calibCrcOk(out));
+  // A slot uses its own key and its own active offset
+  fillCalib(h, 3, 8, 25.0f, 73.0f);
+  cfg.slot_rh_offset_pct[2] = 1.0f;
+  out = saltOutput(3, h, cfg);
+  assert(out.find("SALT slot3 hours=6 ") == 0 && out.find("slot3_rh_offset_pct=3.3\n") != std::string::npos);
+  // The clamp at the key limit
+  ClimateHistory low;
+  fillCalib(low, 0, 6, 25.0f, 60.0f);
+  out = saltOutput(0, low, DeviceConfig{});
+  assert(out.find("rh_offset_pct=10.0\n") != std::string::npos && calibCrcOk(out));
+  fillCalib(low, 1, 6, 25.0f, 90.0f);
+  out = saltOutput(1, low, DeviceConfig{});
+  assert(out.find("slot1_rh_offset_pct=-10.0\n") != std::string::npos);
+}
+
+void testSerialSaltSkipUnstableAndBadTemp() {
+  ClimateHistory h;
+  fillCalib(h, 0, 5, 25.0f, 73.0f);
+  std::string out = saltOutput(0, h, DeviceConfig{});
+  assert(out.find("SKIP onboard hours=5\n") == 0 && calibCrcOk(out));
+  // A span of 1.2 %RH is unstable, 1.0 %RH is still stable
+  ClimateHistory u;
+  fillCalib(u, 0, 5, 25.0f, 73.0f);
+  u.temperatures[0].pushCelsius(25.0f);
+  u.slots[0].pushPercent(74.2f);
+  out = saltOutput(0, u, DeviceConfig{});
+  assert(out.find("UNSTABLE onboard span=1.2\n") == 0 && calibCrcOk(out));
+  ClimateHistory edge;
+  fillCalib(edge, 0, 5, 25.0f, 73.0f);
+  edge.temperatures[0].pushCelsius(25.0f);
+  edge.slots[0].pushPercent(74.0f);
+  out = saltOutput(0, edge, DeviceConfig{});
+  assert(out.find("SALT onboard ") == 0);
+  // A mean temperature outside the table
+  ClimateHistory cold;
+  fillCalib(cold, 0, 6, 9.0f, 73.0f);
+  out = saltOutput(0, cold, DeviceConfig{});
+  assert(out == "ERR BAD_TEMP\n");
+}
+
+void testSerialSaltBleGate() {
+  SerialCommand cmd;
+  assert(parseText("SALT 0", cmd) == SerialParseStatus::OK);
+  assert(std::string(BleConsoleBridge::gate(cmd, 1)).empty());
+  assert(std::string(BleConsoleBridge::gate(cmd, 2)).empty());
+}
+
+void testSerialSaltShortWriteNoCardAndUsbGate() {
+  ClimateHistory h;
+  fillCalib(h, 0, 6, 25.0f, 73.0f);
+  FakeSink sink;
+  sink.limit = 5;
+  TestRunner::showSalt(sink, 0, h, DeviceConfig{});
+  assert(sink.out.size() == 5 && sink.out.find("CRC32") == std::string::npos);
+  FakeConsoleStorage storage;
+  FakeSink quiet;
+  SerialCommand cmd;
+  assert(parseText("SALT 0", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, quiet, cmd);
+  assert(storage.mounts == 0 && quiet.out.empty());
+  BatteryReading battery;
+  battery.valid = true;
+  battery.usb_powered = false;
+  assert(!PowerManager::serialConsoleAllowed(battery));
+  battery.usb_powered = true;
+  assert(PowerManager::serialConsoleAllowed(battery));
+}
+
 void testSerialConsoleUsbGate() {
   BatteryReading usb;
   usb.valid = true;
@@ -18250,6 +18365,12 @@ testSerialConfigNegativeSmallOffset();
   testSerialCalibActiveOffsetAndClamp();
   testSerialCalibOnboardKeyNames();
   testSerialCalibShortWriteAndNoCard();
+  testSaltReferenceTable();
+  testSerialSaltParser();
+  testSerialSaltReply();
+  testSerialSaltSkipUnstableAndBadTemp();
+  testSerialSaltShortWriteNoCardAndUsbGate();
+  testSerialSaltBleGate();
   testDailySummaryStatistics();
   testDailySummaryRowFormat();
   testDailySummaryFileNames();

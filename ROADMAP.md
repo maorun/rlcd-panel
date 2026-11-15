@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Saturated salt humidity check with the console command SALT
-  - Rank: [Total: 35, Use: 6, Setup: 10, Harmony: 9, Safety: 10, Effort: M]
-  - Location: rlcd_panel/serial_console.h, rlcd_panel/climate_math.h, rlcd_panel/rlcd_panel.ino, macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift, tests/test_firmware_logic.cpp, macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift
-  - Goal: Add the console command `SALT N` (`N` is 0 for the onboard sensor or 1 to 5 for a slot). The user puts one sensor in a closed box with saturated sodium chloride for at least 6 hours. `ClimateMath::saltReferenceRh(temp_c)` gives the NaCl equilibrium humidity from a fixed table (15 C 75.6 %RH to 30 C 75.1 %RH, linear between points, NaN outside 10 to 35 C). The command reads the last 6 hourly samples of the sensor from `ClimateHistory`. It replies `SALT <name> hours=<n> rh_mean=<x> rh_span=<x> temp_mean=<x> reference=<x>`, then the line `<key>=<value>` with the active offset plus the difference (reference minus mean), clamped to the key range, then the `CRC32` line. Fewer than 6 samples give `SKIP <name> hours=<n>`. A humidity span above 1.0 %RH gives `UNSTABLE <name> span=<x>`. A temperature outside the table gives `ERR BAD_TEMP`. A missing argument, `SALT 6` and extra text give `ERR BAD_ARG`. The command reads only the RTC copy, runs on USB power only, and does not write the card. `CalibrationView` gets a salt check section that sends `SALT N` and applies the proposal through `ConfigBatch`.
-  - Acceptance test: Host tests assert the reference at 15, 20, 25 and 30 C, NaN at 9 C, a stable sensor at 73.0 %RH and 25 C that gives a proposal of +2.3 %RH plus the active offset, the clamp at the key limit, `SKIP` with 5 samples, `UNSTABLE` with a span of 1.2 %RH, the onboard key name `rh_offset_pct`, `ERR BAD_ARG` for `SALT 6`, the `CRC32` line and the USB power gate. Swift `CalibrationTests` parse each reply line type and throw `ParseError.badLine` for a bad number.
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 - [ ] RTC frequency trim from the measured NTP drift

@@ -159,3 +159,84 @@ import Testing
         #expect(batch.summary.contains("ERR READ_ONLY"))
     }
 }
+
+@Suite struct SaltReplyTests {
+    static let good = [
+        "SALT onboard hours=6 rh_mean=73.0 rh_span=0.4 temp_mean=25.0 reference=75.3",
+        "rh_offset_pct=2.3",
+    ]
+
+    @Test func parsesMeasuredReply() throws {
+        let r = try SaltReply.parse(lines: ["BEGIN SALT"] + Self.good)
+        guard case let .measured(m, proposal) = r.outcome else { Issue.record("not measured"); return }
+        #expect(m.name == "onboard")
+        #expect(m.hours == 6)
+        #expect(m.rhMean == 73.0)
+        #expect(m.rhSpan == 0.4)
+        #expect(m.tempMean == 25.0)
+        #expect(m.reference == 75.3)
+        #expect(proposal == CalibrationReply.Proposal(key: "rh_offset_pct", value: "2.3"))
+        #expect(r.proposal?.key == "rh_offset_pct")
+    }
+
+    @Test func parsesSlotKey() throws {
+        let r = try SaltReply.parse(lines: [
+            "SALT slot3 hours=6 rh_mean=73.0 rh_span=0.0 temp_mean=-1.0 reference=75.3", "slot3_rh_offset_pct=-2.0",
+        ])
+        #expect(r.proposal == CalibrationReply.Proposal(key: "slot3_rh_offset_pct", value: "-2.0"))
+    }
+
+    @Test func parsesSkipAndUnstable() throws {
+        #expect(try SaltReply.parse(lines: ["SKIP slot2 hours=5"]).outcome == .skipped(name: "slot2", hours: 5))
+        #expect(try SaltReply.parse(lines: ["UNSTABLE slot1 span=1.2"]).outcome == .unstable(name: "slot1", span: 1.2))
+    }
+
+    @Test func outOfRangeProposalIsDropped() throws {
+        let r = try SaltReply.parse(lines: [Self.good[0], "rh_offset_pct=11.0"])
+        #expect(r.proposal == nil)
+    }
+
+    @Test func proposalKeyMustMatchTheSensor() throws {
+        let r = try SaltReply.parse(lines: [
+            "SALT slot3 hours=6 rh_mean=73.0 rh_span=0.0 temp_mean=25.0 reference=75.3", "rh_offset_pct=2.3",
+        ])
+        #expect(r.proposal == nil)
+    }
+
+    @Test func badNumbersThrowBadLine() {
+        let bad = [
+            "SALT onboard hours=x rh_mean=73.0 rh_span=0.4 temp_mean=25.0 reference=75.3",
+            "SALT onboard hours=6 rh_mean=nan rh_span=0.4 temp_mean=25.0 reference=75.3",
+            "SALT onboard hours=6 rh_mean=73.0 rh_span=+0.4 temp_mean=25.0 reference=75.3",
+            "SALT onboard hours=6 rh_mean=73.0 rh_span=0.4 temp_mean=25.0",
+            "SALT onboard hours=6 rh_mean=73.0 rh_span=0.4 temp_mean=25.0 reference=1e2",
+            "SKIP slot2 hours=-1",
+            "SKIP slot2",
+            "UNSTABLE slot1 span=abc",
+            "UNSTABLE slot1",
+        ]
+        for line in bad {
+            #expect(throws: ParseError.badLine(line)) { try SaltReply.parse(lines: [line]) }
+        }
+    }
+
+    @Test func emptyOrUnknownFrameThrows() {
+        #expect(throws: ParseError.missingLine("SALT")) { try SaltReply.parse(lines: []) }
+        #expect(throws: ParseError.missingLine("SALT")) { try SaltReply.parse(lines: ["REFERENCE onboard"]) }
+    }
+
+    @Test func commandLine() {
+        for n in 0...5 { #expect(ConsoleCommand.salt(n).line == "SALT \(n)") }
+        #expect(ConsoleCommand.salt(6).line == nil)
+        #expect(ConsoleCommand.salt(-1).line == nil)
+    }
+
+    @Test func changesGoThroughConfigBatch() throws {
+        let r = try SaltReply.parse(lines: Self.good)
+        let changes = r.changes(selected: true, current: [:])
+        #expect(ConfigBatch(changes: changes).pending.map(\.line) == ["SET rh_offset_pct=2.3", "CONFIG"])
+        #expect(r.changes(selected: false, current: [:]).isEmpty)
+        #expect(r.changes(selected: true, current: ["rh_offset_pct": "2.3"]).isEmpty)
+        #expect(r.changes(selected: true, current: nil).map(\.key) == ["rh_offset_pct"])
+    }
+}
