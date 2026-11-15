@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] USB power temperature offset for the onboard SHTC3
-  - Rank: [Total: 36, Use: 8, Setup: 9, Harmony: 9, Safety: 10, Effort: S]
-  - Location: rlcd_panel/device_config.h, rlcd_panel/shtc3_sensor.h, rlcd_panel/power_manager.h, rlcd_panel/rlcd_panel.ino, docs/config.example.ini, macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift, tests/test_firmware_logic.cpp, macos/RlcdCompanion/Tests/RlcdProtocolTests/ConfigSchemaTests.swift
-  - Goal: Add the `config.ini` key `usb_temp_offset_c` (-5.0 to 0.0 C, default 0.0, 1 byte in 0.1 C steps at the end of the config trailer; increase `KEY_COUNT`). On USB power the charger and the awake CPU heat the PCB more than on battery power. When `PowerManager` detects USB power, the firmware adds `usb_temp_offset_c` to `temp_offset_c` before it stores the onboard reading. On battery power the firmware ignores the key. The 24-hour history, the CSV logs, the telemetry frame and `CALIB` use the corrected value. The console command `STATUS` shows `SHTC3 ... usb_offset=<x>` only on USB power. A value outside the range is a rejected line and keeps the default. Increase `STATE_VERSION`; an old RTC copy gives a clean start.
-  - Acceptance test: Host tests assert that a USB reading of 25.0 C with `temp_offset_c=-1.9` and `usb_temp_offset_c=-1.2` gives 21.9 C, that a battery reading gives 23.1 C, that `-5.1` and `0.1` are rejected lines, and that the config trailer round trip keeps the value. `testConfigExampleTemplateInSync` passes with the new key. `ConfigSchemaTests.rangesMatchFirmwareConstants` passes with the new entry. `swift test` passes.
-
 - [ ] Saturated salt humidity check with the console command SALT
   - Rank: [Total: 35, Use: 6, Setup: 10, Harmony: 9, Safety: 10, Effort: M]
   - Location: rlcd_panel/serial_console.h, rlcd_panel/climate_math.h, rlcd_panel/rlcd_panel.ino, macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift, tests/test_firmware_logic.cpp, macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift

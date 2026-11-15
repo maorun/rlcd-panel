@@ -1,5 +1,6 @@
 #pragma once
 
+#include <math.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -13,6 +14,9 @@ struct DeviceConfig {
   static constexpr float DEFAULT_TEMP_OFFSET_C = -1.9f;
   static constexpr float MIN_TEMP_OFFSET_C = -10.0f;
   static constexpr float MAX_TEMP_OFFSET_C = 10.0f;
+  static constexpr float DEFAULT_USB_TEMP_OFFSET_C = 0.0f;
+  static constexpr float MIN_USB_TEMP_OFFSET_C = -5.0f;
+  static constexpr float MAX_USB_TEMP_OFFSET_C = 0.0f;
   static constexpr float DEFAULT_RH_OFFSET_PCT = 0.0f;
   static constexpr float MIN_RH_OFFSET_PCT = -10.0f;
   static constexpr float MAX_RH_OFFSET_PCT = 10.0f;
@@ -100,6 +104,8 @@ struct DeviceConfig {
   uint8_t slot_mac[SLOT_COUNT][MAC_BYTES] = {};
 
   float temp_offset_c = DEFAULT_TEMP_OFFSET_C;
+  // Added to temp_offset_c on USB power only (charger and awake CPU heat the PCB); 0.1 C steps, -5.0..0.0.
+  float usb_temp_offset_c = DEFAULT_USB_TEMP_OFFSET_C;
   float rh_offset_pct = DEFAULT_RH_OFFSET_PCT; // added to the onboard humidity, result clamped to 0..100 %RH
   // Offsets of the registry slots 1 to 5 (keys slot1_* to slot5_*), added to the decoded value of the
   // slot by SwitchBotRegistry::calibrated(). The humidity result is clamped to 0..100 %RH.
@@ -134,6 +140,11 @@ struct DeviceConfig {
   uint8_t ble_broadcast_enabled = DEFAULT_BLE_BROADCAST_ENABLED; // 1 = advertise the climate tiles after each scan (ble_telemetry.h), 0 = off
   uint8_t ble_console = DEFAULT_BLE_CONSOLE; // BLE console on USB power: 0 off, 1 read commands, 2 also SET (serial_console.h)
   uint8_t climate_alert_tiles = DEFAULT_CLIMATE_ALERT_TILES; // bit 0 onboard, bits 1..5 slots 1..5: tiles of the freezer and mold alerts, 0..63
+
+  // Onboard temperature offset: temp_offset_c, plus usb_temp_offset_c on USB power. Battery power ignores the USB key.
+  float onboardTempOffsetC(bool usb_powered) const {
+    return usb_powered ? temp_offset_c + usb_temp_offset_c : temp_offset_c;
+  }
 
   // Release time in ms of a silent slot without a fixed MAC (0 = never). 168 h fit into 32 bits.
   uint32_t slotReleaseMs() const {
@@ -220,6 +231,7 @@ struct DeviceConfig {
       }
     }
     return inRange(temp_offset_c, MIN_TEMP_OFFSET_C, MAX_TEMP_OFFSET_C) &&
+           inRange(usb_temp_offset_c, MIN_USB_TEMP_OFFSET_C, MAX_USB_TEMP_OFFSET_C) &&
            inRange(rh_offset_pct, MIN_RH_OFFSET_PCT, MAX_RH_OFFSET_PCT) &&
            inRange(freeze_alert_limit_c, MIN_FREEZE_ALERT_LIMIT_C, MAX_FREEZE_ALERT_LIMIT_C) &&
            mold_alert_limit_rh >= MIN_MOLD_ALERT_LIMIT_RH && mold_alert_limit_rh <= MAX_MOLD_ALERT_LIMIT_RH &&
@@ -259,7 +271,7 @@ struct DeviceConfig {
         return false;
       }
     }
-    return temp_offset_c == d.temp_offset_c && rh_offset_pct == d.rh_offset_pct && freeze_alert_limit_c == d.freeze_alert_limit_c &&
+    return temp_offset_c == d.temp_offset_c && usb_temp_offset_c == d.usb_temp_offset_c && rh_offset_pct == d.rh_offset_pct && freeze_alert_limit_c == d.freeze_alert_limit_c &&
            mold_alert_limit_rh == d.mold_alert_limit_rh && chime_volume_pct == d.chime_volume_pct &&
            quiet_hours_start_hour == d.quiet_hours_start_hour &&
            quiet_hours_end_hour == d.quiet_hours_end_hour && mic_spl_offset_db == d.mic_spl_offset_db &&
@@ -320,7 +332,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 4096;
-  static constexpr size_t KEY_COUNT = 48;
+  static constexpr size_t KEY_COUNT = 49;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -340,6 +352,7 @@ public:
       "ble_console", "slot4_name", "slot5_name",
       "slot4_mac", "slot5_mac", "slot4_temp_offset_c",
       "slot5_temp_offset_c", "slot4_rh_offset_pct", "slot5_rh_offset_pct",
+      "usb_temp_offset_c",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -647,6 +660,13 @@ private:
     if (keyIs(key, key_len, "temp_offset_c")) {
       index = 0;
       ok = parseFloatIn(val, val_len, DeviceConfig::MIN_TEMP_OFFSET_C, DeviceConfig::MAX_TEMP_OFFSET_C, cfg.temp_offset_c);
+    } else if (keyIs(key, key_len, "usb_temp_offset_c")) {
+      index = 48;
+      ok = parseFloatIn(val, val_len, DeviceConfig::MIN_USB_TEMP_OFFSET_C, DeviceConfig::MAX_USB_TEMP_OFFSET_C,
+                        cfg.usb_temp_offset_c);
+      if (ok) {
+        cfg.usb_temp_offset_c = static_cast<float>(lroundf(cfg.usb_temp_offset_c * 10.0f)) / 10.0f; // 0.1 C steps, like the RTC byte
+      }
     } else if (keyIs(key, key_len, "freeze_alert_limit_c")) {
       index = 1;
       ok = parseFloatIn(val, val_len, DeviceConfig::MIN_FREEZE_ALERT_LIMIT_C, DeviceConfig::MAX_FREEZE_ALERT_LIMIT_C,
@@ -768,7 +788,7 @@ private:
 // reads the text back to the same values. The text holds no Wi-Fi setting: DeviceConfig has none.
 class DeviceConfigText {
 public:
-  static constexpr size_t MAX_SIZE = 1152; // worst case with every key at its longest value: 1123 bytes
+  static constexpr size_t MAX_SIZE = 1152; // worst case with every key at its longest value: 1146 bytes
 
   // Returns the text length, or 0 with an empty string when `cap` is too small.
   static size_t format(const DeviceConfig& cfg, char* out, size_t cap) {
@@ -779,6 +799,7 @@ public:
     size_t pos = 0;
     bool ok = true;
     ok = ok && putFloat(out, cap, pos, "temp_offset_c", cfg.temp_offset_c);
+    ok = ok && putFloat(out, cap, pos, "usb_temp_offset_c", cfg.usb_temp_offset_c);
     ok = ok && putFloat(out, cap, pos, "rh_offset_pct", cfg.rh_offset_pct);
     ok = ok && putFloat(out, cap, pos, "freeze_alert_limit_c", cfg.freeze_alert_limit_c);
     ok = ok && putInt(out, cap, pos, "mold_alert_limit_rh", cfg.mold_alert_limit_rh);

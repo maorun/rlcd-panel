@@ -639,7 +639,7 @@ struct SerialStatusSnapshot {
 //   so execute() ignores CONFIG.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 5 (slots, calibrated readings), a missing value gives "--";
-//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "SHTC3 nack=<N> short=<N> crc=<N> run=<N>", then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>" (packets of the current scan that no slot took), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "CRC32 <8 hex digits>" over all lines
+//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "SHTC3 nack=<N> short=<N> crc=<N> run=<N>[ usb_offset=<x>]" (the offset only on USB power), then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>" (packets of the current scan that no slot took), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 7), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
@@ -738,6 +738,7 @@ public:
       }
       const float temp_mean = static_cast<float>(temp_sum) / static_cast<float>(hours); // 0.1 steps
       const float rh_mean = static_cast<float>(rh_sum) / static_cast<float>(hours);
+      // The onboard suggestion replaces temp_offset_c only; usb_temp_offset_c is a separate key and stays.
       const float temp_active = s == 0 ? config.temp_offset_c : config.slot_temp_offset_c[s - 1];
       const float rh_active = s == 0 ? config.rh_offset_pct : config.slot_rh_offset_pct[s - 1];
       const float temp_min = s == 0 ? DeviceConfig::MIN_TEMP_OFFSET_C : DeviceConfig::MIN_SLOT_TEMP_OFFSET_C;
@@ -990,9 +991,15 @@ public:
     if (len >= sizeof(text)) {
       return;
     }
-    len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "SHTC3 nack=%u short=%u crc=%u run=%u\n",
+    char usb_offset[24] = "";
+    if (snap.battery.valid && snap.battery.usb_powered) {
+      char tenths_text[12];
+      formatTenths(tenths_text, sizeof(tenths_text), tenths(snap.config->usb_temp_offset_c));
+      snprintf(usb_offset, sizeof(usb_offset), " usb_offset=%s", tenths_text);
+    }
+    len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "SHTC3 nack=%u short=%u crc=%u run=%u%s\n",
                                         static_cast<unsigned>(snap.shtc3.nack), static_cast<unsigned>(snap.shtc3.short_reads),
-                                        static_cast<unsigned>(snap.shtc3.crc), static_cast<unsigned>(snap.shtc3.run)));
+                                        static_cast<unsigned>(snap.shtc3.crc), static_cast<unsigned>(snap.shtc3.run), usb_offset));
     if (len >= sizeof(text)) {
       return;
     }
