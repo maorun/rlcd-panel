@@ -33,6 +33,7 @@ final class AppModel: ConsoleLinkDelegate {
     var diagnostics: DiagnosticsReply?
     var version: VersionReply?
     var scanResult: ScanReply?
+    var panelImage: PanelImage?
     var calibration: CalibrationReply?
     var calibrationReference = 0
     /// Proposal keys that the user selected.
@@ -210,7 +211,7 @@ final class AppModel: ConsoleLinkDelegate {
         lastConfig = nil // names and unit belong to the old panel
         diagnostics = nil
         version = nil
-        scanResult = nil
+        scanResult = nil; panelImage = nil
         calibration = nil
         clearArchive()
         panelTime = nil
@@ -226,7 +227,7 @@ final class AppModel: ConsoleLinkDelegate {
     }
 
     func disconnectConsole() {
-        scanResult = nil
+        scanResult = nil; panelImage = nil
         calibration = nil
         clearArchive()
         panelTime = nil
@@ -239,7 +240,7 @@ final class AppModel: ConsoleLinkDelegate {
     }
 
     func selectTransport(_ t: Transport) {
-        scanResult = nil
+        scanResult = nil; panelImage = nil
         calibration = nil
         clearArchive()
         transport = t
@@ -401,6 +402,15 @@ final class AppModel: ConsoleLinkDelegate {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
         message = nil
         queue = [.scan]
+        sendNext()
+    }
+
+    /// Reads the frame of the panel with `SCREEN`. USB serial only: the firmware replies `ERR NOT_OVER_BLE` on BLE.
+    func refreshPanelImage() {
+        guard SlotAssignment.screenAllowed(onUsb: transport == .usb) else { message = "SCREEN needs the USB serial link"; return }
+        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        message = nil
+        queue = [.screen]
         sendNext()
     }
 
@@ -607,6 +617,7 @@ final class AppModel: ConsoleLinkDelegate {
             message = "No reply to \(cmd.line ?? "command")"
             if case .dump = cmd { archiveSummary = "Download stopped, saved \(downloadStats.saved), failed \(downloadStats.failed)" }
             if cmd == .scan { scanResult = nil }
+            if cmd == .screen { panelImage = nil }
             pendingCommand = nil
             queue.removeAll()
             endBatchAfterLoss()
@@ -644,6 +655,7 @@ final class AppModel: ConsoleLinkDelegate {
             consoleConnected = connected
             if !connected {
                 scanResult = nil // the slot column of a lost link is stale
+                panelImage = nil
                 config = nil // the ble_console level of a lost link must not gate SET on the next link
                 draft = [:]
                 abandonCommands()
@@ -671,6 +683,7 @@ final class AppModel: ConsoleLinkDelegate {
             switch (cmd, reply) {
             case (_, let .corrupt(e)):
                 message = "Reply rejected: \(e)"
+                if cmd == .screen { panelImage = nil } // a rejected frame must not stay next to the error
                 // A wrong CRC-32 follows a complete frame, so the stream stays in step and the next file may follow.
                 // Any other error leaves the stream out of step.
                 if case .badCrc = e, case .dump = cmd {} else { queue.removeAll() }
@@ -688,6 +701,7 @@ final class AppModel: ConsoleLinkDelegate {
                 }
                 if cmd == .list { archiveFiles = [] }
                 if case .calib = cmd { calibration = nil }
+                if cmd == .screen { panelImage = nil } // ERR NO_FRAME must not leave an old image
                 if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
                 batch?.receive(status: text)
                 if text.hasPrefix("ERR"), !keepQueue { queue.removeAll() }
@@ -721,6 +735,11 @@ final class AppModel: ConsoleLinkDelegate {
             case let (.scan, .frame(lines)):
                 scanResult = nil // a reply that fails to parse must not leave the old rows
                 scanResult = try ScanReply.parse(lines: lines)
+            case let (.screen, .file(name, bytes)):
+                panelImage = nil // a frame that fails to decode must not leave the old image
+                guard name == PanelImage.fileName else { message = "Unexpected file \(name)"; break }
+                panelImage = try PanelImage.decode(bytes)
+            case (.screen, .frame): message = "Unexpected frame reply"
             case let (.calib, .frame(lines)):
                 calibration = nil
                 let parsed = try CalibrationReply.parse(lines: lines)

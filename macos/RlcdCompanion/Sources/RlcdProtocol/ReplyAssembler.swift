@@ -82,10 +82,16 @@ public struct ReplyAssembler {
     /// `BEGIN <name> <bytes>` with a log file name and a decimal size, otherwise `nil`.
     private static func dumpHeader(_ line: String) -> (name: String, size: Int)? {
         let parts = line.split(separator: " ", omittingEmptySubsequences: false)
-        guard parts.count == 3, parts[0] == "BEGIN", LogArchive.isValidName(String(parts[1])),
+        guard parts.count == 3, parts[0] == "BEGIN", isBinaryName(String(parts[1]), size: String(parts[2])),
               parts[2].utf8.count <= 9, !parts[2].isEmpty,
               parts[2].utf8.allSatisfy({ $0 >= 0x30 && $0 <= 0x39 }), let size = Int(parts[2]) else { return nil }
         return (String(parts[1]), size)
+    }
+
+    /// A log file name, or `screen.bin` with exactly the 15,000 bytes of one panel frame.
+    private static func isBinaryName(_ name: String, size: String) -> Bool {
+        if name == PanelImage.fileName { return size == String(PanelImage.byteCount) }
+        return LogArchive.isValidName(name)
     }
 
     private mutating func consume(line: String, raw: Data) -> ConsoleReply? {

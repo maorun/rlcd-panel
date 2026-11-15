@@ -175,6 +175,7 @@ struct MainView: View {
                     .disabled(!model.consoleConnected)
             }
             if let m = model.message { Text(m).font(.caption).foregroundStyle(.orange) }
+            PanelView(model: model)
             ScannerView(model: model)
             ArchiveView(model: model)
             CalibrationView(model: model)

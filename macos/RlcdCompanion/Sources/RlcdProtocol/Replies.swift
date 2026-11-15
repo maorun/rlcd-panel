@@ -356,7 +356,7 @@ public struct ConfigReply: Equatable {
 
 /// The console commands that the app may send. The app sends one only after a user action.
 public enum ConsoleCommand: Equatable {
-    case status, history, events, config, version, scan
+    case status, history, events, config, version, scan, screen
     case list
     case dump(String)
     case time
@@ -383,6 +383,7 @@ public enum ConsoleCommand: Equatable {
         case .config: return "CONFIG"
         case .version: return "VERSION"
         case .scan: return "SCAN"
+        case .screen: return "SCREEN"
         case .list: return "LIST"
         case let .dump(name): return LogArchive.isValidName(name) ? "DUMP \(name)" : nil
         case .time: return "TIME"
