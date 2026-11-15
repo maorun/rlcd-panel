@@ -65,6 +65,11 @@ final class AppModel: ConsoleLinkDelegate {
     var message: String?
     /// User notifications for active alerts.
     var notificationsEnabled = false
+    /// Login item logic; the state comes from `SMAppService` on each refresh.
+    private var loginItem = LoginItem(service: MainAppLoginItemService())
+    /// View-only snapshot of the service state, read at each window open and after each toggle.
+    var loginStatus: LoginItemStatus = .disabled
+    var loginError: String?
     /// Wall clock for the age of the last frame. A 30 s tick refreshes it, so the menu bar shows `--` for a silent panel.
     var now = Date()
     /// Peripherals that sent a valid frame or the console service, strongest signal first.
@@ -298,6 +303,21 @@ final class AppModel: ConsoleLinkDelegate {
         queue = [.status, .history, .events, .config]
         sendNext()
     }
+
+    /// Reads the login item state from the service. The window calls it when it opens.
+    func refreshLoginItem() {
+        loginItem.clearError()
+        loginStatus = loginItem.status
+        loginError = loginItem.errorText
+    }
+
+    func setOpenAtLogin(_ on: Bool) {
+        loginItem.setEnabled(on)
+        loginStatus = loginItem.status
+        loginError = loginItem.errorText
+    }
+
+    func openLoginItemSettings() { loginItem.openSystemSettings() }
 
     /// Sends `STATUS`, `VERSION` and `TIME` for the diagnostics panel. Runs only on the user's button press.
     func refreshDiagnostics() {
