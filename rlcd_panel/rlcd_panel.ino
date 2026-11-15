@@ -47,6 +47,7 @@ struct SerialSink {
 
 St7305Framebuffer g_framebuffer;
 St7305Panel g_panel;
+bool g_frame_rendered = false;  // flushFramebuffer() ran and PATTERN did not overwrite it: g_framebuffer holds a render (console SCREEN)
 bool g_panel_started = false;   // g_panel.begin() ran in this wake cycle
 bool g_timer_wakeup = false;    // this wake cycle is a timer wakeup
 bool g_skip_counted = false;    // a skip of this wake cycle already counted in g_state.frame
@@ -356,6 +357,7 @@ void ensurePanelStarted() {
 // frame of the last flush and the same view skips the panel start and the SPI transfer: the
 // reflective panel keeps its image. Each 60th skip in a row flushes again (FrameRefresh).
 void flushFramebuffer() {
+  g_frame_rendered = true;
   if (config().display_invert != 0) {
     g_framebuffer.invert();
   }
@@ -1345,6 +1347,10 @@ void setup() {
       ensurePanelStarted(); // a skipped refresh left the panel off
       Runner::showPattern(sink, g_framebuffer, g_panel,
                                                                 command.reference, &g_state.frame);
+      g_frame_rendered = false; // the framebuffer holds the pattern, not a render: SCREEN gives ERR NO_FRAME
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SCREEN) {
+      // The bytes of the last render (after invert() with display_invert 1). No card access, no panel flush.
+      Runner::showScreen(sink, g_framebuffer, g_frame_rendered);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::MUTE) {
       // The flag goes to the RTC copy; the save of this wake cycle writes it with the audio trailer. No card access.
       Runner::setMute(sink, g_state.muted, command.reference);

@@ -36,14 +36,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CALIB without a reference, with a reference above 5 or with extra text; BEEP without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text
+  BAD_ARG,  // CALIB without a reference, with a reference above 5 or with extra text; BEEP without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SCREEN with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '=')
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv or events_v1_YYYY.csv
@@ -69,7 +69,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..5", "BEEP 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SCAN", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..5", "BEEP 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SCAN", "SCREEN", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -165,6 +165,13 @@ public:
         return SerialParseStatus::BAD_ARG; // SCAN takes no argument
       }
       out.kind = SerialCommandKind::SCAN;
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "SCREEN")) {
+      if (cmd_len != len) {
+        return SerialParseStatus::BAD_ARG; // SCREEN takes no argument
+      }
+      out.kind = SerialCommandKind::SCREEN;
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "EVENTS")) {
@@ -414,7 +421,7 @@ private:
 //   ble_console 0: nothing (the service does not run)
 //   ble_console 1: the read commands; SET, MUTE and TIME SET reply "ERR READ_ONLY"
 //   ble_console 2: also SET, MUTE and TIME SET
-//   DUMP (a monthly file is too large for BLE) and SCAN (the scan stops the BLE stack that carries
+//   DUMP (a monthly file is too large for BLE), SCREEN (15,000 bytes) and SCAN (the scan stops the BLE stack that carries
 //   the console) reply "ERR NOT_OVER_BLE" at each level.
 // Only one central connects. A disconnect clears the partial line.
 class BleConsoleBridge {
@@ -481,7 +488,8 @@ public:
 
   // Empty text: the command may run at this level.
   static const char* gate(const SerialCommand& command, uint8_t level) {
-    if (command.kind == SerialCommandKind::DUMP || command.kind == SerialCommandKind::SCAN) {
+    if (command.kind == SerialCommandKind::DUMP || command.kind == SerialCommandKind::SCAN ||
+        command.kind == SerialCommandKind::SCREEN) {
       return "ERR NOT_OVER_BLE\n";
     }
     const bool writes = command.kind == SerialCommandKind::SET || command.kind == SerialCommandKind::MUTE ||
@@ -1174,6 +1182,24 @@ public:
     send(sink, line);
   }
 
+  // Sends the framebuffer as the last render left it (after invert() with display_invert 1): "BEGIN screen.bin 15000",
+  // the raw bytes, then "CRC32 <hex>" over them (St7305Framebuffer::crc32()). `has_frame` is false before the first
+  // render of the session: "ERR NO_FRAME". No card access, no panel flush.
+  template <typename Framebuffer>
+  static void showScreen(Sink& sink, const Framebuffer& fb, bool has_frame) {
+    if (!has_frame) {
+      send(sink, "ERR NO_FRAME\n");
+      return;
+    }
+    char line[48];
+    snprintf(line, sizeof(line), "BEGIN screen.bin %lu\n", static_cast<unsigned long>(Framebuffer::BYTE_COUNT));
+    if (!send(sink, line) || !put(sink, fb.data(), Framebuffer::BYTE_COUNT)) {
+      return;
+    }
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(fb.crc32()));
+    send(sink, line);
+  }
+
   // Changes one key of /sdcard/config.ini. `apply(const char* text, size_t len)` runs after the new file is in place and
   // takes over the new config (PersistentState::applyConfig); the reply "OK SET <key>" follows it. Returns true on success.
   template <typename Apply>
@@ -1246,7 +1272,7 @@ public:
         command.kind == SerialCommandKind::HISTORY || command.kind == SerialCommandKind::VERSION ||
         command.kind == SerialCommandKind::EVENTS || command.kind == SerialCommandKind::PATTERN ||
         command.kind == SerialCommandKind::SCAN || command.kind == SerialCommandKind::MUTE ||
-        command.kind == SerialCommandKind::SET) {
+        command.kind == SerialCommandKind::SCREEN || command.kind == SerialCommandKind::SET) {
       return;
     }
     if (!storage.mount()) {
@@ -1268,6 +1294,7 @@ public:
       case SerialCommandKind::PATTERN:
       case SerialCommandKind::SCAN:
       case SerialCommandKind::MUTE:
+      case SerialCommandKind::SCREEN:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;

@@ -1173,3 +1173,11 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `SdLogCodec::MAX_ROW_SIZE` is 320 and `DAILY_HEADER_SIZE` is 768 for the wider rows.
 - The BLE telemetry frame and the stats view keep slots 1 to 3.
 - `LogArchive.isValidName` accepts `climate_v5_YYYYMM.csv` and `daily_v3_YYYY.csv`. `DailyLog` reads `daily_v3` (six sensors) and `DailyChartView` shows the sensors that a row holds.
+
+## Console command SCREEN and panel view
+
+- `SCREEN` sends `BEGIN screen.bin 15000`, the 15,000 raw bytes of the framebuffer as the last render left them (after `invert()` with `display_invert` 1) and a `CRC32` line (`St7305Framebuffer::crc32()`). `SerialConsoleRunner::showScreen` sends it.
+- `SCREEN` with extra text gives `ERR BAD_ARG`. Before the first render of the session the reply is `ERR NO_FRAME`. On the BLE console the reply is `ERR NOT_OVER_BLE`.
+- The command needs no card and does not flush the panel.
+- `PanelImage.decode(_:)` in the macOS app reads the packing of the framebuffer into a 400 x 300 1-bit image. A body of another size throws `ParseError.badLine`. `ReplyAssembler` accepts `screen.bin` in binary mode only with 15,000 bytes.
+- `PanelView` shows the image. The `Refresh` button sends `SCREEN` on a user action, on the USB link only.

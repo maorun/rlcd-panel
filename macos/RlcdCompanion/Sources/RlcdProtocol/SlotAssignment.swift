@@ -40,6 +40,8 @@ public enum SlotAssignment {
 
     /// `SCAN` runs only on the USB serial link; the firmware replies `ERR NOT_OVER_BLE` on BLE.
     public static func scanAllowed(onUsb: Bool) -> Bool { onUsb }
+    /// `SCREEN` answers `ERR NOT_OVER_BLE` on BLE: send it on the USB serial link only.
+    public static func screenAllowed(onUsb: Bool) -> Bool { onUsb }
     /// The scan takes about 4 s. The 10 s reply timeout leaves room for it; each received chunk restarts the timer.
     public static let scanTimeoutSeconds = 10
     public static let defaultTimeoutSeconds = 10

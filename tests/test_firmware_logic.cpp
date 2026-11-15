@@ -12326,6 +12326,57 @@ void testSerialScanDroppedRowAndUnchangedRegistry() {
   assert(shortSink.out.size() == 20 && shortSink.out.find("CRC32") == std::string::npos);
 }
 
+void testSerialScreenParser() {
+  SerialCommand cmd;
+  assert(parseText("SCREEN", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SCREEN);
+  assert(parseText("SCREEN\r\n", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SCREEN);
+  assert(parseText("SCREEN 1", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("SCREEN ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("SCREENS", cmd) == SerialParseStatus::UNKNOWN);
+}
+
+void testSerialScreenReply() {
+  St7305Framebuffer fb;
+  fb.clear(false);
+  fb.setPixel(3, 5, true);
+  FakeSink sink;
+  TestRunner::showScreen(sink, fb, true);
+  const std::string head = "BEGIN screen.bin 15000\n";
+  assert(sink.out.compare(0, head.size(), head) == 0);
+  char crc_line[32];
+  snprintf(crc_line, sizeof(crc_line), "CRC32 %08lx\n", static_cast<unsigned long>(fb.crc32()));
+  assert(sink.out.size() == head.size() + 15000 + strlen(crc_line));
+  assert(memcmp(sink.out.data() + head.size(), fb.data(), 15000) == 0);
+  assert(sink.out.compare(head.size() + 15000, strlen(crc_line), crc_line) == 0);
+  // the one set pixel changes the CRC-32 against the empty frame
+  St7305Framebuffer empty;
+  empty.clear(false);
+  assert(fb.crc32() != empty.crc32());
+  // the bytes after invert() go out unchanged: the reply sends what the flush sends
+  St7305Framebuffer inverted = fb;
+  inverted.invert();
+  FakeSink inv;
+  TestRunner::showScreen(inv, inverted, true);
+  assert(memcmp(inv.out.data() + head.size(), inverted.data(), 15000) == 0);
+  assert(memcmp(inv.out.data() + head.size(), fb.data(), 15000) != 0);
+  // before the first render: no frame, no bytes
+  FakeSink none;
+  TestRunner::showScreen(none, fb, false);
+  assert(none.out == "ERR NO_FRAME\n");
+  // a short sink ends the reply without a CRC line
+  FakeSink shortSink;
+  shortSink.limit = 100;
+  TestRunner::showScreen(shortSink, fb, true);
+  assert(shortSink.out.find("CRC32") == std::string::npos);
+  // execute() ignores SCREEN: no mount, no output
+  FakeConsoleStorage storage;
+  FakeSink quiet;
+  SerialCommand cmd;
+  assert(parseText("SCREEN", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, quiet, cmd);
+  assert(storage.mounts == 0 && storage.unmounts == 0 && quiet.out.empty());
+}
+
 void testSerialScanCollectorIgnoresInvalidAndGate() {
   ScanCollector collector;
   collector.add(SwitchBotReading{}, BleFormat::WOIO); // valid is false
@@ -16546,6 +16597,8 @@ void testBleConsoleSetAndDumpGate() {
     assert(bleConsoleRun(bridge, "SCAN\n", 23, n2) == "ERR NOT_OVER_BLE\n");
     BleNotifier n3;
     assert(bleConsoleRun(bridge, "DUMP bad\n", 23, n3) == "ERR BAD_NAME\n"); // a bad name keeps its parser error
+    BleNotifier n4;
+    assert(bleConsoleRun(bridge, "SCREEN\n", 23, n4) == "ERR NOT_OVER_BLE\n");
   }
   // USB serial keeps SET and DUMP
   FakeConsoleStorage storage;
@@ -17780,6 +17833,8 @@ int main() {
   testBatteryRuntimeLinearDischarge();
   testBatteryRuntimeDaysFormat();
   testBatteryRuntimeFlatCurve();
+  testSerialScreenParser();
+  testSerialScreenReply();
   testScanCompletionStopsWhenAllReported();
   testScanCompletionOneSlotMissing();
   testScanCompletionNoBatteryField();
