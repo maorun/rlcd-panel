@@ -35,6 +35,8 @@ final class AppModel: ConsoleLinkDelegate {
     /// `Include names and MACs` of the diagnostics report. Off hides each name and MAC value.
     var reportIncludeNames = false
     private var reportRunning = false
+    private var reportLink: DiagnosticsReport.Link = .ble
+    private var reportFailed = false
     private var reportSections: [DiagnosticsReport.Section] = []
     private var reportRemaining: [ConsoleCommand] = []
     var scanResult: ScanReply?
@@ -314,12 +316,16 @@ final class AppModel: ConsoleLinkDelegate {
         reportSections = []
         reportRemaining = DiagnosticsReport.commands
         reportRunning = true
+        reportFailed = false
+        reportLink = transport == .usb ? .usb : .ble
         queue = [reportRemaining.removeFirst()]
         sendNext()
+        if pendingCommand == nil { failReport(reason: "send failed", pending: nil) } // a failed send abandoned the command
     }
 
     private func recordReport(_ cmd: ConsoleCommand, _ reply: ConsoleReply) {
         guard reportRunning, let name = cmd.line, DiagnosticsReport.commands.contains(cmd) else { return }
+        if case .frame = reply {} else { reportFailed = true }
         let result: Result<[String], DiagnosticsReport.Failure>
         switch reply {
         case let .frame(lines): result = .success(lines)
@@ -339,6 +345,7 @@ final class AppModel: ConsoleLinkDelegate {
     /// A timeout or a lost link ends the report. The running and the unsent commands get an `ERROR` line.
     private func failReport(reason: String, pending: ConsoleCommand?) {
         guard reportRunning else { return }
+        reportFailed = true
         let open = ([pending].compactMap { $0 } + reportRemaining).filter { DiagnosticsReport.commands.contains($0) }
         for cmd in open { if let name = cmd.line { reportSections.append(.init(command: name, result: .failure(.init(reason: reason)))) } }
         reportRemaining = []
@@ -349,12 +356,12 @@ final class AppModel: ConsoleLinkDelegate {
         reportRunning = false
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
         let text = DiagnosticsReport.build(
-            appVersion: version, link: transport == .usb ? .usb : .ble,
+            appVersion: version, link: reportLink,
             includeNames: reportIncludeNames, sections: reportSections)
         reportSections = []
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
-        message = "Report copied to the clipboard"
+        message = reportFailed ? "Report copied (incomplete)" : "Report copied to the clipboard"
     }
 
     /// Synchronizes the panel clock with Mac time by sending `TIME SET <date>` followed by `TIME`.

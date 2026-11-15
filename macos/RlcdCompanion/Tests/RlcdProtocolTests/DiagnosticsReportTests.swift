@@ -50,6 +50,21 @@ private func sections(events: Result<[String], DiagnosticsReport.Failure>? = nil
         #expect(text.contains("ble_console=2"))
     }
 
+    @Test func sensorNamesAndBleMacAreHiddenByDefault() {
+        let text = DiagnosticsReport.build(appVersion: "1.2", link: .usb, includeNames: false, sections: sections())
+        #expect(!text.contains("Wohnzimmer"))
+        #expect(!text.contains("Keller"))
+        #expect(!text.contains("AA:BB:CC:DD:EE:FF"))
+        #expect(text.contains("SENSOR 1 <hidden> temp=22.1 rh=48.5"))
+        #expect(text.contains("last=<hidden>"))
+    }
+
+    @Test func sensorNamesAndBleMacStayWithIncludeNames() {
+        let text = DiagnosticsReport.build(appVersion: "1.2", link: .usb, includeNames: true, sections: sections())
+        #expect(text.contains("SENSOR 1 Wohnzimmer temp=22.1"))
+        #expect(text.contains("last=AA:BB:CC:DD:EE:FF"))
+    }
+
     @Test func includeNamesKeepsTheValues() {
         let text = DiagnosticsReport.build(appVersion: "1.2", link: .usb, includeNames: true, sections: sections())
         #expect(text.contains("slot1_mac=AA:BB:CC:DD:EE:01"))

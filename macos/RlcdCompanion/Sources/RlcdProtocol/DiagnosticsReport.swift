@@ -42,9 +42,25 @@ public enum DiagnosticsReport {
     }
 
     private static func redact(_ line: String) -> String {
+        if line.hasPrefix("SENSOR ") { return redactSensor(line) }
+        if line.hasPrefix("BLE ") { return redactBle(line) }
         guard let eq = line.firstIndex(of: "=") else { return line }
         let key = String(line[..<eq])
         guard let kind = ConfigSchema.entry(for: key)?.kind, kind == .name || kind == .mac else { return line }
         return key + "=" + hiddenValue
+    }
+
+    /// `SENSOR <i> <name> temp=...`: the name has 1 to 12 characters and may hold spaces.
+    private static func redactSensor(_ line: String) -> String {
+        let parts = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: false)
+        guard parts.count == 3, let end = parts[2].range(of: " temp=") else { return line }
+        return "\(parts[0]) \(parts[1]) \(hiddenValue)" + parts[2][end.lowerBound...]
+    }
+
+    /// `BLE rejected=.. last=<MAC|--> ...`: the MAC belongs to a foreign device.
+    private static func redactBle(_ line: String) -> String {
+        line.split(separator: " ", omittingEmptySubsequences: false).map { part -> String in
+            part.hasPrefix("last=") && part != "last=--" ? "last=" + hiddenValue : String(part)
+        }.joined(separator: " ")
     }
 }
