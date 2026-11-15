@@ -38,14 +38,15 @@ public:
 
   // Decode 6-byte SHTC3 response: [T_MSB, T_LSB, T_CRC, RH_MSB, RH_LSB, RH_CRC]
   // Applies temperature calibration offset (default: DEFAULT_TEMP_OFFSET_C = -1.9 C) and a
-  // humidity offset (default 0), with the humidity clamped to 0..100 %RH. The offset must be a
+  // humidity gain (default 1) and offset (default 0): rh = raw * gain + offset, with the humidity clamped to 0..100 %RH. The offset must be a
   // finite value; DeviceConfig::valid() and the config parser guarantee this.
   static bool decodeFrame(
       const uint8_t* frame,
       size_t len,
       Shtc3Reading& out,
       float temp_offset_c = DEFAULT_TEMP_OFFSET_C,
-      float rh_offset_pct = 0.0f) {
+      float rh_offset_pct = 0.0f,
+      float rh_gain = 1.0f) {
     if (frame == nullptr || len < 6) {
       return false;
     }
@@ -64,7 +65,7 @@ public:
     const float uncalibrated_temp =
         -45.0f + (175.0f * static_cast<float>(raw_temp)) / 65536.0f;
     out.temperature_c = uncalibrated_temp + temp_offset_c;
-    float rh = (100.0f * static_cast<float>(raw_rh)) / 65536.0f + rh_offset_pct;
+    float rh = (100.0f * static_cast<float>(raw_rh)) / 65536.0f * rh_gain + rh_offset_pct;
     out.humidity_pct = rh < 0.0f ? 0.0f : (rh > 100.0f ? 100.0f : rh);
     out.valid = true;
     return true;
@@ -78,14 +79,15 @@ public:
       const uint8_t* frame,
       Shtc3Reading& out,
       float temp_offset_c = DEFAULT_TEMP_OFFSET_C,
-      float rh_offset_pct = 0.0f) {
+      float rh_offset_pct = 0.0f,
+      float rh_gain = 1.0f) {
     if (!acked) {
       return Shtc3Result::NACK;
     }
     if (received < 6 || frame == nullptr) {
       return Shtc3Result::SHORT;
     }
-    return decodeFrame(frame, received, out, temp_offset_c, rh_offset_pct) ? Shtc3Result::OK
+    return decodeFrame(frame, received, out, temp_offset_c, rh_offset_pct, rh_gain) ? Shtc3Result::OK
                                                                           : Shtc3Result::CRC;
   }
 };

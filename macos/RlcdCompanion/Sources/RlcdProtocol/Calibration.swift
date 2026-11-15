@@ -219,3 +219,86 @@ public struct SaltReply: Equatable, Sendable {
     private static func hours(_ s: String?) -> Int? { CalibrationReply.hours(s) }
     private static func decimal(_ s: String?) -> Double? { CalibrationReply.decimal(s) }
 }
+
+/// Two-point humidity calibration of one sensor: the `SALT` results of saturated sodium chloride and of saturated
+/// magnesium chloride give a new gain and a new offset (`rh = raw * gain + offset`).
+public enum TwoPointCalibration {
+    public struct Result: Equatable, Sendable {
+        public let gainKey: String
+        public let offsetKey: String
+        /// Gain with 3 decimals (steps of 0.002) and offset with 1 decimal, as `SET` values.
+        public let gain: String
+        public let offset: String
+        /// Raw means (before the active gain and offset) at the NaCl and the MgCl2 point.
+        public let rawNaCl: Double
+        public let rawMgCl2: Double
+
+        /// Config changes against the active values (`current`); a value that equals the active one gives no change.
+        public func changes(current: [String: String]) -> [ConfigChange] {
+            var merged = current
+            merged[gainKey] = gain
+            merged[offsetKey] = offset
+            return ConfigSchema.diff(old: current, new: merged)
+        }
+    }
+
+    public enum Failure: Error, Equatable, Sendable {
+        case notMeasured
+        case differentSensors
+        case configUnknown
+        case badActiveValues
+        case pointsTooClose
+        case clampedSample
+        case gainOutOfRange(Double)
+        case offsetOutOfRange(Double)
+
+        public var text: String {
+            switch self {
+            case .notMeasured: return "Check both salts first"
+            case .differentSensors: return "The two checks belong to different sensors"
+            case .configUnknown: return "Read the config first: the active gain and offset are unknown"
+            case .badActiveValues: return "The active gain or offset is not a valid number"
+            case .pointsTooClose: return "The two raw means are too close or in the wrong order"
+            case .clampedSample: return "A mean humidity at 0 or 100 %RH is clamped, so no raw value follows"
+            case let .gainOutOfRange(g): return "Gain \(String(format: "%.3f", g)) is outside 0.90 to 1.10, no SET sent"
+            case let .offsetOutOfRange(o): return "Offset \(String(format: "%.1f", o)) is outside -10.0 to 10.0, no SET sent"
+            }
+        }
+    }
+
+    /// Step of the stored gain.
+    static let gainStep = 0.002
+
+    /// The keys of a sensor name: `onboard` has `rh_gain` and `rh_offset_pct`, `slotN` has `slotN_rh_gain` and
+    /// `slotN_rh_offset_pct`.
+    public static func keys(sensor: String) -> (gain: String, offset: String) {
+        sensor == "onboard" ? ("rh_gain", "rh_offset_pct") : ("\(sensor)_rh_gain", "\(sensor)_rh_offset_pct")
+    }
+
+    /// Calculates gain and offset from the two measured replies. The history samples already contain the active
+    /// gain and offset, so the raw means are `(mean - offset) / gain`. The gain is the slope through the two
+    /// references, rounded to 0.002; the offset is the mean residual at the two points.
+    public static func compute(naCl: SaltReply?, mgCl2: SaltReply?, current: [String: String]?) throws -> Result {
+        guard let naCl, let mgCl2, case let .measured(a, _) = naCl.outcome, case let .measured(b, _) = mgCl2.outcome
+        else { throw Failure.notMeasured }
+        guard a.name == b.name else { throw Failure.differentSensors }
+        guard let current else { throw Failure.configUnknown }
+        let k = keys(sensor: a.name)
+        guard let activeGain = ConfigSchema.parseNumber(current[k.gain] ?? ConfigSchema.entry(for: k.gain)?.defaultValue ?? ""),
+              let activeOffset = ConfigSchema.parseNumber(current[k.offset] ?? ConfigSchema.entry(for: k.offset)?.defaultValue ?? ""),
+              activeGain > 0
+        else { throw Failure.badActiveValues }
+        guard (0.5...99.5).contains(a.rhMean), (0.5...99.5).contains(b.rhMean) else { throw Failure.clampedSample }
+        let rawA = (a.rhMean - activeOffset) / activeGain
+        let rawB = (b.rhMean - activeOffset) / activeGain
+        guard rawA - rawB > 1.0 else { throw Failure.pointsTooClose } // NaCl is the wetter point
+        let slope = (a.reference - b.reference) / (rawA - rawB)
+        guard slope >= 0.9, slope <= 1.1 else { throw Failure.gainOutOfRange(slope) }
+        let gain = (slope / gainStep).rounded() * gainStep
+        let offset = (((a.reference - gain * rawA) + (b.reference - gain * rawB)) / 2 * 10).rounded() / 10
+        let gainText = String(format: "%.3f", gain), offsetText = String(format: "%.1f", offset)
+        if ConfigSchema.validate(key: k.gain, value: gainText) != nil { throw Failure.gainOutOfRange(gain) }
+        if ConfigSchema.validate(key: k.offset, value: offsetText) != nil { throw Failure.offsetOutOfRange(offset) }
+        return Result(gainKey: k.gain, offsetKey: k.offset, gain: gainText, offset: offsetText, rawNaCl: rawA, rawMgCl2: rawB)
+    }
+}

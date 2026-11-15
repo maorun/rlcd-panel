@@ -372,6 +372,8 @@ public enum ConsoleCommand: Equatable {
     case set(key: String, value: String)
     case calib(Int)
     case salt(Int)
+    /// `SALT N MGCL2`: the same check against saturated magnesium chloride.
+    case saltMagnesium(Int)
 
     public static func beep(bit: Int) -> ConsoleCommand { .beep(bit) }
     public static func pattern(n: Int) -> ConsoleCommand { .pattern(n) }
@@ -410,6 +412,9 @@ public enum ConsoleCommand: Equatable {
         case let .salt(reference):
             guard (0...5).contains(reference) else { return nil }
             return "SALT \(reference)"
+        case let .saltMagnesium(reference):
+            guard (0...5).contains(reference) else { return nil }
+            return "SALT \(reference) MGCL2"
         case let .set(key, value):
             let text = "SET \(key)=\(value)"
             let bad = CharacterSet.whitespacesAndNewlines.union(.controlCharacters)

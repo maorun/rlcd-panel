@@ -267,7 +267,7 @@ Shtc3Result readOnboardShtc3(Shtc3Reading& out, bool usb_powered) {
   Wire.endTransmission();
 
   return Shtc3Codec::classify(true, received == 6 ? 6 : 0, frame, out, config().onboardTempOffsetC(usb_powered),
-                              config().rh_offset_pct);
+                              config().rh_offset_pct, config().rh_gain);
 }
 
 // Events that happen before the RTC is read (config load, release of the empty protection) wait here
@@ -343,7 +343,8 @@ void measureNoiseOnce() {
 // and the views read this copy; the stored registry keeps the raw readings. Call it only after
 // scanOnce() stopped the scan, or inside g_registry_mux: the BLE callback writes the registry.
 SwitchBotRegistry calibratedRegistry() {
-  return g_state.registry.calibrated(config().slot_temp_offset_c, config().slot_rh_offset_pct);
+  return g_state.registry.calibrated(config().slot_temp_offset_c, config().slot_rh_offset_pct,
+                                         config().slot_rh_gain);
 }
 
 // Starts the panel once per wake cycle. A skipped refresh never starts it.
@@ -1326,7 +1327,7 @@ void setup() {
                                                                g_state.config);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SALT) {
       // The RTC histories answer: no card access, so the console keeps running.
-      Runner::showSalt(sink, command.reference, g_state.history, g_state.config);
+      Runner::showSalt(sink, command.reference, g_state.history, g_state.config, command.salt_mgcl2);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::HISTORY) {
       // The RTC histories answer: no card access, so the console keeps running.
       Runner::showHistory(sink, g_state.history,

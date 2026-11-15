@@ -166,6 +166,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
   | --- | --- | --- | --- |
   | `temp_offset_c` | `-1.9` | `-10.0` to `10.0` | `SHTC3` decoder |
   | `rh_offset_pct` | `0.0` | `-10.0` to `10.0` | `SHTC3` decoder, result clamped to 0 to 100 %RH |
+  | `rh_gain`, `slot1_rh_gain` to `slot5_rh_gain` | `1.0` | `0.90` to `1.10` (steps of 0.002) | humidity = raw * gain + offset, clamped to 0 to 100 %RH |
   | `freeze_alert_limit_c` | `0.0` | `-20.0` to `15.0` | freezer alert trigger |
   | `mold_alert_limit_rh` | `70` | `40` to `95` | humidity alert trigger |
   | `chime_volume_pct` | `30` | `0` to `100` | chimes and the unmute beep |
@@ -850,7 +851,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The view shows the name of the `chart_sensor` sensor, a temperature box and a humidity box (360 x 90 px each) with 7 vertical bars from the daily minimum to the daily maximum, the newest day at the right edge, and the weekday labels from the RTC below the bars. Each box has a label with the minimum and maximum of the week; the temperature follows `temp_unit`. A flat week uses the minimum span 2.0 C or 5.0 %RH. A box without a valid day shows `NO DATA`.
 - The `KEY` handling equals the climate chart: a short press returns `ButtonEvent::NEXT_SENSOR` and selects the next sensor, a hold of 2 s changes the view (`MODE_CHANGED`).
 - The view reads only the RTC copy. It needs no sensor read, no microphone and no card.
-- `STATE_VERSION` is 56. A record of version 55 gives a clean start.
+- `STATE_VERSION` was 56 here. A record of version 55 gives a clean start.
 - `tools/preview_scenes.h` adds the scene `display_preview_chart_week` (sensor 1 with one day without samples). `./scripts/generate-display-preview.sh` writes `docs/display_preview_chart_week.png`.
 - Thus the user sees the course of one room over a week.
 
@@ -1337,3 +1338,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The event stays in the RTC ring until the next successful hourly write puts it into `events_v1_YYYY.csv`. The console command `EVENTS` shows it without a card. The ring layout does not change. `STATE_VERSION` stays the same.
 - macOS `EventText` shows `SD card fault: <status>` and `SD card OK`. An unknown status number gives the raw text `SD_FAULT,<N>`.
 - Acceptance criteria: host tests cover the status changes, the CSV row and the ring check. Swift `EventTextTests` cover each status text and an unknown number.
+## Two-point humidity calibration with a second salt
+
+- **Code:** `rlcd_panel/climate_math.h`, `rlcd_panel/device_config.h`, `rlcd_panel/shtc3_sensor.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift`.
+- The `SALT` check with sodium chloride corrects only an offset. A sensor with a slope error stays wrong far from 75 %RH. Six new keys, `rh_gain` and `slot1_rh_gain` to `slot5_rh_gain` (0.90 to 1.10, default 1.00), add the slope. `DeviceConfigParser::KEY_COUNT` is 56, and `rh_gain` and the five slot keys end `KEYS` (index 50 to 55). A value of `0.89` or `1.11` is a rejected line.
+- The firmware calculates `rh = raw * gain + offset`, clamped to 0 to 100 %RH, before it stores a reading: `Shtc3Codec::decodeFrame` for the onboard sensor and `SwitchBotRegistry::calibrated` for the slots. The stored registry keeps the raw readings.
+- `ClimateMath::magnesiumReferenceRh(temp_c)` gives the equilibrium humidity of saturated magnesium chloride from a fixed table (10 C 33.5 %RH, 15 C 33.3, 20 C 33.1, 25 C 32.8, 30 C 32.4, 35 C 32.1, linear; NaN outside 10 to 35 C).
+- The console command `SALT N MGCL2` gives the same checks and the same reply as `SALT N` with the MgCl2 reference and no proposal line. Another salt name, `mgcl2` in lower case or extra text gives `ERR BAD_ARG`.
+- The config trailer of the RTC state stores each gain as 1 byte (`int8`, steps of 0.002 around 1.00, -50 to 50) after the USB temperature offset byte: 6 bytes. A step count outside -50 to 50 is rejected. `STATE_VERSION` is 57, and an RTC image of version 56 gives a clean start.
+- `DeviceConfigText::MAX_SIZE` is 1312 bytes (worst case 1282). The `CONFIG` reply shows the gain lines with 3 decimals.
+- macOS companion: `ConsoleCommand.saltMagnesium(N)` sends `SALT N MGCL2`. `TwoPointCalibration.compute` (`Calibration.swift`) takes the two `SaltReply` results of one sensor and the active `CONFIG` values, calculates the raw means `(mean - offset) / gain`, the gain as the slope through the two references (rounded to 0.002) and the offset as the mean residual of the two points, and returns the `SET` values. A gain outside 0.90 to 1.10 (`Failure.gainOutOfRange`), results of two different sensors, an unknown config or two raw means that are too close give an error text and no `SET`. `CalibrationView` shows the values and `AppModel.applyTwoPoint` applies them through `ConfigBatch`. `ConfigSchema` has the six new entries.
+- Host tests cover the MgCl2 reference at 10, 25 and 35 C and NaN at 9 C, the corrected value for gain 1.05 and offset -2.0 at raw 50.0 %RH, the clamp at 100 %RH, the rejected lines `0.89` and `1.11`, the config trailer round trip, `SALT 1 MGCL2` without a proposal line and `ERR BAD_ARG` for `SALT 1 LICL`. `testConfigExampleTemplateInSync` and `ConfigSchemaTests.rangesMatchFirmwareConstants` cover the new keys. `TwoPointCalibrationTests` cover the result for known raw means and the error for a gain of 1.2.

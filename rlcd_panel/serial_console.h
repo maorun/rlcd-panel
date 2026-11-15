@@ -43,7 +43,7 @@ enum class SerialParseStatus : uint8_t {
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CALIB without a reference, with a reference above 5 or with extra text; BEEP without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SCREEN with extra text; SALT without a reference, with a reference above 5 or with extra text
+  BAD_ARG,  // CALIB without a reference, with a reference above 5 or with extra text; BEEP without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SCREEN with extra text; SALT without a reference, with a reference above 5, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '=')
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv, daily_v4_YYYY.csv or events_v1_YYYY.csv
@@ -56,6 +56,7 @@ struct SerialCommand {
   SerialCommandKind kind = SerialCommandKind::NONE;
   char file[SdLogCodec::LOG_NAME_SIZE] = {0};
   uint8_t reference = 0; // CALIB and SALT: 0 onboard, 1 to 5 a slot; BEEP: alert bit number 0 to 7; PATTERN: pattern number 0 to 2; MUTE: 0 or 1
+  bool salt_mgcl2 = false; // SALT: true for "SALT N MGCL2" (magnesium chloride reference, no proposal line)
   bool time_set = false; // TIME: true for "TIME SET <time>"; `time` then holds the parsed local time
   RtcTime time;
   char set_key[SET_KEY_SIZE] = {0};     // SET: key of DeviceConfigParser::KEYS
@@ -69,7 +70,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..5", "SALT 0..5", "BEEP 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SCAN", "SCREEN", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..5", "SALT 0..5", "SALT 0..5 MGCL2", "BEEP 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SCAN", "SCREEN", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -207,10 +208,12 @@ public:
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "SALT")) {
-      // exactly one digit 0 to 5
-      if (len != cmd_len + 2 || line[cmd_len + 1] < '0' || line[cmd_len + 1] > '5') {
+      // one digit 0 to 5, optionally followed by " MGCL2"
+      const bool with_salt = len == cmd_len + 2 + 6 && memcmp(line + cmd_len + 2, " MGCL2", 6) == 0;
+      if ((len != cmd_len + 2 && !with_salt) || line[cmd_len + 1] < '0' || line[cmd_len + 1] > '5') {
         return SerialParseStatus::BAD_ARG;
       }
+      out.salt_mgcl2 = with_salt;
       out.kind = SerialCommandKind::SALT;
       out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
       return SerialParseStatus::OK;
@@ -694,6 +697,8 @@ struct SerialStatusSnapshot {
 //   SALT N -> "SALT <name> hours=<n> rh_mean=<x> rh_span=<x> temp_mean=<x> reference=<x>" for the last 6 hourly samples of
 //   sensor N (0 onboard, 1 to 5 a slot) in a closed box with saturated sodium chloride, the line "<key>=<value>" (the active
 //   humidity offset plus reference minus mean, clamped to the key range) and "CRC32 <8 hex digits>" over the lines before it.
+//   SALT N MGCL2 -> the same checks and reply with the magnesium chloride reference (10 C 33.5 %RH to 35 C 32.1 %RH) and
+//   no proposal line: the host calculates gain and offset from the two points.
 //   Fewer than 6 samples give "SKIP <name> hours=<n>", a humidity span above 1.0 %RH gives "UNSTABLE <name> span=<x>" (both
 //   with the CRC32 line), a mean temperature outside 10 to 35 C gives "ERR BAD_TEMP". showSalt() works on the RTC history: no
 //   card access, so execute() ignores SALT.
@@ -843,9 +848,11 @@ public:
     send(sink, line);
   }
 
-  // Checks one sensor against saturated sodium chloride. The last SALT_HOURS hourly samples must exist in the humidity and
+  // Checks one sensor against saturated sodium chloride, or with `magnesium` against saturated magnesium chloride
+  // (reply "SALT ..." line without the proposal line). The last SALT_HOURS hourly samples must exist in the humidity and
   // the temperature history. The samples already contain the active offset. The card stays untouched.
-  static void showSalt(Sink& sink, uint8_t reference, const ClimateHistory& history, const DeviceConfig& config) {
+  static void showSalt(Sink& sink, uint8_t reference, const ClimateHistory& history, const DeviceConfig& config,
+                       bool magnesium = false) {
     static const char* const names[ClimateHistory::SLOT_COUNT] = {"onboard", "slot1", "slot2", "slot3", "slot4", "slot5"};
     static const char* const prefixes[ClimateHistory::SLOT_COUNT] = {"", "slot1_", "slot2_", "slot3_", "slot4_", "slot5_"};
     if (reference >= ClimateHistory::SLOT_COUNT) {
@@ -875,7 +882,7 @@ public:
       const float rh_mean = static_cast<float>(rh_sum) / count; // 0.1 steps
       const float temp_mean = static_cast<float>(temp_sum) / count / 10.0f;
       const int32_t span = rh_max - rh_min;
-      const float ref = ClimateMath::saltReferenceRh(temp_mean);
+      const float ref = magnesium ? ClimateMath::magnesiumReferenceRh(temp_mean) : ClimateMath::saltReferenceRh(temp_mean);
       if (span > SALT_MAX_SPAN_TENTHS) {
         char f[12];
         formatTenths(f, sizeof(f), span);
@@ -897,11 +904,13 @@ public:
         len = static_cast<size_t>(snprintf(text, sizeof(text),
                                            "SALT %s hours=%u rh_mean=%s rh_span=%s temp_mean=%s reference=%s\n",
                                            names[reference], static_cast<unsigned>(SALT_HOURS), f[0], f[1], f[2], f[3]));
-        const int32_t proposal =
-            clampTenths(lroundf(static_cast<float>(tenths(active)) + ref_tenths - rh_mean), lo, hi);
-        formatTenths(f[4], sizeof(f[4]), proposal);
-        len += static_cast<size_t>(
-            snprintf(text + len, sizeof(text) - len, "%srh_offset_pct=%s\n", prefixes[reference], f[4]));
+        if (!magnesium) {
+          const int32_t proposal =
+              clampTenths(lroundf(static_cast<float>(tenths(active)) + ref_tenths - rh_mean), lo, hi);
+          formatTenths(f[4], sizeof(f[4]), proposal);
+          len += static_cast<size_t>(
+              snprintf(text + len, sizeof(text) - len, "%srh_offset_pct=%s\n", prefixes[reference], f[4]));
+        }
       }
     }
     SerialCrc32 crc;
@@ -1060,7 +1069,7 @@ public:
     }
     static const char* const defaults[ClimateHistory::SLOT_COUNT] = {"onboard", "slot1", "slot2", "slot3", "slot4", "slot5"};
     const DeviceConfig& cfg = *snap.config;
-    const SwitchBotRegistry cal = snap.registry->calibrated(cfg.slot_temp_offset_c, cfg.slot_rh_offset_pct);
+    const SwitchBotRegistry cal = snap.registry->calibrated(cfg.slot_temp_offset_c, cfg.slot_rh_offset_pct, cfg.slot_rh_gain);
     char text[1280];
     size_t len = 0;
     for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {

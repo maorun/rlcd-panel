@@ -20,6 +20,11 @@ struct DeviceConfig {
   static constexpr float DEFAULT_RH_OFFSET_PCT = 0.0f;
   static constexpr float MIN_RH_OFFSET_PCT = -10.0f;
   static constexpr float MAX_RH_OFFSET_PCT = 10.0f;
+  static constexpr float DEFAULT_RH_GAIN = 1.0f; // humidity = raw * gain + offset, 0.002 steps around 1.00
+  static constexpr float MIN_RH_GAIN = 0.90f;
+  static constexpr float MAX_RH_GAIN = 1.10f;
+  static constexpr float RH_GAIN_STEP = 0.002f;
+  static constexpr int RH_GAIN_MAX_STEPS = 50; // (1.10 - 1.00) / 0.002
   static constexpr size_t SLOT_COUNT = 5; // SwitchBot and BTHome registry slots
   static constexpr size_t OFFSET_SLOT_COUNT = 5; // slots 1 to 5 have offset keys
   static constexpr float DEFAULT_SLOT_TEMP_OFFSET_C = 0.0f;
@@ -118,6 +123,11 @@ struct DeviceConfig {
   float slot_rh_offset_pct[SLOT_COUNT] = {DEFAULT_SLOT_RH_OFFSET_PCT, DEFAULT_SLOT_RH_OFFSET_PCT,
                                           DEFAULT_SLOT_RH_OFFSET_PCT, DEFAULT_SLOT_RH_OFFSET_PCT,
                                           DEFAULT_SLOT_RH_OFFSET_PCT};
+  // Gain of the humidity (keys rh_gain and slot1_rh_gain to slot5_rh_gain): humidity = raw * gain + offset,
+  // clamped to 0..100 %RH. Always a multiple of RH_GAIN_STEP around 1.00 (the RTC state keeps one byte).
+  float rh_gain = DEFAULT_RH_GAIN;
+  float slot_rh_gain[SLOT_COUNT] = {DEFAULT_RH_GAIN, DEFAULT_RH_GAIN, DEFAULT_RH_GAIN, DEFAULT_RH_GAIN,
+                                    DEFAULT_RH_GAIN};
   float freeze_alert_limit_c = DEFAULT_FREEZE_ALERT_LIMIT_C;
   uint8_t mold_alert_limit_rh = DEFAULT_MOLD_ALERT_LIMIT_RH;
   uint8_t chime_volume_pct = DEFAULT_CHIME_VOLUME_PCT;
@@ -215,6 +225,16 @@ struct DeviceConfig {
     return false;
   }
 
+  // Gain from its step count (-50..50 steps of 0.002 around 1.00) and the reverse; both clamp to that range.
+  static float gainFromSteps(int steps) {
+    steps = steps < -RH_GAIN_MAX_STEPS ? -RH_GAIN_MAX_STEPS : (steps > RH_GAIN_MAX_STEPS ? RH_GAIN_MAX_STEPS : steps);
+    return 1.0f + static_cast<float>(steps) * RH_GAIN_STEP;
+  }
+  static int gainToSteps(float gain) {
+    const long steps = lroundf((gain - 1.0f) / RH_GAIN_STEP);
+    return static_cast<int>(steps < -RH_GAIN_MAX_STEPS ? -RH_GAIN_MAX_STEPS : (steps > RH_GAIN_MAX_STEPS ? RH_GAIN_MAX_STEPS : steps));
+  }
+
   // True when every field lies inside its range. Used for the RTC record check.
   bool valid() const {
     for (size_t i = 0; i < SLOT_COUNT; ++i) {
@@ -229,7 +249,8 @@ struct DeviceConfig {
       if (!storedNameOk(slot_name[i])) {
         return false;
       }
-      if (!inRange(slot_temp_offset_c[i], MIN_SLOT_TEMP_OFFSET_C, MAX_SLOT_TEMP_OFFSET_C) ||
+      if (!inRange(slot_rh_gain[i], MIN_RH_GAIN, MAX_RH_GAIN) ||
+          !inRange(slot_temp_offset_c[i], MIN_SLOT_TEMP_OFFSET_C, MAX_SLOT_TEMP_OFFSET_C) ||
           !inRange(slot_rh_offset_pct[i], MIN_SLOT_RH_OFFSET_PCT, MAX_SLOT_RH_OFFSET_PCT)) {
         return false;
       }
@@ -237,6 +258,7 @@ struct DeviceConfig {
     return inRange(temp_offset_c, MIN_TEMP_OFFSET_C, MAX_TEMP_OFFSET_C) &&
            inRange(usb_temp_offset_c, MIN_USB_TEMP_OFFSET_C, MAX_USB_TEMP_OFFSET_C) &&
            inRange(rh_offset_pct, MIN_RH_OFFSET_PCT, MAX_RH_OFFSET_PCT) &&
+           inRange(rh_gain, MIN_RH_GAIN, MAX_RH_GAIN) &&
            inRange(freeze_alert_limit_c, MIN_FREEZE_ALERT_LIMIT_C, MAX_FREEZE_ALERT_LIMIT_C) &&
            mold_alert_limit_rh >= MIN_MOLD_ALERT_LIMIT_RH && mold_alert_limit_rh <= MAX_MOLD_ALERT_LIMIT_RH &&
            chime_volume_pct <= MAX_CHIME_VOLUME_PCT && quiet_hours_start_hour <= MAX_HOUR &&
@@ -273,11 +295,11 @@ struct DeviceConfig {
         return false;
       }
       if (slot_temp_offset_c[i] != d.slot_temp_offset_c[i] || slot_rh_offset_pct[i] != d.slot_rh_offset_pct[i] ||
-          hasSlotMac(i)) {
+          slot_rh_gain[i] != d.slot_rh_gain[i] || hasSlotMac(i)) {
         return false;
       }
     }
-    return temp_offset_c == d.temp_offset_c && usb_temp_offset_c == d.usb_temp_offset_c && rh_offset_pct == d.rh_offset_pct && freeze_alert_limit_c == d.freeze_alert_limit_c &&
+    return temp_offset_c == d.temp_offset_c && usb_temp_offset_c == d.usb_temp_offset_c && rh_offset_pct == d.rh_offset_pct && rh_gain == d.rh_gain && freeze_alert_limit_c == d.freeze_alert_limit_c &&
            mold_alert_limit_rh == d.mold_alert_limit_rh && chime_volume_pct == d.chime_volume_pct &&
            quiet_hours_start_hour == d.quiet_hours_start_hour &&
            quiet_hours_end_hour == d.quiet_hours_end_hour && mic_spl_offset_db == d.mic_spl_offset_db &&
@@ -338,7 +360,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 8192;
-  static constexpr size_t KEY_COUNT = 50;
+  static constexpr size_t KEY_COUNT = 56;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -358,7 +380,9 @@ public:
       "ble_console", "slot4_name", "slot5_name",
       "slot4_mac", "slot5_mac", "slot4_temp_offset_c",
       "slot5_temp_offset_c", "slot4_rh_offset_pct", "slot5_rh_offset_pct",
-      "usb_temp_offset_c", "dry_alert_limit_rh",
+      "usb_temp_offset_c", "dry_alert_limit_rh", "rh_gain",
+      "slot1_rh_gain", "slot2_rh_gain", "slot3_rh_gain",
+      "slot4_rh_gain", "slot5_rh_gain",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -645,6 +669,35 @@ private:
     return false;
   }
 
+  // Keys rh_gain (index 50) and slot1_rh_gain to slot5_rh_gain (index 51..55): 0.90 to 1.10, stored in 0.002
+  // steps around 1.00. Returns false for any other key.
+  static bool parseGainKey(const char* key, size_t key_len, const char* val, size_t val_len, DeviceConfig& cfg,
+                           bool& ok, int& index) {
+    static const char* const slot_keys[DeviceConfig::OFFSET_SLOT_COUNT] = {"slot1_rh_gain", "slot2_rh_gain",
+                                                                          "slot3_rh_gain", "slot4_rh_gain",
+                                                                          "slot5_rh_gain"};
+    float* target = nullptr;
+    if (keyIs(key, key_len, "rh_gain")) {
+      index = 50;
+      target = &cfg.rh_gain;
+    }
+    for (size_t i = 0; target == nullptr && i < DeviceConfig::OFFSET_SLOT_COUNT; ++i) {
+      if (keyIs(key, key_len, slot_keys[i])) {
+        index = static_cast<int>(51 + i);
+        target = &cfg.slot_rh_gain[i];
+      }
+    }
+    if (target == nullptr) {
+      return false;
+    }
+    float v = 0.0f;
+    ok = parseFloatIn(val, val_len, DeviceConfig::MIN_RH_GAIN, DeviceConfig::MAX_RH_GAIN, v);
+    if (ok) {
+      *target = DeviceConfig::gainFromSteps(DeviceConfig::gainToSteps(v)); // 0.002 steps, like the RTC byte
+    }
+    return true;
+  }
+
   static void reject(ConfigParseResult& result, uint16_t line_no) {
     if (result.rejected < ConfigRejects::MAX_LINES) {
       result.rejected_lines[result.rejected] = line_no;
@@ -787,6 +840,8 @@ private:
                         cfg.rh_offset_pct);
     } else if (parseSlotKey(key, key_len, val, val_len, cfg, ok, index)) {
       // index and ok set by parseSlotKey
+    } else if (parseGainKey(key, key_len, val, val_len, cfg, ok, index)) {
+      // index and ok set by parseGainKey
     } else if (parseNameKey(key, key_len, val, val_len, cfg, ok, index)) {
       // index and ok set by parseNameKey
     } else if (parseMacKey(key, key_len, val, val_len, cfg, ok, index)) {
@@ -808,7 +863,7 @@ private:
 // reads the text back to the same values. The text holds no Wi-Fi setting: DeviceConfig has none.
 class DeviceConfigText {
 public:
-  static constexpr size_t MAX_SIZE = 1184; // worst case with every key at its longest value: 1168 bytes
+  static constexpr size_t MAX_SIZE = 1312; // worst case with every key at its longest value: 1282 bytes
 
   // Returns the text length, or 0 with an empty string when `cap` is too small.
   static size_t format(const DeviceConfig& cfg, char* out, size_t cap) {
@@ -821,6 +876,7 @@ public:
     ok = ok && putFloat(out, cap, pos, "temp_offset_c", cfg.temp_offset_c);
     ok = ok && putFloat(out, cap, pos, "usb_temp_offset_c", cfg.usb_temp_offset_c);
     ok = ok && putFloat(out, cap, pos, "rh_offset_pct", cfg.rh_offset_pct);
+    ok = ok && putGain(out, cap, pos, "rh_gain", cfg.rh_gain);
     ok = ok && putFloat(out, cap, pos, "freeze_alert_limit_c", cfg.freeze_alert_limit_c);
     ok = ok && putInt(out, cap, pos, "mold_alert_limit_rh", cfg.mold_alert_limit_rh);
     ok = ok && putInt(out, cap, pos, "chime_volume_pct", cfg.chime_volume_pct);
@@ -856,6 +912,11 @@ public:
       char key[32];
       snprintf(key, sizeof(key), "slot%u_rh_offset_pct", static_cast<unsigned>(i + 1));
       ok = putFloat(out, cap, pos, key, cfg.slot_rh_offset_pct[i]);
+    }
+    for (size_t i = 0; ok && i < DeviceConfig::OFFSET_SLOT_COUNT; ++i) {
+      char key[32];
+      snprintf(key, sizeof(key), "slot%u_rh_gain", static_cast<unsigned>(i + 1));
+      ok = putGain(out, cap, pos, key, cfg.slot_rh_gain[i]);
     }
     ok = ok && (cfg.onboard_name[0] == '\0' || putLine(out, cap, pos, "onboard_name", cfg.onboard_name));
     for (size_t i = 0; ok && i < DeviceConfig::SLOT_COUNT; ++i) {
@@ -900,6 +961,13 @@ private:
   static bool putSignedInt(char* out, size_t cap, size_t& pos, const char* key, int16_t value) {
     char text[8];
     snprintf(text, sizeof(text), "%d", static_cast<int>(value));
+    return putLine(out, cap, pos, key, text);
+  }
+
+  // Gain with three decimals: the steps are 0.002.
+  static bool putGain(char* out, size_t cap, size_t& pos, const char* key, float value) {
+    char text[16];
+    snprintf(text, sizeof(text), "%.3f", static_cast<double>(value));
     return putLine(out, cap, pos, key, text);
   }
 
