@@ -230,7 +230,7 @@ public struct ScanRow: Equatable, Identifiable {
     public let mac: String
     public let format: String
     public let rssi: Int
-    /// Registry slot 1 to 3 that holds the sensor, `nil` for `-`.
+    /// Registry slot 1 to 5 that holds the sensor, `nil` for `-`.
     public let slot: Int?
     public let temperatureC: Double?
     public let humidityPct: Double?

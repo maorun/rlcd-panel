@@ -2,7 +2,7 @@ import Foundation
 
 /// Assigns a scanned sensor to a registry slot through `SET slot<N>_mac=<MAC>`.
 public enum SlotAssignment {
-    public static let slots = 1...3
+    public static let slots = 1...5
 
     public static func key(slot: Int) -> String? { slots.contains(slot) ? "slot\(slot)_mac" : nil }
 

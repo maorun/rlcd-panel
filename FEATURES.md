@@ -1044,12 +1044,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 ## Nearby BLE sensor scanner and slot assignment in the macOS app
 
 - **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/SlotAssignment.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ScannerView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ScanReplyTests.swift`.
-- `ConsoleCommand.scan` sends `SCAN`. `ScanReply` parses `BEGIN SCAN`, the header `mac,format,rssi,slot,temp_c,rh_pct,battery_pct`, one row for each MAC and the optional `DROPPED,<N>` row. The format is `WOIO`, `METER`, `BTHOME` or `ATC`. The slot is 1 to 3 or `-`. An empty battery field gives no value. A missing header, a bad MAC, an unknown format or a row with a wrong field count gives a parse error.
+- `ConsoleCommand.scan` sends `SCAN`. `ScanReply` parses `BEGIN SCAN`, the header `mac,format,rssi,slot,temp_c,rh_pct,battery_pct`, one row for each MAC and the optional `DROPPED,<N>` row. The format is `WOIO`, `METER`, `BTHOME` or `ATC`. The slot is 1 to 5 or `-`. An empty battery field gives no value. A missing header, a bad MAC, an unknown format or a row with a wrong field count gives a parse error.
 - The app sends `SCAN` only on the USB serial link, because the firmware replies `ERR NOT_OVER_BLE` on BLE. The reply timeout is 10 s, because the scan takes about 4 s.
 - `ScannerView` lists the sensors with format, RSSI, temperature, humidity, battery and slot. The strongest RSSI is first.
-- `SlotAssignment` builds `SET slot<N>_mac=<MAC>` for slot 1 to 3. Slot 4 gives no command. It reports a MAC that another slot holds as fixed MAC, and refuses the all-zero MAC. The `Clear slot` action builds `SET slot<N>_mac=` with an empty value. `ConsoleCommand.set` accepts an empty value only for `slot1_mac` to `slot3_mac`.
+- `SlotAssignment` builds `SET slot<N>_mac=<MAC>` for slot 1 to 5. Slot 6 gives no command. It reports a MAC that another slot holds as fixed MAC, and refuses the all-zero MAC. The `Clear slot` action builds `SET slot<N>_mac=` with an empty value. `ConsoleCommand.set` accepts an empty value only for `slot1_mac` to `slot5_mac`.
 - After each `SET`, the app reads `CONFIG` and scans again. A scan reply that fails, times out or ends the link clears the list.
-- Tests parse a recorded reply with each format, an empty battery field, a slot `-` and a `DROPPED,3` row. They reject bad replies, build each `SET` line and the clear line, refuse an empty value for other keys, refuse slot 4, report a duplicate MAC and refuse `SCAN` on BLE.
+- Tests parse a recorded reply with each format, an empty battery field, a slot `-` and a `DROPPED,3` row. They reject bad replies, build each `SET` line and the clear line, refuse an empty value for other keys, refuse slot 6, parse slot 4 and 5 rows, report a duplicate MAC (also in slot 5) and refuse `SCAN` on BLE.
 
 ## SD card log archive over USB serial in the macOS app
 
