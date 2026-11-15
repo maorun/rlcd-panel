@@ -346,6 +346,8 @@ The diagnostics group shows the hardware metrics of the panel: the `SHTC3` read 
 
 The scanner section sends `SCAN` on the USB serial link only (the firmware replies `ERR NOT_OVER_BLE` on BLE) and allows 10 s for the reply. It lists each sensor in range with format, RSSI, temperature, humidity, battery and slot, strongest RSSI first. The `Assign` menu sets `slot<N>_mac` of one sensor through `SET` (USB, or BLE with `ble_console=2`) and warns when another slot holds the MAC. `Clear slot` sends `SET slot<N>_mac=` with an empty value.
 
+The `Repeat (15 s)` toggle of the scanner section sends `SCAN` every 15 s on the USB serial link. For each MAC it shows the minimum, mean and maximum of the last 10 RSSI values and the count of scans without the MAC. The repeat stops when you turn it off, close the view, the link drops, a `SCAN` gives `ERR`, or after 10 minutes. It never starts over BLE.
+
 The archive group has a button `Show climate charts`. It reads the monthly `climate_v2` to `climate_v5` files of the chosen folder (local files only, no console command), lets you select the month, and shows for each sensor the hourly temperature and humidity and one chart with `noise_db`, `noise_l10` and `noise_l90`. When two files hold the same hour, the newer format wins. `ClimateLog` in `macos/RlcdCompanion/Sources/RlcdProtocol/ClimateLog.swift` parses the files.
 
 Run the tests with `swift test` in `macos/RlcdCompanion`. They read `tests/fixtures/ble_telemetry_vectors.txt`. CI runs them on `macos-latest`.

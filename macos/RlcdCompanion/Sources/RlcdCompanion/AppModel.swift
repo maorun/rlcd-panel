@@ -41,6 +41,9 @@ final class AppModel: ConsoleLinkDelegate {
     private var reportSections: [DiagnosticsReport.Section] = []
     private var reportRemaining: [ConsoleCommand] = []
     var scanResult: ScanReply?
+    /// RSSI series of the repeated scan; runs only on a user toggle and on the USB link.
+    var scanSeries = ScanSeries()
+    private var repeatTask: Task<Void, Never>?
     var panelImage: PanelImage?
     var calibration: CalibrationReply?
     var calibrationReference = 0
@@ -250,6 +253,7 @@ final class AppModel: ConsoleLinkDelegate {
     }
 
     func disconnectConsole() {
+        stopRepeatScan(.user)
         scanResult = nil; panelImage = nil
         calibration = nil
         clearArchive()
@@ -263,6 +267,7 @@ final class AppModel: ConsoleLinkDelegate {
     }
 
     func selectTransport(_ t: Transport) {
+        stopRepeatScan(.user)
         scanResult = nil; panelImage = nil
         calibration = nil
         clearArchive()
@@ -513,6 +518,31 @@ final class AppModel: ConsoleLinkDelegate {
         message = nil
         queue = [.scan]
         sendNext()
+    }
+
+    /// Starts or stops the repeated scan: `SCAN` every 15 s for at most 10 minutes. USB serial only.
+    func setRepeatScan(_ on: Bool) {
+        guard on else { stopRepeatScan(.user); return }
+        // A SCAN in flight from an older series must not reply into the new one.
+        guard pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        guard consoleConnected, scanSeries.start(onUsb: transport == .usb) else {
+            message = "SCAN needs the USB serial link"
+            return
+        }
+        repeatTask?.cancel()
+        repeatTask = Task { [weak self] in
+            while !Task.isCancelled {
+                guard let self, self.scanSeries.shouldScan() else { return }
+                if self.pendingCommand == nil, self.queue.isEmpty, self.batch == nil { self.scan() }
+                try? await Task.sleep(for: .seconds(ScanSeries.intervalSeconds))
+            }
+        }
+    }
+
+    func stopRepeatScan(_ reason: ScanSeries.StopReason) {
+        scanSeries.stop(reason)
+        repeatTask?.cancel()
+        repeatTask = nil
     }
 
     /// Reads the frame of the panel with `SCREEN`. USB serial only: the firmware replies `ERR NOT_OVER_BLE` on BLE.
@@ -800,7 +830,7 @@ final class AppModel: ConsoleLinkDelegate {
             message = "No reply to \(cmd.line ?? "command")"
             failReport(reason: "no reply", pending: cmd)
             if case .dump = cmd { archiveSummary = "Download stopped, saved \(downloadStats.saved), failed \(downloadStats.failed)" }
-            if cmd == .scan { scanResult = nil }
+            if cmd == .scan { scanResult = nil; stopRepeatScan(.scanFailed) } // no reply ends the repeat
             if cmd == .screen { panelImage = nil }
             pendingCommand = nil
             queue.removeAll()
@@ -838,6 +868,7 @@ final class AppModel: ConsoleLinkDelegate {
             consoleState = state
             consoleConnected = connected
             if !connected {
+                stopRepeatScan(.linkLost)
                 scanResult = nil // the slot column of a lost link is stale
                 panelImage = nil
                 config = nil // the ble_console level of a lost link must not gate SET on the next link
@@ -870,6 +901,7 @@ final class AppModel: ConsoleLinkDelegate {
             case (_, let .corrupt(e)):
                 message = "Reply rejected: \(e)"
                 if cmd == .screen { panelImage = nil } // a rejected frame must not stay next to the error
+                if cmd == .scan { stopRepeatScan(.scanFailed) }
                 // A wrong CRC-32 follows a complete frame, so the stream stays in step and the next file may follow.
                 // Any other error leaves the stream out of step.
                 if case .badCrc = e, case .dump = cmd {} else { queue.removeAll() }
@@ -891,6 +923,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if case .saltMagnesium = cmd { saltMagnesium = nil }
                 if cmd == .screen { panelImage = nil } // ERR NO_FRAME must not leave an old image
                 if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
+                if cmd == .scan, text.hasPrefix("ERR") { stopRepeatScan(.scanFailed) }
                 batch?.receive(status: text)
                 if text.hasPrefix("ERR"), !keepQueue { queue.removeAll() }
                 if cmd == .time || text.hasPrefix("TIME ") || text == "TIME" {
@@ -923,6 +956,7 @@ final class AppModel: ConsoleLinkDelegate {
             case let (.scan, .frame(lines)):
                 scanResult = nil // a reply that fails to parse must not leave the old rows
                 scanResult = try ScanReply.parse(lines: lines)
+                if let scanResult { scanSeries.record(scanResult) }
             case let (.screen, .file(name, bytes)):
                 panelImage = nil // a frame that fails to decode must not leave the old image
                 guard name == PanelImage.fileName else { message = "Unexpected file \(name)"; break }
@@ -969,6 +1003,7 @@ final class AppModel: ConsoleLinkDelegate {
             }
         } catch {
             message = "Reply not understood: \(error)"
+            if cmd == .scan { stopRepeatScan(.scanFailed) }
         }
     }
 
