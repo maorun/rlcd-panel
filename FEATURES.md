@@ -1231,3 +1231,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `PersistentState::stats_page` stores the page as 1 byte after `chart_sensor`. A value above 1 is rejected. `STATE_VERSION` is 51, and an RTC image of version 50 is rejected. `flushFramebuffer()` counts a page change as a view change, so the panel always flushes it.
 - `tools/preview_scenes.h` adds the scene `display_preview_stats2`. `./scripts/generate-display-preview.sh` writes `docs/display_preview_stats2.png`.
 - Host tests cover `NEXT_PAGE`, `MODE_CHANGED` without slot 4 and slot 5, the hold of 2 s, the bit-exact first page, a page byte of 2 and the old `STATE_VERSION`.
+
+## Open the macOS app at login
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/LoginItem.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/LoginItemTests.swift`
+- The menu bar app stops at logout. The toggle `Open at login` registers the app as a login item on user request. The default is off.
+- `LoginItem` holds the state logic behind the protocol `LoginItemService` (`status`, `register()`, `unregister()`, `openSystemSettings()`). `MainAppLoginItemService` uses `SMAppService.mainApp`. `LoginItemStatus` has the values `enabled`, `disabled`, `requiresApproval` and `notAvailable`.
+- `LoginItem` stores no copy of the state. `AppModel.refreshLoginItem()` reads it from the service when the window opens and after each toggle.
+- Toggle on calls `register()`, toggle off calls `unregister()`. A thrown error sets `errorText` and the service keeps the old state.
+- `requiresApproval` shows the button `Open Login Items settings` (`SMAppService.openSystemSettingsLoginItems()`).
+- A run without an app bundle (`swift run`) or an unknown app (`SMAppService.mainApp.status == .notFound`) gives `notAvailable`. The toggle is disabled then.
+- `LoginItemTests` use a fake service. They cover register once, unregister, a failed register and unregister that keep the state, the approval state, `notAvailable` and a state read at each call.

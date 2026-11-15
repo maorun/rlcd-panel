@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Start the macOS app at login on user request
-  - Rank: [Total: 23, Use: 6, Setup: 4, Harmony: 3, Safety: 10, Effort: S]
-  - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/LoginItem.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/LoginItemTests.swift` (new)
-  - Goal: The menu bar app stops at logout, and the user must start it again by hand. Add an `Open at login` toggle. Use `SMAppService.mainApp` to register and unregister the app. Put the state logic in `LoginItem` behind a protocol, so that the tests use a fake service. Read the current state from the service at each window open. Do not store a copy of the state. Show the `requiresApproval` state with a button that opens the Login Items pane of System Settings (`SMAppService.openSystemSettingsLoginItems()`). Show an error text when the registration fails. Keep the toggle off as the default. The `swift run` build without an app bundle shows the toggle as not available.
-  - Acceptance test: `LoginItemTests` with a fake service assert that the toggle on calls `register()` once, that the toggle off calls `unregister()`, that a thrown error gives the error text and keeps the old state, and that `requiresApproval` gives the approval state. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass. `./scripts/build-app.sh` builds a signed bundle.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

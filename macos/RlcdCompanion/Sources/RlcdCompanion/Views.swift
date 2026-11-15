@@ -16,6 +16,7 @@ struct MainView: View {
             .padding()
         }
         .frame(minWidth: 560, minHeight: 640)
+        .onAppear { model.refreshLoginItem() }
     }
 
     private var telemetrySection: some View {
@@ -85,6 +86,7 @@ struct MainView: View {
                 Text("No telemetry frame yet. Set ble_broadcast_enabled=1 on the panel.").foregroundStyle(.secondary)
             }
             if !model.chartRows.isEmpty { logChartsView }
+            loginItemRow
             exportButtons
         }
     }
@@ -106,6 +108,29 @@ struct MainView: View {
             Chart(points.filter { $0.h != nil }) { p in
                 LineMark(x: .value("Time", p.time), y: .value("%RH", p.h ?? 0)).foregroundStyle(by: .value("Tile", p.tile))
             }.frame(height: 160)
+        }
+    }
+
+    private var loginItemRow: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack {
+                Toggle("Open at login", isOn: Binding(
+                    get: { model.loginStatus.isOn },
+                    set: { model.setOpenAtLogin($0) }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .disabled(model.loginStatus == .notAvailable)
+                if model.loginStatus == .notAvailable {
+                    Text("Not available without an app bundle").font(.caption).foregroundStyle(.secondary)
+                }
+                if model.loginStatus == .requiresApproval {
+                    Button("Open Login Items settings") { model.openLoginItemSettings() }
+                }
+            }
+            if let error = model.loginError {
+                Text(error).font(.caption).foregroundStyle(.red)
+            }
         }
     }
 
