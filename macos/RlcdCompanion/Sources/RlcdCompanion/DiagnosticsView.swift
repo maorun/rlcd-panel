@@ -23,6 +23,7 @@ struct DiagnosticsView: View {
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     if let d = model.diagnostics {
+                        group("Sensor health") { sensorHealth() }
                         group("SHTC3 sensor") { shtc3(d.shtc3) }
                         group("BLE rejected packets") { ble(d.ble) }
                         group("BLE reception (last 24 scans)") { reception(d.reception) }
@@ -145,6 +146,32 @@ struct DiagnosticsView: View {
             Text("rejected \(n(m.rejected))  last \(m.lastMac ?? "--")")
             Text("woio \(n(m.woio))  meter \(n(m.meter))  bthome \(n(m.bthome))  atc \(n(m.atc))")
         } else { unknown }
+    }
+
+    @ViewBuilder private func sensorHealth() -> some View {
+        if let status = model.status {
+            sensorRows(status)
+        } else { unknown }
+    }
+
+    @ViewBuilder private func sensorRows(_ status: StatusReply) -> some View {
+        switch Result(catching: { try SensorHealth.rows(status: status, config: model.lastConfig) }) {
+        case .failure(let error):
+            Text("Sensor health unavailable: \(String(describing: error))").foregroundStyle(.secondary)
+        case .success(let rows):
+            ForEach(rows, id: \.slot) { r in
+                HStack(spacing: 8) {
+                    Text("\(r.slot) \(r.name)").frame(width: 110, alignment: .leading)
+                    Text("RSSI \(r.rssi.map { String(format: "%.0f", $0) } ?? "--")")
+                    Text("bat \(r.battery.map { String(format: "%.0f %%", $0) } ?? "--")")
+                    Text("age \(r.ageSeconds.map { String(format: "%.0f s", $0) } ?? "--")")
+                    Text(r.reception.map { "\($0.received)/\($0.scans)" } ?? "--")
+                    Text(r.verdict.rawValue).font(.caption.bold())
+                        .foregroundStyle(r.verdict == .good ? Color.green : r.verdict == .empty ? Color.secondary : Color.orange)
+                    Text(r.advice).font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
     }
 
     @ViewBuilder private func reception(_ m: ReceptionMetrics?) -> some View {

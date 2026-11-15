@@ -44,6 +44,8 @@ public struct StatusReply: Equatable {
     public let muted: Bool
     /// Lines in the reply that this parser does not read in full (SHTC3, BLE, RUNTIME, ...), by first word. `RESET` is also here: `resetReason` reads only the reason, `DiagnosticsReply` reads the abnormal count.
     public let otherLines: [String: String]
+    /// The raw `SENSOR` lines in reply order, for the strict parser of `SensorHealth`.
+    public let sensorLines: [String]
 
     public var isUsbPower: Bool { powerSource == "USB" }
 
@@ -57,12 +59,14 @@ public struct StatusReply: Equatable {
         var mask: UInt8?
         var muted = false
         var other: [String: String] = [:]
+        var sensorLines: [String] = []
         for line in lines {
             let words = line.split(separator: " ", omittingEmptySubsequences: true)
             guard let head = words.first else { continue }
             let f = fields(line)
             switch head {
             case "SENSOR":
+                sensorLines.append(line)
                 guard words.count >= 3, let idx = Int(words[1]) else { throw ParseError.badLine(line) }
                 sensors.append(StatusSensor(
                     index: idx, name: String(words[2]), temperature: number(f["temp"]),
@@ -87,7 +91,7 @@ public struct StatusReply: Equatable {
         guard !sensors.isEmpty else { throw ParseError.missingLine("SENSOR") }
         return StatusReply(
             sensors: sensors, sdStatus: sd, resetReason: reset, powerSource: src, cellVolts: volts,
-            cellPercent: pct, alertMask: mask, muted: muted, otherLines: other)
+            cellPercent: pct, alertMask: mask, muted: muted, otherLines: other, sensorLines: sensorLines)
     }
 }
 
