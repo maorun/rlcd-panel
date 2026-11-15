@@ -28,6 +28,8 @@ final class AppModel: ConsoleLinkDelegate {
     var telemetryLog: TelemetryLog { logStore.log }
     var events: [EventRow] = []
     var config: ConfigReply?
+    /// The last `CONFIG` reply; a link reset keeps it (a panel change clears it), so the menu bar keeps names and `temp_unit`.
+    private(set) var lastConfig: ConfigReply?
     var diagnostics: DiagnosticsReply?
     var version: VersionReply?
     var scanResult: ScanReply?
@@ -85,20 +87,8 @@ final class AppModel: ConsoleLinkDelegate {
     var canBeep: Bool { consoleConnected }
     var canPattern: Bool { consoleConnected }
     var isIdle: Bool { consoleConnected && pendingCommand == nil && queue.isEmpty && batch == nil }
-    /// A frame older than this shows `--`. It exceeds the longest firmware wake interval (night, 1800 s), so a silent panel never looks current.
-    static let staleSeconds: TimeInterval = 1900
     /// A discovered peripheral leaves the list after this time without a packet.
     static let discoveryKeepSeconds: TimeInterval = 120
-    /// The menu bar text.
-    var menuBarText: String {
-        guard let date = frameDate, now.timeIntervalSince(date) < Self.staleSeconds else { return "-- °C" }
-        return onboardTemperatureText
-    }
-    var onboardTemperatureText: String {
-        if let t = frame?.tiles.first?.temperatureC { return String(format: "%.1f °C", t) }
-        return "-- °C"
-    }
-
     init() {
         Task { [weak self] in
             while !Task.isCancelled {
@@ -217,6 +207,7 @@ final class AppModel: ConsoleLinkDelegate {
         history = []
         events = []
         config = nil
+        lastConfig = nil // names and unit belong to the old panel
         diagnostics = nil
         version = nil
         scanResult = nil
@@ -725,6 +716,7 @@ final class AppModel: ConsoleLinkDelegate {
             case let (.config, .frame(lines)):
                 batch?.receiveFrame()
                 config = try ConfigReply.parse(lines: lines)
+                lastConfig = config
                 if batch != nil { draft = [:] } // the panel state replaces the edits
             case let (.scan, .frame(lines)):
                 scanResult = nil // a reply that fails to parse must not leave the old rows

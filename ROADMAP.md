@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Show the alert state and each tile in the macOS menu bar
-  - Rank: [Total: 27, Use: 8, Setup: 3, Harmony: 6, Safety: 10, Effort: S]
-  - Location: `macos/RlcdCompanion/Sources/RlcdCompanion/RlcdCompanionApp.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/MenuBarSummary.swift` (new), `macos/RlcdCompanion/Tests/RlcdProtocolTests/MenuBarSummaryTests.swift` (new)
-  - Goal: The `MenuBarExtra` shows only the onboard text and the frame age. Add `MenuBarSummary` that builds one line for each valid tile of the last `TelemetryFrame` (name from `ConfigReply`, else `Tile <N>`; temperature in the `temp_unit` of the last `CONFIG`, humidity). Show an SF Symbol with an alert mark when the alert mask of the frame is not 0. Show a stale mark when the frame is older than 15 minutes. Read only the last frame. Send no console command.
-  - Acceptance test: `MenuBarSummaryTests` assert one line per set bit of the valid tile mask, the `Tile 3` fallback name, the conversion to Fahrenheit with `temp_unit` F, the alert symbol for a mask of 0x04, and the stale state for a frame of 16 minutes. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-
 - [ ] Log registry slots 4 and 5 in the climate CSV files
   - Rank: [Total: 24, Use: 6, Setup: 3, Harmony: 8, Safety: 7, Effort: M]
   - Location: `rlcd_panel/sd_logger.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`, `macos/RlcdCompanion/Sources/RlcdProtocol/LogArchive.swift`, `AGENTS.md`
