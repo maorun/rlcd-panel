@@ -15,6 +15,8 @@ public enum EventText {
     ]
     /// `BleFormat` values 0 to 3.
     static let bleFormats = ["WOIO", "METER", "BTHOME", "ATC"]
+    /// `SdStatus` values 1 to 5 (`SdStatusCodec::name`); 0 is `UNKNOWN`, which the firmware never records.
+    static let sdStatuses = [1: "OK", 2: "NO_CARD", 3: "MOUNT_FAILED", 4: "WRITE_FAILED", 5: "FULL"]
 
     public static func describe(_ row: EventRow) -> String {
         let d = row.detail
@@ -51,6 +53,9 @@ public enum EventText {
             guard (0...0xFFFF).contains(d), transport <= 1 else { return raw }
             guard ConfigSchema.firmwareKeys.indices.contains(index) else { return "Config set: key #\(index)" }
             return "Config set: \(ConfigSchema.firmwareKeys[index]) (\(transport == 0 ? "USB" : "BLE"))"
+        case "SD_FAULT":
+            guard let status = sdStatuses[d] else { return raw }
+            return d == 1 ? "SD card OK" : "SD card fault: \(status)"
         default:
             return raw
         }

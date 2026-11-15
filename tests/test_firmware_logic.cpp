@@ -16914,7 +16914,8 @@ void testEventLog() {
       {EventCode::CONFIG_LOAD, "CONFIG_LOAD"},        {EventCode::NTP_SYNC, "NTP_SYNC"},
       {EventCode::BATTERY_LOW_SET, "BATTERY_LOW_SET"}, {EventCode::BATTERY_LOW_CLEAR, "BATTERY_LOW_CLEAR"},
       {EventCode::EMPTY_PROTECTION, "EMPTY_PROTECTION"}, {EventCode::RESET, "RESET"},
-      {EventCode::SLOT_ASSIGN, "SLOT_ASSIGN"},        {EventCode::SLOT_RELEASE, "SLOT_RELEASE"}};
+      {EventCode::SLOT_ASSIGN, "SLOT_ASSIGN"},        {EventCode::SLOT_RELEASE, "SLOT_RELEASE"},
+      {EventCode::CONFIG_SET, "CONFIG_SET"},          {EventCode::SD_FAULT, "SD_FAULT"}};
   for (const auto& c : codes) {
     EventRing r;
     r.record(t1, c.code, 65535);
@@ -17019,7 +17020,7 @@ void testEventLog() {
       {0, 17},                        // count above 16
       {3 + 0, 2},                     // time flag above 1
       {3 + 8, 0},                     // code NONE in a used entry
-      {3 + 8, 12},                    // code above the last
+      {3 + 8, 13},                    // code above the last
       {3 + 3, 13},                    // month 13
       {3 + 4, 32},                    // day 32
       {3 + 5, 24},                    // hour 24
@@ -17159,7 +17160,7 @@ void testResetAndSlotEvents() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.events.at(0).code == EventCode::SLOT_RELEASE);
   const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE;
-  buf[base + 3 + 8] = 12;
+  buf[base + 3 + 8] = 13;
   const uint32_t crc = PowerManager::crc32(buf, PowerManager::SERIALIZED_SIZE - 4);
   for (int i = 0; i < 4; ++i) buf[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState bad;
@@ -17182,7 +17183,7 @@ void testResetAndSlotEvents() {
 void testConfigSetEvents() {
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 15; t1.hour = 8; t1.minute = 5; t1.second = 0;
-  assert(static_cast<uint8_t>(EventCode::CONFIG_SET) == 11 && EventRing::MAX_CODE == 11);
+  assert(static_cast<uint8_t>(EventCode::CONFIG_SET) == 11);
   assert(strcmp(DeviceConfigParser::KEYS[0], "temp_offset_c") == 0);
 
   // success over USB: one event, detail is the key index
@@ -17232,14 +17233,55 @@ void testConfigSetEvents() {
     EventRing ring;
     assert(!TestRunner::setConfig(st, sink, cmd, [](const char*, size_t) {}, &ring, &t1, 0) && ring.size() == 0);
   }
-  // RTC ring check: code 11 passes, code 12 fails
+  // RTC ring check: code 11 passes, code 13 fails (code 12 is SD_FAULT)
   LogEvent items[EventRing::CAPACITY] = {};
   items[0].code = EventCode::CONFIG_SET;
   items[0].detail = 0x0130;
   EventRing back;
   assert(back.restore(1, 0, items) && back.at(0).code == EventCode::CONFIG_SET);
-  items[0].code = static_cast<EventCode>(12);
+  items[0].code = static_cast<EventCode>(13);
   assert(!back.restore(1, 0, items));
+}
+
+void testSdFaultEvents() {
+  RtcTime t1;
+  t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 15; t1.hour = 9; t1.minute = 0; t1.second = 0;
+  assert(static_cast<uint8_t>(EventCode::SD_FAULT) == 12 && EventRing::MAX_CODE == 12);
+  const int32_t ok = static_cast<int32_t>(SdStatus::OK);
+  assert(SdStatusCodec::faultEventDetail(SdStatus::OK, SdStatus::WRITE_FAILED) ==
+         static_cast<int32_t>(SdStatus::WRITE_FAILED));
+  assert(SdStatusCodec::faultEventDetail(SdStatus::WRITE_FAILED, SdStatus::WRITE_FAILED) == -1);
+  assert(SdStatusCodec::faultEventDetail(SdStatus::WRITE_FAILED, SdStatus::FULL) ==
+         static_cast<int32_t>(SdStatus::FULL));
+  assert(SdStatusCodec::faultEventDetail(SdStatus::FULL, SdStatus::OK) == ok && ok == 1);
+  assert(SdStatusCodec::faultEventDetail(SdStatus::UNKNOWN, SdStatus::OK) == -1);
+  assert(SdStatusCodec::faultEventDetail(SdStatus::OK, SdStatus::OK) == -1);
+  assert(SdStatusCodec::faultEventDetail(SdStatus::UNKNOWN, SdStatus::NO_CARD) ==
+         static_cast<int32_t>(SdStatus::NO_CARD));
+  assert(SdStatusCodec::faultEventDetail(SdStatus::NO_CARD, SdStatus::MOUNT_FAILED) ==
+         static_cast<int32_t>(SdStatus::MOUNT_FAILED));
+  assert(SdStatusCodec::faultEventDetail(SdStatus::OK, SdStatus::UNKNOWN) == -1);
+
+  // the ring keeps the event through the RTC state, and the CSV row has the name and the detail
+  PersistentState st;
+  st.events.record(t1, EventCode::SD_FAULT, static_cast<uint16_t>(SdStatus::WRITE_FAILED));
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  PersistentState back;
+  assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.events.size() == 1);
+  assert(back.events.at(0).code == EventCode::SD_FAULT && back.events.at(0).detail == 4);
+  char row[SdLogCodec::MAX_EVENT_ROW_SIZE];
+  assert(SdLogCodec::formatEventRow(back.events.at(0), row, sizeof(row)) > 0);
+  assert(std::string(row) == "2026-11-15 09:00:00,SD_FAULT,4\n");
+
+  // ring check: code 12 passes, code 13 fails
+  LogEvent items[EventRing::CAPACITY] = {};
+  items[0].code = EventCode::SD_FAULT;
+  items[0].detail = 1;
+  EventRing ring;
+  assert(ring.restore(1, 0, items) && ring.at(0).code == EventCode::SD_FAULT);
+  items[0].code = static_cast<EventCode>(13);
+  assert(!ring.restore(1, 0, items));
 }
 
 void testTempUnitConfig() {
@@ -19194,6 +19236,7 @@ int main() {
   testSlotRelease();
   testResetAndSlotEvents();
   testConfigSetEvents();
+  testSdFaultEvents();
   testChimeRepeat();
   testNightWakeInterval();
   testDashboardViewRendering();
