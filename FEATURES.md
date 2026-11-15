@@ -1131,3 +1131,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The parser keeps only proposed offset keys that `ConfigSchema.validate(key:value:)` accepts. A value outside the key range is dropped.
 - `CalibrationView` shows the sensors, the common hours, the differences and the active offsets. The user selects the proposals. `Apply selected` sends them through `ConfigBatch` (`SET` commands, then `CONFIG`).
 - On the BLE link with `ble_console` 1 the firmware answers `ERR READ_ONLY`. The batch stops and shows this reply.
+
+## Serial console command MUTE and mute toggle in the macOS app
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`
+- The console command `MUTE 0` and `MUTE 1` sets `PersistentState::muted` in `g_state` (`SerialConsoleRunner::setMute`) and replies `OK MUTE <0|1>`. Before, only a short `BOOT` press changed the flag.
+- `MUTE` without a digit, with a digit above 1 or with extra text gives `ERR BAD_ARG`. The parser keeps `SerialCommandKind::MUTE` and the value in `SerialCommand::reference`.
+- With `ble_console` 1 the command gives `ERR READ_ONLY` (`BleConsoleBridge::gate`). With `ble_console` 2 and on USB serial it runs.
+- `MUTE 0` plays no confirmation beep, unlike the unmute by a short `BOOT` press.
+- The command needs no card. The next save of the wake cycle writes the flag to RTC memory with the existing audio trailer. `STATE_VERSION` is unchanged.
+- `ConsoleCommand.mute(Bool)` sends `MUTE 0` or `MUTE 1`. `DiagnosticsView` shows the toggle `Mute alerts` with the value of `muted=` in the `POWER` line of `STATUS`. `AppModel.setMute` sends `MUTE` and then `STATUS`, so the toggle follows the state of the panel. The app sends `MUTE` only after the user changes the toggle.

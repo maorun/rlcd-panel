@@ -363,6 +363,7 @@ public enum ConsoleCommand: Equatable {
     case timeSet(Date)
     case beep(Int)
     case pattern(Int)
+    case mute(Bool)
     case set(key: String, value: String)
     case calib(Int)
 
@@ -394,6 +395,7 @@ public enum ConsoleCommand: Equatable {
         case let .pattern(n):
             guard (0...2).contains(n) else { return nil }
             return "PATTERN \(n)"
+        case let .mute(on): return on ? "MUTE 1" : "MUTE 0"
         case let .calib(reference):
             guard (0...3).contains(reference) else { return nil }
             return "CALIB \(reference)"

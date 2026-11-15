@@ -1345,6 +1345,9 @@ void setup() {
       ensurePanelStarted(); // a skipped refresh left the panel off
       Runner::showPattern(sink, g_framebuffer, g_panel,
                                                                 command.reference, &g_state.frame);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::MUTE) {
+      // The flag goes to the RTC copy; the save of this wake cycle writes it with the audio trailer. No card access.
+      Runner::setMute(sink, g_state.muted, command.reference);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::BEEP) {
       Es8311Hal beep_hal;
       Runner::beep(sink, beep_hal, command.reference,

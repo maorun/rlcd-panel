@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Add the console command `MUTE` and a mute toggle in the macOS app
-  - Rank: [Total: 32, Use: 8, Setup: 7, Harmony: 8, Safety: 9, Effort: S]
-  - Location: `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`
-  - Goal: Only a short `BOOT` press toggles `PersistentState::muted` now. Add `SerialCommandKind::MUTE`. `MUTE 0` and `MUTE 1` set the flag in `g_state` and reply `OK MUTE <0|1>`. `MUTE` without a digit, with a digit above 1 or with extra text gives `ERR BAD_ARG`. With `ble_console` 1 the command gives `ERR READ_ONLY`. The command needs no card. The next save of the wake cycle writes the flag to RTC memory with the existing audio trailer. Keep `STATE_VERSION` unchanged. Add `ConsoleCommand.mute(Bool)`. Show a toggle in `DiagnosticsView` that reads `muted=` from the `POWER` line of `STATUS`, sends `MUTE`, and then sends `STATUS` again.
-  - Acceptance test: Host tests assert that `SerialConsole::parse("MUTE 1")` gives `MUTE` with value 1, that `"MUTE 2"`, `"MUTE"` and `"MUTE 1 x"` give `BAD_ARG`, and that the BLE bridge with level 1 replies `ERR READ_ONLY`. A Swift test asserts `ConsoleCommand.mute(true).line == "MUTE 1"`. `c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner`, `arduino-cli compile rlcd_panel`, `swift test` and `swift build -c release` pass.
-
 - [ ] Back up and restore `config.ini` in the macOS app
   - Rank: [Total: 31, Use: 5, Setup: 10, Harmony: 8, Safety: 8, Effort: S]
   - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigBackup.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/ConfigEditorView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ConfigBackupTests.swift` (new)

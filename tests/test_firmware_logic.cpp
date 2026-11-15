@@ -16494,6 +16494,44 @@ void testBleConsoleSetAndDumpGate() {
   assert(usb.out == "OK SET display_invert\n");
 }
 
+void testSerialMuteCommand() {
+  SerialCommand cmd;
+  assert(parseText("MUTE 1", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::MUTE && cmd.reference == 1);
+  assert(parseText("MUTE 0\r\n", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::MUTE && cmd.reference == 0);
+  assert(parseText("MUTE 2", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("MUTE", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("MUTE ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("MUTE 1 x", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("MUTE -1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("MUTE x", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("MUTE  1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("MUTEX", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("mute 1", cmd) == SerialParseStatus::UNKNOWN);
+  // the runner sets the flag, replies and needs no card
+  FakeConsoleStorage storage;
+  FakeSink sink;
+  bool muted = false;
+  assert(parseText("MUTE 1", cmd) == SerialParseStatus::OK);
+  TestRunner::setMute(sink, muted, cmd.reference);
+  assert(muted && sink.out == "OK MUTE 1\n");
+  FakeSink off;
+  TestRunner::setMute(off, muted, 0);
+  assert(!muted && off.out == "OK MUTE 0\n");
+  TestRunner::execute(storage, sink, cmd);
+  assert(storage.mounts == 0); // execute() ignores MUTE
+  // BLE: read only at level 1, allowed at level 2
+  assert(parseText("MUTE 1", cmd) == SerialParseStatus::OK);
+  assert(std::string(BleConsoleBridge::gate(cmd, 1)) == "ERR READ_ONLY\n");
+  assert(std::string(BleConsoleBridge::gate(cmd, 2)).empty());
+  BleConsoleBridge bridge;
+  bridge.setLevel(1);
+  bridge.onConnect();
+  BleNotifier n;
+  assert(bleConsoleRun(bridge, "MUTE 1\n", 185, n, &storage) == "ERR READ_ONLY\n");
+  assert(storage.mounts == 0);
+}
+
+
 void testBleConsoleIngressQueue() {
   using I = BleConsoleIngress;
   const uint8_t ab[] = {'A', 'B'};
@@ -17507,6 +17545,7 @@ int main() {
   testBleConsoleDisconnectClearsPartialLine();
   testBleConsoleChunkSplit();
   testBleConsoleSetAndDumpGate();
+  testSerialMuteCommand();
   testBleConsoleIngressQueue();
   testHeatAlert();
   testHeatAlertRtcRoundTrip();
