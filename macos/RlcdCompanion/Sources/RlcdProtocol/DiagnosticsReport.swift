@@ -53,7 +53,10 @@ public enum DiagnosticsReport {
     /// `SENSOR <i> <name> temp=...`: the name has 1 to 12 characters and may hold spaces.
     private static func redactSensor(_ line: String) -> String {
         let parts = line.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: false)
-        guard parts.count == 3, let end = parts[2].range(of: " temp=") else { return line }
+        guard parts.count == 3, let end = parts[2].range(of: " temp=") else {
+            // An unknown shape must not leak the name: keep only the word and the index.
+            return parts.count >= 2 ? "\(parts[0]) \(parts[1]) \(hiddenValue)" : line
+        }
         return "\(parts[0]) \(parts[1]) \(hiddenValue)" + parts[2][end.lowerBound...]
     }
 

@@ -37,6 +37,7 @@ final class AppModel: ConsoleLinkDelegate {
     private var reportRunning = false
     private var reportLink: DiagnosticsReport.Link = .ble
     private var reportFailed = false
+    private var reportIncludeNamesAtStart = false
     private var reportSections: [DiagnosticsReport.Section] = []
     private var reportRemaining: [ConsoleCommand] = []
     var scanResult: ScanReply?
@@ -317,6 +318,7 @@ final class AppModel: ConsoleLinkDelegate {
         reportRemaining = DiagnosticsReport.commands
         reportRunning = true
         reportFailed = false
+        reportIncludeNamesAtStart = reportIncludeNames
         reportLink = transport == .usb ? .usb : .ble
         queue = [reportRemaining.removeFirst()]
         sendNext()
@@ -330,7 +332,10 @@ final class AppModel: ConsoleLinkDelegate {
         switch reply {
         case let .frame(lines): result = .success(lines)
         case let .status(text): result = .failure(.init(reason: text))
-        case let .corrupt(e): result = .failure(.init(reason: "reply rejected: \(e)"))
+        case let .corrupt(e):
+            // `malformedCrcLine` holds a raw device line, so the report names only the error case.
+            if case .badCrc = e { result = .failure(.init(reason: "reply rejected: bad CRC-32")) }
+            else { result = .failure(.init(reason: "reply rejected: malformed reply")) }
         case .file: result = .failure(.init(reason: "unexpected file reply"))
         }
         reportSections.append(.init(command: name, result: result))
@@ -357,7 +362,7 @@ final class AppModel: ConsoleLinkDelegate {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
         let text = DiagnosticsReport.build(
             appVersion: version, link: reportLink,
-            includeNames: reportIncludeNames, sections: reportSections)
+            includeNames: reportIncludeNamesAtStart, sections: reportSections)
         reportSections = []
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)

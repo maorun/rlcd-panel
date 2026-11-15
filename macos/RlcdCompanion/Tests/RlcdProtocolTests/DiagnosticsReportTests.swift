@@ -65,6 +65,30 @@ private func sections(events: Result<[String], DiagnosticsReport.Failure>? = nil
         #expect(text.contains("last=AA:BB:CC:DD:EE:FF"))
     }
 
+    @Test func everyNameAndMacKeyIsHidden() {
+        let keys = ConfigSchema.entries.filter { $0.kind == .name || $0.kind == .mac }.map(\.key)
+        #expect(!keys.isEmpty)
+        let text = DiagnosticsReport.build(
+            appVersion: "1.2", link: .usb, includeNames: false,
+            sections: [.init(command: "CONFIG", result: .success(keys.map { "\($0)=SECRET" }))])
+        #expect(!text.contains("SECRET"))
+        for k in keys { #expect(text.contains("\(k)=<hidden>")) }
+    }
+
+    @Test func sensorNamesWithSpacesAndUnknownShapesAreHidden() {
+        let text = DiagnosticsReport.build(
+            appVersion: "1.2", link: .usb, includeNames: false,
+            sections: [.init(command: "STATUS", result: .success([
+                "SENSOR 2 Bad Zimmer temp=20.0 rh=50.0 bat=-- rssi=-- age=1 state=OK",
+                "SENSOR 3 Keller future=1",
+                "BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0",
+            ]))])
+        #expect(!text.contains("Zimmer"))
+        #expect(!text.contains("Keller"))
+        #expect(text.contains("SENSOR 2 <hidden> temp=20.0"))
+        #expect(text.contains("last=-- woio=0"))
+    }
+
     @Test func includeNamesKeepsTheValues() {
         let text = DiagnosticsReport.build(appVersion: "1.2", link: .usb, includeNames: true, sections: sections())
         #expect(text.contains("slot1_mac=AA:BB:CC:DD:EE:01"))
