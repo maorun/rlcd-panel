@@ -1342,6 +1342,8 @@ void setup() {
       snap.awake = &g_state.awake;
       snap.reception = &g_state.reception;
       snap.reset_reason = ResetReasonCodec::text(g_reset_reason);
+      snap.rtc_trim_valid = g_rtc.readOffset(snap.rtc_trim);
+      snap.rtc_drift = &g_state.rtc_drift;
       ResetCountStore reset_store;
       snap.abnormal_resets = AbnormalResetCounter::read(reset_store);
       Runner::showStatus(sink, snap);
@@ -1361,6 +1363,9 @@ void setup() {
         g_rtc.readTime(now_time);
         Runner::showTime(sink, now_time);
       }
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::RTC_TRIM) {
+      // The RTC answers over I2C: no card access, so the console keeps running.
+      Runner::trimRtc(sink, g_rtc, g_state.rtc_drift);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SCAN) {
       // The scan fills a collector only; the registry copy gives the slot column (only a wake cycle scan writes the
       // registry, and none runs while the console is active). No card access. The BLE radio is not the I2S bus.

@@ -18,6 +18,15 @@ private func counter(_ f: [String: String], _ key: String, line: String) throws 
     return n
 }
 
+/// A signed counter field: an optional `-` and digits; `--` gives `nil`.
+private func signedCounter(_ f: [String: String], _ key: String, line: String) throws -> Int? {
+    guard let s = f[key] else { throw ParseError.badLine(line) }
+    if s == "--" { return nil }
+    let digits = s.hasPrefix("-") ? String(s.dropFirst()) : s
+    guard !digits.isEmpty, digits.utf8.allSatisfy({ $0 >= 0x30 && $0 <= 0x39 }), let n = Int(s) else { throw ParseError.badLine(line) }
+    return n
+}
+
 private func decimal(_ f: [String: String], _ key: String, line: String) throws -> Double? {
     guard let s = f[key] else { throw ParseError.badLine(line) }
     if s == "--" { return nil }
@@ -119,6 +128,24 @@ public struct ResetMetrics: Equatable {
     }
 }
 
+/// `RTC trim=<N|--> drift_ppm=<N|-->`: the PCF85063A offset register (-64 to 63) and the drift rate of an interval of 24 h or more.
+public struct RtcTrimMetrics: Equatable {
+    public static let range = -64...63
+    public let trim: Int?
+    /// Drift rate in ppm; positive means a fast clock. `nil` without a figure of 24 h or more.
+    public let driftPpm: Int?
+
+    /// The panel can trim only with a drift figure of 3 ppm or more: a smaller rate rounds to 0 steps.
+    public var canTrim: Bool { driftPpm.map { abs($0) >= 3 } ?? false }
+
+    public static func parse(line: String) throws -> RtcTrimMetrics {
+        let f = fieldMap(line)
+        let trim = try signedCounter(f, "trim", line: line)
+        if let trim, !range.contains(trim) { throw ParseError.badLine(line) }
+        return RtcTrimMetrics(trim: trim, driftPpm: try signedCounter(f, "drift_ppm", line: line))
+    }
+}
+
 /// `RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>`.
 public struct RuntimeMetrics: Equatable {
     /// Estimated remaining battery hours.
@@ -161,6 +188,18 @@ public struct DiagnosticsReply: Equatable {
     public let runtime: RuntimeMetrics?
     public let awake: AwakeMetrics?
     public let reception: ReceptionMetrics?
+    public let rtcTrim: RtcTrimMetrics?
+
+    public init(shtc3: Shtc3Stats?, ble: BleRejectMetrics?, reset: ResetMetrics?, runtime: RuntimeMetrics?,
+                awake: AwakeMetrics?, reception: ReceptionMetrics?, rtcTrim: RtcTrimMetrics? = nil) {
+        self.shtc3 = shtc3
+        self.ble = ble
+        self.reset = reset
+        self.runtime = runtime
+        self.awake = awake
+        self.reception = reception
+        self.rtcTrim = rtcTrim
+    }
 
     /// `otherLines` of `StatusReply`. A present line with a bad counter throws `ParseError.badLine`.
     public static func parse(otherLines: [String: String]) throws -> DiagnosticsReply {
@@ -170,7 +209,8 @@ public struct DiagnosticsReply: Equatable {
             reset: try otherLines["RESET"].map(ResetMetrics.parse(line:)),
             runtime: try otherLines["RUNTIME"].map(RuntimeMetrics.parse(line:)),
             awake: try otherLines["AWAKE"].map(AwakeMetrics.parse(line:)),
-            reception: try otherLines["RECEPTION"].map(ReceptionMetrics.parse(line:)))
+            reception: try otherLines["RECEPTION"].map(ReceptionMetrics.parse(line:)),
+            rtcTrim: try otherLines["RTC"].map(RtcTrimMetrics.parse(line:)))
     }
 
     public static func parse(status: StatusReply) throws -> DiagnosticsReply {

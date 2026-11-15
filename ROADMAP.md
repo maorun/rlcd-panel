@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] RTC frequency trim from the measured NTP drift
-  - Rank: [Total: 32, Use: 5, Setup: 9, Harmony: 10, Safety: 8, Effort: M]
-  - Location: rlcd_panel/pcf85063_rtc.h, rlcd_panel/ntp_sync.h, rlcd_panel/serial_console.h, rlcd_panel/rlcd_panel.ino, macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, tests/test_firmware_logic.cpp, macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsTests.swift
-  - Goal: Add `RtcTrim` to `pcf85063_rtc.h`. It calculates the `PCF85063A` offset register value (register `0x02`, mode 0, 4.34 ppm per step, -64 to 63) from `RtcDriftState::rate_ppm`: the correction is `rate_ppm / 4.34` steps, rounded, added to the active value with the sign of the datasheet table (a positive drift means a fast clock that needs a slower count), and clamped. Add the console command `RTC TRIM`. It needs a drift figure from an interval of 24 h or more, else it replies `ERR NO_DRIFT`. It writes the register, reads it back, clears the `RtcDrift` baseline, and replies `OK RTC TRIM <old> <new>`. A failed readback gives `ERR WRITE_FAILED` and keeps the baseline. The register keeps its value through deep sleep and a reset while the RTC has power, so the firmware stores no copy. `STATUS` shows `RTC trim=<N> drift_ppm=<N|-->` after `RESET`. The command runs on USB power only and gives `ERR READ_ONLY` on BLE with `ble_console` 1. `Diagnostics.swift` parses the line and `DiagnosticsView` shows a trim button when a figure exists.
-  - Acceptance test: Host tests assert the step count 8 for +35 ppm and 2 for −10 ppm with opposite signs that match the datasheet table, the clamp at −64 and 63, the register encoding of negative values (7-bit two's complement, mode bit 0), `ERR NO_DRIFT` without a figure and with a 12 h interval, the cleared baseline after a write, `ERR WRITE_FAILED` for a readback mismatch with a fake bus, and the `STATUS` line. Swift tests parse `RTC trim=-8 drift_ppm=--` and throw `ParseError.badLine` for `trim=x`.
-
 - [ ] Event code for each SET command in the event ring
   - Rank: [Total: 31, Use: 4, Setup: 8, Harmony: 9, Safety: 10, Effort: S]
   - Location: rlcd_panel/sd_logger.h, rlcd_panel/serial_console.h, rlcd_panel/rlcd_panel.ino, macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift, tests/test_firmware_logic.cpp, macos/RlcdCompanion/Tests/RlcdProtocolTests/EventTextTests.swift

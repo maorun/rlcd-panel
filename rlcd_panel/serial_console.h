@@ -36,7 +36,7 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
@@ -243,6 +243,13 @@ public:
       out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
       return SerialParseStatus::OK;
     }
+    if (matches(line, cmd_len, "RTC")) {
+      if (len != 8 || memcmp(line, "RTC TRIM", 8) != 0) {
+        return SerialParseStatus::UNKNOWN; // only "RTC TRIM" exists
+      }
+      out.kind = SerialCommandKind::RTC_TRIM;
+      return SerialParseStatus::OK;
+    }
     if (matches(line, cmd_len, "TIME")) {
       out.kind = SerialCommandKind::TIME;
       if (cmd_len == len) {
@@ -428,8 +435,8 @@ private:
 // Line side of the BLE console. The RX characteristic feeds feed(); a complete line goes through
 // the same SerialConsole parser as on USB. The bridge only decides what a central may run:
 //   ble_console 0: nothing (the service does not run)
-//   ble_console 1: the read commands; SET, MUTE and TIME SET reply "ERR READ_ONLY"
-//   ble_console 2: also SET, MUTE and TIME SET
+//   ble_console 1: the read commands; SET, MUTE, TIME SET and RTC TRIM reply "ERR READ_ONLY"
+//   ble_console 2: also SET, MUTE, TIME SET and RTC TRIM
 //   DUMP (a monthly file is too large for BLE), SCREEN (15,000 bytes) and SCAN (the scan stops the BLE stack that carries
 //   the console) reply "ERR NOT_OVER_BLE" at each level.
 // Only one central connects. A disconnect clears the partial line.
@@ -502,6 +509,7 @@ public:
       return "ERR NOT_OVER_BLE\n";
     }
     const bool writes = command.kind == SerialCommandKind::SET || command.kind == SerialCommandKind::MUTE ||
+                        command.kind == SerialCommandKind::RTC_TRIM ||
                         (command.kind == SerialCommandKind::TIME && command.time_set);
     if (writes && level < 2) {
       return "ERR READ_ONLY\n";
@@ -630,6 +638,9 @@ struct SerialStatusSnapshot {
   uint32_t scan_saved_ms = 0;             // scan time that the last early stop saved
   const AwakeTimeStats* awake = nullptr;  // measured awake time of the timer wakeups
   const ReceptionHistory* reception = nullptr; // BLE reception rate of each registry slot
+  bool rtc_trim_valid = false;            // the offset register was read
+  int32_t rtc_trim = 0;                   // PCF85063A offset register value, -64 to 63
+  const RtcDriftState* rtc_drift = nullptr; // last NTP drift figure
 };
 
 // Runs one parsed command. Storage mounts the card for the command and unmounts it on every
@@ -648,7 +659,7 @@ struct SerialStatusSnapshot {
 //   so execute() ignores CONFIG.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 5 (slots, calibrated readings), a missing value gives "--";
-//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "SHTC3 nack=<N> short=<N> crc=<N> run=<N>[ usb_offset=<x>]" (the offset only on USB power), then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>" (packets of the current scan that no slot took), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "CRC32 <8 hex digits>" over all lines
+//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "RTC trim=<N|--> drift_ppm=<N|-->" (offset register of the PCF85063A; the drift rate only for a figure of 24 h or more), then "SHTC3 nack=<N> short=<N> crc=<N> run=<N>[ usb_offset=<x>]" (the offset only on USB power), then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>" (packets of the current scan that no slot took), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 7), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
@@ -1077,6 +1088,19 @@ public:
     if (len >= sizeof(text)) {
       return;
     }
+    {
+      char trim[12] = "--", ppm[12] = "--";
+      if (snap.rtc_trim_valid) {
+        snprintf(trim, sizeof(trim), "%ld", static_cast<long>(snap.rtc_trim));
+      }
+      if (snap.rtc_drift != nullptr && RtcTrim::hasFigure(*snap.rtc_drift)) {
+        snprintf(ppm, sizeof(ppm), "%ld", static_cast<long>(snap.rtc_drift->rate_ppm));
+      }
+      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "RTC trim=%s drift_ppm=%s\n", trim, ppm));
+      if (len >= sizeof(text)) {
+        return;
+      }
+    }
     char usb_offset[24] = "";
     if (snap.battery.valid && snap.battery.usb_powered) {
       char tenths_text[12];
@@ -1238,6 +1262,35 @@ public:
     return true;
   }
 
+  // Trims the RTC frequency from the last drift figure. The figure needs an interval of 24 h or more,
+  // else "ERR NO_DRIFT". The register is written, read back and compared; after a match the drift baseline
+  // is void and the reply is "OK RTC TRIM <old> <new>". An unreadable register, a failed write or a
+  // readback mismatch gives "ERR WRITE_FAILED" and keeps the baseline. The register keeps its value, so
+  // nothing is stored. Returns true after a write.
+  template <typename Rtc>
+  static bool trimRtc(Sink& sink, Rtc& rtc, RtcDriftState& drift) {
+    if (!RtcTrim::hasFigure(drift)) {
+      send(sink, "ERR NO_DRIFT\n");
+      return false;
+    }
+    int32_t active = 0;
+    if (!rtc.readOffset(active)) {
+      send(sink, "ERR WRITE_FAILED\n");
+      return false;
+    }
+    const int32_t target = RtcTrim::targetValue(active, drift.rate_ppm);
+    int32_t readback = 0;
+    if (!rtc.writeOffset(target) || !rtc.readOffset(readback) || readback != target) {
+      send(sink, "ERR WRITE_FAILED\n");
+      return false;
+    }
+    drift = RtcDriftState{};
+    char line[48];
+    snprintf(line, sizeof(line), "OK RTC TRIM %ld %ld\n", static_cast<long>(active), static_cast<long>(target));
+    send(sink, line);
+    return true;
+  }
+
   // Plays the chime of alert bit `bit` (0 to 7) once and replies "OK BEEP <bit> <duration ms>". The
   // reply "ERR MUTED" (mute, quiet hours or volume 0) leaves the hardware untouched, "ERR PLAY_FAILED"
   // follows a failed playback. The Hal powers down on every path (AudioSequencer). A cleared bit in
@@ -1385,7 +1438,8 @@ public:
         command.kind == SerialCommandKind::HISTORY || command.kind == SerialCommandKind::VERSION ||
         command.kind == SerialCommandKind::EVENTS || command.kind == SerialCommandKind::PATTERN ||
         command.kind == SerialCommandKind::SCAN || command.kind == SerialCommandKind::MUTE ||
-        command.kind == SerialCommandKind::SCREEN || command.kind == SerialCommandKind::SET) {
+        command.kind == SerialCommandKind::SCREEN || command.kind == SerialCommandKind::SET ||
+        command.kind == SerialCommandKind::RTC_TRIM) {
       return;
     }
     if (!storage.mount()) {
@@ -1409,6 +1463,7 @@ public:
       case SerialCommandKind::SCAN:
       case SerialCommandKind::MUTE:
       case SerialCommandKind::SCREEN:
+      case SerialCommandKind::RTC_TRIM:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;
