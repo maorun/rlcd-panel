@@ -337,7 +337,7 @@ struct ConfigParseResult {
 // - Lines end with LF or CRLF. A lone CR is not a line end.
 class DeviceConfigParser {
 public:
-  static constexpr size_t MAX_FILE_SIZE = 4096;
+  static constexpr size_t MAX_FILE_SIZE = 8192;
   static constexpr size_t KEY_COUNT = 50;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.

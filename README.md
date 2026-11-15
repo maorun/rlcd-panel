@@ -182,7 +182,7 @@ The onboard `ES8311` DAC and speaker play a short chime when a sensor crosses a 
 
 Put an optional `config.ini` in the root of the MicroSD card. The board reads it on power-on and on a `KEY` wakeup. Timer wakeups use the stored copy. The diagnostics view shows `CONFIG: SD` or `CONFIG: DEFAULT`.
 
-Check a `config.ini` on the host before you copy it to the card: `./scripts/check-config.sh <file>`. The script builds `tools/check_config.cpp` and runs the firmware parser. It prints the accepted values, then `REJECTED line=<N>` for each of the first four rejected lines and `REJECTED count=<N>`. The exit code is `0` for no rejected line, `1` for rejected lines and `2` for a missing file or a file above 4096 bytes. The sample file is `tools/sample_config.ini`. The commented template [`docs/config.example.ini`](docs/config.example.ini) lists each key with its default value and its range. A host test keeps it in sync with the parser.
+Check a `config.ini` on the host before you copy it to the card: `./scripts/check-config.sh <file>`. The script builds `tools/check_config.cpp` and runs the firmware parser. It prints the accepted values, then `REJECTED line=<N>` for each of the first four rejected lines and `REJECTED count=<N>`. The exit code is `0` for no rejected line, `1` for rejected lines and `2` for a missing file or a file above 8192 bytes. The sample file is `tools/sample_config.ini`. The commented template [`docs/config.example.ini`](docs/config.example.ini) lists each key with its default value and its range. A host test keeps it in sync with the parser.
 
 ```ini
 # Lines with # or ; are comments
@@ -240,7 +240,7 @@ sensor_battery_limit_pct=10
 # slot3_name=KELLER
 ```
 
-A value that is missing, malformed, or outside its range keeps the default. The file limit is 4096 bytes. Use LF or CRLF line ends. Equal start and end hours switch the quiet hours off. Wi-Fi credentials never come from the card. The `slotN_*` offsets and `slotN_name` names belong to the slot position, not to the sensor. A name replaces the tile title and the `S1` to `S3` label in the stats view; a name with a lowercase letter, another symbol or more than 12 characters is rejected. The ranges are in `FEATURES.md`.
+A value that is missing, malformed, or outside its range keeps the default. The file limit is 8192 bytes. Use LF or CRLF line ends. Equal start and end hours switch the quiet hours off. Wi-Fi credentials never come from the card. The `slotN_*` offsets and `slotN_name` names belong to the slot position, not to the sensor. A name replaces the tile title and the `S1` to `S3` label in the stats view; a name with a lowercase letter, another symbol or more than 12 characters is rejected. The ranges are in `FEATURES.md`.
 
 ### BLE console
 
@@ -284,7 +284,7 @@ The console command `PATTERN N` (`N` is `0`, `1` or `2`) shows a test pattern: `
 
 The console command `VERSION` shows the build identity: `VERSION fw=<version> git=<hash> core=3.3.12 state=<STATE_VERSION> built=<YYYY-MM-DDTHH:MM:SS>`, then a `CRC32` line. `./scripts/flash-firmware.sh` sets the short Git hash (`-dirty` for uncommitted changes); a build without it, for example in CI, shows `git=unknown`. The command reads constants only, so it needs no MicroSD card. The code is in `rlcd_panel/firmware_version.h` and `rlcd_panel/serial_console.h`.
 
-The console command `SET <key>=<value>` changes one key of `/sdcard/config.ini` (for example `SET wake_interval_s=120`; line limit 40 bytes). The key must be a `config.ini` key and the value must pass the parser rules, else the reply is `ERR BAD_KEY` or `ERR BAD_VALUE`. The command replaces the last line of the key or appends a line, keeps each other line and comment, writes `config.tmp`, removes the old file and renames the new file. The reply is `OK SET <key>`, `ERR TOO_LARGE` (result above 4096 bytes), `ERR NO_CARD` or `ERR WRITE_FAILED`. The new settings apply at once. The code is in `rlcd_panel/serial_console.h` and `rlcd_panel/device_config.h`.
+The console command `SET <key>=<value>` changes one key of `/sdcard/config.ini` (for example `SET wake_interval_s=120`; line limit 40 bytes). The key must be a `config.ini` key and the value must pass the parser rules, else the reply is `ERR BAD_KEY` or `ERR BAD_VALUE`. The command replaces the last line of the key or appends a line, keeps each other line and comment, writes `config.tmp`, removes the old file and renames the new file. The reply is `OK SET <key>`, `ERR TOO_LARGE` (result above 8192 bytes), `ERR NO_CARD` or `ERR WRITE_FAILED`. The new settings apply at once. The code is in `rlcd_panel/serial_console.h` and `rlcd_panel/device_config.h`.
 
 The console command `STATUS` shows the line `RESET reason=<TEXT> abnormal=<N>` before the `POWER` line. The reason is `POWERON`, `EXT`, `SW`, `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT`, `DEEPSLEEP`, `BROWNOUT`, `SDIO` or `UNKNOWN`. A reset by `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT` or `BROWNOUT` is abnormal. NVS (namespace `rlcd`, key `abn_resets`) counts these resets up to 65535. NVS is written only after an abnormal reset, so a deep sleep wakeup causes no flash write. The line shows `abnormal=--` when NVS is unreadable.
 

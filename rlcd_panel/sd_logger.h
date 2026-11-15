@@ -1005,7 +1005,7 @@ public:
     if (mounted != SdStatus::OK) {
       return mounted == SdStatus::NO_CARD ? SdConfigResult::NO_CARD : SdConfigResult::MOUNT_FAILED;
     }
-    // Static: the 4 KB buffer would use half of the 8 KB loop task stack. setup() runs once per
+    // Static: the 8 KB buffer would use the whole 8 KB loop task stack. setup() runs once per
     // wake cycle, so one shared buffer is safe.
     static char buf[DeviceConfigParser::MAX_FILE_SIZE + 1];
     SdConfigResult result = SdConfigResult::NO_FILE;

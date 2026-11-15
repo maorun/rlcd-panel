@@ -677,7 +677,7 @@ struct SerialStatusSnapshot {
 //   VERSION -> "VERSION fw=<version> git=<hash> core=<core> state=<STATE_VERSION> built=<YYYY-MM-DDTHH:MM:SS>", then "CRC32 <8 hex
 //   digits>" over that line. The build time comes from __DATE__ and __TIME__. showVersion() needs no card: execute() ignores VERSION.
 //   SET <key>=<value> -> "OK SET <key>" after the new config.ini is in place and applied, "ERR BAD_KEY" or "ERR BAD_VALUE"
-//   from the parser, "ERR NO_CARD", "ERR TOO_LARGE" (result above 4096 bytes, nothing written) or "ERR WRITE_FAILED".
+//   from the parser, "ERR NO_CARD", "ERR TOO_LARGE" (result above 8192 bytes, nothing written) or "ERR WRITE_FAILED".
 //   setConfig() mounts the card for the command. The last line of the key is replaced or a line is appended; other lines and
 //   comments stay. The text goes to /sdcard/config.tmp, then the old file is removed and the new file is renamed. A failure
 //   before the remove keeps the old file. If the rename fails after the remove, the old text is written back. execute()
@@ -1431,7 +1431,7 @@ public:
       send(sink, "ERR NO_CARD\n");
       return false;
     }
-    // Static: two 4 KB buffers do not fit the 8 KB loop task stack. One console command runs at a time.
+    // Static: two 8 KB buffers do not fit the 8 KB loop task stack. One console command runs at a time.
     static char current[DeviceConfigParser::MAX_FILE_SIZE + 1];
     static char next[DeviceConfigParser::MAX_FILE_SIZE + 1];
     size_t current_len = 0;

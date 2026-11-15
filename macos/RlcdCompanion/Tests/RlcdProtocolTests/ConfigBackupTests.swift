@@ -45,7 +45,8 @@ private func templateData() throws -> Data {
         #expect(!text.contains("secret"))
     }
 
-    @Test func fileAbove4096BytesIsRefused() {
+    @Test func fileAbove8192BytesIsRefused() {
+        #expect(ConfigBackup.maxBytes == 8192)
         let data = Data(repeating: UInt8(ascii: "#"), count: ConfigBackup.maxBytes + 1)
         #expect(throws: ConfigBackupError.tooLarge) { try ConfigBackup.parse(data) }
         #expect(throws: Never.self) { try ConfigBackup.parse(Data(repeating: UInt8(ascii: "#"), count: ConfigBackup.maxBytes)) }

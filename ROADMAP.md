@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Raise the config.ini size limit to 8192 bytes
-  - Rank: [Total: 33, Use: 4, Setup: 10, Harmony: 10, Safety: 9, Effort: S]
-  - Location: rlcd_panel/device_config.h, rlcd_panel/sd_logger.h, rlcd_panel/serial_console.h, tools/check_config.cpp, docs/config.example.ini, macos/RlcdCompanion/Sources/RlcdProtocol/ConfigBackup.swift, tests/test_firmware_logic.cpp, macos/RlcdCompanion/Tests/RlcdProtocolTests/ConfigBackupTests.swift
-  - Goal: `docs/config.example.ini` has 4071 of 4096 bytes. The next key with its comment lines breaks `testConfigExampleTemplateInSync`. Increase `DeviceConfigParser::MAX_FILE_SIZE` to 8192. The three static buffers in `SdLogger` (config read) and `SerialConsoleRunner::setConfig` (`current`, `next`) grow with the constant; they stay static, so the 8 KB loop task stack does not change. `DeviceConfigText::MAX_SIZE` (RTC copy) does not change, because the RTC copy holds values, not the file text. `DeviceConfigEditor::set` gives `ERR TOO_LARGE` above 8192 bytes. `ConfigBackup.maxBytes` becomes 8192. The host tool `check_config` uses the same constant. Add a comment in `docs/config.example.ini` that names the limit. The firmware reads an old 4096-byte file without a change.
-  - Acceptance test: Host tests assert that a file of 8192 bytes parses, that 8193 bytes are rejected as a whole, that `DeviceConfigEditor::set` gives `ERR TOO_LARGE` for a result of 8193 bytes and succeeds for 8192 bytes, and that `testConfigExampleTemplateInSync` uses the new limit. Swift `ConfigBackupTests` accept 8192 bytes and reject 8193 bytes. `arduino-cli compile rlcd_panel` passes, and its DRAM report is part of the pull request description.
-
 - [ ] Two-point humidity calibration with a second salt
   - Rank: [Total: 32, Use: 5, Setup: 10, Harmony: 8, Safety: 9, Effort: M]
   - Location: rlcd_panel/climate_math.h, rlcd_panel/device_config.h, rlcd_panel/serial_console.h, rlcd_panel/rlcd_panel.ino, docs/config.example.ini, macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift, macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift, macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift, tests/test_firmware_logic.cpp, macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ConfigSchemaTests.swift
