@@ -847,7 +847,8 @@ void refreshSensors() {
       g_onboard_reading.humidity_pct,
       calibratedRegistry(),
       g_onboard_reading.temperature_c,
-      config().staleTimeoutMs());
+      config().staleTimeoutMs(),
+      g_state.battery.valid && g_state.battery.usb_powered);
   // The tile badges have no chime and do not depend on the alert mask. The latch updates before the
   // first render, so the display shows the current state.
   // The BLE scan is stopped here, so the registry copy needs no g_registry_mux.

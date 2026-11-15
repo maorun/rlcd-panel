@@ -37,6 +37,49 @@ import Testing
         #expect(r.proposals[0].value == "-0.4")
     }
 
+    static let usbReply = [
+        "REFERENCE slot1",
+        "SENSOR onboard hours=12 temp_offset=-1.0 rh_offset=0.0 temp_diff=-1.6 rh_diff=0.0",
+        "USB hours=6 bat_hours=6 usb_temp_offset=-2.0 usb_temp_diff=-1.2",
+        "temp_offset_c=0.0",
+        "rh_offset_pct=0.0",
+        "usb_temp_offset_c=-0.8",
+    ]
+
+    @Test func parsesUsbLineAndProposal() throws {
+        let r = try CalibrationReply.parse(lines: Self.usbReply)
+        #expect(r.usb == CalibrationReply.UsbSplit(usbHours: 6, batHours: 6, usbTempOffset: -2.0, usbTempDiff: -1.2))
+        #expect(r.proposals.map(\.key) == ["temp_offset_c", "rh_offset_pct", "usb_temp_offset_c"])
+        #expect(r.proposals[2].value == "-0.8")
+        #expect(r.changes(selecting: ["usb_temp_offset_c"], current: ["usb_temp_offset_c": "-2.0"]).map(\.key) == ["usb_temp_offset_c"])
+    }
+
+    @Test func usbDashGivesNil() throws {
+        let r = try CalibrationReply.parse(lines: [
+            "REFERENCE slot1",
+            "SENSOR onboard hours=8 temp_offset=0.0 rh_offset=0.0 temp_diff=-1.0 rh_diff=0.0",
+            "USB hours=2 bat_hours=6 usb_temp_offset=0.0 usb_temp_diff=--",
+        ])
+        #expect(r.usb?.usbTempDiff == nil)
+        #expect(r.usb?.usbHours == 2)
+        #expect(!r.proposals.contains { $0.key == "usb_temp_offset_c" })
+    }
+
+    @Test func missingUsbLineGivesNil() throws {
+        #expect(try CalibrationReply.parse(lines: Self.good).usb == nil)
+    }
+
+    @Test func badUsbLineThrows() {
+        for bad in ["USB usb_hours=x bat_hours=6 usb_temp_offset=0.0 usb_temp_diff=--",
+                    "USB hours=x bat_hours=6 usb_temp_offset=0.0 usb_temp_diff=--",
+                    "USB hours=2 bat_hours=6 usb_temp_offset=0.0 usb_temp_diff=nan",
+                    "USB hours=2 bat_hours=6 usb_temp_offset=0.0"] {
+            #expect(throws: ParseError.badLine(bad)) {
+                try CalibrationReply.parse(lines: ["REFERENCE slot1", bad])
+            }
+        }
+    }
+
     @Test func proposesSlots4And5() throws {
         let r = try CalibrationReply.parse(lines: [
             "REFERENCE slot1",

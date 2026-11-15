@@ -22,6 +22,7 @@ struct CalibrationView: View {
                         Text("No other sensor.").font(.caption).foregroundStyle(.secondary)
                     }
                     ForEach(Array(c.sensors.enumerated()), id: \.offset) { _, s in sensorRow(s) }
+                    if let u = c.usb { usbRow(u) }
                     ForEach(Array(c.skipped.enumerated()), id: \.offset) { _, s in
                         Text("\(s.name): \(s.hours) h, too few common hours (6 needed)")
                             .font(.caption).foregroundStyle(.secondary)
@@ -84,6 +85,13 @@ struct CalibrationView: View {
     private func sensorRow(_ s: CalibrationReply.Sensor) -> some View {
         Text("\(s.name): \(s.hours) h, diff \(String(format: "%+.1f", s.tempDiff)) °C / \(String(format: "%+.1f", s.rhDiff)) %RH, "
              + "offset now \(String(format: "%.1f", s.tempOffset)) °C / \(String(format: "%.1f", s.rhOffset)) %RH")
+            .font(.callout)
+    }
+
+    private func usbRow(_ u: CalibrationReply.UsbSplit) -> some View {
+        let diff = u.usbTempDiff.map { String(format: "%+.1f °C", $0) } ?? "not enough hours (3 USB and 3 battery needed)"
+        return Text("Onboard on USB power: \(u.usbHours) h, on battery: \(u.batHours) h, USB difference \(diff), "
+                    + "usb offset now \(String(format: "%.1f", u.usbTempOffset)) °C")
             .font(.callout)
     }
 
