@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Event code for each SET command in the event ring
-  - Rank: [Total: 31, Use: 4, Setup: 8, Harmony: 9, Safety: 10, Effort: S]
-  - Location: rlcd_panel/sd_logger.h, rlcd_panel/serial_console.h, rlcd_panel/rlcd_panel.ino, macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift, tests/test_firmware_logic.cpp, macos/RlcdCompanion/Tests/RlcdProtocolTests/EventTextTests.swift
-  - Goal: Add `EventCode::CONFIG_SET = 11` (`EventRing::MAX_CODE` 11). After each successful `SET <key>=<value>` the firmware records one event with the index of the key in `DeviceConfigParser::KEYS` as detail, and the transport in the high byte (0 USB, 1 BLE). A rejected `SET` records no event. The hourly write puts the event into `events_v1_YYYY.csv` without a format change. `EventText` in the macOS app shows `Config set: <key> (USB|BLE)` and `Config set: key #<N>` for an unknown index. The RTC ring check accepts code 11 and rejects 12.
-  - Acceptance test: Host tests assert one event after `OK SET wake_interval_s`, no event after `ERR BAD_VALUE`, the detail for key index 0 and index 47 over BLE, the ring check for code 11 and code 12, and the CSV row text. Swift `EventTextTests` assert the text for a known key, an unknown index and both transports.
-
 - [ ] Dry air badge and dry limit in config.ini
   - Rank: [Total: 30, Use: 8, Setup: 5, Harmony: 8, Safety: 9, Effort: M]
   - Location: rlcd_panel/device_config.h, rlcd_panel/dashboard_view.h, rlcd_panel/ventilate_latch.h, rlcd_panel/power_manager.h, rlcd_panel/ble_telemetry.h, docs/config.example.ini, tools/preview_scenes.h, scripts/generate-display-preview.sh, macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift, macos/RlcdCompanion/Sources/RlcdProtocol/TelemetryFrame.swift, tests/test_firmware_logic.cpp

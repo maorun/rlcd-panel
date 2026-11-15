@@ -1367,8 +1367,10 @@ public:
 
   // Changes one key of /sdcard/config.ini. `apply(const char* text, size_t len)` runs after the new file is in place and
   // takes over the new config (PersistentState::applyConfig); the reply "OK SET <key>" follows it. Returns true on success.
+  // With `events` set, one CONFIG_SET event follows the apply step (detail: key index, transport in the high byte).
   template <typename Apply>
-  static bool setConfig(Storage& storage, Sink& sink, const SerialCommand& command, Apply apply) {
+  static bool setConfig(Storage& storage, Sink& sink, const SerialCommand& command, Apply apply,
+                        EventRing* events = nullptr, const RtcTime* now = nullptr, uint8_t transport = 0) {
     // Defense in depth: the parser already checks the pair.
     const DeviceConfigParser::SettingCheck check =
         command.kind == SerialCommandKind::SET
@@ -1424,6 +1426,15 @@ public:
       return false;
     }
     apply(static_cast<const char*>(next), next_len);
+    if (events != nullptr && now != nullptr) {
+      // The key passed checkSetting, so the lookup always finds it; a miss would record nothing.
+      for (size_t i = 0; i < DeviceConfigParser::KEY_COUNT; ++i) {
+        if (strcmp(command.set_key, DeviceConfigParser::KEYS[i]) == 0) {
+          events->record(*now, EventCode::CONFIG_SET, static_cast<uint16_t>((transport << 8) | i));
+          break;
+        }
+      }
+    }
     char line[SET_KEY_SIZE + 16];
     snprintf(line, sizeof(line), "OK SET %s\n", command.set_key);
     send(sink, line);

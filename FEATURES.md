@@ -975,8 +975,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The firmware records `SLOT_ASSIGN` when a new MAC takes a registry slot. The detail has the slot number (1 to 3) in the high byte and the `BleFormat` in the low byte. A known MAC records no event.
 - The firmware records `SLOT_RELEASE` when `PersistentState::releaseDeadSlots` clears a slot. The detail is the slot number (1 to 3). A slot with a fixed MAC never releases and records no event.
 - `SdLogCodec::formatEventRow` writes the names `RESET`, `SLOT_ASSIGN` and `SLOT_RELEASE`. The file `events_v1_YYYY.csv` and the console command `EVENTS` show them.
-- The RTC validation of the ring accepts the codes 0 to 10 and rejects the code 11 and higher.
+- The RTC validation of the ring accepts the codes 0 to 11 and rejects the code 12 and higher.
 - The ring layout does not change. `STATE_VERSION` stays the same.
+
+## Event code for each SET command
+
+- The event ring has one more event code: `CONFIG_SET` (11). `EventRing::MAX_CODE` is 11.
+- After each successful `SET <key>=<value>` the firmware records one `CONFIG_SET` event (`SerialConsoleRunner::setConfig`). The low byte of the detail is the index of the key in `DeviceConfigParser::KEYS`. The high byte is the transport: 0 for USB serial, 1 for the BLE console.
+- A rejected `SET` (`ERR BAD_KEY`, `ERR BAD_VALUE`, `ERR NO_CARD`, `ERR WRITE_FAILED`, `ERR TOO_LARGE`) records no event.
+- The hourly write puts the event into `events_v1_YYYY.csv`. The file format does not change. `STATE_VERSION` stays the same.
 
 ## BLE console bridge for the serial console commands
 
@@ -1215,6 +1222,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `CONFIG_LOAD` gives the count of rejected lines. `NTP_SYNC` gives `OK`, `WIFI_FAILED`, `NTP_TIMEOUT` or `RTC_WRITE_FAILED`. `BATTERY_LOW_SET` and `BATTERY_LOW_CLEAR` give the cell percentage. `EMPTY_PROTECTION` gives `set` or `release`.
 - `RESET` gives the `ResetReasonCodec` text. A reason that `ResetMetrics.isAbnormal` marks gets the text `(abnormal)`, and the events view shows the row in red (`EventText.isAbnormal`).
 - `SLOT_ASSIGN` gives the slot (high byte) and the `BleFormat` name (low byte), for example `514` gives `slot 2 BTHOME`. `SLOT_RELEASE` gives the slot number.
+- `CONFIG_SET` gives the key name from `ConfigSchema.keys` and the transport, for example `Config set: wake_interval_s (BLE)`. An index outside the schema gives `Config set: key #<N>`.
 - An unknown event name (for example `EVENTS_DROPPED`) or a detail outside the range gives the raw text `<event>,<detail>`.
 - The `Open events file` button of `ArchiveView` reads a downloaded `events_v1_YYYY.csv` with `EventsReply.parse(file:)` and shows it in the same events list. A wrong header or row gives a message in the archive summary.
 
