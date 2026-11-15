@@ -81,6 +81,9 @@ struct DeviceConfig {
   static constexpr uint8_t DEFAULT_HEAT_ALERT_LIMIT_C = 0; // 0 switches the heat alert off
   static constexpr uint8_t MIN_HEAT_ALERT_LIMIT_C = 27;
   static constexpr uint8_t MAX_HEAT_ALERT_LIMIT_C = 45;
+  static constexpr uint8_t DEFAULT_DRY_ALERT_LIMIT_RH = 0; // 0 switches the dry air badge off
+  static constexpr uint8_t MIN_DRY_ALERT_LIMIT_RH = 20;
+  static constexpr uint8_t MAX_DRY_ALERT_LIMIT_RH = 45;
   static constexpr uint8_t DEFAULT_BLE_BROADCAST_ENABLED = 0; // 0 sends no BLE telemetry
   static constexpr uint8_t MAX_BLE_BROADCAST_ENABLED = 1;
   static constexpr uint8_t DEFAULT_BLE_CONSOLE = 0; // 0 starts no BLE console service
@@ -137,6 +140,7 @@ struct DeviceConfig {
   char temp_unit = DEFAULT_TEMP_UNIT; // 'C' or 'F': only the screen and the console command STATUS use it; the card files, limits and alerts stay in Celsius
   uint8_t chime_repeat_h = DEFAULT_CHIME_REPEAT_H; // hours until the chime of an active alert sounds again, 0 = off, else 1..24
   uint8_t heat_alert_limit_c = DEFAULT_HEAT_ALERT_LIMIT_C; // feels-like limit of the heat alert in C, 0 = off, else 27..45
+  uint8_t dry_alert_limit_rh = DEFAULT_DRY_ALERT_LIMIT_RH; // a tile at or below this %RH shows the dry air badge, 0 = off, else 20..45
   uint8_t ble_broadcast_enabled = DEFAULT_BLE_BROADCAST_ENABLED; // 1 = advertise the climate tiles after each scan (ble_telemetry.h), 0 = off
   uint8_t ble_console = DEFAULT_BLE_CONSOLE; // BLE console on USB power: 0 off, 1 read commands, 2 also SET (serial_console.h)
   uint8_t climate_alert_tiles = DEFAULT_CLIMATE_ALERT_TILES; // bit 0 onboard, bits 1..5 slots 1..5: tiles of the freezer and mold alerts, 0..63
@@ -252,6 +256,8 @@ struct DeviceConfig {
            slot_release_h <= MAX_SLOT_RELEASE_H && chime_repeat_h <= MAX_CHIME_REPEAT_H &&
            (heat_alert_limit_c == 0 ||
             (heat_alert_limit_c >= MIN_HEAT_ALERT_LIMIT_C && heat_alert_limit_c <= MAX_HEAT_ALERT_LIMIT_C)) &&
+           (dry_alert_limit_rh == 0 ||
+            (dry_alert_limit_rh >= MIN_DRY_ALERT_LIMIT_RH && dry_alert_limit_rh <= MAX_DRY_ALERT_LIMIT_RH)) &&
            ble_broadcast_enabled <= MAX_BLE_BROADCAST_ENABLED && ble_console <= MAX_BLE_CONSOLE &&
            (night_wake_interval_s == 0 ||
             (night_wake_interval_s >= MIN_NIGHT_WAKE_INTERVAL_S && night_wake_interval_s <= MAX_NIGHT_WAKE_INTERVAL_S));
@@ -283,7 +289,7 @@ struct DeviceConfig {
            climate_alert_tiles == d.climate_alert_tiles && battery_offset_mv == d.battery_offset_mv &&
            slot_release_h == d.slot_release_h && night_wake_interval_s == d.night_wake_interval_s &&
            temp_unit == d.temp_unit && chime_repeat_h == d.chime_repeat_h &&
-           heat_alert_limit_c == d.heat_alert_limit_c && ble_broadcast_enabled == d.ble_broadcast_enabled &&
+           heat_alert_limit_c == d.heat_alert_limit_c && dry_alert_limit_rh == d.dry_alert_limit_rh && ble_broadcast_enabled == d.ble_broadcast_enabled &&
            ble_console == d.ble_console;
   }
 };
@@ -332,7 +338,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 4096;
-  static constexpr size_t KEY_COUNT = 49;
+  static constexpr size_t KEY_COUNT = 50;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -352,7 +358,7 @@ public:
       "ble_console", "slot4_name", "slot5_name",
       "slot4_mac", "slot5_mac", "slot4_temp_offset_c",
       "slot5_temp_offset_c", "slot4_rh_offset_pct", "slot5_rh_offset_pct",
-      "usb_temp_offset_c",
+      "usb_temp_offset_c", "dry_alert_limit_rh",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -513,6 +519,17 @@ private:
     uint8_t v = 0;
     if (!parseIntIn(s, n, 0, DeviceConfig::MAX_HEAT_ALERT_LIMIT_C, v) ||
         (v != 0 && v < DeviceConfig::MIN_HEAT_ALERT_LIMIT_C)) {
+      return false;
+    }
+    out = v;
+    return true;
+  }
+
+  // dry_alert_limit_rh: 0 (off) or 20 to 45.
+  static bool parseDryLimit(const char* s, size_t n, uint8_t& out) {
+    uint8_t v = 0;
+    if (!parseIntIn(s, n, 0, DeviceConfig::MAX_DRY_ALERT_LIMIT_RH, v) ||
+        (v != 0 && v < DeviceConfig::MIN_DRY_ALERT_LIMIT_RH)) {
       return false;
     }
     out = v;
@@ -745,6 +762,9 @@ private:
     } else if (keyIs(key, key_len, "heat_alert_limit_c")) {
       index = 37;
       ok = parseHeatLimit(val, val_len, cfg.heat_alert_limit_c);
+    } else if (keyIs(key, key_len, "dry_alert_limit_rh")) {
+      index = 49;
+      ok = parseDryLimit(val, val_len, cfg.dry_alert_limit_rh);
     } else if (keyIs(key, key_len, "ble_broadcast_enabled")) {
       index = 38;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_BLE_BROADCAST_ENABLED, cfg.ble_broadcast_enabled);
@@ -788,7 +808,7 @@ private:
 // reads the text back to the same values. The text holds no Wi-Fi setting: DeviceConfig has none.
 class DeviceConfigText {
 public:
-  static constexpr size_t MAX_SIZE = 1152; // worst case with every key at its longest value: 1146 bytes
+  static constexpr size_t MAX_SIZE = 1184; // worst case with every key at its longest value: 1168 bytes
 
   // Returns the text length, or 0 with an empty string when `cap` is too small.
   static size_t format(const DeviceConfig& cfg, char* out, size_t cap) {
@@ -821,6 +841,7 @@ public:
     ok = ok && putLine(out, cap, pos, "temp_unit", cfg.temp_unit == 'F' ? "F" : "C");
     ok = ok && putInt(out, cap, pos, "chime_repeat_h", cfg.chime_repeat_h);
     ok = ok && putInt(out, cap, pos, "heat_alert_limit_c", cfg.heat_alert_limit_c);
+    ok = ok && putInt(out, cap, pos, "dry_alert_limit_rh", cfg.dry_alert_limit_rh);
     ok = ok && putInt(out, cap, pos, "ble_broadcast_enabled", cfg.ble_broadcast_enabled);
     ok = ok && putInt(out, cap, pos, "ble_console", cfg.ble_console);
     ok = ok && putInt(out, cap, pos, "outdoor_slot", cfg.outdoor_slot);

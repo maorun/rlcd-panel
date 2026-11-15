@@ -29,7 +29,7 @@ struct ConfigSchemaTests {
         let (active, commented) = try templateKeys()
         let template = Set(active.keys).union(commented)
         #expect(Set(ConfigSchema.keys) == template)
-        #expect(ConfigSchema.keys.count == 49)
+        #expect(ConfigSchema.keys.count == 50)
         #expect(Set(ConfigSchema.keys).count == ConfigSchema.keys.count)
         for e in ConfigSchema.entries {
             if let v = active[e.key] {
@@ -84,6 +84,11 @@ struct ConfigSchemaTests {
         #expect(ConfigSchema.validate(key: "heat_alert_limit_c", value: "27") == nil)
         #expect(ConfigSchema.validate(key: "heat_alert_limit_c", value: "45") == nil)
         #expect(ConfigSchema.validate(key: "heat_alert_limit_c", value: "46") != nil)
+        #expect(ConfigSchema.validate(key: "dry_alert_limit_rh", value: "0") == nil)
+        #expect(ConfigSchema.validate(key: "dry_alert_limit_rh", value: "19") != nil)
+        #expect(ConfigSchema.validate(key: "dry_alert_limit_rh", value: "20") == nil)
+        #expect(ConfigSchema.validate(key: "dry_alert_limit_rh", value: "45") == nil)
+        #expect(ConfigSchema.validate(key: "dry_alert_limit_rh", value: "46") != nil)
         #expect(ConfigSchema.validate(key: "noise_alert_limit_db", value: "39") != nil)
         #expect(ConfigSchema.validate(key: "noise_alert_limit_db", value: "40") == nil)
         #expect(ConfigSchema.validate(key: "night_wake_interval_s", value: "59") != nil)
@@ -298,7 +303,7 @@ struct ConfigSchemaTests {
             "noise_alert_limit_db": (40, 100), "chime_alert_mask": (0, 255), "ntp_sync_interval_h": (6, 168),
             "wake_interval_s": (30, 900), "sensor_stale_min": (5, 240), "display_invert": (0, 1),
             "climate_alert_tiles": (0, 63), "battery_offset_mv": (-300, 300), "outdoor_slot": (0, 5),
-            "ventilate_limit_rh": (50, 80), "sensor_battery_limit_pct": (0, 50),
+            "ventilate_limit_rh": (50, 80), "dry_alert_limit_rh": (20, 45), "sensor_battery_limit_pct": (0, 50),
             "slot1_temp_offset_c": (-5, 5), "slot2_temp_offset_c": (-5, 5), "slot3_temp_offset_c": (-5, 5),
             "slot1_rh_offset_pct": (-10, 10), "slot2_rh_offset_pct": (-10, 10), "slot3_rh_offset_pct": (-10, 10),
             "slot4_temp_offset_c": (-5, 5), "slot5_temp_offset_c": (-5, 5),

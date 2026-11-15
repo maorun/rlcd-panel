@@ -20,11 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Dry air badge and dry limit in config.ini
-  - Rank: [Total: 30, Use: 8, Setup: 5, Harmony: 8, Safety: 9, Effort: M]
-  - Location: rlcd_panel/device_config.h, rlcd_panel/dashboard_view.h, rlcd_panel/ventilate_latch.h, rlcd_panel/power_manager.h, rlcd_panel/ble_telemetry.h, docs/config.example.ini, tools/preview_scenes.h, scripts/generate-display-preview.sh, macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift, macos/RlcdCompanion/Sources/RlcdProtocol/TelemetryFrame.swift, tests/test_firmware_logic.cpp
-  - Goal: Add the key `dry_alert_limit_rh` (0 is off, else 20 to 45 %RH, default 0; 1 byte in the config trailer; increase `KEY_COUNT`). `DryLatch` (one bit for each of the 6 tiles) sets a tile bit when its humidity is at or below the limit and releases it at the limit plus 3 %RH. An empty or stale tile clears its bit. Only tiles in `climate_alert_tiles` count. A set bit draws the inverted badge `D` next to the `V` badge in the tile, in each tile style. The latch has no chime, because `chime_alert_mask` has no free bit. The telemetry frame keeps format version 2 and carries no dry flag. The latch uses 1 byte in `PersistentState` before the checksum; a bit for a tile above 5 is rejected. Increase `STATE_VERSION`. Add the scene `display_preview_dry.png`.
-  - Acceptance test: Host tests assert the set at 30 %RH with limit 30, the hold at 32 %RH, the release at 33 %RH, the clear for a stale tile and for a tile outside `climate_alert_tiles`, the limit 0 that never sets, the rejected lines `19` and `46`, the RTC round trip and the rejected bit 6, and the badge pixels in the STANDARD, LARGE and COMPACT tiles. `testConfigExampleTemplateInSync` and `ConfigSchemaTests` pass. The preview script writes the new image.
 
 ## Priority 3: Display and Logging (Score 22–27)
 

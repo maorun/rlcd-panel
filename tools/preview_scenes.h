@@ -28,9 +28,10 @@ struct PreviewScene {
   bool invert = false;        // config.ini display_invert=1: light text on a dark background
   uint8_t tiles = 0;          // dashboard tile count 1 to 6 (onboard + slots); 0 is the classic sample with 3 slots, which is the 4-tile layout (display_preview_dashboard)
   uint8_t stats_page = 0;     // stats view page 0 or 1 (page 1 shows slots 4 and 5)
+  bool dry = false;           // dry air: the onboard tile and slot 1 show the "D" badge
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 15;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 16;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
@@ -44,6 +45,7 @@ constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_quiet_hours", DisplayMode::DASHBOARD, false, true},
     {"display_preview_battery_empty", DisplayMode::DASHBOARD, false, false, false, true},
     {"display_preview_ventilate", DisplayMode::DASHBOARD, false, false, false, false, true},
+    {"display_preview_dry", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, true},
     {"display_preview_inverted", DisplayMode::DASHBOARD, false, false, false, false, false, true},
     {"display_preview_tiles1", DisplayMode::DASHBOARD, false, false, false, false, false, false, 1},
     {"display_preview_tiles2", DisplayMode::DASHBOARD, false, false, false, false, false, false, 2},
@@ -54,17 +56,17 @@ constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
 inline void renderScene(
     St7305Framebuffer& fb, DisplayMode mode, bool low_battery, bool quiet_hours = false,
     bool long_runtime = false, bool battery_empty = false, bool ventilate = false,
-    bool invert = false, uint8_t tiles = 0, uint8_t stats_page = 0) {
+    bool invert = false, uint8_t tiles = 0, uint8_t stats_page = 0, bool dry = false) {
   Shtc3Reading onboard;
   onboard.valid = true;
   onboard.temperature_c = 21.8f;
-  onboard.humidity_pct = ventilate ? 74.0f : 48.0f; // the advice needs humid indoor air
+  onboard.humidity_pct = ventilate ? 74.0f : (dry ? 28.0f : 48.0f); // the advice needs humid indoor air, the dry badge dry air
 
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
   // Sensor 1: Living room / Balkon
   slots[0].valid = true;
   slots[0].temperature_c = 19.4f;
-  slots[0].humidity_pct = 54;
+  slots[0].humidity_pct = dry ? 31 : 54;
   slots[0].battery_pct = 95;
   slots[0].rssi = -58;
   slots[0].packet_count = 412;
@@ -196,6 +198,8 @@ inline void renderScene(
   info.ventilate = ventilate;
   // Tile badges from the default limit (60 %RH): the humid sensor 2 shows the "V" badge.
   info.ventilate_tiles = VentilateLatch::update(0, onboard, slots, MAX_SWITCHBOT_SENSORS, now_ms, DeviceConfig::DEFAULT_VENTILATE_LIMIT_RH);
+  // The dry air badge needs a limit; the default is off, so the scene uses 35 %RH.
+  info.dry_tiles = DryLatch::update(0, onboard, slots, MAX_SWITCHBOT_SENSORS, now_ms, dry ? 35 : DeviceConfig::DEFAULT_DRY_ALERT_LIMIT_RH);
   info.sensor_battery_latch = SensorBatteryLatch::update(0, slots, MAX_SWITCHBOT_SENSORS, now_ms, DeviceConfig::DEFAULT_SENSOR_BATTERY_LIMIT_PCT);
   info.config_from_sd = true;
   info.config_rejected = 2; // two rejected config.ini lines

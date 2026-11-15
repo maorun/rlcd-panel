@@ -80,7 +80,7 @@ The panel renders five views. The `KEY` button on `GPIO18` (active low, internal
 
 ![Dashboard view](docs/display_preview_dashboard.png)
 
-One to six climate tiles: the onboard `SHTC3` and up to five external sensors. A slot gets a tile when it holds a reading, has a fixed MAC (`slotN_mac`) or has a name (`slotN_name`). The grid adapts to the tile count: one tile fills the area, two tiles stand side by side, three tiles are one wide tile above two, four tiles are a 2x2 grid, five tiles are two above three narrow tiles, and six tiles are a 2x3 grid. Each tile shows temperature, humidity, battery, and 24-hour trend curves (the small tiles show the humidity curve, the large tiles also show the temperature curve). A `STALE` badge marks a SwitchBot sensor without a recent packet. The header shows the title, the clock, and the battery level of the panel. This is the default view after a power-on.
+One to six climate tiles: the onboard `SHTC3` and up to five external sensors. A slot gets a tile when it holds a reading, has a fixed MAC (`slotN_mac`) or has a name (`slotN_name`). The grid adapts to the tile count: one tile fills the area, two tiles stand side by side, three tiles are one wide tile above two, four tiles are a 2x2 grid, five tiles are two above three narrow tiles, and six tiles are a 2x3 grid. Each tile shows temperature, humidity, battery, and 24-hour trend curves (the small tiles show the humidity curve, the large tiles also show the temperature curve). A `STALE` badge marks a SwitchBot sensor without a recent packet. A tile shows the inverted badge `V` for humid air (`ventilate_limit_rh`) and the inverted badge `D` for dry air. The key `dry_alert_limit_rh` (0 is off, else 20 to 45 %RH) sets the `D` badge at or below the limit and releases it 3 %RH above. Only tiles in `climate_alert_tiles` count, and an empty or stale tile shows no badge. The badge has no chime. The header shows the title, the clock, and the battery level of the panel. This is the default view after a power-on.
 
 | 1 tile | 2 tiles | 6 tiles |
 |---|---|---|
@@ -219,6 +219,8 @@ temp_unit=C
 chime_repeat_h=0
 # Feels-like temperature in C at which the heat alert starts: 0 is off, else 27 to 45 (releases 2 C below)
 heat_alert_limit_c=0
+# Humidity in %RH at or below which a tile shows the dry air badge D: 0 is off, else 20 to 45 (releases 3 %RH above, no chime)
+dry_alert_limit_rh=0
 # BLE telemetry of the four climate tiles after each scan: 0 is off, 1 is on (a low battery alert and the empty battery protection skip it)
 ble_broadcast_enabled=0
 # Tiles of the freezer and mold alerts: bit 0 onboard, bits 1 to 5 slots 1 to 5 (0 to 63)

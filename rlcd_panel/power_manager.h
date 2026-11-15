@@ -16,6 +16,7 @@
 #include "sd_logger.h"
 #include "shtc3_sensor.h"
 #include "sparkline.h"
+#include "dry_latch.h"
 #include "ventilate_latch.h"
 #include "switchbot_ble.h"
 
@@ -93,6 +94,7 @@ struct PersistentState {
   DailyLogState daily;       // local day of the last handled daily summary
   bool muted = false;        // true: alerts stay silent
   uint8_t ventilate_tiles = 0; // ventilation badge latch, bit 0 onboard, bits 1..5 slots (VentilateLatch)
+  uint8_t dry_tiles = 0;       // dry air badge latch, bit 0 onboard, bits 1..5 slots (DryLatch)
   uint8_t sensor_battery_latch = 0; // low battery latch, bits 0..4 are the registry slots (SensorBatteryLatch)
   uint32_t last_chime_ms = 0; // clock value of the last chime or alert rising edge (chime_repeat_h)
   uint8_t alert_mask = ALERT_NONE; // alerts active in the last wake cycle (hysteresis latch)
@@ -180,7 +182,7 @@ struct PersistentState {
     }
   }
 
-  // Clears the reading, both 24-hour histories and the battery and ventilation latches of slot `index`.
+  // Clears the reading, both 24-hour histories and the battery, ventilation and dry air latches of slot `index`.
   void resetSlot(size_t index) {
     if (index >= MAX_SWITCHBOT_SENSORS) {
       return;
@@ -188,6 +190,7 @@ struct PersistentState {
     registry.clearSlot(index);
     sensor_battery_latch = static_cast<uint8_t>(sensor_battery_latch & ~(1u << index));
     ventilate_tiles = static_cast<uint8_t>(ventilate_tiles & ~(2u << index));
+    dry_tiles = static_cast<uint8_t>(dry_tiles & ~(2u << index));
     history.slots[1 + index].clear();
     history.temperatures[1 + index].clear();
     reception.clear(index);
@@ -318,7 +321,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 53;
+  static constexpr uint8_t STATE_VERSION = 54;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -351,8 +354,8 @@ public:
   static constexpr size_t REJECTS_SIZE = 1 + ConfigRejects::MAX_LINES * 2;
   // The offset arrays keep one entry for each of the five slots. Each slot has offset keys.
   // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
-  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, ventilate limit, sensor battery limit, display invert, climate alert tiles, battery offset (int16), slot release hours, night wake interval (uint16), temperature unit (one byte, 'C' or 'F'), chime repeat hours, heat alert limit, BLE broadcast enabled, BLE console, RH offset (float), one temperature offset and one RH offset for each slot (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
-  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 2 * DeviceConfig::SLOT_COUNT * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
+  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, ventilate limit, sensor battery limit, display invert, climate alert tiles, battery offset (int16), slot release hours, night wake interval (uint16), temperature unit (one byte, 'C' or 'F'), chime repeat hours, heat alert limit, dry alert limit, BLE broadcast enabled, BLE console, RH offset (float), one temperature offset and one RH offset for each slot (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
+  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 2 * DeviceConfig::SLOT_COUNT * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
   // Header: magic, version, mode, chart sensor, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -366,7 +369,9 @@ public:
   static constexpr size_t FRAME_SIZE = FrameRefresh::SERIALIZED_SIZE;
   // BLE reception trailer (just before the checksum): for each registry slot a 24-bit mask (3 bytes, little-endian) and the scan count.
   static constexpr size_t RECEPTION_SIZE = ReceptionHistory::SERIALIZED_SIZE;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + 4;
+  // Dry air badge latch (one byte, bits 0..5, just before the checksum).
+  static constexpr size_t DRY_SIZE = 1;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -623,6 +628,7 @@ public:
     out[pos++] = static_cast<uint8_t>(state.config.temp_unit);
     out[pos++] = state.config.chime_repeat_h;
     out[pos++] = state.config.heat_alert_limit_c;
+    out[pos++] = state.config.dry_alert_limit_rh;
     out[pos++] = state.config.ble_broadcast_enabled;
     out[pos++] = state.config.ble_console;
     {
@@ -686,6 +692,7 @@ public:
       out[pos++] = static_cast<uint8_t>((m >> 16) & 0xFF);
       out[pos++] = state.reception.scans(i);
     }
+    out[pos++] = static_cast<uint8_t>(state.dry_tiles & DryLatch::ALL_MASK);
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -959,6 +966,7 @@ public:
     s.config.temp_unit = static_cast<char>(data[pos++]);
     s.config.chime_repeat_h = data[pos++];
     s.config.heat_alert_limit_c = data[pos++];
+    s.config.dry_alert_limit_rh = data[pos++];
     s.config.ble_broadcast_enabled = data[pos++];
     s.config.ble_console = data[pos++];
     s.config.usb_temp_offset_c = static_cast<float>(static_cast<int8_t>(data[pos++])) / 10.0f;
@@ -1035,6 +1043,10 @@ public:
         return false; // a count above 24 or a mask beyond the counted scans is corrupt
       }
       pos += 4;
+    }
+    s.dry_tiles = data[pos++];
+    if ((s.dry_tiles & ~DryLatch::ALL_MASK) != 0) {
+      return false;
     }
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       s.registry.setFixedMac(i, s.config.hasSlotMac(i) ? s.config.slot_mac[i] : nullptr);
