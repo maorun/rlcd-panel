@@ -17,7 +17,7 @@ struct DeviceConfig {
   static constexpr float MIN_RH_OFFSET_PCT = -10.0f;
   static constexpr float MAX_RH_OFFSET_PCT = 10.0f;
   static constexpr size_t SLOT_COUNT = 5; // SwitchBot and BTHome registry slots
-  static constexpr size_t OFFSET_SLOT_COUNT = 3; // slots 1 to 3 have offset keys
+  static constexpr size_t OFFSET_SLOT_COUNT = 5; // slots 1 to 5 have offset keys
   static constexpr float DEFAULT_SLOT_TEMP_OFFSET_C = 0.0f;
   static constexpr float MIN_SLOT_TEMP_OFFSET_C = -5.0f;
   static constexpr float MAX_SLOT_TEMP_OFFSET_C = 5.0f;
@@ -101,7 +101,7 @@ struct DeviceConfig {
 
   float temp_offset_c = DEFAULT_TEMP_OFFSET_C;
   float rh_offset_pct = DEFAULT_RH_OFFSET_PCT; // added to the onboard humidity, result clamped to 0..100 %RH
-  // Offsets of the registry slots 1 to 3 (keys slot1_* to slot3_*); slots 4 and 5 keep 0, added to the decoded value of the
+  // Offsets of the registry slots 1 to 5 (keys slot1_* to slot5_*), added to the decoded value of the
   // slot by SwitchBotRegistry::calibrated(). The humidity result is clamped to 0..100 %RH.
   float slot_temp_offset_c[SLOT_COUNT] = {DEFAULT_SLOT_TEMP_OFFSET_C, DEFAULT_SLOT_TEMP_OFFSET_C,
                                           DEFAULT_SLOT_TEMP_OFFSET_C, DEFAULT_SLOT_TEMP_OFFSET_C,
@@ -320,7 +320,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 4096;
-  static constexpr size_t KEY_COUNT = 44;
+  static constexpr size_t KEY_COUNT = 48;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -338,7 +338,8 @@ public:
       "slot_release_h", "night_wake_interval_s", "temp_unit",
       "chime_repeat_h", "heat_alert_limit_c", "ble_broadcast_enabled",
       "ble_console", "slot4_name", "slot5_name",
-      "slot4_mac", "slot5_mac",
+      "slot4_mac", "slot5_mac", "slot4_temp_offset_c",
+      "slot5_temp_offset_c", "slot4_rh_offset_pct", "slot5_rh_offset_pct",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -586,23 +587,26 @@ private:
     return false;
   }
 
-  // Keys slot1_temp_offset_c to slot3_temp_offset_c (index 12..14) and slot1_rh_offset_pct to
-  // slot3_rh_offset_pct (index 15..17). Returns false for any other key.
+  // Keys slot1_temp_offset_c to slot3_temp_offset_c (index 12..14), slot1_rh_offset_pct to
+  // slot3_rh_offset_pct (index 15..17), slot4_temp_offset_c and slot5_temp_offset_c (index 44, 45) and
+  // slot4_rh_offset_pct and slot5_rh_offset_pct (index 46, 47). Returns false for any other key.
   static bool parseSlotKey(const char* key, size_t key_len, const char* val, size_t val_len, DeviceConfig& cfg,
                            bool& ok, int& index) {
     static const char* const temp_keys[DeviceConfig::OFFSET_SLOT_COUNT] = {"slot1_temp_offset_c", "slot2_temp_offset_c",
-                                                                    "slot3_temp_offset_c"};
+                                                                    "slot3_temp_offset_c", "slot4_temp_offset_c",
+                                                                    "slot5_temp_offset_c"};
     static const char* const rh_keys[DeviceConfig::OFFSET_SLOT_COUNT] = {"slot1_rh_offset_pct", "slot2_rh_offset_pct",
-                                                                  "slot3_rh_offset_pct"};
+                                                                  "slot3_rh_offset_pct", "slot4_rh_offset_pct",
+                                                                  "slot5_rh_offset_pct"};
     for (size_t i = 0; i < DeviceConfig::OFFSET_SLOT_COUNT; ++i) {
       if (keyIs(key, key_len, temp_keys[i])) {
-        index = static_cast<int>(12 + i);
+        index = i < 3 ? static_cast<int>(12 + i) : static_cast<int>(41 + i); // 44, 45
         ok = parseFloatIn(val, val_len, DeviceConfig::MIN_SLOT_TEMP_OFFSET_C,
                           DeviceConfig::MAX_SLOT_TEMP_OFFSET_C, cfg.slot_temp_offset_c[i]);
         return true;
       }
       if (keyIs(key, key_len, rh_keys[i])) {
-        index = static_cast<int>(15 + i);
+        index = i < 3 ? static_cast<int>(15 + i) : static_cast<int>(43 + i); // 46, 47
         ok = parseFloatIn(val, val_len, DeviceConfig::MIN_SLOT_RH_OFFSET_PCT,
                           DeviceConfig::MAX_SLOT_RH_OFFSET_PCT, cfg.slot_rh_offset_pct[i]);
         return true;
@@ -764,7 +768,7 @@ private:
 // reads the text back to the same values. The text holds no Wi-Fi setting: DeviceConfig has none.
 class DeviceConfigText {
 public:
-  static constexpr size_t MAX_SIZE = 1152; // worst case with every key at its longest value: 1021 bytes
+  static constexpr size_t MAX_SIZE = 1152; // worst case with every key at its longest value: 1123 bytes
 
   // Returns the text length, or 0 with an empty string when `cap` is too small.
   static size_t format(const DeviceConfig& cfg, char* out, size_t cap) {

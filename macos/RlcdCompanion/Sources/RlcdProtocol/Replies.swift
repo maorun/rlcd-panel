@@ -397,7 +397,7 @@ public enum ConsoleCommand: Equatable {
             return "PATTERN \(n)"
         case let .mute(on): return on ? "MUTE 1" : "MUTE 0"
         case let .calib(reference):
-            guard (0...3).contains(reference) else { return nil }
+            guard (0...5).contains(reference) else { return nil }
             return "CALIB \(reference)"
         case let .set(key, value):
             let text = "SET \(key)=\(value)"

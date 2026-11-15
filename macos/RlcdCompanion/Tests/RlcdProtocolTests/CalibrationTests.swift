@@ -37,6 +37,18 @@ import Testing
         #expect(r.proposals[0].value == "-0.4")
     }
 
+    @Test func proposesSlots4And5() throws {
+        let r = try CalibrationReply.parse(lines: [
+            "REFERENCE slot1",
+            "SENSOR slot5 hours=8 temp_offset=0.0 rh_offset=0.0 temp_diff=0.5 rh_diff=-3.0",
+            "slot5_temp_offset_c=-0.5",
+            "slot5_rh_offset_pct=3.0",
+        ])
+        #expect(r.proposals.map(\.key) == ["slot5_temp_offset_c", "slot5_rh_offset_pct"])
+        #expect(ConfigSchema.validate(key: "slot5_temp_offset_c", value: "-0.5") == nil)
+        #expect(ConfigSchema.validate(key: "slot4_rh_offset_pct", value: "11") != nil)
+    }
+
     @Test func acceptsFrameLines() throws {
         let r = try CalibrationReply.parse(lines: ["BEGIN CALIB"] + Self.good)
         #expect(r.reference == "onboard")
@@ -129,7 +141,9 @@ import Testing
     }
 
     @Test func calibCommandLine() {
-        #expect(ConsoleCommand.calib(4).line == nil)
+        #expect(ConsoleCommand.calib(6).line == nil)
+        #expect(ConsoleCommand.calib(5).line == "CALIB 5")
+        #expect(ConsoleCommand.calib(4).line == "CALIB 4")
         #expect(ConsoleCommand.calib(-1).line == nil)
         #expect(ConsoleCommand.calib(0).line == "CALIB 0")
         #expect(ConsoleCommand.calib(2).line == "CALIB 2")

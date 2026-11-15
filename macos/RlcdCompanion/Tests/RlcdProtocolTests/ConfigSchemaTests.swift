@@ -29,7 +29,7 @@ struct ConfigSchemaTests {
         let (active, commented) = try templateKeys()
         let template = Set(active.keys).union(commented)
         #expect(Set(ConfigSchema.keys) == template)
-        #expect(ConfigSchema.keys.count == 44)
+        #expect(ConfigSchema.keys.count == 48)
         #expect(Set(ConfigSchema.keys).count == ConfigSchema.keys.count)
         for e in ConfigSchema.entries {
             if let v = active[e.key] {
@@ -301,6 +301,8 @@ struct ConfigSchemaTests {
             "ventilate_limit_rh": (50, 80), "sensor_battery_limit_pct": (0, 50),
             "slot1_temp_offset_c": (-5, 5), "slot2_temp_offset_c": (-5, 5), "slot3_temp_offset_c": (-5, 5),
             "slot1_rh_offset_pct": (-10, 10), "slot2_rh_offset_pct": (-10, 10), "slot3_rh_offset_pct": (-10, 10),
+            "slot4_temp_offset_c": (-5, 5), "slot5_temp_offset_c": (-5, 5),
+            "slot4_rh_offset_pct": (-10, 10), "slot5_rh_offset_pct": (-10, 10),
             "slot_release_h": (0, 168), "night_wake_interval_s": (60, 1800), "chime_repeat_h": (0, 24),
             "heat_alert_limit_c": (27, 45), "ble_broadcast_enabled": (0, 1), "ble_console": (0, 2),
         ]
