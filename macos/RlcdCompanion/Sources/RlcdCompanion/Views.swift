@@ -196,7 +196,7 @@ struct MainView: View {
                 Button(model.consoleConnected ? "Disconnect" : "Connect console") {
                     model.consoleConnected ? model.disconnectConsole() : model.connectConsole()
                 }
-                Button("Read STATUS, HISTORY, EVENTS, CONFIG") { model.refresh() }
+                Button("Read STATUS, HISTORY, WEEK, EVENTS, CONFIG") { model.refresh() }
                     .disabled(!model.consoleConnected)
             }
             if let m = model.message { Text(m).font(.caption).foregroundStyle(.orange) }
@@ -207,6 +207,7 @@ struct MainView: View {
             if let s = model.status { statusView(s) }
             DiagnosticsView(model: model)
             if !model.history.isEmpty { chartsView }
+            if !model.week.isEmpty { WeekChartView(rows: model.week) }
             if let c = model.config { configView(c) }
             ConfigEditorView(model: model)
             if !model.events.isEmpty { eventsView }

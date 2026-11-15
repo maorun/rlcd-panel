@@ -87,3 +87,42 @@ struct ClimateChartView: View {
         }
     }
 }
+
+/// Seven bars (daily minimum to maximum) for each sensor from the `WEEK` reply. Sends no console command.
+struct WeekChartView: View {
+    let rows: [WeekRow]
+
+    private func label(_ r: WeekRow) -> String { r.date.isEmpty ? "day \(r.day)" : String(r.date.suffix(5)) }
+
+    private func chart(_ title: String, _ sensor: Int, _ low: KeyPath<WeekRow, Double?>, _ high: KeyPath<WeekRow, Double?>) -> some View {
+        let days = rows.filter { $0.sensor == sensor && $0[keyPath: low] != nil && $0[keyPath: high] != nil }
+        return VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            if days.isEmpty {
+                Text("No data").font(.caption2).foregroundStyle(.secondary)
+            } else {
+                Chart(days, id: \.self) { r in
+                    BarMark(x: .value("Day", label(r)), yStart: .value("Min", r[keyPath: low] ?? 0), yEnd: .value("Max", r[keyPath: high] ?? 0))
+                }
+                .chartXScale(domain: days.sorted { $0.day > $1.day }.map(label))
+                .chartYScale(domain: .automatic(includesZero: false))
+                .frame(height: 110)
+            }
+        }
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Last 7 days").font(.subheadline)
+            ForEach(0..<ClimateLog.sensorNames.count, id: \.self) { sensor in
+                if rows.contains(where: { $0.sensor == sensor && ($0.temperatureMinC != nil || $0.humidityMinPct != nil) }) {
+                    Text(ClimateLog.sensorNames[sensor]).font(.headline)
+                    HStack(alignment: .top) {
+                        chart("Temperature (°C)", sensor, \.temperatureMinC, \.temperatureMaxC)
+                        chart("Humidity (%RH)", sensor, \.humidityMinPct, \.humidityMaxPct)
+                    }
+                }
+            }
+        }
+    }
+}

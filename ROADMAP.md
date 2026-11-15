@@ -29,11 +29,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Console command WEEK and seven-day chart in the macOS app
-  - Rank: [Total: 27, Use: 6, Setup: 2, Harmony: 9, Safety: 10, Effort: M]
-  - Location: rlcd_panel/serial_console.h, rlcd_panel/sparkline.h, rlcd_panel/rlcd_panel.ino, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift, tests/test_firmware_logic.cpp, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift
-  - Goal: The `WEEK_CHART` view shows `WeekHistory` on the panel only. Add the console command `WEEK` (`SerialConsoleRunner::showWeek`). It replies `BEGIN WEEK`, the header `sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct`, one row for each of the 7 days of each of the 6 sensors (day 0 is the day before the stamp, the date is `YYYY-MM-DD` from the stamp), and the `CRC32` line. A gap day gives empty value fields. Without a stamp the date fields are empty. `WEEK` with text gives `ERR BAD_ARG`. The command reads only the RTC copy, needs no card, and runs on USB and BLE. `WeekReply` in the macOS app parses the reply (`nil` for an empty field, `ParseError.badLine` for a wrong column count) and the climate chart window shows the 7 bars of each sensor with Swift Charts.
-  - Acceptance test: Host tests assert the header, 42 rows, the date of day 0 and day 6 from a known stamp, empty fields for a gap day and for a missing stamp, the values in 0.5 steps, `ERR BAD_ARG` for `WEEK 1`, the `CRC32` line, and no change of `PersistentState`. Swift `ReplyTests` parse a `WEEK` sample, give `nil` for a gap and throw `ParseError.badLine` for 6 columns.
 
 ## Rules for ranking
 

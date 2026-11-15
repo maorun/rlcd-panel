@@ -13156,6 +13156,94 @@ void testSerialScanDroppedRowAndUnchangedRegistry() {
   assert(shortSink.out.size() == 20 && shortSink.out.find("CRC32") == std::string::npos);
 }
 
+void testSerialWeekParserAndGate() {
+  SerialCommand cmd;
+  assert(parseText("WEEK", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::WEEK);
+  assert(parseText("WEEK\r\n", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::WEEK);
+  assert(parseText("WEEK 1", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("WEEK ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("WEEKS", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("WEEK", cmd) == SerialParseStatus::OK);
+  assert(std::string(BleConsoleBridge::gate(cmd, 0)).empty()); // read command: allowed on BLE at each level
+  assert(std::string(BleConsoleBridge::gate(cmd, 1)).empty());
+  assert(std::string(BleConsoleBridge::gate(cmd, 2)).empty());
+  FakeConsoleStorage storage;
+  FakeSink sink;
+  TestRunner::execute(storage, sink, cmd); // WEEK does not mount the card
+  assert(sink.out.empty() && storage.mounts == 0 && storage.unmounts == 0);
+}
+
+void testSerialWeekRowsDatesAndCrc() {
+  const ClimateHistory history = weekKnownHistory();
+  PersistentState state;
+  assert(state.week.advance(weekTime(2026, 11, 14), history, true));
+  assert(state.week.advance(weekTime(2026, 11, 15), history, true)); // day 0 is 2026-11-14 for sensor 1
+  uint8_t before[PowerManager::SERIALIZED_SIZE];
+  uint8_t after[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(state, before, sizeof(before)));
+  FakeSink sink;
+  TestRunner::showWeek(sink, state.week);
+  assert(PowerManager::serialize(state, after, sizeof(after)));
+  assert(memcmp(before, after, sizeof(before)) == 0); // the reply changes no state
+  const std::vector<std::string> lines = splitLines(sink.out);
+  assert(lines.size() == 2 + 42 + 1);
+  assert(lines[0] == "BEGIN WEEK");
+  assert(lines[1] == "sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct");
+  assert(lines[2 + 1 * 7 + 0] == "1,0,2026-11-14,10.0,20.0,40.0,60.0"); // 0.5 steps
+  assert(lines[2 + 1 * 7 + 6].rfind("1,6,2026-11-08,", 0) == 0);
+  assert(lines[2 + 0] == "0,0,2026-11-14,,,,"); // gap day: empty values, date stays
+  const size_t crc_at = sink.out.rfind("CRC32 ");
+  assert(crc_at != std::string::npos);
+  const std::string body = sink.out.substr(0, crc_at);
+  assert(sink.out == body + historyCrcLine(body) + "\n");
+  for (size_t limit = 0; limit < crc_at; ++limit) {
+    FakeSink cut;
+    cut.limit = limit;
+    TestRunner::showWeek(cut, state.week);
+    assert(cut.out.size() == limit && cut.out.find("CRC32") == std::string::npos);
+  }
+}
+
+void testSerialWeekDatesCrossYearBoundary() {
+  const ClimateHistory history = weekKnownHistory();
+  WeekHistory week;
+  assert(week.advance(weekTime(2026, 1, 3), history, true));
+  FakeSink sink;
+  TestRunner::showWeek(sink, week);
+  const std::vector<std::string> lines = splitLines(sink.out);
+  assert(lines[2].rfind("0,0,2026-01-02,", 0) == 0);
+  assert(lines[2 + 6].rfind("0,6,2025-12-27,", 0) == 0);
+}
+
+void testSerialWeekOverBleBridge() {
+  BleConsoleBridge bridge;
+  bridge.setLevel(1);
+  assert(bridge.onConnect());
+  SerialCommand command;
+  const char* reply = "";
+  const std::string text = "WEEK\n";
+  BleConsoleBridge::Action action = BleConsoleBridge::Action::NONE;
+  for (const char c : text) {
+    action = bridge.feed(static_cast<uint8_t>(c), command, reply);
+  }
+  assert(action == BleConsoleBridge::Action::RUN && command.kind == SerialCommandKind::WEEK);
+  action = BleConsoleBridge::Action::NONE;
+  for (const char c : std::string("WEEK 1\n")) {
+    action = bridge.feed(static_cast<uint8_t>(c), command, reply);
+  }
+  assert(action == BleConsoleBridge::Action::REPLY && std::string(reply) == "ERR BAD_ARG\n");
+}
+
+void testSerialWeekWithoutStamp() {
+  WeekHistory week;
+  FakeSink sink;
+  TestRunner::showWeek(sink, week);
+  const std::vector<std::string> lines = splitLines(sink.out);
+  assert(lines.size() == 2 + 42 + 1);
+  assert(lines[2] == "0,0,,,,,");
+  assert(lines[2 + 41] == "5,6,,,,,");
+}
+
 void testSerialScreenParser() {
   SerialCommand cmd;
   assert(parseText("SCREEN", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SCREEN);
@@ -19573,6 +19661,11 @@ int main() {
   testBatteryRuntimeDaysFormat();
   testBatteryRuntimeFlatCurve();
   testSerialScreenParser();
+  testSerialWeekParserAndGate();
+  testSerialWeekRowsDatesAndCrc();
+  testSerialWeekWithoutStamp();
+  testSerialWeekDatesCrossYearBoundary();
+  testSerialWeekOverBleBridge();
   testSerialScreenReply();
   testScanCompletionStopsWhenAllReported();
   testScanCompletionOneSlotMissing();

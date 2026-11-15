@@ -191,6 +191,49 @@ public enum HistoryReply {
     }
 }
 
+/// One `WEEK` row: the daily minimum and maximum of one sensor. Day 0 is the day before the stamp.
+/// `date` is empty without a stamp. A gap day has `nil` values.
+public struct WeekRow: Hashable {
+    public let sensor: Int
+    public let day: Int
+    public let date: String
+    public let temperatureMinC: Double?
+    public let temperatureMaxC: Double?
+    public let humidityMinPct: Double?
+    public let humidityMaxPct: Double?
+}
+
+/// An empty date (no stamp) or `YYYY-MM-DD`.
+private func isWeekDate(_ s: String) -> Bool {
+    if s.isEmpty { return true }
+    let u = Array(s.utf8)
+    guard u.count == 10, u[4] == 0x2D, u[7] == 0x2D else { return false }
+    return u.enumerated().allSatisfy { i, b in i == 4 || i == 7 || (0x30...0x39).contains(b) }
+}
+
+public enum WeekReply {
+    public static let header = "sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct"
+
+    /// `lines` hold `BEGIN WEEK`, the header and the rows.
+    public static func parse(lines: [String]) throws -> [WeekRow] {
+        guard lines.first == "BEGIN WEEK" else { throw ParseError.missingLine("BEGIN WEEK") }
+        guard lines.count >= 2, lines[1] == header else { throw ParseError.missingLine(header) }
+        var seen = Set<Int>()
+        return try lines.dropFirst(2).map { line in
+            let c = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+            guard c.count == 7, let s = Int(c[0]), let d = Int(c[1]),
+                  (0...5).contains(s), (0...6).contains(d), isWeekDate(c[2]),
+                  seen.insert(s * 7 + d).inserted else { throw ParseError.badLine(line) }
+            let row = WeekRow(sensor: s, day: d, date: c[2], temperatureMinC: number(c[3]), temperatureMaxC: number(c[4]),
+                              humidityMinPct: number(c[5]), humidityMaxPct: number(c[6]))
+            // The firmware sends each value pair or none; a minimum above the maximum is a bad row.
+            if let lo = row.temperatureMinC, let hi = row.temperatureMaxC, lo > hi { throw ParseError.badLine(line) }
+            if let lo = row.humidityMinPct, let hi = row.humidityMaxPct, lo > hi { throw ParseError.badLine(line) }
+            return row
+        }
+    }
+}
+
 /// One `EVENTS` row. `time` is empty when the RTC time was invalid.
 public struct EventRow: Equatable {
     public let time: String
@@ -360,7 +403,7 @@ public struct ConfigReply: Equatable {
 
 /// The console commands that the app may send. The app sends one only after a user action.
 public enum ConsoleCommand: Equatable {
-    case status, history, events, config, version, scan, screen
+    case status, history, events, week, config, version, scan, screen
     case list
     case dump(String)
     case time
@@ -388,6 +431,7 @@ public enum ConsoleCommand: Equatable {
         case .status: return "STATUS"
         case .history: return "HISTORY"
         case .events: return "EVENTS"
+        case .week: return "WEEK"
         case .config: return "CONFIG"
         case .version: return "VERSION"
         case .scan: return "SCAN"
