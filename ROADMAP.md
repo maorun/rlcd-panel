@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Back up and restore `config.ini` in the macOS app
-  - Rank: [Total: 31, Use: 5, Setup: 10, Harmony: 8, Safety: 8, Effort: S]
-  - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigBackup.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/ConfigEditorView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ConfigBackupTests.swift` (new)
-  - Goal: Save the values of the last `ConfigReply` as a `config.ini` text file through `NSSavePanel`. Write the keys in `ConfigSchema` order, one `key=value` line each, with LF line ends and without CR characters. Load a backup file through `NSOpenPanel`. Parse it with the same rules as `docs/config.example.ini` (comment lines with `#` or `;`, blank lines, unknown keys ignored). Validate each value with `ConfigSchema.validate(key:value:)`. Show the rejected lines and the line numbers. Show the `ConfigSchema.diff` against the current values before the restore. Send only the changed keys through `ConfigBatch`. Refuse a file above 4096 bytes. Do not write Wi-Fi credentials.
-  - Acceptance test: `ConfigBackupTests` assert that the output of a backup parses back to the same values, that the output has no CR character, and that a file above 4096 bytes is refused. A line `wake_interval_s=10` is a rejected line with its line number. A backup equal to the current values gives an empty batch. `docs/config.example.ini` parses without a rejected line. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-
 - [ ] Add temperature and humidity offsets for slots 4 and 5
   - Rank: [Total: 30, Use: 6, Setup: 9, Harmony: 8, Safety: 7, Effort: M]
   - Location: `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `docs/config.example.ini`, `tests/test_firmware_logic.cpp`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ConfigSchemaTests.swift`, `AGENTS.md`
