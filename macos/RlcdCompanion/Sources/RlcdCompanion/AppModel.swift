@@ -31,6 +31,10 @@ final class AppModel: ConsoleLinkDelegate {
     var diagnostics: DiagnosticsReply?
     var version: VersionReply?
     var scanResult: ScanReply?
+    var calibration: CalibrationReply?
+    var calibrationReference = 0
+    /// Proposal keys that the user selected.
+    var calibrationSelection: Set<String> = []
     var archiveFiles: [LogFile] = []
     var archiveSelection: Set<String> = []
     var archiveFolder: URL?
@@ -210,6 +214,7 @@ final class AppModel: ConsoleLinkDelegate {
         diagnostics = nil
         version = nil
         scanResult = nil
+        calibration = nil
         clearArchive()
         panelTime = nil
         panelOffsetSeconds = nil
@@ -225,6 +230,7 @@ final class AppModel: ConsoleLinkDelegate {
 
     func disconnectConsole() {
         scanResult = nil
+        calibration = nil
         clearArchive()
         panelTime = nil
         panelOffsetSeconds = nil
@@ -237,6 +243,7 @@ final class AppModel: ConsoleLinkDelegate {
 
     func selectTransport(_ t: Transport) {
         scanResult = nil
+        calibration = nil
         clearArchive()
         transport = t
         resetLink()
@@ -270,6 +277,7 @@ final class AppModel: ConsoleLinkDelegate {
         guard let b = batch else { return }
         batchSummary = b.summary + " (no reply)"
         batch = nil
+        clearCalibration()
     }
 
     /// Sends the four read commands one after the other. Runs only on the user's button press.
@@ -390,6 +398,40 @@ final class AppModel: ConsoleLinkDelegate {
         sendNext()
     }
 
+    /// Calibration changes of the selected proposals against the last `CONFIG` reply.
+    var calibrationChanges: [ConfigChange] {
+        calibration?.changes(selecting: calibrationSelection, current: config?.values) ?? []
+    }
+
+    private func clearCalibration() {
+        calibration = nil
+        calibrationSelection = []
+    }
+
+    /// Reads the histories comparison of `CALIB N`. Runs only on the user's button press; the firmware reads the RTC copy.
+    func calibrate(reference: Int) {
+        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        guard ConsoleCommand.calib(reference).line != nil else { message = "Reference must be 0 to 3"; return }
+        message = nil
+        batchSummary = nil // an old batch result must not look like the result of this run
+        calibration = nil
+        calibrationSelection = []
+        queue = [.calib(reference)]
+        sendNext()
+    }
+
+    /// Sends the selected proposals through `ConfigBatch` (`SET` commands, then `CONFIG`).
+    func applyCalibration() {
+        let changes = calibrationChanges
+        guard !changes.isEmpty else { message = "No proposal selected"; return }
+        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        // No canSet gate: the firmware answers ERR READ_ONLY on BLE with ble_console 1, and the batch summary shows it.
+        message = nil
+        batchSummary = nil
+        batch = ConfigBatch(changes: changes)
+        sendNextBatchCommand()
+    }
+
     /// `LIST` and `DUMP` run only on the USB serial link; the firmware replies `ERR NOT_OVER_BLE` on BLE.
     var canArchive: Bool { consoleConnected && transport == .usb }
 
@@ -493,6 +535,7 @@ final class AppModel: ConsoleLinkDelegate {
         if b.isFinished {
             batchSummary = b.summary
             batch = nil
+            clearCalibration() // the stored hours hold the old offsets, so a new CALIB must follow
             return
         }
         batch = b
@@ -502,6 +545,7 @@ final class AppModel: ConsoleLinkDelegate {
             b = batch ?? b
             batchSummary = b.summary + " (link lost)"
             batch = nil
+            clearCalibration()
         }
     }
 
@@ -558,6 +602,7 @@ final class AppModel: ConsoleLinkDelegate {
                     finishDownload(cmd, text: text)
                 }
                 if cmd == .list { archiveFiles = [] }
+                if case .calib = cmd { calibration = nil }
                 if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
                 batch?.receive(status: text)
                 if text.hasPrefix("ERR"), !keepQueue { queue.removeAll() }
@@ -590,6 +635,11 @@ final class AppModel: ConsoleLinkDelegate {
             case let (.scan, .frame(lines)):
                 scanResult = nil // a reply that fails to parse must not leave the old rows
                 scanResult = try ScanReply.parse(lines: lines)
+            case let (.calib, .frame(lines)):
+                calibration = nil
+                let parsed = try CalibrationReply.parse(lines: lines)
+                calibration = parsed
+                calibrationSelection = Set(parsed.proposals.map(\.key))
             case let (.list, .frame(lines)):
                 archiveFiles = []
                 archiveFiles = try ListReply.parse(lines: lines)

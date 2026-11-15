@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Add a calibration assistant with the `CALIB` command to the macOS app
-  - Rank: [Total: 35, Use: 7, Setup: 10, Harmony: 9, Safety: 9, Effort: M]
-  - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift` (new), `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift` (new)
-  - Goal: The firmware command `CALIB N` (0 onboard, 1 to 3 a slot) compares the 24-hour RTC histories with one reference sensor. It replies `REFERENCE <name>`, one `SENSOR` or `SKIP` line per other sensor, the `key=value` lines for `config.ini`, and a `CRC32` line. The app has no `CALIB` command. Add `ConsoleCommand.calib(Int)` (`nil` outside 0 to 3) and `CalibrationReply.parse(lines:)`. Parse `hours`, `temp_offset`, `rh_offset`, `temp_diff` and `rh_diff` as numbers. Throw `ParseError.badLine` for a bad number and `ParseError.missingLine` without the `REFERENCE` line. Accept only proposed keys that `ConfigSchema.validate(key:value:)` accepts. Show the sensors, the hours and the proposed offsets in `CalibrationView`. Let the user select the proposals. Send them through `ConfigBatch` (`SET` commands, then `CONFIG`). Send `CALIB` only on a user action. On the BLE link with `ble_console` 1, show the firmware error `ERR READ_ONLY` of the `SET` commands.
-  - Acceptance test: `CalibrationTests` parse a recorded `CALIB 0` reply with two `SENSOR` lines and one `SKIP` line and assert each value. A reply without `REFERENCE` throws `missingLine`. A `temp_offset=nan` line throws `badLine`. A proposed key `slot1_temp_offset_c=9.0` (outside -5 to 5) is not in the batch. `ConsoleCommand.calib(4).line` is `nil` and `ConsoleCommand.calib(2).line` is `"CALIB 2"`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass. The C++ host tests stay unchanged and pass.
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 - [ ] Add the console command `MUTE` and a mute toggle in the macOS app
