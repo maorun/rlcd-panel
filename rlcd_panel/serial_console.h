@@ -36,14 +36,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CALIB without a reference, with a reference above 5 or with extra text; BEEP without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SCREEN with extra text
+  BAD_ARG,  // CALIB without a reference, with a reference above 5 or with extra text; BEEP without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SCREEN with extra text; SALT without a reference, with a reference above 5 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '=')
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv or events_v1_YYYY.csv
@@ -55,7 +55,7 @@ constexpr size_t SET_VALUE_SIZE = 41;
 struct SerialCommand {
   SerialCommandKind kind = SerialCommandKind::NONE;
   char file[SdLogCodec::LOG_NAME_SIZE] = {0};
-  uint8_t reference = 0; // CALIB: 0 onboard, 1 to 5 a slot; BEEP: alert bit number 0 to 7; PATTERN: pattern number 0 to 2; MUTE: 0 or 1
+  uint8_t reference = 0; // CALIB and SALT: 0 onboard, 1 to 5 a slot; BEEP: alert bit number 0 to 7; PATTERN: pattern number 0 to 2; MUTE: 0 or 1
   bool time_set = false; // TIME: true for "TIME SET <time>"; `time` then holds the parsed local time
   RtcTime time;
   char set_key[SET_KEY_SIZE] = {0};     // SET: key of DeviceConfigParser::KEYS
@@ -69,7 +69,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..5", "BEEP 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SCAN", "SCREEN", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..5", "SALT 0..5", "BEEP 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SCAN", "SCREEN", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -203,6 +203,15 @@ public:
         return SerialParseStatus::BAD_ARG;
       }
       out.kind = SerialCommandKind::CALIB;
+      out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "SALT")) {
+      // exactly one digit 0 to 5
+      if (len != cmd_len + 2 || line[cmd_len + 1] < '0' || line[cmd_len + 1] > '5') {
+        return SerialParseStatus::BAD_ARG;
+      }
+      out.kind = SerialCommandKind::SALT;
       out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
       return SerialParseStatus::OK;
     }
@@ -668,6 +677,12 @@ struct SerialStatusSnapshot {
 //   CALIB N -> "REFERENCE <name>", one "SENSOR <name> hours=<n> temp_offset=<x> rh_offset=<x> temp_diff=<x> rh_diff=<x>" or
 //   "SKIP <name> hours=<n>" per other sensor, the "key=value" lines to paste into config.ini, then "CRC32 <8 hex digits>"
 //   over all lines before it. showCalib() works on the RTC history: no card access, so execute() ignores CALIB.
+//   SALT N -> "SALT <name> hours=<n> rh_mean=<x> rh_span=<x> temp_mean=<x> reference=<x>" for the last 6 hourly samples of
+//   sensor N (0 onboard, 1 to 5 a slot) in a closed box with saturated sodium chloride, the line "<key>=<value>" (the active
+//   humidity offset plus reference minus mean, clamped to the key range) and "CRC32 <8 hex digits>" over the lines before it.
+//   Fewer than 6 samples give "SKIP <name> hours=<n>", a humidity span above 1.0 %RH gives "UNSTABLE <name> span=<x>" (both
+//   with the CRC32 line), a mean temperature outside 10 to 35 C gives "ERR BAD_TEMP". showSalt() works on the RTC history: no
+//   card access, so execute() ignores SALT.
 //   Any failure -> "ERR <NO_CARD|NOT_FOUND|READ_FAILED>". A read error after BEGIN pads the
 //   payload with zero bytes to the announced count, then sends "ERR READ_FAILED" in place of the
 //   CRC32 line, so the host stays in step with the frame and sees the error.
@@ -762,6 +777,77 @@ public:
                                            prefixes[s], f[1]));
     }
     len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "%s", suggestions));
+    SerialCrc32 crc;
+    crc.update(reinterpret_cast<const uint8_t*>(text), len);
+    if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+      return;
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
+  // Checks one sensor against saturated sodium chloride. The last SALT_HOURS hourly samples must exist in the humidity and
+  // the temperature history. The samples already contain the active offset. The card stays untouched.
+  static void showSalt(Sink& sink, uint8_t reference, const ClimateHistory& history, const DeviceConfig& config) {
+    static const char* const names[ClimateHistory::SLOT_COUNT] = {"onboard", "slot1", "slot2", "slot3", "slot4", "slot5"};
+    static const char* const prefixes[ClimateHistory::SLOT_COUNT] = {"", "slot1_", "slot2_", "slot3_", "slot4_", "slot5_"};
+    if (reference >= ClimateHistory::SLOT_COUNT) {
+      return;
+    }
+    const HumidityHistory& rh = history.slots[reference];
+    const TemperatureHistory& temp = history.temperatures[reference];
+    const size_t hours = rh.size() < temp.size() ? rh.size() : temp.size();
+    char text[256];
+    size_t len = 0;
+    if (hours < SALT_HOURS) {
+      len = static_cast<size_t>(snprintf(text, sizeof(text), "SKIP %s hours=%u\n", names[reference],
+                                         static_cast<unsigned>(hours)));
+    } else {
+      int32_t rh_sum = 0;
+      int32_t temp_sum = 0;
+      int32_t rh_min = rh.at(rh.size() - 1);
+      int32_t rh_max = rh_min;
+      for (size_t k = 0; k < SALT_HOURS; ++k) {
+        const int32_t r = rh.at(rh.size() - 1 - k);
+        rh_sum += r;
+        temp_sum += temp.at(temp.size() - 1 - k);
+        rh_min = r < rh_min ? r : rh_min;
+        rh_max = r > rh_max ? r : rh_max;
+      }
+      const float count = static_cast<float>(SALT_HOURS);
+      const float rh_mean = static_cast<float>(rh_sum) / count; // 0.1 steps
+      const float temp_mean = static_cast<float>(temp_sum) / count / 10.0f;
+      const int32_t span = rh_max - rh_min;
+      const float ref = ClimateMath::saltReferenceRh(temp_mean);
+      if (span > SALT_MAX_SPAN_TENTHS) {
+        char f[12];
+        formatTenths(f, sizeof(f), span);
+        len = static_cast<size_t>(snprintf(text, sizeof(text), "UNSTABLE %s span=%s\n", names[reference], f));
+      } else if (!isfinite(ref)) {
+        send(sink, "ERR BAD_TEMP\n");
+        return;
+      } else {
+        const bool onboard = reference == 0;
+        const float active = onboard ? config.rh_offset_pct : config.slot_rh_offset_pct[reference - 1];
+        const float lo = onboard ? DeviceConfig::MIN_RH_OFFSET_PCT : DeviceConfig::MIN_SLOT_RH_OFFSET_PCT;
+        const float hi = onboard ? DeviceConfig::MAX_RH_OFFSET_PCT : DeviceConfig::MAX_SLOT_RH_OFFSET_PCT;
+        const float ref_tenths = static_cast<float>(lroundf(ref * 10.0f)); // the printed value is the one that counts
+        char f[5][12];
+        formatTenths(f[0], sizeof(f[0]), static_cast<int32_t>(lroundf(rh_mean)));
+        formatTenths(f[1], sizeof(f[1]), span);
+        formatTenths(f[2], sizeof(f[2]), static_cast<int32_t>(lroundf(temp_mean * 10.0f)));
+        formatTenths(f[3], sizeof(f[3]), static_cast<int32_t>(lroundf(ref_tenths)));
+        len = static_cast<size_t>(snprintf(text, sizeof(text),
+                                           "SALT %s hours=%u rh_mean=%s rh_span=%s temp_mean=%s reference=%s\n",
+                                           names[reference], static_cast<unsigned>(SALT_HOURS), f[0], f[1], f[2], f[3]));
+        const int32_t proposal =
+            clampTenths(lroundf(static_cast<float>(tenths(active)) + ref_tenths - rh_mean), lo, hi);
+        formatTenths(f[4], sizeof(f[4]), proposal);
+        len += static_cast<size_t>(
+            snprintf(text + len, sizeof(text) - len, "%srh_offset_pct=%s\n", prefixes[reference], f[4]));
+      }
+    }
     SerialCrc32 crc;
     crc.update(reinterpret_cast<const uint8_t*>(text), len);
     if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
@@ -1293,7 +1379,8 @@ public:
 
   static void execute(Storage& storage, Sink& sink, const SerialCommand& command) {
     if (command.kind == SerialCommandKind::NONE || command.kind == SerialCommandKind::CONFIG ||
-        command.kind == SerialCommandKind::CALIB || command.kind == SerialCommandKind::STATUS ||
+        command.kind == SerialCommandKind::CALIB || command.kind == SerialCommandKind::SALT ||
+        command.kind == SerialCommandKind::STATUS ||
         command.kind == SerialCommandKind::BEEP || command.kind == SerialCommandKind::TIME ||
         command.kind == SerialCommandKind::HISTORY || command.kind == SerialCommandKind::VERSION ||
         command.kind == SerialCommandKind::EVENTS || command.kind == SerialCommandKind::PATTERN ||
@@ -1312,6 +1399,7 @@ public:
       case SerialCommandKind::NONE:
       case SerialCommandKind::CONFIG:
       case SerialCommandKind::CALIB:
+      case SerialCommandKind::SALT:
       case SerialCommandKind::STATUS:
       case SerialCommandKind::BEEP:
       case SerialCommandKind::TIME:
@@ -1329,6 +1417,8 @@ public:
   }
 
   static constexpr size_t MIN_COMMON_HOURS = 6;
+  static constexpr size_t SALT_HOURS = 6;
+  static constexpr int32_t SALT_MAX_SPAN_TENTHS = 10; // 1.0 %RH
 
 private:
   // Hours with a temperature and a humidity sample in the reference and in the sensor.

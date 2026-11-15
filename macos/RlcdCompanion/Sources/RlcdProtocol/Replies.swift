@@ -366,6 +366,7 @@ public enum ConsoleCommand: Equatable {
     case mute(Bool)
     case set(key: String, value: String)
     case calib(Int)
+    case salt(Int)
 
     public static func beep(bit: Int) -> ConsoleCommand { .beep(bit) }
     public static func pattern(n: Int) -> ConsoleCommand { .pattern(n) }
@@ -400,6 +401,9 @@ public enum ConsoleCommand: Equatable {
         case let .calib(reference):
             guard (0...5).contains(reference) else { return nil }
             return "CALIB \(reference)"
+        case let .salt(reference):
+            guard (0...5).contains(reference) else { return nil }
+            return "SALT \(reference)"
         case let .set(key, value):
             let text = "SET \(key)=\(value)"
             let bad = CharacterSet.whitespacesAndNewlines.union(.controlCharacters)

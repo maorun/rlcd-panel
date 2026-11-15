@@ -9,7 +9,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - **Power & Battery:** Deep sleep with CRC-checked RTC state, wake & night intervals, USB detection, low-battery banner, empty-battery protection, runtime & cycle tracking, awake-time stats.
 - **Audio & Alerts:** `ES8311` chimes (freezer, mold, heat, noise, dropout, charge full) with repeat & quiet hours, `BOOT` mute, `ES7210` noise & transient monitor (L10/L90), mic self-test & speaker loopback.
 - **Logging & Time:** MicroSD hourly CSV (`climate_v5`), daily summaries (`daily_v3`), event log (`events_v1`), retention & free-space check, Wi-Fi NTP sync, `PCF85063A` RTC drift tracking.
-- **Configuration & Console:** MicroSD `config.ini` with host validator, USB serial & BLE console (`STATUS`, `CONFIG`, `SET`, `LIST`, `DUMP`, `SCAN`, `CALIB`, `MUTE`, `BEEP`, `PATTERN`, `SCREEN`, `TIME`, `HISTORY`, `EVENTS`, `VERSION`).
+- **Configuration & Console:** MicroSD `config.ini` with host validator, USB serial & BLE console (`STATUS`, `CONFIG`, `SET`, `LIST`, `DUMP`, `SCAN`, `CALIB`, `SALT`, `MUTE`, `BEEP`, `PATTERN`, `SCREEN`, `TIME`, `HISTORY`, `EVENTS`, `VERSION`).
 - **macOS Companion App:** Signed `.app` bundle & menu bar summary, live BLE telemetry, panel pinning, `config.ini` editor & backup, BLE scanner, calibration assistant, diagnostics & clipboard report, log archive & charts, remote screen, CSV export, open at login.
 
 ## Deep sleep power management with periodic wakeup
@@ -521,6 +521,17 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The suggested lines follow, for example `slot2_temp_offset_c=-0.4` and `slot2_rh_offset_pct=2.1`. Each value is the active offset minus the mean difference, clamped to the key range. The onboard sensor uses the keys `temp_offset_c` and `rh_offset_pct`.
 - The answer comes from the RTC copy of the histories and the configuration. The command does not mount or write the MicroSD card, so the console keeps running. The command runs on USB power only. The output ends with the `CRC32` line over all lines before it.
 - Host tests cover the parser, a constant difference, a gap, fewer than 6 hours, an empty reference, an active offset, the clamp, the onboard key names, the CRC-32 line and the USB power gate.
+
+## Serial console command SALT with a saturated salt humidity check
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/climate_math.h`, `rlcd_panel/rlcd_panel.ino`, `macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift`, `tests/test_firmware_logic.cpp`.
+- The user puts one sensor in a closed box with saturated sodium chloride for 6 hours at least. The console command `SALT N` (`N` is `0` for the onboard sensor or `1` to `5` for a slot) then checks the humidity of this sensor. A missing argument, `SALT 6` and extra text give `ERR BAD_ARG`.
+- `ClimateMath::saltReferenceRh(temp_c)` gives the equilibrium humidity of the salt from a fixed table (10 C 75.7 %RH, 15 C 75.6, 20 C 75.5, 25 C 75.3, 30 C 75.1, 35 C 74.9; linear between the points). It gives NaN outside 10 to 35 C.
+- The command reads the last 6 hourly samples of the sensor from `ClimateHistory`. The reply is `SALT <name> hours=<n> rh_mean=<x> rh_span=<x> temp_mean=<x> reference=<x>`, then one line `<key>=<value>` (`rh_offset_pct` for the onboard sensor, `slotN_rh_offset_pct` for a slot), then the `CRC32` line. The value is the active offset plus the reference minus the mean humidity, clamped to the key range.
+- Fewer than 6 samples give `SKIP <name> hours=<n>`. A humidity span above 1.0 %RH gives `UNSTABLE <name> span=<x>`. Both replies end with the `CRC32` line. A mean temperature outside the table gives `ERR BAD_TEMP`.
+- The answer comes from the RTC copy of the histories and the configuration. The command does not mount or write the MicroSD card, so the console keeps running. The command runs on USB power only.
+- macOS companion: `ConsoleCommand.salt(N)` sends `SALT N` (no line for `N` outside 0 to 5). `SaltReply.parse` (`Calibration.swift`) reads the three reply types and throws `ParseError.badLine` for a bad number. `CalibrationView` has a salt check section: the user selects a sensor and presses `Check`, then applies the proposal through `ConfigBatch` (`SET`, then `CONFIG`).
+- Host tests cover the table at 15, 20, 25 and 30 C, NaN at 9 C, a stable sensor at 73.0 %RH and 25 C (proposal +2.3 %RH plus the active offset), the clamp, `SKIP` with 5 samples, `UNSTABLE` with a span of 1.2 %RH, `ERR BAD_TEMP`, the key names, `ERR BAD_ARG` for `SALT 6`, the CRC-32 line and the USB power gate. `SaltReplyTests` cover the Swift parser.
 
 ## High-humidity ventilation badge on the sensor tiles
 

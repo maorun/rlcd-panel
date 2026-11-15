@@ -33,6 +33,25 @@ public:
     return unit == 'F' ? temp_c * 9.0f / 5.0f + 32.0f : temp_c;
   }
 
+  // Equilibrium humidity above saturated sodium chloride (NaCl) in %RH from a fixed table: 10 C 75.7, 15 C 75.6,
+  // 20 C 75.5, 25 C 75.3, 30 C 75.1, 35 C 74.9, linear between the points. NaN for NaN, infinite or a
+  // temperature outside 10 to 35 C.
+  static float saltReferenceRh(float temp_c) {
+    static constexpr float TABLE[] = {75.7f, 75.6f, 75.5f, 75.3f, 75.1f, 74.9f};
+    constexpr float FIRST_C = 10.0f;
+    constexpr float STEP_C = 5.0f;
+    constexpr size_t LAST = sizeof(TABLE) / sizeof(TABLE[0]) - 1;
+    if (!isfinite(temp_c) || temp_c < FIRST_C || temp_c > FIRST_C + STEP_C * LAST) {
+      return NAN;
+    }
+    size_t i = static_cast<size_t>((temp_c - FIRST_C) / STEP_C);
+    if (i >= LAST) {
+      return TABLE[LAST];
+    }
+    const float frac = (temp_c - (FIRST_C + STEP_C * static_cast<float>(i))) / STEP_C;
+    return TABLE[i] + (TABLE[i + 1] - TABLE[i]) * frac;
+  }
+
   // Saturation vapor pressure in kPa.
   static float saturationPressureKpa(float temp_c) {
     return SATURATION_PRESSURE_KPA_AT_0C * expf((MAGNUS_A * temp_c) / (temp_c + MAGNUS_B_C));
