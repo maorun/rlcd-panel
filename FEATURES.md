@@ -1181,3 +1181,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The command needs no card and does not flush the panel.
 - `PanelImage.decode(_:)` in the macOS app reads the packing of the framebuffer into a 400 x 300 1-bit image. A body of another size throws `ParseError.badLine`. `ReplyAssembler` accepts `screen.bin` in binary mode only with 15,000 bytes.
 - `PanelView` shows the image. The `Refresh` button sends `SCREEN` on a user action, on the USB link only.
+
+## Readable event log texts in the macOS app
+
+- `EventText.describe(_:)` (`EventText.swift`) turns one `EventRow` into a readable text. The macOS app sends no new console command.
+- `ALERT_RISE` and `ALERT_FALL` use the bit mask of the firmware in the detail (1 `FREEZER`, 2 `HUMIDITY`, 4 `NOISE`, 8 `SENSOR_LOST`, 16 `CHARGE_FULL`, 32 `VENTILATE`, 64 `SENSOR_BATTERY`, 128 `HEAT`), for example `ALERT_RISE,128` gives `HEAT alert on`.
+- `CONFIG_LOAD` gives the count of rejected lines. `NTP_SYNC` gives `OK`, `WIFI_FAILED`, `NTP_TIMEOUT` or `RTC_WRITE_FAILED`. `BATTERY_LOW_SET` and `BATTERY_LOW_CLEAR` give the cell percentage. `EMPTY_PROTECTION` gives `set` or `release`.
+- `RESET` gives the `ResetReasonCodec` text. A reason that `ResetMetrics.isAbnormal` marks gets the text `(abnormal)`, and the events view shows the row in red (`EventText.isAbnormal`).
+- `SLOT_ASSIGN` gives the slot (high byte) and the `BleFormat` name (low byte), for example `514` gives `slot 2 BTHOME`. `SLOT_RELEASE` gives the slot number.
+- An unknown event name (for example `EVENTS_DROPPED`) or a detail outside the range gives the raw text `<event>,<detail>`.
+- The `Open events file` button of `ArchiveView` reads a downloaded `events_v1_YYYY.csv` with `EventsReply.parse(file:)` and shows it in the same events list. A wrong header or row gives a message in the archive summary.
