@@ -22,6 +22,21 @@ import Testing
         #expect(r.dropped == 3)
     }
 
+    @Test func parsesSlots4And5() throws {
+        let r = try ScanReply.parse(lines: [
+            "BEGIN SCAN", ScanReply.header,
+            "AA:BB:CC:DD:EE:04,WOIO,-60,4,21.5,45.0,87",
+            "AA:BB:CC:DD:EE:05,WOIO,-61,5,21.5,45.0,87",
+        ])
+        #expect(r.rows[0].slot == 4)
+        #expect(r.rows[1].slot == 5)
+    }
+
+    @Test func reportsDuplicateMacInSlot5() throws {
+        let config = try ConfigReply.parse(lines: ["slot5_mac=AA:BB:CC:DD:EE:09"])
+        #expect(SlotAssignment.conflicts(slot: 1, mac: "AA:BB:CC:DD:EE:09", config: config) == [5])
+    }
+
     @Test func emptyBatterySlotDashAndMissingValues() throws {
         let r = try ScanReply.parse(lines: Self.good)
         #expect(r.rows[1].batteryPct == nil)
@@ -50,7 +65,8 @@ import Testing
             "AA:BB:CC:DD:EE:01,WOIO,-60,1,21.5,45.0",
             "AA:BB:CC:DD:EE:01,WOIO,-60,1,21.5,45.0,87,1",
             "AA:BB:CC:DD:EE:01,WOIO,x,1,21.5,45.0,87",
-            "AA:BB:CC:DD:EE:01,WOIO,-60,4,21.5,45.0,87",
+            "AA:BB:CC:DD:EE:01,WOIO,-60,6,21.5,45.0,87",
+            "AA:BB:CC:DD:EE:01,WOIO,-60,0,21.5,45.0,87",
             "DROPPED,x",
         ] {
             #expect(throws: ParseError.self) { try ScanReply.parse(lines: ["BEGIN SCAN", ScanReply.header, row, bad]) }
@@ -66,11 +82,13 @@ import Testing
     }
 
     @Test func buildsSetLinePerSlotAndClearLine() {
-        for n in 1...3 {
+        for n in 1...5 {
             #expect(SlotAssignment.command(slot: n, mac: "aa:bb:cc:dd:ee:0\(n)")?.line == "SET slot\(n)_mac=AA:BB:CC:DD:EE:0\(n)")
             #expect(SlotAssignment.command(slot: n, mac: nil)?.line == "SET slot\(n)_mac=")
         }
-        #expect(SlotAssignment.command(slot: 4, mac: "AA:BB:CC:DD:EE:01") == nil)
+        #expect(SlotAssignment.command(slot: 5, mac: "AA:BB:CC:DD:EE:FF")?.line == "SET slot5_mac=AA:BB:CC:DD:EE:FF")
+        #expect(SlotAssignment.command(slot: 6, mac: nil) == nil)
+        #expect(SlotAssignment.command(slot: 6, mac: "AA:BB:CC:DD:EE:01") == nil)
         #expect(SlotAssignment.command(slot: 0, mac: nil) == nil)
         #expect(SlotAssignment.command(slot: 1, mac: "AA:BB") == nil)
     }

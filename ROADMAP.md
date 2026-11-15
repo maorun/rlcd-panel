@@ -18,12 +18,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Support registry slots 4 and 5 in the macOS scanner and slot menu
-  - Rank: [Total: 36, Use: 8, Setup: 10, Harmony: 8, Safety: 10, Effort: S]
-  - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/SlotAssignment.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ScannerView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ScanReplyTests.swift`
-  - Goal: The firmware has 5 registry slots (`MAX_SWITCHBOT_SENSORS`), and `ScanCollector::slotOf` sends the slot numbers 1 to 5 in the `SCAN` reply. `SlotAssignment.slots` is `1...3`. Thus `ScanReply.parse` rejects a row with slot 4 or 5, and the slot menu cannot assign `slot4_mac` or `slot5_mac`. Change `SlotAssignment.slots` to `1...5`. Make `ScanReply.parse`, `SlotAssignment.command`, `SlotAssignment.conflicts` and `ScannerView` use this range. Keep the firmware unchanged. Update the doc comment of `ScanRow.slot`.
-  - Acceptance test: A new test parses a `SCAN` reply with one row in slot 4 and one row in slot 5 and asserts `slot == 4` and `slot == 5`. A row with slot 6 or slot 0 still throws `ParseError.badLine`. `SlotAssignment.command(slot: 5, mac: "AA:BB:CC:DD:EE:FF")?.line` is `"SET slot5_mac=AA:BB:CC:DD:EE:FF"`. `SlotAssignment.command(slot: 6, mac: nil)` is `nil`. `conflicts(slot: 1, ...)` reports slot 5 when `slot5_mac` holds the same MAC. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass. The C++ host tests stay unchanged and pass.
-
 - [ ] Add a calibration assistant with the `CALIB` command to the macOS app
   - Rank: [Total: 35, Use: 7, Setup: 10, Harmony: 9, Safety: 9, Effort: M]
   - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift` (new), `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift` (new)
