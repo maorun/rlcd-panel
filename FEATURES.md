@@ -526,6 +526,10 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The suggested lines follow, for example `slot2_temp_offset_c=-0.4` and `slot2_rh_offset_pct=2.1`. Each value is the active offset minus the mean difference, clamped to the key range. The onboard sensor uses the keys `temp_offset_c` and `rh_offset_pct`.
 - The answer comes from the RTC copy of the histories and the configuration. The command does not mount or write the MicroSD card, so the console keeps running. The command runs on USB power only. The output ends with the `CRC32` line over all lines before it.
 - Host tests cover the parser, a constant difference, a gap, fewer than 6 hours, an empty reference, an active offset, the clamp, the onboard key names, the CRC-32 line and the USB power gate.
+- `ClimateHistory::usb_mask` (24 bits, bit 0 is the newest onboard sample) records which hourly onboard samples came from USB power: each onboard push shifts the mask and sets bit 0 on USB power. The mask is 3 bytes little-endian in `PersistentState` just before the checksum (`STATE_VERSION` 56). A bit beyond the count of onboard samples is rejected, and a power-on sets it to 0.
+- For `CALIB N` with N 1 to 5 the onboard `temp_offset_c` proposal uses the battery hours only when 3 or more battery hours exist; else it keeps the mean over all hours. The `temp_diff` value of the `SENSOR` line stays the mean over all hours.
+- After the onboard `SENSOR` line the reply adds `USB hours=<n> bat_hours=<n> usb_temp_offset=<x> usb_temp_diff=<x|-->`. `usb_temp_diff` is the USB mean difference minus the battery mean difference. With 3 or more USB hours and 3 or more battery hours the reply adds the proposal `usb_temp_offset_c=<x>` (the active value minus `usb_temp_diff`, clamped to -5.0 to 0.0 C). Fewer hours give `--` and no proposal. The `CRC32` line covers the new lines. `CALIB 0` does not change.
+- The macOS `CalibrationReply` parses the `USB` line into `UsbSplit` (`usbTempDiff` is `nil` for `--`; `usb_hours=x` throws `ParseError.badLine`). `CalibrationView` shows the hours and lists `usb_temp_offset_c` as one more selectable row.
 
 ## Serial console command SALT with a saturated salt humidity check
 
@@ -846,7 +850,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The view shows the name of the `chart_sensor` sensor, a temperature box and a humidity box (360 x 90 px each) with 7 vertical bars from the daily minimum to the daily maximum, the newest day at the right edge, and the weekday labels from the RTC below the bars. Each box has a label with the minimum and maximum of the week; the temperature follows `temp_unit`. A flat week uses the minimum span 2.0 C or 5.0 %RH. A box without a valid day shows `NO DATA`.
 - The `KEY` handling equals the climate chart: a short press returns `ButtonEvent::NEXT_SENSOR` and selects the next sensor, a hold of 2 s changes the view (`MODE_CHANGED`).
 - The view reads only the RTC copy. It needs no sensor read, no microphone and no card.
-- `STATE_VERSION` is 55. A record of version 54 gives a clean start.
+- `STATE_VERSION` is 56. A record of version 55 gives a clean start.
 - `tools/preview_scenes.h` adds the scene `display_preview_chart_week` (sensor 1 with one day without samples). `./scripts/generate-display-preview.sh` writes `docs/display_preview_chart_week.png`.
 - Thus the user sees the course of one room over a week.
 

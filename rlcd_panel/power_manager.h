@@ -323,7 +323,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 55;
+  static constexpr uint8_t STATE_VERSION = 56;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -375,7 +375,9 @@ public:
   static constexpr size_t DRY_SIZE = 1;
   // Week chart trailer (just before the checksum): 6 sensors x 7 days x 4 bytes, then the day stamp.
   static constexpr size_t WEEK_SIZE = WeekHistory::SERIALIZED_SIZE;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + 4;
+  // USB power mask of the onboard temperature samples (3 bytes, little-endian, just before the checksum).
+  static constexpr size_t USB_MASK_SIZE = 3;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -699,6 +701,9 @@ public:
     out[pos++] = static_cast<uint8_t>(state.dry_tiles & DryLatch::ALL_MASK);
     state.week.serialize(out + pos);
     pos += WEEK_SIZE;
+    out[pos++] = static_cast<uint8_t>(state.history.usb_mask & 0xFF);
+    out[pos++] = static_cast<uint8_t>((state.history.usb_mask >> 8) & 0xFF);
+    out[pos++] = static_cast<uint8_t>((state.history.usb_mask >> 16) & 0xFF);
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -1058,6 +1063,11 @@ public:
       return false;
     }
     pos += WEEK_SIZE;
+    if (!s.history.restoreUsbMask(static_cast<uint32_t>(data[pos]) | (static_cast<uint32_t>(data[pos + 1]) << 8) |
+                                  (static_cast<uint32_t>(data[pos + 2]) << 16))) {
+      return false; // a bit beyond the onboard samples is corrupt
+    }
+    pos += USB_MASK_SIZE;
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       s.registry.setFixedMac(i, s.config.hasSlotMac(i) ? s.config.slot_mac[i] : nullptr);
     }

@@ -24,11 +24,31 @@ public struct CalibrationReply: Equatable, Sendable {
         public let value: String
     }
 
+    /// The `USB` line after the onboard `SENSOR` line: hours on USB and on battery power.
+    public struct UsbSplit: Equatable, Sendable {
+        public let usbHours: Int
+        public let batHours: Int
+        /// Active `usb_temp_offset_c`.
+        public let usbTempOffset: Double
+        /// USB mean difference minus battery mean difference; `nil` (`--`) below 3 USB or 3 battery hours.
+        public let usbTempDiff: Double?
+    }
+
     public let reference: String
     public let sensors: [Sensor]
     public let skipped: [Skipped]
+    /// `nil` when the reply has no `USB` line, for example for `CALIB 0` or an onboard sensor with too few common hours.
+    public let usb: UsbSplit?
     /// Only keys that `ConfigSchema.validate` accepts with the proposed value.
     public let proposals: [Proposal]
+
+    init(reference: String, sensors: [Sensor], skipped: [Skipped], usb: UsbSplit?, proposals: [Proposal]) {
+        self.reference = reference
+        self.sensors = sensors
+        self.skipped = skipped
+        self.usb = usb
+        self.proposals = proposals
+    }
 
     /// Parses the lines of a `CALIB` frame (a `BEGIN` line is allowed). Needs the `REFERENCE` line.
     public static func parse(lines: [String]) throws -> CalibrationReply {
@@ -36,8 +56,11 @@ public struct CalibrationReply: Equatable, Sendable {
         var sensors: [Sensor] = []
         var skipped: [Skipped] = []
         var proposals: [Proposal] = []
+        var usb: UsbSplit?
         for line in lines {
-            if line.hasPrefix("REFERENCE ") {
+            if line.hasPrefix("USB ") {
+                usb = try usbSplit(line)
+            } else if line.hasPrefix("REFERENCE ") {
                 let name = String(line.dropFirst(10))
                 guard !name.isEmpty, !name.contains(" ") else { throw ParseError.badLine(line) }
                 reference = name
@@ -56,7 +79,7 @@ public struct CalibrationReply: Equatable, Sendable {
             }
         }
         guard let reference else { throw ParseError.missingLine("REFERENCE") }
-        return CalibrationReply(reference: reference, sensors: sensors, skipped: skipped, proposals: proposals)
+        return CalibrationReply(reference: reference, sensors: sensors, skipped: skipped, usb: usb, proposals: proposals)
     }
 
     private static func isOffsetKey(_ key: String) -> Bool {
@@ -94,6 +117,17 @@ public struct CalibrationReply: Equatable, Sendable {
               let ro = decimal(f["rh_offset"]), let td = decimal(f["temp_diff"]), let rd = decimal(f["rh_diff"])
         else { throw ParseError.badLine(line) }
         return Sensor(name: String(words[1]), hours: h, tempOffset: to, rhOffset: ro, tempDiff: td, rhDiff: rd)
+    }
+
+    private static func usbSplit(_ line: String) throws -> UsbSplit {
+        let f = fields(line)
+        guard line.split(separator: " ").count == 5, let uh = hours(f["hours"]), let bh = hours(f["bat_hours"]),
+              let offset = decimal(f["usb_temp_offset"]), let diffText = f["usb_temp_diff"] else {
+            throw ParseError.badLine(line)
+        }
+        if diffText == "--" { return UsbSplit(usbHours: uh, batHours: bh, usbTempOffset: offset, usbTempDiff: nil) }
+        guard let diff = decimal(diffText) else { throw ParseError.badLine(line) }
+        return UsbSplit(usbHours: uh, batHours: bh, usbTempOffset: offset, usbTempDiff: diff)
     }
 
     /// Config changes for the selected proposal keys against the active values (`current`).

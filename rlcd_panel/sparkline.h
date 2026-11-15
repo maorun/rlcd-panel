@@ -441,6 +441,25 @@ struct ClimateHistory {
   TemperatureHistory temperatures[SLOT_COUNT];
   uint32_t last_sample_ms = 0;
   bool has_sampled = false;
+  // One bit for each hourly onboard temperature sample: bit 0 is the newest, a set bit means a USB powered sample
+  // (the PCB is warmer there). 24 bits, 3 bytes in the RTC state.
+  static constexpr uint32_t USB_MASK_ALL = 0xFFFFFFu;
+  uint32_t usb_mask = 0;
+
+  // True when the mask holds no bit beyond the stored onboard temperature samples.
+  bool restoreUsbMask(uint32_t mask) {
+    const size_t n = temperatures[ONBOARD].size();
+    if ((mask & ~USB_MASK_ALL) != 0 || (n < 24 && (mask >> n) != 0)) {
+      return false;
+    }
+    usb_mask = mask;
+    return true;
+  }
+
+  // True when the onboard sample of this age (0 is the newest) was taken on USB power.
+  bool onboardOnUsb(size_t age) const {
+    return age < 24 && ((usb_mask >> age) & 1u) != 0;
+  }
 
   // True when no sample exists yet or a full interval has passed (wrap-safe subtraction).
   bool sampleDue(uint32_t now_ms) const {
@@ -457,7 +476,8 @@ struct ClimateHistory {
       float onboard_humidity_pct,
       const SwitchBotRegistry& registry,
       float onboard_temperature_c = NAN,
-      uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS) {
+      uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS,
+      bool onboard_usb_powered = false) {
     if (!sampleDue(now_ms)) {
       return false;
     }
@@ -466,6 +486,7 @@ struct ClimateHistory {
       pushed = true;
     }
     if (onboard_valid && temperatures[ONBOARD].pushCelsius(onboard_temperature_c)) {
+      usb_mask = ((usb_mask << 1) | (onboard_usb_powered ? 1u : 0u)) & USB_MASK_ALL;
       pushed = true;
     }
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {

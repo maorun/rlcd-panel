@@ -686,7 +686,10 @@ struct SerialStatusSnapshot {
 //   exists false); bool writeTemp(const char*, size_t); bool removeConfig(); bool renameTemp(); void removeTemp();
 //   bool restoreConfig(const char*, size_t).
 //   CALIB N -> "REFERENCE <name>", one "SENSOR <name> hours=<n> temp_offset=<x> rh_offset=<x> temp_diff=<x> rh_diff=<x>" or
-//   "SKIP <name> hours=<n>" per other sensor, the "key=value" lines to paste into config.ini, then "CRC32 <8 hex digits>"
+//   "SKIP <name> hours=<n>" per other sensor (the onboard SENSOR line is followed by "USB hours=<n> bat_hours=<n>
+//   usb_temp_offset=<x> usb_temp_diff=<x|-->", the USB mean difference minus the battery mean difference; the onboard
+//   temp_offset_c proposal uses the battery hours when 3 or more exist; the proposal usb_temp_offset_c needs 3 USB and
+//   3 battery hours), the "key=value" lines to paste into config.ini, then "CRC32 <8 hex digits>"
 //   over all lines before it. showCalib() works on the RTC history: no card access, so execute() ignores CALIB.
 //   SALT N -> "SALT <name> hours=<n> rh_mean=<x> rh_span=<x> temp_mean=<x> reference=<x>" for the last 6 hourly samples of
 //   sensor N (0 onboard, 1 to 5 a slot) in a closed box with saturated sodium chloride, the line "<key>=<value>" (the active
@@ -744,6 +747,8 @@ public:
     size_t len = static_cast<size_t>(snprintf(text, sizeof(text), "REFERENCE %s\n", names[reference]));
     char suggestions[512] = {0};
     size_t slen = 0;
+    char usb_suggestion[40] = {0};
+    size_t slen_usb = 0;
     for (size_t s = 0; s < CALIB_SOURCE_COUNT; ++s) {
       if (s == reference) {
         continue;
@@ -756,9 +761,19 @@ public:
       }
       int32_t temp_sum = 0;
       int32_t rh_sum = 0;
+      int32_t usb_sum = 0;
+      int32_t bat_sum = 0;
+      size_t usb_hours = 0;
       for (size_t k = 0; k < hours; ++k) {
-        temp_sum += history.temperatures[s].at(history.temperatures[s].size() - 1 - k) -
-                    history.temperatures[reference].at(history.temperatures[reference].size() - 1 - k);
+        const int32_t temp_delta = history.temperatures[s].at(history.temperatures[s].size() - 1 - k) -
+                                   history.temperatures[reference].at(history.temperatures[reference].size() - 1 - k);
+        temp_sum += temp_delta;
+        if (s == 0 && history.onboardOnUsb(k)) {
+          usb_sum += temp_delta;
+          ++usb_hours;
+        } else {
+          bat_sum += temp_delta;
+        }
         rh_sum += history.slots[s].at(history.slots[s].size() - 1 - k) -
                   history.slots[reference].at(history.slots[reference].size() - 1 - k);
       }
@@ -779,8 +794,35 @@ public:
       len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len,
                                           "SENSOR %s hours=%u temp_offset=%s rh_offset=%s temp_diff=%s rh_diff=%s\n",
                                           names[s], static_cast<unsigned>(hours), f[0], f[1], f[2], f[3]));
-      const int32_t temp_new = clampTenths(lroundf(tenths(temp_active) - temp_mean), temp_min, temp_max);
+      // The onboard proposal uses the battery hours only when enough exist: the PCB is warmer on USB power.
+      const size_t bat_hours = hours - usb_hours;
+      const float temp_basis = (s == 0 && bat_hours >= MIN_POWER_HOURS) ? static_cast<float>(bat_sum) / static_cast<float>(bat_hours)
+                                                                          : temp_mean;
+      const int32_t temp_new = clampTenths(lroundf(tenths(temp_active) - temp_basis), temp_min, temp_max);
       const int32_t rh_new = clampTenths(lroundf(tenths(rh_active) - rh_mean), rh_min, rh_max);
+      if (s == 0) {
+        // usb_temp_diff: mean difference of the USB hours minus the mean difference of the battery hours.
+        const bool usb_ok = usb_hours >= MIN_POWER_HOURS && bat_hours >= MIN_POWER_HOURS;
+        const float usb_diff = usb_ok ? static_cast<float>(usb_sum) / static_cast<float>(usb_hours) -
+                                            static_cast<float>(bat_sum) / static_cast<float>(bat_hours)
+                                      : 0.0f;
+        char u[2][12];
+        formatTenths(u[0], sizeof(u[0]), tenths(config.usb_temp_offset_c));
+        if (usb_ok) {
+          formatTenths(u[1], sizeof(u[1]), static_cast<int32_t>(lroundf(usb_diff)));
+        } else {
+          snprintf(u[1], sizeof(u[1]), "--");
+        }
+        len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len,
+                                            "USB hours=%u bat_hours=%u usb_temp_offset=%s usb_temp_diff=%s\n",
+                                            static_cast<unsigned>(usb_hours), static_cast<unsigned>(bat_hours), u[0], u[1]));
+        if (usb_ok) {
+          const int32_t usb_new = clampTenths(lroundf(tenths(config.usb_temp_offset_c) - usb_diff),
+                                              DeviceConfig::MIN_USB_TEMP_OFFSET_C, DeviceConfig::MAX_USB_TEMP_OFFSET_C);
+          formatTenths(u[0], sizeof(u[0]), usb_new);
+          slen_usb += static_cast<size_t>(snprintf(usb_suggestion, sizeof(usb_suggestion), "usb_temp_offset_c=%s\n", u[0]));
+        }
+      }
       formatTenths(f[0], sizeof(f[0]), temp_new);
       formatTenths(f[1], sizeof(f[1]), rh_new);
       slen += static_cast<size_t>(snprintf(suggestions + slen, sizeof(suggestions) - slen,
@@ -788,6 +830,9 @@ public:
                                            prefixes[s], f[1]));
     }
     len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "%s", suggestions));
+    if (slen_usb != 0) {
+      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "%s", usb_suggestion));
+    }
     SerialCrc32 crc;
     crc.update(reinterpret_cast<const uint8_t*>(text), len);
     if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
@@ -1483,6 +1528,7 @@ public:
   }
 
   static constexpr size_t MIN_COMMON_HOURS = 6;
+  static constexpr size_t MIN_POWER_HOURS = 3; // USB or battery hours needed for the onboard split
   static constexpr size_t SALT_HOURS = 6;
   static constexpr int32_t SALT_MAX_SPAN_TENTHS = 10; // 1.0 %RH
 
