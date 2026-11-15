@@ -5863,8 +5863,9 @@ void testDeviceConfigDuplicateKeysLastWins() {
 }
 
 void testDeviceConfigFileSizeLimit() {
+  assert(DeviceConfigParser::MAX_FILE_SIZE == 8192);
   static char big[DeviceConfigParser::MAX_FILE_SIZE + 2];
-  // A file of exactly 4096 bytes is read
+  // A file of exactly 8192 bytes is read
   memset(big, '#', sizeof(big));
   const char* line = "chime_volume_pct=77\n";
   memcpy(big, line, strlen(line));
@@ -10264,6 +10265,7 @@ void testSerialSetParser() {
 }
 
 void testDeviceConfigEditor() {
+  assert(DeviceConfigParser::MAX_FILE_SIZE == 8192);
   char out[DeviceConfigParser::MAX_FILE_SIZE + 1];
   size_t n = 0;
   auto edit = [&](const std::string& in, const char* k, const char* v) {
@@ -10296,13 +10298,13 @@ void testDeviceConfigEditor() {
   const std::string edited = edit("display_invert=1\nwake_interval_s=30\n", "wake_interval_s", "90");
   const ConfigParseResult pr = DeviceConfigParser::parse(edited.data(), edited.size(), cfg);
   assert(pr.file_ok && pr.rejected == 0 && cfg.wake_interval_s == 90 && cfg.display_invert);
-  // size limit: exactly 4096 passes, 4097 gives TOO_LARGE
+  // size limit: exactly 8192 passes, 8193 gives TOO_LARGE
   const std::string pair = "wake_interval_s=90\n";
   std::string fill(DeviceConfigParser::MAX_FILE_SIZE - pair.size() - 1, 'x');
-  const std::string exact = "#" + fill.substr(1) + "\n"; // one comment line, 4096 - 19 bytes
+  const std::string exact = "#" + fill.substr(1) + "\n"; // one comment line, 8192 - 19 bytes
   assert(exact.size() + pair.size() == DeviceConfigParser::MAX_FILE_SIZE);
   assert(edit(exact, "wake_interval_s", "90") == exact + pair);
-  assert(edit(exact + "x", "wake_interval_s", "90") == "<TOO_LARGE>"); // 4097 bytes in total
+  assert(edit(exact + "x", "wake_interval_s", "90") == "<TOO_LARGE>"); // 8193 bytes in total
   // a longer value in a replaced line can exceed the limit
   const std::string line_file = "wake_interval_s=9\n" + std::string(DeviceConfigParser::MAX_FILE_SIZE - 18, '#');
   assert(line_file.size() == DeviceConfigParser::MAX_FILE_SIZE);
@@ -10412,7 +10414,18 @@ void testSerialSetConfigFlow() {
     assert(!TestRunner::setConfig(st, sink, cmd, [&](const char*, size_t) { ++applied; }));
     assert(sink.out == "ERR TOO_LARGE\n" && applied == 0 && !st.has_tmp && st.config_text.size() == DeviceConfigParser::MAX_FILE_SIZE && st.has_config);
   }
-  // an oversized existing file (above 4096 bytes) gives TOO_LARGE too
+  // a 5000-byte file (above the old 4096-byte limit) is edited and kept
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    st.has_config = true;
+    const std::string big_file = "#" + std::string(4998, 'x') + "\n";
+    st.config_text = big_file;
+    assert(big_file.size() == 5000);
+    assert(TestRunner::setConfig(st, sink, cmd, [](const char*, size_t) {}));
+    assert(st.config_text == big_file + "wake_interval_s=90\n");
+  }
+  // an oversized existing file (above 8192 bytes) gives TOO_LARGE too
   {
     FakeConsoleStorage st;
     FakeSink sink;
@@ -12455,7 +12468,7 @@ void testConfigExampleTemplateInSync() {
   std::string changed = text;
   changed.replace(changed.find("wake_interval_s=60"), 18, "wake_interval_s=90");
   assert(checkConfigTemplate(changed) == TEMPLATE_NOT_DEFAULT);
-  // Failure 3: the file is above 4096 bytes
+  // Failure 3: the file is above 8192 bytes
   std::string big = text;
   big.append(DeviceConfigParser::MAX_FILE_SIZE - big.size() + 1, '#');
   assert(big.size() == DeviceConfigParser::MAX_FILE_SIZE + 1);
@@ -16693,7 +16706,7 @@ static void testConfigCheckTool() {
   memset(big, '#', sizeof(big));
   assert(runConfigCheck(big, DeviceConfigParser::MAX_FILE_SIZE, report, sizeof(report)) == 0);
   assert(runConfigCheck(big, sizeof(big), report, sizeof(report)) == 2);
-  assert(strstr(report, "ERROR file above 4096 bytes") != nullptr);
+  assert(strstr(report, "ERROR file above 8192 bytes") != nullptr);
   assert(strstr(report, "REJECTED") == nullptr);
 
   // A report buffer that is too small never overflows.

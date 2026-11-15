@@ -25,8 +25,8 @@ public struct ConfigBackupRejectedLine: Equatable, Sendable {
 /// The backup holds the schema keys only, so it never holds Wi-Fi credentials.
 /// Limit: an empty name is a comment line, so a restore keeps the name that the panel has now (the console cannot clear a name).
 public enum ConfigBackup {
-    /// `DeviceConfigText::MAX_SIZE` of the firmware.
-    public static let maxBytes = 4096
+    /// `DeviceConfigParser::MAX_FILE_SIZE` of the firmware.
+    public static let maxBytes = 8192
 
     public struct Parsed: Equatable, Sendable {
         /// Valid values of known keys. A later line of the same key wins.

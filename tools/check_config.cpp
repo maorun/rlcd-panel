@@ -1,6 +1,6 @@
 // Host tool: checks a config.ini file with the firmware parser before the copy to the MicroSD card.
 // Usage: check_config <config.ini>
-// Exit codes: 0 no rejected line, 1 rejected lines, 2 missing file or file above 4096 bytes.
+// Exit codes: 0 no rejected line, 1 rejected lines, 2 missing file or file above 8192 bytes.
 #include <stdio.h>
 
 #include "../rlcd_panel/device_config.h"

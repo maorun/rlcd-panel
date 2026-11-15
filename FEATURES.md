@@ -159,7 +159,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The firmware reads an optional `/sdcard/config.ini` with `key=value` lines on power-on and on a `KEY` wakeup. A timer wakeup does not mount the card. It uses the copy in RTC memory.
 - `DeviceConfigParser` has no Arduino dependency. A line that starts with `#` or `;` is a comment. Spaces, tabs, CRLF line ends, and a UTF-8 byte order mark are accepted. Key names are case sensitive. The parser ignores unknown keys.
 - A missing, malformed, or out-of-range value keeps the default. The last valid line of a key wins. An invalid later line does not replace an earlier valid value.
-- The parser rejects a file above 4096 bytes as a whole. The card never supplies Wi-Fi credentials. Those keys are unknown keys.
+- The parser rejects a file above 8192 bytes as a whole. The card never supplies Wi-Fi credentials. Those keys are unknown keys.
 - Keys, defaults, and ranges:
 
   | Key | Default | Range | Used by |
@@ -192,7 +192,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The release limits keep a fixed hysteresis: `+1.0 C` for the freezer alert and `-3 %RH` for the humidity alert. The extra SPL offset applies in memory only. A new microphone calibration never stores it.
 - The accepted values are part of `PersistentState` in RTC memory (state version 14). A corrupt or out-of-range record gives a clean start.
 - The diagnostics view shows `CONFIG: SD` or `CONFIG: DEFAULT`.
-- Host tests cover valid values, comments, spaces, CRLF, missing keys, out-of-range and malformed values, duplicate keys, a file above 4 KB, the wiring into each consumer, and the RTC round trip with corrupt records.
+- Host tests cover valid values, comments, spaces, CRLF, missing keys, out-of-range and malformed values, duplicate keys, a file above 8 KB, the wiring into each consumer, and the RTC round trip with corrupt records.
 
 ## Speaker to microphone loopback test
 
@@ -694,9 +694,9 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - **Code:** `tools/check_config.cpp`, `scripts/check-config.sh`, `tools/sample_config.ini`, `rlcd_panel/device_config.h`, `.github/workflows/ci.yml`, `README.md`, `tests/test_firmware_logic.cpp`
 - `./scripts/check-config.sh <file>` builds `tools/check_config.cpp` with `-std=c++17 -Wall -Wextra -Werror` in a temporary directory and runs it. The tool needs no Arduino header.
 - `DeviceConfigCheck::run` runs `DeviceConfigParser` with the firmware rules. It writes the accepted values with `DeviceConfigText::format`. Then it writes one line `REJECTED line=<N>` for each recorded line (the first four) and the line `REJECTED count=<N>`.
-- The exit code is `0` for a file without rejected lines. It is `1` for rejected lines. It is `2` for a missing file or a file above 4096 bytes. In the case of exit code `2` the tool writes one `ERROR` line to stderr and no values.
+- The exit code is `0` for a file without rejected lines. It is `1` for rejected lines. It is `2` for a missing file or a file above 8192 bytes. In the case of exit code `2` the tool writes one `ERROR` line to stderr and no values.
 - The CI job `host-tests` runs the script on `tools/sample_config.ini`. Thus the user finds a bad line on the host and not after a reboot of the panel.
-- Host tests cover a valid file, a malformed value, an out-of-range value, more than four rejected lines, an empty file, a file at the limit and a file above 4096 bytes, a report buffer that is too small, and the exit codes 0, 1 and 2.
+- Host tests cover a valid file, a malformed value, an out-of-range value, more than four rejected lines, an empty file, a file at the limit and a file above 8192 bytes, a report buffer that is too small, and the exit codes 0, 1 and 2.
 
 ## Xiaomi thermometer support with ATC and pvvx firmware
 
@@ -747,10 +747,10 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 ## Commented config.ini template with a sync test
 
 - **Code:** `docs/config.example.ini`, `rlcd_panel/device_config.h`, `tests/test_firmware_logic.cpp`.
-- `docs/config.example.ini` lists each key of `DeviceConfigParser` once. Each key has one comment line with its range. Keys with a default value are active lines. The names (`onboard_name`, `slot1_name` to `slot3_name`) and the fixed MACs (`slot1_mac` to `slot3_mac`) have no default value, so they are comment lines only. The file has LF line ends and is below 4096 bytes. `README.md` links to it.
+- `docs/config.example.ini` lists each key of `DeviceConfigParser` once. Each key has one comment line with its range. Keys with a default value are active lines. The names (`onboard_name`, `slot1_name` to `slot3_name`) and the fixed MACs (`slot1_mac` to `slot3_mac`) have no default value, so they are comment lines only. The file has LF line ends and is below 8192 bytes. `README.md` links to it.
 - `DeviceConfigParser::KEYS` is the table of all 35 keys. `KEY_COUNT` is its size.
 - The host test `testConfigExampleTemplateInSync` reads the file. It checks that the parse gives no rejected line, that the result equals the defaults of `DeviceConfig`, and that each key of `KEYS` appears in the file. It also checks that the parser knows each key of `KEYS`.
-- The test fails when a key is missing in the file, when a value is not the default, when the file has more than 4096 bytes, and when a line is rejected. A new key in the parser needs an entry in `KEYS` and in the template.
+- The test fails when a key is missing in the file, when a value is not the default, when the file has more than 8192 bytes, and when a line is rejected. A new key in the parser needs an entry in `KEYS` and in the template.
 
 ## Automatic release of a dead sensor slot
 
@@ -860,12 +860,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The console command `SET <key>=<value>` changes one key of `/sdcard/config.ini`. The line limit is 40 bytes. The command runs on USB power only, as each console command does.
 - The parser accepts only a key of `DeviceConfigParser::KEYS` (exact match, lowercase). `DeviceConfigParser::checkSetting` checks the value with the parser rules of `config.ini`. A bad key or a missing `=` gives `ERR BAD_KEY`. A bad value gives `ERR BAD_VALUE`. Both errors leave the card untouched.
 - `DeviceConfigEditor::set` replaces the last line of the key. The line end of that line stays; its indent and its spaces around `=` do not. Without such a line, the editor appends `key=value` in the line end style of the file (LF for an empty file). Each other line, each comment and the byte order mark stay unchanged.
-- A result above 4096 bytes, or an existing file above 4096 bytes, gives `ERR TOO_LARGE`. The command writes nothing in this case.
+- A result above 8192 bytes, or an existing file above 8192 bytes, gives `ERR TOO_LARGE`. The command writes nothing in this case.
 - The runner (`SerialConsoleRunner::setConfig`) writes the result to `/sdcard/config.tmp`, removes the old file and renames the new file. A failed write or a failed remove keeps the old file and removes `config.tmp`. A failed rename writes the old text back. If this restore also fails, `config.tmp` stays and holds the new text. Each failed step gives `ERR WRITE_FAILED`. No card gives `ERR NO_CARD`. A power loss between the remove and the rename can lose the file; `config.tmp` then holds the new text.
 - After a success the firmware parses the new text and calls `PersistentState::applyConfig`, as a `KEY` wakeup does. It also sets the card status to `OK`, records the event `CONFIG_LOAD` and recalculates the power settings. Then the reply is `OK SET <key>`.
 - The `RTC` state layout does not change.
 - Thus the user changes a setting without a card removal.
-- Host tests cover the parser (valid pairs, unknown key, bad value, the 40-byte limit), the editor (replace, append, comments, CRLF, byte order mark, 4096-byte limit), each failing step of the file write, the empty file and the absent file, the applied config and the reply, and the ignore in `execute`.
+- Host tests cover the parser (valid pairs, unknown key, bad value, the 40-byte limit), the editor (replace, append, comments, CRLF, byte order mark, 8192-byte limit), each failing step of the file write, the empty file and the absent file, the applied config and the reply, and the ignore in `execute`.
 
 ## Feels-like temperature in the sensor stats view
 
@@ -1197,7 +1197,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 
 - **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigBackup.swift`, `ConfigEditorView.swift`, `AppModel.swift`; tests in `ConfigBackupTests.swift`.
 - `Save backup…` writes the values of the last `CONFIG` reply as a `config.ini` text file through `NSSavePanel`. `ConfigBackup.render` writes each `ConfigSchema` key once in schema order, one `key=value` line, LF line ends, no CR. A value that the schema rejects (an empty name) is a comment line `# key=`. The file holds no Wi-Fi credentials, because only schema keys are written.
-- `Restore backup…` reads a file through `NSOpenPanel`. `ConfigBackup.parse` uses the rules of `docs/config.example.ini`: blank lines and lines with `#` or `;` are skipped, unknown keys are ignored, CR before LF is tolerated. Each value goes through `ConfigSchema.validate(key:value:)`. A file above 4096 bytes (`ConfigBackup.maxBytes`) or invalid UTF-8 is refused.
+- `Restore backup…` reads a file through `NSOpenPanel`. `ConfigBackup.parse` uses the rules of `docs/config.example.ini`: blank lines and lines with `#` or `;` are skipped, unknown keys are ignored, CR before LF is tolerated. Each value goes through `ConfigSchema.validate(key:value:)`. A file above 8192 bytes (`ConfigBackup.maxBytes`) or invalid UTF-8 is refused.
 - The restore sheet lists each rejected line with its line number and the `ConfigSchema.diff` against the current values. `Restore` is disabled with a rejected line, a problem, no changes or a console that takes no `SET`. It sends only the changed keys through `ConfigBatch`. A backup equal to the current values gives an empty batch.
 
 ## Calibration offsets for slots 4 and 5
