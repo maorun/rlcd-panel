@@ -23,9 +23,9 @@
 
 namespace rlcd_panel {
 
-// The CSV formats (climate_v4, daily_v2) hold the onboard sensor and slots 1 to 3 only.
-// Slots 4 and 5 are not logged: a column change needs a new format version.
-constexpr size_t LOG_SOURCE_COUNT = 4;
+// The CSV formats (climate_v5, daily_v3) hold the onboard sensor and slots 1 to 5. The BLE
+// telemetry frame and the older files (climate_v2 to v4, daily_v1 and v2) keep the onboard sensor and slots 1 to 3.
+constexpr size_t LOG_SOURCE_COUNT = 1 + MAX_SWITCHBOT_SENSORS;
 
 // Noise summary of one day: the loudest hourly level, its local hour and the sum of the transient
 // counts. It lives in the RTC memory (PersistentState) inside DailyLogState.
@@ -234,13 +234,13 @@ public:
   static constexpr uint32_t LOG_INTERVAL_MS = 3600000; // one record per hour
   static constexpr uint32_t RETRY_INTERVAL_MS = 600000; // after a failed write, retry in 10 min
   static constexpr size_t MAX_PATH_SIZE = 32;
-  static constexpr size_t MAX_ROW_SIZE = 256;
+  static constexpr size_t MAX_ROW_SIZE = 320;
   // One event row: time, longest name, 5-digit detail and newline fit in far less.
   static constexpr size_t MAX_EVENT_ROW_SIZE = 96;
   // Header line of the daily summary file, with the terminator.
-  static constexpr size_t DAILY_HEADER_SIZE = 512;
+  static constexpr size_t DAILY_HEADER_SIZE = 768;
   static constexpr const char* MOUNT_POINT = "/sdcard";
-  // "climate_v4_YYYYMM.csv" plus the terminator.
+  // "climate_v5_YYYYMM.csv" plus the terminator.
   static constexpr size_t LOG_NAME_SIZE = 22;
   // Upper bound of the shown free space (about 9.5 TB), so the diagnostics line has a fixed width.
   static constexpr uint32_t MAX_FREE_MB = 9999999;
@@ -249,18 +249,19 @@ public:
   // Files that one prune pass deletes at most. More old files go in the next hourly pass.
   static constexpr size_t MAX_PRUNE_PER_PASS = 24;
 
-  // Splits a bare log file name "climate_v4_YYYYMM.csv" (or the old v3 and v2 names) into year 2000..2099 and month 01..12.
+  // Splits a bare log file name "climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) into year 2000..2099 and month 01..12.
   // Anything else is false, so a path separator or "." never reaches the card.
   static bool parseLogFileName(const char* name, int& year, int& month) {
-    static const char PREFIX[] = "climate_v4_";
+    static const char PREFIX[] = "climate_v5_";
+    static const char PREFIX_V4[] = "climate_v4_"; // old 21-column files: listed and pruned, never written
     static const char PREFIX_V3[] = "climate_v3_"; // old 19-column files: listed and pruned, never written
     static const char PREFIX_V2[] = "climate_v2_"; // old 18-column files: listed and pruned, never written
     static const char SUFFIX[] = ".csv";
     constexpr size_t PREFIX_LEN = sizeof(PREFIX) - 1;
     constexpr size_t SUFFIX_LEN = sizeof(SUFFIX) - 1;
     if (name == nullptr || strlen(name) != PREFIX_LEN + 6 + SUFFIX_LEN ||
-        (memcmp(name, PREFIX, PREFIX_LEN) != 0 && memcmp(name, PREFIX_V3, PREFIX_LEN) != 0 &&
-         memcmp(name, PREFIX_V2, PREFIX_LEN) != 0) ||
+        (memcmp(name, PREFIX, PREFIX_LEN) != 0 && memcmp(name, PREFIX_V4, PREFIX_LEN) != 0 &&
+         memcmp(name, PREFIX_V3, PREFIX_LEN) != 0 && memcmp(name, PREFIX_V2, PREFIX_LEN) != 0) ||
         memcmp(name + PREFIX_LEN + 6, SUFFIX, SUFFIX_LEN) != 0) {
       return false;
     }
@@ -280,7 +281,7 @@ public:
     return true;
   }
 
-  // True for a bare log file name "climate_v4_YYYYMM.csv", "climate_v3_YYYYMM.csv" or "climate_v2_YYYYMM.csv" with year 2000..2099 and month 01..12.
+  // True for a bare log file name "climate_v5_YYYYMM.csv", "climate_v4_YYYYMM.csv", "climate_v3_YYYYMM.csv" or "climate_v2_YYYYMM.csv" with year 2000..2099 and month 01..12.
   static bool isLogFileName(const char* name) {
     int year = 0;
     int month = 0;
@@ -314,7 +315,7 @@ public:
     return age > static_cast<int>(retention_months);
   }
 
-  // ---- Daily summary file "daily_v2_YYYY.csv" (the older "daily_v1_YYYY.csv" stays readable) ----
+  // ---- Daily summary file "daily_v3_YYYY.csv" (the older "daily_v2" and "daily_v1" files stay readable) ----
 
   // Splits a bare yearly file name "<prefix>YYYY.csv" into the year 2000..2099.
   static bool parseYearFileName(const char* name, const char* prefix, int& year) {
@@ -339,9 +340,10 @@ public:
     return true;
   }
 
-  // Splits a bare daily file name "daily_v1_YYYY.csv" or "daily_v2_YYYY.csv" into the year 2000..2099.
+  // Splits a bare daily file name "daily_v1_YYYY.csv", "daily_v2_YYYY.csv" or "daily_v3_YYYY.csv" into the year 2000..2099.
   static bool parseDailyFileName(const char* name, int& year) {
-    return parseYearFileName(name, "daily_v2_", year) || parseYearFileName(name, "daily_v1_", year);
+    return parseYearFileName(name, "daily_v3_", year) || parseYearFileName(name, "daily_v2_", year) ||
+           parseYearFileName(name, "daily_v1_", year);
   }
 
   static bool isDailyFileName(const char* name) {
@@ -379,7 +381,7 @@ public:
            static_cast<int>(retention_months);
   }
 
-  // Writes "/sdcard/daily_v2_YYYY.csv". Returns the length, or 0 for a null or small buffer or a
+  // Writes "/sdcard/daily_v3_YYYY.csv". Returns the length, or 0 for a null or small buffer or a
   // year outside 2000..2099.
   static size_t formatDailyFilename(uint16_t year, char* out, size_t capacity) {
     if (out == nullptr || capacity == 0) {
@@ -389,7 +391,7 @@ public:
     if (year < 2000 || year > 2099) {
       return 0;
     }
-    const int n = snprintf(out, capacity, "%s/daily_v2_%04u.csv", MOUNT_POINT, static_cast<unsigned>(year));
+    const int n = snprintf(out, capacity, "%s/daily_v3_%04u.csv", MOUNT_POINT, static_cast<unsigned>(year));
     if (n <= 0 || static_cast<size_t>(n) >= capacity) {
       out[0] = '\0';
       return 0;
@@ -397,10 +399,11 @@ public:
     return static_cast<size_t>(n);
   }
 
-  // Header line of the daily file: the date, six columns for each of the four sensors, the noise
-  // range and the noise peak summary (30 columns).
+  // Header line of the daily file: the date, six columns for each of the six sensors, the noise
+  // range and the noise peak summary (42 columns).
   static size_t formatDailyHeader(char* out, size_t capacity) {
-    static const char* const SENSORS[] = {"onboard", "s1", "s2", "s3"};
+    static const char* const SENSORS[] = {"onboard", "s1", "s2", "s3", "s4", "s5"};
+    static_assert(sizeof(SENSORS) / sizeof(SENSORS[0]) == LOG_SOURCE_COUNT, "one name for each logged sensor");
     if (out == nullptr || capacity == 0) {
       return 0;
     }
@@ -430,9 +433,9 @@ public:
   }
 
   // Writes one daily row, including the newline: the date, then minimum, maximum and mean of the
-  // temperature and of the humidity for the onboard sensor and the three slots, then the minimum and
+  // temperature and of the humidity for the onboard sensor and the five slots, then the minimum and
   // maximum noise level, then the peak level, its local hour and the event sum of `stats`. A sensor
-  // without samples, or a day without a valid noise reading, gives empty fields, so every row has 30
+  // without samples, or a day without a valid noise reading, gives empty fields, so every row has 42
   // columns.
   // Returns the length, or 0 for a null or small buffer or an invalid date.
   static size_t formatDailyRow(
@@ -615,6 +618,8 @@ public:
         "s1_temp_c,s1_rh,s1_battery_pct,"
         "s2_temp_c,s2_rh,s2_battery_pct,"
         "s3_temp_c,s3_rh,s3_battery_pct,"
+        "s4_temp_c,s4_rh,s4_battery_pct,"
+        "s5_temp_c,s5_rh,s5_battery_pct,"
         "noise_rms,noise_db,noise_band,noise_events,noise_l10,noise_l90\n";
     const size_t len = sizeof(HEADER) - 1;
     if (out == nullptr || capacity < len + 1) {
@@ -624,8 +629,8 @@ public:
     return len;
   }
 
-  // Writes "/sdcard/climate_v4_YYYYMM.csv". The v4 name keeps the 21-column format apart from
-  // the old v3 (19 columns) and v2 (18 columns) files, which stay unchanged. Returns the length, or 0 for a null buffer, a small
+  // Writes "/sdcard/climate_v5_YYYYMM.csv". The v5 name keeps the 27-column format apart from
+  // the old v4 (21 columns), v3 (19 columns) and v2 (18 columns) files, which stay unchanged. Returns the length, or 0 for a null buffer, a small
   // buffer, a null or invalid time.
   static size_t formatFilename(const RtcTime* time, char* out, size_t capacity) {
     if (out == nullptr || capacity == 0) {
@@ -637,7 +642,7 @@ public:
       return 0;
     }
     const int n = snprintf(
-        out, capacity, "%s/climate_v4_%04u%02u.csv", MOUNT_POINT,
+        out, capacity, "%s/climate_v5_%04u%02u.csv", MOUNT_POINT,
         static_cast<unsigned>(time->year), static_cast<unsigned>(time->month));
     if (n <= 0 || static_cast<size_t>(n) >= capacity) {
       out[0] = '\0';
@@ -647,7 +652,7 @@ public:
   }
 
   // Writes one CSV record, including the newline. A missing, invalid or stale sensor gives
-  // empty fields, so every row has the same column count (21). A null or invalid `noise` gives empty
+  // empty fields, so every row has the same column count (27). A null or invalid `noise` gives empty
   // noise fields, also an empty event count and empty L10 and L90 fields (also for a window without percentiles); the dB value uses `noise_cal` (the default calibration when null). Returns the
   // length, or 0 on a null or small buffer, or a null or invalid time.
   static size_t formatRow(
@@ -692,7 +697,7 @@ public:
       pos += snprintf(out + pos, capacity - pos, ",,");
     }
 
-    for (size_t i = 0; i < LOG_SOURCE_COUNT - 1; ++i) {
+    for (size_t i = 0; i < LOG_SOURCE_COUNT - 1; ++i) { // slots 1 to 5
       const SwitchBotReading* r = (slots != nullptr && i < slot_count) ? &slots[i] : nullptr;
       if (r != nullptr && r->valid && !r->isStale(now_ms, stale_timeout_ms) && isfinite(r->temperature_c)) {
         pos += snprintf(out + pos, capacity - pos, ",%.1f,%u,", static_cast<double>(r->temperature_c),

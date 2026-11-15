@@ -10,10 +10,11 @@ public struct DailySensorStats: Equatable {
     public let rhMean: Double?
 }
 
-/// One row of `daily_v1_YYYY.csv` or `daily_v2_YYYY.csv`. The noise peak fields exist only in `daily_v2`.
+/// One row of `daily_v1_YYYY.csv`, `daily_v2_YYYY.csv` or `daily_v3_YYYY.csv`. The noise peak fields exist only in
+/// `daily_v2` and `daily_v3`.
 public struct DailyRow: Equatable {
     public let date: String
-    /// Onboard sensor first, then slots 1 to 3.
+    /// Onboard sensor first, then slots 1 to 3 (slots 1 to 5 in `daily_v3`).
     public let sensors: [DailySensorStats]
     public let noiseMinDb: Int?
     public let noiseMaxDb: Int?
@@ -29,22 +30,25 @@ public struct DailyFolder: Equatable {
 }
 
 public struct DailyLog: Equatable {
-    public enum Format: Equatable { case v1, v2 }
+    public enum Format: Equatable { case v1, v2, v3 }
 
-    public static let sensorNames = ["onboard", "s1", "s2", "s3"]
+    public static let sensorNames = ["onboard", "s1", "s2", "s3", "s4", "s5"]
     private static let statColumns = ["temp_min_c", "temp_max_c", "temp_mean_c", "rh_min", "rh_max", "rh_mean"]
 
     public let format: Format
     public let rows: [DailyRow]
 
+    /// Sensors in the rows of a format: `daily_v3` adds the slots 4 and 5.
+    private static func sensorCount(_ format: Format) -> Int { format == .v3 ? sensorNames.count : 4 }
+
     private static func header(_ format: Format) -> String {
-        var names = ["date"] + sensorNames.flatMap { s in statColumns.map { "\(s)_\($0)" } }
+        var names = ["date"] + sensorNames.prefix(sensorCount(format)).flatMap { s in statColumns.map { "\(s)_\($0)" } }
         names += ["noise_min_db", "noise_max_db"]
-        if format == .v2 { names += ["noise_peak_db", "noise_peak_hour", "noise_events_sum"] }
+        if format != .v1 { names += ["noise_peak_db", "noise_peak_hour", "noise_events_sum"] }
         return names.joined(separator: ",")
     }
 
-    /// The header row selects the format (27 or 30 columns). An unknown header throws `missingLine`; a row with a
+    /// The header row selects the format (27, 30 or 42 columns). An unknown header throws `missingLine`; a row with a
     /// wrong column count or a non-numeric field throws `badLine`. An empty field gives `nil`.
     public static func parse(text: String) throws -> DailyLog {
         let lines = text.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
@@ -55,9 +59,11 @@ public struct DailyLog: Equatable {
         switch head {
         case header(.v1): format = .v1
         case header(.v2): format = .v2
+        case header(.v3): format = .v3
         default: throw ParseError.missingLine("header")
         }
-        let columns = format == .v1 ? 27 : 30
+        let sensorTotal = sensorCount(format)
+        let columns = 1 + sensorTotal * statColumns.count + (format == .v1 ? 2 : 5)
         let rows = try lines.dropFirst().map { line -> DailyRow in
             let f = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
             guard f.count == columns, isDate(f[0]) else { throw ParseError.badLine(line) }
@@ -71,23 +77,23 @@ public struct DailyLog: Equatable {
                 guard let v = Int(f[i]) else { throw ParseError.badLine(line) }
                 return v
             }
-            let sensors = try (0..<sensorNames.count).map { s -> DailySensorStats in
+            let sensors = try (0..<sensorTotal).map { s -> DailySensorStats in
                 let b = 1 + s * statColumns.count
                 return DailySensorStats(
                     tempMinC: try decimal(b), tempMaxC: try decimal(b + 1), tempMeanC: try decimal(b + 2),
                     rhMin: try decimal(b + 3), rhMax: try decimal(b + 4), rhMean: try decimal(b + 5))
             }
-            let n = 1 + sensorNames.count * statColumns.count
+            let n = 1 + sensorTotal * statColumns.count
             return DailyRow(
                 date: f[0], sensors: sensors, noiseMinDb: try integer(n), noiseMaxDb: try integer(n + 1),
-                noisePeakDb: format == .v2 ? try integer(n + 2) : nil,
-                noisePeakHour: format == .v2 ? try integer(n + 3) : nil,
-                noiseEventsSum: format == .v2 ? try integer(n + 4) : nil)
+                noisePeakDb: format != .v1 ? try integer(n + 2) : nil,
+                noisePeakHour: format != .v1 ? try integer(n + 3) : nil,
+                noiseEventsSum: format != .v1 ? try integer(n + 4) : nil)
         }
         return DailyLog(format: format, rows: rows)
     }
 
-    /// True for `daily_v1_YYYY.csv` and `daily_v2_YYYY.csv`; the check of `LogArchive` decides the name.
+    /// True for `daily_v1_YYYY.csv`, `daily_v2_YYYY.csv` and `daily_v3_YYYY.csv`; the check of `LogArchive` decides the name.
     public static func isDailyFileName(_ name: String) -> Bool {
         LogArchive.isValidName(name) && name.hasPrefix("daily_")
     }
@@ -100,7 +106,7 @@ public struct DailyLog: Equatable {
     }
 
     /// Reads every daily file of the folder (local files only). A file that fails to parse is listed in
-    /// `failedFiles`. When two files hold the same date, the `daily_v2` row wins.
+    /// `failedFiles`. When two files hold the same date, the newer format wins.
     public static func load(from folder: URL) -> DailyFolder {
         let names = ((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
             .filter(isDailyFileName).sorted()
@@ -112,7 +118,7 @@ public struct DailyLog: Equatable {
             guard size <= ReplyAssembler.maxFileBytes, let data = try? Data(contentsOf: url),
                   let text = String(data: data, encoding: .utf8),
                   let log = try? parse(text: text) else { failed.append(name); continue }
-            for row in log.rows { byDate[row.date] = row } // v2 sorts after v1 for the same year
+            for row in log.rows { byDate[row.date] = row } // a newer version sorts after an older one for the same year
         }
         return DailyFolder(rows: byDate.values.sorted { $0.date < $1.date }, failedFiles: failed)
     }

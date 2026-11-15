@@ -3,7 +3,7 @@ import RlcdProtocol
 import SwiftUI
 
 /// One chart pair for each sensor: daily minimum, mean and maximum of temperature and humidity, and the daily noise
-/// peak for rows of `daily_v2`. Reads only the rows that `DailyLog.load` gave; sends no console command.
+/// peak for rows of `daily_v2` and `daily_v3`. Reads only the rows that `DailyLog.load` gave; sends no console command.
 struct DailyChartView: View {
     let folder: DailyFolder
     var temperatureUnit = "°C"
@@ -26,6 +26,7 @@ struct DailyChartView: View {
     private func points(_ sensor: Int, _ values: (DailySensorStats) -> [(String, Double?)]) -> [Point] {
         folder.rows.flatMap { row -> [Point] in
             guard let date = Self.parser.date(from: row.date) else { return [] }
+            guard sensor < row.sensors.count else { return [] } // older files hold fewer sensors
             return values(row.sensors[sensor]).compactMap { name, value in
                 value.map { Point(id: "\(row.date)-\(name)", date: date, series: name, value: $0) }
             }
@@ -65,7 +66,7 @@ struct DailyChartView: View {
                 ForEach(0..<DailyLog.sensorNames.count, id: \.self) { sensor in
                     let temp = points(sensor) { [("Min", $0.tempMinC), ("Mean", $0.tempMeanC), ("Max", $0.tempMaxC)] }
                     let rh = points(sensor) { [("Min", $0.rhMin), ("Mean", $0.rhMean), ("Max", $0.rhMax)] }
-                    if !temp.isEmpty || !rh.isEmpty {
+                    if !temp.isEmpty || !rh.isEmpty { // slots 4 and 5 exist only in daily_v3 rows
                         Text(DailyLog.sensorNames[sensor]).font(.headline)
                         HStack(alignment: .top) {
                             chart("Temperature (\(temperatureUnit))", temp)
