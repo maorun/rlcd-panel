@@ -138,7 +138,7 @@ enum class ButtonEvent : uint8_t {
   MODE_CHANGED,
   CALIBRATE, // long press in the diagnostics view; the mode stays
   RECAPTURE, // short press in the spectrum view; the mode stays
-  NEXT_SENSOR, // short press in the climate chart view; the mode stays
+  NEXT_SENSOR, // short press in the climate chart or week chart view; the mode stays
   NEXT_PAGE, // short press in the stats view with an active slot 4 or 5; the mode stays
 };
 
@@ -148,9 +148,10 @@ enum class DisplayMode : uint8_t {
   SYSTEM_DIAGNOSTICS = 2,
   AUDIO_SPECTRUM = 3,
   CLIMATE_CHART = 4,
+  WEEK_CHART = 5,
 };
 
-constexpr uint8_t DISPLAY_MODE_COUNT = 5;
+constexpr uint8_t DISPLAY_MODE_COUNT = 6;
 
 // Number of sensors the climate chart view selects from: onboard + 5 SwitchBot slots.
 constexpr uint8_t CHART_SENSOR_COUNT = 6;
@@ -159,7 +160,7 @@ constexpr uint8_t CHART_SENSOR_COUNT = 6;
 constexpr uint8_t STATS_PAGE_COUNT = 2;
 
 // Display mode state machine: every debounced press cycles DASHBOARD -> SENSOR_STATS ->
-// SYSTEM_DIAGNOSTICS -> AUDIO_SPECTRUM -> CLIMATE_CHART -> DASHBOARD.
+// SYSTEM_DIAGNOSTICS -> AUDIO_SPECTRUM -> CLIMATE_CHART -> WEEK_CHART -> DASHBOARD.
 class DisplayModeController {
 public:
   DisplayMode mode() const {
@@ -172,7 +173,7 @@ public:
     }
   }
 
-  // Sensor shown by the climate chart view: 0 is the onboard sensor, 1 to 5 the registry slots.
+  // Sensor shown by the climate chart and week chart views: 0 is the onboard sensor, 1 to 5 the registry slots.
   uint8_t chartSensor() const {
     return chart_sensor_;
   }
@@ -229,8 +230,8 @@ public:
   // button that is already down at the first call raises no event, so the press that woke the
   // board cannot start a calibration. In the spectrum view a short press returns RECAPTURE and
   // keeps the mode, and a hold of 2 s or more changes the mode. The press that woke the board
-  // changes the mode through next(), so it never starts a capture. The climate chart view works
-  // the same way: a short press selects the next sensor (NEXT_SENSOR) and keeps the mode. The
+  // changes the mode through next(), so it never starts a capture. The climate chart and week chart
+  // views work the same way: a short press selects the next sensor (NEXT_SENSOR) and keeps the mode. The
   // stats view works the same way while slot 4 or 5 is active: a short press selects the other
   // page (NEXT_PAGE). Without such a slot every press changes the mode at once.
   ButtonEvent updateWithLongPress(bool raw_pressed, uint32_t now_ms) {
@@ -238,7 +239,7 @@ public:
     if (edge) {
       const bool stats_pages = mode_ == DisplayMode::SENSOR_STATS && stats_second_page_;
       if (mode_ != DisplayMode::SYSTEM_DIAGNOSTICS && mode_ != DisplayMode::AUDIO_SPECTRUM &&
-          mode_ != DisplayMode::CLIMATE_CHART && !stats_pages) {
+          !isChartMode() && !stats_pages) {
         next();
         return ButtonEvent::MODE_CHANGED;
       }
@@ -249,7 +250,7 @@ public:
         if (mode_ == DisplayMode::AUDIO_SPECTRUM) {
           return ButtonEvent::RECAPTURE;
         }
-        if (mode_ == DisplayMode::CLIMATE_CHART) {
+        if (isChartMode()) {
           nextChartSensor();
           return ButtonEvent::NEXT_SENSOR;
         }
@@ -260,7 +261,7 @@ public:
         next();
         return ButtonEvent::MODE_CHANGED;
       case LongPressDetector::Result::LONG:
-        if (mode_ == DisplayMode::AUDIO_SPECTRUM || mode_ == DisplayMode::CLIMATE_CHART ||
+        if (mode_ == DisplayMode::AUDIO_SPECTRUM || isChartMode() ||
             mode_ == DisplayMode::SENSOR_STATS) {
           next();
           return ButtonEvent::MODE_CHANGED;
@@ -284,6 +285,11 @@ public:
   }
 
 private:
+  // The two chart views share the sensor and the key handling.
+  bool isChartMode() const {
+    return mode_ == DisplayMode::CLIMATE_CHART || mode_ == DisplayMode::WEEK_CHART;
+  }
+
   ButtonDebouncer button_;
   LongPressDetector long_press_;
   DisplayMode mode_ = DisplayMode::DASHBOARD;
