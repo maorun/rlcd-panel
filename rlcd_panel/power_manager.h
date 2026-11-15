@@ -317,7 +317,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 51;
+  static constexpr uint8_t STATE_VERSION = 52;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -351,7 +351,7 @@ public:
   // The offset arrays keep one entry for each of the five slots. Each slot has offset keys.
   // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
   // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, ventilate limit, sensor battery limit, display invert, climate alert tiles, battery offset (int16), slot release hours, night wake interval (uint16), temperature unit (one byte, 'C' or 'F'), chime repeat hours, heat alert limit, BLE broadcast enabled, BLE console, RH offset (float), one temperature offset and one RH offset for each slot (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
-  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 4 + 2 * DeviceConfig::SLOT_COUNT * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
+  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 2 * DeviceConfig::SLOT_COUNT * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
   // Header: magic, version, mode, chart sensor, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -622,6 +622,11 @@ public:
     out[pos++] = state.config.heat_alert_limit_c;
     out[pos++] = state.config.ble_broadcast_enabled;
     out[pos++] = state.config.ble_console;
+    {
+      long usb_tenths = lroundf(state.config.usb_temp_offset_c * 10.0f);
+      usb_tenths = usb_tenths < -50 ? -50 : (usb_tenths > 0 ? 0 : usb_tenths); // valid() range
+      out[pos++] = static_cast<uint8_t>(static_cast<int8_t>(usb_tenths));
+    }
     putFloat(out, pos, state.config.rh_offset_pct);
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       putFloat(out, pos, state.config.slot_temp_offset_c[i]);
@@ -950,6 +955,7 @@ public:
     s.config.heat_alert_limit_c = data[pos++];
     s.config.ble_broadcast_enabled = data[pos++];
     s.config.ble_console = data[pos++];
+    s.config.usb_temp_offset_c = static_cast<float>(static_cast<int8_t>(data[pos++])) / 10.0f;
     s.config.rh_offset_pct = getFloat(data, pos);
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       s.config.slot_temp_offset_c[i] = getFloat(data, pos);

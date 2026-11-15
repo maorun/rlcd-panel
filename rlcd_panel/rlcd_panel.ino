@@ -231,7 +231,7 @@ void onScanComplete(BLEScanResults) {
   g_scan_running = false;
 }
 
-Shtc3Result readOnboardShtc3(Shtc3Reading& out) {
+Shtc3Result readOnboardShtc3(Shtc3Reading& out, bool usb_powered) {
   out = Shtc3Reading{};
 
   // Wake command 0x3517
@@ -266,7 +266,7 @@ Shtc3Result readOnboardShtc3(Shtc3Reading& out) {
   Wire.write(0x98);
   Wire.endTransmission();
 
-  return Shtc3Codec::classify(true, received == 6 ? 6 : 0, frame, out, config().temp_offset_c,
+  return Shtc3Codec::classify(true, received == 6 ? 6 : 0, frame, out, config().onboardTempOffsetC(usb_powered),
                               config().rh_offset_pct);
 }
 
@@ -808,13 +808,14 @@ void updateCycles() {
 }
 
 void refreshSensors() {
-  g_state.shtc3.record(readOnboardShtc3(g_onboard_reading));
   // After a reset of the RTC state the latch starts off: a cell at 16..19 % raises no alert until
   // it reaches the set threshold.
   const bool was_low = g_state.battery.low_battery;
   g_state.battery = BatteryMonitor::read(config().battery_offset_mv);
   g_state.battery.low_battery = BatteryMonitor::updateLowBattery(g_state.battery, was_low);
   g_state.battery_history.record(nowMs(), g_state.battery);
+  // The SHTC3 read follows the battery read: the USB state selects the offset of the reading.
+  g_state.shtc3.record(readOnboardShtc3(g_onboard_reading, g_state.battery.valid && g_state.battery.usb_powered));
   updateCycles();
   updateRtc();
   if (g_reset_event_pending) {

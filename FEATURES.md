@@ -1153,7 +1153,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 ## Calibration offsets for slots 4 and 5
 
 - **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `docs/config.example.ini`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `Replies.swift`; tests in `tests/test_firmware_logic.cpp`, `ConfigSchemaTests.swift`, `CalibrationTests.swift`.
-- `DeviceConfig::OFFSET_SLOT_COUNT` is 5. The keys `slot4_temp_offset_c`, `slot5_temp_offset_c` (-5 to 5 C), `slot4_rh_offset_pct` and `slot5_rh_offset_pct` (-10 to 10 %RH) end `DeviceConfigParser::KEYS` (`KEY_COUNT` 48). A value outside the range is a rejected line.
+- `DeviceConfig::OFFSET_SLOT_COUNT` is 5. The keys `slot4_temp_offset_c`, `slot5_temp_offset_c` (-5 to 5 C), `slot4_rh_offset_pct` and `slot5_rh_offset_pct` (-10 to 10 %RH) end `DeviceConfigParser::KEYS` (`KEY_COUNT` 49). A value outside the range is a rejected line.
 - `PersistentState` already stored five offset entries, so the config trailer keeps its size. `STATE_VERSION` was 49 here, and an RTC image of version 48 is rejected.
 - `CALIB N` accepts 0 to 5. The macOS app sends it for slots 4 and 5 and proposes the new keys. The CSV logs and the BLE telemetry frame stay unchanged.
 
@@ -1228,7 +1228,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The stats view has room for three slot blocks (`STATS_SLOT_COUNT` 3). A second page shows slots 4 and 5 with the same lines (comfort, mold, heat index, absolute humidity, records).
 - `DashboardView::statsHasSecondPage` is true when slot 4 or slot 5 is active (`activeTileCount` rules). Only then the title shows `SENSOR STATS 1/2` or `SENSOR STATS 2/2`. Without slot 4 and slot 5 the render is bit-exact against the old one, and a page request is ignored.
 - In the stats view a short `KEY` press returns `ButtonEvent::NEXT_PAGE` and selects the other page while the second page exists. A hold of 2 s changes the view (`MODE_CHANGED`), the same as in the chart view. Without slot 4 and slot 5 a press changes the view as before. A view change returns to page 0.
-- `PersistentState::stats_page` stores the page as 1 byte after `chart_sensor`. A value above 1 is rejected. `STATE_VERSION` is 51, and an RTC image of version 50 is rejected. `flushFramebuffer()` counts a page change as a view change, so the panel always flushes it.
+- `PersistentState::stats_page` stores the page as 1 byte after `chart_sensor`. A value above 1 is rejected. `STATE_VERSION` is 52, and an RTC image of version 50 is rejected. `flushFramebuffer()` counts a page change as a view change, so the panel always flushes it.
 - `tools/preview_scenes.h` adds the scene `display_preview_stats2`. `./scripts/generate-display-preview.sh` writes `docs/display_preview_stats2.png`.
 - Host tests cover `NEXT_PAGE`, `MODE_CHANGED` without slot 4 and slot 5, the hold of 2 s, the bit-exact first page, a page byte of 2 and the old `STATE_VERSION`.
 
@@ -1242,3 +1242,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `requiresApproval` shows the button `Open Login Items settings` (`SMAppService.openSystemSettingsLoginItems()`).
 - A run without an app bundle (`swift run`) or an unknown app (`SMAppService.mainApp.status == .notFound`) gives `notAvailable`. The toggle is disabled then.
 - `LoginItemTests` use a fake service. They cover register once, unregister, a failed register and unregister that keep the state, the approval state, `notAvailable` and a state read at each call.
+
+## USB power temperature offset
+
+- The key `usb_temp_offset_c` (-5.0 to 0.0 C, default 0.0, 0.1 C steps) is the last entry of `DeviceConfigParser::KEYS` (`KEY_COUNT` 49). A value outside the range is a rejected line and keeps the default.
+- `DeviceConfig::onboardTempOffsetC(usb_powered)` returns `temp_offset_c + usb_temp_offset_c` on USB power and `temp_offset_c` on battery power. `refreshSensors()` reads the `SHTC3` after the battery reading and passes the power source to `readOnboardShtc3`.
+- The 24-hour history, the CSV logs, the telemetry frame and `CALIB` use the corrected value.
+- The console command `STATUS` shows `SHTC3 nack=<N> short=<N> crc=<N> run=<N> usb_offset=<x>` only on USB power.
+- The config trailer stores the key as 1 byte (`int8`, 0.1 C) after `ble_console`. `STATE_VERSION` is 52, and an RTC image of version 51 gives a clean start.
+- Host test `testUsbTempOffset` asserts 21.9 C on USB power and 23.1 C on battery power with `temp_offset_c=-1.9` and `usb_temp_offset_c=-1.2`, the rejected lines `-5.1` and `0.1`, and the trailer round trip.

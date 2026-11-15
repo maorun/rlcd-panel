@@ -80,6 +80,7 @@ public enum ConfigSchema {
         var out: [ConfigEntry] = [
             // Climate
             e("temp_offset_c", .climate, .decimal(min: -10, max: 10), "-1.9", "°C", "Add this value to the onboard temperature."),
+            e("usb_temp_offset_c", .climate, .decimal(min: -5, max: 0), "0.0", "°C", "Add this value to the onboard temperature on USB power only."),
             e("rh_offset_pct", .climate, .decimal(min: -10, max: 10), "0.0", "%RH", "Add this value to the onboard humidity."),
             e("temp_unit", .climate, .enumeration(["C", "F"]), "C", "", "Show the temperature in Celsius or Fahrenheit. The card files and alerts stay in Celsius."),
             e("display_invert", .climate, .integer(min: 0, max: 1), "0", "", "0 is dark on light. 1 is light on dark."),

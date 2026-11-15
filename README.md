@@ -181,6 +181,7 @@ Check a `config.ini` on the host before you copy it to the card: `./scripts/chec
 ```ini
 # Lines with # or ; are comments
 temp_offset_c=-1.9
+usb_temp_offset_c=0.0
 rh_offset_pct=0.0
 slot1_temp_offset_c=0.0
 slot2_temp_offset_c=0.0

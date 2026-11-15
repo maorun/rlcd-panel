@@ -29,7 +29,7 @@ struct ConfigSchemaTests {
         let (active, commented) = try templateKeys()
         let template = Set(active.keys).union(commented)
         #expect(Set(ConfigSchema.keys) == template)
-        #expect(ConfigSchema.keys.count == 48)
+        #expect(ConfigSchema.keys.count == 49)
         #expect(Set(ConfigSchema.keys).count == ConfigSchema.keys.count)
         for e in ConfigSchema.entries {
             if let v = active[e.key] {
@@ -292,7 +292,7 @@ struct ConfigSchemaTests {
     /// Limits copied from rlcd_panel/device_config.h. A wrong schema range fails here.
     @Test func rangesMatchFirmwareConstants() {
         let expected: [String: (Double, Double)] = [
-            "temp_offset_c": (-10, 10), "rh_offset_pct": (-10, 10), "freeze_alert_limit_c": (-20, 15),
+            "temp_offset_c": (-10, 10), "usb_temp_offset_c": (-5, 0), "rh_offset_pct": (-10, 10), "freeze_alert_limit_c": (-20, 15),
             "mold_alert_limit_rh": (40, 95), "chime_volume_pct": (0, 100), "quiet_hours_start_hour": (0, 23),
             "quiet_hours_end_hour": (0, 23), "mic_spl_offset_db": (-20, 20), "log_retention_months": (0, 120),
             "noise_alert_limit_db": (40, 100), "chime_alert_mask": (0, 255), "ntp_sync_interval_h": (6, 168),
