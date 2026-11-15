@@ -36,7 +36,7 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
@@ -180,6 +180,13 @@ public:
         return SerialParseStatus::BAD_ARG; // EVENTS takes no argument
       }
       out.kind = SerialCommandKind::EVENTS;
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "WEEK")) {
+      if (cmd_len != len) {
+        return SerialParseStatus::BAD_ARG; // WEEK takes no argument
+      }
+      out.kind = SerialCommandKind::WEEK;
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "HISTORY")) {
@@ -971,6 +978,54 @@ public:
     send(sink, line);
   }
 
+  // Sends the 7-day minimum and maximum of each sensor from the RTC copy as CSV: one row per sensor (0 onboard, 1 to 5 a
+  // slot) and day (day 0 is the day before the stamp). The date is empty without a stamp, a gap day gives empty value
+  // fields. Values are in 0.5 steps. The card and the state stay untouched. A short write ends the reply, so the host
+  // sees no CRC32 line.
+  static void showWeek(Sink& sink, const WeekHistory& week) {
+    SerialCrc32 crc;
+    auto emit = [&](const char* text) {
+      const size_t len = strlen(text);
+      if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+        return false;
+      }
+      crc.update(reinterpret_cast<const uint8_t*>(text), len);
+      return true;
+    };
+    if (!emit("BEGIN WEEK\n") || !emit("sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct\n")) {
+      return;
+    }
+    for (size_t s = 0; s < WeekHistory::SENSORS; ++s) {
+      for (size_t d = 0; d < WeekHistory::DAYS; ++d) {
+        char date[16] = "";
+        if (week.hasDate()) {
+          int32_t y = 0;
+          uint8_t m = 0, dd = 0;
+          NtpTime::civilFromDays(
+              NtpTime::daysFromCivil(week.stampYear(), week.stampMonth(), week.stampDay()) - 1 - static_cast<int64_t>(d), y, m, dd);
+          snprintf(date, sizeof(date), "%04d-%02u-%02u", static_cast<int>(y), static_cast<unsigned>(m), static_cast<unsigned>(dd));
+        }
+        char f[4][12] = {"", "", "", ""};
+        if (week.hasTemperature(s, d)) {
+          formatTenths(f[0], sizeof(f[0]), week.temperatureMin(s, d));
+          formatTenths(f[1], sizeof(f[1]), week.temperatureMax(s, d));
+        }
+        if (week.hasHumidity(s, d)) {
+          formatTenths(f[2], sizeof(f[2]), week.humidityMin(s, d));
+          formatTenths(f[3], sizeof(f[3]), week.humidityMax(s, d));
+        }
+        char line[80];
+        snprintf(line, sizeof(line), "%u,%u,%s,%s,%s,%s,%s\n", static_cast<unsigned>(s), static_cast<unsigned>(d), date, f[0], f[1], f[2], f[3]);
+        if (!emit(line)) {
+          return;
+        }
+      }
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
   // Sends the event ring from the RTC copy as CSV, oldest event first, with the rows of events_v1_YYYY.csv. A ring with
   // lost events starts with the EVENTS_DROPPED row of the current time (no row for an invalid time, as in the file).
   // The card and the ring stay untouched. A short write ends the reply, so the host sees no CRC32 line.
@@ -1504,7 +1559,7 @@ public:
         command.kind == SerialCommandKind::EVENTS || command.kind == SerialCommandKind::PATTERN ||
         command.kind == SerialCommandKind::SCAN || command.kind == SerialCommandKind::MUTE ||
         command.kind == SerialCommandKind::SCREEN || command.kind == SerialCommandKind::SET ||
-        command.kind == SerialCommandKind::RTC_TRIM) {
+        command.kind == SerialCommandKind::RTC_TRIM || command.kind == SerialCommandKind::WEEK) {
       return;
     }
     if (!storage.mount()) {
@@ -1529,6 +1584,7 @@ public:
       case SerialCommandKind::MUTE:
       case SerialCommandKind::SCREEN:
       case SerialCommandKind::RTC_TRIM:
+      case SerialCommandKind::WEEK:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;

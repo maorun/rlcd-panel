@@ -21,6 +21,7 @@ final class AppModel: ConsoleLinkDelegate {
     var transport: Transport = .bluetooth
     var status: StatusReply?
     var history: [HistoryRow] = []
+    var week: [WeekRow] = []
     /// Rows for the 7-day charts, downsampled; refreshed when the log changes.
     var chartRows: [TelemetryLogRow] = []
     /// Local telemetry history (7 days), saved at most once a minute.
@@ -229,6 +230,7 @@ final class AppModel: ConsoleLinkDelegate {
         rssi = nil
         status = nil
         history = []
+        week = []
         events = []
         config = nil
         lastConfig = nil // names and unit belong to the old panel
@@ -306,7 +308,7 @@ final class AppModel: ConsoleLinkDelegate {
     func refresh() {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty else { return }
         message = nil
-        queue = [.status, .history, .events, .config]
+        queue = [.status, .history, .events, .config, .week]
         sendNext()
     }
 
@@ -914,6 +916,9 @@ final class AppModel: ConsoleLinkDelegate {
                 version = nil
                 version = try VersionReply.parse(lines: lines)
             case let (.history, .frame(lines)): history = try HistoryReply.parse(lines: lines)
+            case let (.week, .frame(lines)):
+                week = [] // a reply that fails to parse must not leave the old rows
+                week = try WeekReply.parse(lines: lines)
             case let (.events, .frame(lines)): events = try EventsReply.parse(lines: lines)
             case let (.config, .frame(lines)):
                 batch?.receiveFrame()

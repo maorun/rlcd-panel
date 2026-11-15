@@ -24,6 +24,14 @@ sensor,age_h,temp_c,rh_pct,noise_db
 3,0,,70.0,
 
 """
+let weekText = """
+BEGIN WEEK
+sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct
+0,0,2026-11-14,19.5,22.0,40.5,55.0
+0,1,2026-11-13,,,,
+1,0,,10.0,20.0,40.0,60.0
+
+"""
 let eventsText = """
 BEGIN EVENTS
 time,event,detail
@@ -194,6 +202,22 @@ struct ReplyParserTests {
             #expect(throws: ParseError.self) { try HistoryReply.parse(lines: ["BEGIN HISTORY", HistoryReply.header, bad]) }
         }
         #expect(try HistoryReply.parse(lines: ["BEGIN HISTORY", HistoryReply.header, "5,23,1,2,3"]).count == 1)
+    }
+
+    @Test func week() throws {
+        let rows = try WeekReply.parse(lines: lines(weekText))
+        #expect(rows.count == 3)
+        #expect(rows[0] == WeekRow(sensor: 0, day: 0, date: "2026-11-14", temperatureMinC: 19.5, temperatureMaxC: 22.0,
+                                   humidityMinPct: 40.5, humidityMaxPct: 55.0))
+        #expect(rows[1].temperatureMinC == nil && rows[1].humidityMaxPct == nil && rows[1].date == "2026-11-13")
+        #expect(rows[2].date.isEmpty && rows[2].temperatureMaxC == 20.0)
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", "wrong"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,2026-11-14,1,2,3"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,7,,,,,"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,14.11.2026,,,,"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,1,2,3,4", "0,0,,1,2,3,4"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,5,2,3,4"]) }
+        #expect(ConsoleCommand.week.line == "WEEK")
     }
 
     @Test func events() throws {
