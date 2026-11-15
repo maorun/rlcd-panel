@@ -1103,6 +1103,16 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - After each `SET`, the app reads `CONFIG` and scans again. A scan reply that fails, times out or ends the link clears the list.
 - Tests parse a recorded reply with each format, an empty battery field, a slot `-` and a `DROPPED,3` row. They reject bad replies, build each `SET` line and the clear line, refuse an empty value for other keys, refuse slot 6, parse slot 4 and 5 rows, report a duplicate MAC (also in slot 5) and refuse `SCAN` on BLE.
 
+## Repeated scan mode for sensor placement in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/ScanSeries.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ScannerView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ScanSeriesTests.swift`
+- One `SCAN` gives one RSSI value. The `Repeat (15 s)` toggle of `ScannerView` sends `SCAN` on the USB serial link every 15 s, so the user sees a series for each MAC.
+- `ScanSeries` (pure `RlcdProtocol` code, injected clock) keeps the last 10 RSSI values of each MAC. It gives minimum, mean, maximum, the count of kept values and the count of scans without the MAC.
+- `ScannerView` shows these values below each sensor row.
+- The repeat stops when the user turns it off, closes the view, the link drops, a `SCAN` gives `ERR`, or after 10 minutes. The view shows the reason.
+- The app never starts the repeat on a BLE link, because `SCAN` gives `ERR NOT_OVER_BLE`. The firmware does not change.
+- `ScanSeriesTests` assert minimum, mean and maximum, the limit of 10 values, the missed-scan count, the stop after 10 minutes, the stop on an `ERR` reply and no start on a BLE link.
+
 ## SD card log archive over USB serial in the macOS app
 
 - **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/ReplyAssembler.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/LogArchive.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ArchiveView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/LogArchiveTests.swift`.

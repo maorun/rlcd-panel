@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Repeated scan mode for sensor placement in the macOS app
-  - Rank: [Total: 28, Use: 3, Setup: 9, Harmony: 8, Safety: 8, Effort: M]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/ScanSeries.swift, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/ScannerView.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ScanSeriesTests.swift
-  - Goal: One `SCAN` gives one RSSI value. To find a good place for a sensor, the user needs a series. Add a `Repeat` toggle to `ScannerView`. While it is on, the app sends `SCAN` on the USB link every 15 s. `ScanSeries` (pure `RlcdProtocol` code with an injected clock) keeps the last 10 RSSI values of each MAC and gives minimum, mean, maximum and the count of scans without the MAC. The view shows these values for each MAC. The repeat stops when the user turns it off, closes the view, the link drops, a `SCAN` gives `ERR`, or after 10 minutes. The app never repeats over BLE, because `SCAN` gives `ERR NOT_OVER_BLE`. The firmware does not change.
-  - Acceptance test: Swift `ScanSeriesTests` assert minimum, mean and maximum for known replies, the limit of 10 values, the missing-scan count for a MAC that is absent from one reply, the stop after 10 minutes with the injected clock, the stop on `ERR SCAN_FAILED`, and no start on a BLE link. `swift test` and `swift build -c release` pass.
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 
