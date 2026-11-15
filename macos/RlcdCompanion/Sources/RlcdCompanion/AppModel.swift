@@ -2,6 +2,8 @@ import Foundation
 import Observation
 import RlcdProtocol
 import UserNotifications
+import AppKit
+import UniformTypeIdentifiers
 
 enum Transport: String, CaseIterable { case bluetooth = "Bluetooth", usb = "USB serial" }
 
@@ -19,6 +21,11 @@ final class AppModel: ConsoleLinkDelegate {
     var transport: Transport = .bluetooth
     var status: StatusReply?
     var history: [HistoryRow] = []
+    /// Rows for the 7-day charts, downsampled; refreshed when the log changes.
+    var chartRows: [TelemetryLogRow] = []
+    /// Local telemetry history (7 days), saved at most once a minute.
+    private let logStore = TelemetryLogStore()
+    var telemetryLog: TelemetryLog { logStore.log }
     var events: [EventRow] = []
     var config: ConfigReply?
     var diagnostics: DiagnosticsReply?
@@ -97,6 +104,10 @@ final class AppModel: ConsoleLinkDelegate {
             self?.discovered.record(id: id, name: name, rssi: r, at: Date())
         }
         serial.delegate = self
+        chartRows = logStore.log.downsampled(maxRows: 400)
+        NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [logStore] _ in
+            logStore.flush()
+        }
         scanner.onBluetoothState = { [weak self] in self?.bluetoothState = $0 }
         scanner.onConsoleAvailable = { [weak self] in self?.consoleAvailable = $0 }
         scanner.onFrame = { [weak self] f, r in
@@ -106,7 +117,22 @@ final class AppModel: ConsoleLinkDelegate {
             self.frameDate = Date()
             self.now = Date()
             self.rssi = r
+            if self.logStore.record(f) { self.chartRows = self.logStore.log.downsampled(maxRows: 400) }
             self.checkAlertNotifications(previous: prev, current: f)
+        }
+    }
+
+    /// Asks for a target file in a save panel and writes the CSV text there.
+    func exportCsv(name: String, text: String) {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = name
+        panel.allowedContentTypes = [.commaSeparatedText]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try text.write(to: url, atomically: true, encoding: .utf8)
+            message = "Exported \(url.lastPathComponent)"
+        } catch {
+            message = "Export failed: \(error.localizedDescription)"
         }
     }
 

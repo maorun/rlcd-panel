@@ -84,6 +84,42 @@ struct MainView: View {
             } else {
                 Text("No telemetry frame yet. Set ble_broadcast_enabled=1 on the panel.").foregroundStyle(.secondary)
             }
+            if !model.chartRows.isEmpty { logChartsView }
+            exportButtons
+        }
+    }
+
+    private var logChartsView: some View {
+        struct Point: Identifiable { let id: Int; let time: Date; let tile: String; let t: Double?; let h: Double? }
+        let points = model.chartRows.enumerated().flatMap { (n, r) in
+            r.tiles.enumerated().map { (i, t) in
+                Point(id: n * TelemetryFrame.tileCount + i, time: r.time, tile: model.config?.name(forSlot: i) ?? tileNames[min(i, tileNames.count - 1)],
+                      t: t.temperatureC, h: t.humidityPct)
+            }
+        }
+        return VStack(alignment: .leading) {
+            Text("Temperature, last 7 days").font(.subheadline)
+            Chart(points.filter { $0.t != nil }) { p in
+                LineMark(x: .value("Time", p.time), y: .value("°C", p.t ?? 0)).foregroundStyle(by: .value("Tile", p.tile))
+            }.frame(height: 160)
+            Text("Relative humidity, last 7 days").font(.subheadline)
+            Chart(points.filter { $0.h != nil }) { p in
+                LineMark(x: .value("Time", p.time), y: .value("%RH", p.h ?? 0)).foregroundStyle(by: .value("Tile", p.tile))
+            }.frame(height: 160)
+        }
+    }
+
+    private var exportButtons: some View {
+        HStack {
+            Button("Export telemetry log (CSV)") {
+                model.exportCsv(name: "telemetry.csv", text: CsvExport.telemetry(model.telemetryLog))
+            }.disabled(model.chartRows.isEmpty)
+            Button("Export HISTORY (CSV)") {
+                model.exportCsv(name: "history.csv", text: CsvExport.history(model.history))
+            }.disabled(model.history.isEmpty)
+            Button("Export EVENTS (CSV)") {
+                model.exportCsv(name: "events.csv", text: CsvExport.events(model.events))
+            }.disabled(model.events.isEmpty)
         }
     }
 
