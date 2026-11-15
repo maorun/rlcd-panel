@@ -101,6 +101,17 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("CONFIG_SET", 0x0200)) == "CONFIG_SET,512")
     }
 
+    @Test func sdFaultGivesStatusText() {
+        #expect(EventText.describe(row("SD_FAULT", 1)) == "SD card OK")
+        #expect(EventText.describe(row("SD_FAULT", 2)) == "SD card fault: NO_CARD")
+        #expect(EventText.describe(row("SD_FAULT", 3)) == "SD card fault: MOUNT_FAILED")
+        #expect(EventText.describe(row("SD_FAULT", 4)) == "SD card fault: WRITE_FAILED")
+        #expect(EventText.describe(row("SD_FAULT", 5)) == "SD card fault: FULL")
+        #expect(EventText.describe(row("SD_FAULT", 0)) == "SD_FAULT,0")
+        #expect(EventText.describe(row("SD_FAULT", 6)) == "SD_FAULT,6")
+        #expect(EventText.describe(row("SD_FAULT", -1)) == "SD_FAULT,-1")
+    }
+
     @Test func firmwareKeyOrderMatchesDeviceConfigHeader() throws {
         var url = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { url.deleteLastPathComponent() }

@@ -123,6 +123,7 @@ enum class EventCode : uint8_t {
   SLOT_ASSIGN = 9,      // a new MAC took a registry slot; detail is slot (high byte) and BleFormat (low byte)
   SLOT_RELEASE = 10,    // releaseDeadSlots cleared a slot; detail is the slot number
   CONFIG_SET = 11,      // a console SET succeeded; detail is the DeviceConfigParser::KEYS index (low byte), transport (high byte: 0 USB, 1 BLE)
+  SD_FAULT = 12,        // the card status changed to a fault or back to OK; detail is the SdStatus
 };
 
 struct LogEvent {
@@ -143,7 +144,7 @@ struct LogEvent {
 class EventRing {
 public:
   static constexpr size_t CAPACITY = 16;
-  static constexpr uint8_t MAX_CODE = static_cast<uint8_t>(EventCode::CONFIG_SET);
+  static constexpr uint8_t MAX_CODE = static_cast<uint8_t>(EventCode::SD_FAULT);
 
   size_t size() const { return count_; }
   uint16_t dropped() const { return dropped_; }
@@ -546,6 +547,7 @@ public:
       case EventCode::SLOT_ASSIGN: return "SLOT_ASSIGN";
       case EventCode::SLOT_RELEASE: return "SLOT_RELEASE";
       case EventCode::CONFIG_SET: return "CONFIG_SET";
+      case EventCode::SD_FAULT: return "SD_FAULT";
       case EventCode::NONE: break;
     }
     return nullptr;
@@ -833,6 +835,19 @@ public:
       case SdConfigResult::MOUNT_FAILED: return SdStatus::MOUNT_FAILED;
     }
     return SdStatus::UNKNOWN;
+  }
+
+  // Detail of the SD_FAULT event for a status change, or -1 for no event. A change to a fault from a
+  // different status records the fault; a change from a fault back to OK records OK (detail 1). A
+  // first OK after UNKNOWN is no recovery, so it records nothing; the same status in a row neither.
+  static int32_t faultEventDetail(SdStatus previous, SdStatus next) {
+    if (previous == next || next == SdStatus::UNKNOWN) {
+      return -1;
+    }
+    if (next == SdStatus::OK) {
+      return (previous == SdStatus::UNKNOWN) ? -1 : static_cast<int32_t>(SdStatus::OK);
+    }
+    return static_cast<int32_t>(next);
   }
 
   // Name for the serial console.

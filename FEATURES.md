@@ -9,7 +9,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - **Power & Battery:** Deep sleep with CRC-checked RTC state, wake & night intervals, USB detection, low-battery banner, empty-battery protection, runtime & cycle tracking, awake-time stats.
 - **Audio & Alerts:** `ES8311` chimes (freezer, mold, heat, noise, dropout, charge full) with repeat & quiet hours, `BOOT` mute, `ES7210` noise & transient monitor (L10/L90), mic self-test & speaker loopback.
 - **Logging & Time:** MicroSD hourly CSV (`climate_v5`), daily summaries (`daily_v4`), event log (`events_v1`), retention & free-space check, Wi-Fi NTP sync, `PCF85063A` RTC drift tracking & frequency trim (`RTC TRIM`).
-- **Configuration & Console:** MicroSD `config.ini` with host validator, USB serial & BLE console (`STATUS`, `CONFIG`, `SET`, `LIST`, `DUMP`, `SCAN`, `CALIB`, `SALT`, `RTC TRIM`, `MUTE`, `BEEP`, `PATTERN`, `SCREEN`, `TIME`, `HISTORY`, `EVENTS`, `VERSION`), `CONFIG_SET` event recording.
+- **Configuration & Console:** MicroSD `config.ini` with host validator, USB serial & BLE console (`STATUS`, `CONFIG`, `SET`, `LIST`, `DUMP`, `SCAN`, `CALIB`, `SALT`, `RTC TRIM`, `MUTE`, `BEEP`, `PATTERN`, `SCREEN`, `TIME`, `HISTORY`, `EVENTS`, `VERSION`), `CONFIG_SET` and `SD_FAULT` event recording.
 - **macOS Companion App:** Signed `.app` bundle & menu bar summary, live BLE telemetry, panel pinning, `config.ini` editor & backup, BLE scanner, calibration assistant with salt check, diagnostics & clipboard report, log archive & charts, remote screen, CSV export, open at login.
 
 ## Deep sleep power management with periodic wakeup
@@ -1327,3 +1327,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `DashboardView::formatStaleAge` gives the age of a stale slot: whole hours since `updated_ms`, `<N>H` from `1H` (also below 1 h) to `99H`, `>99H` above. A slot without a packet (`updated_ms` 0) or with a packet stamped after `now_ms` gives an empty text, so the badge shows `STALE`.
 - `DashboardView::drawStaleBadge` draws the inverted badge in the title band of the STANDARD, LARGE and COMPACT tiles: `STALE <age>`, or the age only when the title would touch the badge (3 px gap). The title scale follows the badge width. The text changes once an hour, so `FrameRefresh` still skips most frames of a stale dashboard. The stats view keeps `RSSI --`.
 - Acceptance criteria: host tests cover `1H`, `2H`, `99H`, `>99H`, the empty age, the badge pixels in each tile and the equal frame CRC-32 for two renders 10 min apart. `docs/display_preview.png` shows one stale tile.
+
+## Event code for MicroSD card faults
+
+- The event ring has one more event code: `SD_FAULT` (12). `EventRing::MAX_CODE` is 12. The RTC validation of the ring accepts the codes 1 to 12 and rejects the code 13.
+- The detail is the `SdStatus` value: 1 `OK`, 2 `NO_CARD`, 3 `MOUNT_FAILED`, 4 `WRITE_FAILED`, 5 `FULL`.
+- `SdStatusCodec::faultEventDetail(previous, next)` gives the detail, or -1 for no event. A change to a fault from a different status records the fault. A change from a fault back to `OK` records detail 1. The same status in a row, `UNKNOWN` to `OK` and a change to `UNKNOWN` record nothing.
+- `setSdStatusLogged` in `rlcd_panel.ino` records the event after an hourly write and after a console `SET`. The config load runs before the RTC read, so it keeps the detail in `g_pending_sd_event` until `refreshSensors()` has the time.
+- The event stays in the RTC ring until the next successful hourly write puts it into `events_v1_YYYY.csv`. The console command `EVENTS` shows it without a card. The ring layout does not change. `STATE_VERSION` stays the same.
+- macOS `EventText` shows `SD card fault: <status>` and `SD card OK`. An unknown status number gives the raw text `SD_FAULT,<N>`.
+- Acceptance criteria: host tests cover the status changes, the CSV row and the ring check. Swift `EventTextTests` cover each status text and an unknown number.

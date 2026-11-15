@@ -302,7 +302,7 @@ The console command `CALIB N` separates the hours on USB power from the hours on
 
 A timer wakeup skips the panel start and the flush, when the frame equals the last flushed frame (CRC-32 after `display_invert`) and the view did not change. The reflective panel keeps its image without power. A power-on, a `KEY` wakeup, a view change, the console command `PATTERN` and each 61st cycle in a row flush. The CRC-32 and the skip counter (5 bytes) stay in RTC memory. The code is in `rlcd_panel/frame_refresh.h`.
 
-The firmware keeps the last 16 events (alert edges, config loads, NTP results, low battery alert, empty protection, resets, sensor slot changes and each successful console `SET` with its key index and transport) in the RTC memory. The hourly write appends them to `/sdcard/events_v1_YYYY.csv` (columns `time,event,detail`) and clears the ring. A lost event adds the row `EVENTS_DROPPED,<N>`. `LIST`, `DUMP events_v1_YYYY.csv` and `./scripts/dump-logs.sh` handle the file, and the retention counts it as December of its year. The code is in `rlcd_panel/sd_logger.h`.
+The firmware keeps the last 16 events (alert edges, config loads, NTP results, low battery alert, empty protection, resets, sensor slot changes and each successful console `SET` with its key index and transport, and each change of the MicroSD card status to a fault or back to `OK`) in the RTC memory. The hourly write appends them to `/sdcard/events_v1_YYYY.csv` (columns `time,event,detail`) and clears the ring. A lost event adds the row `EVENTS_DROPPED,<N>`. `LIST`, `DUMP events_v1_YYYY.csv` and `./scripts/dump-logs.sh` handle the file, and the retention counts it as December of its year. The code is in `rlcd_panel/sd_logger.h`.
 
 ## Ambient Noise Monitor
 

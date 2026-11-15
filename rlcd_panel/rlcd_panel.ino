@@ -276,6 +276,7 @@ int32_t g_pending_config_rejects = -1;
 bool g_pending_protection_release = false;
 bool g_reset_event_pending = false; // a start that is no deep sleep wakeup waits for its RESET event
 uint16_t g_reset_event_detail = 0;  // ResetReason of that start
+int32_t g_pending_sd_event = -1; // SD_FAULT detail of the config load, recorded once the RTC time is known
 uint8_t g_pending_slot_release = 0; // mask of the slots releaseDeadSlots cleared, recorded once the RTC time is known
 
 void updateRtc() {
@@ -809,6 +810,15 @@ void updateCycles() {
   g_cycle_rtc = g_cycles.toRtc();
 }
 
+// Stores a card status and records one SD_FAULT event when it changes to a fault or back to OK.
+void setSdStatusLogged(SdStatus next, const RtcTime& time) {
+  const int32_t detail = SdStatusCodec::faultEventDetail(g_state.sd_status, next);
+  if (detail >= 0) {
+    g_state.events.record(time, EventCode::SD_FAULT, static_cast<uint16_t>(detail));
+  }
+  g_state.setSdStatus(next, nowMs());
+}
+
 void refreshSensors() {
   // After a reset of the RTC state the latch starts off: a cell at 16..19 % raises no alert until
   // it reaches the set threshold.
@@ -827,6 +837,10 @@ void refreshSensors() {
   if (was_low != g_state.battery.low_battery) {
     const uint16_t pct = g_state.battery.percentage > 0 ? static_cast<uint16_t>(g_state.battery.percentage) : 0;
     g_state.events.record(g_rtc_time, g_state.battery.low_battery ? EventCode::BATTERY_LOW_SET : EventCode::BATTERY_LOW_CLEAR, pct);
+  }
+  if (g_pending_sd_event >= 0) {
+    g_state.events.record(g_rtc_time, EventCode::SD_FAULT, static_cast<uint16_t>(g_pending_sd_event));
+    g_pending_sd_event = -1;
   }
   if (g_pending_config_rejects >= 0) {
     g_state.events.record(g_rtc_time, EventCode::CONFIG_LOAD, static_cast<uint16_t>(g_pending_config_rejects));
@@ -990,7 +1004,7 @@ void logToSdCard() {
       config().staleTimeoutMs());
   g_sd_free_mb = free_mb; // -1 after a failed mount, so the view never shows an old value
   if (result != SdLogResult::NO_TIME) { // no card access: the stored status stays
-    g_state.setSdStatus(SdStatusCodec::fromLog(result, free_mb, g_state.sd_status), nowMs()); // after the noise window
+    setSdStatusLogged(SdStatusCodec::fromLog(result, free_mb, g_state.sd_status), g_rtc_time); // after the noise window
   }
   if (g_mode_controller.mode() == DisplayMode::SYSTEM_DIAGNOSTICS) {
     renderDashboard(); // the diagnostics view shows the free space after the write
@@ -1092,7 +1106,9 @@ void loadConfigFromCard(WakeupCause cause) {
   ConfigRejects rejects;
   int32_t free_mb = -1;
   const SdConfigResult result = SdLogger::loadConfig(loaded, &free_mb, &rejects);
-  g_state.setSdStatus(SdStatusCodec::fromConfig(result, g_state.sd_status), nowMs());
+  const SdStatus config_status = SdStatusCodec::fromConfig(result, g_state.sd_status);
+  g_pending_sd_event = SdStatusCodec::faultEventDetail(g_state.sd_status, config_status); // the RTC is not read yet
+  g_state.setSdStatus(config_status, nowMs());
   if (result == SdConfigResult::NO_CARD || result == SdConfigResult::MOUNT_FAILED) {
     return;
   }
@@ -1341,7 +1357,7 @@ void setup() {
             g_state.applyConfig(loaded, parsed.file_ok, parsed.rejects());
             portEXIT_CRITICAL(&g_registry_mux);
             // Same follow-up as a KEY wakeup: card status, event, and the sleep and listen settings.
-            g_state.setSdStatus(SdStatus::OK, nowMs());
+            setSdStatusLogged(SdStatus::OK, set_now);
             g_state.events.record(set_now, EventCode::CONFIG_LOAD, static_cast<uint16_t>(parsed.rejects().count));
             g_power_config = PowerManager::powerConfig(config(), g_state.battery, quietHours(), g_rtc_time);
           },
