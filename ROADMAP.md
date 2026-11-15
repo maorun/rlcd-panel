@@ -20,12 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Copy one diagnostics report to the clipboard in the macOS app
-  - Rank: [Total: 32, Use: 4, Setup: 10, Harmony: 8, Safety: 10, Effort: S]
-  - Location: `macos/RlcdCompanion/Sources/RlcdProtocol/DiagnosticsReport.swift` (new), `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsReportTests.swift` (new)
-  - Goal: For a fault report the user must copy the replies of `VERSION`, `STATUS`, `CONFIG` and `EVENTS` by hand. Add a `Copy report` button to `DiagnosticsView`. It sends `VERSION`, `STATUS`, `CONFIG` and `EVENTS` one after the other on a user action. `DiagnosticsReport.build` joins the verified reply lines in this order, with one `## <COMMAND>` heading each, the app version and the link type (`USB` or `BLE`) at the top. A failed reply gives the line `ERROR <reason>` below its heading and the other sections stay. Remove each `CRC32` line. Remove the values of each key that `ConfigSchema` marks as a name or a MAC, and write `<hidden>` instead, unless the user selects `Include names and MACs`. Put the text on `NSPasteboard`. The report holds no Wi-Fi data, because the firmware sends none.
-  - Acceptance test: `DiagnosticsReportTests` build a report from four recorded replies and assert the section order, the absence of `CRC32` lines, and `slot1_mac=<hidden>` and `onboard_name=<hidden>` in the default mode. With `Include names and MACs` the MAC value stays. A failed `EVENTS` reply gives `ERROR` below `## EVENTS` and the three other sections stay. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-
 - [ ] Count the BLE reception rate of each registry slot
   - Rank: [Total: 30, Use: 6, Setup: 9, Harmony: 8, Safety: 7, Effort: M]
   - Location: `rlcd_panel/switchbot_ble.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsTests.swift`, `AGENTS.md`

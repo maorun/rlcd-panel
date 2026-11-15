@@ -32,6 +32,14 @@ final class AppModel: ConsoleLinkDelegate {
     private(set) var lastConfig: ConfigReply?
     var diagnostics: DiagnosticsReply?
     var version: VersionReply?
+    /// `Include names and MACs` of the diagnostics report. Off hides each name and MAC value.
+    var reportIncludeNames = false
+    private var reportRunning = false
+    private var reportLink: DiagnosticsReport.Link = .ble
+    private var reportFailed = false
+    private var reportIncludeNamesAtStart = false
+    private var reportSections: [DiagnosticsReport.Section] = []
+    private var reportRemaining: [ConsoleCommand] = []
     var scanResult: ScanReply?
     var panelImage: PanelImage?
     var calibration: CalibrationReply?
@@ -260,6 +268,7 @@ final class AppModel: ConsoleLinkDelegate {
 
     /// Drops the running command, the queue, the half-received reply and the timeout of the old link.
     private func abandonCommands() {
+        failReport(reason: "link lost", pending: pendingCommand)
         if transport == .bluetooth { scanner.commandDidFinish() }
         timeout?.cancel()
         timeout = nil
@@ -296,6 +305,68 @@ final class AppModel: ConsoleLinkDelegate {
         panelOffsetSeconds = nil
         queue = diagnosticsRefreshCommands + [.time]
         sendNext()
+    }
+
+    var canCopyReport: Bool { consoleConnected && isIdle && !reportRunning }
+
+    /// Sends `VERSION`, `STATUS`, `CONFIG` and `EVENTS` one after the other and puts the report on the
+    /// pasteboard. Runs only on the user's button press.
+    func copyReport() {
+        guard canCopyReport else { message = "Wait for the running command"; return }
+        message = nil
+        reportSections = []
+        reportRemaining = DiagnosticsReport.commands
+        reportRunning = true
+        reportFailed = false
+        reportIncludeNamesAtStart = reportIncludeNames
+        reportLink = transport == .usb ? .usb : .ble
+        queue = [reportRemaining.removeFirst()]
+        sendNext()
+        if pendingCommand == nil { failReport(reason: "send failed", pending: nil) } // a failed send abandoned the command
+    }
+
+    private func recordReport(_ cmd: ConsoleCommand, _ reply: ConsoleReply) {
+        guard reportRunning, let name = cmd.line, DiagnosticsReport.commands.contains(cmd) else { return }
+        if case .frame = reply {} else { reportFailed = true }
+        let result: Result<[String], DiagnosticsReport.Failure>
+        switch reply {
+        case let .frame(lines): result = .success(lines)
+        case let .status(text): result = .failure(.init(reason: text))
+        case let .corrupt(e):
+            // `malformedCrcLine` holds a raw device line, so the report names only the error case.
+            if case .badCrc = e { result = .failure(.init(reason: "reply rejected: bad CRC-32")) }
+            else { result = .failure(.init(reason: "reply rejected: malformed reply")) }
+        case .file: result = .failure(.init(reason: "unexpected file reply"))
+        }
+        reportSections.append(.init(command: name, result: result))
+    }
+
+    /// Queues the next report command, or copies the report after the last one.
+    private func advanceReport() {
+        guard reportRunning else { return }
+        if reportRemaining.isEmpty { finishReport() } else { queue = [reportRemaining.removeFirst()] }
+    }
+
+    /// A timeout or a lost link ends the report. The running and the unsent commands get an `ERROR` line.
+    private func failReport(reason: String, pending: ConsoleCommand?) {
+        guard reportRunning else { return }
+        reportFailed = true
+        let open = ([pending].compactMap { $0 } + reportRemaining).filter { DiagnosticsReport.commands.contains($0) }
+        for cmd in open { if let name = cmd.line { reportSections.append(.init(command: name, result: .failure(.init(reason: reason)))) } }
+        reportRemaining = []
+        finishReport()
+    }
+
+    private func finishReport() {
+        reportRunning = false
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+        let text = DiagnosticsReport.build(
+            appVersion: version, link: reportLink,
+            includeNames: reportIncludeNamesAtStart, sections: reportSections)
+        reportSections = []
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        message = reportFailed ? "Report copied (incomplete)" : "Report copied to the clipboard"
     }
 
     /// Synchronizes the panel clock with Mac time by sending `TIME SET <date>` followed by `TIME`.
@@ -615,6 +686,7 @@ final class AppModel: ConsoleLinkDelegate {
             guard !Task.isCancelled else { return }
             guard let self else { return }
             message = "No reply to \(cmd.line ?? "command")"
+            failReport(reason: "no reply", pending: cmd)
             if case .dump = cmd { archiveSummary = "Download stopped, saved \(downloadStats.saved), failed \(downloadStats.failed)" }
             if cmd == .scan { scanResult = nil }
             if cmd == .screen { panelImage = nil }
@@ -676,7 +748,9 @@ final class AppModel: ConsoleLinkDelegate {
         timeout?.cancel()
         pendingCommand = nil
         activeLink.commandDidFinish()
+        recordReport(cmd, reply)
         defer {
+            advanceReport()
             if batch != nil { advanceBatch() } else { sendNext() }
         }
         do {
