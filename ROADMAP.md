@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Console command SLOT CLEAR to free one registry slot
-  - Rank: [Total: 34, Use: 5, Setup: 10, Harmony: 10, Safety: 9, Effort: S]
-  - Location: rlcd_panel/serial_console.h, rlcd_panel/power_manager.h, rlcd_panel/sd_logger.h, rlcd_panel/rlcd_panel.ino, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift, macos/RlcdCompanion/Sources/RlcdCompanion/ScannerView.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, tests/test_firmware_logic.cpp, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/EventTextTests.swift
-  - Goal: A neighbor sensor or a removed sensor keeps a registry slot until `slot_release_h` passes. The user cannot free the slot at once. Add the console command `SLOT CLEAR <N>` (N 1 to 5, `SerialCommandKind::SLOT_CLEAR`). It calls `PersistentState::resetSlot(N - 1)`, records the event `SLOT_RELEASE` with the slot number in the low byte and `1` in the high byte (manual release), and replies `OK SLOT CLEAR <N>`. A slot with a fixed MAC gives `ERR FIXED_MAC` and no change, because the next scan takes the same sensor again. An empty slot gives `OK SLOT CLEAR <N>` and records no event. A missing number, a number outside 1 to 5 or extra text gives `ERR BAD_ARG`. The command needs no card. On BLE with `ble_console` 1 it gives `ERR READ_ONLY`. The next save writes the state. `EventText` shows `Slot <N> released by the user` for the high byte 1. `ConsoleCommand.slotClear(N)` sends it. `ScannerView` shows a `Free slot` button for each occupied slot without a fixed MAC; after `OK` the app sends `STATUS`.
-  - Acceptance test: Host tests assert that `SLOT CLEAR 2` clears the reading, the histories, the reception mask, the week days and the latches of slot 2 only, the event with detail `0x0102`, no event for an empty slot, `ERR FIXED_MAC` with an unchanged state, `ERR BAD_ARG` for `SLOT CLEAR`, `SLOT CLEAR 0`, `SLOT CLEAR 6` and `SLOT CLEAR 2 X`, and `ERR READ_ONLY` on BLE level 1. Swift tests assert the command text, the `OK` reply, the `ERR FIXED_MAC` text and the `EventText` of detail `0x0102` and `0x0002`.
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 - [ ] Wall surface humidity from the outdoor temperature

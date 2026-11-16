@@ -452,6 +452,27 @@ final class AppModel: ConsoleLinkDelegate {
         sendNext()
     }
 
+    /// Slots with a reading (`STATUS` state other than `EMPTY`) and without a fixed MAC (`CONFIG`): `SLOT CLEAR` accepts them.
+    var freeableSlots: [Int] {
+        guard let sensors = status?.sensors, let config else { return [] } // without CONFIG a fixed MAC is unknown
+        return sensors.compactMap { sensor in
+            guard SlotAssignment.slots.contains(sensor.index), sensor.state != "EMPTY",
+                  (config.values["slot\(sensor.index)_mac"] ?? "").isEmpty else { return nil }
+            return sensor.index
+        }
+    }
+
+    /// Frees one registry slot (`SLOT CLEAR N`), then reads `STATUS` again so the tile list follows the panel.
+    /// Runs only on the user's button. The firmware answers `ERR FIXED_MAC` for a slot with a fixed MAC and `ERR READ_ONLY` on BLE with `ble_console` 1.
+    func clearSlot(_ slot: Int) {
+        guard isIdle, canSet else { return }
+        guard ConsoleCommand.slotClear(slot).line != nil else { message = "Slot not valid"; return }
+        message = nil
+        scanResult = nil // the slot column of the old scan is stale now
+        queue = [.slotClear(slot), .status]
+        sendNext()
+    }
+
     /// Trims the RTC frequency from the drift figure, then reads `STATUS` again. Runs only on the user's button.
     /// The firmware answers `ERR NO_DRIFT` without a figure of 24 h or more and `ERR READ_ONLY` on BLE with `ble_console` 1.
     func trimRtc() {
@@ -1005,7 +1026,7 @@ final class AppModel: ConsoleLinkDelegate {
                 queue.removeAll()
                 finishDownload(cmd, text: "unexpected reply")
             case (.set, .frame): batch?.receive(status: "ERR UNEXPECTED_REPLY")
-            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.rtcTrim, .frame):
+            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.rtcTrim, .frame), (.slotClear, .frame):
                 message = "Unexpected frame reply"
             }
         } catch {

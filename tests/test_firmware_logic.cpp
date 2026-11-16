@@ -18331,6 +18331,97 @@ void testSerialMuteCommand() {
 }
 
 
+void testSerialSlotClearCommand() {
+  SerialCommand cmd;
+  assert(parseText("SLOT CLEAR 2", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SLOT_CLEAR && cmd.reference == 2);
+  assert(parseText("SLOT CLEAR 5\r\n", cmd) == SerialParseStatus::OK && cmd.reference == 5);
+  const char* bad[] = {"SLOT CLEAR", "SLOT CLEAR ", "SLOT CLEAR 0", "SLOT CLEAR 6", "SLOT CLEAR 2 X", "SLOT CLEAR 12", "SLOT CLEAR X", "SLOT CLEAR  2"};
+  for (const char* line : bad) {
+    assert(parseText(line, cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  }
+  assert(parseText("SLOT", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("SLOT CLEARX 2", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("SLOT FREE 2", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("slot clear 2", cmd) == SerialParseStatus::UNKNOWN);
+
+  auto mk = [](uint8_t last) {
+    SwitchBotReading r;
+    r.valid = true;
+    memset(r.mac, 0, 6);
+    r.mac[5] = last;
+    r.temperature_c = 21.0f;
+    r.humidity_pct = 50.0f;
+    r.battery_pct = 80;
+    return r;
+  };
+  const RtcTime now = localTime(2026, 11, 16, 9);
+  PersistentState st;
+  for (uint8_t i = 1; i <= 3; ++i) {
+    assert(st.registry.upsert(mk(i), BleFormat::WOIO));
+  }
+  for (size_t sensor = 1; sensor <= 3; ++sensor) {
+    st.history.slots[sensor].push(500);
+    st.history.temperatures[sensor].push(210);
+    st.week.setDay(sensor, 0, true, 200, 220, true, 400, 600);
+  }
+  uint32_t before[MAX_SWITCHBOT_SENSORS] = {};
+  st.reception.recordScan(st.registry, before);
+  st.sensor_battery_latch = 0b00111;
+  st.ventilate_tiles = 0b001110;
+  st.dry_tiles = 0b001110;
+  assert(st.reception.scans(1) == 1);
+
+  // slot 2 (index 1) only
+  FakeSink sink;
+  const bool done = st.clearSlotByUser(1, now);
+  TestRunner::slotClearReply(sink, done, 2);
+  assert(done && sink.out == "OK SLOT CLEAR 2\n");
+  assert(!st.registry.slot(1).valid && st.registry.slot(0).valid && st.registry.slot(2).valid);
+  assert(st.history.slots[2].size() == 0 && st.history.temperatures[2].size() == 0);
+  assert(st.history.slots[1].size() == 1 && st.history.slots[3].size() == 1);
+  assert(st.reception.scans(1) == 0 && st.reception.mask(1) == 0 && st.reception.scans(0) == 1 && st.reception.scans(2) == 1);
+  assert(!st.week.hasTemperature(2, 0) && !st.week.hasHumidity(2, 0) && st.week.hasTemperature(1, 0) && st.week.hasTemperature(3, 0));
+  assert(st.sensor_battery_latch == 0b00101 && st.ventilate_tiles == 0b001010 && st.dry_tiles == 0b001010);
+  assert(st.events.size() == 1 && st.events.at(0).code == EventCode::SLOT_RELEASE && st.events.at(0).detail == 0x0102);
+
+  // empty slot: OK and no event
+  FakeSink again;
+  const bool empty_done = st.clearSlotByUser(1, now);
+  TestRunner::slotClearReply(again, empty_done, 2);
+  assert(empty_done && again.out == "OK SLOT CLEAR 2\n" && st.events.size() == 1);
+
+  // fixed MAC: ERR FIXED_MAC, no change
+  PersistentState fixed;
+  const uint8_t mac[6] = {0, 0, 0, 0, 0, 7};
+  memcpy(fixed.config.slot_mac[0], mac, 6);
+  fixed.registry.setFixedMac(0, mac);
+  assert(fixed.registry.upsert(mk(7), BleFormat::WOIO));
+  fixed.history.slots[1].push(500);
+  FakeSink refused;
+  const bool fixed_done = fixed.clearSlotByUser(0, now);
+  TestRunner::slotClearReply(refused, fixed_done, 1);
+  assert(!fixed_done && refused.out == "ERR FIXED_MAC\n");
+  assert(fixed.registry.slot(0).valid && fixed.history.slots[1].size() == 1 && fixed.events.size() == 0);
+
+  // execute() ignores it and needs no card
+  FakeConsoleStorage storage;
+  FakeSink exec;
+  assert(parseText("SLOT CLEAR 2", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, exec, cmd);
+  assert(storage.mounts == 0 && exec.out.empty());
+
+  // BLE: read only at level 1, allowed at level 2
+  assert(std::string(BleConsoleBridge::gate(cmd, 1)) == "ERR READ_ONLY\n");
+  assert(std::string(BleConsoleBridge::gate(cmd, 2)).empty());
+  BleConsoleBridge bridge;
+  bridge.setLevel(1);
+  bridge.onConnect();
+  BleNotifier n;
+  assert(bleConsoleRun(bridge, "SLOT CLEAR 2\n", 185, n, &storage) == "ERR READ_ONLY\n");
+  assert(storage.mounts == 0);
+}
+
+
 void testBleConsoleIngressQueue() {
   using I = BleConsoleIngress;
   const uint8_t ab[] = {'A', 'B'};
@@ -19648,6 +19739,7 @@ int main() {
   testBleConsoleChunkSplit();
   testBleConsoleSetAndDumpGate();
   testSerialMuteCommand();
+  testSerialSlotClearCommand();
   testBleConsoleIngressQueue();
   testHeatAlert();
   testHeatAlertRtcRoundTrip();

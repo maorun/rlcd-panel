@@ -121,7 +121,7 @@ enum class EventCode : uint8_t {
   EMPTY_PROTECTION = 7, // the empty battery protection; detail 1 is set, 0 is release
   RESET = 8,            // a start that is no deep sleep wakeup; detail is the ResetReason
   SLOT_ASSIGN = 9,      // a new MAC took a registry slot; detail is slot (high byte) and BleFormat (low byte)
-  SLOT_RELEASE = 10,    // releaseDeadSlots cleared a slot; detail is the slot number
+  SLOT_RELEASE = 10,    // releaseDeadSlots cleared a slot; detail is the slot number, or 0x01 in the high byte for a console SLOT CLEAR
   CONFIG_SET = 11,      // a console SET succeeded; detail is the DeviceConfigParser::KEYS index (low byte), transport (high byte: 0 USB, 1 BLE)
   SD_FAULT = 12,        // the card status changed to a fault or back to OK; detail is the SdStatus
 };

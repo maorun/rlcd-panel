@@ -36,14 +36,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CALIB without a reference, with a reference above 5 or with extra text; BEEP without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SCREEN with extra text; SALT without a reference, with a reference above 5, with a salt other than MGCL2 or with extra text
+  BAD_ARG,  // CALIB without a reference, with a reference above 5 or with extra text; BEEP without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SLOT CLEAR without a slot number, with a number outside 1 to 5 or with extra text; SCREEN with extra text; SALT without a reference, with a reference above 5, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '=')
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv, daily_v4_YYYY.csv or events_v1_YYYY.csv
@@ -55,7 +55,7 @@ constexpr size_t SET_VALUE_SIZE = 41;
 struct SerialCommand {
   SerialCommandKind kind = SerialCommandKind::NONE;
   char file[SdLogCodec::LOG_NAME_SIZE] = {0};
-  uint8_t reference = 0; // CALIB and SALT: 0 onboard, 1 to 5 a slot; BEEP: alert bit number 0 to 7; PATTERN: pattern number 0 to 2; MUTE: 0 or 1
+  uint8_t reference = 0; // CALIB and SALT: 0 onboard, 1 to 5 a slot; BEEP: alert bit number 0 to 7; PATTERN: pattern number 0 to 2; MUTE: 0 or 1; SLOT CLEAR: slot number 1 to 5
   bool salt_mgcl2 = false; // SALT: true for "SALT N MGCL2" (magnesium chloride reference, no proposal line)
   bool time_set = false; // TIME: true for "TIME SET <time>"; `time` then holds the parsed local time
   RtcTime time;
@@ -70,7 +70,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..5", "SALT 0..5", "SALT 0..5 MGCL2", "BEEP 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SCAN", "SCREEN", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..5", "SALT 0..5", "SALT 0..5 MGCL2", "BEEP 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..5", "SCAN", "SCREEN", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -159,6 +159,20 @@ public:
       }
       out.kind = SerialCommandKind::MUTE;
       out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "SLOT")) {
+      // exactly "SLOT CLEAR <N>" with one digit 1 to 5
+      static const char prefix[] = "SLOT CLEAR";
+      const size_t prefix_len = sizeof(prefix) - 1;
+      if (len < prefix_len || memcmp(line, prefix, prefix_len) != 0 || (len > prefix_len && line[prefix_len] != ' ')) {
+        return SerialParseStatus::UNKNOWN; // only "SLOT CLEAR" exists (a bare "SLOT" is no known command, like a bare "RTC")
+      }
+      if (len != prefix_len + 2 || line[prefix_len + 1] < '1' || line[prefix_len + 1] > '5') {
+        return SerialParseStatus::BAD_ARG;
+      }
+      out.kind = SerialCommandKind::SLOT_CLEAR;
+      out.reference = static_cast<uint8_t>(line[prefix_len + 1] - '0');
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "SCAN")) {
@@ -445,8 +459,8 @@ private:
 // Line side of the BLE console. The RX characteristic feeds feed(); a complete line goes through
 // the same SerialConsole parser as on USB. The bridge only decides what a central may run:
 //   ble_console 0: nothing (the service does not run)
-//   ble_console 1: the read commands; SET, MUTE, TIME SET and RTC TRIM reply "ERR READ_ONLY"
-//   ble_console 2: also SET, MUTE, TIME SET and RTC TRIM
+//   ble_console 1: the read commands; SET, MUTE, SLOT CLEAR, TIME SET and RTC TRIM reply "ERR READ_ONLY"
+//   ble_console 2: also SET, MUTE, SLOT CLEAR, TIME SET and RTC TRIM
 //   DUMP (a monthly file is too large for BLE), SCREEN (15,000 bytes) and SCAN (the scan stops the BLE stack that carries
 //   the console) reply "ERR NOT_OVER_BLE" at each level.
 // Only one central connects. A disconnect clears the partial line.
@@ -519,7 +533,7 @@ public:
       return "ERR NOT_OVER_BLE\n";
     }
     const bool writes = command.kind == SerialCommandKind::SET || command.kind == SerialCommandKind::MUTE ||
-                        command.kind == SerialCommandKind::RTC_TRIM ||
+                        command.kind == SerialCommandKind::RTC_TRIM || command.kind == SerialCommandKind::SLOT_CLEAR ||
                         (command.kind == SerialCommandKind::TIME && command.time_set);
     if (writes && level < 2) {
       return "ERR READ_ONLY\n";
@@ -673,6 +687,9 @@ struct SerialStatusSnapshot {
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 7), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
+//   SLOT CLEAR N -> "OK SLOT CLEAR <N>" after PersistentState::clearSlotByUser freed registry slot N (1 to 5): reading, histories,
+//   reception mask, week days and latches; an occupied slot records SLOT_RELEASE (detail 0x01<N>), an empty one records nothing. A slot
+//   with a fixed MAC gives "ERR FIXED_MAC" and no change. No card access; ERR READ_ONLY on BLE with ble_console 1.
 //   MUTE N -> "OK MUTE <N>" after the mute flag of the RTC state is set (0 or 1); setMute() needs no card: execute() ignores MUTE.
 //   PATTERN N -> "OK PATTERN <N>" after the framebuffer shows test pattern N (0 black, 1 checkerboard, 2 border with cross) and the
 //   panel got it without display_invert; the next wake cycle renders the normal view. showPattern() needs no card: execute() ignores PATTERN.
@@ -1442,6 +1459,19 @@ public:
     send(sink, line);
   }
 
+  // Reply of SLOT CLEAR <number>: "OK SLOT CLEAR <N>" after PersistentState::clearSlotByUser returned true, else
+  // "ERR FIXED_MAC" (a slot with a fixed MAC, no change). No card access. The next save of the wake cycle writes the
+  // state. The caller changes the state under the registry lock and replies after it, so no serial write runs inside it.
+  static void slotClearReply(Sink& sink, bool cleared, uint8_t number) {
+    if (!cleared) {
+      send(sink, "ERR FIXED_MAC\n");
+      return;
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "OK SLOT CLEAR %u\n", static_cast<unsigned>(number));
+    send(sink, line);
+  }
+
   // Renders test pattern `pattern` (0 to 2) into `fb` and flushes it to `panel` as it is: display_invert is not
   // applied, so the user sees the raw packing. Replies "OK PATTERN <pattern>". No card access. The pattern is no
   // dashboard frame: `frame` (when given) is invalidated, so the next wake cycle flushes the normal view.
@@ -1563,7 +1593,8 @@ public:
         command.kind == SerialCommandKind::EVENTS || command.kind == SerialCommandKind::PATTERN ||
         command.kind == SerialCommandKind::SCAN || command.kind == SerialCommandKind::MUTE ||
         command.kind == SerialCommandKind::SCREEN || command.kind == SerialCommandKind::SET ||
-        command.kind == SerialCommandKind::RTC_TRIM || command.kind == SerialCommandKind::WEEK) {
+        command.kind == SerialCommandKind::RTC_TRIM || command.kind == SerialCommandKind::WEEK ||
+        command.kind == SerialCommandKind::SLOT_CLEAR) {
       return;
     }
     if (!storage.mount()) {
@@ -1589,6 +1620,7 @@ public:
       case SerialCommandKind::SCREEN:
       case SerialCommandKind::RTC_TRIM:
       case SerialCommandKind::WEEK:
+      case SerialCommandKind::SLOT_CLEAR:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;

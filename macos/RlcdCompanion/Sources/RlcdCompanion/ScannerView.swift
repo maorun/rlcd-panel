@@ -19,6 +19,11 @@ struct ScannerView: View {
                         }
                     }
                     .disabled(!model.canSet)
+                    // Frees a slot at once (no `slot_release_h` wait); a fixed MAC slot never shows the button.
+                    ForEach(model.freeableSlots, id: \.self) { n in
+                        Button("Free slot \(n)") { model.clearSlot(n) }
+                            .disabled(!model.canSet || !model.isIdle)
+                    }
                     if model.transport != .usb {
                         Text("SCAN needs the USB serial link.").font(.caption).foregroundStyle(.secondary)
                     }

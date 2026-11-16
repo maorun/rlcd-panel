@@ -9,7 +9,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - **Power & Battery:** Deep sleep with CRC-checked RTC state, wake & night intervals, USB detection, low-battery banner, empty-battery protection, runtime & cycle tracking, awake-time stats.
 - **Audio & Alerts:** `ES8311` chimes (freezer, mold, heat, noise, dropout, charge full) with repeat & quiet hours, `BOOT` mute, `ES7210` noise & transient monitor (L10/L90), mic self-test & speaker loopback.
 - **Logging & Time:** MicroSD hourly CSV (`climate_v5`), daily summaries (`daily_v4` with mold hours), event log (`events_v1`), retention & free-space check, Wi-Fi NTP sync, `PCF85063A` RTC drift tracking & frequency trim (`RTC TRIM`).
-- **Configuration & Console:** MicroSD `config.ini` up to 8 KB with host validator, USB serial & BLE console (`STATUS`, `CONFIG`, `SET`, `LIST`, `DUMP`, `SCAN`, `CALIB`, `SALT`, `RTC TRIM`, `MUTE`, `BEEP`, `PATTERN`, `SCREEN`, `TIME`, `HISTORY`, `WEEK`, `EVENTS`, `VERSION`), `CONFIG_SET` and `SD_FAULT` event recording.
+- **Configuration & Console:** MicroSD `config.ini` up to 8 KB with host validator, USB serial & BLE console (`STATUS`, `CONFIG`, `SET`, `LIST`, `DUMP`, `SCAN`, `CALIB`, `SALT`, `RTC TRIM`, `MUTE`, `SLOT CLEAR`, `BEEP`, `PATTERN`, `SCREEN`, `TIME`, `HISTORY`, `WEEK`, `EVENTS`, `VERSION`), `CONFIG_SET` and `SD_FAULT` event recording.
 - **macOS Companion App:** Signed `.app` bundle & menu bar summary, live BLE telemetry, panel pinning, `config.ini` editor & backup, BLE scanner with repeated scan mode, sensor health table, calibration assistant with single & two-point salt check, diagnostics & clipboard report, log archive & charts (including 7-day week chart), remote screen, CSV export, open at login.
 
 ## Deep sleep power management with periodic wakeup
@@ -1214,6 +1214,17 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The command needs no card. The next save of the wake cycle writes the flag to RTC memory with the existing audio trailer. `STATE_VERSION` is unchanged.
 - `ConsoleCommand.mute(Bool)` sends `MUTE 0` or `MUTE 1`. `DiagnosticsView` shows the toggle `Mute alerts` with the value of `muted=` in the `POWER` line of `STATUS`. `AppModel.setMute` sends `MUTE` and then `STATUS`, so the toggle follows the state of the panel. The app sends `MUTE` only after the user changes the toggle.
 
+## Serial console command SLOT CLEAR
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ScannerView.swift`
+- A sensor that left keeps its registry slot until `slot_release_h` passes. The console command `SLOT CLEAR <N>` (N 1 to 5, `SerialCommandKind::SLOT_CLEAR`) frees slot N at once. `PersistentState::clearSlotByUser` calls `resetSlot(N - 1)`: reading, 24-hour histories, reception mask, week days and the battery, ventilation and dry air latches of this slot only.
+- An occupied slot records the event `SLOT_RELEASE` with the slot number in the low byte and `1` in the high byte (manual release, detail `0x01<N>`). An empty slot gives `OK SLOT CLEAR <N>` and records no event. The reply is `OK SLOT CLEAR <N>`.
+- A slot with a fixed MAC gives `ERR FIXED_MAC` and no change, because the next scan takes the same sensor again.
+- A missing number, a number outside 1 to 5 or extra text gives `ERR BAD_ARG`. With `ble_console` 1 the command gives `ERR READ_ONLY` (`BleConsoleBridge::gate`); with `ble_console` 2 and on USB serial it runs.
+- The command needs no card. The firmware changes the RTC state under the registry lock and replies after the lock. The next save of the wake cycle writes the state. `STATE_VERSION` is unchanged; `EventRing::MAX_CODE` is unchanged.
+- macOS companion: `ConsoleCommand.slotClear(N)` sends `SLOT CLEAR <N>`. `EventText` shows `Slot <N> released by the user` for the high byte 1 and `slot <N> released` for the timer release. `ScannerView` shows a `Free slot <N>` button for each slot with a reading in `STATUS` (state not `EMPTY`) and without a fixed MAC in `CONFIG` (`AppModel.freeableSlots`). `AppModel.clearSlot` sends `SLOT CLEAR`, then `STATUS`.
+- Host tests cover the parser, the cleared state of slot 2 only, the event detail `0x0102`, no event for an empty slot, `ERR FIXED_MAC` with an unchanged state, the `ERR BAD_ARG` cases and `ERR READ_ONLY` on BLE level 1. Swift tests cover the command text, the `OK` and `ERR FIXED_MAC` replies and the `EventText` of `0x0102` and `0x0002`.
+
 ## Back up and restore `config.ini` in the macOS app
 
 - **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigBackup.swift`, `ConfigEditorView.swift`, `AppModel.swift`; tests in `ConfigBackupTests.swift`.
@@ -1259,7 +1270,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `ALERT_RISE` and `ALERT_FALL` use the bit mask of the firmware in the detail (1 `FREEZER`, 2 `HUMIDITY`, 4 `NOISE`, 8 `SENSOR_LOST`, 16 `CHARGE_FULL`, 32 `VENTILATE`, 64 `SENSOR_BATTERY`, 128 `HEAT`), for example `ALERT_RISE,128` gives `HEAT alert on`.
 - `CONFIG_LOAD` gives the count of rejected lines. `NTP_SYNC` gives `OK`, `WIFI_FAILED`, `NTP_TIMEOUT` or `RTC_WRITE_FAILED`. `BATTERY_LOW_SET` and `BATTERY_LOW_CLEAR` give the cell percentage. `EMPTY_PROTECTION` gives `set` or `release`.
 - `RESET` gives the `ResetReasonCodec` text. A reason that `ResetMetrics.isAbnormal` marks gets the text `(abnormal)`, and the events view shows the row in red (`EventText.isAbnormal`).
-- `SLOT_ASSIGN` gives the slot (high byte) and the `BleFormat` name (low byte), for example `514` gives `slot 2 BTHOME`. `SLOT_RELEASE` gives the slot number.
+- `SLOT_ASSIGN` gives the slot (high byte) and the `BleFormat` name (low byte), for example `514` gives `slot 2 BTHOME`. `SLOT_RELEASE` gives the slot number; the high byte 1 gives `Slot <N> released by the user`.
 - `CONFIG_SET` gives the key name from `ConfigSchema.keys` and the transport, for example `Config set: wake_interval_s (BLE)`. An index outside the schema gives `Config set: key #<N>`.
 - An unknown event name (for example `EVENTS_DROPPED`) or a detail outside the range gives the raw text `<event>,<detail>`.
 - The `Open events file` button of `ArchiveView` reads a downloaded `events_v1_YYYY.csv` with `EventsReply.parse(file:)` and shows it in the same events list. A wrong header or row gives a message in the archive summary.

@@ -89,6 +89,14 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("SLOT_RELEASE", 6)) == "SLOT_RELEASE,6")
     }
 
+    @Test func slotReleaseByUserGivesSlotNumber() {
+        #expect(EventText.describe(row("SLOT_RELEASE", 0x0102)) == "Slot 2 released by the user")
+        #expect(EventText.describe(row("SLOT_RELEASE", 0x0002)) == "slot 2 released")
+        #expect(EventText.describe(row("SLOT_RELEASE", 0x0100)) == "SLOT_RELEASE,256")
+        #expect(EventText.describe(row("SLOT_RELEASE", 0x0106)) == "SLOT_RELEASE,262")
+        #expect(EventText.describe(row("SLOT_RELEASE", 0x0202)) == "SLOT_RELEASE,514")
+    }
+
     @Test func configSetGivesKeyAndTransport() {
         // Literal indices of `DeviceConfigParser::KEYS`, not derived from the schema order.
         #expect(EventText.describe(row("CONFIG_SET", 12)) == "Config set: wake_interval_s (USB)")
