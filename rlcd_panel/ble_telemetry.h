@@ -49,7 +49,7 @@ public:
   static constexpr size_t MANUFACTURER_AD_SIZE = 2 + MANUFACTURER_DATA_SIZE;
   static constexpr size_t ADVERTISING_SIZE = FLAGS_AD_SIZE + MANUFACTURER_AD_SIZE;
   static constexpr size_t ADVERTISING_LIMIT = 31;
-  static constexpr uint32_t ADVERTISE_MS = 100;
+  static constexpr uint32_t ADVERTISE_MS = 500;
   static constexpr uint16_t INTERVAL_UNITS = 32; // 20 ms in units of 0.625 ms
 
   static_assert(ADVERTISING_SIZE <= ADVERTISING_LIMIT, "telemetry frame must fit into one advertising packet");
