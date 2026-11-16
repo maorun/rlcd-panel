@@ -89,7 +89,7 @@ struct DeviceConfig {
   static constexpr uint8_t DEFAULT_DRY_ALERT_LIMIT_RH = 0; // 0 switches the dry air badge off
   static constexpr uint8_t MIN_DRY_ALERT_LIMIT_RH = 20;
   static constexpr uint8_t MAX_DRY_ALERT_LIMIT_RH = 45;
-  static constexpr uint8_t DEFAULT_BLE_BROADCAST_ENABLED = 0; // 0 sends no BLE telemetry
+  static constexpr uint8_t DEFAULT_BLE_BROADCAST_ENABLED = 1; // 1 advertises BLE telemetry by default
   static constexpr uint8_t MAX_BLE_BROADCAST_ENABLED = 1;
   static constexpr uint8_t DEFAULT_BLE_CONSOLE = 0; // 0 starts no BLE console service
   static constexpr uint8_t MAX_BLE_CONSOLE = 2;
