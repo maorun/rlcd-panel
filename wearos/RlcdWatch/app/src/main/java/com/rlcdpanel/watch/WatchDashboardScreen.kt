@@ -1,0 +1,306 @@
+package com.rlcdpanel.watch
+
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
+import androidx.wear.compose.foundation.lazy.itemsIndexed
+import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
+import androidx.wear.compose.material.Card
+import androidx.wear.compose.material.CardDefaults
+import androidx.wear.compose.material.Chip
+import androidx.wear.compose.material.ChipDefaults
+import androidx.wear.compose.material.MaterialTheme
+import androidx.wear.compose.material.PositionIndicator
+import androidx.wear.compose.material.Scaffold
+import androidx.wear.compose.material.Text
+import androidx.wear.compose.material.TimeText
+import com.rlcdpanel.watch.protocol.ClimateMath
+import com.rlcdpanel.watch.protocol.ComfortZone
+import com.rlcdpanel.watch.protocol.TelemetryFrame
+import com.rlcdpanel.watch.protocol.TelemetryTile
+import java.util.Locale
+
+@Composable
+fun WatchDashboardScreen(
+    snapshot: TelemetrySnapshot?,
+    isScanning: Boolean,
+    statusMessage: String,
+    nowMillis: Long,
+    onToggleScan: () -> Unit
+) {
+    val listState = rememberScalingLazyListState()
+
+    MaterialTheme {
+        Scaffold(
+            timeText = { TimeText() },
+            positionIndicator = { PositionIndicator(scalingLazyListState = listState) }
+        ) {
+            ScalingLazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Color.Black),
+                state = listState,
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                item {
+                    HeaderStatusCard(
+                        snapshot = snapshot,
+                        isScanning = isScanning,
+                        statusMessage = statusMessage,
+                        nowMillis = nowMillis,
+                        onToggleScan = onToggleScan
+                    )
+                }
+
+                if (snapshot != null) {
+                    val alerts = snapshot.frame.alerts.names
+                    if (alerts.isNotEmpty()) {
+                        item {
+                            AlertBannerCard(alerts = alerts)
+                        }
+                    }
+
+                    val tiles = snapshot.frame.tiles
+                    val visibleIndices = tiles.indices.filter { i ->
+                        i == 0 || tiles[i].isValid
+                    }
+                    itemsIndexed(visibleIndices) { _, tileIndex ->
+                        val name = TelemetryFrame.DEFAULT_TILE_NAMES.getOrElse(tileIndex) { "Tile $tileIndex" }
+                        ClimateTileCard(name = name, tile = tiles[tileIndex])
+                    }
+                } else {
+                    item {
+                        EmptyTelemetryCard()
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HeaderStatusCard(
+    snapshot: TelemetrySnapshot?,
+    isScanning: Boolean,
+    statusMessage: String,
+    nowMillis: Long,
+    onToggleScan: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Text(
+            text = "RLCD PANEL",
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color(0xFF90CAF9)
+        )
+        Text(
+            text = statusMessage,
+            fontSize = 11.sp,
+            color = Color.LightGray,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
+        )
+        if (snapshot != null) {
+            val cellText = snapshot.frame.cellPercent?.let { "$it %" } ?: "--"
+            val ageSec = ((nowMillis - snapshot.receivedAtMillis).coerceAtLeast(0L)) / 1000L
+            Text(
+                text = "Akku $cellText • ${snapshot.rssi} dBm • ${ageSec}s",
+                fontSize = 11.sp,
+                color = Color(0xFFB0BEC5)
+            )
+        }
+        Spacer(modifier = Modifier.height(4.dp))
+        Chip(
+            onClick = onToggleScan,
+            modifier = Modifier.fillMaxWidth(0.85f),
+            colors = ChipDefaults.primaryChipColors(
+                backgroundColor = if (isScanning) Color(0xFF1B5E20) else Color(0xFF37474F)
+            ),
+            label = {
+                Text(
+                    text = if (isScanning) "BLE Scan aktiv" else "BLE Scan starten",
+                    fontSize = 12.sp,
+                    maxLines = 1
+                )
+            }
+        )
+    }
+}
+
+@Composable
+private fun AlertBannerCard(alerts: List<String>) {
+    Card(
+        onClick = {},
+        enabled = false,
+        modifier = Modifier.fillMaxWidth(),
+        backgroundPainter = CardDefaults.cardBackgroundPainter(
+            startBackgroundColor = Color(0xFFB71C1C),
+            endBackgroundColor = Color(0xFF7F0000)
+        )
+    ) {
+        Column {
+            Text(
+                text = "ALARM",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+            Text(
+                text = alerts.joinToString(", "),
+                fontSize = 12.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color(0xFFFFCDD2)
+            )
+        }
+    }
+}
+
+@Composable
+private fun ClimateTileCard(name: String, tile: TelemetryTile) {
+    Card(
+        onClick = {},
+        enabled = false,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            val tempC = tile.temperatureC
+            val rhPct = tile.humidityPct
+            val comfort = if (tempC != null && rhPct != null) {
+                ClimateMath.comfort(tempC, rhPct)
+            } else {
+                ComfortZone.INVALID
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = name,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color(0xFFCFD8DC),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                ComfortBadge(zone = comfort)
+            }
+
+            Spacer(modifier = Modifier.height(2.dp))
+
+            if (tempC != null && rhPct != null) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.Bottom
+                ) {
+                    Text(
+                        text = String.format(Locale.US, "%.1f °C", tempC),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White
+                    )
+                    Text(
+                        text = String.format(Locale.US, "%.1f %%RH", rhPct),
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Color(0xFF80DEEA)
+                    )
+                }
+
+                val dp = ClimateMath.dewPointC(tempC, rhPct)
+                val hi = ClimateMath.heatIndexC(tempC, rhPct)
+                val ah = ClimateMath.absoluteHumidityGm3(tempC, rhPct)
+
+                val details = buildList {
+                    if (dp != null) add(String.format(Locale.US, "DP %.1f°C", dp))
+                    if (hi != null && hi > tempC + 0.5) add(String.format(Locale.US, "HI %.1f°C", hi))
+                    if (ah != null) add(String.format(Locale.US, "AH %.1fg", ah))
+                }
+                if (details.isNotEmpty()) {
+                    Text(
+                        text = details.joinToString(" • "),
+                        fontSize = 10.sp,
+                        color = Color(0xFF90A4AE)
+                    )
+                }
+            } else {
+                Text(
+                    text = "-- °C   -- %RH",
+                    fontSize = 15.sp,
+                    color = Color.Gray
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComfortBadge(zone: ComfortZone) {
+    val bgColor = when (zone) {
+        ComfortZone.OK -> Color(0xFF2E7D32)
+        ComfortZone.COLD, ComfortZone.DRY -> Color(0xFF0277BD)
+        ComfortZone.WARM, ComfortZone.HUMID -> Color(0xFFEF6C00)
+        ComfortZone.INVALID -> Color(0xFF455A64)
+    }
+    Box(
+        modifier = Modifier
+            .background(color = bgColor, shape = RoundedCornerShape(4.dp))
+            .padding(horizontal = 6.dp, vertical = 1.dp)
+    ) {
+        Text(
+            text = zone.label,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+        )
+    }
+}
+
+@Composable
+private fun EmptyTelemetryCard() {
+    Card(
+        onClick = {},
+        enabled = false,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(
+                text = "Warte auf BLE-Frame (0xFFFF)",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+                color = Color.White
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "Setze ble_broadcast_enabled=1 auf dem RLCD-Panel.",
+                fontSize = 10.sp,
+                color = Color.LightGray
+            )
+        }
+    }
+}
