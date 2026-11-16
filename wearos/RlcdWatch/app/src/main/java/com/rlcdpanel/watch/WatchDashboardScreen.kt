@@ -1,6 +1,7 @@
 package com.rlcdpanel.watch
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -16,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -35,6 +37,10 @@ import com.rlcdpanel.watch.protocol.ClimateMath
 import com.rlcdpanel.watch.protocol.ComfortZone
 import com.rlcdpanel.watch.protocol.TelemetryFrame
 import com.rlcdpanel.watch.protocol.TelemetryTile
+import com.rlcdpanel.watch.ventilation.OutdoorClimate
+import com.rlcdpanel.watch.ventilation.OutdoorSource
+import com.rlcdpanel.watch.ventilation.VentilationAction
+import com.rlcdpanel.watch.ventilation.VentilationEmpfehlung
 import java.util.Locale
 
 @Composable
@@ -43,7 +49,17 @@ fun WatchDashboardScreen(
     isScanning: Boolean,
     statusMessage: String,
     nowMillis: Long,
-    onToggleScan: () -> Unit
+    outdoorClimate: OutdoorClimate?,
+    outdoorSource: OutdoorSource,
+    focusedRoomIndex: Int,
+    isVentilating: Boolean,
+    ventilationDurationMinutes: Int,
+    ventilationAdvice: VentilationEmpfehlung?,
+    isSelfComparison: Boolean,
+    onToggleScan: () -> Unit,
+    onCycleOutdoorSource: () -> Unit,
+    onSelectRoomIndex: (Int) -> Unit,
+    onToggleVentilation: () -> Unit
 ) {
     val listState = rememberScalingLazyListState()
 
@@ -70,6 +86,31 @@ fun WatchDashboardScreen(
                     )
                 }
 
+                item {
+                    OutdoorSourceCard(
+                        outdoorClimate = outdoorClimate,
+                        outdoorSource = outdoorSource,
+                        onCycleOutdoorSource = onCycleOutdoorSource
+                    )
+                }
+
+                if (isSelfComparison) {
+                    item {
+                        SelfComparisonCard()
+                    }
+                } else if (ventilationAdvice != null) {
+                    val roomName = TelemetryFrame.DEFAULT_TILE_NAMES.getOrElse(focusedRoomIndex) { "Raum $focusedRoomIndex" }
+                    item {
+                        VentilationAdviceCard(
+                            roomName = roomName,
+                            advice = ventilationAdvice,
+                            isVentilating = isVentilating,
+                            durationMinutes = ventilationDurationMinutes,
+                            onToggleVentilation = onToggleVentilation
+                        )
+                    }
+                }
+
                 if (snapshot != null) {
                     val alerts = snapshot.frame.alerts.names
                     if (alerts.isNotEmpty()) {
@@ -84,7 +125,13 @@ fun WatchDashboardScreen(
                     }
                     itemsIndexed(visibleIndices) { _, tileIndex ->
                         val name = TelemetryFrame.DEFAULT_TILE_NAMES.getOrElse(tileIndex) { "Tile $tileIndex" }
-                        ClimateTileCard(name = name, tile = tiles[tileIndex])
+                        val isFocused = tileIndex == focusedRoomIndex
+                        ClimateTileCard(
+                            name = name,
+                            tile = tiles[tileIndex],
+                            isFocused = isFocused,
+                            onClick = { onSelectRoomIndex(tileIndex) }
+                        )
                     }
                 } else {
                     item {
@@ -151,6 +198,166 @@ private fun HeaderStatusCard(
 }
 
 @Composable
+private fun OutdoorSourceCard(
+    outdoorClimate: OutdoorClimate?,
+    outdoorSource: OutdoorSource,
+    onCycleOutdoorSource: () -> Unit
+) {
+    Card(
+        onClick = onCycleOutdoorSource,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "AUSSENKLIMA",
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color(0xFF81D4FA)
+                )
+                Text(
+                    text = outdoorSource.displayName,
+                    fontSize = 10.sp,
+                    color = Color(0xFFFFCC80)
+                )
+            }
+            Spacer(modifier = Modifier.height(2.dp))
+            if (outdoorClimate != null) {
+                Text(
+                    text = String.format(Locale.US, "%.1f °C • %.0f %%RH", outdoorClimate.tempC, outdoorClimate.rhPct),
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    color = Color.White
+                )
+            } else {
+                Text(
+                    text = "Wetterdaten werden geladen...",
+                    fontSize = 11.sp,
+                    color = Color.Gray
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SelfComparisonCard() {
+    Card(
+        onClick = {},
+        enabled = false,
+        modifier = Modifier.fillMaxWidth(),
+        backgroundPainter = CardDefaults.cardBackgroundPainter(
+            startBackgroundColor = Color(0xFF37474F),
+            endBackgroundColor = Color(0xFF263238)
+        )
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Text(
+                text = "SELBSTVERGLEICH",
+                fontSize = 11.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color(0xFFFFB74D)
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = "Sensor ist als Außen- und Raumklima gewählt. Wähle eine andere Quelle.",
+                fontSize = 11.sp,
+                color = Color.LightGray
+            )
+        }
+    }
+}
+
+@Composable
+private fun VentilationAdviceCard(
+    roomName: String,
+    advice: VentilationEmpfehlung,
+    isVentilating: Boolean,
+    durationMinutes: Int,
+    onToggleVentilation: () -> Unit
+) {
+    val cardColor = Color(advice.statusFarbe.hexColor)
+
+    Card(
+        onClick = {},
+        enabled = false,
+        modifier = Modifier.fillMaxWidth(),
+        backgroundPainter = CardDefaults.cardBackgroundPainter(
+            startBackgroundColor = cardColor,
+            endBackgroundColor = cardColor
+        )
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "LÜFTUNG: $roomName",
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                if (isVentilating) {
+                    Text(
+                        text = "$durationMinutes Min",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFFFF59D)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(3.dp))
+
+            Text(
+                text = advice.titel,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+
+            Text(
+                text = advice.nachricht,
+                fontSize = 11.sp,
+                color = Color(0xFFECEFF1)
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            val buttonText = when {
+                isVentilating -> "Fenster schließen (Beenden)"
+                advice.aktion == VentilationAction.LUEFTUNG_STARTEN -> "Lüften starten"
+                else -> "Lüften manuell starten"
+            }
+
+            Chip(
+                onClick = onToggleVentilation,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ChipDefaults.primaryChipColors(
+                    backgroundColor = if (isVentilating) Color(0xFFD32F2F) else Color(0xFF2E7D32)
+                ),
+                label = {
+                    Text(
+                        text = buttonText,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                        maxLines = 1
+                    )
+                }
+            )
+        }
+    }
+}
+
+@Composable
 private fun AlertBannerCard(alerts: List<String>) {
     Card(
         onClick = {},
@@ -179,11 +386,24 @@ private fun AlertBannerCard(alerts: List<String>) {
 }
 
 @Composable
-private fun ClimateTileCard(name: String, tile: TelemetryTile) {
+private fun ClimateTileCard(
+    name: String,
+    tile: TelemetryTile,
+    isFocused: Boolean,
+    onClick: () -> Unit
+) {
+    val cardModifier = if (isFocused) {
+        Modifier
+            .fillMaxWidth()
+            .border(1.5.dp, Color(0xFF64B5F6), RoundedCornerShape(18.dp))
+    } else {
+        Modifier.fillMaxWidth()
+    }
+
     Card(
-        onClick = {},
-        enabled = false,
-        modifier = Modifier.fillMaxWidth()
+        onClick = onClick,
+        enabled = true,
+        modifier = cardModifier
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             val tempC = tile.temperatureC
@@ -200,10 +420,10 @@ private fun ClimateTileCard(name: String, tile: TelemetryTile) {
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = name,
+                    text = if (isFocused) "▶ $name" else name,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
-                    color = Color(0xFFCFD8DC),
+                    color = if (isFocused) Color(0xFF90CAF9) else Color(0xFFCFD8DC),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis
                 )
