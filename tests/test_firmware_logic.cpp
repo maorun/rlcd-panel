@@ -6932,7 +6932,8 @@ void testWakeIntervalConfig() {
     DeviceConfig c;
     c.wake_interval_s = v;
     assert(PowerManager::powerConfig(c, battery).sleep_interval_s == v);
-    assert(PowerManager::powerConfig(c, usb).sleep_interval_s == PowerConfig::DEFAULT_SLEEP_INTERVAL_S);
+    assert(PowerManager::powerConfig(c, usb).sleep_interval_s == PowerConfig::USB_SLEEP_INTERVAL_S);
+    assert(PowerConfig::USB_SLEEP_INTERVAL_S == 10);
     assert(PowerManager::powerConfig(c, battery).scan_duration_s == PowerConfig::DEFAULT_SCAN_DURATION_S);
   }
   BatteryReading none; // no reading: battery rule
@@ -10783,8 +10784,8 @@ void testNightWakeInterval() {
   c.night_wake_interval_s = 0;
   assert(PowerManager::powerConfig(c, battery, quiet, makeRtc(23, 0)).sleep_interval_s == 120);
   c.night_wake_interval_s = 600;
-  // USB power keeps 60 s, also at night
-  assert(PowerManager::powerConfig(c, usb, quiet, makeRtc(23, 0)).sleep_interval_s == PowerConfig::DEFAULT_SLEEP_INTERVAL_S);
+  // USB power keeps 10 s, also at night
+  assert(PowerManager::powerConfig(c, usb, quiet, makeRtc(23, 0)).sleep_interval_s == PowerConfig::USB_SLEEP_INTERVAL_S);
   // Invalid RTC time or stopped oscillator: wake_interval_s
   assert(PowerManager::powerConfig(c, battery, quiet, makeRtc(23, 0, false)).sleep_interval_s == 120);
   RtcTime stopped = makeRtc(23, 0);
