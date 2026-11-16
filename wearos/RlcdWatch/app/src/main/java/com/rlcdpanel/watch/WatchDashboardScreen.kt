@@ -1,6 +1,7 @@
 package com.rlcdpanel.watch
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -391,15 +392,18 @@ private fun ClimateTileCard(
     isFocused: Boolean,
     onClick: () -> Unit
 ) {
+    val cardModifier = if (isFocused) {
+        Modifier
+            .fillMaxWidth()
+            .border(1.5.dp, Color(0xFF64B5F6), RoundedCornerShape(18.dp))
+    } else {
+        Modifier.fillMaxWidth()
+    }
+
     Card(
         onClick = onClick,
         enabled = true,
-        modifier = Modifier.fillMaxWidth(),
-        border = if (isFocused) {
-            CardDefaults.outlinedCardBorder(borderColor = Color(0xFF64B5F6))
-        } else {
-            CardDefaults.cardBorder()
-        }
+        modifier = cardModifier
     ) {
         Column(modifier = Modifier.fillMaxWidth()) {
             val tempC = tile.temperatureC
