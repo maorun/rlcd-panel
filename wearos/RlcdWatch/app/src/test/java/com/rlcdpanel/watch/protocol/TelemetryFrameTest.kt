@@ -30,13 +30,15 @@ class TelemetryFrameTest {
     }
 
     private fun fixtureFile(): File {
-        val candidates = listOf(
-            File("../../tests/fixtures/ble_telemetry_vectors.txt"),
-            File("../tests/fixtures/ble_telemetry_vectors.txt"),
-            File("tests/fixtures/ble_telemetry_vectors.txt")
-        )
-        return candidates.firstOrNull { it.isFile }
-            ?: error("Could not locate tests/fixtures/ble_telemetry_vectors.txt from ${File(".").absolutePath}")
+        var dir: File? = File(".").canonicalFile
+        while (dir != null) {
+            val candidate = File(dir, "tests/fixtures/ble_telemetry_vectors.txt")
+            if (candidate.isFile) {
+                return candidate
+            }
+            dir = dir.parentFile
+        }
+        error("Could not locate tests/fixtures/ble_telemetry_vectors.txt from ${File(".").canonicalPath}")
     }
 
     private fun loadVectors(): List<Vector> {
