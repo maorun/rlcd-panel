@@ -134,6 +134,7 @@ struct DiagnosticsView: View {
     @ViewBuilder private func shtc3(_ m: Shtc3Stats?) -> some View {
         if let m {
             Text("nack \(n(m.nack))  short \(n(m.short))  crc \(n(m.crc))")
+            if let retried = m.retried { Text("retried after soft reset: \(retried)") }
             Text("failures in a row: \(n(m.run))")
                 .foregroundStyle(m.isAlert ? .white : .primary)
                 .padding(.horizontal, 4)

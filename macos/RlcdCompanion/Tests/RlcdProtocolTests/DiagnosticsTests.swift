@@ -90,6 +90,14 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         #expect(throws: ParseError.self) { try ReceptionMetrics.parse(line: "RECEPTION s1=-- s2=-- s3=-- s4=--") }
     }
 
+    @Test func shtc3RetriedField() throws {
+        let with = try Shtc3Stats.parse(line: "SHTC3 nack=0 short=0 crc=0 run=0 retried=4 usb_offset=0.0")
+        #expect(with.retried == 4)
+        let old = try Shtc3Stats.parse(line: "SHTC3 nack=0 short=0 crc=0 run=0")
+        #expect(old.retried == nil)
+        #expect(throws: ParseError.self) { try Shtc3Stats.parse(line: "SHTC3 nack=0 short=0 crc=0 run=0 retried=x") }
+    }
+
     @Test func nonNumericCounterThrows() {
         #expect(throws: ParseError.self) { try Shtc3Stats.parse(line: "SHTC3 nack=x short=0 crc=0 run=0") }
         #expect(throws: ParseError.self) { try DiagnosticsReply.parse(otherLines: ["AWAKE": "AWAKE last_ms=1 avg_ms=abc max_ms=1 samples=1"]) }

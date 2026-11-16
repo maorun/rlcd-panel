@@ -753,7 +753,7 @@ void testBatteryOffsetMv() {
   bad[pos] = 0xD3; bad[pos + 1] = 0xFE; // -301 mV
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 33; // old state version without the offset
   seal();
@@ -1193,7 +1193,7 @@ void testComfortZone() {
   assert(memcmp(ok_fb.data(), cold_fb.data(), RLCD_BUFFER_SIZE) != 0);
 
   // No RTC state change
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
 }
 
 void testAbsHumidityStats() {
@@ -1222,7 +1222,7 @@ void testAbsHumidityStats() {
   assert(strcmp(text, "AH 8.6G") == 0);
   DashboardView::formatAbsHumidity(text, sizeof(text), SwitchBotReading{}, now);
   assert(strcmp(text, "AH --") == 0);
-  assert(PowerManager::STATE_VERSION == 57); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 58); // no RTC state change
 
   // Rendering: right edge at x = 392, line y + 54, no overlap with the widest record text
   BatteryReading battery;
@@ -1466,7 +1466,7 @@ void testFeelsLikeStats() {
   DashboardView::renderSensorStats(dashed, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
                                    nullptr, &config);
   assert(memcmp(fb.data(), dashed.data(), RLCD_BUFFER_SIZE) != 0);
-  assert(PowerManager::STATE_VERSION == 57); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 58); // no RTC state change
 }
 
 void testMoldHoursStats() {
@@ -1587,7 +1587,7 @@ void testMoldHoursStats() {
     }
     assert(i == 2 ? !differs : differs); // empty slot shows "MOLD --" in both renders
   }
-  assert(PowerManager::STATE_VERSION == 57); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 58); // no RTC state change
 }
 
 void testDashboardClimateLine() {
@@ -1940,7 +1940,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -2838,7 +2838,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -3478,7 +3478,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -5308,7 +5308,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6126,7 +6126,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6333,7 +6333,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -6515,7 +6515,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -8430,7 +8430,7 @@ void testStatsPageRenderAndState() {
   assert(memcmp(a.data(), base.data(), St7305Framebuffer::BYTE_COUNT) != 0);
 
   // RTC state: the page byte round-trips, 2 is rejected, and the old version 50 is rejected
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   PersistentState st;
   st.stats_page = 1;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -8498,7 +8498,7 @@ void testClimateChartKeyHandling() {
 }
 
 void testClimateChartRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   PersistentState s;
   s.mode = DisplayMode::CLIMATE_CHART;
   s.chart_sensor = 5;
@@ -8813,7 +8813,7 @@ void testWeekHistoryInvalidTimeSkipsShift() {
 }
 
 void testWeekChartRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   const ClimateHistory history = weekKnownHistory();
   PersistentState s;
   s.mode = DisplayMode::WEEK_CHART;
@@ -10594,7 +10594,7 @@ void testChimeRepeat() {
   assert(AlertEvaluator::repeatableBits(static_cast<uint8_t>(ALERT_FREEZER | ALERT_CHARGE_FULL)) == ALERT_FREEZER);
 
   // RTC round trip: stamp, key and state version
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   PersistentState st;
   st.last_chime_ms = 0xFFFFFF00u;
   st.config.chime_repeat_h = 24;
@@ -10738,7 +10738,7 @@ void testSlotRelease() {
   bad[pos] = 169;
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 34; // old state version without the key
   seal();
@@ -10849,7 +10849,7 @@ void testNightWakeInterval() {
   bad[pos] = 0x09; bad[pos + 1] = 0x07; // 1801 s: above range
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 35; // old state version without the key
   seal();
@@ -11380,7 +11380,7 @@ void testStatusRuntimeLinePositionCrcAndNoSideEffect() {
   snprintf(expected, sizeof(expected), "CRC32 %08lx", static_cast<unsigned long>(crc.value()));
   assert(lines[15] == expected);
   assert(out.find("RUNTIME ") < crc_at);
-  assert(lines[15] == "CRC32 9145e383"); // fixed value of the whole reply
+  assert(lines[15] == "CRC32 1eba154e"); // fixed value of the whole reply
   // The command leaves the history unchanged.
   assert(h.size() == before.size() && h.head() == before.head() && h.last_sample_ms == before.last_sample_ms &&
          h.has_sampled == before.has_sampled);
@@ -11563,23 +11563,93 @@ void testShtc3HealthSaturation() {
   assert(r.run == 255 && r.crc == 300);
 }
 
+void testShtc3RetryDecision() {
+  const Shtc3Result failed[] = {Shtc3Result::NACK, Shtc3Result::SHORT, Shtc3Result::CRC};
+  for (Shtc3Result r : failed) {
+    assert(Shtc3Codec::shouldRetry(r, 0));
+    assert(!Shtc3Codec::shouldRetry(r, 1));
+  }
+  assert(!Shtc3Codec::shouldRetry(Shtc3Result::OK, 0));
+  assert(!Shtc3Codec::shouldRetry(Shtc3Result::OK, 1));
+}
+
+void testShtc3RetryFlow() {
+  // A failed first read and a good second read: one retry, no failure, run 0.
+  Shtc3Health h;
+  h.record(Shtc3Result::CRC); // an earlier failure keeps the counters, the run must reset
+  int reads = 0, resets = 0;
+  Shtc3Result r = readShtc3WithRetry(
+      h, [&]() { return ++reads == 1 ? Shtc3Result::NACK : Shtc3Result::OK; }, [&]() { ++resets; });
+  assert(r == Shtc3Result::OK && reads == 2 && resets == 1);
+  assert(h.retried == 1 && h.run == 0 && h.nack == 0 && h.crc == 1 && h.total() == 1);
+  // Two failed reads: one retry, only the final result counts once.
+  Shtc3Health f;
+  reads = 0;
+  resets = 0;
+  r = readShtc3WithRetry(
+      f, [&]() { ++reads; return Shtc3Result::CRC; }, [&]() { ++resets; });
+  assert(r == Shtc3Result::CRC && reads == 2 && resets == 1);
+  assert(f.crc == 1 && f.run == 1 && f.retried == 1 && f.total() == 1);
+  // A good first read: no retry.
+  Shtc3Health g;
+  reads = 0;
+  resets = 0;
+  r = readShtc3WithRetry(
+      g, [&]() { ++reads; return Shtc3Result::OK; }, [&]() { ++resets; });
+  assert(r == Shtc3Result::OK && reads == 1 && resets == 0 && g.retried == 0);
+  // The retried counter saturates at 65535.
+  Shtc3Health s;
+  s.retried = 65535;
+  s.recordRetry();
+  assert(s.retried == 65535);
+}
+
+void testShtc3RetriedRtcRoundTrip() {
+  assert(Shtc3Health::SERIALIZED_SIZE == 9);
+  PersistentState st;
+  st.shtc3.crc = 5;
+  st.shtc3.run = 2;
+  st.shtc3.retried = 0x1234;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  PersistentState back;
+  assert(PowerManager::deserialize(buf, sizeof(buf), back));
+  assert(back.shtc3.retried == 0x1234 && back.shtc3.crc == 5 && back.shtc3.run == 2);
+  // A record of the old size (2 bytes shorter) is rejected.
+  assert(!PowerManager::deserialize(buf, sizeof(buf) - 2, back));
+  // A record of the old STATE_VERSION 57 is rejected.
+  buf[4] = PowerManager::STATE_VERSION - 1;
+  assert(!PowerManager::deserialize(buf, sizeof(buf), back));
+}
+
 void testShtc3StatusLine() {
   StatusFixture f;
   f.snap.shtc3.nack = 1;
   f.snap.shtc3.short_reads = 22;
   f.snap.shtc3.crc = 65535;
   f.snap.shtc3.run = 4;
+  f.snap.shtc3.retried = 7;
   const std::vector<std::string> lines = statusLines(f.run());
   assert(lines.size() == 16);
   assert(lines[7].rfind("RESET ", 0) == 0);
-  assert(lines[9] == "SHTC3 nack=1 short=22 crc=65535 run=4 usb_offset=0.0"); // fixture runs on USB power
+  assert(lines[9] == "SHTC3 nack=1 short=22 crc=65535 run=4 retried=7 usb_offset=0.0"); // fixture runs on USB power
   assert(lines[12].rfind("POWER ", 0) == 0);
   StatusFixture clean;
-  assert(statusLines(clean.run())[9] == "SHTC3 nack=0 short=0 crc=0 run=0 usb_offset=0.0");
+  assert(statusLines(clean.run())[9] == "SHTC3 nack=0 short=0 crc=0 run=0 retried=0 usb_offset=0.0");
   clean.config.usb_temp_offset_c = -1.2f;
-  assert(statusLines(clean.run())[9] == "SHTC3 nack=0 short=0 crc=0 run=0 usb_offset=-1.2");
+  assert(statusLines(clean.run())[9] == "SHTC3 nack=0 short=0 crc=0 run=0 retried=0 usb_offset=-1.2");
   clean.snap.battery.usb_powered = false; // battery power: the key stays out of the line
-  assert(statusLines(clean.run())[9] == "SHTC3 nack=0 short=0 crc=0 run=0");
+  assert(statusLines(clean.run())[9] == "SHTC3 nack=0 short=0 crc=0 run=0 retried=0");
+  // The CRC32 line covers all lines before it, including the new retried field.
+  const std::string reply = f.run();
+  const size_t crc_at = reply.rfind("CRC32 ");
+  assert(crc_at != std::string::npos);
+  SerialCrc32 crc;
+  crc.update(reinterpret_cast<const uint8_t*>(reply.data()), crc_at);
+  char expect[24];
+  snprintf(expect, sizeof(expect), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+  assert(reply.substr(crc_at) == expect);
+  assert(reply.find("run=4 retried=7 usb_offset=0.0\n") != std::string::npos);
 }
 
 void testShtc3DiagnosticsInverted() {
@@ -11719,7 +11789,7 @@ void testAwakeStatsStatusLine() {
 }
 
 void testAwakeStatsRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   assert(PowerManager::AWAKE_SIZE == 6);
   PersistentState s;
   for (int i = 0; i < 9; ++i) s.awake.record(4000 + 100 * static_cast<uint32_t>(i));
@@ -11780,7 +11850,7 @@ void testAwakeStatsRtcRoundTrip() {
 }
 
 void testShtc3RtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   PersistentState s;
   s.shtc3.nack = 513;
   s.shtc3.short_reads = 65535;
@@ -15654,7 +15724,7 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
 
   // A valid checksum with the same MAC in two keys is rejected
   const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
@@ -16375,7 +16445,7 @@ void testSensorBatteryLatchRtcRoundTrip() {
     }
   }
   // The version is increased
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   // Corrupt records: latch bit above bit 4, flag byte above 7, limit above 50, old version
   st.sensor_battery_latch = 1;
   st.alert_mask = ALERT_NONE;
@@ -16598,7 +16668,7 @@ void testSensorStaleMinConfig() {
 
   // RTC round trip, corrupt values and the version bump
   PersistentState st;
-  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 57);
+  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 58);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(5), uint16_t(30), uint16_t(240)}) {
@@ -16683,7 +16753,7 @@ void testDisplayInvert() {
 
   // RTC round trip, corrupt value and version bump
   PersistentState st;
-  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 57);
+  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 58);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(1)}) {
@@ -16822,7 +16892,7 @@ void testClimateAlertTiles() {
 
   // RTC round trip, corrupt value and the old state version
   PersistentState st;
-  assert(st.config.climate_alert_tiles == 63 && PowerManager::STATE_VERSION == 57);
+  assert(st.config.climate_alert_tiles == 63 && PowerManager::STATE_VERSION == 58);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(5), uint8_t(63)}) {
@@ -17029,7 +17099,7 @@ void testSdCardStatus() {
   assert(unknown_lines[6] == "SD status=UNKNOWN age=--");
 
   // RTC round trip, a corrupt status byte and the old state version
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   PersistentState st;
   st.setSdStatus(SdStatus::FULL, 4242);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -17070,7 +17140,7 @@ void testSdCardStatus() {
 }
 
 void testEventLog() {
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   const RtcTime t1 = localTime(2026, 11, 14, 9, 30);
   const RtcTime bad_time{}; // invalid
   // Empty ring and one event
@@ -17652,7 +17722,7 @@ void testTempUnitRtcRoundTrip() {
   // The unit byte follows the night wake interval in the config trailer
   const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   assert(buf[cfg_pos + 34] == 'C');
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
 }
 
 // ---- BLE telemetry broadcast (BleTelemetryCodec, ble_broadcast_enabled) ----
@@ -17965,7 +18035,7 @@ void testBleBroadcastRtcRoundTrip() {
   bad[4] = 43; // old state version without the key
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
 }
 
 
@@ -18073,7 +18143,7 @@ void testBleConsoleRtcRoundTrip() {
   bad[4] = 44; // old state version without the key
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
 }
 
 void testBleConsoleGate() {
@@ -18611,7 +18681,7 @@ void testFrameRefreshPatternInvalidates() {
 }
 
 void testFrameRefreshRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   assert(PowerManager::FRAME_SIZE == 5);
   PersistentState s;
   s.frame.recordFlush(0xDEADBEEFU);
@@ -18948,7 +19018,7 @@ void testFiveSlotRegistryAndFixedMac() {
 }
 
 void testFiveSlotRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 57);
+  assert(PowerManager::STATE_VERSION == 58);
   PersistentState s;
   DeviceConfig cfg;
   strcpy(cfg.slot_name[3], "GARAGE");
@@ -19732,6 +19802,9 @@ testSerialStatusResetLine();
 testShtc3Classification();
 testShtc3HealthCounters();
 testShtc3HealthSaturation();
+testShtc3RetryDecision();
+testShtc3RetryFlow();
+testShtc3RetriedRtcRoundTrip();
 testShtc3StatusLine();
 testShtc3DiagnosticsInverted();
 testShtc3RtcRoundTrip();

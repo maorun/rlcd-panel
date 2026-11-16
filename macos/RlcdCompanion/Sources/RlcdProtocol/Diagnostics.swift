@@ -37,7 +37,8 @@ private func decimal(_ f: [String: String], _ key: String, line: String) throws 
     return d
 }
 
-/// `SHTC3 nack=<N> short=<N> crc=<N> run=<N>`: failed reads of the onboard sensor by cause.
+/// `SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>`: failed reads of the onboard sensor by cause.
+/// `retried` counts the retries after a soft reset; old firmware has no such field and gives `nil`.
 public struct Shtc3Stats: Equatable {
     /// The firmware inverts the diagnostics line from this run length on.
     public static let alertRun = 3
@@ -46,6 +47,8 @@ public struct Shtc3Stats: Equatable {
     public let crc: Int?
     /// Failures in a row.
     public let run: Int?
+    /// Retries after a soft reset, also those that succeeded; `nil` for old firmware.
+    public var retried: Int? = nil
 
     public var isAlert: Bool { (run ?? 0) >= Self.alertRun }
 
@@ -53,7 +56,8 @@ public struct Shtc3Stats: Equatable {
         let f = fieldMap(line)
         return Shtc3Stats(
             nack: try counter(f, "nack", line: line), short: try counter(f, "short", line: line),
-            crc: try counter(f, "crc", line: line), run: try counter(f, "run", line: line))
+            crc: try counter(f, "crc", line: line), run: try counter(f, "run", line: line),
+            retried: f["retried"] == nil ? nil : try counter(f, "retried", line: line))
     }
 }
 
