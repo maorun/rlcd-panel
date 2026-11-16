@@ -919,7 +919,7 @@ void broadcastTelemetry() {
     advertising->setMinInterval(BleTelemetryCodec::INTERVAL_UNITS);
     advertising->setMaxInterval(BleTelemetryCodec::INTERVAL_UNITS);
     if (advertising->start()) {
-      delay(BleTelemetryCodec::ADVERTISE_MS);
+      delay(g_state.battery.usb_powered ? 1000 : BleTelemetryCodec::ADVERTISE_MS);
       advertising->stop();
     } else {
       Serial.println("BLE telemetry start failed");

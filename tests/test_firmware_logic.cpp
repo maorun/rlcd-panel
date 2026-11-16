@@ -6932,7 +6932,8 @@ void testWakeIntervalConfig() {
     DeviceConfig c;
     c.wake_interval_s = v;
     assert(PowerManager::powerConfig(c, battery).sleep_interval_s == v);
-    assert(PowerManager::powerConfig(c, usb).sleep_interval_s == PowerConfig::DEFAULT_SLEEP_INTERVAL_S);
+    assert(PowerManager::powerConfig(c, usb).sleep_interval_s == PowerConfig::USB_SLEEP_INTERVAL_S);
+    assert(PowerConfig::USB_SLEEP_INTERVAL_S == 10);
     assert(PowerManager::powerConfig(c, battery).scan_duration_s == PowerConfig::DEFAULT_SCAN_DURATION_S);
   }
   BatteryReading none; // no reading: battery rule
@@ -10783,8 +10784,8 @@ void testNightWakeInterval() {
   c.night_wake_interval_s = 0;
   assert(PowerManager::powerConfig(c, battery, quiet, makeRtc(23, 0)).sleep_interval_s == 120);
   c.night_wake_interval_s = 600;
-  // USB power keeps 60 s, also at night
-  assert(PowerManager::powerConfig(c, usb, quiet, makeRtc(23, 0)).sleep_interval_s == PowerConfig::DEFAULT_SLEEP_INTERVAL_S);
+  // USB power keeps 10 s, also at night
+  assert(PowerManager::powerConfig(c, usb, quiet, makeRtc(23, 0)).sleep_interval_s == PowerConfig::USB_SLEEP_INTERVAL_S);
   // Invalid RTC time or stopped oscillator: wake_interval_s
   assert(PowerManager::powerConfig(c, battery, quiet, makeRtc(23, 0, false)).sleep_interval_s == 120);
   RtcTime stopped = makeRtc(23, 0);
@@ -17903,7 +17904,7 @@ void testClimateMathFixtureVectors() {
 
 void testBleBroadcastConfig() {
   DeviceConfig d;
-  assert(d.ble_broadcast_enabled == 0 && parseText("").ble_broadcast_enabled == 0);
+  assert(d.ble_broadcast_enabled == 1 && parseText("").ble_broadcast_enabled == 1);
   ConfigParseResult r;
   DeviceConfig c;
   for (int v : {0, 1}) {
@@ -17917,12 +17918,12 @@ void testBleBroadcastConfig() {
                         "ble_broadcast_enabled=\n", "ble_broadcast_enabled=1.5\n", "ble_broadcast_enabled=256\n"}) {
     c = DeviceConfig{};
     r = DeviceConfigParser::parse(t, strlen(t), c);
-    assert(c.ble_broadcast_enabled == 0 && r.rejected == 1 && r.keys_set == 0);
+    assert(c.ble_broadcast_enabled == 1 && r.rejected == 1 && r.keys_set == 0);
   }
   DeviceConfig inv;
   inv.ble_broadcast_enabled = 2;
   assert(!inv.valid());
-  inv.ble_broadcast_enabled = 1;
+  inv.ble_broadcast_enabled = 0;
   assert(inv.valid() && !inv.isDefault());
   // CONFIG reply line
   DeviceConfig cfg;
@@ -17931,7 +17932,9 @@ void testBleBroadcastConfig() {
   TestRunner::showConfig(on, cfg, true);
   assert(on.out.find("\nble_broadcast_enabled=1\n") != std::string::npos);
   FakeSink off;
-  TestRunner::showConfig(off, DeviceConfig{}, false);
+  DeviceConfig zero_cfg;
+  zero_cfg.ble_broadcast_enabled = 0;
+  TestRunner::showConfig(off, zero_cfg, false);
   assert(off.out.find("\nble_broadcast_enabled=0\n") != std::string::npos);
   assert(DeviceConfigParser::checkSetting("ble_broadcast_enabled", 21, "1", 1) == DeviceConfigParser::SettingCheck::OK);
   assert(DeviceConfigParser::checkSetting("ble_broadcast_enabled", 21, "2", 1) == DeviceConfigParser::SettingCheck::BAD_VALUE);

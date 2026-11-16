@@ -5,6 +5,7 @@ import android.bluetooth.BluetoothManager
 import android.bluetooth.le.BluetoothLeScanner
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
+import android.bluetooth.le.ScanRecord
 import android.bluetooth.le.ScanResult
 import android.bluetooth.le.ScanSettings
 import android.content.Context
@@ -65,13 +66,8 @@ class BleTelemetryScanner(
             return false
         }
 
-        val filter = ScanFilter.Builder()
-            .setManufacturerData(
-                TelemetryFrame.COMPANY_ID,
-                byteArrayOf(TelemetryFrame.FORMAT_VERSION.toByte()),
-                byteArrayOf(0xFF.toByte())
-            )
-            .build()
+        // Use a wildcard filter so the hardware filter does not drop non-connectable 0xFFFF packets.
+        val filter = ScanFilter.Builder().build()
 
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
@@ -107,7 +103,7 @@ class BleTelemetryScanner(
     @SuppressLint("MissingPermission")
     private fun handleResult(result: ScanResult) {
         val record = result.scanRecord ?: return
-        val payload = record.getManufacturerSpecificData(TelemetryFrame.COMPANY_ID) ?: return
+        val payload = extractPayload(record) ?: return
         try {
             val frame = TelemetryFrame.decodePayload(payload)
             onSnapshot(
@@ -120,6 +116,44 @@ class BleTelemetryScanner(
             )
         } catch (_: TelemetryException) {
             // Ignore unrelated or corrupted 0xFFFF advertisements.
+        }
+    }
+
+    companion object {
+        /**
+         * Extracts the 24-byte telemetry payload from the scan record.
+         * Tries Android API SparseArray lookup first, then falls back to raw advertisement parsing.
+         */
+        fun extractPayload(record: ScanRecord): ByteArray? {
+            // 1. Try standard getManufacturerSpecificData(0xFFFF)
+            val fromApi = record.getManufacturerSpecificData(TelemetryFrame.COMPANY_ID)
+            if (fromApi != null && fromApi.size == TelemetryFrame.PAYLOAD_SIZE) {
+                return fromApi
+            }
+
+            // 2. Fallback: Parse raw advertisement bytes directly to handle Android SparseArray / signed short quirks
+            val rawBytes = record.bytes ?: return null
+            var pos = 0
+            while (pos < rawBytes.size) {
+                val len = rawBytes[pos].toInt() and 0xFF
+                if (len == 0 || pos + 1 + len > rawBytes.size) {
+                    break
+                }
+                val type = rawBytes[pos + 1].toInt() and 0xFF
+                // 0xFF = Manufacturer Specific Data
+                if (type == 0xFF && len >= 3) {
+                    val compLo = rawBytes[pos + 2].toInt() and 0xFF
+                    val compHi = rawBytes[pos + 3].toInt() and 0xFF
+                    val companyId = compLo or (compHi shl 8)
+                    val payloadLen = len - 3
+                    if (companyId == TelemetryFrame.COMPANY_ID && payloadLen == TelemetryFrame.PAYLOAD_SIZE) {
+                        return rawBytes.copyOfRange(pos + 4, pos + 1 + len)
+                    }
+                }
+                pos += 1 + len
+            }
+
+            return null
         }
     }
 }

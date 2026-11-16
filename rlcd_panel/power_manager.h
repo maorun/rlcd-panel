@@ -52,6 +52,7 @@ enum class PowerPhase : uint8_t {
 
 struct PowerConfig {
   static constexpr uint32_t DEFAULT_SLEEP_INTERVAL_S = 60;
+  static constexpr uint32_t USB_SLEEP_INTERVAL_S = 10;
   static constexpr uint32_t DEFAULT_SCAN_DURATION_S = 4;
   static constexpr uint32_t MIN_SLEEP_INTERVAL_S = 10;
   static constexpr uint32_t MAX_SLEEP_INTERVAL_S = 3600;
@@ -431,15 +432,17 @@ public:
   }
 
   // Sleep settings of this wake cycle. Battery power takes the interval from config.ini. USB power
-  // keeps the default interval, so the board answers at the usual pace while it charges. The
-  // interval only moves the wakeup timer: the hourly log, the histories and the NTP schedule
-  // compare RTC stamps and do not depend on it. On battery power in the quiet hours a set
-  // night_wake_interval_s replaces the interval. An invalid RTC time is no quiet hours.
+  // uses USB_SLEEP_INTERVAL_S (10 s), so telemetry and sensors update frequently without draining
+  // a battery. The interval only moves the wakeup timer: the hourly log, the histories and the
+  // NTP schedule compare RTC stamps and do not depend on it. On battery power in the quiet hours a
+  // set night_wake_interval_s replaces the interval. An invalid RTC time is no quiet hours.
   static PowerConfig powerConfig(const DeviceConfig& config, const BatteryReading& battery,
                                  const QuietHoursWindow& quiet = QuietHoursWindow(),
                                  const RtcTime& time = RtcTime()) {
     PowerConfig c;
-    if (!(battery.valid && battery.usb_powered)) {
+    if (battery.valid && battery.usb_powered) {
+      c.sleep_interval_s = PowerConfig::USB_SLEEP_INTERVAL_S;
+    } else {
       c.sleep_interval_s = config.wake_interval_s;
       if (config.night_wake_interval_s > 0 && quiet.isActive(time)) {
         c.sleep_interval_s = config.night_wake_interval_s;

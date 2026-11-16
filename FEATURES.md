@@ -16,7 +16,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 
 - **Code:** `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`.
 - The board runs one wake cycle, then enters deep sleep: restore state, scan BLE for 4 s, read sensors, render, save state, sleep.
-- The sleep timer starts the next scan `wake_interval_s` seconds after the start of the last scan (default 60 s, range 30 s to 900 s, set in `config.ini`). `PowerManager::powerConfig` passes the value to `PowerConfig::sleep_interval_s` on battery power. USB power keeps the default 60 s. The hourly log, the histories and the NTP schedule use RTC stamps, so the interval does not move them. Only a power-on and a `KEY` wakeup read the card, so a new value takes effect after one of them. The runtime estimate fits the sample stamps, so wake times off the hour grid do not distort it. The timer subtracts the awake time and clamps to 1 s to 1 h.
+- The sleep timer starts the next scan `wake_interval_s` seconds after the start of the last scan (default 60 s, range 30 s to 900 s, set in `config.ini`). `PowerManager::powerConfig` passes the value to `PowerConfig::sleep_interval_s` on battery power. USB power keeps 10 s. The hourly log, the histories and the NTP schedule use RTC stamps, so the interval does not move them. Only a power-on and a `KEY` wakeup read the card, so a new value takes effect after one of them. The runtime estimate fits the sample stamps, so wake times off the hour grid do not distort it. The timer subtracts the awake time and clamps to 1 s to 1 h.
 - The registry, battery reading, view mode, and boot count stay in RTC memory (`RTC_DATA_ATTR`). A magic number, a version, and a CRC-32 protect them. Corrupt or blank data gives a clean start with an immediate scan.
 - The `KEY` button (`GPIO18`) wakes the board through `ext0`. A press cycles the display mode without a new scan. The board stays awake for 3 s after a render, so more presses redraw at once.
 - Timestamps use the RTC-backed system clock, because `millis()` restarts after deep sleep.
@@ -178,7 +178,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 | `chime_alert_mask` | `255` | `0` to `255` | chime per alert (bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full, 5 ventilate, 6 sensor battery, 7 heat) |
 | `sensor_battery_limit_pct` | `10` | `0` to `50` | an external sensor at or below this battery level shows `BAT LOW`; `0` is off |
   | `ntp_sync_interval_h` | `24` | `6` to `168` | hours between two successful NTP syncs |
-  | `wake_interval_s` | `60` | `30` to `900` | seconds between two scans on battery power; USB power keeps `60` |
+  | `wake_interval_s` | `60` | `30` to `900` | seconds between two scans on battery power; USB power keeps `10` |
   | `sensor_stale_min` | `30` | `5` to `240` | minutes without a packet until a sensor is stale |
   | `display_invert` | `0` | `0` or `1` | `1` shows light text on a dark background |
   | `slot_release_h` | `0` | `0` to `168` | hours without a packet until a slot without a fixed MAC is released; `0` is off |
@@ -784,7 +784,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `docs/config.example.ini`, `tests/test_firmware_logic.cpp`
 - The `config.ini` key `night_wake_interval_s` has the default `0` (off). The range is `0` or `60` to `1800` seconds. A malformed or out-of-range value (for example `59`, `1801`, a negative value or text) is rejected and counts in `ConfigRejects`.
 - `PowerManager::powerConfig` takes the quiet hours window and the RTC time as extra arguments. On battery power, while `QuietHoursWindow::isActive()` is true and the key is more than `0`, the key replaces `sleep_interval_s`. The window can cross midnight.
-- USB power keeps `60` s. An invalid RTC time or a stopped oscillator counts as no quiet hours, so `wake_interval_s` applies.
+- USB power keeps `10` s. An invalid RTC time or a stopped oscillator counts as no quiet hours, so `wake_interval_s` applies.
 - The interval moves the wakeup timer only. The hourly log, the histories and the NTP schedule use RTC stamps, so they stay correct.
 - `DeviceConfig::staleTimeoutMs()` uses the larger of `wake_interval_s` and `night_wake_interval_s` plus the scan time for its lower bound. A sensor does not turn stale during the night.
 - `PersistentState` stores the key in the config trailer (2 bytes, little endian, after `slot_release_h`). `STATE_VERSION` is 36. A corrupt field and a record of version 35 give a clean start.

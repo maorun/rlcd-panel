@@ -126,7 +126,7 @@ public enum ConfigSchema {
             out.append(e("slot\(n)_mac", .sensors, .mac, "", "", "Fixed MAC of slot \(n). Empty means no fixed MAC."))
         }
         // BLE
-        out.append(e("ble_broadcast_enabled", .ble, .integer(min: 0, max: 1), "0", "", "Send the telemetry frame after each scan. 0 is off."))
+        out.append(e("ble_broadcast_enabled", .ble, .integer(min: 0, max: 1), "1", "", "Send the telemetry frame after each scan. 0 is off."))
         out.append(e("ble_console", .ble, .integer(min: 0, max: 2), "0", "", "BLE console on USB power. 1 allows read commands. 2 also allows SET."))
         return out
     }()
