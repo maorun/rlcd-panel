@@ -33,6 +33,22 @@ struct ClimateChartView: View {
         }
     }
 
+    private static let day: DateFormatter = {
+        let f = DateFormatter()
+        f.dateStyle = .medium
+        f.timeStyle = .none
+        return f
+    }()
+
+    /// Forecast from the rows of the selected month and the two months before it; the app sends no command for it.
+    private func forecastText(_ sensor: Int) -> String {
+        let limit = BatteryForecast.limitPct(config: model.lastConfig)
+        guard let date = BatteryForecast.estimate(rows: model.climateForecastRows, sensor: sensor, limitPct: limit) else {
+            return "Battery forecast: not enough data"
+        }
+        return "Battery change near \(Self.day.string(from: date))"
+    }
+
     private func chart(_ title: String, _ points: [Point]) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.caption).foregroundStyle(.secondary)
@@ -70,6 +86,11 @@ struct ClimateChartView: View {
                             chart("Temperature (\(temperatureUnit))", temp)
                             chart("Humidity (%RH)", rh)
                         }
+                        if sensor > 0 { Text(forecastText(sensor)).font(.caption).foregroundStyle(.secondary) }
+                    } else if sensor > 0, model.climateForecastRows.contains(where: { sensor < $0.sensors.count && $0.sensors[sensor].batteryPct != nil }) {
+                        // The selected month has no climate values for this slot, but an earlier month has battery data.
+                        Text(ClimateLog.sensorNames[sensor]).font(.headline)
+                        Text(forecastText(sensor)).font(.caption).foregroundStyle(.secondary)
                     }
                 }
                 let noise = points("Noise") { $0.noiseDb.map(Double.init) }
