@@ -725,7 +725,8 @@ public:
   // Sends the active configuration. The card stays untouched.
   static void showConfig(Sink& sink, const DeviceConfig& config, bool from_sd,
                          const ConfigRejects& rejects = ConfigRejects{}) {
-    char text[DeviceConfigText::MAX_SIZE + 16 + ConfigRejects::MAX_LINES * 20];
+    // Static: 1.4 KB text buffer does not fit the default Arduino loopTask stack.
+    static char text[DeviceConfigText::MAX_SIZE + 16 + ConfigRejects::MAX_LINES * 20];
     size_t len = DeviceConfigText::format(config, text, DeviceConfigText::MAX_SIZE);
     if (len == 0) {
       return;
@@ -755,9 +756,10 @@ public:
     if (reference >= CALIB_SOURCE_COUNT) {
       return;
     }
-    char text[1024];
+    static char text[1024];
     size_t len = static_cast<size_t>(snprintf(text, sizeof(text), "REFERENCE %s\n", names[reference]));
-    char suggestions[512] = {0};
+    static char suggestions[512];
+    suggestions[0] = '\0';
     size_t slen = 0;
     char usb_suggestion[40] = {0};
     size_t slen_usb = 0;
@@ -1125,7 +1127,8 @@ public:
     static const char* const defaults[ClimateHistory::SLOT_COUNT] = {"onboard", "slot1", "slot2", "slot3", "slot4", "slot5"};
     const DeviceConfig& cfg = *snap.config;
     const SwitchBotRegistry cal = snap.registry->calibrated(cfg.slot_temp_offset_c, cfg.slot_rh_offset_pct, cfg.slot_rh_gain);
-    char text[1280];
+    // Static: 1.3 KB buffer does not fit the default Arduino loopTask stack.
+    static char text[1280];
     size_t len = 0;
     for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
       const char* raw = i == 0 ? cfg.onboard_name : cfg.slot_name[i - 1];

@@ -34,6 +34,9 @@
 #include "bthome_ble.h"
 #include "atc_ble.h"
 
+// Allocate 16 KB for the Arduino loop task stack to prevent stack overflows during serial console operations (default 8 KB).
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
+
 using namespace rlcd_panel;
 
 namespace {
