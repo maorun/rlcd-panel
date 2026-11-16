@@ -216,7 +216,7 @@ private fun ClimateTileCard(name: String, tile: TelemetryTile) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.Baseline
+                    verticalAlignment = Alignment.Bottom
                 ) {
                     Text(
                         text = String.format(Locale.US, "%.1f °C", tempC),
