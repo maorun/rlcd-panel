@@ -90,19 +90,30 @@ public:
     return decodeFrame(frame, received, out, temp_offset_c, rh_offset_pct, rh_gain) ? Shtc3Result::OK
                                                                           : Shtc3Result::CRC;
   }
+
+  // One retry after a failed first attempt (attempt 0); never a second one.
+  static bool shouldRetry(Shtc3Result result, uint8_t attempt) {
+    return attempt == 0 && result != Shtc3Result::OK;
+  }
 };
 
 // Failed reads of the onboard SHTC3 by cause. Each counter saturates at 65535. `run` counts the
-// failures in a row (saturates at 255); a good read sets it to 0.
+// failures in a row (saturates at 255); a good read sets it to 0. `record` takes only the final
+// result of a wake cycle. `retried` counts each retry, also one that succeeds.
 struct Shtc3Health {
   static constexpr uint16_t COUNT_MAX = 65535;
   static constexpr uint8_t RUN_ALERT = 3; // the diagnostics text is inverted from this run on
-  static constexpr size_t SERIALIZED_SIZE = 3 * 2 + 1;
+  static constexpr size_t SERIALIZED_SIZE = 3 * 2 + 1 + 2;
 
   uint16_t nack = 0;
   uint16_t short_reads = 0;
   uint16_t crc = 0;
   uint8_t run = 0;
+  uint16_t retried = 0;
+
+  void recordRetry() {
+    bump(retried);
+  }
 
   void record(Shtc3Result result) {
     switch (result) {
@@ -144,5 +155,19 @@ private:
     }
   }
 };
+
+// One wake-cycle read: a failed first read gets one retry after `reset` (the soft reset 0x805D and
+// its 1 ms wait). Health counts the retry and only the final result.
+template <typename ReadFn, typename ResetFn>
+Shtc3Result readShtc3WithRetry(Shtc3Health& health, ReadFn read, ResetFn reset) {
+  Shtc3Result result = read();
+  if (Shtc3Codec::shouldRetry(result, 0)) {
+    reset();
+    health.recordRetry();
+    result = read();
+  }
+  health.record(result);
+  return result;
+}
 
 } // namespace rlcd_panel

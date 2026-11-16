@@ -234,7 +234,7 @@ void onScanComplete(BLEScanResults) {
   g_scan_running = false;
 }
 
-Shtc3Result readOnboardShtc3(Shtc3Reading& out, bool usb_powered) {
+Shtc3Result readOnboardShtcOnce(Shtc3Reading& out, bool usb_powered) {
   out = Shtc3Reading{};
 
   // Wake command 0x3517
@@ -271,6 +271,19 @@ Shtc3Result readOnboardShtc3(Shtc3Reading& out, bool usb_powered) {
 
   return Shtc3Codec::classify(true, received == 6 ? 6 : 0, frame, out, config().onboardTempOffsetC(usb_powered),
                               config().rh_offset_pct, config().rh_gain);
+}
+
+// A failed first read gets one retry after the soft reset 0x805D (1 ms wait); see readShtc3WithRetry.
+Shtc3Result readOnboardShtc3(Shtc3Reading& out, bool usb_powered, Shtc3Health& health) {
+  return readShtc3WithRetry(
+      health, [&]() { return readOnboardShtcOnce(out, usb_powered); },
+      []() {
+        Wire.beginTransmission(I2C_ADDR_SHTC3);
+        Wire.write(0x80);
+        Wire.write(0x5D);
+        Wire.endTransmission();
+        delay(1);
+      });
 }
 
 // Events that happen before the RTC is read (config load, release of the empty protection) wait here
@@ -831,7 +844,7 @@ void refreshSensors() {
   g_state.battery.low_battery = BatteryMonitor::updateLowBattery(g_state.battery, was_low);
   g_state.battery_history.record(nowMs(), g_state.battery);
   // The SHTC3 read follows the battery read: the USB state selects the offset of the reading.
-  g_state.shtc3.record(readOnboardShtc3(g_onboard_reading, g_state.battery.valid && g_state.battery.usb_powered));
+  readOnboardShtc3(g_onboard_reading, g_state.battery.valid && g_state.battery.usb_powered, g_state.shtc3);
   updateCycles();
   updateRtc();
   if (g_reset_event_pending) {

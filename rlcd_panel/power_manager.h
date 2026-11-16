@@ -324,7 +324,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 57;
+  static constexpr uint8_t STATE_VERSION = 58;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -694,6 +694,8 @@ public:
     out[pos++] = static_cast<uint8_t>(state.shtc3.crc & 0xFF);
     out[pos++] = static_cast<uint8_t>(state.shtc3.crc >> 8);
     out[pos++] = state.shtc3.run;
+    out[pos++] = static_cast<uint8_t>(state.shtc3.retried & 0xFF);
+    out[pos++] = static_cast<uint8_t>(state.shtc3.retried >> 8);
     state.awake.serialize(out + pos);
     pos += AWAKE_SIZE;
     state.frame.serialize(out + pos);
@@ -1055,6 +1057,7 @@ public:
     s.shtc3.short_reads = static_cast<uint16_t>(data[pos + 2] | (data[pos + 3] << 8));
     s.shtc3.crc = static_cast<uint16_t>(data[pos + 4] | (data[pos + 5] << 8));
     s.shtc3.run = data[pos + 6];
+    s.shtc3.retried = static_cast<uint16_t>(data[pos + 7] | (data[pos + 8] << 8));
     pos += Shtc3Health::SERIALIZED_SIZE;
     if (!s.shtc3.consistent()) {
       return false; // a run longer than the counted failures is corrupt

@@ -904,6 +904,16 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Thus the user finds a loose sensor or a bad bus before the onboard tile shows wrong values.
 - Host tests cover the cause of each failed read (a missing acknowledgement, a short frame, a bad temperature CRC and a bad humidity CRC) and a valid frame, the saturation at 65535 and at run 255, the reset of `run` after a good read, the `STATUS` line and its position, the inverted text at `run` 3, and the RTC round trip with a corrupt field and the old state version.
 
+## Retry of a failed onboard SHTC3 read with a soft reset
+
+- A failed onboard `SHTC3` read (`NACK`, `SHORT` or `CRC`) no longer gives an empty tile for a full wake cycle. `readOnboardShtc3` in `rlcd_panel/rlcd_panel.ino` sends the soft reset command `0x805D`, waits 1 ms and reads one more time. The retry adds at most 17 ms of awake time on a responsive bus. A sensor that is absent for good adds one retry to each wake cycle and one `retried` count. The I2C order of the retry (soft reset after the first sleep command, then wake, measure and sleep again) has no host test; the hardware proves it.
+- `Shtc3Codec::shouldRetry(result, attempt)` is true only for a failed first attempt (`attempt` 0), so there is a maximum of one retry. `readShtc3WithRetry` in `rlcd_panel/shtc3_sensor.h` holds the flow, so the host tests run it.
+- `Shtc3Health::record` counts only the final result of the wake cycle. The new counter `retried` (`uint16_t`, saturates at 65535) counts each retry, also a retry that succeeds.
+- `PersistentState::shtc3` stores 9 bytes just before the checksum: three `uint16_t` counters, one `uint8_t` run and the `uint16_t` `retried`. `STATE_VERSION` is 58. A power-on sets `retried` to 0. An RTC record of the old size is rejected.
+- The console command `STATUS` shows `SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>[ usb_offset=<x>]`.
+- `Shtc3Stats` in `Diagnostics.swift` parses `retried`. A missing field gives `nil` (old firmware) and a non-numeric value throws `ParseError.badLine`. `DiagnosticsView` shows the count.
+- Tests: `testShtc3RetryDecision`, `testShtc3RetryFlow`, `testShtc3RetriedRtcRoundTrip` and `testShtc3StatusLine` in `tests/test_firmware_logic.cpp`; `shtc3RetriedField` in `DiagnosticsTests.swift`.
+
 ## Absolute humidity line in the sensor stats view
 
 - **Code:** `rlcd_panel/dashboard_view.h`, `tests/test_firmware_logic.cpp`.
@@ -1311,7 +1321,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The key `usb_temp_offset_c` (-5.0 to 0.0 C, default 0.0, 0.1 C steps) was the last entry of `DeviceConfigParser::KEYS` (`KEY_COUNT` 49) until `dry_alert_limit_rh` followed. A value outside the range is a rejected line and keeps the default.
 - `DeviceConfig::onboardTempOffsetC(usb_powered)` returns `temp_offset_c + usb_temp_offset_c` on USB power and `temp_offset_c` on battery power. `refreshSensors()` reads the `SHTC3` after the battery reading and passes the power source to `readOnboardShtc3`.
 - The 24-hour history, the CSV logs, the telemetry frame and `CALIB` use the corrected value.
-- The console command `STATUS` shows `SHTC3 nack=<N> short=<N> crc=<N> run=<N> usb_offset=<x>` only on USB power.
+- The console command `STATUS` shows `SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N> usb_offset=<x>` (the offset only on USB power).
 - The config trailer stores the key as 1 byte (`int8`, 0.1 C) after `ble_console`. `STATE_VERSION` is 53, and an RTC image of version 51 gives a clean start.
 - Host test `testUsbTempOffset` asserts 21.9 C on USB power and 23.1 C on battery power with `temp_offset_c=-1.9` and `usb_temp_offset_c=-1.2`, the rejected lines `-5.1` and `0.1`, and the trailer round trip.
 
