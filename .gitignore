@@ -27,4 +27,10 @@ wearos/RlcdWatch/.gradle/
 wearos/RlcdWatch/build/
 wearos/RlcdWatch/app/build/
 wearos/RlcdWatch/local.properties
+
+# Android phone companion Gradle build artifacts
+android/RlcdPhone/.gradle/
+android/RlcdPhone/build/
+android/RlcdPhone/app/build/
+android/RlcdPhone/local.properties
 *.apk
