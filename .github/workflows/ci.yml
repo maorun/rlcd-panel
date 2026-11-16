@@ -57,6 +57,29 @@ jobs:
         working-directory: macos/RlcdCompanion
         run: swift build -c release
 
+  wearos-companion:
+    name: Wear OS companion tests and APK
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Run unit tests and assemble debug APK
+        working-directory: wearos/RlcdWatch
+        run: gradle testDebugUnitTest assembleDebug
+
+      - name: Upload Wear OS debug APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: rlcd-watch-debug-apk
+          path: wearos/RlcdWatch/app/build/outputs/apk/debug/app-debug.apk
+
   firmware-compile:
     name: Firmware compile
     if: github.event_name == 'workflow_dispatch'

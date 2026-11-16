@@ -21,3 +21,10 @@ rlcd_panel/wifi_config.h
 
 # Local log dumps from scripts/dump-logs.sh
 sd_logs/
+
+# Wear OS companion Gradle build artifacts
+wearos/RlcdWatch/.gradle/
+wearos/RlcdWatch/build/
+wearos/RlcdWatch/app/build/
+wearos/RlcdWatch/local.properties
+*.apk
