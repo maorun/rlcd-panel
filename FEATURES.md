@@ -1426,3 +1426,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The new `config.ini` key `wall_frsi_pct` (default `0`, 0 is off, else 50 to 95) sets `frsi`. The value uses 1 byte in the config trailer after `dry_alert_limit_rh`. `KEY_COUNT` is 83. RTC state version 61.
 - With the key set and a fresh reading in `outdoor_slot`, the stats view shows `WALL <N>%` (scale 1, right-aligned to x = 392, line `y + 30`) for each indoor tile. The text is not drawn when the gap to the MAC line is below 4 px. An empty or stale tile, the outdoor tile itself, a stale or empty outdoor slot and a NaN result show `WALL --`. The value is calculated on each render, has no RTC state and uses whole percent, so `FrameRefresh` still skips most frames.
 - The preview scene `display_preview_stats` sets `outdoor_slot` 2 and `wall_frsi_pct` 70.
+
+## Mute marker in the panel header
+
+- `SystemInfo::muted` (from `PersistentState::muted`) and the new `muted` argument of `DashboardView::renderHeader`, `render` and `renderSensorStats` drive the marker in every view.
+- While `muted` is true, the header shows a white 9x11 badge with a black `M` at `HEADER_QUIET_X` and `HEADER_QUIET_Y`. The mute marker wins over the `Q` marker, because mute silences all chimes. Without mute the `Q` rule does not change.
+- The low battery banner and the empty battery screen replace the marker.
+- A change of the mute state changes the frame CRC-32, so `FrameRefresh` flushes the next frame.
+- The preview `docs/display_preview_muted.png` shows the badge. `PREVIEW_SCENE_COUNT` is 18.
+- A `MUTE` change in the console and a `BOOT` toggle in the grace window call `renderDashboard()`, so the panel shows the new state at once.
