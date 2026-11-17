@@ -2,7 +2,7 @@ package com.rlcdpanel.phone.protocol
 
 class ParseException(val line: String) : Exception("Bad console line: $line")
 
-/** `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...>`; `--` gives null. */
+/** `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...> format=<...>`; `--` gives null. */
 data class StatusSensor(
     val index: Int,
     val name: String,
@@ -11,8 +11,13 @@ data class StatusSensor(
     val battery: Double?,
     val rssi: Double?,
     val ageSeconds: Double?,
-    val state: String?
-)
+    val state: String?,
+    /** `format=` of the `SENSOR` line (`SHTC3`, `WOIO`, ...); null for a missing field or `--`. */
+    val format: String? = null
+) {
+    /** The protocol source badge of [format]; null without a known format. */
+    val badge: String? get() = SensorHealth.badgeFor(format)
+}
 
 /** Scans with a packet of the last [scans] scans (up to 24) of one slot. */
 data class ReceptionRate(val received: Int, val scans: Int) {
@@ -42,6 +47,9 @@ data class StatusReply(
                 if (eq > 0) part.substring(0, eq) to part.substring(eq + 1) else null
             }.toMap()
 
+        /** `--` and an empty text give null. */
+        fun format(s: String?): String? = if (s == null || s == "--" || s.isEmpty()) null else s
+
         /** `--` and an empty text give null; a non-numeric text gives null here. */
         private fun number(s: String?): Double? =
             if (s == null || s == "--" || s.isEmpty()) null else s.toDoubleOrNull()
@@ -63,7 +71,7 @@ data class StatusReply(
                         sensors.add(
                             StatusSensor(
                                 idx, words[2], number(f["temp"]), number(f["rh"]), number(f["bat"]),
-                                number(f["rssi"]), number(f["age"]), f["state"]
+                                number(f["rssi"]), number(f["age"]), f["state"], format(f["format"])
                             )
                         )
                     }

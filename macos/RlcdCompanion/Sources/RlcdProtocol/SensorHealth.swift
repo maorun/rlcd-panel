@@ -34,11 +34,26 @@ public struct SensorHealth: Equatable {
     public let battery: Double?
     public let ageSeconds: Double?
     public let state: String
+    /// `format=` of the `SENSOR` line; `nil` for a missing field or `--`.
+    public let format: String?
     /// `nil` without a `RECEPTION` line or for an empty slot.
     public let reception: ReceptionMetrics.Rate?
     public let verdict: Verdict
 
     public var advice: String { verdict.advice }
+    public var badge: String? { Self.badge(forFormat: format) }
+
+    /// The badge of the panel tiles: `[I2C]`, `[SB]`, `[ATC]`, `[BTH]` or `[TP]`; `nil` for `nil` or an unknown format.
+    public static func badge(forFormat format: String?) -> String? {
+        switch format {
+        case "SHTC3": return "[I2C]"
+        case "WOIO", "METER": return "[SB]"
+        case "ATC": return "[ATC]"
+        case "BTHOME": return "[BTH]"
+        case "THERMOPRO": return "[TP]"
+        default: return nil
+        }
+    }
 
     /// One row for each slot 1 to 5 that the reply lists; other slots are skipped unparsed. `config` supplies
     /// `sensor_battery_limit_pct` when known (0 is off). A non-numeric field or a duplicate slot throws `ParseError.badLine`.
@@ -63,7 +78,7 @@ public struct SensorHealth: Equatable {
             let rate = reception.flatMap { $0.slots[slot - 1] }
             out.append(SensorHealth(
                 slot: slot, name: String(words[2]), rssi: rssi, battery: battery, ageSeconds: age, state: state,
-                reception: rate,
+                format: sourceFormat(f["format"]), reception: rate,
                 verdict: verdict(state: state, rssi: rssi, battery: battery, rate: rate, limit: limit)))
         }
         return out

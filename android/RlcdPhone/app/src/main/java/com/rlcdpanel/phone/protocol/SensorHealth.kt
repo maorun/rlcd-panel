@@ -8,10 +8,15 @@ data class SensorHealth(
     val battery: Double?,
     val ageSeconds: Double?,
     val state: String,
+    /** `format=` of the `SENSOR` line; null for a missing field or `--`. */
+    val format: String?,
     /** Null without a `RECEPTION` line or for an empty slot. */
     val reception: ReceptionRate?,
     val verdict: Verdict
 ) {
+    /** The protocol source badge of the panel tiles; null without a known format. */
+    val badge: String? get() = badgeFor(format)
+
     /** The verdicts in evaluation order: the first match wins. Same rules as `SensorHealth.swift`. */
     enum class Verdict(val advice: String) {
         EMPTY("No sensor in this slot. Assign a sensor or ignore the slot."),
@@ -22,6 +27,16 @@ data class SensorHealth(
     }
 
     companion object {
+        /** `[I2C]`, `[SB]`, `[ATC]`, `[BTH]` or `[TP]`; null for null or an unknown format. Same rules as `SensorHealth.swift`. */
+        fun badgeFor(format: String?): String? = when (format) {
+            "SHTC3" -> "[I2C]"
+            "WOIO", "METER" -> "[SB]"
+            "ATC" -> "[ATC]"
+            "BTHOME" -> "[BTH]"
+            "THERMOPRO" -> "[TP]"
+            else -> null
+        }
+
         /** An RSSI below this value (dBm) counts as weak. */
         const val WEAK_RSSI = -85.0
         /** A reception rate counts as weak from this many counted scans. */
@@ -50,7 +65,7 @@ data class SensorHealth(
                 val age = value(f, "age", line)
                 val state = f["state"]?.takeIf { it.isNotEmpty() } ?: throw ParseException(line)
                 val rate = status.reception?.getOrNull(slot - 1)
-                out.add(SensorHealth(slot, words[2], rssi, battery, age, state, rate, verdict(state, rssi, battery, rate, limit)))
+                out.add(SensorHealth(slot, words[2], rssi, battery, age, state, StatusReply.format(f["format"]), rate, verdict(state, rssi, battery, rate, limit)))
             }
             return out
         }

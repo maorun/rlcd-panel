@@ -191,7 +191,7 @@ struct DiagnosticsView: View {
         case .success(let rows):
             ForEach(rows, id: \.slot) { r in
                 HStack(spacing: 8) {
-                    Text("\(r.slot) \(r.name)").frame(width: 110, alignment: .leading)
+                    Text("\(r.slot) \(r.name)\(r.badge.map { " \($0)" } ?? "")").frame(width: 140, alignment: .leading)
                     Text("RSSI \(r.rssi.map { String(format: "%.0f", $0) } ?? "--")")
                     Text("bat \(r.battery.map { String(format: "%.0f %%", $0) } ?? "--")")
                     Text("age \(r.ageSeconds.map { String(format: "%.0f s", $0) } ?? "--")")
