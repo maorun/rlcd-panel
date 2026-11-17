@@ -89,6 +89,7 @@ public enum ConfigSchema {
             e("mold_alert_limit_rh", .climate, .integer(min: 40, max: 95), "70", "%RH", "Count the hours above this humidity for the mold alert."),
             e("heat_alert_limit_c", .climate, .integer(min: 27, max: 45, off: 0), "0", "°C", "Start the heat alert at this feels-like temperature. 0 is off."),
             e("dry_alert_limit_rh", .climate, .integer(min: 20, max: 45, off: 0), "0", "%RH", "Show the dry air badge at or below this humidity. 0 is off."),
+            e("wall_frsi_pct", .climate, .integer(min: 50, max: 95, off: 0), "0", "%", "Temperature factor of the outer wall for the WALL text of the stats view. Needs the outdoor slot. 0 is off."),
             e("ventilate_limit_rh", .climate, .integer(min: 50, max: 80), "60", "%RH", "Show the ventilation badge above this humidity."),
             // Alerts
             e("noise_alert_limit_db", .alerts, .integer(min: 40, max: 100, off: 0), "0", "dB", "Start the noise alert at this level. 0 is off."),
@@ -161,6 +162,7 @@ public enum ConfigSchema {
         "slot6_rh_offset_pct", "slot7_rh_offset_pct", "slot8_rh_offset_pct",
         "slot9_rh_offset_pct", "slot10_rh_offset_pct",
         "slot6_rh_gain", "slot7_rh_gain", "slot8_rh_gain", "slot9_rh_gain", "slot10_rh_gain",
+        "wall_frsi_pct",
     ]
     private static let index: [String: Int] = Dictionary(uniqueKeysWithValues: keys.enumerated().map { ($1, $0) })
 

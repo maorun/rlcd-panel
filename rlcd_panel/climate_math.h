@@ -65,6 +65,25 @@ public:
     return 216.7f * vapor_hpa / (temp_c + 273.15f);
   }
 
+  // Humidity of the room air at the temperature of a cold outer wall (same vapor pressure as the room air).
+  // The wall temperature is t_out + frsi * (t_in - t_out). The result is clamped to 100 %RH. NaN for NaN,
+  // infinite or out-of-range input, for frsi outside 0.50 to 0.95 and for t_out above t_in.
+  static constexpr float MIN_FRSI = 0.50f;
+  static constexpr float MAX_FRSI = 0.95f;
+  static float wallSurfaceRh(float t_in_c, float rh_in_pct, float t_out_c, float frsi) {
+    if (!isfinite(t_in_c) || !isfinite(rh_in_pct) || !isfinite(t_out_c) || !isfinite(frsi) ||
+        t_in_c < MIN_TEMP_C || t_in_c > MAX_TEMP_C || t_out_c < MIN_TEMP_C || t_out_c > MAX_TEMP_C ||
+        rh_in_pct < 0.0f || rh_in_pct > 100.0f || frsi < MIN_FRSI || frsi > MAX_FRSI || t_out_c > t_in_c) {
+      return NAN;
+    }
+    const float wall_c = t_out_c + frsi * (t_in_c - t_out_c);
+    const float rh = rh_in_pct * saturationPressureKpa(t_in_c) / saturationPressureKpa(wall_c);
+    if (!isfinite(rh)) {
+      return NAN;
+    }
+    return rh > 100.0f ? 100.0f : rh;
+  }
+
   // Returns an invalid result for NaN, infinite or out-of-range input. 0 %RH gives no dew point
   // (the logarithm diverges), so it is invalid as well.
   static ClimateDerived compute(float temp_c, float humidity_pct) {

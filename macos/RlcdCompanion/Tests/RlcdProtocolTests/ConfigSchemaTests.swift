@@ -29,7 +29,7 @@ struct ConfigSchemaTests {
         let (active, commented) = try templateKeys()
         let template = Set(active.keys).union(commented)
         #expect(Set(ConfigSchema.keys) == template)
-        #expect(ConfigSchema.keys.count == 82)
+        #expect(ConfigSchema.keys.count == 83)
         #expect(Set(ConfigSchema.keys).count == ConfigSchema.keys.count)
         for e in ConfigSchema.entries {
             if let v = active[e.key] {
@@ -317,7 +317,7 @@ struct ConfigSchemaTests {
             "slot6_rh_gain": (0.9, 1.1), "slot7_rh_gain": (0.9, 1.1), "slot8_rh_gain": (0.9, 1.1),
             "slot9_rh_gain": (0.9, 1.1), "slot10_rh_gain": (0.9, 1.1),
             "slot_release_h": (0, 168), "night_wake_interval_s": (60, 1800), "chime_repeat_h": (0, 24),
-            "heat_alert_limit_c": (27, 45), "ble_broadcast_enabled": (0, 1), "ble_console": (0, 2),
+            "heat_alert_limit_c": (27, 45), "wall_frsi_pct": (50, 95), "ble_broadcast_enabled": (0, 1), "ble_console": (0, 2),
         ]
         for (key, (lo, hi)) in expected {
             switch ConfigSchema.entry(for: key)?.kind {

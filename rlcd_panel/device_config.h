@@ -91,6 +91,9 @@ struct DeviceConfig {
   static constexpr uint8_t DEFAULT_DRY_ALERT_LIMIT_RH = 0; // 0 switches the dry air badge off
   static constexpr uint8_t MIN_DRY_ALERT_LIMIT_RH = 20;
   static constexpr uint8_t MAX_DRY_ALERT_LIMIT_RH = 45;
+  static constexpr uint8_t DEFAULT_WALL_FRSI_PCT = 0; // 0 switches the wall humidity text off
+  static constexpr uint8_t MIN_WALL_FRSI_PCT = 50;
+  static constexpr uint8_t MAX_WALL_FRSI_PCT = 95;
   static constexpr uint8_t DEFAULT_BLE_BROADCAST_ENABLED = 1; // 1 advertises BLE telemetry by default
   static constexpr uint8_t MAX_BLE_BROADCAST_ENABLED = 1;
   static constexpr uint8_t DEFAULT_BLE_CONSOLE = 0; // 0 starts no BLE console service
@@ -159,6 +162,7 @@ struct DeviceConfig {
   uint8_t chime_repeat_h = DEFAULT_CHIME_REPEAT_H; // hours until the chime of an active alert sounds again, 0 = off, else 1..24
   uint8_t heat_alert_limit_c = DEFAULT_HEAT_ALERT_LIMIT_C; // feels-like limit of the heat alert in C, 0 = off, else 27..45
   uint8_t dry_alert_limit_rh = DEFAULT_DRY_ALERT_LIMIT_RH; // a tile at or below this %RH shows the dry air badge, 0 = off, else 20..45
+  uint8_t wall_frsi_pct = DEFAULT_WALL_FRSI_PCT; // temperature factor of the outer wall for the WALL text in percent, 0 = off, else 50..95
   uint8_t ble_broadcast_enabled = DEFAULT_BLE_BROADCAST_ENABLED; // 1 = advertise the climate tiles after each scan (ble_telemetry.h), 0 = off
   uint8_t ble_console = DEFAULT_BLE_CONSOLE; // BLE console on USB power: 0 off, 1 read commands, 2 also SET (serial_console.h)
   uint16_t climate_alert_tiles = DEFAULT_CLIMATE_ALERT_TILES; // bit 0 onboard, bits 1..10 slots 1..10: tiles of the freezer and mold alerts, 0..2047
@@ -288,6 +292,7 @@ struct DeviceConfig {
             (heat_alert_limit_c >= MIN_HEAT_ALERT_LIMIT_C && heat_alert_limit_c <= MAX_HEAT_ALERT_LIMIT_C)) &&
            (dry_alert_limit_rh == 0 ||
             (dry_alert_limit_rh >= MIN_DRY_ALERT_LIMIT_RH && dry_alert_limit_rh <= MAX_DRY_ALERT_LIMIT_RH)) &&
+           (wall_frsi_pct == 0 || (wall_frsi_pct >= MIN_WALL_FRSI_PCT && wall_frsi_pct <= MAX_WALL_FRSI_PCT)) &&
            ble_broadcast_enabled <= MAX_BLE_BROADCAST_ENABLED && ble_console <= MAX_BLE_CONSOLE &&
            (night_wake_interval_s == 0 ||
             (night_wake_interval_s >= MIN_NIGHT_WAKE_INTERVAL_S && night_wake_interval_s <= MAX_NIGHT_WAKE_INTERVAL_S));
@@ -319,7 +324,7 @@ struct DeviceConfig {
            climate_alert_tiles == d.climate_alert_tiles && battery_offset_mv == d.battery_offset_mv &&
            slot_release_h == d.slot_release_h && night_wake_interval_s == d.night_wake_interval_s &&
            temp_unit == d.temp_unit && chime_repeat_h == d.chime_repeat_h &&
-           heat_alert_limit_c == d.heat_alert_limit_c && dry_alert_limit_rh == d.dry_alert_limit_rh && ble_broadcast_enabled == d.ble_broadcast_enabled &&
+           heat_alert_limit_c == d.heat_alert_limit_c && dry_alert_limit_rh == d.dry_alert_limit_rh && wall_frsi_pct == d.wall_frsi_pct && ble_broadcast_enabled == d.ble_broadcast_enabled &&
            ble_console == d.ble_console;
   }
 };
@@ -368,7 +373,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 8192;
-  static constexpr size_t KEY_COUNT = 82;
+  static constexpr size_t KEY_COUNT = 83;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -398,6 +403,7 @@ public:
       "slot6_rh_offset_pct", "slot7_rh_offset_pct", "slot8_rh_offset_pct",
       "slot9_rh_offset_pct", "slot10_rh_offset_pct",
       "slot6_rh_gain", "slot7_rh_gain", "slot8_rh_gain", "slot9_rh_gain", "slot10_rh_gain",
+      "wall_frsi_pct",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -584,6 +590,17 @@ private:
     uint8_t v = 0;
     if (!parseIntIn(s, n, 0, DeviceConfig::MAX_DRY_ALERT_LIMIT_RH, v) ||
         (v != 0 && v < DeviceConfig::MIN_DRY_ALERT_LIMIT_RH)) {
+      return false;
+    }
+    out = v;
+    return true;
+  }
+
+  // wall_frsi_pct: 0 (off) or 50 to 95.
+  static bool parseWallFrsi(const char* s, size_t n, uint8_t& out) {
+    uint8_t v = 0;
+    if (!parseIntIn(s, n, 0, DeviceConfig::MAX_WALL_FRSI_PCT, v) ||
+        (v != 0 && v < DeviceConfig::MIN_WALL_FRSI_PCT)) {
       return false;
     }
     out = v;
@@ -885,6 +902,9 @@ private:
     } else if (keyIs(key, key_len, "dry_alert_limit_rh")) {
       index = 49;
       ok = parseDryLimit(val, val_len, cfg.dry_alert_limit_rh);
+    } else if (keyIs(key, key_len, "wall_frsi_pct")) {
+      index = 82;
+      ok = parseWallFrsi(val, val_len, cfg.wall_frsi_pct);
     } else if (keyIs(key, key_len, "ble_broadcast_enabled")) {
       index = 38;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_BLE_BROADCAST_ENABLED, cfg.ble_broadcast_enabled);
@@ -968,6 +988,7 @@ public:
     ok = ok && putInt(out, cap, pos, "chime_repeat_h", cfg.chime_repeat_h);
     ok = ok && putInt(out, cap, pos, "heat_alert_limit_c", cfg.heat_alert_limit_c);
     ok = ok && putInt(out, cap, pos, "dry_alert_limit_rh", cfg.dry_alert_limit_rh);
+    ok = ok && putInt(out, cap, pos, "wall_frsi_pct", cfg.wall_frsi_pct);
     ok = ok && putInt(out, cap, pos, "ble_broadcast_enabled", cfg.ble_broadcast_enabled);
     ok = ok && putInt(out, cap, pos, "ble_console", cfg.ble_console);
     ok = ok && putInt(out, cap, pos, "outdoor_slot", cfg.outdoor_slot);

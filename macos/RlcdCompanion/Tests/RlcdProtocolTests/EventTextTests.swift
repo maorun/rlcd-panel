@@ -109,7 +109,7 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("CONFIG_SET", 55)) == "Config set: slot5_rh_gain (USB)")
         #expect(EventText.describe(row("CONFIG_SET", 56)) == "Config set: door_ref_slot (USB)")
         #expect(EventText.describe(row("CONFIG_SET", 57)) == "Config set: slot6_name (USB)")
-        #expect(EventText.describe(row("CONFIG_SET", 82)) == "Config set: key #82")
+        #expect(EventText.describe(row("CONFIG_SET", 82)) == "Config set: wall_frsi_pct (USB)")
         #expect(EventText.describe(row("CONFIG_SET", 0x0100 | 200)) == "Config set: key #200")
         #expect(EventText.describe(row("CONFIG_SET", 0x0200)) == "CONFIG_SET,512")
     }
