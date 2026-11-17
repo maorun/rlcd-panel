@@ -1418,3 +1418,11 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The badge releases when the absolute humidity difference drops below `0.5` g/m³ (`DOOR_RELEASE_DIFF_GM3`) or the relative humidity drops 2 %RH below `ventilate_limit_rh`.
 - A stale, empty or invalid reference slot clears the badge.
 - RTC state version 59: stores `door_ref_slot` after `outdoor_slot` in the config trailer.
+
+## Wall surface humidity in the stats view
+
+- **Code:** `rlcd_panel/climate_math.h`, `rlcd_panel/device_config.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `docs/config.example.ini`, `tools/preview_scenes.h`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `tests/test_firmware_logic.cpp`.
+- `ClimateMath::wallSurfaceRh(t_in_c, rh_in_pct, t_out_c, frsi)` calculates the wall temperature `t_out + frsi * (t_in - t_out)` and gives the humidity of the room air at this temperature (same vapor pressure), clamped to 100 %RH. NaN or infinite input, `frsi` outside 0.50 to 0.95 and `t_out` above `t_in` give NaN.
+- The new `config.ini` key `wall_frsi_pct` (default `0`, 0 is off, else 50 to 95) sets `frsi`. The value uses 1 byte in the config trailer after `dry_alert_limit_rh`. `KEY_COUNT` is 83. RTC state version 61.
+- With the key set and a fresh reading in `outdoor_slot`, the stats view shows `WALL <N>%` (scale 1, right-aligned to x = 392, line `y + 30`) for each indoor tile. The text is not drawn when the gap to the MAC line is below 4 px. An empty or stale tile, the outdoor tile itself, a stale or empty outdoor slot and a NaN result show `WALL --`. The value is calculated on each render, has no RTC state and uses whole percent, so `FrameRefresh` still skips most frames.
+- The preview scene `display_preview_stats` sets `outdoor_slot` 2 and `wall_frsi_pct` 70.

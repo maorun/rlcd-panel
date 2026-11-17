@@ -233,6 +233,8 @@ chime_repeat_h=0
 heat_alert_limit_c=0
 # Humidity in %RH at or below which a tile shows the dry air badge D: 0 is off, else 20 to 45 (releases 3 %RH above, no chime)
 dry_alert_limit_rh=0
+# Temperature factor of the outer wall in percent for the WALL text of the stats view. Range 50 to 95. 0 is off.
+wall_frsi_pct=0
 # BLE telemetry of the four climate tiles after each scan: 0 is off, 1 is on (a low battery alert and the empty battery protection skip it)
 ble_broadcast_enabled=0
 # Tiles of the freezer and mold alerts: bit 0 onboard, bits 1 to 5 slots 1 to 5 (0 to 63)

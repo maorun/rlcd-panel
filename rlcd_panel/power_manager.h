@@ -339,7 +339,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 60;
+  static constexpr uint8_t STATE_VERSION = 61;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -372,8 +372,8 @@ public:
   static constexpr size_t REJECTS_SIZE = 1 + ConfigRejects::MAX_LINES * 2;
   // The offset arrays keep one entry for each of the slots. Each slot has offset keys.
   // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
-  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, door ref slot, ventilate limit, sensor battery limit, display invert, climate alert tiles (uint16), battery offset (int16), slot release hours, night wake interval (uint16), temperature unit (one byte, 'C' or 'F'), chime repeat hours, heat alert limit, dry alert limit, BLE broadcast enabled, BLE console, USB temperature offset (int8), RH gain and one RH gain for each slot (int8 in 0.002 steps around 1.00), RH offset (float), one temperature offset and one RH offset for each slot (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
-  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + (1 + DeviceConfig::SLOT_COUNT) + 2 * DeviceConfig::SLOT_COUNT * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
+  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, door ref slot, ventilate limit, sensor battery limit, display invert, climate alert tiles (uint16), battery offset (int16), slot release hours, night wake interval (uint16), temperature unit (one byte, 'C' or 'F'), chime repeat hours, heat alert limit, dry alert limit, wall FRSI percent, BLE broadcast enabled, BLE console, USB temperature offset (int8), RH gain and one RH gain for each slot (int8 in 0.002 steps around 1.00), RH offset (float), one temperature offset and one RH offset for each slot (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
+  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + (1 + DeviceConfig::SLOT_COUNT) + 2 * DeviceConfig::SLOT_COUNT * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
   // Header: magic, version, mode, chart sensor, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -658,6 +658,7 @@ public:
     out[pos++] = state.config.chime_repeat_h;
     out[pos++] = state.config.heat_alert_limit_c;
     out[pos++] = state.config.dry_alert_limit_rh;
+    out[pos++] = state.config.wall_frsi_pct;
     out[pos++] = state.config.ble_broadcast_enabled;
     out[pos++] = state.config.ble_console;
     {
@@ -1014,6 +1015,7 @@ public:
     s.config.chime_repeat_h = data[pos++];
     s.config.heat_alert_limit_c = data[pos++];
     s.config.dry_alert_limit_rh = data[pos++];
+    s.config.wall_frsi_pct = data[pos++];
     s.config.ble_broadcast_enabled = data[pos++];
     s.config.ble_console = data[pos++];
     s.config.usb_temp_offset_c = static_cast<float>(static_cast<int8_t>(data[pos++])) / 10.0f;

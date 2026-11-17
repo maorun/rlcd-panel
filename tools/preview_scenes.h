@@ -268,6 +268,8 @@ inline void renderScene(
   strcpy(config.slot_name[2], "KELLER");
   strcpy(config.slot_name[3], "GARAGE");
   strcpy(config.slot_name[4], "DACHBODEN");
+  config.outdoor_slot = 2;  // GARTEN is the outdoor sensor
+  config.wall_frsi_pct = 70; // the stats view shows the WALL text
   for (size_t i = live_slots; i < DeviceConfig::SLOT_COUNT; ++i) {
     config.slot_name[i][0] = '\0'; // no name: the slot gets no tile
   }

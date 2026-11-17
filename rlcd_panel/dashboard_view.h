@@ -122,6 +122,11 @@ public:
   // (up to "AH 130.4G" = 54 px, x = 338) is drawn only when a gap of AH_GAP_PX stays to the record text.
   static constexpr uint16_t ABS_HUMIDITY_Y_OFFSET = 54;
   static constexpr uint16_t AH_GAP_PX = 4;
+  // Wall humidity text (scale 1, right-aligned to COMFORT_RIGHT_X) at y + 30, between the MOLD text (ends at
+  // y + 28) and the comfort label (starts at y + 39). "WALL 100%" = 9 glyphs = 54 px, x = 338. The MAC line
+  // (scale 2, y + 18 to y + 32) is the next text on the left; WALL is drawn only when WALL_GAP_PX stay free.
+  static constexpr uint16_t WALL_Y_OFFSET = 30;
+  static constexpr uint16_t WALL_GAP_PX = 4;
   static constexpr uint16_t NOISE_TREND_Y = 248;
   static constexpr uint16_t NOISE_SPARKLINE_X = 216;
   static constexpr uint16_t NOISE_SPARKLINE_Y = 246;
@@ -1051,6 +1056,49 @@ public:
     fb.drawText(x, static_cast<uint16_t>(y + ABS_HUMIDITY_Y_OFFSET), text, 1, true);
   }
 
+  // "WALL 73%" (humidity of the room air at the temperature of the outer wall, whole percent) for a live
+  // indoor slot with the key wall_frsi_pct set and a fresh outdoor reading. "WALL --" for an empty or stale slot,
+  // the outdoor slot itself, a stale or empty outdoor slot or a NaN result. Computed on each render; nothing is stored.
+  static void formatWall(char* out, size_t capacity, const SwitchBotReading& sb, const SwitchBotReading* outdoor,
+                         bool is_outdoor_tile, uint32_t now_ms, uint32_t stale_timeout_ms, uint8_t frsi_pct) {
+    const bool future = (now_ms - sb.updated_ms) >= 0xFFFF0000u;
+    float rh = NAN;
+    if (!is_outdoor_tile && outdoor != nullptr && sb.valid && (future || !sb.isStale(now_ms, stale_timeout_ms)) &&
+        outdoor->valid) {
+      const bool out_future = (now_ms - outdoor->updated_ms) >= 0xFFFF0000u;
+      if (out_future || !outdoor->isStale(now_ms, stale_timeout_ms)) {
+        rh = ClimateMath::wallSurfaceRh(sb.temperature_c, static_cast<float>(sb.humidity_pct),
+                                        outdoor->temperature_c, static_cast<float>(frsi_pct) / 100.0f);
+      }
+    }
+    if (!isfinite(rh)) {
+      snprintf(out, capacity, "WALL --");
+      return;
+    }
+    snprintf(out, capacity, "WALL %.0f%%", static_cast<double>(roundf(rh)));
+  }
+
+  // Draws the WALL text when wall_frsi_pct is not 0, unless it would come closer than WALL_GAP_PX to the
+  // MAC line of left_chars scale-2 glyphs (0 for none).
+  static void drawWall(
+      St7305Framebuffer& fb, uint16_t y, const SwitchBotReading* slots, size_t slot_count, size_t slot,
+      uint32_t now_ms, const DeviceConfig* config, size_t left_chars) {
+    if (config == nullptr || config->wall_frsi_pct == 0) {
+      return;
+    }
+    const size_t out_idx = config->outdoor_slot;
+    const bool has_out = out_idx >= 1 && slots != nullptr && out_idx <= slot_count;
+    char text[16];
+    formatWall(text, sizeof(text), slot < slot_count && slots != nullptr ? slots[slot] : SwitchBotReading{},
+               has_out ? &slots[out_idx - 1] : nullptr, has_out && out_idx - 1 == slot, now_ms,
+               staleTimeoutMs(config), config->wall_frsi_pct);
+    const uint16_t x = static_cast<uint16_t>(COMFORT_RIGHT_X - strlen(text) * 6);
+    if (left_chars > 0 && x < 10 + left_chars * 12 + WALL_GAP_PX) {
+      return;
+    }
+    fb.drawText(x, static_cast<uint16_t>(y + WALL_Y_OFFSET), text, 1, true);
+  }
+
   // "MOLD 5H" (hourly samples above the mold limit in the 24 h history, one sample per hour) for a live slot with at least 2 samples,
   // "MOLD --" for an empty or stale slot or fewer samples. Computed on each render; nothing is stored.
   // Widest: "MOLD 24H" = 8 glyphs, 48 px.
@@ -1174,10 +1222,13 @@ public:
         drawFeels(fb, y, sb, now_ms, config);
         drawMold(fb, y, sb, now_ms, config, history, i);
         drawAbsHumidity(fb, y, sb, now_ms, config, 0);
+        size_t mac_chars = 0;
         if (config != nullptr && config->hasSlotMac(i)) {
           formatMac(line, sizeof(line), config->slot_mac[i]);
           drawLine(fb, 10, static_cast<uint16_t>(y + 18), line);
+          mac_chars = strlen(line);
         }
+        drawWall(fb, y, switchbot_slots, switchbot_count, i, now_ms, config, mac_chars);
         continue;
       }
 
@@ -1191,6 +1242,7 @@ public:
       char mac_src[32];
       snprintf(mac_src, sizeof(mac_src), "%s [%s]", mac, formatBadge(sb.format));
       drawLine(fb, 10, static_cast<uint16_t>(y + 18), mac_src);
+      drawWall(fb, y, switchbot_slots, switchbot_count, i, now_ms, config, strlen(mac_src));
 
       // The BLE task can stamp a packet shortly after the caller read now_ms: show 0 s for such a
       // packet from the near future (under 65 s) instead of a wrapped age near 49.7 days.
