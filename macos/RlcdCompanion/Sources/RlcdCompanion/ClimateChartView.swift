@@ -49,15 +49,25 @@ struct ClimateChartView: View {
         return "Battery change near \(Self.day.string(from: date))"
     }
 
-    private func chart(_ title: String, _ points: [Point]) -> some View {
+    private func chart(_ title: String, _ points: [Point], limits: [ChartLimit] = []) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.caption).foregroundStyle(.secondary)
             if points.isEmpty {
                 Text("No data").font(.caption2).foregroundStyle(.secondary)
             } else {
-                Chart(points) {
-                    LineMark(x: .value("Time", $0.date), y: .value(title, $0.value))
-                        .foregroundStyle(by: .value("Series", $0.series))
+                Chart {
+                    ForEach(points) {
+                        LineMark(x: .value("Time", $0.date), y: .value(title, $0.value))
+                            .foregroundStyle(by: .value("Series", $0.series))
+                    }
+                    ForEach(limits, id: \.key) { limit in
+                        RuleMark(y: .value(limit.label, limit.value))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                            .foregroundStyle(.red)
+                            .annotation(position: .top, alignment: .leading) {
+                                Text(limit.label).font(.caption2).foregroundStyle(.red)
+                            }
+                    }
                 }
                 .chartYScale(domain: .automatic(includesZero: false))
                 .frame(height: 110)
@@ -77,14 +87,15 @@ struct ClimateChartView: View {
                 if data.rows.isEmpty {
                     Text("No hourly rows in \(month)").font(.caption).foregroundStyle(.secondary)
                 }
+                let limits = ChartLimits.from(config: model.lastConfig)
                 ForEach(0..<ClimateLog.sensorNames.count, id: \.self) { sensor in
                     let temp = points("Temperature") { sensor < $0.sensors.count ? $0.sensors[sensor].tempC : nil }
                     let rh = points("Humidity") { sensor < $0.sensors.count ? $0.sensors[sensor].rh : nil }
                     if !temp.isEmpty || !rh.isEmpty { // slots 4 and 5 exist only in climate_v5 rows
                         Text(ClimateLog.sensorNames[sensor]).font(.headline)
                         HStack(alignment: .top) {
-                            chart("Temperature (\(temperatureUnit))", temp)
-                            chart("Humidity (%RH)", rh)
+                            chart("Temperature (\(temperatureUnit))", temp, limits: ChartLimits.temperature(limits))
+                            chart("Humidity (%RH)", rh, limits: ChartLimits.humidity(limits))
                         }
                         if sensor > 0 { Text(forecastText(sensor)).font(.caption).foregroundStyle(.secondary) }
                     } else if sensor > 0, model.climateForecastRows.contains(where: { sensor < $0.sensors.count && $0.sensors[sensor].batteryPct != nil }) {

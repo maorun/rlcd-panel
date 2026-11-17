@@ -35,12 +35,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Alert limit lines in the macOS climate charts
-  - Rank: [Total: 27, Use: 6, Setup: 3, Harmony: 8, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/ChartLimits.swift, macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DailyChartView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ChartLimitsTests.swift
-  - Goal: The charts show the values, but not the alert limits. The user cannot see how often a sensor was near a limit. Add `ChartLimits.from(config:)` to `RlcdProtocol`. It reads the last `ConfigReply` and gives one line for each active limit: `mold_alert_limit_rh` and `dry_alert_limit_rh` (only when not 0) for the humidity charts, `freeze_alert_limit_c` and `heat_alert_limit_c` (only when not 0) for the temperature charts. A limit outside the `ConfigSchema` range gives no line. Without a `CONFIG` reply the list is empty. `ClimateChartView` and `DailyChartView` draw each line as a dashed `RuleMark` with its name. The heat limit is a feels-like limit, so its label says `Heat (feels-like)`. The app sends no new command.
-  - Acceptance test: Swift `ChartLimitsTests` assert the lines for a known `CONFIG` sample, no dry and no heat line for value 0, no line for a value outside the schema range, an empty list without a reply, and the label texts. `swift test` and `swift build -c release` pass.
-
 - [ ] Alert timeline from the event ring in the macOS app
   - Rank: [Total: 26, Use: 5, Setup: 4, Harmony: 7, Safety: 10, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/AlertTimeline.swift, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/AlertTimelineTests.swift

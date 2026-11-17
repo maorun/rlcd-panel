@@ -45,7 +45,7 @@ struct ArchiveView: View {
                     }
                 }
                 if let summary = model.archiveSummary { Text(summary).font(.caption).foregroundStyle(.secondary) }
-                if let daily = model.dailyFolder { DailyChartView(folder: daily) }
+                if let daily = model.dailyFolder { DailyChartView(folder: daily, limits: ChartLimits.from(config: model.lastConfig)) }
                 if model.climateData != nil { ClimateChartView(model: model) }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
