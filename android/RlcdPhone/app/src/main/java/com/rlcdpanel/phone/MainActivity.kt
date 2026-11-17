@@ -74,6 +74,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var consoleClient: BleConsoleClient
     private var showHealth by mutableStateOf(false)
     private var healthState by mutableStateOf(SensorHealthState())
+    // Kept after the health screen closes, so the dashboard tiles keep their protocol badges.
+    private var sourceBadges by mutableStateOf<Map<Int, String>>(emptyMap())
     private lateinit var prefs: SharedPreferences
 
     private val permissionLauncher = registerForActivityResult(
@@ -257,7 +259,8 @@ class MainActivity : ComponentActivity() {
                 onToggleVentilation = {
                     toggleVentilationForFocusedRoom()
                 },
-                onOpenSensorHealth = { showHealth = true }
+                onOpenSensorHealth = { showHealth = true },
+                sourceBadges = sourceBadges
             )
         }
     }
@@ -321,11 +324,17 @@ class MainActivity : ComponentActivity() {
                 is ConsoleReply.Frame -> try {
                     val status = StatusReply.parse(reply.lines)
                     val limit = panelConfig.values["sensor_battery_limit_pct"]?.toDoubleOrNull()
-                    SensorHealthState(rows = SensorHealth.rows(status, limit))
+                    SensorHealthState(rows = SensorHealth.rows(status, limit)).also { s ->
+                        sourceBadges = s.rows.mapNotNull { r -> r.badge?.let { r.slot to it } }.toMap()
+                    }
                 } catch (e: ParseException) {
+                    sourceBadges = emptyMap()
                     SensorHealthState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
                 }
-                else -> SensorHealthState(message = BleConsoleClient.errorText(reply))
+                else -> {
+                    sourceBadges = emptyMap()
+                    SensorHealthState(message = BleConsoleClient.errorText(reply))
+                }
             }
         }
     }

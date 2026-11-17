@@ -1490,3 +1490,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The value uses 1 byte after `ble_console` in the config trailer (`PersistentState` restores it with `applyConfig` and `deserialize`). `STATE_VERSION` is 62 and `KEY_COUNT` is 84.
 - The macOS app has the schema entry `slot_auto_assign` and `BleRejectMetrics.unassigned` (`nil` for an older firmware); `DiagnosticsView` shows it.
 - Host tests: `testSlotAutoAssign`, `testSlotAutoAssignStatus`, `testSlotAutoAssignScan`, `testSlotAutoAssignConfigKey`. App tests: `ConfigSchemaTests`, `DiagnosticsTests.bleRejectUnassignedField`.
+
+## Sensor protocol source badges in companion apps
+
+- The console command `STATUS` reports `format=<SHTC3|WOIO|METER|BTHOME|ATC|THERMOPRO>` on each `SENSOR` line (`--` for an empty slot). The macOS app and the Android phone app now parse it and show the badge of the panel tiles beside the sensor name.
+- Badge map: `SHTC3` is `[I2C]`, `WOIO` and `METER` are `[SB]`, `ATC` is `[ATC]`, `BTHOME` is `[BTH]`, `THERMOPRO` is `[TP]`. A missing field, `--` and an unknown format give `nil` (no badge).
+- macOS: `StatusSensor.format`/`badge` and `SensorHealth.format`/`badge`/`badge(forFormat:)` (`Replies.swift`, `SensorHealth.swift`). `Views.swift` shows the badge in the status text and in the telemetry tile titles (from the last `STATUS`); `DiagnosticsView` shows it in the sensor health rows.
+- Android: `StatusSensor.format`/`badge` and `SensorHealth.format`/`badge`/`badgeFor` (`StatusReply.kt`, `SensorHealth.kt`). `SensorHealthScreen` shows the badge in the slot title. `PhoneDashboardScreen` shows it in the climate card title (tile 0 is always `[I2C]`; the other tiles use the last sensor health read, kept in `MainActivity.sourceBadges`).
+- The Wear OS app has no `STATUS` console and reads only the telemetry frame, so it has no change.
+- No firmware change and no new `config.ini` key.
+- Tests: `SensorHealthTests.formatGivesBadge`, `missingFormatGivesNil`, `emptyAndUnknownFormatGiveNoBadge`, `statusSensorCarriesFormat` and the same four tests in `SensorHealthTest.kt`.

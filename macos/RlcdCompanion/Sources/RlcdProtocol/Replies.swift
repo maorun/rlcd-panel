@@ -20,7 +20,12 @@ private func number(_ s: String?) -> Double? {
     return Double(s)
 }
 
-/// `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...>`.
+func sourceFormat(_ s: String?) -> String? {
+    guard let s, s != "--", !s.isEmpty else { return nil }
+    return s
+}
+
+/// `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...> format=<...>`.
 public struct StatusSensor: Equatable {
     public let index: Int
     public let name: String
@@ -30,6 +35,11 @@ public struct StatusSensor: Equatable {
     public let rssi: Double?
     public let ageSeconds: Double?
     public let state: String
+    /// `format=` of the `SENSOR` line (`SHTC3`, `WOIO`, ...); `nil` for a missing field, `--` or an empty text.
+    public let format: String?
+
+    /// The protocol source badge of `format`, `nil` without a known format.
+    public var badge: String? { SensorHealth.badge(forFormat: format) }
 }
 
 /// Parsed `STATUS` reply. Unknown lines are kept in `otherLines`, so a newer firmware does not break the parser.
@@ -71,7 +81,7 @@ public struct StatusReply: Equatable {
                 sensors.append(StatusSensor(
                     index: idx, name: String(words[2]), temperature: number(f["temp"]),
                     humidity: number(f["rh"]), battery: number(f["bat"]), rssi: number(f["rssi"]),
-                    ageSeconds: number(f["age"]), state: f["state"] ?? ""))
+                    ageSeconds: number(f["age"]), state: f["state"] ?? "", format: sourceFormat(f["format"])))
             case "SD": sd = f["status"]
             case "RESET":
                 reset = f["reason"]

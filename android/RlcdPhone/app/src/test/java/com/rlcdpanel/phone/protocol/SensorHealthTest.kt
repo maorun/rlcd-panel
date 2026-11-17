@@ -126,4 +126,59 @@ class SensorHealthTest {
         assertEquals(null, rows[0].reception)
         assertEquals(SensorHealth.Verdict.EMPTY, rows[0].verdict)
     }
+
+    @Test
+    fun formatGivesBadge() {
+        val formats = listOf(
+            "SHTC3" to "[I2C]", "WOIO" to "[SB]", "METER" to "[SB]", "ATC" to "[ATC]",
+            "BTHOME" to "[BTH]", "THERMOPRO" to "[TP]"
+        )
+        formats.forEachIndexed { i, (format, badge) ->
+            val line = "SENSOR ${i + 1} A temp=1 rh=1 bat=80 rssi=-60 age=9 state=OK format=$format"
+            val row = SensorHealth.rows(status(listOf(line)), null)[0]
+            assertEquals(format, row.format)
+            assertEquals(badge, row.badge)
+            assertEquals(badge, SensorHealth.badgeFor(format))
+        }
+    }
+
+    @Test
+    fun missingFormatGivesNull() {
+        val row = SensorHealth.rows(status(listOf("SENSOR 1 A temp=1 rh=1 bat=80 rssi=-60 age=9 state=OK")), null)[0]
+        assertEquals(null, row.format)
+        assertEquals(null, row.badge)
+        assertEquals(null, SensorHealth.badgeFor(null))
+    }
+
+    @Test
+    fun emptyAndUnknownFormatGiveNoBadge() {
+        val rows = SensorHealth.rows(
+            status(
+                listOf(
+                    "SENSOR 1 A temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=--",
+                    "SENSOR 2 B temp=1 rh=1 bat=80 rssi=-60 age=9 state=OK format=NEW"
+                )
+            ),
+            null
+        )
+        assertEquals(null, rows[0].format)
+        assertEquals(null, rows[0].badge)
+        assertEquals("NEW", rows[1].format)
+        assertEquals(null, rows[1].badge)
+    }
+
+    @Test
+    fun statusSensorCarriesFormat() {
+        val reply = StatusReply.parse(
+            listOf(
+                "SENSOR 0 Onboard temp=21.4 rh=45.0 bat=-- rssi=-- age=120 state=OK format=SHTC3",
+                "SENSOR 1 A temp=1 rh=1 bat=80 rssi=-60 age=9 state=OK",
+                "POWER src=USB v=4.05 pct=88 alerts=00 muted=0"
+            )
+        )
+        assertEquals("SHTC3", reply.sensors[0].format)
+        assertEquals("[I2C]", reply.sensors[0].badge)
+        assertEquals(null, reply.sensors[1].format)
+        assertEquals(null, reply.sensors[1].badge)
+    }
 }

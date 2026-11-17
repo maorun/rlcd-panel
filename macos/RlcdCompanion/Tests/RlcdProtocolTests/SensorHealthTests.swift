@@ -111,4 +111,45 @@ private func loadStatusFixture() throws -> Data {
         #expect(rows[0].reception == nil)
         #expect(rows[0].verdict == .empty)
     }
+
+    @Test func formatGivesBadge() throws {
+        let formats = [("SHTC3", "[I2C]"), ("WOIO", "[SB]"), ("METER", "[SB]"), ("ATC", "[ATC]"),
+                       ("BTHOME", "[BTH]"), ("THERMOPRO", "[TP]")]
+        for (i, (format, badge)) in formats.enumerated() {
+            let line = "SENSOR \(i + 1) A temp=1 rh=1 bat=80 rssi=-60 age=9 state=OK format=\(format)"
+            let rows = try SensorHealth.rows(status: status([line]), config: nil)
+            #expect(rows[0].format == format)
+            #expect(rows[0].badge == badge)
+            #expect(SensorHealth.badge(forFormat: format) == badge)
+        }
+    }
+
+    @Test func missingFormatGivesNil() throws {
+        let line = "SENSOR 1 A temp=1 rh=1 bat=80 rssi=-60 age=9 state=OK"
+        let rows = try SensorHealth.rows(status: status([line]), config: nil)
+        #expect(rows[0].format == nil)
+        #expect(rows[0].badge == nil)
+        #expect(SensorHealth.badge(forFormat: nil) == nil)
+    }
+
+    @Test func emptyAndUnknownFormatGiveNoBadge() throws {
+        let empty = "SENSOR 1 A temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=--"
+        let unknown = "SENSOR 2 B temp=1 rh=1 bat=80 rssi=-60 age=9 state=OK format=NEW"
+        let rows = try SensorHealth.rows(status: status([empty, unknown]), config: nil)
+        #expect(rows[0].format == nil)
+        #expect(rows[0].badge == nil)
+        #expect(rows[1].format == "NEW")
+        #expect(rows[1].badge == nil)
+    }
+
+    @Test func statusSensorCarriesFormat() throws {
+        let s = try StatusReply.parse(lines: [
+            "SENSOR 0 Onboard temp=21.4 rh=45.0 bat=-- rssi=-- age=120 state=OK format=SHTC3",
+            "SENSOR 1 A temp=1 rh=1 bat=80 rssi=-60 age=9 state=OK",
+            "POWER src=USB v=4.05 pct=88 alerts=00 muted=0"])
+        #expect(s.sensors[0].format == "SHTC3")
+        #expect(s.sensors[0].badge == "[I2C]")
+        #expect(s.sensors[1].format == nil)
+        #expect(s.sensors[1].badge == nil)
+    }
 }

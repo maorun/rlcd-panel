@@ -34,7 +34,9 @@ struct MainView: View {
                     ForEach(visibleIndices, id: \.self) { i in
                         VStack(spacing: 4) {
                             HStack {
-                                Text(model.config?.name(forSlot: i) ?? tileNames[i]).font(.caption).lineLimit(1)
+                                Text((model.config?.name(forSlot: i) ?? tileNames[i])
+                                     + (model.status?.sensors.first { $0.index == i }?.badge.map { " \($0)" } ?? ""))
+                                    .font(.caption).lineLimit(1)
                                 Spacer()
                                 if let mold = model.moldHours(forSensor: i), mold > 0 {
                                     Text("MOLD \(mold)H").font(.system(size: 9, weight: .bold)).foregroundStyle(.red)
@@ -220,7 +222,7 @@ struct MainView: View {
                 // STATUS temperatures follow temp_unit; the unit comes from CONFIG ("?" until it arrives).
                 let unit = model.config?.temperatureUnit ?? "?"
                 ForEach(s.sensors, id: \.index) { x in
-                    Text("\(x.name): \(x.temperature.map { String(format: "%.1f °\(unit)", $0) } ?? "--") "
+                    Text("\(x.name)\(x.badge.map { " \($0)" } ?? ""): \(x.temperature.map { String(format: "%.1f °\(unit)", $0) } ?? "--") "
                          + "\(x.humidity.map { String(format: "%.1f %%RH", $0) } ?? "--") [\(x.state)]")
                 }
                 Text("Power: \(s.powerSource ?? "?") \(s.cellVolts.map { String(format: "%.2f V", $0) } ?? "")")

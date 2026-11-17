@@ -68,7 +68,7 @@ fun SensorHealthScreen(
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
-                            "Slot ${row.slot}: ${panelConfig.tileName(row.slot)}",
+                            "Slot ${row.slot}: ${panelConfig.tileName(row.slot)}${row.badge?.let { " $it" } ?: ""}",
                             style = MaterialTheme.typography.titleMedium
                         )
                         Text(SensorHealthText.rssi(row))

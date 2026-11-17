@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import com.rlcdpanel.phone.protocol.AlertMask
 import com.rlcdpanel.phone.protocol.ClimateMath
 import com.rlcdpanel.phone.protocol.ComfortZone
+import com.rlcdpanel.phone.protocol.SensorHealth
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryTile
@@ -74,7 +75,9 @@ fun PhoneDashboardScreen(
     onCycleOutdoorSource: () -> Unit,
     onSelectRoomIndex: (Int) -> Unit,
     onToggleVentilation: () -> Unit,
-    onOpenSensorHealth: () -> Unit = {}
+    onOpenSensorHealth: () -> Unit = {},
+    /** Protocol source badge of each tile index, from the last sensor health read; tile 0 is always the onboard sensor. */
+    sourceBadges: Map<Int, String> = emptyMap()
 ) {
     MaterialTheme(colorScheme = PhoneColors) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -140,6 +143,7 @@ fun PhoneDashboardScreen(
                     items(visible) { index ->
                         ClimateCard(
                             name = panelConfig.tileName(index),
+                            badge = if (index == 0) SensorHealth.badgeFor("SHTC3") else sourceBadges[index],
                             tile = tiles[index],
                             isFocused = index == focusedRoomIndex,
                             isStale = stale,
@@ -387,6 +391,7 @@ private fun VentilationCard(
 @Composable
 private fun ClimateCard(
     name: String,
+    badge: String? = null,
     tile: TelemetryTile,
     isFocused: Boolean,
     isStale: Boolean,
@@ -412,7 +417,7 @@ private fun ClimateCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 Text(
-                    text = if (isFocused) "▶ $name" else name,
+                    text = (if (isFocused) "▶ $name" else name) + (badge?.let { " $it" } ?: ""),
                     fontSize = 15.sp,
                     fontWeight = FontWeight.SemiBold,
                     color = if (isFocused) Color(0xFF90CAF9) else Color(0xFFCFD8DC),
