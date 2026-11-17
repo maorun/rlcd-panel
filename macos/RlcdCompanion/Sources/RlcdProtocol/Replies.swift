@@ -352,6 +352,13 @@ public struct ConfigReply: Equatable {
     public let source: String?
     public let rejectedLines: [Int]
 
+    public init(values: [String: String], keys: [String] = [], source: String? = nil, rejectedLines: [Int] = []) {
+        self.values = values
+        self.keys = keys.isEmpty ? Array(values.keys) : keys
+        self.source = source
+        self.rejectedLines = rejectedLines
+    }
+
     public static func parse(lines: [String]) throws -> ConfigReply {
         var values: [String: String] = [:]
         var keys: [String] = []

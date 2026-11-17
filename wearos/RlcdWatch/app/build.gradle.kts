@@ -34,6 +34,25 @@ android {
     buildFeatures {
         compose = true
     }
+
+    sourceSets {
+        getByName("main") {
+            assets.srcDir(layout.buildDirectory.dir("generated/assets"))
+        }
+    }
+}
+
+val copySharedConfig by tasks.registering(Copy::class) {
+    val configFile = file("${rootDir}/../../docs/config.ini")
+    val sourceFile = if (configFile.exists()) configFile else file("${rootDir}/../../docs/config.example.ini")
+    from(sourceFile) {
+        rename { "config.ini" }
+    }
+    into(layout.buildDirectory.dir("generated/assets"))
+}
+
+tasks.named("preBuild") {
+    dependsOn(copySharedConfig)
 }
 
 dependencies {

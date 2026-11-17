@@ -28,6 +28,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.rlcdpanel.phone.protocol.AlertTransitions
+import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.ventilation.OutdoorClimate
 import com.rlcdpanel.phone.ventilation.OutdoorResolver
@@ -57,6 +58,7 @@ class MainActivity : ComponentActivity() {
 
     private var roomStates by mutableStateOf<Map<Int, RoomVentilationState>>(emptyMap())
     private val lastObservedAktionen = mutableMapOf<Int, VentilationAction>()
+    private var panelConfig by mutableStateOf(PanelConfig())
 
     private var notificationPermissionAsked = false
     private var scanPermissionDenied = false
@@ -83,6 +85,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("rlcd_ventilation_prefs", Context.MODE_PRIVATE)
+        panelConfig = PanelConfig.load(this)
         createNotificationChannel()
         restoreRoomStates()
 
@@ -205,6 +208,7 @@ class MainActivity : ComponentActivity() {
 
             PhoneDashboardScreen(
                 snapshot = snapshot,
+                panelConfig = panelConfig,
                 isScanning = isScanning,
                 statusMessage = statusMessage,
                 nowMillis = nowMillis,
@@ -305,12 +309,18 @@ class MainActivity : ComponentActivity() {
         val totalTiles = snapshot?.frame?.tiles?.size ?: TelemetryFrame.TILE_COUNT
         val nextSource = when (val src = outdoorSource) {
             is OutdoorSource.OpenMeteo -> {
-                OutdoorSource.SensorSlot(tileIndex = 1, slotName = "Slot 1")
+                OutdoorSource.SensorSlot(
+                    tileIndex = 1,
+                    slotName = panelConfig.tileName(1)
+                )
             }
             is OutdoorSource.SensorSlot -> {
                 val nextIndex = src.tileIndex + 1
                 if (nextIndex < totalTiles) {
-                    OutdoorSource.SensorSlot(tileIndex = nextIndex, slotName = "Slot $nextIndex")
+                    OutdoorSource.SensorSlot(
+                        tileIndex = nextIndex,
+                        slotName = panelConfig.tileName(nextIndex)
+                    )
                 } else {
                     OutdoorSource.OpenMeteo()
                 }

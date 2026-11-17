@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import com.rlcdpanel.phone.protocol.AlertMask
 import com.rlcdpanel.phone.protocol.ClimateMath
 import com.rlcdpanel.phone.protocol.ComfortZone
+import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryTile
 import com.rlcdpanel.phone.ventilation.OutdoorClimate
@@ -58,6 +59,7 @@ private val PhoneColors = darkColorScheme(
 @Composable
 fun PhoneDashboardScreen(
     snapshot: TelemetrySnapshot?,
+    panelConfig: PanelConfig = PanelConfig(),
     isScanning: Boolean,
     statusMessage: String,
     nowMillis: Long,
@@ -110,7 +112,7 @@ fun PhoneDashboardScreen(
                 } else if (ventilationAdvice != null) {
                     item {
                         VentilationCard(
-                            roomName = tileName(focusedRoomIndex),
+                            roomName = panelConfig.tileName(focusedRoomIndex),
                             advice = ventilationAdvice,
                             isVentilating = isVentilating,
                             durationMinutes = ventilationDurationMinutes,
@@ -121,7 +123,7 @@ fun PhoneDashboardScreen(
                     // Keep the stop control when stale data hides the advice.
                     item {
                         VentilationStopCard(
-                            roomName = tileName(focusedRoomIndex),
+                            roomName = panelConfig.tileName(focusedRoomIndex),
                             durationMinutes = ventilationDurationMinutes,
                             onToggleVentilation = onToggleVentilation
                         )
@@ -135,7 +137,7 @@ fun PhoneDashboardScreen(
                     val batteryAlert = snapshot.frame.alerts.contains(AlertMask.SENSOR_BATTERY)
                     items(visible) { index ->
                         ClimateCard(
-                            name = tileName(index),
+                            name = panelConfig.tileName(index),
                             tile = tiles[index],
                             isFocused = index == focusedRoomIndex,
                             isStale = stale,
@@ -152,9 +154,6 @@ fun PhoneDashboardScreen(
         }
     }
 }
-
-private fun tileName(index: Int): String =
-    TelemetryFrame.DEFAULT_TILE_NAMES.getOrElse(index) { "Tile $index" }
 
 @Composable
 private fun StatusHeader(

@@ -35,6 +35,7 @@ import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
 import com.rlcdpanel.watch.protocol.ClimateMath
 import com.rlcdpanel.watch.protocol.ComfortZone
+import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryFrame
 import com.rlcdpanel.watch.protocol.TelemetryTile
 import com.rlcdpanel.watch.ventilation.OutdoorClimate
@@ -46,6 +47,7 @@ import java.util.Locale
 @Composable
 fun WatchDashboardScreen(
     snapshot: TelemetrySnapshot?,
+    panelConfig: PanelConfig = PanelConfig(),
     isScanning: Boolean,
     statusMessage: String,
     nowMillis: Long,
@@ -99,7 +101,7 @@ fun WatchDashboardScreen(
                         SelfComparisonCard()
                     }
                 } else if (ventilationAdvice != null) {
-                    val roomName = TelemetryFrame.DEFAULT_TILE_NAMES.getOrElse(focusedRoomIndex) { "Raum $focusedRoomIndex" }
+                    val roomName = panelConfig.tileName(focusedRoomIndex)
                     item {
                         VentilationAdviceCard(
                             roomName = roomName,
@@ -124,7 +126,7 @@ fun WatchDashboardScreen(
                         i == 0 || tiles[i].isValid
                     }
                     itemsIndexed(visibleIndices) { _, tileIndex ->
-                        val name = TelemetryFrame.DEFAULT_TILE_NAMES.getOrElse(tileIndex) { "Tile $tileIndex" }
+                        val name = panelConfig.tileName(tileIndex)
                         val isFocused = tileIndex == focusedRoomIndex
                         ClimateTileCard(
                             name = name,
