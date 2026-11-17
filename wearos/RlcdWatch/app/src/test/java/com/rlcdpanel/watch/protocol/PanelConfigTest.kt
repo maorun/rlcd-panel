@@ -14,7 +14,9 @@ class PanelConfigTest {
         assertEquals("Slot 3", config.tileName(3))
         assertEquals("Slot 4", config.tileName(4))
         assertEquals("Slot 5", config.tileName(5))
-        assertEquals("Tile 6", config.tileName(6))
+        assertEquals("Slot 6", config.tileName(6))
+        assertEquals("Slot 10", config.tileName(10))
+        assertEquals("Tile 11", config.tileName(11))
     }
 
     @Test
