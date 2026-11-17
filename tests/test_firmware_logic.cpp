@@ -1583,6 +1583,10 @@ void testFeelsLikeStats() {
   DeviceConfig config;
   for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
     strcpy(config.slot_name[i], "WWWWWWWWWWWW");
+    config.slot_mac[i][5] = static_cast<uint8_t>(i + 1); // the name belongs to the fixed MAC
+    if (i < 3) {
+      slots[i].mac[5] = static_cast<uint8_t>(i + 1);
+    }
   }
   St7305Framebuffer fb;
   DashboardView::renderSensorStats(fb, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
@@ -1836,6 +1840,9 @@ void testDashboardClimateLine() {
   strcpy(named.slot_name[0], "A");
   strcpy(named.slot_name[1], "B");
   strcpy(named.slot_name[2], "C");
+  for (size_t i = 0; i < 3; ++i) {
+    named.slot_mac[i][5] = static_cast<uint8_t>(i + 1);
+  }
   St7305Framebuffer none;
   DashboardView::render(none, onboard, battery, nullptr, 0, nullptr, now_ms, nullptr, false, &named);
   for (uint16_t y = 0; y < line_h; ++y) {
@@ -3113,6 +3120,9 @@ void testTrendMarkRendering() {
   strcpy(named.slot_name[0], "A");
   strcpy(named.slot_name[1], "B");
   strcpy(named.slot_name[2], "C");
+  for (size_t i = 0; i < 3; ++i) {
+    named.slot_mac[i][5] = static_cast<uint8_t>(i + 1);
+  }
   St7305Framebuffer with, without;
   DashboardView::render(with, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, nullptr, 100, &rising, false, &named);
   DashboardView::render(without, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, nullptr, 100, &steady, false, &named);
@@ -6675,13 +6685,18 @@ void testSensorNames() {
   strcpy(named.onboard_name, "FLUR");
   strcpy(named.slot_name[0], "WWWWWWWWWWWW");
   strcpy(named.slot_name[2], "KELLER 2");
+  const uint8_t mac1[6] = {0, 0, 0, 0, 0, 1};
+  const uint8_t mac2[6] = {0, 0, 0, 0, 0, 2};
+  const uint8_t mac3[6] = {0, 0, 0, 0, 0, 3};
+  memcpy(named.slot_mac[0], mac1, 6);
+  memcpy(named.slot_mac[2], mac3, 6);
   DashboardView::tileTitle(title, sizeof(title), &named, 0);
   assert(strcmp(title, "FLUR") == 0);
-  DashboardView::tileTitle(title, sizeof(title), &named, 1);
+  DashboardView::tileTitle(title, sizeof(title), &named, 1, mac1);
   assert(strcmp(title, "WWWWWWWWWWWW") == 0);
-  DashboardView::tileTitle(title, sizeof(title), &named, 2);
+  DashboardView::tileTitle(title, sizeof(title), &named, 2, mac2);
   assert(strcmp(title, "SENSOR 2") == 0);
-  DashboardView::tileTitle(title, sizeof(title), &named, 3);
+  DashboardView::tileTitle(title, sizeof(title), &named, 3, mac3);
   assert(strcmp(title, "KELLER 2") == 0);
 
   // Title bounds: the widest name stays left of the stale badge and inside the tile
@@ -6705,6 +6720,8 @@ void testSensorNames() {
   strcpy(wide.onboard_name, "WWWWWWWWWWWW");
   for (size_t i = 0; i < 3; ++i) {
     strcpy(wide.slot_name[i], "WWWWWWWWWWWW");
+    wide.slot_mac[i][5] = static_cast<uint8_t>(i + 1);
+    slots[i].mac[5] = static_cast<uint8_t>(i + 1);
   }
   St7305Framebuffer plain, with_names, stale;
   DashboardView::render(plain, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", 100000);
@@ -6751,6 +6768,7 @@ void testSensorNames() {
     live[i].valid = true;
     live[i].rssi = -100;
     live[i].updated_ms = 100000;
+    live[i].mac[5] = static_cast<uint8_t>(i + 1);
   }
   DashboardView::renderSensorStats(stats_plain, battery, live, MAX_SWITCHBOT_SENSORS, "12:00", 100000);
   DashboardView::renderSensorStats(stats_default, battery, live, MAX_SWITCHBOT_SENSORS, "12:00", 100000, false, nullptr,
@@ -6760,7 +6778,7 @@ void testSensorNames() {
   assert(memcmp(stats_plain.data(), stats_default.data(), RLCD_BUFFER_SIZE) == 0);
   assert(memcmp(stats_plain.data(), stats_named.data(), RLCD_BUFFER_SIZE) != 0);
   char stats_line[48];
-  DashboardView::statsLabel(stats_line, sizeof(stats_line), &wide, 0);
+  DashboardView::statsLabel(stats_line, sizeof(stats_line), &wide, 0, wide.slot_mac[0]);
   assert(strcmp(stats_line, "WWWWWWWWWWWW") == 0);
   DashboardView::statsLabel(stats_line, sizeof(stats_line), &defaults, 2);
   assert(strcmp(stats_line, "S3") == 0);
@@ -11391,6 +11409,7 @@ void testSerialStatusStates() {
   StatusFixture f;
   f.config.sensor_battery_limit_pct = 10;
   std::snprintf(f.config.slot_name[0], sizeof(f.config.slot_name[0]), "LIVING ROOM");
+  f.config.slot_mac[0][5] = 1; // the sensor with this MAC carries the name
   f.addSlot(1, -5.4f, 61, 80, -70, f.snap.now_ms - 120000); // OK, negative temperature
   f.addSlot(2, 21.5f, 45, 8, -85, f.snap.now_ms - 60000);   // BATLOW
   f.addSlot(3, 19.0f, 50, -1, -90, f.snap.now_ms - SENSOR_STALE_TIMEOUT_MS - 1000); // STALE, no battery
@@ -11401,6 +11420,115 @@ void testSerialStatusStates() {
   assert(lines[1] == "SENSOR 1 LIVING_ROOM temp=-5.4 rh=61 bat=80 rssi=-70 age=120 state=OK format=WOIO");
   assert(lines[2] == "SENSOR 2 slot2 temp=21.5 rh=45 bat=8 rssi=-85 age=60 state=BATLOW format=WOIO");
   assert(lines[3] == "SENSOR 3 slot3 temp=19.0 rh=50 bat=-- rssi=-90 age=1801 state=STALE format=WOIO");
+}
+
+void testSensorNamesFollowMac() {
+  // Known MAC: the name belongs to the sensor, not to the slot index
+  DeviceConfig cfg;
+  const uint8_t mac_a[6] = {0xB0, 0xE9, 0xFE, 0, 0, 0xA1};
+  const uint8_t mac_b[6] = {0xB0, 0xE9, 0xFE, 0, 0, 0xB2};
+  const uint8_t mac_unknown[6] = {0xB0, 0xE9, 0xFE, 0, 0, 0xC3};
+  memcpy(cfg.slot_mac[0], mac_a, 6);
+  strcpy(cfg.slot_name[0], "BAD");
+  memcpy(cfg.slot_mac[1], mac_b, 6);
+  strcpy(cfg.slot_name[1], "KUECHE");
+  strcpy(cfg.slot_name[2], "KINDER"); // a name without a fixed MAC matches no sensor
+  assert(strcmp(cfg.nameForMac(mac_a), "BAD") == 0);
+  assert(strcmp(cfg.nameForMac(mac_b), "KUECHE") == 0);
+  assert(cfg.nameForMac(mac_unknown) == nullptr && cfg.nameForMac(nullptr) == nullptr);
+  const uint8_t zero[6] = {};
+  assert(cfg.nameForMac(zero) == nullptr);
+  DeviceConfig no_name; // a fixed MAC without a name
+  memcpy(no_name.slot_mac[0], mac_a, 6);
+  assert(no_name.nameForMac(mac_a) == nullptr);
+
+  char title[24];
+  // Known MAC in any slot index shows its configured name
+  for (size_t tile = 1; tile <= DeviceConfig::SLOT_COUNT; ++tile) {
+    DashboardView::tileTitle(title, sizeof(title), &cfg, tile, mac_a);
+    assert(strcmp(title, "BAD") == 0);
+    DashboardView::statsLabel(title, sizeof(title), &cfg, tile - 1, mac_b);
+    assert(strcmp(title, "KUECHE") == 0);
+  }
+  // Unknown MAC keeps the default title, even when slotN_name is set for that slot index
+  for (size_t tile = 1; tile <= DeviceConfig::SLOT_COUNT; ++tile) {
+    char expect[16];
+    snprintf(expect, sizeof(expect), "SENSOR %u", static_cast<unsigned>(tile));
+    DashboardView::tileTitle(title, sizeof(title), &cfg, tile, mac_unknown);
+    assert(strcmp(title, expect) == 0);
+    DashboardView::tileTitle(title, sizeof(title), &cfg, tile, nullptr);
+    assert(strcmp(title, expect) == 0);
+    snprintf(expect, sizeof(expect), "S%u", static_cast<unsigned>(tile));
+    DashboardView::statsLabel(title, sizeof(title), &cfg, tile - 1, mac_unknown);
+    assert(strcmp(title, expect) == 0);
+  }
+
+  // Rendering: the sensor in slot 2 keeps the name when it moves to slot 1 (reassigned sensor)
+  Shtc3Reading onboard;
+  onboard.valid = true;
+  onboard.temperature_c = 21.0f;
+  onboard.humidity_pct = 50.0f;
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  slots[0].valid = slots[1].valid = true;
+  slots[0].temperature_c = slots[1].temperature_c = 18.0f;
+  slots[0].humidity_pct = slots[1].humidity_pct = 55;
+  slots[0].updated_ms = slots[1].updated_ms = 100000;
+  memcpy(slots[0].mac, mac_b, 6); // KUECHE sits in slot 1
+  memcpy(slots[1].mac, mac_unknown, 6);
+  DeviceConfig plain;
+  memcpy(plain.slot_mac[0], mac_a, 6);
+  memcpy(plain.slot_mac[1], mac_b, 6);
+  St7305Framebuffer named_fb, swapped_fb, unnamed_fb;
+  DashboardView::render(named_fb, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", 100000, nullptr, false, &cfg);
+  DashboardView::render(unnamed_fb, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", 100000, nullptr, false, &plain);
+  assert(memcmp(named_fb.data(), unnamed_fb.data(), RLCD_BUFFER_SIZE) != 0);
+  // Swapping the sensors between the slots moves the name with the MAC
+  SwitchBotReading swapped[MAX_SWITCHBOT_SENSORS];
+  swapped[0] = slots[1];
+  swapped[1] = slots[0];
+  DashboardView::render(swapped_fb, onboard, battery, swapped, MAX_SWITCHBOT_SENSORS, "12:00", 100000, nullptr, false, &cfg);
+  assert(memcmp(named_fb.data(), swapped_fb.data(), RLCD_BUFFER_SIZE) != 0);
+  // The tile 1 title of the swapped layout is the default; the tile 2 title is KUECHE
+  const uint8_t* slot1_mac = DashboardView::slotActiveMac(swapped, MAX_SWITCHBOT_SENSORS, &cfg, 0);
+  const uint8_t* slot2_mac = DashboardView::slotActiveMac(swapped, MAX_SWITCHBOT_SENSORS, &cfg, 1);
+  DashboardView::tileTitle(title, sizeof(title), &cfg, 1, slot1_mac);
+  assert(strcmp(title, "SENSOR 1") == 0);
+  DashboardView::tileTitle(title, sizeof(title), &cfg, 2, slot2_mac);
+  assert(strcmp(title, "KUECHE") == 0);
+  // An empty slot with a fixed MAC still shows the name of that MAC
+  const uint8_t* fixed = DashboardView::slotActiveMac(swapped, MAX_SWITCHBOT_SENSORS, &cfg, 2);
+  assert(fixed == nullptr);
+  SwitchBotReading none[MAX_SWITCHBOT_SENSORS];
+  assert(DashboardView::slotActiveMac(none, MAX_SWITCHBOT_SENSORS, &cfg, 0) == cfg.slot_mac[0]);
+
+  // A live reading takes priority over the fixed MAC of its slot: slot 1 is fixed to mac_a, but mac_b sits there
+  SwitchBotReading prio[MAX_SWITCHBOT_SENSORS];
+  prio[0].valid = true;
+  memcpy(prio[0].mac, mac_b, 6);
+  assert(DashboardView::slotActiveMac(prio, MAX_SWITCHBOT_SENSORS, &cfg, 0) == prio[0].mac);
+  DashboardView::tileTitle(title, sizeof(title), &cfg, 1, DashboardView::slotActiveMac(prio, MAX_SWITCHBOT_SENSORS, &cfg, 0));
+  assert(strcmp(title, "KUECHE") == 0);
+
+  // STATUS shows the name that matches the MAC of the sensor in the slot
+  StatusFixture f;
+  f.config = cfg;
+  f.addSlot(0xA1, 20.0f, 50, 70, -60, f.snap.now_ms); // registry slot 1: mac ...A1 is not mac_a
+  SwitchBotReading r;
+  r.valid = true;
+  memcpy(r.mac, mac_b, 6);
+  r.temperature_c = 21.5f;
+  r.humidity_pct = 45;
+  r.battery_pct = 80;
+  r.rssi = -70;
+  r.updated_ms = f.snap.now_ms;
+  assert(f.registry.upsert(r));
+  std::vector<std::string> lines = statusLines(f.run());
+  assert(lines[1].rfind("SENSOR 1 slot1 ", 0) == 0); // unknown MAC: default name, slot1_name BAD stays hidden
+  assert(lines[2].rfind("SENSOR 2 KUECHE ", 0) == 0);
 }
 
 void testSerialStatusOnboardStaleAndOffset() {
@@ -11429,6 +11557,7 @@ void testSerialStatusWorstCaseLineLength() {
   std::snprintf(f.config.onboard_name, sizeof(f.config.onboard_name), "ABCDEFGHIJKL");
   for (size_t i = 0; i < 3; ++i) {
     std::snprintf(f.config.slot_name[i], sizeof(f.config.slot_name[i]), "ABCDEFGHIJK%u", static_cast<unsigned>(i));
+    f.config.slot_mac[i][5] = static_cast<uint8_t>(i + 1);
     f.addSlot(static_cast<uint8_t>(i + 1), -99.9f, 100, 100, -128, 0);
   }
   f.snap.now_ms = 0xFFFFFFF0u; // the largest age
@@ -20052,12 +20181,14 @@ static void testStaleAgeBadge() {
       DeviceConfig names;
       if (long_names != 0) {
         strcpy(names.onboard_name, "WWWWWWWWWWWW");
-        for (size_t i = 0; i + 1 < tiles; ++i) { // a name activates its slot: name only the live ones
+        for (size_t i = 0; i + 1 < tiles; ++i) { // a fixed MAC activates its slot: name only the live ones
           strcpy(names.slot_name[i], "WWWWWWWWWWWW");
+          names.slot_mac[i][5] = static_cast<uint8_t>(i + 1);
         }
       }
       SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
       for (size_t i = 0; i + 1 < tiles; ++i) {
+        slots[i].mac[5] = static_cast<uint8_t>(i + 1);
         slots[i].valid = true;
         slots[i].temperature_c = 18.0f;
         slots[i].humidity_pct = 55;
@@ -20569,6 +20700,7 @@ int main() {
   testSlotCalibrationOffsets();
   testSlot45CalibrationOffsets();
   testSensorNames();
+  testSensorNamesFollowMac();
   testNtpSyncIntervalConfig();
   testWakeIntervalConfig();
   testDiagnosticsConfigLine();

@@ -1235,9 +1235,14 @@ public:
     static char text[2560];
     size_t len = 0;
     for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
-      const char* raw = i == 0 ? cfg.onboard_name : cfg.slot_name[i - 1];
+      // A slot name follows the MAC of the sensor in the slot (reading, else fixed MAC), not the slot index.
+      const char* raw = cfg.onboard_name;
+      if (i > 0) {
+        const SwitchBotReading& sr = cal.slot(i - 1);
+        raw = cfg.nameForMac(sr.valid ? sr.mac : (cfg.hasSlotMac(i - 1) ? cfg.slot_mac[i - 1] : nullptr));
+      }
       char name[DeviceConfig::NAME_MAX_CHARS + 1];
-      snprintf(name, sizeof(name), "%s", raw[0] != '\0' ? raw : defaults[i]);
+      snprintf(name, sizeof(name), "%s", raw != nullptr && raw[0] != '\0' ? raw : defaults[i]);
       for (char* c = name; *c != '\0'; ++c) {
         *c = *c == ' ' ? '_' : *c;
       }

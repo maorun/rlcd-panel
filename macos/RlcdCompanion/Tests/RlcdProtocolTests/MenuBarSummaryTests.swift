@@ -19,7 +19,7 @@ struct MenuBarSummaryTests {
     }
 
     @Test func oneLinePerValidTile() throws {
-        let cfg = try config(["onboard_name=Office", "slot1_name=Cellar", "temp_unit=C"])
+        let cfg = try config(["onboard_name=Office", "slot1_name=Cellar", "slot1_mac=B0:E9:FE:00:00:01", "temp_unit=C"])
         let s = MenuBarSummary.make(frame: frame(valid: [0, 1, 4]), frameDate: now, config: cfg, now: now)
         #expect(s.lines.count == 3)
         #expect(s.lines[0] == "Office: 20.0 °C, 40.5 %")
@@ -33,7 +33,7 @@ struct MenuBarSummaryTests {
     }
 
     @Test func fahrenheitConversion() throws {
-        let cfg = try config(["slot3_name=Attic", "temp_unit=F"])
+        let cfg = try config(["slot3_name=Attic", "slot3_mac=B0:E9:FE:00:00:03", "temp_unit=F"])
         let s = MenuBarSummary.make(frame: frame(valid: [3]), frameDate: now, config: cfg, now: now)
         #expect(s.lines == ["Attic: 73.4 °F, 40.5 %"])
     }
@@ -123,5 +123,42 @@ struct MenuBarSummaryTests {
         #expect(fresh.labelWithMark == "20.0 °C")
         let old = MenuBarSummary.make(frame: frame(valid: [0]), frameDate: now.addingTimeInterval(-16 * 60), config: nil, now: now)
         #expect(old.labelWithMark == "20.0 °C ⏱")
+    }
+
+    @Test func nameFollowsTheSensorMac() throws {
+        let cfg = try config(["slot1_name=Cellar", "slot1_mac=B0:E9:FE:00:00:01",
+                              "slot2_name=Attic", "slot2_mac=b0:e9:fe:00:00:02", "slot3_name=Orphan"])
+        // A known MAC shows its name in any slot index
+        for slot in 1...10 {
+            #expect(cfg.name(forSlot: slot, activeMac: "B0:E9:FE:00:00:02") == "Attic")
+        }
+        #expect(cfg.name(forMac: "b0-e9-fe-00-00-01") == "Cellar")
+        // An unknown MAC has no name; slotN_name of that index stays hidden
+        #expect(cfg.name(forMac: "B0:E9:FE:00:00:99") == nil)
+        #expect(cfg.name(forSlot: 1, activeMac: "B0:E9:FE:00:00:99") == nil)
+        #expect(cfg.name(forMac: nil) == nil)
+        #expect(cfg.name(forMac: "00:00:00:00:00:00") == nil)
+        // A name without a fixed MAC matches no sensor
+        #expect(cfg.name(forSlot: 3) == nil)
+        // A reassigned sensor keeps its name in the new slot
+        #expect(cfg.name(forSlot: 1, activeMac: "B0:E9:FE:00:00:02") == "Attic")
+        #expect(cfg.name(forSlot: 2, activeMac: "B0:E9:FE:00:00:01") == "Cellar")
+        // The fixed MAC of the slot is the default active MAC
+        #expect(cfg.name(forSlot: 1) == "Cellar")
+        #expect(cfg.name(forSlot: 0) == nil)
+    }
+
+    @Test func slotNameWithoutMacKeepsTheFallbackLabel() throws {
+        let cfg = try config(["slot2_name=Attic"])
+        let s = MenuBarSummary.make(frame: frame(valid: [2]), frameDate: now, config: cfg, now: now)
+        #expect(s.lines == ["Tile 3: 22.0 °C, 40.5 %"])
+    }
+
+    @Test func configuredSlotKeepsItsTile() throws {
+        let cfg = try config(["slot2_name=Attic", "slot3_mac=B0:E9:FE:00:00:03"])
+        #expect(cfg.isConfigured(slot: 2)) // a name alone keeps the tile, as in the firmware
+        #expect(cfg.isConfigured(slot: 3))
+        #expect(!cfg.isConfigured(slot: 4))
+        #expect(cfg.name(forSlot: 2) == nil) // but it shows the default title
     }
 }

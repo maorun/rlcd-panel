@@ -262,6 +262,19 @@ public:
            (config->hasSlotMac(slot) || config->slot_name[slot][0] != '\0');
   }
 
+  // MAC address of the sensor in registry slot `slot`: the MAC of its reading, else the fixed MAC of
+  // the slot, else nullptr. The display name follows this MAC, not the slot index.
+  static const uint8_t* slotActiveMac(const SwitchBotReading* slots, size_t slot_count, const DeviceConfig* config,
+                                      size_t slot) {
+    if (slots != nullptr && slot < slot_count && slots[slot].valid) {
+      return slots[slot].mac;
+    }
+    if (config != nullptr && config->hasSlotMac(slot)) {
+      return config->slot_mac[slot];
+    }
+    return nullptr;
+  }
+
   // Number of tiles (1 to 6): the onboard tile plus each active slot. `slot_of_tile[t]` gets the
   // registry slot of tile t >= 1 (index 0 is unused).
   static size_t activeTileCount(const SwitchBotReading* slots, size_t slot_count, const DeviceConfig* config,
@@ -352,11 +365,13 @@ public:
   // A name has at most 12 glyphs (142 px at scale 2), so it ends at x + 150 and stays left of the
   // STALE badge without age, which starts at x + 151. A badge with age falls back to the age only
   // when the full text leaves a gap below 3 px.
-  static void tileTitle(char* out, size_t capacity, const DeviceConfig* config, size_t tile) {
+  // A slot tile takes the name that belongs to `mac` (the sensor in the slot); an unknown or missing MAC
+  // gives "SENSOR n".
+  static void tileTitle(char* out, size_t capacity, const DeviceConfig* config, size_t tile,
+                        const uint8_t* mac = nullptr) {
     const char* name = nullptr;
     if (config != nullptr) {
-      name = tile == 0 ? config->onboard_name
-                       : (tile <= DeviceConfig::SLOT_COUNT ? config->slot_name[tile - 1] : nullptr);
+      name = tile == 0 ? config->onboard_name : config->nameForMac(mac);
     }
     if (name != nullptr && name[0] != '\0') {
       snprintf(out, capacity, "%s", name);
@@ -369,9 +384,12 @@ public:
 
   // Stats view label of registry slot `slot` (0..2): the configured name, else "S1" to "S3".
   // The longest line is "<12 glyphs> RSSI -100 DBM" = 26 glyphs = 312 px.
-  static void statsLabel(char* out, size_t capacity, const DeviceConfig* config, size_t slot) {
-    if (config != nullptr && slot < DeviceConfig::SLOT_COUNT && config->slot_name[slot][0] != '\0') {
-      snprintf(out, capacity, "%s", config->slot_name[slot]);
+  // The name belongs to `mac`, the MAC of the sensor in the slot.
+  static void statsLabel(char* out, size_t capacity, const DeviceConfig* config, size_t slot,
+                         const uint8_t* mac = nullptr) {
+    const char* name = config != nullptr ? config->nameForMac(mac) : nullptr;
+    if (name != nullptr) {
+      snprintf(out, capacity, "%s", name);
     } else {
       snprintf(out, capacity, "S%u", static_cast<unsigned>(slot + 1));
     }
@@ -820,7 +838,7 @@ public:
       for (size_t t = 1; t < total_tiles; ++t) {
         const size_t i = slot_of_tile[t];
         char title[24];
-        tileTitle(title, sizeof(title), config, i + 1);
+        tileTitle(title, sizeof(title), config, i + 1, slotActiveMac(switchbot_slots, switchbot_count, config, i));
         const bool have_slot = (switchbot_slots != nullptr && i < switchbot_count);
         const SwitchBotReading empty_reading{};
         const SwitchBotReading& sb = have_slot ? switchbot_slots[i] : empty_reading;
@@ -866,7 +884,7 @@ public:
         for (size_t t = 1; t < 6; ++t) {
           const size_t i = slot_of_tile[t];
           char title[24];
-          tileTitle(title, sizeof(title), config, i + 1);
+          tileTitle(title, sizeof(title), config, i + 1, slotActiveMac(switchbot_slots, switchbot_count, config, i));
           const bool have_slot = (switchbot_slots != nullptr && i < switchbot_count);
           const SwitchBotReading empty_reading{};
           const SwitchBotReading& sb = have_slot ? switchbot_slots[i] : empty_reading;
@@ -894,7 +912,7 @@ public:
         for (size_t t = 0; t < page_tiles; ++t) {
           const size_t i = slot_of_tile[6 + t];
           char title[24];
-          tileTitle(title, sizeof(title), config, i + 1);
+          tileTitle(title, sizeof(title), config, i + 1, slotActiveMac(switchbot_slots, switchbot_count, config, i));
           const bool have_slot = (switchbot_slots != nullptr && i < switchbot_count);
           const SwitchBotReading empty_reading{};
           const SwitchBotReading& sb = have_slot ? switchbot_slots[i] : empty_reading;
@@ -1218,7 +1236,7 @@ public:
       const SwitchBotReading& sb = have_slot ? switchbot_slots[i] : empty_reading;
 
       char label[DeviceConfig::NAME_MAX_CHARS + 1];
-      statsLabel(label, sizeof(label), config, i);
+      statsLabel(label, sizeof(label), config, i, slotActiveMac(switchbot_slots, switchbot_count, config, i));
       char line[40];
       if (!sb.valid) {
         snprintf(line, sizeof(line), "%s NO SIGNAL", label);
@@ -1505,11 +1523,14 @@ public:
       const SystemInfo& info,
       const char* clock_text,
       const ClimateHistory* history,
-      const DeviceConfig* config) {
+      const DeviceConfig* config,
+      const SwitchBotReading* switchbot_slots = nullptr,
+      size_t switchbot_count = 0) {
     renderHeader(fb, "CLIMATE CHART", battery, clock_text, info.quiet_hours, false, info.muted);
     const size_t sensor = info.chart_sensor < ClimateHistory::SLOT_COUNT ? info.chart_sensor : 0;
     char title[40];
-    tileTitle(title, sizeof(title), config, sensor);
+    tileTitle(title, sizeof(title), config, sensor,
+              sensor > 0 ? slotActiveMac(switchbot_slots, switchbot_count, config, sensor - 1) : nullptr);
     fb.drawText(CHART_X, CHART_NAME_Y, title, 2, true);
 
     const TemperatureHistory empty_temperature;
@@ -1588,11 +1609,14 @@ public:
       const SystemInfo& info,
       const char* clock_text,
       const WeekHistory* week,
-      const DeviceConfig* config) {
+      const DeviceConfig* config,
+      const SwitchBotReading* switchbot_slots = nullptr,
+      size_t switchbot_count = 0) {
     renderHeader(fb, "WEEK CHART", battery, clock_text, info.quiet_hours, false, info.muted);
     const size_t sensor = info.chart_sensor < WeekHistory::SENSORS ? info.chart_sensor : 0;
     char title[40];
-    tileTitle(title, sizeof(title), config, sensor);
+    tileTitle(title, sizeof(title), config, sensor,
+              sensor > 0 ? slotActiveMac(switchbot_slots, switchbot_count, config, sensor - 1) : nullptr);
     fb.drawText(CHART_X, CHART_NAME_Y, title, 2, true);
 
     const WeekHistory empty;
@@ -1721,10 +1745,10 @@ public:
         renderSpectrum(fb, battery, info, clock_text);
         break;
       case DisplayMode::CLIMATE_CHART:
-        renderClimateChart(fb, battery, info, clock_text, history, config);
+        renderClimateChart(fb, battery, info, clock_text, history, config, switchbot_slots, switchbot_count);
         break;
       case DisplayMode::WEEK_CHART:
-        renderWeekChart(fb, battery, info, clock_text, week, config);
+        renderWeekChart(fb, battery, info, clock_text, week, config, switchbot_slots, switchbot_count);
         break;
       case DisplayMode::DASHBOARD:
       default:
