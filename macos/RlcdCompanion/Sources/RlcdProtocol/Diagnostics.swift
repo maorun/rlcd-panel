@@ -108,15 +108,24 @@ public struct ReceptionMetrics: Equatable {
         public var isWeak: Bool { scans > 0 && received * 100 < Self.warnBelowPercent * scans }
     }
 
-    public static let slotCount = 5
-    /// One entry for each slot 1 to 5.
+    public static let slotCount = 10
+    /// One entry for each slot 1 to 10 (or 1 to 5 for older firmware).
     public let slots: [Rate?]
 
     public static func parse(line: String) throws -> ReceptionMetrics {
         let f = fieldMap(line)
         var slots: [Rate?] = []
-        for i in 1...slotCount {
+        for i in 1...5 {
             guard let s = f["s\(i)"] else { throw ParseError.badLine(line) }
+            if s == "--" { slots.append(nil); continue }
+            let parts = s.split(separator: "/", omittingEmptySubsequences: false)
+            guard parts.count == 2,
+                  parts.allSatisfy({ !$0.isEmpty && $0.utf8.allSatisfy { $0 >= 0x30 && $0 <= 0x39 } }),
+                  let n = Int(parts[0]), let m = Int(parts[1]), m >= 1, m <= 24, n <= m else { throw ParseError.badLine(line) }
+            slots.append(Rate(received: n, scans: m))
+        }
+        for i in 6...slotCount {
+            guard let s = f["s\(i)"] else { break }
             if s == "--" { slots.append(nil); continue }
             let parts = s.split(separator: "/", omittingEmptySubsequences: false)
             guard parts.count == 2,

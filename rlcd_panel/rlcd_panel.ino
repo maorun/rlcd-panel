@@ -442,6 +442,9 @@ void updateStatsPages() {
   portEXIT_CRITICAL(&g_registry_mux);
   g_mode_controller.setStatsPages(
       DashboardView::statsTotalPages(snapshot, MAX_SWITCHBOT_SENSORS, &g_state.config));
+  size_t slot_of_tile[DashboardView::MAX_TILES] = {};
+  const size_t tiles = DashboardView::activeTileCount(snapshot, MAX_SWITCHBOT_SENSORS, &g_state.config, slot_of_tile);
+  g_mode_controller.setDashboardPages(tiles > 6 ? 2 : 1);
 }
 
 void renderDashboard() {
@@ -475,6 +478,7 @@ void renderDashboard() {
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;
   info.chart_sensor = g_mode_controller.chartSensor();
+  info.dashboard_page = g_mode_controller.dashboardPage();
   info.stats_page = g_mode_controller.statsPage();
   info.runtime = g_state.battery_history.estimate(g_state.battery, g_scan_saved_ms, &g_state.awake);
   info.rtc_drift = g_state.rtc_drift;

@@ -63,10 +63,10 @@ public enum LogArchive {
             return Int(text)
         }
         switch (parts[0], parts[1]) {
-        case ("climate", "v2"), ("climate", "v3"), ("climate", "v4"), ("climate", "v5"):
+        case ("climate", "v2"), ("climate", "v3"), ("climate", "v4"), ("climate", "v5"), ("climate", "v6"):
             guard let stamp = digits(parts[2], 6), (2000...2099).contains(stamp / 100), (1...12).contains(stamp % 100) else { return nil }
             return .month(year: stamp / 100, month: stamp % 100)
-        case ("daily", "v1"), ("daily", "v2"), ("daily", "v3"), ("daily", "v4"), ("events", "v1"):
+        case ("daily", "v1"), ("daily", "v2"), ("daily", "v3"), ("daily", "v4"), ("daily", "v5"), ("events", "v1"):
             guard let year = digits(parts[2], 4), (2000...2099).contains(year) else { return nil }
             return .year(year)
         default:

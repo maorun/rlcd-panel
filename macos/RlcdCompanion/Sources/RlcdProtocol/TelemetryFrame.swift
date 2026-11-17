@@ -58,6 +58,15 @@ public struct TelemetryFrame: Equatable {
     public let cellPercent: Int?
     public let alerts: AlertMask
     public let tiles: [TelemetryTile]
+    public let page: Int
+
+    public init(sequence: UInt8, cellPercent: Int?, alerts: AlertMask, tiles: [TelemetryTile], page: Int = 0) {
+        self.sequence = sequence
+        self.cellPercent = cellPercent
+        self.alerts = alerts
+        self.tiles = tiles
+        self.page = page
+    }
 
     /// Decodes the Manufacturer Data of an advertisement (company ID first). Throws for a bad frame.
     public static func decode(_ data: Data) throws -> TelemetryFrame {
@@ -70,6 +79,7 @@ public struct TelemetryFrame: Equatable {
         guard b[25] == expected else { throw TelemetryError.badCrc(expected: expected, actual: b[25]) }
 
         let validMask = b[6]
+        let page = (validMask & 0x80) != 0 ? 1 : 0
         var tiles: [TelemetryTile] = []
         for i in 0..<tileCount {
             let o = 7 + i * 3
@@ -84,6 +94,6 @@ public struct TelemetryFrame: Equatable {
             }
         }
         let cell = b[4] <= 100 ? Int(b[4]) : nil
-        return TelemetryFrame(sequence: b[3], cellPercent: cell, alerts: AlertMask(rawValue: b[5]), tiles: tiles)
+        return TelemetryFrame(sequence: b[3], cellPercent: cell, alerts: AlertMask(rawValue: b[5]), tiles: tiles, page: page)
     }
 }

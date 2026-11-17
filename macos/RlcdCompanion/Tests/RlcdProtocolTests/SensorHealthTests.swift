@@ -74,8 +74,8 @@ private func verdict(_ sensor: String, reception: String? = nil, limit: String? 
         #expect(throws: ParseError.self) { try SensorHealth.rows(status: s, config: nil) }
     }
 
-    @Test func skipsSlotsOutsideOneToFive() throws {
-        let s = try status(["SENSOR 6 X temp=1 rh=1 bat=80 rssi=x age=9 state=OK",
+    @Test func skipsSlotsOutsideOneToTen() throws {
+        let s = try status(["SENSOR 11 X temp=1 rh=1 bat=80 rssi=x age=9 state=OK",
                             "SENSOR 1 A temp=1 rh=1 bat=80 rssi=-60 age=9 state=OK"])
         #expect(try SensorHealth.rows(status: s, config: nil).map(\.slot) == [1])
     }

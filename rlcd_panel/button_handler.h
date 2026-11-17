@@ -218,7 +218,29 @@ public:
     setStatsPages(available ? 2 : 1);
   }
 
+  uint8_t dashboardPage() const {
+    return dashboard_page_;
+  }
+
+  void setDashboardPage(uint8_t page) {
+    if (page < 2) {
+      dashboard_page_ = page;
+    }
+  }
+
+  uint8_t dashboardPagesTotal() const {
+    return dashboard_pages_total_;
+  }
+
+  void setDashboardPages(uint8_t total) {
+    dashboard_pages_total_ = total < 1 ? 1 : (total > 2 ? 2 : total);
+    if (dashboard_page_ >= dashboard_pages_total_) {
+      dashboard_page_ = 0;
+    }
+  }
+
   void next() {
+    dashboard_page_ = 0;
     stats_page_ = 0; // every entry to the stats view starts on the first page
     mode_ = static_cast<DisplayMode>((static_cast<uint8_t>(mode_) + 1) % DISPLAY_MODE_COUNT);
   }
@@ -246,8 +268,9 @@ public:
     const bool edge = button_.update(raw_pressed, now_ms);
     if (edge) {
       const bool stats_pages = mode_ == DisplayMode::SENSOR_STATS && stats_pages_total_ > 1;
+      const bool dash_pages = mode_ == DisplayMode::DASHBOARD && dashboard_pages_total_ > 1;
       if (mode_ != DisplayMode::SYSTEM_DIAGNOSTICS && mode_ != DisplayMode::AUDIO_SPECTRUM &&
-          !isChartMode() && !stats_pages) {
+          !isChartMode() && !stats_pages && !dash_pages) {
         next();
         return ButtonEvent::MODE_CHANGED;
       }
@@ -262,6 +285,10 @@ public:
           nextChartSensor();
           return ButtonEvent::NEXT_SENSOR;
         }
+        if (mode_ == DisplayMode::DASHBOARD && dashboard_pages_total_ > 1) {
+          dashboard_page_ = static_cast<uint8_t>((dashboard_page_ + 1) % dashboard_pages_total_);
+          return ButtonEvent::NEXT_PAGE;
+        }
         if (mode_ == DisplayMode::SENSOR_STATS && stats_pages_total_ > 1) {
           stats_page_ = static_cast<uint8_t>((stats_page_ + 1) % stats_pages_total_);
           return ButtonEvent::NEXT_PAGE;
@@ -270,7 +297,8 @@ public:
         return ButtonEvent::MODE_CHANGED;
       case LongPressDetector::Result::LONG:
         if (mode_ == DisplayMode::AUDIO_SPECTRUM || isChartMode() ||
-            mode_ == DisplayMode::SENSOR_STATS) {
+            mode_ == DisplayMode::SENSOR_STATS ||
+            (mode_ == DisplayMode::DASHBOARD && dashboard_pages_total_ > 1)) {
           next();
           return ButtonEvent::MODE_CHANGED;
         }
@@ -302,6 +330,8 @@ private:
   LongPressDetector long_press_;
   DisplayMode mode_ = DisplayMode::DASHBOARD;
   uint8_t chart_sensor_ = 0;
+  uint8_t dashboard_page_ = 0;
+  uint8_t dashboard_pages_total_ = 1;
   uint8_t stats_page_ = 0;
   uint8_t stats_pages_total_ = 1;
 };

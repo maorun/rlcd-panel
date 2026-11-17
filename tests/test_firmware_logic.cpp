@@ -8557,6 +8557,43 @@ void testStatsPageKeyHandling() {
   assert(n.statsPage() == 1);
 }
 
+void testDashboardPageKeyHandling() {
+  DisplayModeController c;
+  c.setMode(DisplayMode::DASHBOARD);
+  c.setDashboardPages(2);
+  uint32_t t = 0;
+  assert(c.updateWithLongPress(false, t) == ButtonEvent::NONE);
+  assert(pressKeyShort(c, t) == ButtonEvent::NEXT_PAGE);
+  assert(c.dashboardPage() == 1 && c.mode() == DisplayMode::DASHBOARD);
+  assert(pressKeyShort(c, t) == ButtonEvent::NEXT_PAGE);
+  assert(c.dashboardPage() == 0 && c.mode() == DisplayMode::DASHBOARD);
+
+  // Long press moves to next mode and resets dashboardPage
+  assert(pressKeyShort(c, t) == ButtonEvent::NEXT_PAGE);
+  assert(c.dashboardPage() == 1);
+  t += 100;
+  c.updateWithLongPress(true, t);
+  t += 40;
+  c.updateWithLongPress(true, t);
+  t += LongPressDetector::LONG_PRESS_MS;
+  assert(c.updateWithLongPress(true, t) == ButtonEvent::MODE_CHANGED);
+  assert(c.mode() == DisplayMode::SENSOR_STATS && c.dashboardPage() == 0);
+
+  // Single page: a press changes mode
+  DisplayModeController single;
+  single.setMode(DisplayMode::DASHBOARD);
+  single.setDashboardPages(1);
+  uint32_t st = 0;
+  assert(single.updateWithLongPress(false, st) == ButtonEvent::NONE);
+  bool single_changed = false;
+  for (int step = 0; step < 4; ++step) {
+    st += 40;
+    single_changed = single_changed || single.updateWithLongPress(step < 2, st) == ButtonEvent::MODE_CHANGED;
+  }
+  assert(single_changed);
+  assert(single.mode() == DisplayMode::SENSOR_STATS);
+}
+
 void testStatsPageRenderAndState() {
   const uint32_t now = 1000000;
   BatteryReading battery;
@@ -19928,6 +19965,7 @@ int main() {
   testPreviewScenesCoverAllDisplayModes();
   testClimateChartKeyHandling();
   testStatsPageKeyHandling();
+  testDashboardPageKeyHandling();
   testStatsPageRenderAndState();
   testClimateChartRtcRoundTrip();
   testSparklineTemperatureMinimumSpan();

@@ -2,7 +2,7 @@ import Charts
 import RlcdProtocol
 import SwiftUI
 
-private let tileNames = ["Onboard", "Slot 1", "Slot 2", "Slot 3", "Slot 4", "Slot 5"]
+private let tileNames = ["Onboard", "Slot 1", "Slot 2", "Slot 3", "Slot 4", "Slot 5", "Slot 6", "Slot 7", "Slot 8", "Slot 9", "Slot 10"]
 
 struct MainView: View {
     @Bindable var model: AppModel

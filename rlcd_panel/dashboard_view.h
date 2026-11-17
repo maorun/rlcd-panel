@@ -39,6 +39,7 @@ struct SystemInfo {
   uint8_t config_rejected = 0; // rejected config.ini lines; above 0 shows "(N ERR)"
   LoopbackResult loopback;     // last speaker to microphone test of this wake cycle
   SpectrumReading spectrum;    // last spectrum capture; invalid shows "NO DATA"
+  uint8_t dashboard_page = 0;  // dashboard page (0: tiles 0-5, 1: tiles 6-10) when >6 active tiles exist
   uint8_t stats_page = 0;      // stats view page: 0 slots 1 to 3, 1 slots 4 and 5 (needs an active slot 4 or 5)
   uint8_t chart_sensor = 0;    // sensor of the climate chart view: 0 onboard, 1 to 3 registry slots
   BatteryRuntime runtime;      // remaining battery runtime; invalid shows "--"
@@ -1670,7 +1671,7 @@ public:
         break;
       case DisplayMode::DASHBOARD:
       default:
-        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours, config, info.ventilate, info.ventilate_tiles, info.sensor_battery_latch, info.dry_tiles);
+        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours, config, info.ventilate, info.ventilate_tiles, info.sensor_battery_latch, info.dry_tiles, info.dashboard_page);
         break;
     }
   }

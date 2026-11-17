@@ -185,7 +185,7 @@ public enum HistoryReply {
         return try lines.dropFirst(2).map { line in
             let c = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
             guard c.count == 5, let s = Int(c[0]), let a = Int(c[1]),
-                  (0...5).contains(s), (0...23).contains(a) else { throw ParseError.badLine(line) }
+                  (0...10).contains(s), (0...23).contains(a) else { throw ParseError.badLine(line) }
             return HistoryRow(sensor: s, ageHours: a, temperatureC: number(c[2]), humidityPct: number(c[3]), noiseDb: number(c[4]))
         }
     }
@@ -222,7 +222,7 @@ public enum WeekReply {
         return try lines.dropFirst(2).map { line in
             let c = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
             guard c.count == 7, let s = Int(c[0]), let d = Int(c[1]),
-                  (0...5).contains(s), (0...6).contains(d), isWeekDate(c[2]),
+                  (0...10).contains(s), (0...6).contains(d), isWeekDate(c[2]),
                   seen.insert(s * 7 + d).inserted else { throw ParseError.badLine(line) }
             let row = WeekRow(sensor: s, day: d, date: c[2], temperatureMinC: number(c[3]), temperatureMaxC: number(c[4]),
                               humidityMinPct: number(c[5]), humidityMaxPct: number(c[6]))
