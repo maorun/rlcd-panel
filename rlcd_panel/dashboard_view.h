@@ -1185,9 +1185,10 @@ public:
       snprintf(line, sizeof(line), "%s %s", label, rssi);
       drawLine(fb, 10, y, line);
 
-      formatMac(line, sizeof(line), sb.mac);
-      char mac_src[40];
-      snprintf(mac_src, sizeof(mac_src), "%s [%s]", line, formatBadge(sb.format));
+      char mac[20];
+      formatMac(mac, sizeof(mac), sb.mac);
+      char mac_src[32];
+      snprintf(mac_src, sizeof(mac_src), "%s [%s]", mac, formatBadge(sb.format));
       drawLine(fb, 10, static_cast<uint16_t>(y + 18), mac_src);
 
       // The BLE task can stamp a packet shortly after the caller read now_ms: show 0 s for such a

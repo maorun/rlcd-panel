@@ -811,9 +811,9 @@ public:
     if (reference >= CALIB_SOURCE_COUNT) {
       return;
     }
-    static char text[1024];
+    static char text[2048];
     size_t len = static_cast<size_t>(snprintf(text, sizeof(text), "REFERENCE %s\n", names[reference]));
-    static char suggestions[512];
+    static char suggestions[1024];
     suggestions[0] = '\0';
     size_t slen = 0;
     char usb_suggestion[40] = {0};
@@ -824,8 +824,13 @@ public:
       }
       const size_t hours = commonHours(history, reference, s);
       if (hours < MIN_COMMON_HOURS) {
-        len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "SKIP %s hours=%u\n", names[s],
-                                            static_cast<unsigned>(hours)));
+        if (len < sizeof(text)) {
+          const int n = snprintf(text + len, sizeof(text) - len, "SKIP %s hours=%u\n", names[s],
+                                 static_cast<unsigned>(hours));
+          if (n > 0) {
+            len += static_cast<size_t>(n);
+          }
+        }
         continue;
       }
       int32_t temp_sum = 0;
@@ -860,9 +865,17 @@ public:
       formatTenths(f[1], sizeof(f[1]), tenths(rh_active));
       formatTenths(f[2], sizeof(f[2]), static_cast<int32_t>(lroundf(temp_mean)));
       formatTenths(f[3], sizeof(f[3]), static_cast<int32_t>(lroundf(rh_mean)));
-      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len,
-                                          "SENSOR %s hours=%u temp_offset=%s rh_offset=%s temp_diff=%s rh_diff=%s\n",
-                                          names[s], static_cast<unsigned>(hours), f[0], f[1], f[2], f[3]));
+      if (len < sizeof(text)) {
+        const int n = snprintf(text + len, sizeof(text) - len,
+                               "SENSOR %s hours=%u temp_offset=%s rh_offset=%s temp_diff=%s rh_diff=%s\n",
+                               names[s], static_cast<unsigned>(hours), f[0], f[1], f[2], f[3]);
+        if (n > 0) {
+          len += static_cast<size_t>(n);
+          if (len >= sizeof(text)) {
+            len = sizeof(text) - 1;
+          }
+        }
+      }
       // The onboard proposal uses the battery hours only when enough exist: the PCB is warmer on USB power.
       const size_t bat_hours = hours - usb_hours;
       const float temp_basis = (s == 0 && bat_hours >= MIN_POWER_HOURS) ? static_cast<float>(bat_sum) / static_cast<float>(bat_hours)
@@ -882,9 +895,17 @@ public:
         } else {
           snprintf(u[1], sizeof(u[1]), "--");
         }
-        len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len,
-                                            "USB hours=%u bat_hours=%u usb_temp_offset=%s usb_temp_diff=%s\n",
-                                            static_cast<unsigned>(usb_hours), static_cast<unsigned>(bat_hours), u[0], u[1]));
+        if (len < sizeof(text)) {
+          const int n = snprintf(text + len, sizeof(text) - len,
+                                 "USB hours=%u bat_hours=%u usb_temp_offset=%s usb_temp_diff=%s\n",
+                                 static_cast<unsigned>(usb_hours), static_cast<unsigned>(bat_hours), u[0], u[1]);
+          if (n > 0) {
+            len += static_cast<size_t>(n);
+            if (len >= sizeof(text)) {
+              len = sizeof(text) - 1;
+            }
+          }
+        }
         if (usb_ok) {
           const int32_t usb_new = clampTenths(lroundf(tenths(config.usb_temp_offset_c) - usb_diff),
                                               DeviceConfig::MIN_USB_TEMP_OFFSET_C, DeviceConfig::MAX_USB_TEMP_OFFSET_C);
@@ -894,13 +915,35 @@ public:
       }
       formatTenths(f[0], sizeof(f[0]), temp_new);
       formatTenths(f[1], sizeof(f[1]), rh_new);
-      slen += static_cast<size_t>(snprintf(suggestions + slen, sizeof(suggestions) - slen,
-                                           "%stemp_offset_c=%s\n%srh_offset_pct=%s\n", prefixes[s], f[0],
-                                           prefixes[s], f[1]));
+      if (slen < sizeof(suggestions)) {
+        const int sn = snprintf(suggestions + slen, sizeof(suggestions) - slen,
+                                "%stemp_offset_c=%s\n%srh_offset_pct=%s\n", prefixes[s], f[0],
+                                prefixes[s], f[1]);
+        if (sn > 0) {
+          slen += static_cast<size_t>(sn);
+          if (slen >= sizeof(suggestions)) {
+            slen = sizeof(suggestions) - 1;
+          }
+        }
+      }
     }
-    len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "%s", suggestions));
-    if (slen_usb != 0) {
-      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "%s", usb_suggestion));
+    if (len < sizeof(text)) {
+      const int n = snprintf(text + len, sizeof(text) - len, "%s", suggestions);
+      if (n > 0) {
+        len += static_cast<size_t>(n);
+        if (len >= sizeof(text)) {
+          len = sizeof(text) - 1;
+        }
+      }
+    }
+    if (slen_usb != 0 && len < sizeof(text)) {
+      const int n = snprintf(text + len, sizeof(text) - len, "%s", usb_suggestion);
+      if (n > 0) {
+        len += static_cast<size_t>(n);
+        if (len >= sizeof(text)) {
+          len = sizeof(text) - 1;
+        }
+      }
     }
     SerialCrc32 crc;
     crc.update(reinterpret_cast<const uint8_t*>(text), len);
