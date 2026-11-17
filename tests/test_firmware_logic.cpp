@@ -911,7 +911,7 @@ void testBatteryOffsetMv() {
   bad[pos] = 0xD3; bad[pos + 1] = 0xFE; // -301 mV
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 33; // old state version without the offset
   seal();
@@ -1351,7 +1351,7 @@ void testComfortZone() {
   assert(memcmp(ok_fb.data(), cold_fb.data(), RLCD_BUFFER_SIZE) != 0);
 
   // No RTC state change
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
 }
 
 void testAbsHumidityStats() {
@@ -1380,7 +1380,7 @@ void testAbsHumidityStats() {
   assert(strcmp(text, "AH 8.6G") == 0);
   DashboardView::formatAbsHumidity(text, sizeof(text), SwitchBotReading{}, now);
   assert(strcmp(text, "AH --") == 0);
-  assert(PowerManager::STATE_VERSION == 61); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 62); // no RTC state change
 
   // Rendering: right edge at x = 392, line y + 54, no overlap with the widest record text
   BatteryReading battery;
@@ -1628,7 +1628,7 @@ void testFeelsLikeStats() {
   DashboardView::renderSensorStats(dashed, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
                                    nullptr, &config);
   assert(memcmp(fb.data(), dashed.data(), RLCD_BUFFER_SIZE) != 0);
-  assert(PowerManager::STATE_VERSION == 61); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 62); // no RTC state change
 }
 
 void testMoldHoursStats() {
@@ -1749,7 +1749,7 @@ void testMoldHoursStats() {
     }
     assert(i == 2 ? !differs : differs); // empty slot shows "MOLD --" in both renders
   }
-  assert(PowerManager::STATE_VERSION == 61); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 62); // no RTC state change
 }
 
 void testDashboardClimateLine() {
@@ -2105,7 +2105,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -3003,7 +3003,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -3646,7 +3646,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -5578,7 +5578,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6304,16 +6304,18 @@ void testDeviceConfigRtcRoundTrip() {
       {41, 255}, // BLE broadcast flag far above range
       {42, 3},   // BLE console above range
       {42, 255}, // BLE console far above range
-      {43, 1},   // USB temperature offset +0.1 C above range
-      {43, 0xCD}, // USB temperature offset -5.1 C below range
-      {43, 0x80}, // USB temperature offset -12.8 C far below range
-      {44, 51},  // RH gain +51 steps (1.102) above range
-      {44, 0xCD}, // RH gain -51 steps (0.898) below range
-      {49, 51},  // slot 5 RH gain above range
-      {49, 0xCD}, // slot 5 RH gain below range
-      {54, 51},  // slot 10 RH gain above range
-      {54, 0xCD}, // slot 10 RH gain below range
-      {139, 2},  // invalid character in the onboard name
+      {43, 2},   // slot auto assign above range
+      {43, 255}, // slot auto assign far above range
+      {44, 1},   // USB temperature offset +0.1 C above range
+      {44, 0xCD}, // USB temperature offset -5.1 C below range
+      {44, 0x80}, // USB temperature offset -12.8 C far below range
+      {45, 51},  // RH gain +51 steps (1.102) above range
+      {45, 0xCD}, // RH gain -51 steps (0.898) below range
+      {50, 51},  // slot 5 RH gain above range
+      {50, 0xCD}, // slot 5 RH gain below range
+      {55, 51},  // slot 10 RH gain above range
+      {55, 0xCD}, // slot 10 RH gain below range
+      {140, 2},  // invalid character in the onboard name
       {PowerManager::CONFIG_SIZE - PowerManager::REJECTS_SIZE - 1, 2}, // unknown flag bit
   };
   for (const Corrupt& c : cases) {
@@ -6328,7 +6330,7 @@ void testDeviceConfigRtcRoundTrip() {
   const float nan_value = NAN;
   const float far_value = 99.0f;
   for (const float f : {nan_value, far_value}) {
-    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(55)}) {
+    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(56)}) {
       memcpy(bad, buf, sizeof(bad));
       memcpy(bad + cfg_pos + off, &f, 4);
       const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
@@ -6401,7 +6403,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6608,7 +6610,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -6798,7 +6800,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -8750,7 +8752,7 @@ void testStatsPageRenderAndState() {
   assert(memcmp(a.data(), base.data(), St7305Framebuffer::BYTE_COUNT) != 0);
 
   // RTC state: the page byte round-trips, 2 is rejected, and the old version 50 is rejected
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   PersistentState st;
   st.stats_page = 1;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -8818,7 +8820,7 @@ void testClimateChartKeyHandling() {
 }
 
 void testClimateChartRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   PersistentState s;
   s.mode = DisplayMode::CLIMATE_CHART;
   s.chart_sensor = 5;
@@ -9133,7 +9135,7 @@ void testWeekHistoryInvalidTimeSkipsShift() {
 }
 
 void testWeekChartRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   const ClimateHistory history = weekKnownHistory();
   PersistentState s;
   s.mode = DisplayMode::WEEK_CHART;
@@ -10519,7 +10521,7 @@ void testSerialConfigLineFormat() {
   assert(text.find("\nbattery_offset_mv=0\n") != std::string::npos);
   assert(text.find("\ntemp_unit=C\n") != std::string::npos);
   assert(text.find("\nrh_gain=1.000\n") != std::string::npos && text.find("\nslot10_rh_gain=1.000\n") != std::string::npos);
-  assert(lines == 62);
+  assert(lines == 63);
   assert(text.find("wifi") == std::string::npos && text.find("ssid") == std::string::npos &&
          text.find("pass") == std::string::npos);
   // Too small a buffer gives 0 and an empty string
@@ -10916,7 +10918,7 @@ void testChimeRepeat() {
   assert(AlertEvaluator::repeatableBits(static_cast<uint8_t>(ALERT_FREEZER | ALERT_CHARGE_FULL)) == ALERT_FREEZER);
 
   // RTC round trip: stamp, key and state version
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   PersistentState st;
   st.last_chime_ms = 0xFFFFFF00u;
   st.config.chime_repeat_h = 24;
@@ -11060,7 +11062,7 @@ void testSlotRelease() {
   bad[pos] = 169;
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 34; // old state version without the key
   seal();
@@ -11171,7 +11173,7 @@ void testNightWakeInterval() {
   bad[pos] = 0x09; bad[pos + 1] = 0x07; // 1801 s: above range
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 35; // old state version without the key
   seal();
@@ -11194,7 +11196,7 @@ void testSerialConfigRoundTrip() {
   assert(source_at != std::string::npos);
   DeviceConfig back;
   const ConfigParseResult result = DeviceConfigParser::parse(sink.out.data(), source_at, back);
-  assert(result.file_ok && result.rejected == 0 && result.keys_set == 62);
+  assert(result.file_ok && result.rejected == 0 && result.keys_set == 63);
   assert(back.ble_console == 2 && sink.out.find("\nble_console=2\n") != std::string::npos);
   assert(back.heat_alert_limit_c == 33 && sink.out.find("\nheat_alert_limit_c=33\n") != std::string::npos);
   assert(back.battery_offset_mv == -120 && back.temp_unit == 'F' && back.chime_repeat_h == 12);
@@ -11669,7 +11671,7 @@ void testBleRejectStatusLine() {
   StatusFixture f;
   std::vector<std::string> lines = statusLines(f.run());
   assert(lines.size() == 21);
-  assert(lines[15] == "BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0 thermopro=0");
+  assert(lines[15] == "BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0 thermopro=0 unassigned=0");
   assert(lines[16] == "RECEPTION s1=-- s2=-- s3=-- s4=-- s5=-- s6=-- s7=-- s8=-- s9=-- s10=--");
   assert(lines[17].rfind("POWER ", 0) == 0);
   fillRegistry(f.registry);
@@ -11679,10 +11681,100 @@ void testBleRejectStatusLine() {
   f.registry.upsert(rejectReading(0xEF), BleFormat::THERMOPRO);
   lines = statusLines(f.run());
   assert(lines.size() == 21);
-  assert(lines[15] == "BLE rejected=4 last=AA:00:00:00:00:EF woio=0 meter=0 bthome=1 atc=2 thermopro=1");
+  assert(lines[15] == "BLE rejected=4 last=AA:00:00:00:00:EF woio=0 meter=0 bthome=1 atc=2 thermopro=1 unassigned=0");
   assert(lines[17].rfind("POWER ", 0) == 0);
   // The slot lines stay as before.
   assert(lines[0].rfind("SENSOR 0 ", 0) == 0);
+}
+
+void testSlotAutoAssign() {
+  const uint8_t fixed_mac[6] = {0xAA, 0, 0, 0, 0, 0x50};
+  // slot_auto_assign=1: a new MAC takes the first free slot
+  SwitchBotRegistry on;
+  assert(on.autoAssign());
+  assert(on.upsert(rejectReading(1)) && on.slot(0).valid && on.rejects().unassigned == 0);
+  // slot_auto_assign=0: the same packet goes to the reject path
+  SwitchBotRegistry off;
+  off.setAutoAssign(false);
+  assert(!off.upsert(rejectReading(1), BleFormat::ATC));
+  assert(!off.slot(0).valid && off.activeCount() == 0);
+  assert(off.rejects().unassigned == 1 && off.rejects().by_format[3] == 1 && off.rejects().total() == 1);
+  assert(off.rejects().has_last && off.rejects().last_mac[5] == 1);
+  // a fixed MAC slot accepts its sensor with both values
+  for (bool auto_assign : {true, false}) {
+    SwitchBotRegistry reg;
+    reg.setAutoAssign(auto_assign);
+    reg.setFixedMac(2, fixed_mac);
+    assert(reg.upsert(rejectReading(0x50)) && reg.slot(2).valid && reg.rejects().unassigned == 0);
+    assert(reg.upsert(rejectReading(0x50)) && reg.slot(2).packet_count == 2); // update of the held MAC
+    assert(reg.upsert(rejectReading(0x51)) == auto_assign); // a foreign MAC needs auto assign
+    assert(reg.rejects().unassigned == (auto_assign ? 0u : 1u));
+  }
+  // a slot that holds a MAC keeps updating after the change from 1 to 0
+  SwitchBotRegistry change;
+  assert(change.upsert(rejectReading(7)));
+  change.setAutoAssign(false);
+  assert(change.upsert(rejectReading(7)) && change.slot(0).packet_count == 2 && change.rejects().unassigned == 0);
+  // saturation at 65535 and reset
+  SwitchBotRegistry sat;
+  sat.setAutoAssign(false);
+  for (uint32_t n = 0; n < 65540; ++n) {
+    sat.upsert(rejectReading(9));
+  }
+  assert(sat.rejects().unassigned == 65535);
+  sat.resetRejects();
+  assert(sat.rejects().unassigned == 0 && sat.rejects().total() == 0);
+  assert(!sat.autoAssign()); // resetRejects keeps the setting
+  // a full registry with auto assign on does not count unassigned
+  SwitchBotRegistry full;
+  fillRegistry(full);
+  assert(!full.upsert(rejectReading(40)) && full.rejects().unassigned == 0);
+}
+
+void testSlotAutoAssignStatus() {
+  StatusFixture f;
+  f.registry.setAutoAssign(false);
+  f.registry.upsert(rejectReading(0xAB), BleFormat::BTHOME);
+  f.registry.upsert(rejectReading(0xAB), BleFormat::BTHOME);
+  const std::vector<std::string> lines = statusLines(f.run());
+  assert(lines[15] == "BLE rejected=2 last=AA:00:00:00:00:AB woio=0 meter=0 bthome=2 atc=0 thermopro=0 unassigned=2");
+}
+
+void testSlotAutoAssignConfigKey() {
+  DeviceConfig cfg;
+  auto parse = [&](const char* text) { return DeviceConfigParser::parse(text, strlen(text), cfg); };
+  parse("");
+  assert(cfg.slot_auto_assign == 1 && cfg.isDefault() && cfg.valid());
+  assert(parse("slot_auto_assign=0\n").keys_set == 1 && cfg.slot_auto_assign == 0 && !cfg.isDefault());
+  assert(parse("slot_auto_assign=1\n").keys_set == 1 && cfg.slot_auto_assign == 1);
+  for (const char* bad : {"slot_auto_assign=2\n", "slot_auto_assign=-1\n", "slot_auto_assign=\n", "slot_auto_assign=x\n"}) {
+    DeviceConfig c2;
+    const ConfigParseResult r = DeviceConfigParser::parse(bad, strlen(bad), c2);
+    assert(r.keys_set == 0 && r.rejected == 1 && c2.slot_auto_assign == 1);
+  }
+  cfg.slot_auto_assign = 0;
+  char text[DeviceConfigText::MAX_SIZE];
+  assert(DeviceConfigText::format(cfg, text, sizeof(text)) > 0);
+  DeviceConfig back;
+  assert(DeviceConfigParser::parse(text, strlen(text), back).rejected == 0 && back.slot_auto_assign == 0);
+  cfg.slot_auto_assign = 2;
+  assert(!cfg.valid());
+
+  // RTC round trip, including the registry switch
+  PersistentState st;
+  st.config.slot_auto_assign = 0;
+  uint8_t buf[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(st, buf, sizeof(buf)));
+  PersistentState r;
+  assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.slot_auto_assign == 0 && !r.registry.autoAssign());
+  PersistentState def;
+  assert(PowerManager::serialize(def, buf, sizeof(buf)));
+  assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.slot_auto_assign == 1 && r.registry.autoAssign());
+  // applyConfig drives the registry
+  DeviceConfig next;
+  next.slot_auto_assign = 0;
+  def.applyConfig(next, true, ConfigRejects{});
+  assert(!def.registry.autoAssign() && !def.registry.upsert(rejectReading(3)) && def.registry.rejects().unassigned == 1);
 }
 
 void testBleRejectStatusWorstCaseLength() {
@@ -11692,6 +11784,7 @@ void testBleRejectStatusWorstCaseLength() {
   for (size_t i = 0; i < 6; ++i) {
     r.mac[i] = 0xFF;
   }
+  f.registry.setAutoAssign(false); // unassigned saturates too
   for (uint32_t n = 0; n < 65540; ++n) {
     f.registry.upsert(r, BleFormat::WOIO);
     f.registry.upsert(r, BleFormat::METER);
@@ -11701,7 +11794,7 @@ void testBleRejectStatusWorstCaseLength() {
   }
   const std::vector<std::string> lines = statusLines(f.run());
   assert(lines.size() == 21);
-  assert(lines[15] == "BLE rejected=327675 last=FF:FF:FF:FF:FF:FF woio=65535 meter=65535 bthome=65535 atc=65535 thermopro=65535");
+  assert(lines[15] == "BLE rejected=327675 last=FF:FF:FF:FF:FF:FF woio=65535 meter=65535 bthome=65535 atc=65535 thermopro=65535 unassigned=65535");
 }
 
 namespace {
@@ -12218,7 +12311,7 @@ void testAwakeStatsStatusLine() {
 }
 
 void testAwakeStatsRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   assert(PowerManager::AWAKE_SIZE == 6);
   PersistentState s;
   for (int i = 0; i < 9; ++i) s.awake.record(4000 + 100 * static_cast<uint32_t>(i));
@@ -12279,7 +12372,7 @@ void testAwakeStatsRtcRoundTrip() {
 }
 
 void testShtc3RtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   PersistentState s;
   s.shtc3.nack = 513;
   s.shtc3.short_reads = 65535;
@@ -13596,6 +13689,18 @@ void testSerialScanOneRowForEachFormat() {
   assert(sink.out == body + expected);
 }
 
+void testSlotAutoAssignScan() {
+  // SCAN keeps slot "-" for an unassigned MAC
+  SwitchBotRegistry registry;
+  registry.setAutoAssign(false);
+  FakeSink sink;
+  TestRunner::scan(sink, registry, [](ScanCollector& c) {
+    c.add(scanReading(0x01, 21.5f, 45, 88, -60), BleFormat::WOIO);
+    return true;
+  });
+  assert(sink.out.find("AA:BB:CC:DD:EE:01,WOIO,-60,-,21.5,45,88\n") != std::string::npos);
+}
+
 void testSerialScanStrongestRssiWinsAndSlotColumn() {
   SwitchBotRegistry registry;
   registry.upsert(scanReading(0x10, 20.0f, 50, 90, -50), BleFormat::WOIO);   // slot 1 by reading
@@ -14200,7 +14305,7 @@ void testRhGainCorrection() {
 void testRhGainConfigKeys() {
   DeviceConfig cfg;
   assert(cfg.rh_gain == 1.0f && cfg.slot_rh_gain[4] == 1.0f && cfg.isDefault());
-  assert(DeviceConfigParser::KEY_COUNT == 83);
+  assert(DeviceConfigParser::KEY_COUNT == 84);
   const char* ok_text = "rh_gain=0.9\nslot1_rh_gain=1.1\nslot5_rh_gain=1.05\n";
   ConfigParseResult r = DeviceConfigParser::parse(ok_text, strlen(ok_text), cfg);
   assert(r.rejected == 0 && r.keys_set == 3);
@@ -14486,7 +14591,7 @@ void testNoiseAlertConfigKey() {
   assert(kept.noise_alert_limit_db == 80 && r.rejected == 1 && r.keys_set == 1);
   // Three distinct keys count as three
   parseText("temp_offset_c=1\nnoise_alert_limit_db=60\nlog_retention_months=3\n", &r);
-  assert(r.keys_set == 3 && DeviceConfigParser::KEY_COUNT == 83); // grows with each new key
+  assert(r.keys_set == 3 && DeviceConfigParser::KEY_COUNT == 84); // grows with each new key
   // valid() and isDefault() cover the new field
   DeviceConfig c;
   assert(c.isDefault() && c.valid());
@@ -16165,7 +16270,7 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
 
   // A valid checksum with the same MAC in two keys is rejected
   const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
@@ -17122,7 +17227,7 @@ void testSensorBatteryLatchRtcRoundTrip() {
     }
   }
   // The version is increased
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   // Corrupt records: latch bit above bit 4, flag byte above 7, limit above 50, old version
   st.sensor_battery_latch = 1;
   st.alert_mask = ALERT_NONE;
@@ -17345,7 +17450,7 @@ void testSensorStaleMinConfig() {
 
   // RTC round trip, corrupt values and the version bump
   PersistentState st;
-  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 61);
+  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 62);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(5), uint16_t(30), uint16_t(240)}) {
@@ -17430,7 +17535,7 @@ void testDisplayInvert() {
 
   // RTC round trip, corrupt value and version bump
   PersistentState st;
-  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 61);
+  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 62);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(1)}) {
@@ -17569,7 +17674,7 @@ void testClimateAlertTiles() {
 
   // RTC round trip, corrupt value and the old state version
   PersistentState st;
-  assert(st.config.climate_alert_tiles == 2047 && PowerManager::STATE_VERSION == 61);
+  assert(st.config.climate_alert_tiles == 2047 && PowerManager::STATE_VERSION == 62);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(0), uint16_t(5), uint16_t(63), uint16_t(2047)}) {
@@ -17776,7 +17881,7 @@ void testSdCardStatus() {
   assert(unknown_lines[11] == "SD status=UNKNOWN age=--");
 
   // RTC round trip, a corrupt status byte and the old state version
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   PersistentState st;
   st.setSdStatus(SdStatus::FULL, 4242);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -17817,7 +17922,7 @@ void testSdCardStatus() {
 }
 
 void testEventLog() {
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   const RtcTime t1 = localTime(2026, 11, 14, 9, 30);
   const RtcTime bad_time{}; // invalid
   // Empty ring and one event
@@ -18137,7 +18242,7 @@ void testConfigSetEvents() {
   }
   // BLE: first and last key, transport in the high byte
   const size_t last = DeviceConfigParser::KEY_COUNT - 1;
-  const struct { size_t index; const char* value; } cases[] = {{0, "-1.0"}, {last, "70"}};
+  const struct { size_t index; const char* value; } cases[] = {{0, "-1.0"}, {last, "0"}};
   for (const auto& c : cases) {
     SerialCommand set;
     const std::string line = std::string("SET ") + DeviceConfigParser::KEYS[c.index] + "=" + c.value;
@@ -18400,7 +18505,7 @@ void testTempUnitRtcRoundTrip() {
   // The unit byte follows the night wake interval in the config trailer
   const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   assert(buf[cfg_pos + 36] == 'C');
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
 }
 
 // ---- BLE telemetry broadcast (BleTelemetryCodec, ble_broadcast_enabled) ----
@@ -18696,7 +18801,7 @@ void testBleBroadcastRtcRoundTrip() {
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.ble_broadcast_enabled == 1);
   const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE -
-                     PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 2 * DeviceConfig::SLOT_COUNT * 4 - 4 - (1 + DeviceConfig::SLOT_COUNT) - 1 - 1 - 1 - 1;
+                     PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 2 * DeviceConfig::SLOT_COUNT * 4 - 4 - (1 + DeviceConfig::SLOT_COUNT) - 1 - 1 - 1 - 1 - 1;
   assert(buf[pos] == 1);
   auto seal = [](uint8_t* b) {
     const uint32_t crc = PowerManager::crc32(b, PowerManager::SERIALIZED_SIZE - 4);
@@ -18713,7 +18818,7 @@ void testBleBroadcastRtcRoundTrip() {
   bad[4] = 43; // old state version without the key
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
 }
 
 
@@ -18804,7 +18909,7 @@ void testBleConsoleRtcRoundTrip() {
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.ble_console == 2);
   const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE -
-                     PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 2 * DeviceConfig::SLOT_COUNT * 4 - 4 - (1 + DeviceConfig::SLOT_COUNT) - 1 - 1 - 1;
+                     PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 2 * DeviceConfig::SLOT_COUNT * 4 - 4 - (1 + DeviceConfig::SLOT_COUNT) - 1 - 1 - 1 - 1;
   assert(buf[pos] == 2);
   auto seal = [](uint8_t* b) {
     const uint32_t crc = PowerManager::crc32(b, PowerManager::SERIALIZED_SIZE - 4);
@@ -18821,7 +18926,7 @@ void testBleConsoleRtcRoundTrip() {
   bad[4] = 44; // old state version without the key
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
 }
 
 void testBleConsoleGate() {
@@ -19451,7 +19556,7 @@ void testFrameRefreshPatternInvalidates() {
 }
 
 void testFrameRefreshRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   assert(PowerManager::FRAME_SIZE == 5);
   PersistentState s;
   s.frame.recordFlush(0xDEADBEEFU);
@@ -19694,7 +19799,7 @@ void testTileLayoutsDifferByCount() {
 void testFiveSlotConfigKeys() {
   DeviceConfig cfg;
   assert(DeviceConfig::SLOT_COUNT == 10 && MAX_SWITCHBOT_SENSORS == 10 && ClimateHistory::SLOT_COUNT == 11);
-  assert(DeviceConfigParser::KEY_COUNT == 83);
+  assert(DeviceConfigParser::KEY_COUNT == 84);
   const char* text =
       "slot4_name=GARAGE\nslot5_name=ATTIC 2\nslot4_mac=AA:BB:CC:DD:EE:04\nslot5_mac=aa:bb:cc:dd:ee:05\n"
       "outdoor_slot=5\nclimate_alert_tiles=63\n";
@@ -19790,7 +19895,7 @@ void testFiveSlotRegistryAndFixedMac() {
 }
 
 void testFiveSlotRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 61);
+  assert(PowerManager::STATE_VERSION == 62);
   PersistentState s;
   DeviceConfig cfg;
   strcpy(cfg.slot_name[3], "GARAGE");
@@ -20799,6 +20904,10 @@ testBleRejectEachFormatAndSlotsUnchanged();
 testBleRejectSaturationAndReset();
 testBleRejectStatusLine();
 testBleRejectStatusWorstCaseLength();
+testSlotAutoAssign();
+testSlotAutoAssignStatus();
+testSlotAutoAssignScan();
+testSlotAutoAssignConfigKey();
 testStatusRuntimeLineValid();
 testStatusRuntimeLineNoEstimate();
 testStatusRuntimeLineUnknownCycles();

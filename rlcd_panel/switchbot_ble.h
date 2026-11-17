@@ -201,10 +201,12 @@ public:
 };
 
 // Packets the registry rejected during the current scan. The registry rejects a packet when no slot is
-// free or when each free slot has a fixed MAC of another sensor. Each counter stops at 65535. This is
+// free, when each free slot has a fixed MAC of another sensor, or when slot_auto_assign is 0 and no slot
+// is fixed to the MAC. Each counter stops at 65535. This is
 // no persistent state: resetRejects() clears it at the start of each scan.
 struct BleRejectStats {
   uint16_t by_format[BLE_FORMAT_COUNT] = {0, 0, 0, 0, 0};
+  uint16_t unassigned = 0; // rejects of a new MAC while slot_auto_assign is 0 (also counted in by_format)
   uint8_t last_mac[6] = {0, 0, 0, 0, 0, 0};
   bool has_last = false;
 
@@ -232,6 +234,16 @@ public:
     } else {
       memset(fixed_mac_[index], 0, 6);
     }
+  }
+
+  // With false (slot_auto_assign=0) a MAC that no slot holds or has fixed is rejected and counted as
+  // unassigned. A slot that already holds the MAC keeps its updates. Default true.
+  void setAutoAssign(bool enabled) {
+    auto_assign_ = enabled;
+  }
+
+  bool autoAssign() const {
+    return auto_assign_;
   }
 
   bool isFixed(size_t index) const {
@@ -305,7 +317,8 @@ public:
     }
 
     // 3. Allocate the first free unfixed slot, unless another slot has fixed this MAC.
-    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    // With slot_auto_assign=0 only step 2 may take a new MAC.
+    for (size_t i = 0; auto_assign_ && i < MAX_SWITCHBOT_SENSORS; ++i) {
       if (!slots_[i].valid && accepts(i, reading.mac)) {
         slots_[i] = reading;
         slots_[i].format = format;
@@ -318,6 +331,9 @@ public:
     uint16_t& count = rejects_.by_format[static_cast<size_t>(format) < BLE_FORMAT_COUNT ? static_cast<size_t>(format) : 0];
     if (count < UINT16_MAX) {
       ++count;
+    }
+    if (!auto_assign_ && rejects_.unassigned < UINT16_MAX) {
+      ++rejects_.unassigned;
     }
     memcpy(rejects_.last_mac, reading.mac, 6);
     rejects_.has_last = true;
@@ -436,6 +452,7 @@ private:
   bool fixed_[MAX_SWITCHBOT_SENSORS] = {};
   uint8_t fixed_mac_[MAX_SWITCHBOT_SENSORS][6] = {};
   BleRejectStats rejects_;
+  bool auto_assign_ = true;
 };
 
 // Reception rate of each registry slot over the last 24 BLE scans. Bit 0 of a mask is the newest scan; a set

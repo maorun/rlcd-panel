@@ -61,7 +61,7 @@ public struct Shtc3Stats: Equatable {
     }
 }
 
-/// `BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>[ thermopro=<N>]`.
+/// `BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>[ thermopro=<N>][ unassigned=<N>]`.
 public struct BleRejectMetrics: Equatable {
     public let rejected: Int?
     public let lastMac: String?
@@ -70,10 +70,12 @@ public struct BleRejectMetrics: Equatable {
     public let bthome: Int?
     public let atc: Int?
     public let thermopro: Int?
+    /// Packets of a new MAC that `slot_auto_assign=0` blocked. `nil` for an older firmware.
+    public let unassigned: Int?
 
     public init(
         rejected: Int? = nil, lastMac: String? = nil, woio: Int? = nil, meter: Int? = nil,
-        bthome: Int? = nil, atc: Int? = nil, thermopro: Int? = nil
+        bthome: Int? = nil, atc: Int? = nil, thermopro: Int? = nil, unassigned: Int? = nil
     ) {
         self.rejected = rejected
         self.lastMac = lastMac
@@ -82,6 +84,7 @@ public struct BleRejectMetrics: Equatable {
         self.bthome = bthome
         self.atc = atc
         self.thermopro = thermopro
+        self.unassigned = unassigned
     }
 
     public static func parse(line: String) throws -> BleRejectMetrics {
@@ -91,7 +94,8 @@ public struct BleRejectMetrics: Equatable {
             rejected: try counter(f, "rejected", line: line), lastMac: last == "--" ? nil : last,
             woio: try counter(f, "woio", line: line), meter: try counter(f, "meter", line: line),
             bthome: try counter(f, "bthome", line: line), atc: try counter(f, "atc", line: line),
-            thermopro: f["thermopro"] == nil ? nil : try counter(f, "thermopro", line: line))
+            thermopro: f["thermopro"] == nil ? nil : try counter(f, "thermopro", line: line),
+            unassigned: f["unassigned"] == nil ? nil : try counter(f, "unassigned", line: line))
     }
 }
 

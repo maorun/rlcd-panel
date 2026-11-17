@@ -237,6 +237,8 @@ dry_alert_limit_rh=0
 wall_frsi_pct=0
 # BLE telemetry of the four climate tiles after each scan: 0 is off, 1 is on (a low battery alert and the empty battery protection skip it)
 ble_broadcast_enabled=0
+# New sensors: 1 gives the first free slot to each new MAC, 0 lets only a slot with a fixed MAC (slotN_mac) take a reading
+slot_auto_assign=1
 # Tiles of the freezer and mold alerts: bit 0 onboard, bits 1 to 5 slots 1 to 5 (0 to 63)
 climate_alert_tiles=63
 outdoor_slot=0
@@ -300,7 +302,7 @@ The console command `STATUS` shows the line `RESET reason=<TEXT> abnormal=<N>` b
 
 The console command `STATUS` also shows the line `SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>` before the `POWER` line (`retried` counts the retries after a soft reset). It counts the failed reads of the onboard `SHTC3` by cause: `nack` (no acknowledgement on the I²C bus), `short` (fewer than 6 bytes) and `crc` (a CRC-8 error in the frame). Each counter stops at 65535. `run` counts the failures in a row and returns to 0 after a good read. The counters live in RTC memory and restart at 0 after a power-on. The diagnostics view shows `SHTC3 ERR: <N>` (the sum of the three counters). The text is inverted while `run` is 3 or more: check the sensor and the bus then.
 
-The console command `STATUS` also shows the line `BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>` before the `POWER` line. It counts the decoded packets of the current scan that the registry rejected: no slot was free, or each free slot has a fixed MAC (`slotN_mac`) of a different sensor. `last` is the MAC of the last rejected packet (`--` without a rejected packet). The four counters give the packet format (`woio` for SwitchBot Manufacturer Data, `meter` for Meter Service Data, `bthome`, `atc`). Each counter stops at 65535. The counters restart at each scan and the RTC memory does not store them. Thus a wrong `slotN_mac` entry or a fourth sensor shows here.
+The console command `STATUS` also shows the line `BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N> thermopro=<N> unassigned=<N>` before the `POWER` line. `unassigned` counts the packets of a new MAC that `slot_auto_assign=0` blocked. It counts the decoded packets of the current scan that the registry rejected: no slot was free, or each free slot has a fixed MAC (`slotN_mac`) of a different sensor. `last` is the MAC of the last rejected packet (`--` without a rejected packet). The four counters give the packet format (`woio` for SwitchBot Manufacturer Data, `meter` for Meter Service Data, `bthome`, `atc`). Each counter stops at 65535. The counters restart at each scan and the RTC memory does not store them. Thus a wrong `slotN_mac` entry or a fourth sensor shows here.
 
 The console command `STATUS` also shows the line `RECEPTION s1=<N>/<M> s2=<N>/<M> s3=<N>/<M> s4=<N>/<M> s5=<N>/<M>` after the `BLE` line. `<N>` is the number of scans with a packet among the last `<M>` scans (`<M>` up to 24); `--` marks an empty slot. A weak sensor at the edge of the range shows a low rate. The macOS app marks a rate below 50 % with a warning symbol. The values live in the RTC memory and a power-on clears them. The diagnostics view also shows a sensor health table: one row for each slot with RSSI, battery, age, reception rate, one verdict (`EMPTY`, `STALE`, `BATTERY`, `WEAK_SIGNAL` or `GOOD`) and one advice text. The table uses the `STATUS` reply of the refresh button and the `sensor_battery_limit_pct` of the last `CONFIG` reply.
 
