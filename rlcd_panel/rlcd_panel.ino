@@ -1451,6 +1451,16 @@ void setup() {
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::MUTE) {
       // The flag goes to the RTC copy; the save of this wake cycle writes it with the audio trailer. No card access.
       Runner::setMute(sink, g_state.muted, command.reference);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SLOT_CLEAR) {
+      // RTC copy only, no card access; the save of this wake cycle writes the state.
+      RtcTime clear_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again (I2C, outside the lock)
+      if (!g_rtc.readTime(clear_now)) {
+        clear_now = g_rtc_time;
+      }
+      portENTER_CRITICAL(&g_registry_mux); // the BLE callback writes the registry
+      const bool slot_cleared = g_state.clearSlotByUser(static_cast<size_t>(command.reference) - 1, clear_now);
+      portEXIT_CRITICAL(&g_registry_mux);
+      Runner::slotClearReply(sink, slot_cleared, command.reference);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::BEEP) {
       Es8311Hal beep_hal;
       Runner::beep(sink, beep_hal, command.reference,

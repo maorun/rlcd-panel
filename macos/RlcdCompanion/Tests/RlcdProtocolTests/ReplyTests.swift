@@ -117,6 +117,12 @@ struct ReplyAssemblerTests {
         #expect(a.append(Data("OK SET temp_unit\nERR READ_ONLY\n".utf8)) == [.status("OK SET temp_unit"), .status("ERR READ_ONLY")])
     }
 
+    @Test func slotClearReplies() {
+        var a = ReplyAssembler()
+        #expect(a.append(Data("OK SLOT CLEAR 2\nERR FIXED_MAC\nERR BAD_ARG\n".utf8))
+                == [.status("OK SLOT CLEAR 2"), .status("ERR FIXED_MAC"), .status("ERR BAD_ARG")])
+    }
+
     @Test func oversizedInputIsRejectedAndAssemblerRecovers() {
         var a = ReplyAssembler()
         let r = a.append(Data(repeating: 0x41, count: ReplyAssembler.maxLineBytes + 1))

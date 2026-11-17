@@ -184,6 +184,21 @@ struct PersistentState {
     }
   }
 
+  // Manual release (console SLOT CLEAR): false for a slot with a fixed MAC, no change (the next scan takes the same
+  // sensor again). Otherwise resetSlot; an occupied slot records SLOT_RELEASE with the slot number in the low byte and
+  // 1 (manual) in the high byte. An empty slot records nothing.
+  bool clearSlotByUser(size_t index, const RtcTime& now) {
+    if (index >= MAX_SWITCHBOT_SENSORS || config.hasSlotMac(index) || registry.isFixed(index)) {
+      return false;
+    }
+    const bool occupied = registry.slot(index).valid;
+    resetSlot(index);
+    if (occupied) {
+      events.record(now, EventCode::SLOT_RELEASE, static_cast<uint16_t>(0x0100u | (index + 1)));
+    }
+    return true;
+  }
+
   // Clears the reading, both 24-hour histories and the battery, ventilation and dry air latches of slot `index`.
   void resetSlot(size_t index) {
     if (index >= MAX_SWITCHBOT_SENSORS) {

@@ -412,6 +412,8 @@ public enum ConsoleCommand: Equatable {
     case pattern(Int)
     case mute(Bool)
     case rtcTrim
+    /// `SLOT CLEAR N` (N 1 to 5): frees one registry slot at once. The firmware answers `ERR FIXED_MAC` for a slot with a fixed MAC.
+    case slotClear(Int)
     case set(key: String, value: String)
     case calib(Int)
     case salt(Int)
@@ -450,6 +452,9 @@ public enum ConsoleCommand: Equatable {
             return "PATTERN \(n)"
         case let .mute(on): return on ? "MUTE 1" : "MUTE 0"
         case .rtcTrim: return "RTC TRIM"
+        case let .slotClear(slot):
+            guard SlotAssignment.slots.contains(slot) else { return nil }
+            return "SLOT CLEAR \(slot)"
         case let .calib(reference):
             guard (0...5).contains(reference) else { return nil }
             return "CALIB \(reference)"

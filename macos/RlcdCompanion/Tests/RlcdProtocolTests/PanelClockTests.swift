@@ -86,6 +86,13 @@ struct PanelClockTests {
         #expect(ConsoleCommand.mute(false).line == "MUTE 0")
     }
 
+    @Test func buildSlotClearLine() {
+        for n in 1...5 { #expect(ConsoleCommand.slotClear(n).line == "SLOT CLEAR \(n)") }
+        #expect(ConsoleCommand.slotClear(0).line == nil)
+        #expect(ConsoleCommand.slotClear(6).line == nil)
+        #expect(ConsoleCommand.slotClear(-1).line == nil)
+    }
+
     @Test func refuseBeep8AndPattern3() {
         #expect(ConsoleCommand.beep(8).line == nil)
         #expect(ConsoleCommand.beep(-1).line == nil)
