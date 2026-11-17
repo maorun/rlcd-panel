@@ -890,7 +890,7 @@ void refreshSensors() {
   }
   g_state.ventilate_tiles = VentilateLatch::update(
       g_state.ventilate_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
-      config().ventilate_limit_rh, config().staleTimeoutMs());
+      config().ventilate_limit_rh, config().staleTimeoutMs(), config().door_ref_slot);
   g_state.dry_tiles = DryLatch::update(
       g_state.dry_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
       config().dry_alert_limit_rh, config().climate_alert_tiles, config().staleTimeoutMs());

@@ -110,6 +110,7 @@ public enum ConfigSchema {
             // Sensors
             e("mic_spl_offset_db", .sensors, .decimal(min: -20, max: 20), "0.0", "dB", "Add this value to the microphone level."),
             e("outdoor_slot", .sensors, .integer(min: 0, max: 5), "0", "", "Select the outdoor slot for the ventilation advice. 0 is off."),
+            e("door_ref_slot", .sensors, .integer(min: 0, max: 5), "0", "", "Reference slot for door ventilation of slot 1. 0 is off."),
         ]
         for n in 1...5 {
             out.append(e("slot\(n)_temp_offset_c", .sensors, .decimal(min: -5, max: 5), "0.0", "°C", "Add this value to the slot \(n) temperature."))
@@ -152,7 +153,7 @@ public enum ConfigSchema {
         "slot5_temp_offset_c", "slot4_rh_offset_pct", "slot5_rh_offset_pct",
         "usb_temp_offset_c", "dry_alert_limit_rh", "rh_gain",
         "slot1_rh_gain", "slot2_rh_gain", "slot3_rh_gain",
-        "slot4_rh_gain", "slot5_rh_gain",
+        "slot4_rh_gain", "slot5_rh_gain", "door_ref_slot",
     ]
     private static let index: [String: Int] = Dictionary(uniqueKeysWithValues: keys.enumerated().map { ($1, $0) })
 

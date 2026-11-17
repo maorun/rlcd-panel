@@ -58,6 +58,8 @@ struct DeviceConfig {
   static constexpr uint8_t MAX_SENSOR_BATTERY_LIMIT_PCT = 50;
   static constexpr uint8_t DEFAULT_OUTDOOR_SLOT = 0; // 0 switches the ventilation advice off
   static constexpr uint8_t MAX_OUTDOOR_SLOT = 5;
+  static constexpr uint8_t DEFAULT_DOOR_REF_SLOT = 0; // 0 switches the door ventilation comparison off
+  static constexpr uint8_t MAX_DOOR_REF_SLOT = 5;
   static constexpr uint8_t DEFAULT_VENTILATE_LIMIT_RH = 60;
   static constexpr uint8_t MIN_VENTILATE_LIMIT_RH = 50;
   static constexpr uint8_t MAX_VENTILATE_LIMIT_RH = 80;
@@ -138,6 +140,7 @@ struct DeviceConfig {
   uint8_t noise_alert_limit_db = DEFAULT_NOISE_ALERT_LIMIT_DB; // 0 = off, else 40..100 dB
   uint8_t chime_alert_mask = DEFAULT_CHIME_ALERT_MASK; // bit 0 freezer, 1 humidity, 2 noise, 3 sensor lost, 4 charge full, 5 ventilate, 6 sensor battery, 7 heat
   uint8_t outdoor_slot = DEFAULT_OUTDOOR_SLOT; // registry slot (1..5) of the outdoor sensor for the ventilation advice, 0 = off
+  uint8_t door_ref_slot = DEFAULT_DOOR_REF_SLOT; // reference slot (0=off, 2..5) for door-based ventilation of slot 1
   uint8_t ventilate_limit_rh = DEFAULT_VENTILATE_LIMIT_RH; // a tile above this %RH shows the ventilation badge, 50..80
   uint8_t sensor_battery_limit_pct = DEFAULT_SENSOR_BATTERY_LIMIT_PCT; // an external sensor at or below this % shows BAT LOW, 0 = off, else 1..50
   uint8_t ntp_sync_interval_h = DEFAULT_NTP_SYNC_INTERVAL_H; // hours between two successful NTP syncs, 6..168
@@ -265,7 +268,7 @@ struct DeviceConfig {
            quiet_hours_end_hour <= MAX_HOUR &&
            inRange(mic_spl_offset_db, MIN_MIC_SPL_OFFSET_DB, MAX_MIC_SPL_OFFSET_DB) &&
            log_retention_months <= MAX_LOG_RETENTION_MONTHS && chime_alert_mask <= MAX_CHIME_ALERT_MASK &&
-           outdoor_slot <= MAX_OUTDOOR_SLOT &&
+           outdoor_slot <= MAX_OUTDOOR_SLOT && door_ref_slot <= MAX_DOOR_REF_SLOT &&
            ventilate_limit_rh >= MIN_VENTILATE_LIMIT_RH && ventilate_limit_rh <= MAX_VENTILATE_LIMIT_RH &&
            sensor_battery_limit_pct <= MAX_SENSOR_BATTERY_LIMIT_PCT &&
            (noise_alert_limit_db == 0 ||
@@ -304,7 +307,7 @@ struct DeviceConfig {
            quiet_hours_start_hour == d.quiet_hours_start_hour &&
            quiet_hours_end_hour == d.quiet_hours_end_hour && mic_spl_offset_db == d.mic_spl_offset_db &&
            log_retention_months == d.log_retention_months && noise_alert_limit_db == d.noise_alert_limit_db &&
-           chime_alert_mask == d.chime_alert_mask && outdoor_slot == d.outdoor_slot &&
+           chime_alert_mask == d.chime_alert_mask && outdoor_slot == d.outdoor_slot && door_ref_slot == d.door_ref_slot &&
            ventilate_limit_rh == d.ventilate_limit_rh && sensor_battery_limit_pct == d.sensor_battery_limit_pct &&
            ntp_sync_interval_h == d.ntp_sync_interval_h && wake_interval_s == d.wake_interval_s &&
            sensor_stale_min == d.sensor_stale_min && display_invert == d.display_invert &&
@@ -360,7 +363,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 8192;
-  static constexpr size_t KEY_COUNT = 56;
+  static constexpr size_t KEY_COUNT = 57;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -382,7 +385,7 @@ public:
       "slot5_temp_offset_c", "slot4_rh_offset_pct", "slot5_rh_offset_pct",
       "usb_temp_offset_c", "dry_alert_limit_rh", "rh_gain",
       "slot1_rh_gain", "slot2_rh_gain", "slot3_rh_gain",
-      "slot4_rh_gain", "slot5_rh_gain",
+      "slot4_rh_gain", "slot5_rh_gain", "door_ref_slot",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -827,6 +830,9 @@ private:
     } else if (keyIs(key, key_len, "outdoor_slot")) {
       index = 26;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_OUTDOOR_SLOT, cfg.outdoor_slot);
+    } else if (keyIs(key, key_len, "door_ref_slot")) {
+      index = 56;
+      ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_DOOR_REF_SLOT, cfg.door_ref_slot);
     } else if (keyIs(key, key_len, "ventilate_limit_rh")) {
       index = 27;
       ok = parseIntIn(val, val_len, DeviceConfig::MIN_VENTILATE_LIMIT_RH, DeviceConfig::MAX_VENTILATE_LIMIT_RH,
@@ -863,7 +869,7 @@ private:
 // reads the text back to the same values. The text holds no Wi-Fi setting: DeviceConfig has none.
 class DeviceConfigText {
 public:
-  static constexpr size_t MAX_SIZE = 1312; // worst case with every key at its longest value: 1282 bytes
+  static constexpr size_t MAX_SIZE = 1344; // worst case with every key at its longest value: 1298 bytes
 
   // Returns the text length, or 0 with an empty string when `cap` is too small.
   static size_t format(const DeviceConfig& cfg, char* out, size_t cap) {
@@ -901,6 +907,7 @@ public:
     ok = ok && putInt(out, cap, pos, "ble_broadcast_enabled", cfg.ble_broadcast_enabled);
     ok = ok && putInt(out, cap, pos, "ble_console", cfg.ble_console);
     ok = ok && putInt(out, cap, pos, "outdoor_slot", cfg.outdoor_slot);
+    ok = ok && putInt(out, cap, pos, "door_ref_slot", cfg.door_ref_slot);
     ok = ok && putInt(out, cap, pos, "ventilate_limit_rh", cfg.ventilate_limit_rh);
     ok = ok && putInt(out, cap, pos, "sensor_battery_limit_pct", cfg.sensor_battery_limit_pct);
     for (size_t i = 0; ok && i < DeviceConfig::OFFSET_SLOT_COUNT; ++i) {
