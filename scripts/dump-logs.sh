@@ -123,8 +123,6 @@ if mode == "config":
     sys.exit(0)
 if mode == "status":
     # STATUS answers from the RTC copy: SENSOR lines, one POWER line, then the CRC32 line.
-    STATUS_LINE = re.compile(r"^(?:SENSOR [0-3] \S+ temp=\S+ rh=\S+ bat=\S+ rssi=\S+ age=\S+ state=(?:OK|STALE|EMPTY|BATLOW)"
-                             r"|POWER src=(?:USB|BAT) v=\S+ pct=\S+ alerts=[0-9a-f]{2} muted=[01])$")
     command("STATUS")
     deadline = time.time() + timeout_s
     body = bytearray()

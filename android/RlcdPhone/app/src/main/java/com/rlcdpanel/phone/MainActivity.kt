@@ -93,7 +93,7 @@ class MainActivity : ComponentActivity() {
             context = this,
             onSnapshot = { incoming ->
                 val mergedFrame = TelemetryFrame.merge(snapshot?.frame, incoming.frame)
-                val mergedSnapshot = TelemetrySnapshot(frame = mergedFrame, receivedAtMillis = incoming.receivedAtMillis)
+                val mergedSnapshot = incoming.copy(frame = mergedFrame)
                 // The first frame after the app start reports each active alert as new.
                 val rising = if (snapshot == null) {
                     incoming.frame.alerts

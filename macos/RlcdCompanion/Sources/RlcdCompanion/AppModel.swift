@@ -152,7 +152,7 @@ final class AppModel: ConsoleLinkDelegate {
             self.frameDate = Date()
             self.now = Date()
             self.rssi = r
-            if self.logStore.record(f) { self.chartRows = self.logStore.log.downsampled(maxRows: 400) }
+            if f.page == 0 && self.logStore.record(f) { self.chartRows = self.logStore.log.downsampled(maxRows: 400) }
             self.checkAlertNotifications(previous: prev, current: f)
         }
     }

@@ -79,7 +79,7 @@ class MainActivity : ComponentActivity() {
             context = this,
             onSnapshot = { incoming ->
                 val mergedFrame = TelemetryFrame.merge(snapshot?.frame, incoming.frame)
-                val mergedSnapshot = TelemetrySnapshot(frame = mergedFrame, receivedAtMillis = incoming.receivedAtMillis)
+                val mergedSnapshot = incoming.copy(frame = mergedFrame)
                 val rising = AlertTransitions.risingAlerts(snapshot?.frame, incoming.frame)
                 snapshot = mergedSnapshot
                 statusMessage = "Seq #${incoming.frame.sequence} empfangen"
