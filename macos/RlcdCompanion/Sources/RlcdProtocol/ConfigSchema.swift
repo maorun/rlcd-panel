@@ -127,6 +127,7 @@ public enum ConfigSchema {
         for n in 1...10 {
             out.append(e("slot\(n)_mac", .sensors, .mac, "", "", "Fixed MAC of slot \(n). Empty means no fixed MAC."))
         }
+        out.append(e("slot_auto_assign", .sensors, .integer(min: 0, max: 1), "1", "", "1 gives the first free slot to each new sensor MAC. 0 lets only a slot with a fixed MAC take a reading."))
         // BLE
         out.append(e("ble_broadcast_enabled", .ble, .integer(min: 0, max: 1), "1", "", "Send the telemetry frame after each scan. 0 is off."))
         out.append(e("ble_console", .ble, .integer(min: 0, max: 2), "0", "", "BLE console on USB power. 1 allows read commands. 2 also allows SET."))
@@ -162,7 +163,7 @@ public enum ConfigSchema {
         "slot6_rh_offset_pct", "slot7_rh_offset_pct", "slot8_rh_offset_pct",
         "slot9_rh_offset_pct", "slot10_rh_offset_pct",
         "slot6_rh_gain", "slot7_rh_gain", "slot8_rh_gain", "slot9_rh_gain", "slot10_rh_gain",
-        "wall_frsi_pct",
+        "wall_frsi_pct", "slot_auto_assign",
     ]
     private static let index: [String: Int] = Dictionary(uniqueKeysWithValues: keys.enumerated().map { ($1, $0) })
 

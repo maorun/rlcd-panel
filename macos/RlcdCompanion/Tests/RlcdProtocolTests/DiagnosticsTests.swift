@@ -107,6 +107,14 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         #expect(throws: ParseError.self) { try BleRejectMetrics.parse(line: "BLE rejected=2 last=-- woio=1 meter=1 bthome=0 atc=0 thermopro=x") }
     }
 
+    @Test func bleRejectUnassignedField() throws {
+        let with = try BleRejectMetrics.parse(line: "BLE rejected=5 last=11:22:33:44:55:66 woio=1 meter=1 bthome=1 atc=1 thermopro=1 unassigned=3")
+        #expect(with.unassigned == 3 && with.thermopro == 1 && with.rejected == 5)
+        let old = try BleRejectMetrics.parse(line: "BLE rejected=5 last=11:22:33:44:55:66 woio=1 meter=1 bthome=1 atc=1 thermopro=1")
+        #expect(old.unassigned == nil)
+        #expect(throws: ParseError.self) { try BleRejectMetrics.parse(line: "BLE rejected=2 last=-- woio=1 meter=1 bthome=0 atc=0 thermopro=0 unassigned=x") }
+    }
+
     @Test func nonNumericCounterThrows() {
         #expect(throws: ParseError.self) { try Shtc3Stats.parse(line: "SHTC3 nack=x short=0 crc=0 run=0") }
         #expect(throws: ParseError.self) { try DiagnosticsReply.parse(otherLines: ["AWAKE": "AWAKE last_ms=1 avg_ms=abc max_ms=1 samples=1"]) }

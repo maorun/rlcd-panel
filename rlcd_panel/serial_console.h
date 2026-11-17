@@ -717,7 +717,7 @@ struct SerialStatusSnapshot {
 //   so execute() ignores CONFIG.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 5 (slots, calibrated readings), a missing value gives "--";
-//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "RTC trim=<N|--> drift_ppm=<N|-->" (offset register of the PCF85063A; the drift rate only for a figure of 24 h or more), then "SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>[ usb_offset=<x>]" (the offset only on USB power), then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N> thermopro=<N>" (packets of the current scan that no slot took), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "CRC32 <8 hex digits>" over all lines
+//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "RTC trim=<N|--> drift_ppm=<N|-->" (offset register of the PCF85063A; the drift rate only for a figure of 24 h or more), then "SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>[ usb_offset=<x>]" (the offset only on USB power), then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N> thermopro=<N> unassigned=<N>" (packets of the current scan that no slot took; unassigned counts the packets blocked by slot_auto_assign=0), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 7), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
@@ -1354,11 +1354,11 @@ public:
                  static_cast<unsigned>(rej.last_mac[5]));
       }
       len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len,
-                                          "BLE rejected=%lu last=%s woio=%u meter=%u bthome=%u atc=%u thermopro=%u\n",
+                                          "BLE rejected=%lu last=%s woio=%u meter=%u bthome=%u atc=%u thermopro=%u unassigned=%u\n",
                                           static_cast<unsigned long>(rej.total()), last,
                                           static_cast<unsigned>(rej.by_format[0]), static_cast<unsigned>(rej.by_format[1]),
                                           static_cast<unsigned>(rej.by_format[2]), static_cast<unsigned>(rej.by_format[3]),
-                                          static_cast<unsigned>(rej.by_format[4])));
+                                          static_cast<unsigned>(rej.by_format[4]), static_cast<unsigned>(rej.unassigned)));
     }
     if (len >= sizeof(text)) {
       return;

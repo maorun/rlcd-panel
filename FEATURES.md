@@ -1479,3 +1479,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `ConfigSchema.unboundNames(config:)` lists the slots with a `slotN_name` and without a usable `slotN_mac`; an empty list without a `CONFIG` reply. `ConfigEditorView` shows `Name of slot <N> has no MAC. Assign the sensor in the scanner.` for each of them.
 - No firmware change and no new `config.ini` key.
 - App tests: `SlotAssignmentTests` and `ConfigSchemaTests.unboundNames*`.
+
+## Config key slot_auto_assign to block unknown sensors
+
+- The new `config.ini` key `slot_auto_assign` (0 or 1, default 1) controls the third step of `SwitchBotRegistry::upsert`. With 1 the registry works as before: a new MAC takes the first free slot. With 0 only a slot with a fixed MAC (`slotN_mac`) takes a new MAC; a packet of another MAC goes to the reject path.
+- `BleRejectStats::unassigned` counts these packets (saturates at 65535; `resetRejects()` clears it). The packet also counts in its format counter and sets `last`. A slot that already holds a MAC keeps its updates. A change from 1 to 0 does not clear an occupied slot; `slot_release_h` and `SLOT CLEAR` free it.
+- The console command `STATUS` appends ` unassigned=<N>` to the `BLE` line. The console command `SCAN` does not use the registry rules and still lists each MAC with slot `-`.
+- The value uses 1 byte after `ble_console` in the config trailer (`PersistentState` restores it with `applyConfig` and `deserialize`). `STATE_VERSION` is 62 and `KEY_COUNT` is 84.
+- The macOS app has the schema entry `slot_auto_assign` and `BleRejectMetrics.unassigned` (`nil` for an older firmware); `DiagnosticsView` shows it.
+- Host tests: `testSlotAutoAssign`, `testSlotAutoAssignStatus`, `testSlotAutoAssignScan`, `testSlotAutoAssignConfigKey`. App tests: `ConfigSchemaTests`, `DiagnosticsTests.bleRejectUnassignedField`.
