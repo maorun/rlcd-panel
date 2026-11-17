@@ -84,14 +84,17 @@ struct ScannerView: View {
             Text(r.batteryPct.map { String(format: "%.0f %%", $0) } ?? "--")
             Text(r.slot.map { "slot \($0)" } ?? "no slot").foregroundStyle(.secondary)
             Spacer()
+            TextField("Name", text: Binding(get: { model.scanNames[r.mac] ?? "" }, set: { model.scanNames[r.mac] = $0 }))
+                .textFieldStyle(.roundedBorder).frame(width: 110)
+                .help("Optional, up to \(SlotAssignment.maxNameChars) characters: A-Z, 0-9, -. The name belongs to the MAC.")
             Menu("Assign") {
                 ForEach(Array(SlotAssignment.slots), id: \.self) { n in
                     Button("Slot \(n)" + (SlotAssignment.warning(slot: n, mac: r.mac, config: model.config) != nil ? " (MAC in use)" : "")) {
-                        model.assign(slot: n, mac: r.mac)
+                        model.assign(slot: n, mac: r.mac, name: model.scanNames[r.mac] ?? "")
                     }
                 }
             }
-            .disabled(!model.canSet)
+            .disabled(!model.canSet || !model.isIdle)
         }.font(.callout)
     }
 }

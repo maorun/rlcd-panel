@@ -330,4 +330,31 @@ struct ConfigSchemaTests {
         // The other 22 keys are the enum, 11 names and 10 MACs.
         #expect(expected.count + 22 == ConfigSchema.keys.count)
     }
+
+    @Test func unboundNamesListsNameWithoutMac() throws {
+        let config = try reply(["slot2_name=KITCHEN", "slot7_name=SHED"])
+        #expect(ConfigSchema.unboundNames(config: config) == [2, 7])
+    }
+
+    @Test func unboundNamesSkipsNameWithMac() throws {
+        let config = try reply(["slot1_name=HALL", "slot1_mac=AA:BB:CC:DD:EE:01", "slot2_name=KITCHEN"])
+        #expect(ConfigSchema.unboundNames(config: config) == [2])
+    }
+
+    @Test func unboundNamesSkipsMacOnlyAndEmptyName() throws {
+        let config = try reply(["slot1_mac=AA:BB:CC:DD:EE:01", "slot2_name=", "slot3_mac=", "slot3_name="])
+        #expect(ConfigSchema.unboundNames(config: config).isEmpty)
+    }
+
+    @Test func unboundNamesTreatsZeroMacAsUnbound() throws {
+        #expect(ConfigSchema.unboundNames(config: try reply(["slot4_name=A", "slot4_mac=00:00:00:00:00:00"])) == [4])
+    }
+
+    @Test func unboundNamesIsEmptyWithoutConfig() {
+        #expect(ConfigSchema.unboundNames(config: nil).isEmpty)
+    }
+
+    @Test func unboundWarningText() {
+        #expect(ConfigSchema.unboundNameWarning(slot: 3) == "Name of slot 3 has no MAC. Assign the sensor in the scanner.")
+    }
 }

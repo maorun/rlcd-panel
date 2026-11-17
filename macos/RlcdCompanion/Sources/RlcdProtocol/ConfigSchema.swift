@@ -302,6 +302,20 @@ public enum ConfigSchema {
         }
     }
 
+    /// Slots (1 to 10) that have a `slotN_name` but no usable `slotN_mac`. The panel binds a name to a MAC, so
+    /// such a name shows for no sensor. Empty without a `CONFIG` reply.
+    public static func unboundNames(config: ConfigReply?) -> [Int] {
+        guard let config else { return [] }
+        return SlotAssignment.slots.filter { slot in
+            !(config.values["slot\(slot)_name"] ?? "").isEmpty
+                && ConfigReply.normalizedMac(config.values["slot\(slot)_mac"]) == nil
+        }
+    }
+
+    public static func unboundNameWarning(slot: Int) -> String {
+        "Name of slot \(slot) has no MAC. Assign the sensor in the scanner."
+    }
+
     /// `SET` commands for the changes, in the fixed schema order.
     public static func batch(for changes: [ConfigChange]) -> [ConsoleCommand] {
         changes.filter { index[$0.key] != nil }
@@ -326,6 +340,11 @@ public struct ConfigBatch: Equatable {
 
     public init(changes: [ConfigChange]) {
         pending = ConfigSchema.batch(for: changes) + [.config]
+    }
+
+    /// A batch of ready `SET` commands in the given order, then one `CONFIG`.
+    public init(commands: [ConsoleCommand]) {
+        pending = commands + [.config]
     }
 
     public var isFinished: Bool { pending.isEmpty && current == nil }

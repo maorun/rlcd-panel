@@ -1472,3 +1472,10 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - No new `config.ini` key and no new RTC state. `STATE_VERSION` stays 61.
 - Host tests: `testSensorNamesFollowMac`, `testSensorNames` and `testSerialStatusStates`. App tests: `MenuBarSummaryTests.nameFollowsTheSensorMac`, `PanelConfigTest` (Wear OS and Android).
 
+## Name and MAC assignment in one step in the macOS scanner
+
+- `SlotAssignment.batch(slot:mac:name:)` gives `SET slotN_mac=<MAC>` and, for a name that is not empty, `SET slotN_name=<name>`, in this order. The name is upper-cased. It has at most 12 characters (`SlotAssignment.maxNameChars`, `DeviceConfig::NAME_MAX_CHARS`) and no space and no `=`; `ConfigSchema.validate` checks the rest. A bad slot, MAC or name and a line above 40 bytes give `nil`.
+- Each row of `ScannerView` has a name field beside the `Assign` menu. `AppModel.assign(slot:mac:name:)` sends the commands through `ConfigBatch(commands:)`: the first `ERR` stops the batch, then `CONFIG` runs. A MAC that another slot holds gives the existing duplicate warning and sends nothing.
+- `ConfigSchema.unboundNames(config:)` lists the slots with a `slotN_name` and without a usable `slotN_mac`; an empty list without a `CONFIG` reply. `ConfigEditorView` shows `Name of slot <N> has no MAC. Assign the sensor in the scanner.` for each of them.
+- No firmware change and no new `config.ini` key.
+- App tests: `SlotAssignmentTests` and `ConfigSchemaTests.unboundNames*`.

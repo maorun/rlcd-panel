@@ -23,6 +23,30 @@ public enum SlotAssignment {
         return .set(key: key, value: value)
     }
 
+    /// `DeviceConfig::NAME_MAX_CHARS`.
+    public static let maxNameChars = 12
+
+    /// The commands that bind a name to a sensor: `SET slotN_mac=<MAC>`, then `SET slotN_name=<name>` for a
+    /// name that is not empty. The name is upper-cased (the firmware font has no lowercase letters). `nil` for
+    /// a bad slot or MAC, a name above 12 characters, a name with a space or `=`, a name the firmware rejects,
+    /// or a command line above 40 bytes.
+    public static func batch(slot: Int, mac: String, name: String?) -> [ConsoleCommand]? {
+        guard let macCommand = command(slot: slot, mac: mac) else { return nil }
+        var commands = [macCommand]
+        if let name, !name.isEmpty {
+            let value = name.uppercased()
+            guard value.count <= maxNameChars, !value.contains(" "), !value.contains("="),
+                  ConfigSchema.validate(key: "slot\(slot)_name", value: value) == nil else { return nil }
+            commands.append(.set(key: "slot\(slot)_name", value: value))
+        }
+        return fitsConsoleLine(commands) ? commands : nil
+    }
+
+    /// True when the console takes each command (no white space, no empty value, at most 40 bytes).
+    public static func fitsConsoleLine(_ commands: [ConsoleCommand]) -> Bool {
+        commands.allSatisfy { $0.line != nil }
+    }
+
     /// Slots other than `slot` that already hold `mac` as a fixed MAC (`config` values). The firmware rejects this `SET`.
     public static func conflicts(slot: Int, mac: String, config: ConfigReply?) -> [Int] {
         let target = mac.uppercased()

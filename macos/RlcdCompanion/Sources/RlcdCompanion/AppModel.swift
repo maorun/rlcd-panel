@@ -93,6 +93,10 @@ final class AppModel: ConsoleLinkDelegate {
     /// The running or last batch of the config form.
     var batch: ConfigBatch?
     var batchSummary: String?
+    /// Name typed in the scanner for a scanned MAC; sent with the MAC by `assign(slot:mac:name:)`.
+    var scanNames: [String: String] = [:]
+    /// MAC of a running scanner assignment: its name entry clears and a new `SCAN` runs after a clean batch.
+    private var assigningMac: String?
     var showDiff = false
     /// Parsed backup file that waits for the restore review, with its file name.
     var restore: ConfigBackup.Parsed?
@@ -313,6 +317,7 @@ final class AppModel: ConsoleLinkDelegate {
         guard let b = batch else { return }
         batchSummary = b.summary + " (no reply)"
         batch = nil
+        assigningMac = nil
         clearCalibration()
     }
 
@@ -838,6 +843,27 @@ final class AppModel: ConsoleLinkDelegate {
         sendNext()
     }
 
+    /// Binds a name to a sensor: `SET slotN_mac`, then `SET slotN_name` for a name that is not empty, through
+    /// `ConfigBatch` (the first `ERR` stops it, then `CONFIG`).
+    func assign(slot: Int, mac: String, name: String) {
+        guard canSet else { message = "SET needs ble_console=2 or the USB serial link"; return }
+        guard pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        guard let commands = SlotAssignment.batch(slot: slot, mac: mac, name: name) else {
+            message = "Slot, MAC or name not valid (up to \(SlotAssignment.maxNameChars) characters: A-Z, 0-9, -)"
+            return
+        }
+        if let warning = SlotAssignment.warning(slot: slot, mac: mac, config: config) {
+            message = warning
+            return
+        }
+        message = nil
+        batchSummary = nil
+        scanResult = nil // the slot column is stale once the SET runs
+        assigningMac = mac
+        batch = ConfigBatch(commands: commands)
+        sendNextBatchCommand()
+    }
+
     private func sendNext() {
         guard pendingCommand == nil, !queue.isEmpty else { return }
         let cmd = queue.removeFirst()
@@ -876,6 +902,11 @@ final class AppModel: ConsoleLinkDelegate {
             batchSummary = b.summary
             batch = nil
             clearCalibration() // the stored hours hold the old offsets, so a new CALIB must follow
+            if let mac = assigningMac {
+                assigningMac = nil
+                if b.failure == nil { scanNames[mac] = nil } // the SET commands applied, even if CONFIG failed
+                if transport == .usb { scan() } // the slot column of the old scan is stale now
+            }
             return
         }
         batch = b
@@ -885,6 +916,7 @@ final class AppModel: ConsoleLinkDelegate {
             b = batch ?? b
             batchSummary = b.summary + " (link lost)"
             batch = nil
+            assigningMac = nil
             clearCalibration()
         }
     }
