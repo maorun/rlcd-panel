@@ -140,6 +140,10 @@ final class AppModel: ConsoleLinkDelegate {
         }
         scanner.onBluetoothState = { [weak self] in self?.bluetoothState = $0 }
         scanner.onConsoleAvailable = { [weak self] in self?.consoleAvailable = $0 }
+        if let initial = Self.loadInitialConfig() {
+            config = initial
+            lastConfig = initial
+        }
         scanner.onFrame = { [weak self] f, r in
             guard let self else { return }
             let prev = self.frame
@@ -1060,5 +1064,26 @@ final class AppModel: ConsoleLinkDelegate {
         climateMonths = []
         climateData = nil
         climateForecastRows = []
+    }
+
+    private static func loadInitialConfig() -> ConfigReply? {
+        let candidates = [
+            URL(fileURLWithPath: "docs/config.ini"),
+            URL(fileURLWithPath: "../docs/config.ini"),
+            URL(fileURLWithPath: "../../docs/config.ini"),
+            Bundle.main.url(forResource: "config", withExtension: "ini")
+        ].compactMap { $0 }
+        for url in candidates {
+            if let data = try? Data(contentsOf: url),
+               let parsed = try? ConfigBackup.parse(data) {
+                return ConfigReply(
+                    values: parsed.values,
+                    keys: ConfigSchema.entries.map(\.key),
+                    source: "FILE",
+                    rejectedLines: parsed.rejected.map(\.line)
+                )
+            }
+        }
+        return nil
     }
 }
