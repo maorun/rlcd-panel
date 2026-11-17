@@ -1,0 +1,102 @@
+package com.rlcdpanel.phone.protocol
+
+class ParseException(val line: String) : Exception("Bad console line: $line")
+
+/** `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...>`; `--` gives null. */
+data class StatusSensor(
+    val index: Int,
+    val name: String,
+    val temperature: Double?,
+    val humidity: Double?,
+    val battery: Double?,
+    val rssi: Double?,
+    val ageSeconds: Double?,
+    val state: String?
+)
+
+/** Scans with a packet of the last [scans] scans (up to 24) of one slot. */
+data class ReceptionRate(val received: Int, val scans: Int) {
+    val percent: Int get() = if (scans > 0) received * 100 / scans else 0
+    val isWeak: Boolean get() = scans > 0 && received * 100 < WARN_BELOW_PERCENT * scans
+
+    companion object {
+        const val WARN_BELOW_PERCENT = 50
+    }
+}
+
+/** Parsed `STATUS` reply. Unknown lines are ignored, so a newer firmware does not break the parser. */
+data class StatusReply(
+    val sensors: List<StatusSensor>,
+    /** One entry for each slot 1 to 5 (null for an empty slot); null without a `RECEPTION` line. */
+    val reception: List<ReceptionRate?>?,
+    val powerSource: String?,
+    /** The raw `SENSOR` lines, for the strict parser of [SensorHealth]. */
+    val sensorLines: List<String>
+) {
+    val isUsbPower: Boolean get() = powerSource == "USB"
+
+    companion object {
+        fun fields(line: String): Map<String, String> =
+            line.split(' ').drop(1).mapNotNull { part ->
+                val eq = part.indexOf('=')
+                if (eq > 0) part.substring(0, eq) to part.substring(eq + 1) else null
+            }.toMap()
+
+        /** `--` and an empty text give null; a non-numeric text gives null here. */
+        private fun number(s: String?): Double? =
+            if (s == null || s == "--" || s.isEmpty()) null else s.toDoubleOrNull()
+
+        fun parse(lines: List<String>): StatusReply {
+            val sensors = mutableListOf<StatusSensor>()
+            val sensorLines = mutableListOf<String>()
+            var reception: List<ReceptionRate?>? = null
+            var src: String? = null
+            for (line in lines) {
+                val words = line.split(' ').filter { it.isNotEmpty() }
+                val head = words.firstOrNull() ?: continue
+                val f = fields(line)
+                when (head) {
+                    "SENSOR" -> {
+                        sensorLines.add(line)
+                        val idx = words.getOrNull(1)?.toIntOrNull()
+                        if (words.size < 3 || idx == null) throw ParseException(line)
+                        sensors.add(
+                            StatusSensor(
+                                idx, words[2], number(f["temp"]), number(f["rh"]), number(f["bat"]),
+                                number(f["rssi"]), number(f["age"]), f["state"]
+                            )
+                        )
+                    }
+                    "POWER" -> src = f["src"]
+                    "RECEPTION" -> reception = parseReception(line)
+                }
+            }
+            if (sensors.isEmpty()) throw ParseException("SENSOR")
+            return StatusReply(sensors, reception, src, sensorLines)
+        }
+
+        /** `RECEPTION s1=<N>/<M> ... s5=<N>/<M>` (up to s10); a missing s1 to s5 or a bad number throws. */
+        private fun parseReception(line: String): List<ReceptionRate?> {
+            val f = fields(line)
+            val out = mutableListOf<ReceptionRate?>()
+            for (i in 1..10) {
+                val s = f["s$i"]
+                if (s == null) {
+                    if (i <= 5) throw ParseException(line)
+                    break
+                }
+                if (s == "--") {
+                    out.add(null)
+                    continue
+                }
+                val parts = s.split('/')
+                val digits = parts.size == 2 && parts.all { p -> p.isNotEmpty() && p.all { it in '0'..'9' } }
+                val n = if (digits) parts[0].toIntOrNull() else null
+                val m = if (digits) parts[1].toIntOrNull() else null
+                if (n == null || m == null || m < 1 || m > 24 || n > m) throw ParseException(line)
+                out.add(ReceptionRate(n, m))
+            }
+            return out
+        }
+    }
+}

@@ -18,7 +18,26 @@ private func verdict(_ sensor: String, reception: String? = nil, limit: String? 
     return rows[0].verdict
 }
 
+/// Reads tests/fixtures/status_reply_sample.txt, the file of the Android phone tests.
+private func loadStatusFixture() throws -> Data {
+    var url = URL(fileURLWithPath: #filePath)
+    for _ in 0..<5 { url.deleteLastPathComponent() }
+    return try Data(contentsOf: url.appendingPathComponent("tests/fixtures/status_reply_sample.txt"))
+}
+
 @Suite struct SensorHealthTests {
+    @Test func sharedFixtureGivesTheAndroidVerdicts() throws {
+        var assembler = ReplyAssembler()
+        let replies = assembler.append(try loadStatusFixture())
+        guard case .frame(let lines)? = replies.first else { Issue.record("fixture is not a valid frame"); return }
+        let rows = try SensorHealth.rows(status: StatusReply.parse(lines: lines), config: nil)
+        #expect(rows.map(\.slot) == [1, 2, 3, 4, 5])
+        #expect(rows.map(\.verdict) == [.good, .empty, .stale, .battery, .weakSignal])
+        #expect(rows[0].name == "Wohnzimmer")
+        #expect(rows[3].reception?.percent == 41)
+        #expect(rows[1].reception == nil)
+    }
+
     @Test func eachVerdictFromSample() throws {
         let s = try status([
             "SENSOR 1 A temp=22.1 rh=48.5 bat=87 rssi=-61 age=14 state=OK",

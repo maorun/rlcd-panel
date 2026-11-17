@@ -14,6 +14,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.LaunchedEffect
@@ -27,7 +28,12 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
+import com.rlcdpanel.phone.console.BleConsoleClient
 import com.rlcdpanel.phone.protocol.AlertTransitions
+import com.rlcdpanel.phone.protocol.ConsoleReply
+import com.rlcdpanel.phone.protocol.ParseException
+import com.rlcdpanel.phone.protocol.SensorHealth
+import com.rlcdpanel.phone.protocol.StatusReply
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.ventilation.OutdoorClimate
@@ -65,6 +71,9 @@ class MainActivity : ComponentActivity() {
     private var weatherJob: Job? = null
 
     private lateinit var bleScanner: BleTelemetryScanner
+    private lateinit var consoleClient: BleConsoleClient
+    private var showHealth by mutableStateOf(false)
+    private var healthState by mutableStateOf(SensorHealthState())
     private lateinit var prefs: SharedPreferences
 
     private val permissionLauncher = registerForActivityResult(
@@ -89,6 +98,7 @@ class MainActivity : ComponentActivity() {
         createNotificationChannel()
         restoreRoomStates()
 
+        consoleClient = BleConsoleClient(this)
         bleScanner = BleTelemetryScanner(
             context = this,
             onSnapshot = { incoming ->
@@ -138,6 +148,16 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
+            if (showHealth) {
+                SensorHealthScreen(
+                    state = healthState,
+                    panelConfig = panelConfig,
+                    onRead = { ensureConsolePermissionAndRead() },
+                    onBack = { closeSensorHealth() }
+                )
+                BackHandler { closeSensorHealth() }
+                return@setContent
+            }
             // Determine effective outdoor climate
             val effectiveOutdoor: OutdoorClimate? = OutdoorResolver.resolve(
                 source = outdoorSource,
@@ -236,7 +256,8 @@ class MainActivity : ComponentActivity() {
                 },
                 onToggleVentilation = {
                     toggleVentilationForFocusedRoom()
-                }
+                },
+                onOpenSensorHealth = { showHealth = true }
             )
         }
     }
@@ -250,9 +271,63 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        consoleClient.cancel()
+        healthState = healthState.copy(isReading = false)
         stopBleScan()
         lastObservedAktionen.clear()
         super.onStop()
+    }
+
+    private val consolePermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (!showHealth) return@registerForActivityResult
+        if (grants.values.all { it }) {
+            readSensorHealth()
+        } else {
+            healthState = SensorHealthState(message = "Bluetooth-Berechtigung fehlt")
+        }
+    }
+
+    private fun closeSensorHealth() {
+        consoleClient.cancel()
+        healthState = SensorHealthState()
+        showHealth = false
+        if (!scanPermissionDenied) ensurePermissionAndStart()
+    }
+
+    /** Sends STATUS only after a tap on the button. */
+    private fun ensureConsolePermissionAndRead() {
+        if (healthState.isReading) return
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            listOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isNotEmpty()) {
+            healthState = SensorHealthState(isReading = true)
+            consolePermissionLauncher.launch(needed.toTypedArray())
+            return
+        }
+        readSensorHealth()
+    }
+
+    private fun readSensorHealth() {
+        // The telemetry scan stops, so the console scan and connection have the radio.
+        stopBleScan()
+        healthState = SensorHealthState(isReading = true)
+        consoleClient.readStatus { reply ->
+            healthState = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    val status = StatusReply.parse(reply.lines)
+                    val limit = panelConfig.values["sensor_battery_limit_pct"]?.toDoubleOrNull()
+                    SensorHealthState(rows = SensorHealth.rows(status, limit))
+                } catch (e: ParseException) {
+                    SensorHealthState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
+                }
+                else -> SensorHealthState(message = BleConsoleClient.errorText(reply))
+            }
+        }
     }
 
     private fun fetchWeatherIfNeeded() {
