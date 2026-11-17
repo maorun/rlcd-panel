@@ -29,9 +29,10 @@ struct PreviewScene {
   uint8_t tiles = 0;          // dashboard tile count 1 to 6 (onboard + slots); 0 is the classic sample with 3 slots, which is the 4-tile layout (display_preview_dashboard)
   uint8_t stats_page = 0;     // stats view page 0 or 1 (page 1 shows slots 4 and 5)
   bool dry = false;           // dry air: the onboard tile and slot 1 show the "D" badge
+  bool muted = false;         // mute flag: the header shows the "M" badge
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 17;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 18;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
@@ -51,13 +52,15 @@ constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_tiles1", DisplayMode::DASHBOARD, false, false, false, false, false, false, 1},
     {"display_preview_tiles2", DisplayMode::DASHBOARD, false, false, false, false, false, false, 2},
     {"display_preview_tiles6", DisplayMode::DASHBOARD, false, false, false, false, false, false, 6},
+    {"display_preview_muted", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, false, true},
 };
 
 // Renders one mode with the fixed sample data used for all documentation previews.
 inline void renderScene(
     St7305Framebuffer& fb, DisplayMode mode, bool low_battery, bool quiet_hours = false,
     bool long_runtime = false, bool battery_empty = false, bool ventilate = false,
-    bool invert = false, uint8_t tiles = 0, uint8_t stats_page = 0, bool dry = false) {
+    bool invert = false, uint8_t tiles = 0, uint8_t stats_page = 0, bool dry = false,
+    bool muted = false) {
   Shtc3Reading onboard;
   onboard.valid = true;
   onboard.temperature_c = 21.8f;
@@ -224,6 +227,7 @@ inline void renderScene(
   info.noise.l10_rms = 1000; // L10 60 DBA
   info.noise.l90_rms = 316;  // L90 50 DBA
   info.quiet_hours = quiet_hours;
+  info.muted = muted;
   info.stats_page = stats_page;
   info.chart_sensor = 1; // the climate chart view shows the garden sensor
   info.ventilate = ventilate;

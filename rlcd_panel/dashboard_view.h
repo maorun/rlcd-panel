@@ -31,6 +31,7 @@ struct SystemInfo {
   bool mic_cal_busy = false; // the calibration window is running
   bool mic_cal_failed = false; // the last calibration of this wake cycle was rejected
   bool quiet_hours = false; // chimes are suppressed now; the header shows "Q"
+  bool muted = false;       // the mute flag is set; the header shows "M" and wins over "Q"
   bool ventilate = false;   // ventilation advice is active; the dashboard header shows the banner
   uint16_t ventilate_tiles = 0; // VentilateLatch bits: the tiles that show the "V" badge
   uint16_t sensor_battery_latch = 0; // SensorBatteryLatch bits: the slot tiles that show "BAT LOW"
@@ -729,7 +730,8 @@ public:
       const BatteryReading& battery,
       const char* clock_text,
       bool quiet_hours = false,
-      bool ventilate = false) {
+      bool ventilate = false,
+      bool muted = false) {
     fb.clear(false);
 
     // Inverted banner: white bar with a double black frame and centered text. The low battery
@@ -748,9 +750,10 @@ public:
     fb.fillRect(0, 0, RLCD_WIDTH, HEADER_HEIGHT, true);
     fb.drawText(10, 7, title, 2, false);
 
-    if (quiet_hours) {
+    // The mute badge takes the place of the quiet hours badge: mute silences all chimes.
+    if (muted || quiet_hours) {
       fb.fillRect(HEADER_QUIET_X, HEADER_QUIET_Y, HEADER_QUIET_W, HEADER_QUIET_H, false);
-      fb.drawText(HEADER_QUIET_X + 2, HEADER_QUIET_Y + 2, "Q", 1, true);
+      fb.drawText(HEADER_QUIET_X + 2, HEADER_QUIET_Y + 2, muted ? "M" : "Q", 1, true);
     }
 
     // Header clock between the title and the battery indicator
@@ -792,12 +795,13 @@ public:
       uint16_t ventilate_tiles = 0,
       uint16_t sensor_battery_latch = 0,
       uint16_t dry_tiles = 0,
-      uint8_t dashboard_page = 0) {
+      uint8_t dashboard_page = 0,
+      bool muted = false) {
     size_t slot_of_tile[MAX_TILES] = {};
     const size_t total_tiles = activeTileCount(switchbot_slots, switchbot_count, config, slot_of_tile);
 
     if (total_tiles <= 6) {
-      renderHeader(fb, "RLCD CLIMATE PANEL", battery, clock_text, quiet_hours, ventilate);
+      renderHeader(fb, "RLCD CLIMATE PANEL", battery, clock_text, quiet_hours, ventilate, muted);
       TileRect rects[MAX_TILES];
       layoutTiles(total_tiles, rects);
 
@@ -841,7 +845,7 @@ public:
       const uint8_t page = dashboard_page % 2;
       char header_title[32];
       snprintf(header_title, sizeof(header_title), "RLCD CLIMATE %u/2", static_cast<unsigned>(page + 1));
-      renderHeader(fb, header_title, battery, clock_text, quiet_hours, ventilate);
+      renderHeader(fb, header_title, battery, clock_text, quiet_hours, ventilate, muted);
 
       if (page == 0) {
         TileRect rects[MAX_TILES];
@@ -1189,7 +1193,8 @@ public:
       const NoiseHistory* noise_history = nullptr,
       const ClimateHistory* history = nullptr,
       const DeviceConfig* config = nullptr,
-      uint8_t page = 0) {
+      uint8_t page = 0,
+      bool muted = false) {
     const uint8_t total_pages = statsTotalPages(switchbot_slots, switchbot_count, config);
     const uint8_t shown_page = (total_pages > 1 && page < total_pages) ? page : 0;
     char header_title[32];
@@ -1199,7 +1204,7 @@ public:
     } else {
       snprintf(header_title, sizeof(header_title), "SENSOR STATS");
     }
-    renderHeader(fb, header_title, battery, clock_text, quiet_hours);
+    renderHeader(fb, header_title, battery, clock_text, quiet_hours, false, muted);
 
     const size_t first_slot = shown_page * STATS_SLOT_COUNT;
     const size_t block_count = (first_slot + STATS_SLOT_COUNT <= MAX_SWITCHBOT_SENSORS)
@@ -1304,7 +1309,7 @@ public:
       const BatteryReading& battery,
       const SystemInfo& info,
       const char* clock_text) {
-    renderHeader(fb, "SYSTEM DIAGNOSTICS", battery, clock_text, info.quiet_hours);
+    renderHeader(fb, "SYSTEM DIAGNOSTICS", battery, clock_text, info.quiet_hours, false, info.muted);
 
     char line[40];
     const char* power = !battery.valid ? "NONE" : (battery.usb_powered ? "USB" : "BATTERY");
@@ -1501,7 +1506,7 @@ public:
       const char* clock_text,
       const ClimateHistory* history,
       const DeviceConfig* config) {
-    renderHeader(fb, "CLIMATE CHART", battery, clock_text, info.quiet_hours);
+    renderHeader(fb, "CLIMATE CHART", battery, clock_text, info.quiet_hours, false, info.muted);
     const size_t sensor = info.chart_sensor < ClimateHistory::SLOT_COUNT ? info.chart_sensor : 0;
     char title[40];
     tileTitle(title, sizeof(title), config, sensor);
@@ -1584,7 +1589,7 @@ public:
       const char* clock_text,
       const WeekHistory* week,
       const DeviceConfig* config) {
-    renderHeader(fb, "WEEK CHART", battery, clock_text, info.quiet_hours);
+    renderHeader(fb, "WEEK CHART", battery, clock_text, info.quiet_hours, false, info.muted);
     const size_t sensor = info.chart_sensor < WeekHistory::SENSORS ? info.chart_sensor : 0;
     char title[40];
     tileTitle(title, sizeof(title), config, sensor);
@@ -1631,7 +1636,7 @@ public:
       const BatteryReading& battery,
       const SystemInfo& info,
       const char* clock_text) {
-    renderHeader(fb, "AUDIO SPECTRUM", battery, clock_text, info.quiet_hours);
+    renderHeader(fb, "AUDIO SPECTRUM", battery, clock_text, info.quiet_hours, false, info.muted);
 
     fb.drawHLine(SPECTRUM_X, SPECTRUM_BASE_Y, SpectrumReading::BANDS * SPECTRUM_BAR_PITCH - 2, true);
     if (!info.spectrum.valid) {
@@ -1707,7 +1712,7 @@ public:
     }
     switch (mode) {
       case DisplayMode::SENSOR_STATS:
-        renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms, info.quiet_hours, noise_history, history, config, info.stats_page);
+        renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms, info.quiet_hours, noise_history, history, config, info.stats_page, info.muted);
         break;
       case DisplayMode::SYSTEM_DIAGNOSTICS:
         renderDiagnostics(fb, battery, info, clock_text);
@@ -1723,7 +1728,7 @@ public:
         break;
       case DisplayMode::DASHBOARD:
       default:
-        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours, config, info.ventilate, info.ventilate_tiles, info.sensor_battery_latch, info.dry_tiles, info.dashboard_page);
+        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours, config, info.ventilate, info.ventilate_tiles, info.sensor_battery_latch, info.dry_tiles, info.dashboard_page, info.muted);
         break;
     }
   }

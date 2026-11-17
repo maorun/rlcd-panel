@@ -471,6 +471,7 @@ void renderDashboard() {
   info.mic_cal_busy = g_mic_cal_busy;
   info.mic_cal_failed = g_mic_cal_failed;
   info.quiet_hours = quietHours().isActive(g_rtc_time);
+  info.muted = g_state.muted;
   info.ventilate = (g_state.alert_mask & ALERT_VENTILATE) != 0;
   info.ventilate_tiles = g_state.ventilate_tiles;
   info.dry_tiles = g_state.dry_tiles;
@@ -1494,7 +1495,11 @@ void setup() {
       Runner::showScreen(sink, g_framebuffer, g_frame_rendered);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::MUTE) {
       // The flag goes to the RTC copy; the save of this wake cycle writes it with the audio trailer. No card access.
+      const bool was_muted = g_state.muted;
       Runner::setMute(sink, g_state.muted, command.reference);
+      if (g_state.muted != was_muted) {
+        renderDashboard(); // the header mute marker shows the new state
+      }
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SLOT_CLEAR) {
       // RTC copy only, no card access; the save of this wake cycle writes the state.
       RtcTime clear_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again (I2C, outside the lock)
@@ -1562,6 +1567,7 @@ void setup() {
           Es8311Hal hal;
           AudioSequencer::playConfirm(hal, config().chime_volume_pct);
         }
+        renderDashboard(); // the header mute marker shows the new state
         break;
       case BootEvent::LOOPBACK:
         runLoopbackTest();

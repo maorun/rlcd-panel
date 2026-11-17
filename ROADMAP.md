@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Mute marker in the panel header
-  - Rank: [Total: 30, Use: 6, Setup: 5, Harmony: 9, Safety: 10, Effort: S]
-  - Location: rlcd_panel/dashboard_view.h, rlcd_panel/rlcd_panel.ino, tools/preview_scenes.h, tools/render_display_preview.cpp, scripts/generate-display-preview.sh, tests/test_firmware_logic.cpp
-  - Goal: `MUTE 1` or a `BOOT` press silences each chime, but the panel does not show this state. The user can forget that the alerts are silent. Add the field `muted` to the header input of each view. When `muted` is true, the header shows a white 9x11 badge with a black `M` at the position of the quiet hours badge (`HEADER_QUIET_X`, `HEADER_QUIET_Y`). The mute marker wins over the `Q` marker, because mute silences all chimes. Without mute the `Q` rule does not change. The empty battery screen does not show the marker. A change of the mute state changes the frame CRC-32, so `FrameRefresh` flushes the next frame. Add one preview scene with the mute marker.
-  - Acceptance test: Host tests assert the `M` badge pixels for `muted` true, the `Q` badge for quiet hours without mute, the `M` badge for mute and quiet hours together, no badge for both false, a bit-exact header for both false against the old render, and different frame CRC-32 values for mute on and off. The preview script writes the new scene image.
-
 - [ ] Restore of the 24-hour histories from the MicroSD card after a power-on
   - Rank: [Total: 28, Use: 7, Setup: 5, Harmony: 9, Safety: 7, Effort: M]
   - Location: rlcd_panel/sd_logger.h, rlcd_panel/sparkline.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp

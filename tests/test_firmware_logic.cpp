@@ -3692,7 +3692,8 @@ void testPreviewScenesCoverAllDisplayModes() {
     renderScene(
         frames[i], PREVIEW_SCENES[i].mode, PREVIEW_SCENES[i].low_battery, PREVIEW_SCENES[i].quiet_hours,
         PREVIEW_SCENES[i].long_runtime, PREVIEW_SCENES[i].battery_empty, PREVIEW_SCENES[i].ventilate,
-        PREVIEW_SCENES[i].invert, PREVIEW_SCENES[i].tiles, PREVIEW_SCENES[i].stats_page, PREVIEW_SCENES[i].dry);
+        PREVIEW_SCENES[i].invert, PREVIEW_SCENES[i].tiles, PREVIEW_SCENES[i].stats_page, PREVIEW_SCENES[i].dry,
+        PREVIEW_SCENES[i].muted);
     size_t ink = 0;
     for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
       for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
@@ -3720,7 +3721,8 @@ void testPreviewScenesCoverAllDisplayModes() {
   uint8_t dash_index = PREVIEW_SCENE_COUNT;
   for (uint8_t i = 0; i < PREVIEW_SCENE_COUNT; ++i) {
     if (PREVIEW_SCENES[i].mode == DisplayMode::DASHBOARD && !PREVIEW_SCENES[i].quiet_hours &&
-        !PREVIEW_SCENES[i].battery_empty && !PREVIEW_SCENES[i].ventilate && !PREVIEW_SCENES[i].invert && !PREVIEW_SCENES[i].dry) {
+        !PREVIEW_SCENES[i].battery_empty && !PREVIEW_SCENES[i].ventilate && !PREVIEW_SCENES[i].invert && !PREVIEW_SCENES[i].dry &&
+        !PREVIEW_SCENES[i].muted) {
       (PREVIEW_SCENES[i].low_battery ? low_index : dash_index) = i;
     }
   }
@@ -4162,6 +4164,105 @@ void testQuietHoursSuppressChimeButLatchState() {
   // Invalid RTC: the chime sounds
   assert(AlertEvaluator::chimeBits(false, ALERT_NONE, ALERT_FREEZER, w.isActive(makeRtc(23, 0, false))) ==
          ALERT_FREEZER);
+}
+
+void testMuteHeaderMarker() {
+  Shtc3Reading onboard;
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 100;
+  St7305Framebuffer none, quiet, mute, both, old_both_false;
+  DashboardView::render(none, onboard, battery, nullptr, 0, "12:34", 0, nullptr, false, nullptr, false, 0, 0, 0, 0, false);
+  DashboardView::render(quiet, onboard, battery, nullptr, 0, "12:34", 0, nullptr, true);
+  DashboardView::render(mute, onboard, battery, nullptr, 0, "12:34", 0, nullptr, false, nullptr, false, 0, 0, 0, 0, true);
+  DashboardView::render(both, onboard, battery, nullptr, 0, "12:34", 0, nullptr, true, nullptr, false, 0, 0, 0, 0, true);
+  DashboardView::render(old_both_false, onboard, battery, nullptr, 0, "12:34", 0);
+  assert(memcmp(none.data(), old_both_false.data(), St7305Framebuffer::BYTE_COUNT) == 0);
+  const uint16_t x0 = DashboardView::HEADER_QUIET_X, y0 = DashboardView::HEADER_QUIET_Y;
+  auto sameBadge = [&](const St7305Framebuffer& a, const St7305Framebuffer& b) {
+    for (uint16_t y = y0; y < y0 + DashboardView::HEADER_QUIET_H; ++y) {
+      for (uint16_t x = x0; x < x0 + DashboardView::HEADER_QUIET_W; ++x) {
+        if (a.getPixel(x, y) != b.getPixel(x, y)) return false;
+      }
+    }
+    return true;
+  };
+  // The header with both flags false equals the quiet-only render outside the badge area
+  for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      const bool in_badge = x >= DashboardView::HEADER_QUIET_X &&
+                            x < DashboardView::HEADER_QUIET_X + DashboardView::HEADER_QUIET_W &&
+                            y >= DashboardView::HEADER_QUIET_Y &&
+                            y < DashboardView::HEADER_QUIET_Y + DashboardView::HEADER_QUIET_H;
+      if (!in_badge) assert(none.getPixel(x, y) == quiet.getPixel(x, y));
+    }
+  }
+  // The paged dashboard (more than 6 active tiles) shows the marker on both pages
+  {
+    SwitchBotReading many[MAX_SWITCHBOT_SENSORS];
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      many[i].valid = true;
+      many[i].temperature_c = 20.0f;
+      many[i].humidity_pct = 50;
+      many[i].mac[5] = static_cast<uint8_t>(i + 1);
+    }
+    for (uint8_t page = 0; page < 2; ++page) {
+      St7305Framebuffer p_off, p_on;
+      DashboardView::render(p_off, onboard, battery, many, MAX_SWITCHBOT_SENSORS, "12:34", 0, nullptr, false, nullptr, false, 0, 0, 0, page, false);
+      DashboardView::render(p_on, onboard, battery, many, MAX_SWITCHBOT_SENSORS, "12:34", 0, nullptr, false, nullptr, false, 0, 0, 0, page, true);
+      assert(!sameBadge(p_on, p_off));
+    }
+  }
+
+  // The mute marker draws the M badge, which differs from the Q badge and from no badge
+  assert(!sameBadge(mute, none));
+  assert(!sameBadge(mute, quiet));
+  assert(!sameBadge(quiet, none));
+  assert(sameBadge(both, mute)); // mute wins over quiet hours
+  assert(memcmp(both.data(), mute.data(), St7305Framebuffer::BYTE_COUNT) == 0);
+  // The badge is white with black ink, and only the badge area differs from the plain header
+  assert(!mute.getPixel(x0, y0));
+  bool ink = false;
+  for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      const bool inside = x >= x0 && x < x0 + DashboardView::HEADER_QUIET_W && y >= y0 &&
+                          y < y0 + DashboardView::HEADER_QUIET_H;
+      if (!inside) assert(mute.getPixel(x, y) == none.getPixel(x, y));
+      else if (mute.getPixel(x, y)) ink = true;
+    }
+  }
+  assert(ink);
+  // A change of the mute state changes the frame CRC-32
+  assert(mute.crc32() != none.crc32());
+
+  // Every view shows the marker through SystemInfo; the empty battery screen does not
+  SystemInfo info;
+  for (uint8_t m = 0; m < DISPLAY_MODE_COUNT; ++m) {
+    St7305Framebuffer off, on;
+    info.muted = false;
+    DashboardView::renderMode(off, static_cast<DisplayMode>(m), onboard, battery, nullptr, 0, info, "12:34", 0);
+    info.muted = true;
+    DashboardView::renderMode(on, static_cast<DisplayMode>(m), onboard, battery, nullptr, 0, info, "12:34", 0);
+    assert(on.crc32() != off.crc32());
+    assert(!sameBadge(on, off));
+  }
+  BatteryReading empty = battery;
+  empty.empty_protection = true;
+  for (uint8_t m = 0; m < DISPLAY_MODE_COUNT; ++m) {
+    St7305Framebuffer e_off, e_on;
+    info.muted = false;
+    DashboardView::renderMode(e_off, static_cast<DisplayMode>(m), onboard, empty, nullptr, 0, info, "12:34", 0);
+    info.muted = true;
+    DashboardView::renderMode(e_on, static_cast<DisplayMode>(m), onboard, empty, nullptr, 0, info, "12:34", 0);
+    assert(e_on.crc32() == e_off.crc32());
+  }
+
+  // FrameRefresh flushes the first timer wakeup frame after a mute change
+  FrameRefresh refresh;
+  refresh.recordFlush(none.crc32());
+  assert(refresh.shouldSkip(true, false, none.crc32()));
+  assert(!refresh.shouldSkip(true, false, mute.crc32()));
 }
 
 void testQuietHoursHeaderMarker() {
@@ -20152,6 +20253,7 @@ int main() {
   testQuietHoursNeedsValidRtc();
   testQuietHoursSuppressChimeButLatchState();
   testQuietHoursHeaderMarker();
+  testMuteHeaderMarker();
   testChimePcmSynthesis();
   testAudioStatePersistence();
   testNoiseRmsCalculation();
