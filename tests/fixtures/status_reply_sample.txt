@@ -1,0 +1,13 @@
+SENSOR 0 Onboard temp=21.4 rh=45.0 bat=-- rssi=-- age=120 state=OK
+SENSOR 1 Wohnzimmer temp=22.1 rh=48.5 bat=87 rssi=-61 age=14 state=OK
+SENSOR 2 Keller temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY
+SENSOR 3 Balkon temp=15.0 rh=70.0 bat=80 rssi=-60 age=2000 state=STALE
+SENSOR 4 Bad temp=19.5 rh=62.0 bat=9 rssi=-60 age=10 state=BATLOW
+SENSOR 5 Garage temp=12.0 rh=55.0 bat=80 rssi=-90 age=10 state=OK
+SD status=OK age=30
+RESET reason=POWERON abnormal=0
+SHTC3 nack=0 short=0 crc=0 run=0 retried=0
+BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0 thermopro=0
+RECEPTION s1=24/24 s2=-- s3=0/12 s4=10/24 s5=11/24
+POWER src=USB v=4.05 pct=88 alerts=00 muted=0
+CRC32 d52fa4d7

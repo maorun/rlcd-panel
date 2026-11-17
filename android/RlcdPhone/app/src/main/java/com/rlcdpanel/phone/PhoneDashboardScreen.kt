@@ -73,7 +73,8 @@ fun PhoneDashboardScreen(
     onToggleScan: () -> Unit,
     onCycleOutdoorSource: () -> Unit,
     onSelectRoomIndex: (Int) -> Unit,
-    onToggleVentilation: () -> Unit
+    onToggleVentilation: () -> Unit,
+    onOpenSensorHealth: () -> Unit = {}
 ) {
     MaterialTheme(colorScheme = PhoneColors) {
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -91,7 +92,8 @@ fun PhoneDashboardScreen(
                         isScanning = isScanning,
                         statusMessage = statusMessage,
                         nowMillis = nowMillis,
-                        onToggleScan = onToggleScan
+                        onToggleScan = onToggleScan,
+                        onOpenSensorHealth = onOpenSensorHealth
                     )
                 }
 
@@ -161,7 +163,8 @@ private fun StatusHeader(
     isScanning: Boolean,
     statusMessage: String,
     nowMillis: Long,
-    onToggleScan: () -> Unit
+    onToggleScan: () -> Unit,
+    onOpenSensorHealth: () -> Unit
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -197,6 +200,14 @@ private fun StatusHeader(
                 )
             ) {
                 Text(if (isScanning) "BLE Scan aktiv" else "BLE Scan starten")
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Button(
+                onClick = onOpenSensorHealth,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F), contentColor = Color.White)
+            ) {
+                Text("Sensor health")
             }
         }
     }
