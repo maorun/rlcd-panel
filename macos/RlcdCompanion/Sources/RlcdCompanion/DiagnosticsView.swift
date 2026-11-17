@@ -144,8 +144,9 @@ struct DiagnosticsView: View {
 
     @ViewBuilder private func ble(_ m: BleRejectMetrics?) -> some View {
         if let m {
+            let tpPart = m.thermopro.map { "  thermopro \(n($0))" } ?? ""
             Text("rejected \(n(m.rejected))  last \(m.lastMac ?? "--")")
-            Text("woio \(n(m.woio))  meter \(n(m.meter))  bthome \(n(m.bthome))  atc \(n(m.atc))")
+            Text("woio \(n(m.woio))  meter \(n(m.meter))  bthome \(n(m.bthome))  atc \(n(m.atc))\(tpPart)")
         } else { unknown }
     }
 

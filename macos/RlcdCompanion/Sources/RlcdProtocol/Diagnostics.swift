@@ -61,7 +61,7 @@ public struct Shtc3Stats: Equatable {
     }
 }
 
-/// `BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>`.
+/// `BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>[ thermopro=<N>]`.
 public struct BleRejectMetrics: Equatable {
     public let rejected: Int?
     public let lastMac: String?
@@ -69,6 +69,20 @@ public struct BleRejectMetrics: Equatable {
     public let meter: Int?
     public let bthome: Int?
     public let atc: Int?
+    public let thermopro: Int?
+
+    public init(
+        rejected: Int? = nil, lastMac: String? = nil, woio: Int? = nil, meter: Int? = nil,
+        bthome: Int? = nil, atc: Int? = nil, thermopro: Int? = nil
+    ) {
+        self.rejected = rejected
+        self.lastMac = lastMac
+        self.woio = woio
+        self.meter = meter
+        self.bthome = bthome
+        self.atc = atc
+        self.thermopro = thermopro
+    }
 
     public static func parse(line: String) throws -> BleRejectMetrics {
         let f = fieldMap(line)
@@ -76,7 +90,8 @@ public struct BleRejectMetrics: Equatable {
         return BleRejectMetrics(
             rejected: try counter(f, "rejected", line: line), lastMac: last == "--" ? nil : last,
             woio: try counter(f, "woio", line: line), meter: try counter(f, "meter", line: line),
-            bthome: try counter(f, "bthome", line: line), atc: try counter(f, "atc", line: line))
+            bthome: try counter(f, "bthome", line: line), atc: try counter(f, "atc", line: line),
+            thermopro: f["thermopro"] == nil ? nil : try counter(f, "thermopro", line: line))
     }
 }
 

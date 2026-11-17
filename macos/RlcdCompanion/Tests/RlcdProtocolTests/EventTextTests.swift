@@ -78,7 +78,8 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("SLOT_ASSIGN", 514)) == "slot 2 BTHOME")
         #expect(EventText.describe(row("SLOT_ASSIGN", 0x0100)) == "slot 1 WOIO")
         #expect(EventText.describe(row("SLOT_ASSIGN", 0x0503)) == "slot 5 ATC")
-        #expect(EventText.describe(row("SLOT_ASSIGN", 0x0104)) == "SLOT_ASSIGN,260")
+        #expect(EventText.describe(row("SLOT_ASSIGN", 0x0104)) == "slot 1 THERMOPRO")
+        #expect(EventText.describe(row("SLOT_ASSIGN", 0x0105)) == "SLOT_ASSIGN,261")
         #expect(EventText.describe(row("SLOT_ASSIGN", 0x0002)) == "SLOT_ASSIGN,2")
         #expect(EventText.describe(row("SLOT_ASSIGN", 0x0602)) == "SLOT_ASSIGN,1538")
     }

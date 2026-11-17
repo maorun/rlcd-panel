@@ -10,12 +10,13 @@ import Testing
         "AA:BB:CC:DD:EE:02,METER,-45,-,19.0,50.5,",
         "AA:BB:CC:DD:EE:03,BTHOME,-80,3,--,--,",
         "AA:BB:CC:DD:EE:04,ATC,-45,2,22.0,40.0,100",
+        "AA:BB:CC:DD:EE:05,THERMOPRO,-55,4,21.4,67.0,100",
         "DROPPED,3",
     ]
 
     @Test func parsesEachFormat() throws {
         let r = try ScanReply.parse(lines: Self.good)
-        #expect(r.rows.map(\.format) == ["WOIO", "METER", "BTHOME", "ATC"])
+        #expect(r.rows.map(\.format) == ["WOIO", "METER", "BTHOME", "ATC", "THERMOPRO"])
         #expect(r.rows[0].slot == 1)
         #expect(r.rows[0].batteryPct == 87)
         #expect(r.rows[0].temperatureC == 21.5)
@@ -51,7 +52,7 @@ import Testing
 
     @Test func sortsStrongestRssiFirstAndKeepsReplyOrderOnTie() throws {
         let r = try ScanReply.parse(lines: Self.good)
-        #expect(r.sortedByRssi.map { String($0.mac.suffix(2)) } == ["02", "04", "01", "03"])
+        #expect(r.sortedByRssi.map { String($0.mac.suffix(2)) } == ["02", "04", "05", "01", "03"])
     }
 
     @Test func rejectsBadReplies() {
