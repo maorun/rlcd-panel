@@ -147,11 +147,12 @@ final class AppModel: ConsoleLinkDelegate {
         scanner.onFrame = { [weak self] f, r in
             guard let self else { return }
             let prev = self.frame
-            self.frame = f
+            let merged = TelemetryFrame.merge(current: prev, incoming: f)
+            self.frame = merged
             self.frameDate = Date()
             self.now = Date()
             self.rssi = r
-            if self.logStore.record(f) { self.chartRows = self.logStore.log.downsampled(maxRows: 400) }
+            if f.page == 0 && self.logStore.record(f) { self.chartRows = self.logStore.log.downsampled(maxRows: 400) }
             self.checkAlertNotifications(previous: prev, current: f)
         }
     }

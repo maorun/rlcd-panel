@@ -17,7 +17,12 @@ data class PanelConfig(
             values["slot2_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[2],
             values["slot3_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[3],
             values["slot4_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[4],
-            values["slot5_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[5]
+            values["slot5_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[5],
+            values["slot6_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[6],
+            values["slot7_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[7],
+            values["slot8_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[8],
+            values["slot9_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[9],
+            values["slot10_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[10]
         )
 
     fun tileName(index: Int): String {

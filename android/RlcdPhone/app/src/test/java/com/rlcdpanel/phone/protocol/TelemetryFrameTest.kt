@@ -275,4 +275,81 @@ class TelemetryFrameTest {
         assertTrue(AlertTransitions.risingAlerts(f1, f1SameSeq).isEmpty)
         assertEquals(AlertMask(0x02), AlertTransitions.risingAlerts(f1, f2))
     }
+
+    @Test
+    fun mergeCombinesPagesIntoElevenTiles() {
+        assertEquals(11, TelemetryFrame.TOTAL_TILES)
+        assertEquals(11, TelemetryFrame.DEFAULT_TILE_NAMES.size)
+
+        val page0Tiles = List(6) { i ->
+            TelemetryTile(temperatureC = 20.0 + i, humidityPct = 50.0 + i)
+        }
+        val page0 = TelemetryFrame(
+            sequence = 42,
+            cellPercent = 90,
+            alerts = AlertMask(0x01),
+            tiles = page0Tiles,
+            page = 0
+        )
+
+        val merged0 = TelemetryFrame.merge(null, page0)
+        assertEquals(42, merged0.sequence)
+        assertEquals(90, merged0.cellPercent)
+        assertEquals(11, merged0.tiles.size)
+        for (i in 0 until 6) {
+            assertTrue("Tile $i should be valid", merged0.tiles[i].isValid)
+            assertEquals(20.0 + i, merged0.tiles[i].temperatureC ?: Double.NaN, 0.001)
+        }
+        for (i in 6 until 11) {
+            assertFalse("Tile $i should be invalid", merged0.tiles[i].isValid)
+        }
+
+        val page1Tiles = List(6) { i ->
+            if (i < 5) TelemetryTile(temperatureC = 30.0 + i, humidityPct = 60.0 + i)
+            else TelemetryTile(null, null)
+        }
+        val page1 = TelemetryFrame(
+            sequence = 42,
+            cellPercent = 90,
+            alerts = AlertMask(0x01),
+            tiles = page1Tiles,
+            page = 1
+        )
+
+        val merged1 = TelemetryFrame.merge(merged0, page1)
+        assertEquals(42, merged1.sequence)
+        assertEquals(11, merged1.tiles.size)
+        for (i in 0 until 6) {
+            assertTrue("Tile $i should be preserved", merged1.tiles[i].isValid)
+            assertEquals(20.0 + i, merged1.tiles[i].temperatureC ?: Double.NaN, 0.001)
+        }
+        for (i in 0 until 5) {
+            val dest = 6 + i
+            assertTrue("Tile $dest should be updated", merged1.tiles[dest].isValid)
+            assertEquals(30.0 + i, merged1.tiles[dest].temperatureC ?: Double.NaN, 0.001)
+        }
+
+        // Test next sequence updating page 0 retains page 1
+        val page0Next = TelemetryFrame(
+            sequence = 43,
+            cellPercent = 89,
+            alerts = AlertMask.NONE,
+            tiles = List(6) { i -> TelemetryTile(25.0 + i, 55.0 + i) },
+            page = 0
+        )
+        val mergedNext = TelemetryFrame.merge(merged1, page0Next)
+        assertEquals(43, mergedNext.sequence)
+        assertEquals(89, mergedNext.cellPercent)
+        assertEquals(25.0, mergedNext.tiles[0].temperatureC ?: Double.NaN, 0.001)
+        assertEquals(30.0, mergedNext.tiles[6].temperatureC ?: Double.NaN, 0.001)
+    }
+
+    @Test
+    fun panelConfigProvidesElevenNames() {
+        val config = PanelConfig()
+        assertEquals(11, config.tileNames.size)
+        assertEquals("Onboard", config.tileName(0))
+        assertEquals("Slot 1", config.tileName(1))
+        assertEquals("Slot 10", config.tileName(10))
+    }
 }

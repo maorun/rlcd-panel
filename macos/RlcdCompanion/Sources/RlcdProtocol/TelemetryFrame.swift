@@ -52,6 +52,7 @@ public struct TelemetryFrame: Equatable {
     public static let formatVersion: UInt8 = 2
     public static let size = 26
     public static let tileCount = 6
+    public static let totalTileCount = 11
 
     public let sequence: UInt8
     /// `nil` when the cell percentage is unknown (255) or out of range.
@@ -95,5 +96,32 @@ public struct TelemetryFrame: Equatable {
         }
         let cell = b[4] <= 100 ? Int(b[4]) : nil
         return TelemetryFrame(sequence: b[3], cellPercent: cell, alerts: AlertMask(rawValue: b[5]), tiles: tiles, page: page)
+    }
+
+    /// Merges an incoming 6-tile single-page frame into an 11-tile aggregate state.
+    /// Page 0 updates indices 0..5 (onboard + slots 1..5).
+    /// Page 1 updates indices 6..10 (slots 6..10).
+    public static func merge(current: TelemetryFrame?, incoming: TelemetryFrame) -> TelemetryFrame {
+        if incoming.tiles.count >= totalTileCount {
+            return incoming
+        }
+        var mergedTiles = (0..<totalTileCount).map { i in
+            current != nil && i < current!.tiles.count ? current!.tiles[i] : TelemetryTile(temperatureC: nil, humidityPct: nil)
+        }
+        let offset = incoming.page * tileCount
+        for i in 0..<incoming.tiles.count {
+            let targetIndex = offset + i
+            if targetIndex < totalTileCount {
+                mergedTiles[targetIndex] = incoming.tiles[i]
+            }
+        }
+        let cell = incoming.cellPercent ?? current?.cellPercent
+        return TelemetryFrame(
+            sequence: incoming.sequence,
+            cellPercent: cell,
+            alerts: incoming.alerts,
+            tiles: mergedTiles,
+            page: incoming.page
+        )
     }
 }

@@ -143,4 +143,70 @@ struct TelemetryFrameTests {
         #expect(Checksums.crc32(Array("123456789".utf8)) == 0xCBF4_3926)
         #expect(Checksums.crc8([0xBE, 0xEF]) == 0x92) // Sensirion datasheet: init 0xFF, poly 0x31
     }
+
+    @Test func mergeCombinesPagesIntoElevenTiles() {
+        #expect(TelemetryFrame.totalTileCount == 11)
+
+        let page0Tiles = (0..<6).map { i in
+            TelemetryTile(temperatureC: 20.0 + Double(i), humidityPct: 50.0 + Double(i))
+        }
+        let page0 = TelemetryFrame(
+            sequence: 42,
+            cellPercent: 90,
+            alerts: AlertMask(rawValue: 0x01),
+            tiles: page0Tiles,
+            page: 0
+        )
+
+        let merged0 = TelemetryFrame.merge(current: nil, incoming: page0)
+        #expect(merged0.sequence == 42)
+        #expect(merged0.cellPercent == 90)
+        #expect(merged0.tiles.count == 11)
+        for i in 0..<6 {
+            #expect(merged0.tiles[i].isValid)
+            #expect(merged0.tiles[i].temperatureC == 20.0 + Double(i))
+        }
+        for i in 6..<11 {
+            #expect(!merged0.tiles[i].isValid)
+        }
+
+        let page1Tiles = (0..<6).map { i in
+            i < 5 ? TelemetryTile(temperatureC: 30.0 + Double(i), humidityPct: 60.0 + Double(i))
+                  : TelemetryTile(temperatureC: nil, humidityPct: nil)
+        }
+        let page1 = TelemetryFrame(
+            sequence: 42,
+            cellPercent: 90,
+            alerts: AlertMask(rawValue: 0x01),
+            tiles: page1Tiles,
+            page: 1
+        )
+
+        let merged1 = TelemetryFrame.merge(current: merged0, incoming: page1)
+        #expect(merged1.sequence == 42)
+        #expect(merged1.tiles.count == 11)
+        for i in 0..<6 {
+            #expect(merged1.tiles[i].isValid)
+            #expect(merged1.tiles[i].temperatureC == 20.0 + Double(i))
+        }
+        for i in 0..<5 {
+            let dest = 6 + i
+            #expect(merged1.tiles[dest].isValid)
+            #expect(merged1.tiles[dest].temperatureC == 30.0 + Double(i))
+        }
+
+        // Test next sequence updating page 0 retains page 1
+        let page0Next = TelemetryFrame(
+            sequence: 43,
+            cellPercent: 89,
+            alerts: [],
+            tiles: (0..<6).map { i in TelemetryTile(temperatureC: 25.0 + Double(i), humidityPct: 55.0 + Double(i)) },
+            page: 0
+        )
+        let mergedNext = TelemetryFrame.merge(current: merged1, incoming: page0Next)
+        #expect(mergedNext.sequence == 43)
+        #expect(mergedNext.cellPercent == 89)
+        #expect(mergedNext.tiles[0].temperatureC == 25.0)
+        #expect(mergedNext.tiles[6].temperatureC == 30.0)
+    }
 }

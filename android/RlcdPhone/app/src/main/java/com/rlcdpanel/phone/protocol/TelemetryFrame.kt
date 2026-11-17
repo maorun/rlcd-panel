@@ -95,6 +95,8 @@ data class TelemetryFrame(
         const val PAYLOAD_SIZE: Int = 24
         const val SIZE: Int = 26
         const val TILE_COUNT: Int = 6
+        const val TILES_PER_PAGE: Int = 6
+        const val TOTAL_TILES: Int = 11
 
         val DEFAULT_TILE_NAMES = listOf(
             "Onboard",
@@ -173,6 +175,45 @@ data class TelemetryFrame(
                 alerts = alerts,
                 tiles = tiles,
                 page = page
+            )
+        }
+
+        /**
+         * Merges an incoming 6-tile single-page frame into an 11-tile aggregate state.
+         * Page 0 updates indices 0..5 (onboard + slots 1..5).
+         * Page 1 updates indices 6..10 (slots 6..10).
+         */
+        fun merge(current: TelemetryFrame?, incoming: TelemetryFrame): TelemetryFrame {
+            if (incoming.tiles.size >= TOTAL_TILES) {
+                return incoming
+            }
+            val mergedTiles = ArrayList<TelemetryTile>(TOTAL_TILES)
+            if (current != null && current.tiles.isNotEmpty()) {
+                for (i in 0 until TOTAL_TILES) {
+                    mergedTiles.add(current.tiles.getOrElse(i) { TelemetryTile(null, null) })
+                }
+            } else {
+                for (i in 0 until TOTAL_TILES) {
+                    mergedTiles.add(TelemetryTile(null, null))
+                }
+            }
+
+            val offset = incoming.page * TILES_PER_PAGE
+            for (i in incoming.tiles.indices) {
+                val targetIndex = offset + i
+                if (targetIndex < TOTAL_TILES) {
+                    mergedTiles[targetIndex] = incoming.tiles[i]
+                }
+            }
+
+            val cellPercent = incoming.cellPercent ?: current?.cellPercent
+
+            return TelemetryFrame(
+                sequence = incoming.sequence,
+                cellPercent = cellPercent,
+                alerts = incoming.alerts,
+                tiles = mergedTiles,
+                page = incoming.page
             )
         }
     }
