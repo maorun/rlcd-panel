@@ -21,18 +21,18 @@ namespace rlcd_panel {
 class VentilateLatch {
 public:
   static constexpr uint8_t TILE_COUNT = 1 + MAX_SWITCHBOT_SENSORS;
-  static constexpr uint8_t ALL_MASK = static_cast<uint8_t>((1u << TILE_COUNT) - 1u);
+  static constexpr uint16_t ALL_MASK = static_cast<uint16_t>((1u << TILE_COUNT) - 1u);
   static constexpr float RELEASE_MARGIN_PCT = 2.0f;
   static constexpr float DOOR_TRIGGER_DIFF_GM3 = 1.0f;
   static constexpr float DOOR_RELEASE_DIFF_GM3 = 0.5f;
 
   // Returns the new latch bits. `slots` must hold the calibrated readings, and `onboard` the
   // calibrated onboard reading.
-  static uint8_t update(uint8_t previous, const Shtc3Reading& onboard, const SwitchBotReading* slots,
-                        size_t slot_count, uint32_t now_ms, uint8_t limit_rh,
-                        uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS,
-                        uint8_t door_ref_slot = 0) {
-    uint8_t bits = 0;
+  static uint16_t update(uint16_t previous, const Shtc3Reading& onboard, const SwitchBotReading* slots,
+                         size_t slot_count, uint32_t now_ms, uint8_t limit_rh,
+                         uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS,
+                         uint8_t door_ref_slot = 0) {
+    uint16_t bits = 0;
     if (onboard.valid) {
       bits |= step(previous, 0, onboard.humidity_pct, limit_rh);
     }
@@ -50,14 +50,14 @@ public:
     return bits;
   }
 
-  static bool isSet(uint8_t bits, size_t tile) {
+  static bool isSet(uint16_t bits, size_t tile) {
     return tile < TILE_COUNT && (bits & (1u << tile)) != 0;
   }
 
 private:
-  static uint8_t stepSlot1WithDoor(uint8_t previous, const SwitchBotReading& slot1,
-                                   const SwitchBotReading& ref, uint8_t limit_rh,
-                                   uint32_t now_ms, uint32_t stale_timeout_ms) {
+  static uint16_t stepSlot1WithDoor(uint16_t previous, const SwitchBotReading& slot1,
+                                    const SwitchBotReading& ref, uint8_t limit_rh,
+                                    uint32_t now_ms, uint32_t stale_timeout_ms) {
     if (!ref.valid || ref.isStale(now_ms, stale_timeout_ms)) {
       return 0;
     }
@@ -69,7 +69,7 @@ private:
     const float diff_gm3 = ah_slot1 - ah_ref;
     const float rh_limit = static_cast<float>(limit_rh);
     const float rh1 = static_cast<float>(slot1.humidity_pct);
-    const uint8_t mask = static_cast<uint8_t>(1u << 1);
+    const uint16_t mask = static_cast<uint16_t>(1u << 1);
 
     if (rh1 > rh_limit && diff_gm3 >= DOOR_TRIGGER_DIFF_GM3) {
       return mask;
@@ -81,14 +81,14 @@ private:
   }
 
   // Returns the bit of `tile` (0 or its mask) for a usable humidity value.
-  static uint8_t step(uint8_t previous, uint8_t tile, float humidity_pct, uint8_t limit_rh) {
-    const uint8_t mask = static_cast<uint8_t>(1u << tile);
+  static uint16_t step(uint16_t previous, uint8_t tile, float humidity_pct, uint8_t limit_rh) {
+    const uint16_t mask = static_cast<uint16_t>(1u << tile);
     const float limit = static_cast<float>(limit_rh);
     if (humidity_pct > limit) {
       return mask;
     }
     if (humidity_pct > limit - RELEASE_MARGIN_PCT) {
-      return static_cast<uint8_t>(previous & mask);
+      return static_cast<uint16_t>(previous & mask);
     }
     return 0;
   }

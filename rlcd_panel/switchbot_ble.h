@@ -14,7 +14,24 @@ constexpr uint16_t SWITCHBOT_SERVICE_UUID = 0xFD3D;
 constexpr uint8_t SWITCHBOT_METER_TYPE = 0x54;
 constexpr uint8_t SWITCHBOT_METER_PLUS_TYPE = 0x69;
 
-constexpr size_t MAX_SWITCHBOT_SENSORS = 5;
+// Packet format of a decoded advertisement. WOIO is the Manufacturer Data of a WoIOSensor, METER the
+// Service Data of a Meter or Meter Plus.
+enum class BleFormat : uint8_t { WOIO = 0, METER = 1, BTHOME = 2, ATC = 3, THERMOPRO = 4 };
+constexpr size_t BLE_FORMAT_COUNT = 5;
+
+// Compact 2-to-4 character badge for display on LCD tiles (e.g. "TP", "SB", "BTH", "ATC").
+inline const char* formatBadge(BleFormat format) {
+  switch (format) {
+    case BleFormat::WOIO: return "SB";
+    case BleFormat::METER: return "SB";
+    case BleFormat::BTHOME: return "BTH";
+    case BleFormat::ATC: return "ATC";
+    case BleFormat::THERMOPRO: return "TP";
+    default: return "??";
+  }
+}
+
+constexpr size_t MAX_SWITCHBOT_SENSORS = 10;
 // A sensor is stale when no packet arrived for 30 minutes.
 constexpr uint32_t SENSOR_STALE_TIMEOUT_MS = 1800000;
 
@@ -28,6 +45,7 @@ struct SwitchBotReading {
   int8_t rssi = 0; // dBm of the last valid advertisement
   uint32_t updated_ms = 0;
   uint32_t packet_count = 0; // advertisements received from this sensor since power-on
+  BleFormat format = BleFormat::WOIO;
 
   // Unsigned subtraction keeps the result correct when millis() wraps around.
   bool isStale(uint32_t now_ms, uint32_t timeout_ms = SENSOR_STALE_TIMEOUT_MS) const {
@@ -182,11 +200,6 @@ public:
   }
 };
 
-// Packet format of a decoded advertisement. WOIO is the Manufacturer Data of a WoIOSensor, METER the
-// Service Data of a Meter or Meter Plus.
-enum class BleFormat : uint8_t { WOIO = 0, METER = 1, BTHOME = 2, ATC = 3, THERMOPRO = 4 };
-constexpr size_t BLE_FORMAT_COUNT = 5;
-
 // Packets the registry rejected during the current scan. The registry rejects a packet when no slot is
 // free or when each free slot has a fixed MAC of another sensor. Each counter stops at 65535. This is
 // no persistent state: resetRejects() clears it at the start of each scan.
@@ -271,6 +284,7 @@ public:
         int8_t prev_battery = slots_[i].battery_pct;
         const uint32_t prev_count = slots_[i].packet_count;
         slots_[i] = reading;
+        slots_[i].format = format;
         slots_[i].packet_count = prev_count + 1;
         if (slots_[i].battery_pct < 0 && prev_battery >= 0) {
           slots_[i].battery_pct = prev_battery;
@@ -283,6 +297,7 @@ public:
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       if (fixed_[i] && memcmp(fixed_mac_[i], reading.mac, 6) == 0) {
         slots_[i] = reading;
+        slots_[i].format = format;
         slots_[i].packet_count = 1;
         markAssigned(i, format);
         return true;
@@ -293,6 +308,7 @@ public:
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       if (!slots_[i].valid && accepts(i, reading.mac)) {
         slots_[i] = reading;
+        slots_[i].format = format;
         slots_[i].packet_count = 1;
         markAssigned(i, format);
         return true;
@@ -566,24 +582,24 @@ private:
 // SwitchBot and BTHome packets both fill SwitchBotReading::battery_pct.
 class SensorBatteryLatch {
 public:
-  static constexpr uint8_t ALL_MASK = static_cast<uint8_t>((1u << MAX_SWITCHBOT_SENSORS) - 1u);
+  static constexpr uint16_t ALL_MASK = static_cast<uint16_t>((1u << MAX_SWITCHBOT_SENSORS) - 1u);
   static constexpr uint8_t LIMIT_OFF = 0;
   static constexpr uint8_t MAX_LIMIT_PCT = 50;
   static constexpr uint8_t RELEASE_MARGIN_PCT = 5;
 
-  static uint8_t update(uint8_t previous, const SwitchBotReading* slots, size_t slot_count, uint32_t now_ms,
-                        uint8_t limit_pct, uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS) {
+  static uint16_t update(uint16_t previous, const SwitchBotReading* slots, size_t slot_count, uint32_t now_ms,
+                         uint8_t limit_pct, uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS) {
     if (limit_pct == LIMIT_OFF || limit_pct > MAX_LIMIT_PCT || slots == nullptr) {
       return 0;
     }
-    uint8_t bits = 0;
+    uint16_t bits = 0;
     for (size_t i = 0; i < slot_count && i < MAX_SWITCHBOT_SENSORS; ++i) {
-      const uint8_t mask = static_cast<uint8_t>(1u << i);
+      const uint16_t mask = static_cast<uint16_t>(1u << i);
       const SwitchBotReading& r = slots[i];
       if (!r.valid) {
         continue;
       }
-      uint8_t held = static_cast<uint8_t>(previous & mask);
+      uint16_t held = static_cast<uint16_t>(previous & mask);
       if (!r.isStale(now_ms, stale_timeout_ms) && r.battery_pct >= 0) {
         if (r.battery_pct <= static_cast<int>(limit_pct)) {
           held = mask;
@@ -596,7 +612,7 @@ public:
     return bits;
   }
 
-  static bool isSet(uint8_t bits, size_t slot) {
+  static bool isSet(uint16_t bits, size_t slot) {
     return slot < MAX_SWITCHBOT_SENSORS && (bits & (1u << slot)) != 0;
   }
 };

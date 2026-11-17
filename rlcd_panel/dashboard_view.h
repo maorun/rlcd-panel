@@ -32,13 +32,14 @@ struct SystemInfo {
   bool mic_cal_failed = false; // the last calibration of this wake cycle was rejected
   bool quiet_hours = false; // chimes are suppressed now; the header shows "Q"
   bool ventilate = false;   // ventilation advice is active; the dashboard header shows the banner
-  uint8_t ventilate_tiles = 0; // VentilateLatch bits: the tiles that show the "V" badge
-  uint8_t sensor_battery_latch = 0; // SensorBatteryLatch bits: the slot tiles that show "BAT LOW"
-  uint8_t dry_tiles = 0;       // DryLatch bits: the tiles that show the "D" badge
+  uint16_t ventilate_tiles = 0; // VentilateLatch bits: the tiles that show the "V" badge
+  uint16_t sensor_battery_latch = 0; // SensorBatteryLatch bits: the slot tiles that show "BAT LOW"
+  uint16_t dry_tiles = 0;       // DryLatch bits: the tiles that show the "D" badge
   bool config_from_sd = false; // true: settings come from /sdcard/config.ini
   uint8_t config_rejected = 0; // rejected config.ini lines; above 0 shows "(N ERR)"
   LoopbackResult loopback;     // last speaker to microphone test of this wake cycle
   SpectrumReading spectrum;    // last spectrum capture; invalid shows "NO DATA"
+  uint8_t dashboard_page = 0;  // dashboard page (0: tiles 0-5, 1: tiles 6-10) when >6 active tiles exist
   uint8_t stats_page = 0;      // stats view page: 0 slots 1 to 3, 1 slots 4 and 5 (needs an active slot 4 or 5)
   uint8_t chart_sensor = 0;    // sensor of the climate chart view: 0 onboard, 1 to 3 registry slots
   BatteryRuntime runtime;      // remaining battery runtime; invalid shows "--"
@@ -197,7 +198,7 @@ public:
 
   // Fills `out` with the rectangles of `count` tiles (clamped to 1..6). Returns the tile count.
   static size_t layoutTiles(size_t count, TileRect (&out)[MAX_TILES]) {
-    const size_t n = count < 1 ? 1 : (count > MAX_TILES ? MAX_TILES : count);
+    const size_t n = count < 1 ? 1 : (count > 6 ? 6 : count);
     const uint16_t half_w = static_cast<uint16_t>((GRID_W - GRID_GAP) / 2);                  // 190
     const uint16_t third_w = static_cast<uint16_t>((GRID_W - 2 * GRID_GAP) / 3);             // 124
     const uint16_t half_h = static_cast<uint16_t>((GRID_H - GRID_GAP) / 2);                  // 124
@@ -389,24 +390,20 @@ public:
       bool battery_low = false,
       char unit = 'C',
       bool dry_badge = false,
-      const char* stale_age = nullptr) {
+      const char* stale_age = nullptr,
+      const char* format_badge = nullptr) {
     const TileStyle style = tileStyle(w, h);
     if (style == TileStyle::COMPACT) {
       renderTileCompact(fb, x, y, w, h, title, valid, temp_c, humidity_pct, battery_pct, battery_voltage_v, is_stale,
-                        history, ventilate_badge, temperature_history, battery_low, unit, dry_badge, stale_age);
+                        history, ventilate_badge, temperature_history, battery_low, unit, dry_badge, stale_age, format_badge);
       return;
     }
     if (style == TileStyle::LARGE) {
       renderTileLarge(fb, x, y, w, h, title, valid, temp_c, humidity_pct, battery_pct, battery_voltage_v, is_stale,
-                      history, ventilate_badge, temperature_history, battery_low, unit, dry_badge, stale_age);
+                      history, ventilate_badge, temperature_history, battery_low, unit, dry_badge, stale_age, format_badge);
       return;
     }
-    fb.drawRect(x, y, w, h, true);
-    fb.drawHLine(x, y + 24, w, true);
-    fb.drawText(x + 8, y + 6, title, 2, true);
-    if (is_stale) {
-      drawStaleBadge(fb, x, y, w, static_cast<uint16_t>(8 + strlen(title) * 12 - 2), stale_age);
-    }
+    drawTileFrame(fb, x, y, w, h, title, is_stale, stale_age, format_badge);
 
     if (!valid) {
       fb.drawText(x + 12, y + 56, "NO SIGNAL", 2, true);
@@ -523,7 +520,8 @@ public:
 
   // Title in the band of a tile (scale 2, scale 1 when the tile is too narrow) and the STALE badge.
   static void drawTileFrame(St7305Framebuffer& fb, uint16_t x, uint16_t y, uint16_t w, uint16_t h,
-                            const char* title, bool is_stale, const char* stale_age = nullptr) {
+                            const char* title, bool is_stale, const char* stale_age = nullptr,
+                            const char* format_badge = nullptr) {
     fb.drawRect(x, y, w, h, true);
     fb.drawHLine(x, y + 24, w, true);
     const bool has_age = stale_age != nullptr && stale_age[0] != '\0';
@@ -535,6 +533,15 @@ public:
     fb.drawText(x + 8, y + (sc == 2 ? 6 : 9), title, sc, true);
     if (is_stale) {
       drawStaleBadge(fb, x, y, w, static_cast<uint16_t>(8 + strlen(title) * 6 * sc - sc), stale_age);
+    } else if (format_badge != nullptr && format_badge[0] != '\0') {
+      char badge[12];
+      snprintf(badge, sizeof(badge), "[%s]", format_badge);
+      const uint16_t bw = static_cast<uint16_t>(strlen(badge) * 6 - 1);
+      const uint16_t bx = static_cast<uint16_t>(x + w - bw - 6);
+      const uint16_t title_end = static_cast<uint16_t>(8 + strlen(title) * 6 * sc - sc);
+      if (bx > x + title_end + 4) {
+        fb.drawText(bx, y + 9, badge, 1, true);
+      }
     }
   }
 
@@ -563,8 +570,9 @@ public:
       St7305Framebuffer& fb, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* title, bool valid,
       float temp_c, float humidity_pct, int8_t battery_pct, float battery_voltage_v, bool is_stale,
       const HumidityHistory* history, bool ventilate_badge, const TemperatureHistory* temperature_history,
-      bool battery_low, char unit, bool dry_badge, const char* stale_age) {
-    drawTileFrame(fb, x, y, w, h, title, is_stale, stale_age);
+      bool battery_low, char unit, bool dry_badge, const char* stale_age,
+      const char* format_badge = nullptr) {
+    drawTileFrame(fb, x, y, w, h, title, is_stale, stale_age, format_badge);
     const bool narrow = w < 160;
     const uint16_t pad = narrow ? 8 : 12;
     if (!valid) {
@@ -636,8 +644,9 @@ public:
       St7305Framebuffer& fb, uint16_t x, uint16_t y, uint16_t w, uint16_t h, const char* title, bool valid,
       float temp_c, float humidity_pct, int8_t battery_pct, float battery_voltage_v, bool is_stale,
       const HumidityHistory* history, bool ventilate_badge, const TemperatureHistory* temperature_history,
-      bool battery_low, char unit, bool dry_badge, const char* stale_age) {
-    drawTileFrame(fb, x, y, w, h, title, is_stale, stale_age);
+      bool battery_low, char unit, bool dry_badge, const char* stale_age,
+      const char* format_badge = nullptr) {
+    drawTileFrame(fb, x, y, w, h, title, is_stale, stale_age, format_badge);
     if (!valid) {
       fb.drawText(x + 12, y + h / 2 - 7, "NO SIGNAL", 2, true);
       return;
@@ -775,74 +784,128 @@ public:
       bool quiet_hours = false,
       const DeviceConfig* config = nullptr,
       bool ventilate = false,
-      uint8_t ventilate_tiles = 0,
-      uint8_t sensor_battery_latch = 0,
-      uint8_t dry_tiles = 0) {
-    renderHeader(fb, "RLCD CLIMATE PANEL", battery, clock_text, quiet_hours, ventilate);
-
+      uint16_t ventilate_tiles = 0,
+      uint16_t sensor_battery_latch = 0,
+      uint16_t dry_tiles = 0,
+      uint8_t dashboard_page = 0) {
     size_t slot_of_tile[MAX_TILES] = {};
-    const size_t n = activeTileCount(switchbot_slots, switchbot_count, config, slot_of_tile);
-    TileRect rects[MAX_TILES];
-    layoutTiles(n, rects);
+    const size_t total_tiles = activeTileCount(switchbot_slots, switchbot_count, config, slot_of_tile);
 
-    // Tile 0: Onboard SHTC3 and 18650 Battery
-    char onboard_title[24];
-    tileTitle(onboard_title, sizeof(onboard_title), config, 0);
-    renderTile(
-        fb,
-        rects[0].x,
-        rects[0].y,
-        rects[0].w,
-        rects[0].h,
-        onboard_title,
-        onboard.valid,
-        onboard.temperature_c,
-        onboard.humidity_pct,
-        battery.percentage,
-        battery.valid ? battery.voltage_v : -1.0f,
-        false,
-        history != nullptr ? &history->slots[ClimateHistory::ONBOARD] : nullptr,
-        VentilateLatch::isSet(ventilate_tiles, 0),
-        history != nullptr ? &history->temperatures[ClimateHistory::ONBOARD] : nullptr,
-        false,
-        tempUnit(config),
-        DryLatch::isSet(dry_tiles, 0));
+    if (total_tiles <= 6) {
+      renderHeader(fb, "RLCD CLIMATE PANEL", battery, clock_text, quiet_hours, ventilate);
+      TileRect rects[MAX_TILES];
+      layoutTiles(total_tiles, rects);
 
-    // Tiles 1..5: SwitchBot Outdoor Meters (WoIOSensor), BTHome v2 and ATC sensors
-    for (size_t t = 1; t < n; ++t) {
-      const size_t i = slot_of_tile[t];
-      char title[24];
-      tileTitle(title, sizeof(title), config, i + 1);
-
-      const bool have_slot = (switchbot_slots != nullptr && i < switchbot_count);
-      const SwitchBotReading empty_reading{};
-      const SwitchBotReading& sb = have_slot ? switchbot_slots[i] : empty_reading;
-      const bool tile_stale = sb.isStale(now_ms, staleTimeoutMs(config));
-      char age[8] = "";
-      if (tile_stale) {
-        formatStaleAge(age, sizeof(age), sb, now_ms);
-      }
-
+      // Tile 0: Onboard SHTC3 and 18650 Battery
+      char onboard_title[24];
+      tileTitle(onboard_title, sizeof(onboard_title), config, 0);
       renderTile(
-          fb,
-          rects[t].x,
-          rects[t].y,
-          rects[t].w,
-          rects[t].h,
-          title,
-          sb.valid,
-          sb.temperature_c,
-          static_cast<float>(sb.humidity_pct),
-          sb.battery_pct,
-          -1.0f,
-          tile_stale,
-          history != nullptr ? &history->slots[1 + i] : nullptr,
-          VentilateLatch::isSet(ventilate_tiles, 1 + i),
-          history != nullptr ? &history->temperatures[1 + i] : nullptr,
-          SensorBatteryLatch::isSet(sensor_battery_latch, i),
-          tempUnit(config),
-          DryLatch::isSet(dry_tiles, 1 + i),
-          age);
+          fb, rects[0].x, rects[0].y, rects[0].w, rects[0].h, onboard_title,
+          onboard.valid, onboard.temperature_c, onboard.humidity_pct, battery.percentage,
+          battery.valid ? battery.voltage_v : -1.0f, false,
+          history != nullptr ? &history->slots[ClimateHistory::ONBOARD] : nullptr,
+          VentilateLatch::isSet(ventilate_tiles, 0),
+          history != nullptr ? &history->temperatures[ClimateHistory::ONBOARD] : nullptr,
+          false, tempUnit(config), DryLatch::isSet(dry_tiles, 0), nullptr, "I2C");
+
+      for (size_t t = 1; t < total_tiles; ++t) {
+        const size_t i = slot_of_tile[t];
+        char title[24];
+        tileTitle(title, sizeof(title), config, i + 1);
+        const bool have_slot = (switchbot_slots != nullptr && i < switchbot_count);
+        const SwitchBotReading empty_reading{};
+        const SwitchBotReading& sb = have_slot ? switchbot_slots[i] : empty_reading;
+        const bool tile_stale = sb.isStale(now_ms, staleTimeoutMs(config));
+        char age[8] = "";
+        if (tile_stale) {
+          formatStaleAge(age, sizeof(age), sb, now_ms);
+        }
+        renderTile(
+            fb, rects[t].x, rects[t].y, rects[t].w, rects[t].h, title,
+            sb.valid, sb.temperature_c, static_cast<float>(sb.humidity_pct), sb.battery_pct,
+            -1.0f, tile_stale,
+            history != nullptr ? &history->slots[1 + i] : nullptr,
+            VentilateLatch::isSet(ventilate_tiles, 1 + i),
+            history != nullptr ? &history->temperatures[1 + i] : nullptr,
+            SensorBatteryLatch::isSet(sensor_battery_latch, i),
+            tempUnit(config), DryLatch::isSet(dry_tiles, 1 + i),
+            age, sb.valid ? formatBadge(sb.format) : nullptr);
+      }
+    } else {
+      // Paged dashboard for >6 tiles (2 pages)
+      const uint8_t page = dashboard_page % 2;
+      char header_title[32];
+      snprintf(header_title, sizeof(header_title), "RLCD CLIMATE %u/2", static_cast<unsigned>(page + 1));
+      renderHeader(fb, header_title, battery, clock_text, quiet_hours, ventilate);
+
+      if (page == 0) {
+        TileRect rects[MAX_TILES];
+        layoutTiles(6, rects);
+
+        // Tile 0: Onboard SHTC3
+        char onboard_title[24];
+        tileTitle(onboard_title, sizeof(onboard_title), config, 0);
+        renderTile(
+            fb, rects[0].x, rects[0].y, rects[0].w, rects[0].h, onboard_title,
+            onboard.valid, onboard.temperature_c, onboard.humidity_pct, battery.percentage,
+            battery.valid ? battery.voltage_v : -1.0f, false,
+            history != nullptr ? &history->slots[ClimateHistory::ONBOARD] : nullptr,
+            VentilateLatch::isSet(ventilate_tiles, 0),
+            history != nullptr ? &history->temperatures[ClimateHistory::ONBOARD] : nullptr,
+            false, tempUnit(config), DryLatch::isSet(dry_tiles, 0), nullptr, "I2C");
+
+        for (size_t t = 1; t < 6; ++t) {
+          const size_t i = slot_of_tile[t];
+          char title[24];
+          tileTitle(title, sizeof(title), config, i + 1);
+          const bool have_slot = (switchbot_slots != nullptr && i < switchbot_count);
+          const SwitchBotReading empty_reading{};
+          const SwitchBotReading& sb = have_slot ? switchbot_slots[i] : empty_reading;
+          const bool tile_stale = sb.isStale(now_ms, staleTimeoutMs(config));
+          char age[8] = "";
+          if (tile_stale) {
+            formatStaleAge(age, sizeof(age), sb, now_ms);
+          }
+          renderTile(
+              fb, rects[t].x, rects[t].y, rects[t].w, rects[t].h, title,
+              sb.valid, sb.temperature_c, static_cast<float>(sb.humidity_pct), sb.battery_pct,
+              -1.0f, tile_stale,
+              history != nullptr ? &history->slots[1 + i] : nullptr,
+              VentilateLatch::isSet(ventilate_tiles, 1 + i),
+              history != nullptr ? &history->temperatures[1 + i] : nullptr,
+              SensorBatteryLatch::isSet(sensor_battery_latch, i),
+              tempUnit(config), DryLatch::isSet(dry_tiles, 1 + i),
+              age, sb.valid ? formatBadge(sb.format) : nullptr);
+        }
+      } else {
+        const size_t page_tiles = total_tiles - 6;
+        TileRect rects[MAX_TILES];
+        layoutTiles(page_tiles, rects);
+
+        for (size_t t = 0; t < page_tiles; ++t) {
+          const size_t i = slot_of_tile[6 + t];
+          char title[24];
+          tileTitle(title, sizeof(title), config, i + 1);
+          const bool have_slot = (switchbot_slots != nullptr && i < switchbot_count);
+          const SwitchBotReading empty_reading{};
+          const SwitchBotReading& sb = have_slot ? switchbot_slots[i] : empty_reading;
+          const bool tile_stale = sb.isStale(now_ms, staleTimeoutMs(config));
+          char age[8] = "";
+          if (tile_stale) {
+            formatStaleAge(age, sizeof(age), sb, now_ms);
+          }
+          renderTile(
+              fb, rects[t].x, rects[t].y, rects[t].w, rects[t].h, title,
+              sb.valid, sb.temperature_c, static_cast<float>(sb.humidity_pct), sb.battery_pct,
+              -1.0f, tile_stale,
+              history != nullptr ? &history->slots[1 + i] : nullptr,
+              VentilateLatch::isSet(ventilate_tiles, 1 + i),
+              history != nullptr ? &history->temperatures[1 + i] : nullptr,
+              SensorBatteryLatch::isSet(sensor_battery_latch, i),
+              tempUnit(config), DryLatch::isSet(dry_tiles, 1 + i),
+              age, sb.valid ? formatBadge(sb.format) : nullptr);
+        }
+      }
     }
   }
 
@@ -1050,10 +1113,21 @@ public:
     }
   }
 
-  // True when slot 4 or slot 5 is active: the stats view has a second page.
+  // Total pages needed for the active sensors in stats view (3 slots per page).
+  static uint8_t statsTotalPages(const SwitchBotReading* slots, size_t slot_count, const DeviceConfig* config) {
+    size_t last_active = 0;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (slotActive(slots, slot_count, config, i)) {
+        last_active = i + 1;
+      }
+    }
+    if (last_active == 0) return 1;
+    return static_cast<uint8_t>((last_active + STATS_SLOT_COUNT - 1) / STATS_SLOT_COUNT);
+  }
+
+  // True when the stats view has more than one page.
   static bool statsHasSecondPage(const SwitchBotReading* slots, size_t slot_count, const DeviceConfig* config) {
-    return slotActive(slots, slot_count, config, STATS_SLOT_COUNT) ||
-           slotActive(slots, slot_count, config, STATS_SLOT_COUNT + 1);
+    return statsTotalPages(slots, slot_count, config) > 1;
   }
 
   static void renderSensorStats(
@@ -1068,14 +1142,21 @@ public:
       const ClimateHistory* history = nullptr,
       const DeviceConfig* config = nullptr,
       uint8_t page = 0) {
-    // The title shows the page ("1/2", "2/2") only when slot 4 or 5 is active; page 1 needs that too.
-    const bool two_pages = statsHasSecondPage(switchbot_slots, switchbot_count, config);
-    const uint8_t shown_page = two_pages && page == 1 ? 1 : 0;
-    renderHeader(fb, two_pages ? (shown_page == 1 ? "SENSOR STATS 2/2" : "SENSOR STATS 1/2") : "SENSOR STATS",
-                 battery, clock_text, quiet_hours);
+    const uint8_t total_pages = statsTotalPages(switchbot_slots, switchbot_count, config);
+    const uint8_t shown_page = (total_pages > 1 && page < total_pages) ? page : 0;
+    char header_title[32];
+    if (total_pages > 1) {
+      snprintf(header_title, sizeof(header_title), "SENSOR STATS %u/%u",
+               static_cast<unsigned>(shown_page + 1), static_cast<unsigned>(total_pages));
+    } else {
+      snprintf(header_title, sizeof(header_title), "SENSOR STATS");
+    }
+    renderHeader(fb, header_title, battery, clock_text, quiet_hours);
 
-    const size_t first_slot = shown_page == 1 ? STATS_SLOT_COUNT : 0;
-    const size_t block_count = shown_page == 1 ? MAX_SWITCHBOT_SENSORS - STATS_SLOT_COUNT : STATS_SLOT_COUNT;
+    const size_t first_slot = shown_page * STATS_SLOT_COUNT;
+    const size_t block_count = (first_slot + STATS_SLOT_COUNT <= MAX_SWITCHBOT_SENSORS)
+                                   ? STATS_SLOT_COUNT
+                                   : (MAX_SWITCHBOT_SENSORS - first_slot);
     for (size_t k = 0; k < block_count; ++k) {
       const size_t i = first_slot + k;
       const uint16_t y = static_cast<uint16_t>(34 + k * SENSOR_BLOCK_PITCH);
@@ -1105,8 +1186,11 @@ public:
       snprintf(line, sizeof(line), "%s %s", label, rssi);
       drawLine(fb, 10, y, line);
 
-      formatMac(line, sizeof(line), sb.mac);
-      drawLine(fb, 10, static_cast<uint16_t>(y + 18), line);
+      char mac[20];
+      formatMac(mac, sizeof(mac), sb.mac);
+      char mac_src[32];
+      snprintf(mac_src, sizeof(mac_src), "%s [%s]", mac, formatBadge(sb.format));
+      drawLine(fb, 10, static_cast<uint16_t>(y + 18), mac_src);
 
       // The BLE task can stamp a packet shortly after the caller read now_ms: show 0 s for such a
       // packet from the near future (under 65 s) instead of a wrapped age near 49.7 days.
@@ -1587,7 +1671,7 @@ public:
         break;
       case DisplayMode::DASHBOARD:
       default:
-        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours, config, info.ventilate, info.ventilate_tiles, info.sensor_battery_latch, info.dry_tiles);
+        render(fb, onboard, battery, switchbot_slots, switchbot_count, clock_text, now_ms, history, info.quiet_hours, config, info.ventilate, info.ventilate_tiles, info.sensor_battery_latch, info.dry_tiles, info.dashboard_page);
         break;
     }
   }

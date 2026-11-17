@@ -86,7 +86,8 @@ data class TelemetryFrame(
     val sequence: Int,
     val cellPercent: Int?,
     val alerts: AlertMask,
-    val tiles: List<TelemetryTile>
+    val tiles: List<TelemetryTile>,
+    val page: Int = 0
 ) {
     companion object {
         const val COMPANY_ID: Int = 0xFFFF
@@ -101,7 +102,12 @@ data class TelemetryFrame(
             "Slot 2",
             "Slot 3",
             "Slot 4",
-            "Slot 5"
+            "Slot 5",
+            "Slot 6",
+            "Slot 7",
+            "Slot 8",
+            "Slot 9",
+            "Slot 10"
         )
 
         /**
@@ -142,6 +148,7 @@ data class TelemetryFrame(
             val cellPercent = if (rawCell <= 100) rawCell else null
             val alerts = AlertMask(payload[3].toInt() and 0xFF)
             val validMask = payload[4].toInt() and 0xFF
+            val page = if ((validMask and 0x80) != 0) 1 else 0
 
             val tiles = ArrayList<TelemetryTile>(TILE_COUNT)
             for (i in 0 until TILE_COUNT) {
@@ -164,7 +171,8 @@ data class TelemetryFrame(
                 sequence = sequence,
                 cellPercent = cellPercent,
                 alerts = alerts,
-                tiles = tiles
+                tiles = tiles,
+                page = page
             )
         }
     }

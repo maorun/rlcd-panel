@@ -33,26 +33,33 @@ public struct DailyFolder: Equatable {
 }
 
 public struct DailyLog: Equatable {
-    public enum Format: Equatable { case v1, v2, v3, v4 }
+    public enum Format: Equatable { case v1, v2, v3, v4, v5 }
 
-    public static let sensorNames = ["onboard", "s1", "s2", "s3", "s4", "s5"]
+    public static let sensorNames = ["onboard", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10"]
     private static let statColumns = ["temp_min_c", "temp_max_c", "temp_mean_c", "rh_min", "rh_max", "rh_mean"]
 
     public let format: Format
     public let rows: [DailyRow]
 
-    /// Sensors in the rows of a format: `daily_v3` and `daily_v4` add the slots 4 and 5.
-    private static func sensorCount(_ format: Format) -> Int { format == .v3 || format == .v4 ? sensorNames.count : 4 }
+    /// Sensors in the rows of a format: `daily_v5` has 11 sensors, `daily_v3` and `daily_v4` have 6 sensors.
+    private static func sensorCount(_ format: Format) -> Int {
+        switch format {
+        case .v5: return sensorNames.count
+        case .v3, .v4: return 6
+        default: return 4
+        }
+    }
 
     private static func header(_ format: Format) -> String {
         var names = ["date"] + sensorNames.prefix(sensorCount(format)).flatMap { s in statColumns.map { "\(s)_\($0)" } }
         names += ["noise_min_db", "noise_max_db"]
         if format != .v1 { names += ["noise_peak_db", "noise_peak_hour", "noise_events_sum"] }
-        if format == .v4 { names += (0..<sensorNames.count).map { "mold_h_\($0)" } }
+        if format == .v4 { names += (0..<6).map { "mold_h_\($0)" } }
+        if format == .v5 { names += (0..<sensorNames.count).map { "mold_h_\($0)" } }
         return names.joined(separator: ",")
     }
 
-    /// The header row selects the format (27, 30, 42 or 48 columns). An unknown header throws `missingLine`; a row with a
+    /// The header row selects the format (27, 30, 42, 48 or 83 columns). An unknown header throws `missingLine`; a row with a
     /// wrong column count or a non-numeric field throws `badLine`. An empty field gives `nil`.
     public static func parse(text: String) throws -> DailyLog {
         let lines = text.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
@@ -65,10 +72,12 @@ public struct DailyLog: Equatable {
         case header(.v2): format = .v2
         case header(.v3): format = .v3
         case header(.v4): format = .v4
+        case header(.v5): format = .v5
         default: throw ParseError.missingLine("header")
         }
         let sensorTotal = sensorCount(format)
-        let columns = 1 + sensorTotal * statColumns.count + (format == .v1 ? 2 : 5) + (format == .v4 ? sensorNames.count : 0)
+        let moldCount = (format == .v4 ? 6 : (format == .v5 ? sensorNames.count : 0))
+        let columns = 1 + sensorTotal * statColumns.count + (format == .v1 ? 2 : 5) + moldCount
         let rows = try lines.dropFirst().map { line -> DailyRow in
             let f = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
             guard f.count == columns, isDate(f[0]) else { throw ParseError.badLine(line) }
@@ -94,7 +103,7 @@ public struct DailyLog: Equatable {
                 noisePeakDb: format != .v1 ? try integer(n + 2) : nil,
                 noisePeakHour: format != .v1 ? try integer(n + 3) : nil,
                 noiseEventsSum: format != .v1 ? try integer(n + 4) : nil,
-                moldHours: format == .v4 ? try (0..<sensorNames.count).map { try integer(n + 5 + $0) } : [])
+                moldHours: moldCount > 0 ? try (0..<moldCount).map { try integer(n + 5 + $0) } : [])
         }
         return DailyLog(format: format, rows: rows)
     }

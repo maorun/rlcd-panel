@@ -97,7 +97,7 @@ public enum ConfigSchema {
             e("chime_repeat_h", .alerts, .integer(min: 0, max: 24), "0", "h", "Sound an active alert again after this time. 0 is off."),
             e("quiet_hours_start_hour", .alerts, .integer(min: 0, max: 23), "22", "h", "Set the first hour of the quiet hours."),
             e("quiet_hours_end_hour", .alerts, .integer(min: 0, max: 23), "7", "h", "Set the last hour of the quiet hours."),
-            e("climate_alert_tiles", .alerts, .bitMask(bits: 6), "63", "", "Bit mask of the tiles that feed the freezer and mold alerts. Bit 0 is onboard. Bits 1 to 5 are the slots."),
+            e("climate_alert_tiles", .alerts, .bitMask(bits: 11), "2047", "", "Bit mask of the tiles that feed the freezer and mold alerts. Bit 0 is onboard. Bits 1 to 10 are the slots."),
             e("sensor_battery_limit_pct", .alerts, .integer(min: 0, max: 50), "10", "%", "Show BAT LOW at or below this sensor battery level. 0 is off."),
             // Power
             e("wake_interval_s", .power, .integer(min: 30, max: 900), "60", "s", "Set the time between two scans on battery power."),
@@ -109,21 +109,21 @@ public enum ConfigSchema {
             e("log_retention_months", .power, .integer(min: 0, max: 120), "0", "months", "Keep the log files for this time. 0 keeps all files."),
             // Sensors
             e("mic_spl_offset_db", .sensors, .decimal(min: -20, max: 20), "0.0", "dB", "Add this value to the microphone level."),
-            e("outdoor_slot", .sensors, .integer(min: 0, max: 5), "0", "", "Select the outdoor slot for the ventilation advice. 0 is off."),
-            e("door_ref_slot", .sensors, .integer(min: 0, max: 5), "0", "", "Reference slot for door ventilation of slot 1. 0 is off."),
+            e("outdoor_slot", .sensors, .integer(min: 0, max: 10), "0", "", "Select the outdoor slot for the ventilation advice. 0 is off."),
+            e("door_ref_slot", .sensors, .integer(min: 0, max: 10), "0", "", "Reference slot for door ventilation of slot 1. 0 is off."),
         ]
-        for n in 1...5 {
+        for n in 1...10 {
             out.append(e("slot\(n)_temp_offset_c", .sensors, .decimal(min: -5, max: 5), "0.0", "°C", "Add this value to the slot \(n) temperature."))
         }
-        for n in 1...5 {
+        for n in 1...10 {
             out.append(e("slot\(n)_rh_offset_pct", .sensors, .decimal(min: -10, max: 10), "0.0", "%RH", "Add this value to the slot \(n) humidity."))
         }
-        for n in 1...5 {
+        for n in 1...10 {
             out.append(e("slot\(n)_rh_gain", .sensors, .decimal(min: 0.9, max: 1.1), "1.0", "", "Multiply the raw slot \(n) humidity by this value before the offset. Steps of 0.002."))
         }
         out.append(e("onboard_name", .sensors, .name, "", "", "Name of the onboard tile."))
-        for n in 1...5 { out.append(e("slot\(n)_name", .sensors, .name, "", "", "Name of the slot \(n) tile.")) }
-        for n in 1...5 {
+        for n in 1...10 { out.append(e("slot\(n)_name", .sensors, .name, "", "", "Name of the slot \(n) tile.")) }
+        for n in 1...10 {
             out.append(e("slot\(n)_mac", .sensors, .mac, "", "", "Fixed MAC of slot \(n). Empty means no fixed MAC."))
         }
         // BLE
@@ -154,6 +154,13 @@ public enum ConfigSchema {
         "usb_temp_offset_c", "dry_alert_limit_rh", "rh_gain",
         "slot1_rh_gain", "slot2_rh_gain", "slot3_rh_gain",
         "slot4_rh_gain", "slot5_rh_gain", "door_ref_slot",
+        "slot6_name", "slot7_name", "slot8_name", "slot9_name", "slot10_name",
+        "slot6_mac", "slot7_mac", "slot8_mac", "slot9_mac", "slot10_mac",
+        "slot6_temp_offset_c", "slot7_temp_offset_c", "slot8_temp_offset_c",
+        "slot9_temp_offset_c", "slot10_temp_offset_c",
+        "slot6_rh_offset_pct", "slot7_rh_offset_pct", "slot8_rh_offset_pct",
+        "slot9_rh_offset_pct", "slot10_rh_offset_pct",
+        "slot6_rh_gain", "slot7_rh_gain", "slot8_rh_gain", "slot9_rh_gain", "slot10_rh_gain",
     ]
     private static let index: [String: Int] = Dictionary(uniqueKeysWithValues: keys.enumerated().map { ($1, $0) })
 
@@ -252,8 +259,8 @@ public enum ConfigSchema {
         }
         // The firmware rejects a MAC that another slot holds at that moment. Replay the batch order.
         var macs: [String: String] = [:]
-        for n in 1...5 { macs["slot\(n)_mac"] = (allValues["slot\(n)_mac"] ?? "").uppercased() }
-        for n in 1...5 {
+        for n in 1...10 { macs["slot\(n)_mac"] = (allValues["slot\(n)_mac"] ?? "").uppercased() }
+        for n in 1...10 {
             let key = "slot\(n)_mac"
             guard let c = changes.first(where: { $0.key == key }) else { continue }
             let value = c.new.uppercased()

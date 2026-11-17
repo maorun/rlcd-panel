@@ -37,21 +37,27 @@ public struct ClimateFolder: Equatable {
 }
 
 public struct ClimateLog: Equatable {
-    public enum Format: Equatable { case v2, v3, v4, v5 }
+    public enum Format: Equatable { case v2, v3, v4, v5, v6 }
 
-    public static let sensorNames = ["onboard", "s1", "s2", "s3", "s4", "s5"]
+    public static let sensorNames = ["onboard", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10"]
 
     public let format: Format
     public let rows: [ClimateRow]
 
-    /// Sensors in the rows of a format: `climate_v5` adds the slots 4 and 5.
-    private static func sensorCount(_ format: Format) -> Int { format == .v5 ? sensorNames.count : 4 }
+    /// Sensors in the rows of a format: `climate_v6` has 11 sensors, `climate_v5` has 6 sensors.
+    private static func sensorCount(_ format: Format) -> Int {
+        switch format {
+        case .v6: return sensorNames.count
+        case .v5: return 6
+        default: return 4
+        }
+    }
 
     /// Noise columns of a format, after the sensor columns.
     private static func noiseColumns(_ format: Format) -> [String] {
         var names = ["noise_rms", "noise_db", "noise_band"]
         if format != .v2 { names.append("noise_events") }
-        if format == .v4 || format == .v5 { names += ["noise_l10", "noise_l90"] }
+        if format == .v4 || format == .v5 || format == .v6 { names += ["noise_l10", "noise_l90"] }
         return names
     }
 
@@ -63,7 +69,7 @@ public struct ClimateLog: Equatable {
         return (names + noiseColumns(format)).joined(separator: ",")
     }
 
-    /// The header row selects the format (18, 19, 21 or 27 columns). An unknown header throws `missingLine`; a row
+    /// The header row selects the format (18, 19, 21, 27 or 42 columns). An unknown header throws `missingLine`; a row
     /// with a wrong column count or a non-numeric field throws `badLine`. An empty field gives `nil`.
     public static func parse(text: String) throws -> ClimateLog {
         let lines = text.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
@@ -76,6 +82,7 @@ public struct ClimateLog: Equatable {
         case header(.v3): format = .v3
         case header(.v4): format = .v4
         case header(.v5): format = .v5
+        case header(.v6): format = .v6
         default: throw ParseError.missingLine("header")
         }
         let sensorTotal = sensorCount(format)
@@ -109,7 +116,7 @@ public struct ClimateLog: Equatable {
             }
             let n = noiseStart
             let hasEvents = format != .v2
-            let hasLevels = format == .v4 || format == .v5
+            let hasLevels = format == .v4 || format == .v5 || format == .v6
             return ClimateRow(
                 timestamp: f[0], batteryPct: try integer(1), batteryV: try decimal(2), usb: try flag(3), sensors: sensors,
                 noiseRms: try integer(n), noiseDb: try integer(n + 1), noiseBand: f[n + 2].isEmpty ? nil : f[n + 2],

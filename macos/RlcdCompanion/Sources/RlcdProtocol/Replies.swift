@@ -185,7 +185,7 @@ public enum HistoryReply {
         return try lines.dropFirst(2).map { line in
             let c = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
             guard c.count == 5, let s = Int(c[0]), let a = Int(c[1]),
-                  (0...5).contains(s), (0...23).contains(a) else { throw ParseError.badLine(line) }
+                  (0...10).contains(s), (0...23).contains(a) else { throw ParseError.badLine(line) }
             return HistoryRow(sensor: s, ageHours: a, temperatureC: number(c[2]), humidityPct: number(c[3]), noiseDb: number(c[4]))
         }
     }
@@ -222,7 +222,7 @@ public enum WeekReply {
         return try lines.dropFirst(2).map { line in
             let c = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
             guard c.count == 7, let s = Int(c[0]), let d = Int(c[1]),
-                  (0...5).contains(s), (0...6).contains(d), isWeekDate(c[2]),
+                  (0...10).contains(s), (0...6).contains(d), isWeekDate(c[2]),
                   seen.insert(s * 7 + d).inserted else { throw ParseError.badLine(line) }
             let row = WeekRow(sensor: s, day: d, date: c[2], temperatureMinC: number(c[3]), temperatureMaxC: number(c[4]),
                               humidityMinPct: number(c[5]), humidityMaxPct: number(c[6]))
@@ -390,19 +390,19 @@ public struct ConfigReply: Equatable {
     /// `ble_console` value; 0 when the firmware does not report the key.
     public var bleConsoleLevel: Int { Int(values["ble_console"] ?? "") ?? 0 }
 
-    /// Sensor name for tile index (0 = onboard_name, 1..5 = slot1_name..slot5_name).
+    /// Sensor name for tile index (0 = onboard_name, 1..10 = slot1_name..slot10_name).
     public func name(forSlot slot: Int) -> String? {
         if slot == 0 {
             if let n = values["onboard_name"], !n.isEmpty { return n }
-        } else if (1...5).contains(slot) {
+        } else if (1...10).contains(slot) {
             if let n = values["slot\(slot)_name"], !n.isEmpty { return n }
         }
         return nil
     }
 
-    /// Fixed MAC for slot index (1..5 = slot1_mac..slot5_mac).
+    /// Fixed MAC for slot index (1..10 = slot1_mac..slot10_mac).
     public func mac(forSlot slot: Int) -> String? {
-        guard (1...5).contains(slot) else { return nil }
+        guard (1...10).contains(slot) else { return nil }
         if let m = values["slot\(slot)_mac"], !m.isEmpty { return m }
         return nil
     }
@@ -419,7 +419,7 @@ public enum ConsoleCommand: Equatable {
     case pattern(Int)
     case mute(Bool)
     case rtcTrim
-    /// `SLOT CLEAR N` (N 1 to 5): frees one registry slot at once. The firmware answers `ERR FIXED_MAC` for a slot with a fixed MAC.
+    /// `SLOT CLEAR N` (N 1 to 10): frees one registry slot at once. The firmware answers `ERR FIXED_MAC` for a slot with a fixed MAC.
     case slotClear(Int)
     case set(key: String, value: String)
     case calib(Int)
@@ -431,7 +431,7 @@ public enum ConsoleCommand: Equatable {
     public static func pattern(n: Int) -> ConsoleCommand { .pattern(n) }
 
     /// Keys whose empty value the firmware accepts (no fixed MAC).
-    static let emptyAllowedKeys: Set<String> = ["slot1_mac", "slot2_mac", "slot3_mac", "slot4_mac", "slot5_mac"]
+    static let emptyAllowedKeys: Set<String> = Set((1...10).map { "slot\($0)_mac" })
 
     /// Text without the line end. Returns `nil` for a key or value that the firmware cannot take
     /// (empty value except for `slotN_mac`, white space, `=` in the key, or a line above 40 bytes).
@@ -463,13 +463,13 @@ public enum ConsoleCommand: Equatable {
             guard SlotAssignment.slots.contains(slot) else { return nil }
             return "SLOT CLEAR \(slot)"
         case let .calib(reference):
-            guard (0...5).contains(reference) else { return nil }
+            guard (0...10).contains(reference) else { return nil }
             return "CALIB \(reference)"
         case let .salt(reference):
-            guard (0...5).contains(reference) else { return nil }
+            guard (0...10).contains(reference) else { return nil }
             return "SALT \(reference)"
         case let .saltMagnesium(reference):
-            guard (0...5).contains(reference) else { return nil }
+            guard (0...10).contains(reference) else { return nil }
             return "SALT \(reference) MGCL2"
         case let .set(key, value):
             let text = "SET \(key)=\(value)"

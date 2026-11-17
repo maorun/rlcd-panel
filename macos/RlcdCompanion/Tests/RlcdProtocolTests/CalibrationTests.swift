@@ -184,13 +184,9 @@ import Testing
     }
 
     @Test func calibCommandLine() {
-        #expect(ConsoleCommand.calib(6).line == nil)
-        #expect(ConsoleCommand.calib(5).line == "CALIB 5")
-        #expect(ConsoleCommand.calib(4).line == "CALIB 4")
+        for n in 0...10 { #expect(ConsoleCommand.calib(n).line == "CALIB \(n)") }
+        #expect(ConsoleCommand.calib(11).line == nil)
         #expect(ConsoleCommand.calib(-1).line == nil)
-        #expect(ConsoleCommand.calib(0).line == "CALIB 0")
-        #expect(ConsoleCommand.calib(2).line == "CALIB 2")
-        #expect(ConsoleCommand.calib(3).line == "CALIB 3")
     }
 
     @Test func readOnlyErrorStopsBatch() throws {
@@ -269,8 +265,8 @@ import Testing
     }
 
     @Test func commandLine() {
-        for n in 0...5 { #expect(ConsoleCommand.salt(n).line == "SALT \(n)") }
-        #expect(ConsoleCommand.salt(6).line == nil)
+        for n in 0...10 { #expect(ConsoleCommand.salt(n).line == "SALT \(n)") }
+        #expect(ConsoleCommand.salt(11).line == nil)
         #expect(ConsoleCommand.salt(-1).line == nil)
     }
 
@@ -290,8 +286,8 @@ import Testing
     }
 
     @Test func commandLine() {
-        for n in 0...5 { #expect(ConsoleCommand.saltMagnesium(n).line == "SALT \(n) MGCL2") }
-        #expect(ConsoleCommand.saltMagnesium(6).line == nil)
+        for n in 0...10 { #expect(ConsoleCommand.saltMagnesium(n).line == "SALT \(n) MGCL2") }
+        #expect(ConsoleCommand.saltMagnesium(11).line == nil)
         #expect(ConsoleCommand.saltMagnesium(-1).line == nil)
     }
 

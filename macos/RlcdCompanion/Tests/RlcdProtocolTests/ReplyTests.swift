@@ -200,14 +200,14 @@ struct ReplyParserTests {
         #expect(rows[3].humidityPct == 70.0)
         #expect(throws: ParseError.self) { try HistoryReply.parse(lines: ["BEGIN HISTORY", "wrong"]) }
         #expect(throws: ParseError.self) { try HistoryReply.parse(lines: ["BEGIN HISTORY", HistoryReply.header, "0,x,1,2,3"]) }
-        // Slot 4 and slot 5 rows (sensor 4 and 5) parse. Sensor 6 is out of range.
-        let wide = try HistoryReply.parse(lines: ["BEGIN HISTORY", HistoryReply.header, "4,0,11.6,57.0,", "5,23,27.3,36.0,"])
-        #expect(wide.map(\.sensor) == [4, 5])
-        #expect(throws: ParseError.self) { try HistoryReply.parse(lines: ["BEGIN HISTORY", HistoryReply.header, "6,0,1,2,"]) }
-        for bad in ["-1,0,1,2,3", "6,0,1,2,3", "0,-1,1,2,3", "0,24,1,2,3"] {
+        // Slots 4 to 10 rows (sensor 4 to 10) parse. Sensor 11 is out of range.
+        let wide = try HistoryReply.parse(lines: ["BEGIN HISTORY", HistoryReply.header, "4,0,11.6,57.0,", "10,23,27.3,36.0,"])
+        #expect(wide.map(\.sensor) == [4, 10])
+        #expect(throws: ParseError.self) { try HistoryReply.parse(lines: ["BEGIN HISTORY", HistoryReply.header, "11,0,1,2,"]) }
+        for bad in ["-1,0,1,2,3", "11,0,1,2,3", "0,-1,1,2,3", "0,24,1,2,3"] {
             #expect(throws: ParseError.self) { try HistoryReply.parse(lines: ["BEGIN HISTORY", HistoryReply.header, bad]) }
         }
-        #expect(try HistoryReply.parse(lines: ["BEGIN HISTORY", HistoryReply.header, "5,23,1,2,3"]).count == 1)
+        #expect(try HistoryReply.parse(lines: ["BEGIN HISTORY", HistoryReply.header, "10,23,1,2,3"]).count == 1)
     }
 
     @Test func week() throws {

@@ -634,17 +634,17 @@ public:
     }
   }
 
-  static constexpr uint8_t ALL_SENSORS = (1u << SENSORS) - 1;
+  static constexpr uint16_t ALL_SENSORS = static_cast<uint16_t>((1u << SENSORS) - 1u);
 
   // Bit mask of the sensors that took part in the last 24 hours: bit 0 is the onboard sensor with a valid
-  // reading, bits 1 to 5 are the registry slots with a valid reading that is at most 24 h old. A dead slot
+  // reading, bits 1 to 10 are the registry slots with a valid reading that is at most 24 h old. A dead slot
   // keeps its old samples in the 24-hour history, so only this mask tells that they are not from today.
-  static uint8_t liveSensors(bool onboard_valid, const SwitchBotRegistry& registry, uint32_t now_ms) {
-    uint8_t mask = onboard_valid ? 1 : 0;
+  static uint16_t liveSensors(bool onboard_valid, const SwitchBotRegistry& registry, uint32_t now_ms) {
+    uint16_t mask = onboard_valid ? 1u : 0u;
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       const SwitchBotReading& r = registry.slot(i);
       if (r.valid && !r.isStale(now_ms, 24UL * ClimateHistory::SAMPLE_INTERVAL_MS)) {
-        mask = static_cast<uint8_t>(mask | (2u << i));
+        mask = static_cast<uint16_t>(mask | (1u << (1 + i)));
       }
     }
     return mask;
@@ -658,7 +658,7 @@ public:
   // than 7 days (a wrong date that a sync corrected) only takes the new stamp. Returns true when the
   // state changed.
   bool advance(const RtcTime& now, const ClimateHistory& history, bool history_fresh,
-               uint8_t live_mask = ALL_SENSORS) {
+               uint16_t live_mask = ALL_SENSORS) {
     if (!now.valid || now.oscillator_stopped || now.year < MIN_TRUSTED_YEAR ||
         !NtpTime::isValidDate(now.year, now.month, now.day)) {
       return false;

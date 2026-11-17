@@ -3,6 +3,13 @@ import Testing
 @testable import RlcdProtocol
 
 struct ClimateLogTests {
+    /// Header of `SdLogCodec::formatHeader` (v6).
+    private static let headerV6 = "timestamp,battery_pct,battery_v,usb,onboard_temp_c,onboard_rh,"
+        + "s1_temp_c,s1_rh,s1_battery_pct,s2_temp_c,s2_rh,s2_battery_pct,s3_temp_c,s3_rh,s3_battery_pct,"
+        + "s4_temp_c,s4_rh,s4_battery_pct,s5_temp_c,s5_rh,s5_battery_pct,s6_temp_c,s6_rh,s6_battery_pct,"
+        + "s7_temp_c,s7_rh,s7_battery_pct,s8_temp_c,s8_rh,s8_battery_pct,s9_temp_c,s9_rh,s9_battery_pct,"
+        + "s10_temp_c,s10_rh,s10_battery_pct,"
+        + "noise_rms,noise_db,noise_band,noise_events,noise_l10,noise_l90"
     /// Header of `SdLogCodec::formatHeader` (v5).
     private static let headerV5 = "timestamp,battery_pct,battery_v,usb,onboard_temp_c,onboard_rh,"
         + "s1_temp_c,s1_rh,s1_battery_pct,s2_temp_c,s2_rh,s2_battery_pct,s3_temp_c,s3_rh,s3_battery_pct,"
@@ -14,9 +21,33 @@ struct ClimateLogTests {
     private static let headerV3 = headerV4.replacingOccurrences(of: ",noise_l10,noise_l90", with: "")
     private static let headerV2 = headerV3.replacingOccurrences(of: ",noise_events", with: "")
 
+    /// Row of `SdLogCodec::formatRow` (v6): onboard and slot 1 with values, slots 2 to 10 empty.
+    private static let rowV6 = "2026-11-14 10:00:00,85,4.05,1,21.5,45.0,19.0,50,87,,,,,,,,,,,,,,,,,,,,,,,,,,,,1200,48,QUIET,3,52,40"
     /// Row of `SdLogCodec::formatRow` (v5): onboard and slot 1 with values, slots 2 to 5 empty.
     private static let rowV5 = "2026-11-14 10:00:00,85,4.05,1,21.5,45.0,19.0,50,87,,,,,,,,,,,,,1200,48,QUIET,3,52,40"
     private static let rowV4 = "2026-10-01 09:00:00,70,3.90,0,20.0,40.5,18.5,55,,,,,,,,1000,45,QUIET,2,50,38"
+
+    @Test func parsesClimateV6() throws {
+        let log = try ClimateLog.parse(text: Self.headerV6 + "\n" + Self.rowV6 + "\n")
+        #expect(log.format == .v6)
+        #expect(log.rows.count == 1)
+        let r = log.rows[0]
+        #expect(r.timestamp == "2026-11-14 10:00:00")
+        #expect(r.batteryPct == 85)
+        #expect(r.batteryV == 4.05)
+        #expect(r.usb == true)
+        #expect(r.sensors.count == 11)
+        #expect(r.sensors[0] == ClimateSensorReading(tempC: 21.5, rh: 45.0, batteryPct: nil))
+        #expect(r.sensors[1] == ClimateSensorReading(tempC: 19.0, rh: 50, batteryPct: 87))
+        #expect(r.sensors[2] == ClimateSensorReading(tempC: nil, rh: nil, batteryPct: nil))
+        #expect(r.sensors[10].tempC == nil)
+        #expect(r.noiseRms == 1200)
+        #expect(r.noiseDb == 48)
+        #expect(r.noiseBand == "QUIET")
+        #expect(r.noiseEvents == 3)
+        #expect(r.noiseL10 == 52)
+        #expect(r.noiseL90 == 40)
+    }
 
     @Test func parsesClimateV5() throws {
         let log = try ClimateLog.parse(text: Self.headerV5 + "\n" + Self.rowV5 + "\n")

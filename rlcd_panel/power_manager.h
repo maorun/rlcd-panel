@@ -94,9 +94,9 @@ struct PersistentState {
   bool has_logged = false;   // false until the first MicroSD attempt, success or failure
   DailyLogState daily;       // local day of the last handled daily summary
   bool muted = false;        // true: alerts stay silent
-  uint8_t ventilate_tiles = 0; // ventilation badge latch, bit 0 onboard, bits 1..5 slots (VentilateLatch)
-  uint8_t dry_tiles = 0;       // dry air badge latch, bit 0 onboard, bits 1..5 slots (DryLatch)
-  uint8_t sensor_battery_latch = 0; // low battery latch, bits 0..4 are the registry slots (SensorBatteryLatch)
+  uint16_t ventilate_tiles = 0; // ventilation badge latch, bit 0 onboard, bits 1..10 slots (VentilateLatch)
+  uint16_t dry_tiles = 0;       // dry air badge latch, bit 0 onboard, bits 1..10 slots (DryLatch)
+  uint16_t sensor_battery_latch = 0; // low battery latch, bits 0..9 are the registry slots (SensorBatteryLatch)
   uint32_t last_chime_ms = 0; // clock value of the last chime or alert rising edge (chime_repeat_h)
   uint8_t alert_mask = ALERT_NONE; // alerts active in the last wake cycle (hysteresis latch)
   NoiseBand noise_band = NoiseBand::QUIET; // band of the last noise window (hysteresis latch)
@@ -205,9 +205,9 @@ struct PersistentState {
       return;
     }
     registry.clearSlot(index);
-    sensor_battery_latch = static_cast<uint8_t>(sensor_battery_latch & ~(1u << index));
-    ventilate_tiles = static_cast<uint8_t>(ventilate_tiles & ~(2u << index));
-    dry_tiles = static_cast<uint8_t>(dry_tiles & ~(2u << index));
+    sensor_battery_latch = static_cast<uint16_t>(sensor_battery_latch & ~(1u << index));
+    ventilate_tiles = static_cast<uint16_t>(ventilate_tiles & ~(2u << index));
+    dry_tiles = static_cast<uint16_t>(dry_tiles & ~(2u << index));
     history.slots[1 + index].clear();
     history.temperatures[1 + index].clear();
     reception.clear(index);
@@ -339,13 +339,13 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 59;
+  static constexpr uint8_t STATE_VERSION = 60;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
   // Slot layout: valid, mac[6], temperature (float bits), humidity, battery, fahrenheit,
-  // rssi (int8), updated_ms, packet_count.
-  static constexpr size_t SLOT_SIZE = 1 + 6 + 4 + 1 + 1 + 1 + 1 + 4 + 4;
+  // rssi (int8), format (uint8), updated_ms, packet_count.
+  static constexpr size_t SLOT_SIZE = 1 + 6 + 4 + 1 + 1 + 1 + 1 + 1 + 4 + 4;
   // History ring (humidity, then temperature, per slot): count, head, 24 samples (int16). Trailer: last sample time, sampled flag.
   static constexpr size_t HISTORY_RING_SIZE = 1 + 1 + HumidityHistory::CAPACITY * 2;
   // Each slot has a humidity ring and a temperature ring of the same layout.
@@ -359,8 +359,8 @@ public:
   // SD log trailer: last log time, logged flag, then the daily summary stamp: flag, year (uint16), month, day,
   // then the daily noise summary (peak dB, peak hour, event sum uint16), then the card status (one byte) and the clock stamp of that result (uint32).
   static constexpr size_t SD_LOG_SIZE = 4 + 1 + 1 + 2 + 1 + 1 + 1 + 1 + 2 + 1 + 4;
-  // Audio trailer: last chime stamp (uint32), then one byte each: flags, muted | mask << 1 | band << 6, sensor battery latch, tile badge latch.
-  static constexpr size_t AUDIO_SIZE = 4 + 4; // last chime stamp (uint32) first, then 4 bytes: flags byte (bit 0 ventilate, bit 1 sensor battery alert, bit 2 heat alert), muted | mask << 1 | band << 6, sensor battery latch bits, then the tile badge latch bits
+  // Audio trailer: last chime stamp (uint32), flags byte, muted | mask << 1 | band << 6, sensor battery latch (uint16), tile badge latch (uint16).
+  static constexpr size_t AUDIO_SIZE = 4 + 6;
   // NTP trailer: last attempt time, flags (bit 0 attempted, bit 1 last ok), failure count, then the
   // RTC drift: flags (bit 0 synced, bit 1 drift known), last sync (UTC seconds), drift, rate (int32), interval (uint32).
   static constexpr size_t NTP_SIZE = 4 + 1 + 1 + 1 + 4 + 4 + 4 + 4;
@@ -370,10 +370,10 @@ public:
   static constexpr size_t MACS_SIZE = DeviceConfig::SLOT_COUNT * DeviceConfig::MAC_BYTES;
   // Rejected config.ini lines: the count (one byte), then four 16-bit line numbers.
   static constexpr size_t REJECTS_SIZE = 1 + ConfigRejects::MAX_LINES * 2;
-  // The offset arrays keep one entry for each of the five slots. Each slot has offset keys.
+  // The offset arrays keep one entry for each of the slots. Each slot has offset keys.
   // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
-  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, door ref slot, ventilate limit, sensor battery limit, display invert, climate alert tiles, battery offset (int16), slot release hours, night wake interval (uint16), temperature unit (one byte, 'C' or 'F'), chime repeat hours, heat alert limit, dry alert limit, BLE broadcast enabled, BLE console, USB temperature offset (int8), RH gain and one RH gain for each slot (int8 in 0.002 steps around 1.00), RH offset (float), one temperature offset and one RH offset for each slot (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
-  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + (1 + DeviceConfig::SLOT_COUNT) + 2 * DeviceConfig::SLOT_COUNT * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
+  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, door ref slot, ventilate limit, sensor battery limit, display invert, climate alert tiles (uint16), battery offset (int16), slot release hours, night wake interval (uint16), temperature unit (one byte, 'C' or 'F'), chime repeat hours, heat alert limit, dry alert limit, BLE broadcast enabled, BLE console, USB temperature offset (int8), RH gain and one RH gain for each slot (int8 in 0.002 steps around 1.00), RH offset (float), one temperature offset and one RH offset for each slot (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
+  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + (1 + DeviceConfig::SLOT_COUNT) + 2 * DeviceConfig::SLOT_COUNT * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
   // Header: magic, version, mode, chart sensor, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -387,8 +387,8 @@ public:
   static constexpr size_t FRAME_SIZE = FrameRefresh::SERIALIZED_SIZE;
   // BLE reception trailer (just before the checksum): for each registry slot a 24-bit mask (3 bytes, little-endian) and the scan count.
   static constexpr size_t RECEPTION_SIZE = ReceptionHistory::SERIALIZED_SIZE;
-  // Dry air badge latch (one byte, bits 0..5, just before the checksum).
-  static constexpr size_t DRY_SIZE = 1;
+  // Dry air badge latch (uint16, bits 0..10, just before the checksum).
+  static constexpr size_t DRY_SIZE = 2;
   // Week chart trailer (just before the checksum): 6 sensors x 7 days x 4 bytes, then the day stamp.
   static constexpr size_t WEEK_SIZE = WeekHistory::SERIALIZED_SIZE;
   // USB power mask of the onboard temperature samples (3 bytes, little-endian, just before the checksum).
@@ -547,6 +547,7 @@ public:
       out[pos++] = static_cast<uint8_t>(r.battery_pct);
       out[pos++] = r.fahrenheit_mode ? 1 : 0;
       out[pos++] = static_cast<uint8_t>(r.rssi);
+      out[pos++] = static_cast<uint8_t>(r.format);
       putU32(out, pos, r.updated_ms);
       putU32(out, pos, r.packet_count);
     }
@@ -606,8 +607,10 @@ public:
                                       ((state.alert_mask & ALERT_HEAT) != 0 ? 4 : 0));
     out[pos++] = static_cast<uint8_t>((state.muted ? 1 : 0) | ((state.alert_mask & (ALERT_MASK_ALL & ~ALERT_VENTILATE & ~ALERT_SENSOR_BATTERY & ~ALERT_HEAT)) << 1) |
         (static_cast<uint8_t>(state.noise_band) << 6));
-    out[pos++] = static_cast<uint8_t>(state.sensor_battery_latch & SensorBatteryLatch::ALL_MASK);
-    out[pos++] = static_cast<uint8_t>(state.ventilate_tiles & VentilateLatch::ALL_MASK);
+    out[pos++] = static_cast<uint8_t>(state.sensor_battery_latch & 0xFF);
+    out[pos++] = static_cast<uint8_t>((state.sensor_battery_latch >> 8) & 0xFF);
+    out[pos++] = static_cast<uint8_t>(state.ventilate_tiles & 0xFF);
+    out[pos++] = static_cast<uint8_t>((state.ventilate_tiles >> 8) & 0xFF);
     putU32(out, pos, state.ntp.last_attempt_ms);
     out[pos++] = static_cast<uint8_t>((state.ntp.has_attempted ? 1 : 0) | (state.ntp.last_ok ? 2 : 0));
     out[pos++] = state.ntp.failures;
@@ -644,7 +647,8 @@ public:
     out[pos++] = state.config.ventilate_limit_rh;
     out[pos++] = state.config.sensor_battery_limit_pct;
     out[pos++] = state.config.display_invert;
-    out[pos++] = state.config.climate_alert_tiles;
+    out[pos++] = static_cast<uint8_t>(state.config.climate_alert_tiles & 0xFF);
+    out[pos++] = static_cast<uint8_t>((state.config.climate_alert_tiles >> 8) & 0xFF);
     out[pos++] = static_cast<uint8_t>(static_cast<uint16_t>(state.config.battery_offset_mv) & 0xFF);
     out[pos++] = static_cast<uint8_t>(static_cast<uint16_t>(state.config.battery_offset_mv) >> 8);
     out[pos++] = state.config.slot_release_h;
@@ -723,7 +727,8 @@ public:
       out[pos++] = static_cast<uint8_t>((m >> 16) & 0xFF);
       out[pos++] = state.reception.scans(i);
     }
-    out[pos++] = static_cast<uint8_t>(state.dry_tiles & DryLatch::ALL_MASK);
+    out[pos++] = static_cast<uint8_t>(state.dry_tiles & 0xFF);
+    out[pos++] = static_cast<uint8_t>((state.dry_tiles >> 8) & 0xFF);
     state.week.serialize(out + pos);
     pos += WEEK_SIZE;
     out[pos++] = static_cast<uint8_t>(state.history.usb_mask & 0xFF);
@@ -799,13 +804,15 @@ public:
       r.battery_pct = static_cast<int8_t>(data[pos++]);
       const uint8_t fahrenheit = data[pos++];
       r.rssi = static_cast<int8_t>(data[pos++]);
+      const uint8_t fmt = data[pos++];
       r.updated_ms = getU32(data, pos);
       r.packet_count = getU32(data, pos);
       if (!(r.temperature_c >= -100.0f && r.temperature_c <= 100.0f) || r.humidity_pct > 100 ||
-          r.battery_pct < -1 || r.battery_pct > 100 || fahrenheit > 1) {
+          r.battery_pct < -1 || r.battery_pct > 100 || fahrenheit > 1 || fmt > static_cast<uint8_t>(BleFormat::THERMOPRO)) {
         return false;
       }
       r.fahrenheit_mode = fahrenheit == 1;
+      r.format = static_cast<BleFormat>(fmt);
       if (!s.registry.restoreSlot(i, r)) {
         return false; // duplicate MAC
       }
@@ -930,11 +937,13 @@ public:
                                         ((vent & 2) != 0 ? ALERT_SENSOR_BATTERY : 0) |
                                         ((vent & 4) != 0 ? ALERT_HEAT : 0));
     s.noise_band = static_cast<NoiseBand>(band);
-    s.sensor_battery_latch = data[pos++];
+    s.sensor_battery_latch = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    pos += 2;
     if ((s.sensor_battery_latch & ~SensorBatteryLatch::ALL_MASK) != 0) {
       return false;
     }
-    s.ventilate_tiles = data[pos++];
+    s.ventilate_tiles = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    pos += 2;
     if ((s.ventilate_tiles & ~VentilateLatch::ALL_MASK) != 0) {
       return false;
     }
@@ -994,7 +1003,8 @@ public:
     s.config.ventilate_limit_rh = data[pos++];
     s.config.sensor_battery_limit_pct = data[pos++];
     s.config.display_invert = data[pos++];
-    s.config.climate_alert_tiles = data[pos++];
+    s.config.climate_alert_tiles = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    pos += 2;
     s.config.battery_offset_mv = static_cast<int16_t>(static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8)));
     pos += 2;
     s.config.slot_release_h = data[pos++];
@@ -1096,7 +1106,8 @@ public:
       }
       pos += 4;
     }
-    s.dry_tiles = data[pos++];
+    s.dry_tiles = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    pos += 2;
     if ((s.dry_tiles & ~DryLatch::ALL_MASK) != 0) {
       return false;
     }

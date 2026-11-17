@@ -87,9 +87,9 @@ struct PanelClockTests {
     }
 
     @Test func buildSlotClearLine() {
-        for n in 1...5 { #expect(ConsoleCommand.slotClear(n).line == "SLOT CLEAR \(n)") }
+        for n in 1...10 { #expect(ConsoleCommand.slotClear(n).line == "SLOT CLEAR \(n)") }
         #expect(ConsoleCommand.slotClear(0).line == nil)
-        #expect(ConsoleCommand.slotClear(6).line == nil)
+        #expect(ConsoleCommand.slotClear(11).line == nil)
         #expect(ConsoleCommand.slotClear(-1).line == nil)
     }
 

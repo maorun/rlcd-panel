@@ -71,6 +71,27 @@ struct DailyLogTests {
         #expect(try DailyLog.parse(text: headerV3() + "\n" + v3 + "\n").rows[0].moldHours.isEmpty)
     }
 
+    /// Header of `SdLogCodec::formatDailyHeader` (v5): eleven sensors, then noise, then mold_h_0 to mold_h_10.
+    private func headerV5() -> String {
+        var names = ["date"] + DailyLog.sensorNames.flatMap { s in Self.columns.map { "\(s)_\($0)" } }
+        names += ["noise_min_db", "noise_max_db", "noise_peak_db", "noise_peak_hour", "noise_events_sum"]
+        names += (0..<DailyLog.sensorNames.count).map { "mold_h_\($0)" }
+        return names.joined(separator: ",")
+    }
+
+    @Test func parsesDailyV5WithTenSlots() throws {
+        let empty = Array(repeating: "", count: 6).joined(separator: ",")
+        let moldEmpty = Array(repeating: "", count: 10).joined(separator: ",")
+        let line = "2026-11-14,20.1,24.8,22.3,40.0,55.5,47.2" + String(repeating: ",\(empty)", count: 10) + ",35,62,71,18,12,7,\(moldEmpty)"
+        let log = try DailyLog.parse(text: headerV5() + "\n" + line + "\n")
+        #expect(log.format == .v5)
+        #expect(log.rows.count == 1)
+        #expect(log.rows[0].sensors.count == 11)
+        #expect(log.rows[0].noiseEventsSum == 12)
+        #expect(log.rows[0].moldHours == [7, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil])
+        #expect(DailyLog.isDailyFileName("daily_v5_2026.csv"))
+    }
+
     @Test func parsesDailyV1() throws {
         let log = try DailyLog.parse(text: header(v2: false) + "\n" + row(v2: false) + "\n")
         #expect(log.format == .v1)
@@ -180,7 +201,9 @@ struct DailyLogTests {
         #expect(DailyLog.isDailyFileName("daily_v1_2025.csv"))
         #expect(DailyLog.isDailyFileName("daily_v2_2026.csv"))
         #expect(DailyLog.isDailyFileName("daily_v3_2026.csv"))
-        #expect(!DailyLog.isDailyFileName("daily_v5_2026.csv"))
+        #expect(DailyLog.isDailyFileName("daily_v4_2026.csv"))
+        #expect(DailyLog.isDailyFileName("daily_v5_2026.csv"))
+        #expect(!DailyLog.isDailyFileName("daily_v6_2026.csv"))
         #expect(!DailyLog.isDailyFileName("climate_v4_202611.csv"))
         #expect(!DailyLog.isDailyFileName("events_v1_2026.csv"))
         #expect(!DailyLog.isDailyFileName("../daily_v2_2026.csv"))

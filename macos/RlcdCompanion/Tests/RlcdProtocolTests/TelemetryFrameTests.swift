@@ -120,6 +120,17 @@ struct TelemetryFrameTests {
         #expect(!(try TelemetryFrame.decode(d)).tiles[0].isValid)
     }
 
+    @Test func decodesPageOneBit() throws {
+        var d = hexData(try loadVectors()[0].hex)
+        d[6] |= 0x80
+        d[25] = Checksums.crc8(d[2..<25])
+        let frame = try TelemetryFrame.decode(d)
+        #expect(frame.page == 1)
+
+        let frame0 = try TelemetryFrame.decode(hexData(try loadVectors()[0].hex))
+        #expect(frame0.page == 0)
+    }
+
     @Test func alertNames() {
         let all = ["FREEZER", "HUMIDITY", "NOISE HIGH", "SENSOR LOST", "CHARGE FULL", "VENTILATE", "SENSOR BATTERY", "HEAT"]
         #expect(AlertMask(rawValue: 0xFF).names == all)

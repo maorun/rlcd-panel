@@ -83,13 +83,15 @@ import Testing
     }
 
     @Test func buildsSetLinePerSlotAndClearLine() {
-        for n in 1...5 {
-            #expect(SlotAssignment.command(slot: n, mac: "aa:bb:cc:dd:ee:0\(n)")?.line == "SET slot\(n)_mac=AA:BB:CC:DD:EE:0\(n)")
+        for n in 1...10 {
+            let hex = String(format: "%02X", n)
+            let hexLower = String(format: "%02x", n)
+            #expect(SlotAssignment.command(slot: n, mac: "aa:bb:cc:dd:ee:\(hexLower)")?.line == "SET slot\(n)_mac=AA:BB:CC:DD:EE:\(hex)")
             #expect(SlotAssignment.command(slot: n, mac: nil)?.line == "SET slot\(n)_mac=")
         }
-        #expect(SlotAssignment.command(slot: 5, mac: "AA:BB:CC:DD:EE:FF")?.line == "SET slot5_mac=AA:BB:CC:DD:EE:FF")
-        #expect(SlotAssignment.command(slot: 6, mac: nil) == nil)
-        #expect(SlotAssignment.command(slot: 6, mac: "AA:BB:CC:DD:EE:01") == nil)
+        #expect(SlotAssignment.command(slot: 10, mac: "AA:BB:CC:DD:EE:FF")?.line == "SET slot10_mac=AA:BB:CC:DD:EE:FF")
+        #expect(SlotAssignment.command(slot: 11, mac: nil) == nil)
+        #expect(SlotAssignment.command(slot: 11, mac: "AA:BB:CC:DD:EE:01") == nil)
         #expect(SlotAssignment.command(slot: 0, mac: nil) == nil)
         #expect(SlotAssignment.command(slot: 1, mac: "AA:BB") == nil)
     }
@@ -97,7 +99,9 @@ import Testing
     @Test func emptyValueOnlyForSlotMacKeys() {
         #expect(ConsoleCommand.set(key: "slot2_mac", value: "").line == "SET slot2_mac=")
         #expect(ConsoleCommand.set(key: "slot4_mac", value: "").line == "SET slot4_mac=")
-        #expect(ConsoleCommand.set(key: "slot6_mac", value: "").line == nil)
+        #expect(ConsoleCommand.set(key: "slot6_mac", value: "").line == "SET slot6_mac=")
+        #expect(ConsoleCommand.set(key: "slot10_mac", value: "").line == "SET slot10_mac=")
+        #expect(ConsoleCommand.set(key: "slot11_mac", value: "").line == nil)
         #expect(ConsoleCommand.set(key: "temp_unit", value: "").line == nil)
         #expect(ConsoleCommand.scan.line == "SCAN")
     }

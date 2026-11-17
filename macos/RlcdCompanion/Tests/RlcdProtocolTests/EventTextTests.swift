@@ -81,20 +81,20 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("SLOT_ASSIGN", 0x0104)) == "slot 1 THERMOPRO")
         #expect(EventText.describe(row("SLOT_ASSIGN", 0x0105)) == "SLOT_ASSIGN,261")
         #expect(EventText.describe(row("SLOT_ASSIGN", 0x0002)) == "SLOT_ASSIGN,2")
-        #expect(EventText.describe(row("SLOT_ASSIGN", 0x0602)) == "SLOT_ASSIGN,1538")
+        #expect(EventText.describe(row("SLOT_ASSIGN", 0x0B02)) == "SLOT_ASSIGN,2818")
     }
 
     @Test func slotReleaseGivesSlotNumber() {
         #expect(EventText.describe(row("SLOT_RELEASE", 3)) == "slot 3 released")
         #expect(EventText.describe(row("SLOT_RELEASE", 0)) == "SLOT_RELEASE,0")
-        #expect(EventText.describe(row("SLOT_RELEASE", 6)) == "SLOT_RELEASE,6")
+        #expect(EventText.describe(row("SLOT_RELEASE", 11)) == "SLOT_RELEASE,11")
     }
 
     @Test func slotReleaseByUserGivesSlotNumber() {
         #expect(EventText.describe(row("SLOT_RELEASE", 0x0102)) == "Slot 2 released by the user")
         #expect(EventText.describe(row("SLOT_RELEASE", 0x0002)) == "slot 2 released")
         #expect(EventText.describe(row("SLOT_RELEASE", 0x0100)) == "SLOT_RELEASE,256")
-        #expect(EventText.describe(row("SLOT_RELEASE", 0x0106)) == "SLOT_RELEASE,262")
+        #expect(EventText.describe(row("SLOT_RELEASE", 0x010B)) == "SLOT_RELEASE,267")
         #expect(EventText.describe(row("SLOT_RELEASE", 0x0202)) == "SLOT_RELEASE,514")
     }
 
@@ -108,7 +108,8 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("CONFIG_SET", 50)) == "Config set: rh_gain (USB)")
         #expect(EventText.describe(row("CONFIG_SET", 55)) == "Config set: slot5_rh_gain (USB)")
         #expect(EventText.describe(row("CONFIG_SET", 56)) == "Config set: door_ref_slot (USB)")
-        #expect(EventText.describe(row("CONFIG_SET", 57)) == "Config set: key #57")
+        #expect(EventText.describe(row("CONFIG_SET", 57)) == "Config set: slot6_name (USB)")
+        #expect(EventText.describe(row("CONFIG_SET", 82)) == "Config set: key #82")
         #expect(EventText.describe(row("CONFIG_SET", 0x0100 | 200)) == "Config set: key #200")
         #expect(EventText.describe(row("CONFIG_SET", 0x0200)) == "CONFIG_SET,512")
     }
