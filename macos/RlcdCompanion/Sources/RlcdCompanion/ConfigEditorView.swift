@@ -26,6 +26,9 @@ struct ConfigEditorView: View {
                     if !model.canSet {
                         Text("SET needs ble_console=2 or the USB serial link.").font(.caption).foregroundStyle(.secondary)
                     }
+                    ForEach(ConfigSchema.unboundNames(config: c), id: \.self) { n in
+                        Text(ConfigSchema.unboundNameWarning(slot: n)).font(.caption).foregroundStyle(.orange)
+                    }
                     if let s = model.batchSummary { Text(s).font(.caption).foregroundStyle(.orange) }
                 } else {
                     Text("Read CONFIG first.").foregroundStyle(.secondary)
