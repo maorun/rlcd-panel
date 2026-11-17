@@ -29,7 +29,7 @@ struct ConfigSchemaTests {
         let (active, commented) = try templateKeys()
         let template = Set(active.keys).union(commented)
         #expect(Set(ConfigSchema.keys) == template)
-        #expect(ConfigSchema.keys.count == 57)
+        #expect(ConfigSchema.keys.count == 82)
         #expect(Set(ConfigSchema.keys).count == ConfigSchema.keys.count)
         for e in ConfigSchema.entries {
             if let v = active[e.key] {
@@ -302,14 +302,20 @@ struct ConfigSchemaTests {
             "quiet_hours_end_hour": (0, 23), "mic_spl_offset_db": (-20, 20), "log_retention_months": (0, 120),
             "noise_alert_limit_db": (40, 100), "chime_alert_mask": (0, 255), "ntp_sync_interval_h": (6, 168),
             "wake_interval_s": (30, 900), "sensor_stale_min": (5, 240), "display_invert": (0, 1),
-            "climate_alert_tiles": (0, 63), "battery_offset_mv": (-300, 300), "outdoor_slot": (0, 5), "door_ref_slot": (0, 5),
+            "climate_alert_tiles": (0, 2047), "battery_offset_mv": (-300, 300), "outdoor_slot": (0, 10), "door_ref_slot": (0, 10),
             "ventilate_limit_rh": (50, 80), "dry_alert_limit_rh": (20, 45), "sensor_battery_limit_pct": (0, 50),
             "slot1_temp_offset_c": (-5, 5), "slot2_temp_offset_c": (-5, 5), "slot3_temp_offset_c": (-5, 5),
             "slot1_rh_offset_pct": (-10, 10), "slot2_rh_offset_pct": (-10, 10), "slot3_rh_offset_pct": (-10, 10),
             "slot4_temp_offset_c": (-5, 5), "slot5_temp_offset_c": (-5, 5),
             "slot4_rh_offset_pct": (-10, 10), "slot5_rh_offset_pct": (-10, 10),
+            "slot6_temp_offset_c": (-5, 5), "slot7_temp_offset_c": (-5, 5), "slot8_temp_offset_c": (-5, 5),
+            "slot9_temp_offset_c": (-5, 5), "slot10_temp_offset_c": (-5, 5),
+            "slot6_rh_offset_pct": (-10, 10), "slot7_rh_offset_pct": (-10, 10), "slot8_rh_offset_pct": (-10, 10),
+            "slot9_rh_offset_pct": (-10, 10), "slot10_rh_offset_pct": (-10, 10),
             "rh_gain": (0.9, 1.1), "slot1_rh_gain": (0.9, 1.1), "slot2_rh_gain": (0.9, 1.1), "slot3_rh_gain": (0.9, 1.1),
             "slot4_rh_gain": (0.9, 1.1), "slot5_rh_gain": (0.9, 1.1),
+            "slot6_rh_gain": (0.9, 1.1), "slot7_rh_gain": (0.9, 1.1), "slot8_rh_gain": (0.9, 1.1),
+            "slot9_rh_gain": (0.9, 1.1), "slot10_rh_gain": (0.9, 1.1),
             "slot_release_h": (0, 168), "night_wake_interval_s": (60, 1800), "chime_repeat_h": (0, 24),
             "heat_alert_limit_c": (27, 45), "ble_broadcast_enabled": (0, 1), "ble_console": (0, 2),
         ]
@@ -321,7 +327,7 @@ struct ConfigSchemaTests {
             default: Issue.record("\(key) has no numeric kind")
             }
         }
-        // The other 12 keys are the enum, 6 names and 5 MACs.
-        #expect(expected.count + 12 == ConfigSchema.keys.count)
+        // The other 22 keys are the enum, 11 names and 10 MACs.
+        #expect(expected.count + 22 == ConfigSchema.keys.count)
     }
 }

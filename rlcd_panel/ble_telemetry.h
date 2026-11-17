@@ -32,8 +32,8 @@ struct BleTelemetryTile {
 //   1     sequence number (low byte of the wake cycle counter)
 //   2     cell percentage (0..100, 255 = unknown)
 //   3     active alert mask (ALERT_* bits)
-//   4     valid tile mask (bit 0 onboard, bits 1..5 slots 1..5)
-//   5..22 six tiles, each: temperature int16 little-endian in 0.01 C, humidity uint8 in 0.5 %RH
+//   4     valid tile mask for this page (bits 0..5, bit 7: 0 = page 0 [tiles 0..5], 1 = page 1 [tiles 6..10])
+//   5..22 up to six tiles: temperature int16 little-endian in 0.01 C, humidity uint8 in 0.5 %RH
 //   23    CRC-8 (0x31, Shtc3Codec::computeCrc8) over bytes 0..22
 // Manufacturer Data field: company ID 0xFFFF (bytes FF FF) + payload = 26 bytes.
 // Advertising data: flags (3 bytes) + length and type AD (2 bytes) + 26 bytes = 31 bytes of 31.
@@ -42,8 +42,11 @@ public:
   static constexpr uint16_t COMPANY_ID = 0xFFFF;
   static constexpr uint8_t FORMAT_VERSION = 2;
   static constexpr uint8_t CELL_UNKNOWN = 255;
-  static constexpr size_t TILE_COUNT = 6;
-  static constexpr size_t PAYLOAD_SIZE = 5 + TILE_COUNT * 3 + 1;
+  static constexpr size_t TOTAL_TILES = 1 + MAX_SWITCHBOT_SENSORS;
+  static constexpr size_t TILES_PER_PAGE = 6;
+  static constexpr size_t PAGE_COUNT = 2;
+  static constexpr size_t TILE_COUNT = TILES_PER_PAGE;
+  static constexpr size_t PAYLOAD_SIZE = 5 + TILES_PER_PAGE * 3 + 1;
   static constexpr size_t MANUFACTURER_DATA_SIZE = 2 + PAYLOAD_SIZE;
   static constexpr size_t FLAGS_AD_SIZE = 3;
   static constexpr size_t MANUFACTURER_AD_SIZE = 2 + MANUFACTURER_DATA_SIZE;
@@ -70,27 +73,30 @@ public:
   // The wake cycle counter wraps 255 to 0.
   static uint8_t sequenceFrom(uint32_t boot_count) { return static_cast<uint8_t>(boot_count & 0xFF); }
 
-  // Writes the 18 payload bytes. `out` needs PAYLOAD_SIZE bytes.
-  static void encodePayload(const BleTelemetryTile tiles[TILE_COUNT], uint8_t sequence, uint8_t cell_pct,
-                            uint8_t alert_mask, uint8_t* out) {
+  // Writes the 24 payload bytes. `out` needs PAYLOAD_SIZE bytes.
+  static void encodePayload(const BleTelemetryTile* tiles, size_t total_tiles, uint8_t sequence,
+                            uint8_t cell_pct, uint8_t alert_mask, uint8_t page, uint8_t* out) {
     size_t pos = 0;
     out[pos++] = FORMAT_VERSION;
     out[pos++] = sequence;
     out[pos++] = cell_pct;
     out[pos++] = alert_mask;
-    uint8_t valid_mask = 0;
-    for (size_t i = 0; i < TILE_COUNT; ++i) {
-      if (tileUsable(tiles[i])) {
+    const size_t offset = page * TILES_PER_PAGE;
+    uint8_t valid_mask = static_cast<uint8_t>(page != 0 ? 0x80 : 0x00);
+    for (size_t i = 0; i < TILES_PER_PAGE; ++i) {
+      const size_t t_idx = offset + i;
+      if (t_idx < total_tiles && tileUsable(tiles[t_idx])) {
         valid_mask = static_cast<uint8_t>(valid_mask | (1u << i));
       }
     }
     out[pos++] = valid_mask;
-    for (size_t i = 0; i < TILE_COUNT; ++i) {
+    for (size_t i = 0; i < TILES_PER_PAGE; ++i) {
+      const size_t t_idx = offset + i;
       int16_t t = 0;
       uint8_t rh = 0;
-      if ((valid_mask & (1u << i)) != 0) {
-        t = encodeTemperature(tiles[i].temperature_c);
-        rh = encodeHumidity(tiles[i].humidity_pct);
+      if ((valid_mask & (1u << i)) != 0 && t_idx < total_tiles) {
+        t = encodeTemperature(tiles[t_idx].temperature_c);
+        rh = encodeHumidity(tiles[t_idx].humidity_pct);
       }
       const uint16_t u = static_cast<uint16_t>(t);
       out[pos++] = static_cast<uint8_t>(u & 0xFF);
@@ -100,23 +106,33 @@ public:
     out[pos] = Shtc3Codec::computeCrc8(out, pos);
   }
 
-  // Writes the 20 bytes of the Manufacturer Data field: company ID 0xFFFF, then the payload.
-  static void encode(const BleTelemetryTile tiles[TILE_COUNT], uint8_t sequence, uint8_t cell_pct,
-                     uint8_t alert_mask, uint8_t* out) {
-    out[0] = static_cast<uint8_t>(COMPANY_ID & 0xFF);
-    out[1] = static_cast<uint8_t>(COMPANY_ID >> 8);
-    encodePayload(tiles, sequence, cell_pct, alert_mask, out + 2);
+  // Compatibility overload for single 6-tile array
+  static void encodePayload(const BleTelemetryTile tiles[TILES_PER_PAGE], uint8_t sequence, uint8_t cell_pct,
+                            uint8_t alert_mask, uint8_t* out) {
+    encodePayload(tiles, TILES_PER_PAGE, sequence, cell_pct, alert_mask, 0, out);
   }
 
-  // Builds the six tiles: tile 0 is the onboard reading, tiles 1..5 are the registry slots. A slot
-  // that is empty or stale (older than `stale_timeout_ms`) is no valid tile. Pass the calibrated
-  // registry, so the frame shows the same values as the screen.
+  // Writes the 26 bytes of the Manufacturer Data field: company ID 0xFFFF, then the payload.
+  static void encode(const BleTelemetryTile* tiles, size_t total_tiles, uint8_t sequence, uint8_t cell_pct,
+                     uint8_t alert_mask, uint8_t page, uint8_t* out) {
+    out[0] = static_cast<uint8_t>(COMPANY_ID & 0xFF);
+    out[1] = static_cast<uint8_t>(COMPANY_ID >> 8);
+    encodePayload(tiles, total_tiles, sequence, cell_pct, alert_mask, page, out + 2);
+  }
+
+  // Compatibility overload for single 6-tile array
+  static void encode(const BleTelemetryTile tiles[TILES_PER_PAGE], uint8_t sequence, uint8_t cell_pct,
+                     uint8_t alert_mask, uint8_t* out) {
+    encode(tiles, TILES_PER_PAGE, sequence, cell_pct, alert_mask, 0, out);
+  }
+
+  // Builds the 11 tiles: tile 0 is the onboard reading, tiles 1..10 are the registry slots.
   static void buildTiles(const Shtc3Reading& onboard, const SwitchBotRegistry& registry, uint32_t now_ms,
-                         uint32_t stale_timeout_ms, BleTelemetryTile out[TILE_COUNT]) {
+                         uint32_t stale_timeout_ms, BleTelemetryTile out[TOTAL_TILES]) {
     out[0].valid = onboard.valid;
     out[0].temperature_c = onboard.temperature_c;
     out[0].humidity_pct = onboard.humidity_pct;
-    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS && i + 1 < TILE_COUNT; ++i) {
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS && (i + 1) < TOTAL_TILES; ++i) {
       const SwitchBotReading r = registry.slot(i);
       out[i + 1].valid = r.valid && !r.isStale(now_ms, stale_timeout_ms);
       out[i + 1].temperature_c = r.temperature_c;

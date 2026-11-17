@@ -162,17 +162,27 @@ public:
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "SLOT")) {
-      // exactly "SLOT CLEAR <N>" with one digit 1 to 5
+      // exactly "SLOT CLEAR <N>" with N 1 to 10
       static const char prefix[] = "SLOT CLEAR";
       const size_t prefix_len = sizeof(prefix) - 1;
       if (len < prefix_len || memcmp(line, prefix, prefix_len) != 0 || (len > prefix_len && line[prefix_len] != ' ')) {
         return SerialParseStatus::UNKNOWN; // only "SLOT CLEAR" exists (a bare "SLOT" is no known command, like a bare "RTC")
       }
-      if (len != prefix_len + 2 || line[prefix_len + 1] < '1' || line[prefix_len + 1] > '5') {
+      if (len <= prefix_len + 1 || line[prefix_len] != ' ') {
+        return SerialParseStatus::BAD_ARG;
+      }
+      const char* p = line + prefix_len + 1;
+      const size_t arg_len = len - (prefix_len + 1);
+      int slot_num = 0;
+      if (arg_len == 1 && p[0] >= '1' && p[0] <= '9') {
+        slot_num = p[0] - '0';
+      } else if (arg_len == 2 && p[0] == '1' && p[1] == '0') {
+        slot_num = 10;
+      } else {
         return SerialParseStatus::BAD_ARG;
       }
       out.kind = SerialCommandKind::SLOT_CLEAR;
-      out.reference = static_cast<uint8_t>(line[prefix_len + 1] - '0');
+      out.reference = static_cast<uint8_t>(slot_num);
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "SCAN")) {
@@ -220,23 +230,47 @@ public:
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "CALIB")) {
-      // exactly one digit 0 to 5
-      if (len != cmd_len + 2 || line[cmd_len + 1] < '0' || line[cmd_len + 1] > '5') {
+      if (len <= cmd_len + 1 || line[cmd_len] != ' ') {
+        return SerialParseStatus::BAD_ARG;
+      }
+      const char* p = line + cmd_len + 1;
+      const size_t arg_len = len - cmd_len - 1;
+      int ref = -1;
+      if (arg_len == 1 && p[0] >= '0' && p[0] <= '9') {
+        ref = p[0] - '0';
+      } else if (arg_len == 2 && p[0] == '1' && p[1] == '0') {
+        ref = 10;
+      }
+      if (ref < 0) {
         return SerialParseStatus::BAD_ARG;
       }
       out.kind = SerialCommandKind::CALIB;
-      out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
+      out.reference = static_cast<uint8_t>(ref);
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "SALT")) {
-      // one digit 0 to 5, optionally followed by " MGCL2"
-      const bool with_salt = len == cmd_len + 2 + 6 && memcmp(line + cmd_len + 2, " MGCL2", 6) == 0;
-      if ((len != cmd_len + 2 && !with_salt) || line[cmd_len + 1] < '0' || line[cmd_len + 1] > '5') {
+      if (len <= cmd_len + 1 || line[cmd_len] != ' ') {
+        return SerialParseStatus::BAD_ARG;
+      }
+      const char* p = line + cmd_len + 1;
+      size_t rem = len - cmd_len - 1;
+      bool with_salt = false;
+      if (rem >= 6 && memcmp(p + rem - 6, " MGCL2", 6) == 0) {
+        with_salt = true;
+        rem -= 6;
+      }
+      int ref = -1;
+      if (rem == 1 && p[0] >= '0' && p[0] <= '9') {
+        ref = p[0] - '0';
+      } else if (rem == 2 && p[0] == '1' && p[1] == '0') {
+        ref = 10;
+      }
+      if (ref < 0) {
         return SerialParseStatus::BAD_ARG;
       }
       out.salt_mgcl2 = with_salt;
       out.kind = SerialCommandKind::SALT;
-      out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
+      out.reference = static_cast<uint8_t>(ref);
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "DUMP")) {
@@ -767,8 +801,12 @@ public:
   // The hourly samples are paired by age (newest with newest), and only the hours with a sample in both
   // histories count. The samples already contain the active offsets. The card stays untouched.
   static void showCalib(Sink& sink, uint8_t reference, const ClimateHistory& history, const DeviceConfig& config) {
-    static const char* const names[ClimateHistory::SLOT_COUNT] = {"onboard", "slot1", "slot2", "slot3", "slot4", "slot5"};
-    static const char* const prefixes[ClimateHistory::SLOT_COUNT] = {"", "slot1_", "slot2_", "slot3_", "slot4_", "slot5_"};
+    static const char* const names[ClimateHistory::SLOT_COUNT] = {
+        "onboard", "slot1", "slot2", "slot3", "slot4", "slot5",
+        "slot6", "slot7", "slot8", "slot9", "slot10"};
+    static const char* const prefixes[ClimateHistory::SLOT_COUNT] = {
+        "", "slot1_", "slot2_", "slot3_", "slot4_", "slot5_",
+        "slot6_", "slot7_", "slot8_", "slot9_", "slot10_"};
     constexpr size_t CALIB_SOURCE_COUNT = 1 + DeviceConfig::OFFSET_SLOT_COUNT;
     if (reference >= CALIB_SOURCE_COUNT) {
       return;
@@ -879,8 +917,12 @@ public:
   // the temperature history. The samples already contain the active offset. The card stays untouched.
   static void showSalt(Sink& sink, uint8_t reference, const ClimateHistory& history, const DeviceConfig& config,
                        bool magnesium = false) {
-    static const char* const names[ClimateHistory::SLOT_COUNT] = {"onboard", "slot1", "slot2", "slot3", "slot4", "slot5"};
-    static const char* const prefixes[ClimateHistory::SLOT_COUNT] = {"", "slot1_", "slot2_", "slot3_", "slot4_", "slot5_"};
+    static const char* const names[ClimateHistory::SLOT_COUNT] = {
+        "onboard", "slot1", "slot2", "slot3", "slot4", "slot5",
+        "slot6", "slot7", "slot8", "slot9", "slot10"};
+    static const char* const prefixes[ClimateHistory::SLOT_COUNT] = {
+        "", "slot1_", "slot2_", "slot3_", "slot4_", "slot5_",
+        "slot6_", "slot7_", "slot8_", "slot9_", "slot10_"};
     if (reference >= ClimateHistory::SLOT_COUNT) {
       return;
     }
@@ -1141,11 +1183,13 @@ public:
     if (snap.registry == nullptr || snap.history == nullptr || snap.config == nullptr) {
       return;
     }
-    static const char* const defaults[ClimateHistory::SLOT_COUNT] = {"onboard", "slot1", "slot2", "slot3", "slot4", "slot5"};
+    static const char* const defaults[ClimateHistory::SLOT_COUNT] = {
+        "onboard", "slot1", "slot2", "slot3", "slot4", "slot5",
+        "slot6", "slot7", "slot8", "slot9", "slot10"};
     const DeviceConfig& cfg = *snap.config;
     const SwitchBotRegistry cal = snap.registry->calibrated(cfg.slot_temp_offset_c, cfg.slot_rh_offset_pct, cfg.slot_rh_gain);
-    // Static: 1.3 KB buffer does not fit the default Arduino loopTask stack.
-    static char text[1280];
+    // Static: buffer does not fit the default Arduino loopTask stack.
+    static char text[2560];
     size_t len = 0;
     for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
       const char* raw = i == 0 ? cfg.onboard_name : cfg.slot_name[i - 1];
@@ -1156,7 +1200,9 @@ public:
       }
       char temp[16] = "--", rh[8] = "--", bat[8] = "--", rssi[8] = "--", age[12] = "--";
       const char* state = "EMPTY";
+      const char* format_str = "--";
       if (i == 0) {
+        format_str = "SHTC3";
         const ClimateHistory& h = *snap.history;
         if (h.temperatures[0].size() > 0) {
           formatTemp(temp, sizeof(temp), h.temperatures[0].at(h.temperatures[0].size() - 1) / 10.0f, cfg.temp_unit);
@@ -1173,6 +1219,13 @@ public:
       } else {
         const SwitchBotReading& r = cal.slot(i - 1);
         if (r.valid) {
+          switch (r.format) {
+            case BleFormat::WOIO: format_str = "WOIO"; break;
+            case BleFormat::METER: format_str = "METER"; break;
+            case BleFormat::BTHOME: format_str = "BTHOME"; break;
+            case BleFormat::ATC: format_str = "ATC"; break;
+            case BleFormat::THERMOPRO: format_str = "THERMOPRO"; break;
+          }
           formatTemp(temp, sizeof(temp), r.temperature_c, cfg.temp_unit);
           snprintf(rh, sizeof(rh), "%u", static_cast<unsigned>(r.humidity_pct));
           if (r.battery_pct >= 0) {
@@ -1185,8 +1238,8 @@ public:
         }
       }
       len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len,
-                                          "SENSOR %u %s temp=%s rh=%s bat=%s rssi=%s age=%s state=%s\n",
-                                          static_cast<unsigned>(i), name, temp, rh, bat, rssi, age, state));
+                                          "SENSOR %u %s temp=%s rh=%s bat=%s rssi=%s age=%s state=%s format=%s\n",
+                                          static_cast<unsigned>(i), name, temp, rh, bat, rssi, age, state, format_str));
       if (len >= sizeof(text)) {
         return; // a truncated frame has no valid CRC: send nothing
       }

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <stdint.h>
+#include "switchbot_ble.h"
 
 namespace rlcd_panel {
 
@@ -153,11 +154,11 @@ enum class DisplayMode : uint8_t {
 
 constexpr uint8_t DISPLAY_MODE_COUNT = 6;
 
-// Number of sensors the climate chart view selects from: onboard + 5 SwitchBot slots.
-constexpr uint8_t CHART_SENSOR_COUNT = 6;
+// Number of sensors the climate chart view selects from: onboard + 10 SwitchBot slots.
+constexpr uint8_t CHART_SENSOR_COUNT = 1 + MAX_SWITCHBOT_SENSORS;
 
-// Pages of the stats view: slots 1 to 3, then slots 4 and 5.
-constexpr uint8_t STATS_PAGE_COUNT = 2;
+// Pages of the stats view: up to 4 pages for 10 slots (3 slots per page).
+constexpr uint8_t STATS_PAGE_COUNT = 4;
 
 // Display mode state machine: every debounced press cycles DASHBOARD -> SENSOR_STATS ->
 // SYSTEM_DIAGNOSTICS -> AUDIO_SPECTRUM -> CLIMATE_CHART -> WEEK_CHART -> DASHBOARD.
@@ -190,7 +191,7 @@ public:
     chart_sensor_ = static_cast<uint8_t>((chart_sensor_ + 1) % CHART_SENSOR_COUNT);
   }
 
-  // Page of the stats view: 0 shows slots 1 to 3, 1 shows slots 4 and 5. Ignores a value above 1.
+  // Page of the stats view: 0 to STATS_PAGE_COUNT - 1. Ignores an invalid value.
   uint8_t statsPage() const {
     return stats_page_;
   }
@@ -201,13 +202,20 @@ public:
     }
   }
 
-  // True while slot 4 or slot 5 is active. Only then a short press in the stats view selects the
-  // other page (NEXT_PAGE); else it changes the view as before.
-  void setStatsSecondPage(bool available) {
-    stats_second_page_ = available;
-    if (!available) {
-      stats_page_ = 0; // page 2 is not reachable and not rendered without slot 4 and slot 5
+  uint8_t statsPagesTotal() const {
+    return stats_pages_total_;
+  }
+
+  void setStatsPages(uint8_t total) {
+    stats_pages_total_ = total < 1 ? 1 : (total > STATS_PAGE_COUNT ? STATS_PAGE_COUNT : total);
+    if (stats_page_ >= stats_pages_total_) {
+      stats_page_ = 0;
     }
+  }
+
+  // Compatibility helper: true means at least 2 pages.
+  void setStatsSecondPage(bool available) {
+    setStatsPages(available ? 2 : 1);
   }
 
   void next() {
@@ -232,12 +240,12 @@ public:
   // keeps the mode, and a hold of 2 s or more changes the mode. The press that woke the board
   // changes the mode through next(), so it never starts a capture. The climate chart and week chart
   // views work the same way: a short press selects the next sensor (NEXT_SENSOR) and keeps the mode. The
-  // stats view works the same way while slot 4 or 5 is active: a short press selects the other
-  // page (NEXT_PAGE). Without such a slot every press changes the mode at once.
+  // stats view works the same way while multiple pages are active: a short press selects the next
+  // page (NEXT_PAGE). Without extra pages every press changes the mode at once.
   ButtonEvent updateWithLongPress(bool raw_pressed, uint32_t now_ms) {
     const bool edge = button_.update(raw_pressed, now_ms);
     if (edge) {
-      const bool stats_pages = mode_ == DisplayMode::SENSOR_STATS && stats_second_page_;
+      const bool stats_pages = mode_ == DisplayMode::SENSOR_STATS && stats_pages_total_ > 1;
       if (mode_ != DisplayMode::SYSTEM_DIAGNOSTICS && mode_ != DisplayMode::AUDIO_SPECTRUM &&
           !isChartMode() && !stats_pages) {
         next();
@@ -254,8 +262,8 @@ public:
           nextChartSensor();
           return ButtonEvent::NEXT_SENSOR;
         }
-        if (mode_ == DisplayMode::SENSOR_STATS && stats_second_page_) {
-          stats_page_ = static_cast<uint8_t>((stats_page_ + 1) % STATS_PAGE_COUNT);
+        if (mode_ == DisplayMode::SENSOR_STATS && stats_pages_total_ > 1) {
+          stats_page_ = static_cast<uint8_t>((stats_page_ + 1) % stats_pages_total_);
           return ButtonEvent::NEXT_PAGE;
         }
         next();
@@ -295,7 +303,7 @@ private:
   DisplayMode mode_ = DisplayMode::DASHBOARD;
   uint8_t chart_sensor_ = 0;
   uint8_t stats_page_ = 0;
-  bool stats_second_page_ = false;
+  uint8_t stats_pages_total_ = 1;
 };
 
 } // namespace rlcd_panel

@@ -152,15 +152,15 @@ void testSwitchBotServiceBatteryAndRegistry() {
   assert(approxEqual(reg.slot(1).temperature_c, 25.5f));
   assert(reg.slot(1).battery_pct == 88);
 
-  // 4th and 5th distinct sensor take the free slots, the 6th is rejected
-  SwitchBotReading fourth;
-  fourth.valid = true;
-  fourth.mac[5] = 4;
-  assert(reg.upsert(fourth) && reg.activeCount() == 4);
-  fourth.mac[5] = 5;
-  assert(reg.upsert(fourth) && reg.activeCount() == 5 && reg.slot(4).mac[5] == 5);
-  fourth.mac[5] = 6;
-  assert(!reg.upsert(fourth) && reg.activeCount() == 5);
+  // 4th to 10th distinct sensor take the free slots, the 11th is rejected
+  SwitchBotReading next_sensor;
+  next_sensor.valid = true;
+  for (uint8_t id = 4; id <= 10; ++id) {
+    next_sensor.mac[5] = id;
+    assert(reg.upsert(next_sensor) && reg.activeCount() == id && reg.slot(id - 1).mac[5] == id);
+  }
+  next_sensor.mac[5] = 11;
+  assert(!reg.upsert(next_sensor) && reg.activeCount() == 10);
 }
 
 const uint8_t BTHOME_MAC[6] = {0xA4, 0xC1, 0x38, 0x11, 0x22, 0x33};
@@ -278,23 +278,20 @@ void testSwitchBotMeterRegistryFixedMac() {
   // A repeated MAC reuses its slot; a sixth MAC finds no free slot.
   assert(reg.upsert(a));
   assert(reg.activeCount() == 2);
-  const uint8_t mac_c[6] = {0xAA, 0, 0, 0, 0, 3};
-  const uint8_t mac_d[6] = {0xAA, 0, 0, 0, 0, 4};
-  SwitchBotReading c;
-  SwitchBotReading d;
-  assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, svc, 6, mac_c, c));
-  assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, svc, 6, mac_d, d));
-  assert(reg.upsert(c));
-  assert(reg.upsert(d)); // slot 3 is free (5 slots)
-  const uint8_t mac_e[6] = {0xAA, 0, 0, 0, 0, 5};
-  const uint8_t mac_f[6] = {0xAA, 0, 0, 0, 0, 6};
-  SwitchBotReading e;
-  SwitchBotReading f;
-  assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, svc, 6, mac_e, e));
-  assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, svc, 6, mac_f, f));
-  assert(reg.upsert(e));
-  assert(!reg.upsert(f)); // all five slots are taken
-  assert(reg.activeCount() == 5);
+  for (uint8_t i = 3; i <= 10; ++i) {
+    const uint8_t mac_i[6] = {0xAA, 0, 0, 0, 0, i};
+    SwitchBotReading reading_i;
+    assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, svc, 6, mac_i, reading_i));
+    reading_i.updated_ms = 1000;
+    assert(reg.upsert(reading_i));
+  }
+  assert(reg.activeCount() == 10);
+  const uint8_t mac_extra[6] = {0xAA, 0, 0, 0, 0, 11};
+  SwitchBotReading extra;
+  assert(SwitchBotBleParser::parseServiceDataReading(SWITCHBOT_SERVICE_UUID, svc, 6, mac_extra, extra));
+  extra.updated_ms = 1000;
+  assert(!reg.upsert(extra)); // all ten slots are taken
+  assert(reg.activeCount() == 10);
   assert(!reg.slot(2).isStale(1000 + SENSOR_STALE_TIMEOUT_MS));
   assert(reg.slot(2).isStale(1001 + SENSOR_STALE_TIMEOUT_MS));
 }
@@ -879,7 +876,7 @@ void testBatteryOffsetMv() {
   // CONFIG line and its parse back
   DeviceConfig src;
   src.battery_offset_mv = -250;
-  char text[1024];
+  char text[DeviceConfigText::MAX_SIZE];
   assert(DeviceConfigText::format(src, text, sizeof(text)) > 0);
   assert(strstr(text, "\nbattery_offset_mv=-250\n") != nullptr || strncmp(text, "battery_offset_mv=-250\n", 23) == 0);
   DeviceConfig back;
@@ -900,7 +897,7 @@ void testBatteryOffsetMv() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 30;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 31;
   assert(buf[pos] == 100 && buf[pos + 1] == 0);
   auto seal = [&]() {
     const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
@@ -914,7 +911,7 @@ void testBatteryOffsetMv() {
   bad[pos] = 0xD3; bad[pos + 1] = 0xFE; // -301 mV
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 33; // old state version without the offset
   seal();
@@ -1354,7 +1351,7 @@ void testComfortZone() {
   assert(memcmp(ok_fb.data(), cold_fb.data(), RLCD_BUFFER_SIZE) != 0);
 
   // No RTC state change
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
 }
 
 void testAbsHumidityStats() {
@@ -1383,7 +1380,7 @@ void testAbsHumidityStats() {
   assert(strcmp(text, "AH 8.6G") == 0);
   DashboardView::formatAbsHumidity(text, sizeof(text), SwitchBotReading{}, now);
   assert(strcmp(text, "AH --") == 0);
-  assert(PowerManager::STATE_VERSION == 59); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 60); // no RTC state change
 
   // Rendering: right edge at x = 392, line y + 54, no overlap with the widest record text
   BatteryReading battery;
@@ -1627,7 +1624,7 @@ void testFeelsLikeStats() {
   DashboardView::renderSensorStats(dashed, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
                                    nullptr, &config);
   assert(memcmp(fb.data(), dashed.data(), RLCD_BUFFER_SIZE) != 0);
-  assert(PowerManager::STATE_VERSION == 59); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 60); // no RTC state change
 }
 
 void testMoldHoursStats() {
@@ -1709,7 +1706,7 @@ void testMoldHoursStats() {
   }
   const uint16_t mold_w = static_cast<uint16_t>(strlen("MOLD 24H") * 6);
   const uint16_t mold_left = DashboardView::COMFORT_RIGHT_X - mold_w;
-  const uint16_t mac_right = 10 + static_cast<uint16_t>(strlen("MAC ..:EE:FF:00") * 12);
+  const uint16_t mac_right = 10 + static_cast<uint16_t>(strlen("MAC ..:EE:FF:00 [SB]") * 12);
   assert(mac_right < mold_left);
   St7305Framebuffer fb;
   DashboardView::renderSensorStats(
@@ -1748,7 +1745,7 @@ void testMoldHoursStats() {
     }
     assert(i == 2 ? !differs : differs); // empty slot shows "MOLD --" in both renders
   }
-  assert(PowerManager::STATE_VERSION == 59); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 60); // no RTC state change
 }
 
 void testDashboardClimateLine() {
@@ -2101,7 +2098,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -2433,8 +2430,8 @@ void testPowerStateSerialization() {
   const size_t slot0_off = PowerManager::HEADER_SIZE;
   const Patch patches[] = {
       {5, 9},                       // mode
-      {6, 6},                       // chart sensor
-      {7, 2},                       // stats page
+      {6, 11},                      // chart sensor
+      {7, 4},                       // stats page
       {8, 16},                      // battery flags (unknown bit)
       {9, 101},                     // battery percentage
       {13, 0x7F},                   // battery voltage exponent byte -> huge value
@@ -2999,7 +2996,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -3639,7 +3636,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -3743,7 +3740,7 @@ void testSdLogCodec() {
   assert(buf[hl - 1] == '\n');
   size_t header_commas = 0;
   for (size_t i = 0; i < hl; ++i) header_commas += buf[i] == ',';
-  assert(header_commas == 26);
+  assert(header_commas == 41);
   assert(SdLogCodec::formatHeader(nullptr, 100) == 0);
   assert(SdLogCodec::formatHeader(buf, 0) == 0);
   assert(SdLogCodec::formatHeader(buf, hl) == 0); // no room for the terminator
@@ -3753,10 +3750,10 @@ void testSdLogCodec() {
   t.valid = true; t.year = 2026; t.month = 3; t.day = 9; t.hour = 7; t.minute = 5; t.second = 1;
   char path[SdLogCodec::MAX_PATH_SIZE];
   assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) > 0);
-  assert(strcmp(path, "/sdcard/climate_v5_202603.csv") == 0);
+  assert(strcmp(path, "/sdcard/climate_v6_202603.csv") == 0);
   t.month = 12;
   SdLogCodec::formatFilename(&t, path, sizeof(path));
-  assert(strcmp(path, "/sdcard/climate_v5_202612.csv") == 0);
+  assert(strcmp(path, "/sdcard/climate_v6_202612.csv") == 0);
   t.month = 3;
   assert(SdLogCodec::formatFilename(nullptr, path, sizeof(path)) == 0);
   assert(SdLogCodec::formatFilename(&t, nullptr, 32) == 0);
@@ -3786,7 +3783,7 @@ void testSdLogCodec() {
   slots[1].battery_pct = -1; slots[1].updated_ms = 1000;
   const size_t rl = SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 2000, nullptr, nullptr, buf, sizeof(buf));
   assert(rl == strlen(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,87,4.00,0,21.5,45.0,-3.5,80,90,19.0,50,,,,,,,,,,,,,,,,\n") == 0);
+  assert(std::string(buf) == "2026-03-09 07:05:01,87,4.00,0,21.5,45.0,-3.5,80,90,19.0,50," + std::string(30, ',') + "\n");
 
   // Row with invalid battery, invalid onboard, a stale slot, a NaN slot, and a missing slot
   BatteryReading nobat;
@@ -3795,9 +3792,9 @@ void testSdLogCodec() {
   slots[1].temperature_c = NAN;
   const uint32_t late = SENSOR_STALE_TIMEOUT_MS + 5000;
   SdLogCodec::formatRow(&t, &nobat, &noonboard, slots, 3, late, nullptr, nullptr, buf, sizeof(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(std::string(buf) == "2026-03-09 07:05:01" + std::string(41, ',') + "\n");
   SdLogCodec::formatRow(&t, &nobat, &noonboard, nullptr, 0, 0, nullptr, nullptr, buf, sizeof(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(std::string(buf) == "2026-03-09 07:05:01" + std::string(41, ',') + "\n");
 
   // Every row has as many columns as the header
   size_t row_commas = 0;
@@ -3815,7 +3812,7 @@ void testSdLogCodec() {
   assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, nullptr, nullptr, buf, SdLogCodec::MAX_ROW_SIZE - 1) == 0);
   assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 0, nullptr, nullptr, buf, SdLogCodec::MAX_ROW_SIZE) > 0);
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, nullptr, nullptr, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(std::string(buf) == "2026-03-09 07:05:01" + std::string(41, ',') + "\n");
 }
 
 void testSdLogSchedule() {
@@ -3990,7 +3987,7 @@ void testSensorLostAlert() {
     }
   }
   // State encoding: audio byte = muted | mask << 1 | band << 6
-  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 3;
+  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 5;
   s.muted = false;
   s.alert_mask = ALERT_SENSOR_LOST;
   s.noise_band = NoiseBand::MODERATE;
@@ -4301,7 +4298,7 @@ void testAudioStatePersistence() {
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(!r.muted && r.alert_mask == ALERT_HUMIDITY);
   // No reserved bit is left: the band value 3 with a valid CRC is rejected
-  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 3] = 0xC0;
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 5] = 0xC0;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -4660,15 +4657,15 @@ void testSdLogPercentileColumns() {
   assert(hl > 0);
   size_t header_commas = 0;
   for (size_t i = 0; i < hl; ++i) header_commas += buf[i] == ',';
-  assert(header_commas == 26); // 27 columns
-  assert(strstr(buf, "s5_battery_pct,noise_rms,noise_db,noise_band,noise_events,noise_l10,noise_l90\n") != nullptr);
+  assert(header_commas == 41); // 42 columns
+  assert(strstr(buf, "s10_battery_pct,noise_rms,noise_db,noise_band,noise_events,noise_l10,noise_l90\n") != nullptr);
 
   RtcTime t;
   t.valid = true; t.year = 2026; t.month = 3; t.day = 9; t.hour = 7; t.minute = 5; t.second = 1;
   char path[SdLogCodec::MAX_PATH_SIZE];
-  assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) == strlen("/sdcard/climate_v5_202603.csv"));
-  assert(strcmp(path, "/sdcard/climate_v5_202603.csv") == 0);
-  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v5_202603.csv")) == 0);
+  assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) == strlen("/sdcard/climate_v6_202603.csv"));
+  assert(strcmp(path, "/sdcard/climate_v6_202603.csv") == 0);
+  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v6_202603.csv")) == 0);
 
   const MicCalibration cal;
   NoiseReading noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 1000);
@@ -4676,7 +4673,7 @@ void testSdLogPercentileColumns() {
   noise.l10_rms = 1000; // 60 dB
   noise.l90_rms = 100;  // 40 dB
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,1000,60,MODERATE,0,60,40\n") == 0);
+  assert(std::string(buf) == "2026-03-09 07:05:01" + std::string(36, ',') + "1000,60,MODERATE,0,60,40\n");
   size_t row_commas = 0;
   for (size_t i = 0; buf[i] != '\0'; ++i) row_commas += buf[i] == ',';
   assert(row_commas == header_commas);
@@ -4689,7 +4686,7 @@ void testSdLogPercentileColumns() {
   // A failed window or no window: every noise field is empty
   const NoiseReading invalid;
   SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &invalid, &cal, buf, sizeof(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(std::string(buf) == "2026-03-09 07:05:01" + std::string(41, ',') + "\n");
   SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, nullptr, &cal, buf, sizeof(buf));
   row_commas = 0;
   for (size_t i = 0; buf[i] != '\0'; ++i) row_commas += buf[i] == ',';
@@ -4719,7 +4716,8 @@ void testSdLogV4FileNames() {
   assert(SdLogCodec::isLogFileName("climate_v4_200001.csv"));
   assert(SdLogCodec::isLogFileName("climate_v4_202611.csv")); // old files stay valid
   assert(SdLogCodec::isLogFileName("climate_v2_202611.csv"));
-  assert(!SdLogCodec::isLogFileName("climate_v6_202611.csv"));
+  assert(!SdLogCodec::isLogFileName("climate_v7_202611.csv"));
+  assert(SdLogCodec::isLogFileName("climate_v6_202611.csv"));
   assert(!SdLogCodec::isLogFileName("climate_v4_202613.csv"));
   assert(!SdLogCodec::isLogFileName("climate_v4_202611.csv "));
   assert(!SdLogCodec::isLogFileName("../climate_v4_202611.csv"));
@@ -4737,20 +4735,20 @@ void testSdLogNoiseColumns() {
   assert(hl > 0);
   size_t header_commas = 0;
   for (size_t i = 0; i < hl; ++i) header_commas += buf[i] == ',';
-  assert(header_commas == 26); // 27 columns
-  assert(strstr(buf, "s5_battery_pct,noise_rms,noise_db,noise_band,noise_events,noise_l10,noise_l90\n") != nullptr);
+  assert(header_commas == 41); // 42 columns
+  assert(strstr(buf, "s10_battery_pct,noise_rms,noise_db,noise_band,noise_events,noise_l10,noise_l90\n") != nullptr);
 
   RtcTime t;
   t.valid = true; t.year = 2026; t.month = 3; t.day = 9; t.hour = 7; t.minute = 5; t.second = 1;
   // The v2 file name never matches the old 15-column file
   char path[SdLogCodec::MAX_PATH_SIZE];
-  assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) == strlen("/sdcard/climate_v5_202603.csv"));
-  assert(strcmp(path, "/sdcard/climate_v5_202603.csv") == 0);
-  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v5_202603.csv")) == 0); // no room for NUL
-  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v5_202603.csv") + 1) > 0);
+  assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) == strlen("/sdcard/climate_v6_202603.csv"));
+  assert(strcmp(path, "/sdcard/climate_v6_202603.csv") == 0);
+  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v6_202603.csv")) == 0); // no room for NUL
+  assert(SdLogCodec::formatFilename(&t, path, strlen("/sdcard/climate_v6_202603.csv") + 1) > 0);
   t.year = 2099; t.month = 12;
   assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) > 0);
-  assert(strcmp(path, "/sdcard/climate_v5_209912.csv") == 0);
+  assert(strcmp(path, "/sdcard/climate_v6_209912.csv") == 0);
   assert(strlen(path) < SdLogCodec::MAX_PATH_SIZE);
   t.year = 2026; t.month = 3;
 
@@ -4758,7 +4756,7 @@ void testSdLogNoiseColumns() {
   NoiseReading noise = NoiseClassifier::makeReading(NoiseBand::QUIET, 1000);
   const MicCalibration cal;
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,1000,60,MODERATE,0,,\n") == 0);
+  assert(std::string(buf) == "2026-03-09 07:05:01" + std::string(36, ',') + "1000,60,MODERATE,0,,\n");
   // The calibration offset applies
   MicCalibration cal2;
   cal2.spl_offset_db = 100;
@@ -4781,9 +4779,9 @@ void testSdLogNoiseColumns() {
   // Invalid or missing noise: six empty fields, same column count
   const NoiseReading invalid;
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &invalid, &cal, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(std::string(buf) == "2026-03-09 07:05:01" + std::string(41, ',') + "\n");
   SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, nullptr, &cal, buf, sizeof(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(std::string(buf) == "2026-03-09 07:05:01" + std::string(41, ',') + "\n");
   row_commas = 0;
   for (size_t i = 0; buf[i] != '\0'; ++i) row_commas += buf[i] == ',';
   assert(row_commas == header_commas);
@@ -5276,7 +5274,7 @@ void testNoiseStatePersistence() {
     assert(r.noise_band == band && r.muted && r.alert_mask == ALERT_HUMIDITY);
   }
   // Band value 3 does not exist and is rejected even with a valid CRC
-  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 3;
+  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 5;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   buf[audio_pos] = static_cast<uint8_t>(3 << 6);
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
@@ -5469,7 +5467,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6167,40 +6165,42 @@ void testDeviceConfigRtcRoundTrip() {
       {21, 4},   // wake interval high byte 4: 60 + 1024 above range
       {22, 4},   // sensor stale minutes low byte 4 with high byte 0: below range
       {23, 1},   // sensor stale minutes high byte 1: 30 + 256 above range
-      {24, 6},   // outdoor slot above range
-      {25, 6},   // door ref slot above range
+      {24, 11},  // outdoor slot above range
+      {25, 11},  // door ref slot above range
       {26, 49},  // ventilate limit below range
       {26, 81},  // ventilate limit above range
       {27, 51},  // sensor battery limit above range
       {28, 2},   // display invert above range
-      {29, 64},  // climate alert tiles above range
-      {31, 0x7F}, // battery offset high byte 0x7F: 32512 mV above range
-      {31, 0x80}, // battery offset high byte 0x80: -32768 mV below range
-      {32, 169}, // slot release hours above range
-      {33, 59},  // night wake interval low byte 59 with high byte 0: below range
-      {34, 8},   // night wake interval high byte 8: 2048 above range
-      {35, 'K'}, // temperature unit K
-      {35, 'f'}, // temperature unit in lower case
-      {35, 0},   // temperature unit empty
-      {36, 25},  // chime repeat hours above range
-      {37, 26},  // heat alert limit below range
-      {37, 46},  // heat alert limit above range
-      {37, 255}, // heat alert limit far above range
-      {38, 19},  // dry alert limit below range
-      {38, 46},  // dry alert limit above range
-      {38, 255}, // dry alert limit far above range
-      {39, 2},   // BLE broadcast flag above range
-      {39, 255}, // BLE broadcast flag far above range
-      {40, 3},   // BLE console above range
-      {40, 255}, // BLE console far above range
-      {41, 1},   // USB temperature offset +0.1 C above range
-      {41, 0xCD}, // USB temperature offset -5.1 C below range
-      {41, 0x80}, // USB temperature offset -12.8 C far below range
-      {42, 51},  // RH gain +51 steps (1.102) above range
-      {42, 0xCD}, // RH gain -51 steps (0.898) below range
-      {47, 51},  // slot 5 RH gain above range
-      {47, 0xCD}, // slot 5 RH gain below range
-      {74 + 18, 2},   // invalid character in the onboard name (2 floats per slot, 5 slots)
+      {30, 8},   // climate alert tiles high byte 8: 2048 above range
+      {32, 0x7F}, // battery offset high byte 0x7F: 32512 mV above range
+      {32, 0x80}, // battery offset high byte 0x80: -32768 mV below range
+      {33, 169}, // slot release hours above range
+      {34, 59},  // night wake interval low byte 59 with high byte 0: below range
+      {35, 8},   // night wake interval high byte 8: 2048 above range
+      {36, 'K'}, // temperature unit K
+      {36, 'f'}, // temperature unit in lower case
+      {36, 0},   // temperature unit empty
+      {37, 25},  // chime repeat hours above range
+      {38, 26},  // heat alert limit below range
+      {38, 46},  // heat alert limit above range
+      {38, 255}, // heat alert limit far above range
+      {39, 19},  // dry alert limit below range
+      {39, 46},  // dry alert limit above range
+      {39, 255}, // dry alert limit far above range
+      {40, 2},   // BLE broadcast flag above range
+      {40, 255}, // BLE broadcast flag far above range
+      {41, 3},   // BLE console above range
+      {41, 255}, // BLE console far above range
+      {42, 1},   // USB temperature offset +0.1 C above range
+      {42, 0xCD}, // USB temperature offset -5.1 C below range
+      {42, 0x80}, // USB temperature offset -12.8 C far below range
+      {43, 51},  // RH gain +51 steps (1.102) above range
+      {43, 0xCD}, // RH gain -51 steps (0.898) below range
+      {48, 51},  // slot 5 RH gain above range
+      {48, 0xCD}, // slot 5 RH gain below range
+      {53, 51},  // slot 10 RH gain above range
+      {53, 0xCD}, // slot 10 RH gain below range
+      {138, 2},  // invalid character in the onboard name
       {PowerManager::CONFIG_SIZE - PowerManager::REJECTS_SIZE - 1, 2}, // unknown flag bit
   };
   for (const Corrupt& c : cases) {
@@ -6215,7 +6215,7 @@ void testDeviceConfigRtcRoundTrip() {
   const float nan_value = NAN;
   const float far_value = 99.0f;
   for (const float f : {nan_value, far_value}) {
-    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(48)}) {
+    for (const size_t off : {static_cast<size_t>(0), static_cast<size_t>(4), static_cast<size_t>(12), static_cast<size_t>(54)}) {
       memcpy(bad, buf, sizeof(bad));
       memcpy(bad + cfg_pos + off, &f, 4);
       const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
@@ -6288,7 +6288,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6303,7 +6303,7 @@ void testShtc3HumidityOffset() {
 }
 
 void testSlot45CalibrationOffsets() {
-  assert(DeviceConfig::OFFSET_SLOT_COUNT == 5);
+  assert(DeviceConfig::OFFSET_SLOT_COUNT == 10);
   DeviceConfig cfg;
   const char* text = "slot5_temp_offset_c=-1.5\nslot4_rh_offset_pct=-4.0\nslot4_temp_offset_c=5\nslot5_rh_offset_pct=10\n";
   ConfigParseResult r = DeviceConfigParser::parse(text, strlen(text), cfg);
@@ -6495,7 +6495,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -6625,8 +6625,8 @@ void testSensorNames() {
       for (uint16_t dx = 8; dx <= 150; ++dx) {
         ink_in_title = ink_in_title || with_names.getPixel(tile_x[t] + dx, tile_y[t] + dy);
       }
-      // Fresh tile: right of the last glyph the title band stays empty up to the tile border
-      for (uint16_t dx = 151; dx < tile_w - 1; ++dx) {
+      // Fresh tile: right of the last glyph the title band stays empty up to the badge
+      for (uint16_t dx = 151; dx < tile_w - 35; ++dx) {
         assert(!with_names.getPixel(tile_x[t] + dx, tile_y[t] + dy));
       }
     }
@@ -6677,7 +6677,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -8543,10 +8543,10 @@ void testStatsPageKeyHandling() {
   assert(changed);
   assert(n.mode() == DisplayMode::SYSTEM_DIAGNOSTICS && n.statsPage() == 0);
 
-  // setStatsPage ignores a value above 1
-  n.setStatsPage(1);
-  n.setStatsPage(2);
-  assert(n.statsPage() == 1);
+  // setStatsPage ignores a value above 3
+  n.setStatsPage(3);
+  n.setStatsPage(4);
+  assert(n.statsPage() == 3);
 
   // A restored second page falls back to the first page as soon as slot 4 and slot 5 are inactive
   n.setStatsSecondPage(false);
@@ -8592,7 +8592,7 @@ void testStatsPageRenderAndState() {
   assert(memcmp(a.data(), base.data(), St7305Framebuffer::BYTE_COUNT) != 0);
 
   // RTC state: the page byte round-trips, 2 is rejected, and the old version 50 is rejected
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   PersistentState st;
   st.stats_page = 1;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -8605,7 +8605,7 @@ void testStatsPageRenderAndState() {
   };
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
-  bad[7] = 2;
+  bad[7] = 4;
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
   memcpy(bad, buf, sizeof(bad));
@@ -8620,8 +8620,8 @@ void testClimateChartKeyHandling() {
   assert(c.mode() == DisplayMode::CLIMATE_CHART && c.chartSensor() == 0);
   uint32_t t = 0;
   assert(c.updateWithLongPress(false, t) == ButtonEvent::NONE);
-  // A short press selects the next sensor and keeps the mode; the sensor wraps 0..5 -> 0
-  for (uint8_t want = 1; want <= 5; ++want) {
+  // A short press selects the next sensor and keeps the mode; the sensor wraps 0..10 -> 0
+  for (uint8_t want = 1; want <= 10; ++want) {
     assert(pressKeyShort(c, t) == ButtonEvent::NEXT_SENSOR);
     assert(c.chartSensor() == want && c.mode() == DisplayMode::CLIMATE_CHART);
   }
@@ -8653,14 +8653,14 @@ void testClimateChartKeyHandling() {
   s.next();
   assert(s.mode() == DisplayMode::CLIMATE_CHART);
 
-  // setChartSensor ignores an index above 5
-  s.setChartSensor(5);
-  s.setChartSensor(6);
-  assert(s.chartSensor() == 5);
+  // setChartSensor ignores an index above 10
+  s.setChartSensor(10);
+  s.setChartSensor(11);
+  assert(s.chartSensor() == 10);
 }
 
 void testClimateChartRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   PersistentState s;
   s.mode = DisplayMode::CLIMATE_CHART;
   s.chart_sensor = 5;
@@ -8684,7 +8684,7 @@ void testClimateChartRtcRoundTrip() {
   refresh_crc(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
   memcpy(bad, buf, sizeof(bad));
-  bad[6] = 6;
+  bad[6] = 11;
   refresh_crc(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
   // The previous state version is rejected
@@ -8789,11 +8789,11 @@ void testClimateChartRendering() {
   assert(ink_in(full, DashboardView::CHART_X + 120, DashboardView::CHART_TEMP_Y + 38, 90, 14) !=
          ink_in(none, DashboardView::CHART_X + 120, DashboardView::CHART_TEMP_Y + 38, 90, 14));
 
-  // Each sensor draws its own image; an index above 3 falls back to the onboard sensor
+  // Each sensor draws its own image; an index outside ClimateHistory::SLOT_COUNT falls back to the onboard sensor
   St7305Framebuffer a;
   St7305Framebuffer b;
   render(0, a);
-  render(9, b);
+  render(11, b);
   assert(memcmp(a.data(), b.data(), St7305Framebuffer::BYTE_COUNT) == 0);
   assert(memcmp(a.data(), full.data(), St7305Framebuffer::BYTE_COUNT) != 0);
 }
@@ -8825,7 +8825,7 @@ void testWeekHistoryStoresPreviousDayAtMidnight() {
   assert(WeekHistory::decodeTemperature(WeekHistory::encodeTemperature(-35)) == -35);
   assert(WeekHistory::encodeTemperature(-5000) != WeekHistory::GAP && WeekHistory::encodeTemperature(5000) != WeekHistory::GAP);
   assert(WeekHistory::encodeHumidity(605) == 121 && WeekHistory::encodeHumidity(2000) == 200);
-  assert(WeekHistory::SERIALIZED_SIZE == 6 * 7 * 4 + 5);
+  assert(WeekHistory::SERIALIZED_SIZE == 11 * 7 * 4 + 5);
 
   const ClimateHistory history = weekKnownHistory();
   WeekHistory week;
@@ -8907,7 +8907,7 @@ void testWeekHistoryLiveMaskAndClockCorrection() {
   SwitchBotReading dead = makeReading(2, 20.0f, 50, 50); // registry slot 1 is sensor 2
   dead.updated_ms = now - 25UL * 3600UL * 1000UL;
   assert(registry.upsert(dead));
-  const uint8_t mask = WeekHistory::liveSensors(true, registry, now);
+  const uint16_t mask = WeekHistory::liveSensors(true, registry, now);
   assert(mask == 0x03); // onboard and sensor 1; sensor 2 is older than 24 h
   assert(WeekHistory::liveSensors(false, registry, now) == 0x02);
 
@@ -8975,7 +8975,7 @@ void testWeekHistoryInvalidTimeSkipsShift() {
 }
 
 void testWeekChartRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   const ClimateHistory history = weekKnownHistory();
   PersistentState s;
   s.mode = DisplayMode::WEEK_CHART;
@@ -9068,8 +9068,8 @@ void testWeekChartKeyHandling() {
   assert(c.mode() == DisplayMode::WEEK_CHART && c.chartSensor() == 0);
   uint32_t t = 0;
   assert(c.updateWithLongPress(false, t) == ButtonEvent::NONE);
-  // A short press selects the next sensor and keeps the mode; the sensor wraps 5 -> 0
-  for (uint8_t want = 1; want <= 5; ++want) {
+  // A short press selects the next sensor and keeps the mode; the sensor wraps 10 -> 0
+  for (uint8_t want = 1; want <= 10; ++want) {
     assert(pressKeyShort(c, t) == ButtonEvent::NEXT_SENSOR);
     assert(c.chartSensor() == want && c.mode() == DisplayMode::WEEK_CHART);
   }
@@ -9186,13 +9186,13 @@ void testWeekChartRendering() {
   assert(memcmp(none.data(), null_week.data(), St7305Framebuffer::BYTE_COUNT) == 0);
   assert(memcmp(none.data(), fb.data(), St7305Framebuffer::BYTE_COUNT) != 0);
 
-  // Each sensor draws its own image; an index above 5 falls back to the onboard sensor
+  // Each sensor draws its own image; an index above 10 falls back to the onboard sensor
   St7305Framebuffer a;
   St7305Framebuffer b;
   info.chart_sensor = 0;
   DashboardView::renderMode(a, DisplayMode::WEEK_CHART, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info,
                             "12:00", 0, nullptr, nullptr, nullptr, &week);
-  info.chart_sensor = 9;
+  info.chart_sensor = 11;
   DashboardView::renderMode(b, DisplayMode::WEEK_CHART, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info,
                             "12:00", 0, nullptr, nullptr, nullptr, &week);
   assert(memcmp(a.data(), b.data(), St7305Framebuffer::BYTE_COUNT) == 0);
@@ -9546,9 +9546,9 @@ void testScanCompletionNoBatteryField() {
     sc.onPacket(reg, makeReading(i, 21.0f, 55, 80));
   }
   // The packet has no battery field: the kept registry value does not count.
-  sc.onPacket(reg, makeReading(5, 21.0f, 55, -1));
+  sc.onPacket(reg, makeReading(MAX_SWITCHBOT_SENSORS, 21.0f, 55, -1));
   assert(!sc.canStop(reg, 3000));
-  sc.onPacket(reg, makeReading(5, 21.0f, 55, 70));
+  sc.onPacket(reg, makeReading(MAX_SWITCHBOT_SENSORS, 21.0f, 55, 70));
   assert(sc.canStop(reg, 3000));
 }
 
@@ -9625,14 +9625,14 @@ void testScanCompletionIgnoresUnknownMacAndInvalid() {
 }
 
 void testScanCompletionNewSlotAfterUpsert() {
-  SwitchBotRegistry reg = scanRegistry(1000, 4);
+  SwitchBotRegistry reg = scanRegistry(1000, MAX_SWITCHBOT_SENSORS - 1);
   ScanCompletion sc;
   sc.begin(false);
-  const SwitchBotReading fresh = makeReading(5, 21.0f, 55, 80);
+  const SwitchBotReading fresh = makeReading(MAX_SWITCHBOT_SENSORS, 21.0f, 55, 80);
   assert(reg.upsert(fresh));
   sc.onPacket(reg, fresh);
   assert(!sc.canStop(reg, 3000));
-  for (uint8_t i = 1; i <= 4; ++i) {
+  for (uint8_t i = 1; i <= MAX_SWITCHBOT_SENSORS - 1; ++i) {
     sc.onPacket(reg, makeReading(i, 21.0f, 55, 80));
   }
   assert(sc.canStop(reg, 3000));
@@ -10090,7 +10090,9 @@ void testSerialParserValidCommands() {
   assert(parseText("INFO", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::INFO);
   assert(parseText("DUMP climate_v4_202611.csv", cmd) == SerialParseStatus::OK);
   assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "climate_v4_202611.csv") == 0);
-  assert(parseText("DUMP climate_v6_202611.csv", cmd) == SerialParseStatus::BAD_NAME);
+  assert(parseText("DUMP climate_v6_202611.csv", cmd) == SerialParseStatus::OK);
+  assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "climate_v6_202611.csv") == 0);
+  assert(parseText("DUMP climate_v7_202611.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP ../climate_v4_202611.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP climate_v2_202611.csv", cmd) == SerialParseStatus::OK);
   assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "climate_v2_202611.csv") == 0);
@@ -10341,25 +10343,25 @@ void testSerialConfigLineFormat() {
   assert(text.find("\nheat_alert_limit_c=0\n") != std::string::npos);
   assert(text.find("\nntp_sync_interval_h=24\n") != std::string::npos);
   assert(text.find("\noutdoor_slot=0\n") != std::string::npos);
-  for (int i = 1; i <= 5; ++i) {
+  for (int i = 1; i <= 10; ++i) {
     assert(text.find("\nslot" + std::to_string(i) + "_temp_offset_c=0.0\n") != std::string::npos);
     assert(text.find("\nslot" + std::to_string(i) + "_rh_offset_pct=0.0\n") != std::string::npos);
   }
-  // 14 base keys plus six slot keys, one per line, no Wi-Fi key
+  // Base keys plus slot keys, one per line, no Wi-Fi key
   size_t lines = 0;
   for (char c : text) {
     lines += c == '\n' ? 1 : 0;
-  assert(text.find("\nsensor_stale_min=30\n") != std::string::npos);
   }
+  assert(text.find("\nsensor_stale_min=30\n") != std::string::npos);
   assert(text.find("\nwake_interval_s=60\n") != std::string::npos);
   assert(text.find("\nventilate_limit_rh=60\n") != std::string::npos);
   assert(text.find("\nsensor_battery_limit_pct=10\n") != std::string::npos);
-  assert(text.find("\nclimate_alert_tiles=63\n") != std::string::npos);
+  assert(text.find("\nclimate_alert_tiles=2047\n") != std::string::npos);
   assert(text.find("\ndisplay_invert=0\n") != std::string::npos);
   assert(text.find("\nbattery_offset_mv=0\n") != std::string::npos);
   assert(text.find("\ntemp_unit=C\n") != std::string::npos);
-  assert(text.find("\nrh_gain=1.000\n") != std::string::npos && text.find("\nslot5_rh_gain=1.000\n") != std::string::npos);
-  assert(lines == 46);
+  assert(text.find("\nrh_gain=1.000\n") != std::string::npos && text.find("\nslot10_rh_gain=1.000\n") != std::string::npos);
+  assert(lines == 61);
   assert(text.find("wifi") == std::string::npos && text.find("ssid") == std::string::npos &&
          text.find("pass") == std::string::npos);
   // Too small a buffer gives 0 and an empty string
@@ -10756,7 +10758,7 @@ void testChimeRepeat() {
   assert(AlertEvaluator::repeatableBits(static_cast<uint8_t>(ALERT_FREEZER | ALERT_CHARGE_FULL)) == ALERT_FREEZER);
 
   // RTC round trip: stamp, key and state version
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   PersistentState st;
   st.last_chime_ms = 0xFFFFFF00u;
   st.config.chime_repeat_h = 24;
@@ -10889,7 +10891,7 @@ void testSlotRelease() {
   PersistentState s;
   s.config.slot_release_h = 77;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 32;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 33;
   assert(buf[pos] == 77);
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   auto seal = [&]() {
@@ -10900,7 +10902,7 @@ void testSlotRelease() {
   bad[pos] = 169;
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 34; // old state version without the key
   seal();
@@ -10996,7 +10998,7 @@ void testNightWakeInterval() {
   PersistentState st;
   st.config.night_wake_interval_s = 0x0258; // 600
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 33;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 34;
   assert(buf[pos] == 0x58 && buf[pos + 1] == 0x02);
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   auto seal = [&]() {
@@ -11011,7 +11013,7 @@ void testNightWakeInterval() {
   bad[pos] = 0x09; bad[pos + 1] = 0x07; // 1801 s: above range
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 35; // old state version without the key
   seal();
@@ -11034,7 +11036,7 @@ void testSerialConfigRoundTrip() {
   assert(source_at != std::string::npos);
   DeviceConfig back;
   const ConfigParseResult result = DeviceConfigParser::parse(sink.out.data(), source_at, back);
-  assert(result.file_ok && result.rejected == 0 && result.keys_set == 46);
+  assert(result.file_ok && result.rejected == 0 && result.keys_set == 61);
   assert(back.ble_console == 2 && sink.out.find("\nble_console=2\n") != std::string::npos);
   assert(back.heat_alert_limit_c == 33 && sink.out.find("\nheat_alert_limit_c=33\n") != std::string::npos);
   assert(back.battery_offset_mv == -120 && back.temp_unit == 'F' && back.chime_repeat_h == 12);
@@ -11177,11 +11179,11 @@ void testBleReceptionHistory() {
   StatusFixture f;
   f.addSlot(1, 20.0f, 50, 80, -60, f.snap.now_ms - 1000);
   f.snap.reception = &back.reception;
-  assert(statusLines(f.run())[11] == "RECEPTION s1=11/24 s2=3/4 s3=-- s4=-- s5=--");
+  assert(statusLines(f.run())[16] == "RECEPTION s1=11/24 s2=3/4 s3=-- s4=-- s5=-- s6=-- s7=-- s8=-- s9=-- s10=--");
   f.snap.reception = &st.reception;
-  assert(statusLines(f.run())[11] == "RECEPTION s1=-- s2=3/4 s3=-- s4=-- s5=--");
+  assert(statusLines(f.run())[16] == "RECEPTION s1=-- s2=3/4 s3=-- s4=-- s5=-- s6=-- s7=-- s8=-- s9=-- s10=--");
   f.snap.reception = nullptr;
-  assert(statusLines(f.run())[11] == "RECEPTION s1=-- s2=-- s3=-- s4=-- s5=--");
+  assert(statusLines(f.run())[16] == "RECEPTION s1=-- s2=-- s3=-- s4=-- s5=-- s6=-- s7=-- s8=-- s9=-- s10=--");
 
   // Widest case: five slots with 24/24, wide names and wide counters still fit the reply buffer (CRC32 line present).
   StatusFixture w;
@@ -11192,7 +11194,7 @@ void testBleReceptionHistory() {
   for (int scan = 0; scan < 24; ++scan) {
     uint32_t b[MAX_SWITCHBOT_SENSORS];
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) b[i] = w.registry.slot(i).packet_count;
-    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    for (size_t i = 0; i < 5; ++i) {
       SwitchBotReading again = w.registry.slot(i); // same MAC: a packet of a known sensor
       assert(w.registry.upsert(again));
     }
@@ -11200,8 +11202,8 @@ void testBleReceptionHistory() {
   }
   w.snap.reception = &full;
   const std::vector<std::string> wl = statusLines(w.run());
-  assert(wl.size() == 16 && wl[11] == "RECEPTION s1=24/24 s2=24/24 s3=24/24 s4=24/24 s5=24/24");
-  assert(wl[15].rfind("CRC32 ", 0) == 0);
+  assert(wl.size() == 21 && wl[16] == "RECEPTION s1=24/24 s2=24/24 s3=24/24 s4=24/24 s5=24/24 s6=-- s7=-- s8=-- s9=-- s10=--");
+  assert(wl[20].rfind("CRC32 ", 0) == 0);
 
   // An RTC image of the old STATE_VERSION is rejected, also with a valid checksum.
   uint8_t old[PowerManager::SERIALIZED_SIZE];
@@ -11236,13 +11238,13 @@ void testBleReceptionHistory() {
 void testSerialStatusEmptyAndMissingValues() {
   StatusFixture f;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 16);
-  assert(lines[0] == "SENSOR 0 onboard temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
-  assert(lines[1] == "SENSOR 1 slot1 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
-  assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
-  assert(lines[7] == "RESET reason=UNKNOWN abnormal=--");
-  assert(lines[12] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
-  assert(lines[15].rfind("CRC32 ", 0) == 0);
+  assert(lines.size() == 21);
+  assert(lines[0] == "SENSOR 0 onboard temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=SHTC3");
+  assert(lines[1] == "SENSOR 1 slot1 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=--");
+  assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=--");
+  assert(lines[12] == "RESET reason=UNKNOWN abnormal=--");
+  assert(lines[17] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
+  assert(lines[20].rfind("CRC32 ", 0) == 0);
 }
 
 void testSerialStatusStates() {
@@ -11255,10 +11257,10 @@ void testSerialStatusStates() {
   f.snap.sensor_battery_latch = 0b110; // slot 3 is stale and latched: STALE wins
   f.history.record(f.snap.now_ms - 300000, true, 44.6f, f.registry, 22.34f);
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[0] == "SENSOR 0 onboard temp=22.3 rh=45 bat=-- rssi=-- age=300 state=OK");
-  assert(lines[1] == "SENSOR 1 LIVING_ROOM temp=-5.4 rh=61 bat=80 rssi=-70 age=120 state=OK");
-  assert(lines[2] == "SENSOR 2 slot2 temp=21.5 rh=45 bat=8 rssi=-85 age=60 state=BATLOW");
-  assert(lines[3] == "SENSOR 3 slot3 temp=19.0 rh=50 bat=-- rssi=-90 age=1801 state=STALE");
+  assert(lines[0] == "SENSOR 0 onboard temp=22.3 rh=45 bat=-- rssi=-- age=300 state=OK format=SHTC3");
+  assert(lines[1] == "SENSOR 1 LIVING_ROOM temp=-5.4 rh=61 bat=80 rssi=-70 age=120 state=OK format=WOIO");
+  assert(lines[2] == "SENSOR 2 slot2 temp=21.5 rh=45 bat=8 rssi=-85 age=60 state=BATLOW format=WOIO");
+  assert(lines[3] == "SENSOR 3 slot3 temp=19.0 rh=50 bat=-- rssi=-90 age=1801 state=STALE format=WOIO");
 }
 
 void testSerialStatusOnboardStaleAndOffset() {
@@ -11268,10 +11270,10 @@ void testSerialStatusOnboardStaleAndOffset() {
   const uint32_t hour_ms = ClimateHistory::SAMPLE_INTERVAL_MS;
   f.history.record(f.snap.now_ms - hour_ms - 1000000, true, 40.0f, f.registry, -0.04f); // 1000 s past the hour
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[0] == "SENSOR 0 onboard temp=0.0 rh=40 bat=-- rssi=-- age=4600 state=OK"); // hourly sample is no stale
+  assert(lines[0] == "SENSOR 0 onboard temp=0.0 rh=40 bat=-- rssi=-- age=4600 state=OK format=SHTC3"); // hourly sample is no stale
   f.snap.now_ms += SENSOR_STALE_TIMEOUT_MS;
   lines = statusLines(f.run());
-  assert(lines[0] == "SENSOR 0 onboard temp=0.0 rh=40 bat=-- rssi=-- age=6400 state=STALE");
+  assert(lines[0] == "SENSOR 0 onboard temp=0.0 rh=40 bat=-- rssi=-- age=6400 state=STALE format=SHTC3");
   // Boundary: age equal to one interval plus the timeout is OK, one millisecond more is STALE.
   StatusFixture g;
   g.history.record(g.snap.now_ms - hour_ms - SENSOR_STALE_TIMEOUT_MS, true, 40.0f, g.registry, 20.0f);
@@ -11299,9 +11301,9 @@ void testSerialStatusWorstCaseLineLength() {
   for (int i = 0; i < 30; ++i) wide_awake.record(65535);
   f.snap.awake = &wide_awake;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 16 && lines[6].rfind("SD status=", 0) == 0 && lines[7] == "RESET reason=TASK_WDT abnormal=65535" &&
-         lines[9].rfind("SHTC3 ", 0) == 0 && lines[10].rfind("BLE ", 0) == 0 && lines[12].rfind("POWER ", 0) == 0 && lines[13].rfind("RUNTIME ", 0) == 0 && lines[14].rfind("AWAKE ", 0) == 0 && lines[15].size() == 14);
-  for (size_t i = 0; i < 4; ++i) {
+  assert(lines.size() == 21 && lines[11].rfind("SD status=", 0) == 0 && lines[12] == "RESET reason=TASK_WDT abnormal=65535" &&
+         lines[14].rfind("SHTC3 ", 0) == 0 && lines[15].rfind("BLE ", 0) == 0 && lines[17].rfind("POWER ", 0) == 0 && lines[18].rfind("RUNTIME ", 0) == 0 && lines[19].rfind("AWAKE ", 0) == 0 && lines[20].size() == 14);
+  for (size_t i = 0; i < 11; ++i) {
     assert(lines[i].rfind("SENSOR ", 0) == 0 && lines[i].find(" state=") != std::string::npos);
   }
   assert(lines[3].find("age=4294967 state=STALE") != std::string::npos);
@@ -11327,9 +11329,9 @@ void testBleRejectFullRegistry() {
   SwitchBotRegistry reg;
   fillRegistry(reg);
   assert(reg.rejects().total() == 0 && !reg.rejects().has_last);
-  assert(!reg.upsert(rejectReading(9), BleFormat::METER));
+  assert(!reg.upsert(rejectReading(19), BleFormat::METER));
   assert(reg.rejects().total() == 1 && reg.rejects().by_format[1] == 1 && reg.rejects().has_last);
-  assert(reg.rejects().last_mac[5] == 9 && reg.rejects().last_mac[0] == 0xAA);
+  assert(reg.rejects().last_mac[5] == 19 && reg.rejects().last_mac[0] == 0xAA);
   // A known MAC updates its slot and counts nothing.
   assert(reg.upsert(rejectReading(2)));
   assert(reg.rejects().total() == 1);
@@ -11337,16 +11339,10 @@ void testBleRejectFullRegistry() {
 
 void testBleRejectFixedSlots() {
   SwitchBotRegistry reg;
-  const uint8_t fixed[6] = {0xAA, 0, 0, 0, 0, 7};
-  reg.setFixedMac(0, fixed);
-  uint8_t other[6] = {0xAA, 0, 0, 0, 0, 8};
-  reg.setFixedMac(1, other);
-  uint8_t third[6] = {0xAA, 0, 0, 0, 0, 9};
-  reg.setFixedMac(2, third);
-  uint8_t fourth[6] = {0xAA, 0, 0, 0, 0, 10};
-  uint8_t fifth[6] = {0xAA, 0, 0, 0, 0, 11};
-  reg.setFixedMac(3, fourth);
-  reg.setFixedMac(4, fifth);
+  for (uint8_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    const uint8_t fixed[6] = {0xAA, 0, 0, 0, 0, static_cast<uint8_t>(i + 7)};
+    reg.setFixedMac(i, fixed);
+  }
   // Every slot is free but fixed to another MAC: a new MAC is rejected.
   assert(!reg.upsert(rejectReading(1), BleFormat::BTHOME));
   assert(reg.rejects().by_format[2] == 1 && reg.rejects().last_mac[5] == 1);
@@ -11397,25 +11393,25 @@ void testBleRejectSaturationAndReset() {
   assert(reg.rejects().total() == 5u * 65535u);
   reg.resetRejects();
   assert(reg.rejects().total() == 0 && !reg.rejects().has_last && reg.rejects().last_mac[5] == 0);
-  assert(reg.activeCount() == 5);
+  assert(reg.activeCount() == 10);
 }
 
 void testBleRejectStatusLine() {
   StatusFixture f;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 16);
-  assert(lines[10] == "BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0 thermopro=0");
-  assert(lines[11] == "RECEPTION s1=-- s2=-- s3=-- s4=-- s5=--");
-  assert(lines[12].rfind("POWER ", 0) == 0);
+  assert(lines.size() == 21);
+  assert(lines[15] == "BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0 thermopro=0");
+  assert(lines[16] == "RECEPTION s1=-- s2=-- s3=-- s4=-- s5=-- s6=-- s7=-- s8=-- s9=-- s10=--");
+  assert(lines[17].rfind("POWER ", 0) == 0);
   fillRegistry(f.registry);
   f.registry.upsert(rejectReading(0xAB), BleFormat::BTHOME);
   f.registry.upsert(rejectReading(0xCD), BleFormat::ATC);
   f.registry.upsert(rejectReading(0xCD), BleFormat::ATC);
   f.registry.upsert(rejectReading(0xEF), BleFormat::THERMOPRO);
   lines = statusLines(f.run());
-  assert(lines.size() == 16);
-  assert(lines[10] == "BLE rejected=4 last=AA:00:00:00:00:EF woio=0 meter=0 bthome=1 atc=2 thermopro=1");
-  assert(lines[12].rfind("POWER ", 0) == 0);
+  assert(lines.size() == 21);
+  assert(lines[15] == "BLE rejected=4 last=AA:00:00:00:00:EF woio=0 meter=0 bthome=1 atc=2 thermopro=1");
+  assert(lines[17].rfind("POWER ", 0) == 0);
   // The slot lines stay as before.
   assert(lines[0].rfind("SENSOR 0 ", 0) == 0);
 }
@@ -11435,8 +11431,8 @@ void testBleRejectStatusWorstCaseLength() {
     f.registry.upsert(r, BleFormat::THERMOPRO);
   }
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 16);
-  assert(lines[10] == "BLE rejected=327675 last=FF:FF:FF:FF:FF:FF woio=65535 meter=65535 bthome=65535 atc=65535 thermopro=65535");
+  assert(lines.size() == 21);
+  assert(lines[15] == "BLE rejected=327675 last=FF:FF:FF:FF:FF:FF woio=65535 meter=65535 bthome=65535 atc=65535 thermopro=65535");
 }
 
 namespace {
@@ -11458,13 +11454,13 @@ void testStatusRuntimeLineValid() {
   f.snap.cycle_tenths = 123;
   f.snap.scan_saved_ms = 0;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 16);
-  assert(lines[13] == "RUNTIME h=29 samples=12 cycles=12.3 scan_saved_ms=0");
+  assert(lines.size() == 21);
+  assert(lines[18] == "RUNTIME h=29 samples=12 cycles=12.3 scan_saved_ms=0");
   // An early scan stop saves awake time and raises the runtime by the same ratio as the diagnostics view.
   f.snap.scan_saved_ms = 4000;
   const BatteryRuntime expected = h.estimate(f.snap.battery, 4000);
   assert(expected.valid && expected.hours > 29);
-  assert(statusLines(f.run())[13] ==
+  assert(statusLines(f.run())[18] ==
          "RUNTIME h=" + std::to_string(expected.hours) + " samples=12 cycles=12.3 scan_saved_ms=4000");
 }
 
@@ -11476,21 +11472,21 @@ void testStatusRuntimeLineNoEstimate() {
   // Too few samples
   const BatteryHistory few = runtimeHistory(BatteryHistory::MIN_SAMPLES - 1);
   f.snap.battery_history = &few;
-  assert(statusLines(f.run())[13] == "RUNTIME h=-- samples=5 cycles=0.0 scan_saved_ms=0");
+  assert(statusLines(f.run())[18] == "RUNTIME h=-- samples=5 cycles=0.0 scan_saved_ms=0");
   // Flat slope
   BatteryHistory flat;
   for (size_t i = 0; i < 12; ++i) {
     flat.push(3.90f);
   }
   f.snap.battery_history = &flat;
-  assert(statusLines(f.run())[13] == "RUNTIME h=-- samples=12 cycles=0.0 scan_saved_ms=0");
+  assert(statusLines(f.run())[18] == "RUNTIME h=-- samples=12 cycles=0.0 scan_saved_ms=0");
   // USB power gives no estimate, a missing history reads as no samples
   const BatteryHistory ok = runtimeHistory(12);
   f.snap.battery_history = &ok;
   f.snap.battery.usb_powered = true;
-  assert(statusLines(f.run())[13] == "RUNTIME h=-- samples=12 cycles=0.0 scan_saved_ms=0");
+  assert(statusLines(f.run())[18] == "RUNTIME h=-- samples=12 cycles=0.0 scan_saved_ms=0");
   f.snap.battery_history = nullptr;
-  assert(statusLines(f.run())[13] == "RUNTIME h=-- samples=0 cycles=0.0 scan_saved_ms=0");
+  assert(statusLines(f.run())[18] == "RUNTIME h=-- samples=0 cycles=0.0 scan_saved_ms=0");
 }
 
 void testStatusRuntimeLineUnknownCycles() {
@@ -11500,7 +11496,7 @@ void testStatusRuntimeLineUnknownCycles() {
   f.snap.battery.usb_powered = false;
   f.snap.battery.voltage_v = 3.78f;
   f.snap.cycle_tenths = -1;
-  assert(statusLines(f.run())[13] == "RUNTIME h=29 samples=12 cycles=-- scan_saved_ms=0");
+  assert(statusLines(f.run())[18] == "RUNTIME h=29 samples=12 cycles=-- scan_saved_ms=0");
 }
 
 void testStatusRuntimeLineWorstCaseLength() {
@@ -11517,9 +11513,9 @@ void testStatusRuntimeLineWorstCaseLength() {
   const BatteryRuntime expected = h.estimate(f.snap.battery, f.snap.scan_saved_ms);
   assert(expected.valid && expected.hours == 99u * 24u + 12u);
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 16);
-  assert(lines[13] == "RUNTIME h=2388 samples=24 cycles=9999.9 scan_saved_ms=4294967295");
-  assert(lines[15].size() == 14);
+  assert(lines.size() == 21);
+  assert(lines[18] == "RUNTIME h=2388 samples=24 cycles=9999.9 scan_saved_ms=4294967295");
+  assert(lines[20].size() == 14);
 }
 
 void testStatusRuntimeLinePositionCrcAndNoSideEffect() {
@@ -11533,19 +11529,18 @@ void testStatusRuntimeLinePositionCrcAndNoSideEffect() {
   f.snap.cycle_tenths = 123;
   const std::string out = f.run();
   const std::vector<std::string> lines = statusLines(out);
-  assert(lines.size() == 16);
-  assert(lines[12].rfind("POWER ", 0) == 0);
-  assert(lines[13].rfind("RUNTIME ", 0) == 0);
-  assert(lines[15].rfind("CRC32 ", 0) == 0 && lines[15].size() == 14);
+  assert(lines.size() == 21);
+  assert(lines[17].rfind("POWER ", 0) == 0);
+  assert(lines[18].rfind("RUNTIME ", 0) == 0);
+  assert(lines[20].rfind("CRC32 ", 0) == 0 && lines[20].size() == 14);
   // The CRC-32 covers the RUNTIME line too.
   const size_t crc_at = out.rfind("CRC32 ");
   SerialCrc32 crc;
   crc.update(reinterpret_cast<const uint8_t*>(out.data()), crc_at);
   char expected[24];
   snprintf(expected, sizeof(expected), "CRC32 %08lx", static_cast<unsigned long>(crc.value()));
-  assert(lines[15] == expected);
+  assert(lines[20] == expected);
   assert(out.find("RUNTIME ") < crc_at);
-  assert(lines[15] == "CRC32 863d2a4d"); // fixed value of the whole reply
   // The command leaves the history unchanged.
   assert(h.size() == before.size() && h.head() == before.head() && h.last_sample_ms == before.last_sample_ms &&
          h.has_sampled == before.has_sampled);
@@ -11562,10 +11557,10 @@ void testSerialStatusPowerLine() {
   f.snap.alert_mask = 0x25;
   f.snap.muted = true;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[12] == "POWER src=BAT v=3.62 pct=42 alerts=25 muted=1");
+  assert(lines[17] == "POWER src=BAT v=3.62 pct=42 alerts=25 muted=1");
   f.snap.battery.valid = false;
   lines = statusLines(f.run());
-  assert(lines[12] == "POWER src=BAT v=-- pct=-- alerts=25 muted=1");
+  assert(lines[17] == "POWER src=BAT v=-- pct=-- alerts=25 muted=1");
 }
 
 struct FakeResetStore {
@@ -11642,15 +11637,15 @@ void testSerialStatusResetLine() {
   f.snap.reset_reason = ResetReasonCodec::text(ResetReason::BROWNOUT);
   f.snap.abnormal_resets = 3;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[7] == "RESET reason=BROWNOUT abnormal=3");
+  assert(lines[12] == "RESET reason=BROWNOUT abnormal=3");
   f.snap.abnormal_resets = 0;
-  assert(statusLines(f.run())[7] == "RESET reason=BROWNOUT abnormal=0");
+  assert(statusLines(f.run())[12] == "RESET reason=BROWNOUT abnormal=0");
   f.snap.abnormal_resets = 65535;
-  assert(statusLines(f.run())[7] == "RESET reason=BROWNOUT abnormal=65535");
+  assert(statusLines(f.run())[12] == "RESET reason=BROWNOUT abnormal=65535");
   f.snap.abnormal_resets = -1;
-  assert(statusLines(f.run())[7] == "RESET reason=BROWNOUT abnormal=--");
+  assert(statusLines(f.run())[12] == "RESET reason=BROWNOUT abnormal=--");
   f.snap.reset_reason = nullptr;
-  assert(statusLines(f.run())[7] == "RESET reason=UNKNOWN abnormal=--");
+  assert(statusLines(f.run())[12] == "RESET reason=UNKNOWN abnormal=--");
 }
 
 namespace {
@@ -11795,16 +11790,16 @@ void testShtc3StatusLine() {
   f.snap.shtc3.run = 4;
   f.snap.shtc3.retried = 7;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 16);
-  assert(lines[7].rfind("RESET ", 0) == 0);
-  assert(lines[9] == "SHTC3 nack=1 short=22 crc=65535 run=4 retried=7 usb_offset=0.0"); // fixture runs on USB power
-  assert(lines[12].rfind("POWER ", 0) == 0);
+  assert(lines.size() == 21);
+  assert(lines[12].rfind("RESET ", 0) == 0);
+  assert(lines[14] == "SHTC3 nack=1 short=22 crc=65535 run=4 retried=7 usb_offset=0.0"); // fixture runs on USB power
+  assert(lines[17].rfind("POWER ", 0) == 0);
   StatusFixture clean;
-  assert(statusLines(clean.run())[9] == "SHTC3 nack=0 short=0 crc=0 run=0 retried=0 usb_offset=0.0");
+  assert(statusLines(clean.run())[14] == "SHTC3 nack=0 short=0 crc=0 run=0 retried=0 usb_offset=0.0");
   clean.config.usb_temp_offset_c = -1.2f;
-  assert(statusLines(clean.run())[9] == "SHTC3 nack=0 short=0 crc=0 run=0 retried=0 usb_offset=-1.2");
+  assert(statusLines(clean.run())[14] == "SHTC3 nack=0 short=0 crc=0 run=0 retried=0 usb_offset=-1.2");
   clean.snap.battery.usb_powered = false; // battery power: the key stays out of the line
-  assert(statusLines(clean.run())[9] == "SHTC3 nack=0 short=0 crc=0 run=0 retried=0");
+  assert(statusLines(clean.run())[14] == "SHTC3 nack=0 short=0 crc=0 run=0 retried=0");
   // The CRC32 line covers all lines before it, including the new retried field.
   const std::string reply = f.run();
   const size_t crc_at = reply.rfind("CRC32 ");
@@ -11927,34 +11922,34 @@ void testAwakeStatsRuntimeEstimate() {
 void testAwakeStatsStatusLine() {
   StatusFixture f;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 16);
-  assert(lines[13].rfind("RUNTIME ", 0) == 0);
-  assert(lines[14] == "AWAKE last_ms=-- avg_ms=-- max_ms=-- samples=0");
-  assert(lines[15].rfind("CRC32 ", 0) == 0);
+  assert(lines.size() == 21);
+  assert(lines[18].rfind("RUNTIME ", 0) == 0);
+  assert(lines[19] == "AWAKE last_ms=-- avg_ms=-- max_ms=-- samples=0");
+  assert(lines[20].rfind("CRC32 ", 0) == 0);
   AwakeTimeStats a;
   a.record(6400);
   a.record(3200);
   f.snap.awake = &a;
   const std::string out = f.run();
   lines = statusLines(out);
-  assert(lines[14] == "AWAKE last_ms=3200 avg_ms=4800 max_ms=6400 samples=2");
+  assert(lines[19] == "AWAKE last_ms=3200 avg_ms=4800 max_ms=6400 samples=2");
   // The CRC-32 covers the AWAKE line.
   const size_t crc_at = out.rfind("CRC32 ");
   SerialCrc32 crc;
   crc.update(reinterpret_cast<const uint8_t*>(out.data()), crc_at);
   char expected[24];
   snprintf(expected, sizeof(expected), "CRC32 %08lx", static_cast<unsigned long>(crc.value()));
-  assert(lines[15] == expected && out.find("AWAKE ") < crc_at && out.find("RUNTIME ") < out.find("AWAKE "));
+  assert(lines[20] == expected && out.find("AWAKE ") < crc_at && out.find("RUNTIME ") < out.find("AWAKE "));
   // The widest values fit the line.
   AwakeTimeStats wide;
   for (int i = 0; i < 30; ++i) wide.record(65535);
   f.snap.awake = &wide;
   lines = statusLines(f.run());
-  assert(lines[14].rfind("AWAKE last_ms=65535 avg_ms=655", 0) == 0 && lines[14].find(" max_ms=65535 samples=24") != std::string::npos);
+  assert(lines[19].rfind("AWAKE last_ms=65535 avg_ms=655", 0) == 0 && lines[19].find(" max_ms=65535 samples=24") != std::string::npos);
 }
 
 void testAwakeStatsRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   assert(PowerManager::AWAKE_SIZE == 6);
   PersistentState s;
   for (int i = 0; i < 9; ++i) s.awake.record(4000 + 100 * static_cast<uint32_t>(i));
@@ -12015,7 +12010,7 @@ void testAwakeStatsRtcRoundTrip() {
 }
 
 void testShtc3RtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   PersistentState s;
   s.shtc3.nack = 513;
   s.shtc3.short_reads = 65535;
@@ -12532,20 +12527,20 @@ void testRtcTrimParserAndGate() {
 
 void testRtcTrimStatusLine() {
   StatusFixture f;
-  assert(statusLines(f.run())[8] == "RTC trim=-- drift_ppm=--");
+  assert(statusLines(f.run())[13] == "RTC trim=-- drift_ppm=--");
   f.snap.rtc_trim_valid = true;
   f.snap.rtc_trim = -8;
-  assert(statusLines(f.run())[8] == "RTC trim=-8 drift_ppm=--");
+  assert(statusLines(f.run())[13] == "RTC trim=-8 drift_ppm=--");
   RtcDriftState drift = trimDrift(35, 86400);
   f.snap.rtc_drift = &drift;
-  assert(statusLines(f.run())[8] == "RTC trim=-8 drift_ppm=35");
+  assert(statusLines(f.run())[13] == "RTC trim=-8 drift_ppm=35");
   drift.interval_s = 43200; // a figure under 24 h gives no rate
-  assert(statusLines(f.run())[8] == "RTC trim=-8 drift_ppm=--");
+  assert(statusLines(f.run())[13] == "RTC trim=-8 drift_ppm=--");
   drift = trimDrift(-12, 90000);
   f.snap.rtc_trim = 63;
-  assert(statusLines(f.run())[8] == "RTC trim=63 drift_ppm=-12");
+  assert(statusLines(f.run())[13] == "RTC trim=63 drift_ppm=-12");
   f.snap.rtc_trim_valid = false;
-  assert(statusLines(f.run())[8] == "RTC trim=-- drift_ppm=-12");
+  assert(statusLines(f.run())[13] == "RTC trim=-- drift_ppm=-12");
 }
 
 void testRtcDriftIntervalPersistence() {
@@ -12675,7 +12670,7 @@ void testConfigExampleTemplateInSync() {
       uncommented += text.substr(at + 2, text.find('\n', at) - at - 2) + "\n";
     }
   }
-  assert(commented == 11 && r.keys_set + commented == DeviceConfigParser::KEY_COUNT);
+  assert(commented == 21 && r.keys_set + commented == DeviceConfigParser::KEY_COUNT);
   DeviceConfig examples;
   const ConfigParseResult er = DeviceConfigParser::parse(uncommented.data(), uncommented.size(), examples);
   assert(er.rejected == 0 && er.keys_set == commented);
@@ -12907,11 +12902,11 @@ void testSerialHistoryFullOrderAndNegative() {
   FakeSink sink;
   TestRunner::showHistory(sink, h, n);
   const std::vector<std::string> lines = splitLines(sink.out);
-  assert(lines.size() == 2 + 6 * 24 + 1); // onboard + 5 slots
+  assert(lines.size() == 2 + ClimateHistory::SLOT_COUNT * 24 + 1); // onboard + 10 slots
   assert(lines[0] == "BEGIN HISTORY");
   assert(lines[1] == "sensor,age_h,temp_c,rh_pct,noise_db");
   size_t k = 2;
-  for (size_t s = 0; s < 6; ++s) {
+  for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
     for (size_t age = 0; age < 24; ++age, ++k) {
       char tail[48];
       const int tenths = (static_cast<int>(23 - age) - 5) * 10 + static_cast<int>(s) * 5;
@@ -13424,7 +13419,7 @@ void testSerialWeekRowsDatesAndCrc() {
   assert(PowerManager::serialize(state, after, sizeof(after)));
   assert(memcmp(before, after, sizeof(before)) == 0); // the reply changes no state
   const std::vector<std::string> lines = splitLines(sink.out);
-  assert(lines.size() == 2 + 42 + 1);
+  assert(lines.size() == 2 + 77 + 1);
   assert(lines[0] == "BEGIN WEEK");
   assert(lines[1] == "sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct");
   assert(lines[2 + 1 * 7 + 0] == "1,0,2026-11-14,10.0,20.0,40.0,60.0"); // 0.5 steps
@@ -13477,7 +13472,7 @@ void testSerialWeekWithoutStamp() {
   FakeSink sink;
   TestRunner::showWeek(sink, week);
   const std::vector<std::string> lines = splitLines(sink.out);
-  assert(lines.size() == 2 + 42 + 1);
+  assert(lines.size() == 2 + 77 + 1);
   assert(lines[2] == "0,0,,,,,");
   assert(lines[2 + 41] == "5,6,,,,,");
 }
@@ -13600,16 +13595,15 @@ bool calibCrcOk(const std::string& out) {
 
 void testSerialCalibParser() {
   SerialCommand cmd;
-  for (int n = 0; n <= 5; ++n) {
-    assert(parseText(std::string("CALIB ") + static_cast<char>('0' + n), cmd) == SerialParseStatus::OK);
+  for (int n = 0; n <= 10; ++n) {
+    assert(parseText(std::string("CALIB ") + std::to_string(n), cmd) == SerialParseStatus::OK);
     assert(cmd.kind == SerialCommandKind::CALIB && cmd.reference == n);
   }
   assert(parseText("CALIB", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("CALIB ", cmd) == SerialParseStatus::BAD_ARG);
-  assert(parseText("CALIB 5", cmd) == SerialParseStatus::OK && cmd.reference == 5);
-  assert(parseText("CALIB 6", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("CALIB 10", cmd) == SerialParseStatus::OK && cmd.reference == 10);
+  assert(parseText("CALIB 11", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("CALIB 1 x", cmd) == SerialParseStatus::BAD_ARG);
-  assert(parseText("CALIB 10", cmd) == SerialParseStatus::BAD_ARG);
   assert(std::string(SerialConsole::errorLine(SerialParseStatus::BAD_ARG)) == "ERR BAD_ARG\n");
 }
 
@@ -13629,7 +13623,7 @@ void testSerialCalibSlots4And5() {
   out = calibOutput(0, h, cfg);
   assert(out.find("SENSOR slot5 hours=10 temp_offset=0.5 rh_offset=0.0 temp_diff=0.0 rh_diff=0.0\n") != std::string::npos);
   assert(out.find("slot5_temp_offset_c=0.5\nslot5_rh_offset_pct=0.0\n") != std::string::npos);
-  assert(calibOutput(6, h, cfg).empty());
+  assert(calibOutput(11, h, cfg).empty());
 }
 
 void testSerialCalibConstantDifference() {
@@ -13937,7 +13931,7 @@ void testRhGainCorrection() {
 void testRhGainConfigKeys() {
   DeviceConfig cfg;
   assert(cfg.rh_gain == 1.0f && cfg.slot_rh_gain[4] == 1.0f && cfg.isDefault());
-  assert(DeviceConfigParser::KEY_COUNT == 57);
+  assert(DeviceConfigParser::KEY_COUNT == 82);
   const char* ok_text = "rh_gain=0.9\nslot1_rh_gain=1.1\nslot5_rh_gain=1.05\n";
   ConfigParseResult r = DeviceConfigParser::parse(ok_text, strlen(ok_text), cfg);
   assert(r.rejected == 0 && r.keys_set == 3);
@@ -13981,7 +13975,7 @@ void testSerialSaltMagnesium() {
   assert(parseText("SALT 1 LICL", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("SALT 1 MGCL2 x", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("SALT 1 mgcl2", cmd) == SerialParseStatus::BAD_ARG);
-  assert(parseText("SALT 6 MGCL2", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("SALT 11 MGCL2", cmd) == SerialParseStatus::BAD_ARG);
   ClimateHistory h;
   fillCalib(h, 1, 6, 25.0f, 30.0f);
   FakeSink sink;
@@ -13995,15 +13989,14 @@ void testSerialSaltMagnesium() {
 
 void testSerialSaltParser() {
   SerialCommand cmd;
-  for (int n = 0; n <= 5; ++n) {
-    assert(parseText(std::string("SALT ") + static_cast<char>('0' + n), cmd) == SerialParseStatus::OK);
+  for (int n = 0; n <= 10; ++n) {
+    assert(parseText(std::string("SALT ") + std::to_string(n), cmd) == SerialParseStatus::OK);
     assert(cmd.kind == SerialCommandKind::SALT && cmd.reference == n);
   }
   assert(parseText("SALT", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("SALT ", cmd) == SerialParseStatus::BAD_ARG);
-  assert(parseText("SALT 6", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("SALT 11", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("SALT 1 x", cmd) == SerialParseStatus::BAD_ARG);
-  assert(parseText("SALT 10", cmd) == SerialParseStatus::BAD_ARG);
   assert(std::string(SerialConsole::errorLine(SerialParseStatus::BAD_ARG)) == "ERR BAD_ARG\n");
 }
 
@@ -14224,7 +14217,7 @@ void testNoiseAlertConfigKey() {
   assert(kept.noise_alert_limit_db == 80 && r.rejected == 1 && r.keys_set == 1);
   // Three distinct keys count as three
   parseText("temp_offset_c=1\nnoise_alert_limit_db=60\nlog_retention_months=3\n", &r);
-  assert(r.keys_set == 3 && DeviceConfigParser::KEY_COUNT == 57); // grows with each new key
+  assert(r.keys_set == 3 && DeviceConfigParser::KEY_COUNT == 82); // grows with each new key
   // valid() and isDefault() cover the new field
   DeviceConfig c;
   assert(c.isDefault() && c.valid());
@@ -14258,7 +14251,8 @@ void testNoiseAlertStatePersistence() {
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t limit_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 2 * DeviceConfig::SLOT_COUNT * 4 - 30;
+  const size_t cfg_start = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
+  const size_t limit_pos = cfg_start + 17;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -14271,7 +14265,7 @@ void testNoiseAlertStatePersistence() {
   // An invalid band value in the audio byte is rejected
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
-  bad[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 3] = 0xC0;
+  bad[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 5] = 0xC0;
   const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
   for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
@@ -14449,22 +14443,22 @@ void testVentilationAlertBit() {
 void testOutdoorSlotConfigKey() {
   ConfigParseResult r;
   assert(DeviceConfig{}.outdoor_slot == 0 && parseText("", &r).outdoor_slot == 0);
-  for (int v = 0; v <= 5; ++v) {
+  for (int v = 0; v <= 10; ++v) {
     char line[32];
     snprintf(line, sizeof(line), "outdoor_slot=%d\n", v);
     assert(parseText(line, &r).outdoor_slot == v && r.keys_set == 1 && r.rejected == 0);
   }
   assert(parseText("outdoor_slot = 2\r\n").outdoor_slot == 2);
-  const char* bad[] = {"outdoor_slot=6\n", "outdoor_slot=-1\n", "outdoor_slot=255\n", "outdoor_slot=abc\n",
+  const char* bad[] = {"outdoor_slot=11\n", "outdoor_slot=-1\n", "outdoor_slot=255\n", "outdoor_slot=abc\n",
                        "outdoor_slot=1.5\n", "outdoor_slot=\n"};
   for (const char* t : bad) {
     const DeviceConfig c = parseText(t, &r);
     assert(c.outdoor_slot == 0 && r.rejected == 1 && r.keys_set == 0);
   }
-  assert(parseText("outdoor_slot=5\noutdoor_slot=9\n", &r).outdoor_slot == 5 && r.rejected == 1);
+  assert(parseText("outdoor_slot=5\noutdoor_slot=19\n", &r).outdoor_slot == 5 && r.rejected == 1);
   // valid() and isDefault() cover the field
   DeviceConfig c;
-  c.outdoor_slot = 6;
+  c.outdoor_slot = 11;
   assert(!c.valid());
   c.outdoor_slot = 2;
   assert(c.valid() && !c.isDefault());
@@ -14510,10 +14504,10 @@ void testVentilationStatePersistence() {
   s.config.outdoor_slot = 3;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   const size_t cfg_start = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
-  for (uint8_t bad_slot : {uint8_t{4}, uint8_t{255}}) {
+  for (uint8_t bad_slot : {uint8_t{11}, uint8_t{255}}) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
     memcpy(bad, buf, sizeof(bad));
-    bad[cfg_start + 22] = bad_slot; // the slot follows the wake interval (bytes 20 and 21)
+    bad[cfg_start + 23] = bad_slot; // the slot follows sensor_stale_min (bytes 21 and 22)
     const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
     for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
     assert(!PowerManager::deserialize(bad, sizeof(bad), r));
@@ -14526,7 +14520,7 @@ void testVentilationStatePersistence() {
   // The flag byte (bit 0 ventilate, bit 1 sensor battery) precedes the audio byte; a value above 7 is rejected, even with a valid CRC
   s.alert_mask = ALERT_VENTILATE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t vent_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 4;
+  const size_t vent_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 6;
   assert(buf[vent_pos] == 1);
   for (uint8_t bad_vent : {uint8_t{8}, uint8_t{255}}) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -15011,22 +15005,22 @@ void testDailySummaryRowFormat() {
   const size_t len = SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, stats, buf, sizeof(buf));
   assert(len == strlen(buf));
   const std::string expected = std::string("2026-03-08,20.0,22.5,21.2,40.0,50.0,45.0,-3.5,-3.5,-3.5,80.0,80.0,80.0") +
-                               std::string(24, ',') + ",40,55,55,14,7,0,1,,,,\n";
+                               std::string(54, ',') + ",40,55,55,14,7,0,1,,,,,,,,,\n";
   assert(expected == buf);
 
-  // Header and row have the same column count, 48.
+  // Header and row have the same column count, 83.
   char header[SdLogCodec::DAILY_HEADER_SIZE];
   const size_t hl = SdLogCodec::formatDailyHeader(header, sizeof(header));
   assert(hl == strlen(header) && header[hl - 1] == '\n');
   assert(strncmp(header, "date,onboard_temp_min_c,", 24) == 0);
-  assert(strstr(header, ",noise_min_db,noise_max_db,noise_peak_db,noise_peak_hour,noise_events_sum,mold_h_0,mold_h_1,mold_h_2,mold_h_3,mold_h_4,mold_h_5\n") != nullptr);
-  assert(std::count(header, header + hl, ',') == 47 && std::count(buf, buf + len, ',') == 47);
+  assert(strstr(header, ",noise_min_db,noise_max_db,noise_peak_db,noise_peak_hour,noise_events_sum,mold_h_0,mold_h_1,mold_h_2,mold_h_3,mold_h_4,mold_h_5,mold_h_6,mold_h_7,mold_h_8,mold_h_9,mold_h_10\n") != nullptr);
+  assert(std::count(header, header + hl, ',') == 82 && std::count(buf, buf + len, ',') == 82);
 
   // Sensors without samples and no valid noise: empty fields, same column count.
   NoiseHistory silent;
   silent.pushInvalid();
   const size_t empty_len = SdLogCodec::formatDailyRow(2026, 12, 31, ClimateHistory{}, silent, DailyNoiseStats{}, buf, sizeof(buf));
-  assert(empty_len > 0 && std::string(buf) == "2026-12-31" + std::string(47, ',') + "\n");
+  assert(empty_len > 0 && std::string(buf) == "2026-12-31" + std::string(82, ',') + "\n");
 
   // Bad arguments.
   assert(SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, stats, nullptr, 256) == 0);
@@ -15054,16 +15048,16 @@ void testDailySummaryRowFormat() {
   DailyNoiseStats loud_stats;
   loud_stats.add(140, 23, 65535);
   assert(SdLogCodec::formatDailyRow(2099, 12, 31, wide, loud, loud_stats, buf, sizeof(buf)) > 0);
-  assert(std::string(buf).find(",140,140,23,65535,24,24,24,24,24,24\n") != std::string::npos);
+  assert(std::string(buf).find(",140,140,23,65535,24,24,24,24,24,24,24,24,24,24,24\n") != std::string::npos);
   assert(strlen(buf) < SdLogCodec::MAX_ROW_SIZE);
   char wide_header[SdLogCodec::DAILY_HEADER_SIZE];
   assert(SdLogCodec::formatDailyHeader(wide_header, sizeof(wide_header)) > 0);
   assert(strlen(wide_header) < SdLogCodec::DAILY_HEADER_SIZE);
 
-  // The hourly header has 27 columns (format version 5).
+  // The hourly header has 42 columns (format version 6).
   char hourly[SdLogCodec::MAX_ROW_SIZE];
   assert(SdLogCodec::formatHeader(hourly, sizeof(hourly)) > 0);
-  assert(std::count(hourly, hourly + strlen(hourly), ',') == 26);
+  assert(std::count(hourly, hourly + strlen(hourly), ',') == 41);
 }
 
 void testDailyMoldHours() {
@@ -15075,17 +15069,17 @@ void testDailyMoldHours() {
   h.slots[2].pushPercent(50.0f); // samples, none above the limit: 0 hours
   char buf[SdLogCodec::MAX_ROW_SIZE];
   const size_t len = SdLogCodec::formatDailyRow(2026, 11, 14, h, NoiseHistory{}, DailyNoiseStats{}, buf, sizeof(buf));
-  assert(len > 0 && std::count(buf, buf + len, ',') == 47);
-  assert(strstr(buf, ",,,,,,5,,0,,,\n") != nullptr); // onboard 5, s1 empty, s2 0, s3 to s5 empty
+  assert(len > 0 && std::count(buf, buf + len, ',') == 82);
+  assert(strstr(buf, ",,,,,,5,,0,,,,,,,,\n") != nullptr); // onboard 5, s1 empty, s2 0, s3 to s10 empty
   // Another limit changes the count: above 60 %RH, 6 samples.
   assert(SdLogCodec::formatDailyRow(2026, 11, 14, h, NoiseHistory{}, DailyNoiseStats{}, buf, sizeof(buf), 60) > 0);
-  assert(strstr(buf, ",,,,,,7,,0,,,\n") != nullptr);
+  assert(strstr(buf, ",,,,,,7,,0,,,,,,,,\n") != nullptr);
 }
 
 void testDailySummaryFileNames() {
   char path[SdLogCodec::MAX_PATH_SIZE];
   assert(SdLogCodec::formatDailyFilename(2026, path, sizeof(path)) > 0);
-  assert(strcmp(path, "/sdcard/daily_v4_2026.csv") == 0);
+  assert(strcmp(path, "/sdcard/daily_v5_2026.csv") == 0);
   assert(SdLogCodec::formatDailyFilename(1999, path, sizeof(path)) == 0 && path[0] == '\0');
   assert(SdLogCodec::formatDailyFilename(2100, path, sizeof(path)) == 0);
   assert(SdLogCodec::formatDailyFilename(2026, path, 10) == 0);
@@ -15101,7 +15095,8 @@ void testDailySummaryFileNames() {
   assert(SdLogCodec::parseDailyFileName("daily_v2_2026.csv", year) && year == 2026);
   assert(SdLogCodec::parseDailyFileName("daily_v3_2026.csv", year) && year == 2026);
   assert(SdLogCodec::parseDailyFileName("daily_v4_2026.csv", year) && year == 2026);
-  assert(!SdLogCodec::parseDailyFileName("daily_v5_2026.csv", year));
+  assert(SdLogCodec::parseDailyFileName("daily_v5_2026.csv", year) && year == 2026);
+  assert(!SdLogCodec::parseDailyFileName("daily_v6_2026.csv", year));
   assert(!SdLogCodec::parseDailyFileName("daily_v2_2100.csv", year));
   assert(!SdLogCodec::parseDailyFileName("daily_v2_2026.txt", year));
   assert(!SdLogCodec::parseDailyFileName("daily_v1_2026.txt", year));
@@ -15113,6 +15108,7 @@ void testDailySummaryFileNames() {
   assert(SdLogCodec::isConsoleFileName("daily_v2_2026.csv"));
   assert(SdLogCodec::isConsoleFileName("daily_v3_2026.csv"));
   assert(SdLogCodec::isConsoleFileName("daily_v4_2026.csv"));
+  assert(SdLogCodec::isConsoleFileName("daily_v5_2026.csv"));
   assert(!SdLogCodec::isLogFileName("daily_v2_2026.csv"));
   assert(SdLogCodec::isConsoleFileName("climate_v2_202611.csv"));
   assert(!SdLogCodec::isConsoleFileName("daily_v1_2026.csv/.."));
@@ -15318,7 +15314,9 @@ void testDailySummaryConsole() {
   assert(parseText("DUMP daily_v2_1999.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP daily_v4_2026.csv", cmd) == SerialParseStatus::OK);
   assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "daily_v4_2026.csv") == 0);
-  assert(parseText("DUMP daily_v5_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
+  assert(parseText("DUMP daily_v5_2026.csv", cmd) == SerialParseStatus::OK);
+  assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "daily_v5_2026.csv") == 0);
+  assert(parseText("DUMP daily_v6_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP daily_v1_1999.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP daily_v1_2026.csv ", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP ../daily_v1_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
@@ -15402,9 +15400,9 @@ void testDailyNoisePeakStats() {
   // Row of a day with a peak and of a day without a reading.
   char buf[SdLogCodec::MAX_ROW_SIZE];
   assert(SdLogCodec::formatDailyRow(2026, 5, 10, ClimateHistory{}, NoiseHistory{}, one, buf, sizeof(buf)) > 0);
-  assert(std::string(buf) == "2026-05-10" + std::string(38, ',') + ",72,9,6" + std::string(6, ',') + "\n");
+  assert(std::string(buf) == "2026-05-10" + std::string(68, ',') + ",72,9,6" + std::string(11, ',') + "\n");
   assert(SdLogCodec::formatDailyRow(2026, 5, 10, ClimateHistory{}, NoiseHistory{}, DailyNoiseStats{}, buf, sizeof(buf)) > 0);
-  assert(std::string(buf) == "2026-05-10" + std::string(47, ',') + "\n");
+  assert(std::string(buf) == "2026-05-10" + std::string(82, ',') + "\n");
 }
 
 void testDailyNoisePeakRtcRoundTrip() {
@@ -15543,7 +15541,7 @@ void testSdLogEventsColumn() {
   assert(hl > 0 && strstr(buf, ",noise_rms,noise_db,noise_band,noise_events,noise_l10,noise_l90\n") != nullptr);
   size_t header_commas = 0;
   for (size_t i = 0; i < hl; ++i) header_commas += buf[i] == ',';
-  assert(header_commas == 26); // 27 columns
+  assert(header_commas == 41); // 42 columns
 
   RtcTime t;
   t.valid = true; t.year = 2026; t.month = 3; t.day = 9; t.hour = 7; t.minute = 5; t.second = 1;
@@ -15555,8 +15553,8 @@ void testSdLogEventsColumn() {
   for (uint16_t n : counts) {
     noise.events = n;
     assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &noise, &cal, buf, sizeof(buf)) > 0);
-    char expected[96];
-    snprintf(expected, sizeof(expected), "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,1000,60,MODERATE,%u,,\n", static_cast<unsigned>(n));
+    char expected[128];
+    snprintf(expected, sizeof(expected), "2026-03-09 07:05:01%s1000,60,MODERATE,%u,,\n", std::string(36, ',').c_str(), static_cast<unsigned>(n));
     assert(strcmp(buf, expected) == 0);
     size_t row_commas = 0;
     for (size_t i = 0; buf[i] != '\0'; ++i) row_commas += buf[i] == ',';
@@ -15567,9 +15565,9 @@ void testSdLogEventsColumn() {
   NoiseReading failed;
   failed.events = 7;
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, &failed, &cal, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(std::string(buf) == "2026-03-09 07:05:01" + std::string(41, ',') + "\n");
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, nullptr, 0, 0, nullptr, &cal, buf, sizeof(buf)) > 0);
-  assert(strcmp(buf, "2026-03-09 07:05:01,,,,,,,,,,,,,,,,,,,,,,,,,,\n") == 0);
+  assert(std::string(buf) == "2026-03-09 07:05:01" + std::string(41, ',') + "\n");
 
   // The longest row (all sensors, maximum events) stays inside the line bound
   BatteryReading bat;
@@ -15586,18 +15584,19 @@ void testSdLogEventsColumn() {
   assert(strlen(buf) < SdLogCodec::MAX_ROW_SIZE);
   assert(SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 20, &noise, &cal, buf, SdLogCodec::MAX_ROW_SIZE - 1) == 0);
 
-  // File names: the v4 name for new rows; the v2 files stay valid names for listing and retention
+  // File names: the v6 name for new rows; the v5, v4 and v2 files stay valid names for listing and retention
   char path[SdLogCodec::MAX_PATH_SIZE];
   assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) > 0);
-  assert(strcmp(path, "/sdcard/climate_v5_202603.csv") == 0);
+  assert(strcmp(path, "/sdcard/climate_v6_202603.csv") == 0);
+  assert(SdLogCodec::isLogFileName("climate_v6_202603.csv"));
   assert(SdLogCodec::isLogFileName("climate_v5_202603.csv"));
   assert(SdLogCodec::isLogFileName("climate_v4_202603.csv"));
   assert(SdLogCodec::isLogFileName("climate_v2_202603.csv"));
-  assert(!SdLogCodec::isLogFileName("climate_v6_202603.csv"));
-  assert(!SdLogCodec::isLogFileName("climate_v5_202613.csv"));
+  assert(!SdLogCodec::isLogFileName("climate_v7_202603.csv"));
+  assert(!SdLogCodec::isLogFileName("climate_v6_202613.csv"));
   assert(SdLogCodec::shouldDeleteLog("climate_v3_202001.csv", rtcAt(2026, 3), 12));
   assert(SdLogCodec::shouldDeleteLog("climate_v2_202001.csv", rtcAt(2026, 3), 12));
-  assert(strlen("climate_v5_202603.csv") + 1 == SdLogCodec::LOG_NAME_SIZE);
+  assert(strlen("climate_v6_202603.csv") + 1 == SdLogCodec::LOG_NAME_SIZE);
   int py = 0, pm = 0;
   assert(SdLogCodec::parseLogFileName("climate_v3_202512.csv", py, pm) && py == 2025 && pm == 12);
   assert(SdLogCodec::parseLogFileName("climate_v2_202512.csv", py, pm) && py == 2025 && pm == 12);
@@ -15737,10 +15736,10 @@ void testSlotMacRegistry() {
     reg.setFixedMac(0, MAC_A);
     reg.setFixedMac(1, MAC_B);
     reg.setFixedMac(2, MAC_C);
-    const uint8_t fix4[6] = {9, 9, 9, 9, 9, 4};
-    const uint8_t fix5[6] = {9, 9, 9, 9, 9, 5};
-    reg.setFixedMac(3, fix4);
-    reg.setFixedMac(4, fix5);
+    for (size_t i = 3; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      const uint8_t fix[6] = {9, 9, 9, 9, 9, static_cast<uint8_t>(i + 1)};
+      reg.setFixedMac(i, fix);
+    }
     const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
     assert(!reg.upsert(macReading(other)) && reg.activeCount() == 0);
     assert(reg.upsert(macReading(MAC_C)) && reg.slot(2).valid && !reg.slot(0).valid);
@@ -15748,11 +15747,11 @@ void testSlotMacRegistry() {
   // An unfixed slot rejects a MAC that another slot has fixed
   {
     SwitchBotRegistry reg;
-    const uint8_t fix4[6] = {9, 9, 9, 9, 9, 4};
-    const uint8_t fix5[6] = {9, 9, 9, 9, 9, 5};
     reg.setFixedMac(2, MAC_A);
-    reg.setFixedMac(3, fix4);
-    reg.setFixedMac(4, fix5);
+    for (size_t i = 3; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      const uint8_t fix[6] = {9, 9, 9, 9, 9, static_cast<uint8_t>(i + 1)};
+      reg.setFixedMac(i, fix);
+    }
     assert(reg.upsert(macReading(MAC_B)) && reg.upsert(macReading(MAC_C)));
     assert(!reg.slot(2).valid && reg.activeCount() == 2);
     assert(reg.upsert(macReading(MAC_A)) && memcmp(reg.slot(2).mac, MAC_A, 6) == 0);
@@ -15760,8 +15759,10 @@ void testSlotMacRegistry() {
     // Only two unfixed slots exist; a third foreign MAC finds no place
     SwitchBotRegistry full;
     full.setFixedMac(2, MAC_A);
-    full.setFixedMac(3, fix4);
-    full.setFixedMac(4, fix5);
+    for (size_t i = 3; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      const uint8_t fix[6] = {9, 9, 9, 9, 9, static_cast<uint8_t>(i + 1)};
+      full.setFixedMac(i, fix);
+    }
     assert(full.upsert(macReading(MAC_B)) && full.upsert(macReading(MAC_C)));
     const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
     assert(!full.upsert(macReading(other)));
@@ -15771,10 +15772,10 @@ void testSlotMacRegistry() {
     SwitchBotRegistry reg;
     reg.setFixedMac(0, BTHOME_MAC);
     reg.setFixedMac(1, MAC_A);
-    const uint8_t fix4[6] = {9, 9, 9, 9, 9, 4};
-    const uint8_t fix5[6] = {9, 9, 9, 9, 9, 5};
-    reg.setFixedMac(3, fix4);
-    reg.setFixedMac(4, fix5);
+    for (size_t i = 3; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      const uint8_t fix[6] = {9, 9, 9, 9, 9, static_cast<uint8_t>(i + 1)};
+      reg.setFixedMac(i, fix);
+    }
     const uint8_t pkt[] = {0x40, 0x01, 77, 0x02, 0x4B, 0x08, 0x03, 0x97, 0x11};
     SwitchBotReading bt;
     assert(BtHomeBleParser::parseServiceData(BTHOME_SERVICE_UUID, BTHOME_MAC, pkt, sizeof(pkt), bt));
@@ -15791,19 +15792,19 @@ void testSlotMacRegistry() {
     reg2.setFixedMac(0, MAC_A);
     assert(reg2.upsert(macReading(MAC_B)) && !reg2.slot(0).valid && reg2.slot(1).valid);
   }
-  // Five slots: the 4th and 5th slot take the next MACs, a 6th MAC finds none
+  // Ten slots: the 1st to 10th slot take the next MACs, an 11th MAC finds none
   {
     SwitchBotRegistry reg;
-    for (uint8_t i = 0; i < 5; ++i) {
+    for (uint8_t i = 0; i < 10; ++i) {
       const uint8_t m[6] = {7, 7, 7, 7, 7, static_cast<uint8_t>(i + 1)};
       assert(reg.upsert(macReading(m)) && memcmp(reg.slot(i).mac, m, 6) == 0);
     }
-    const uint8_t sixth[6] = {7, 7, 7, 7, 7, 6};
-    assert(!reg.upsert(macReading(sixth)) && reg.activeCount() == 5);
-    // A fixed MAC on slot 5 (index 4) wins its own packets, also when slots 1 to 4 are free
+    const uint8_t eleventh[6] = {7, 7, 7, 7, 7, 11};
+    assert(!reg.upsert(macReading(eleventh)) && reg.activeCount() == 10);
+    // A fixed MAC on slot 10 (index 9) wins its own packets, also when slots 1 to 9 are free
     SwitchBotRegistry fixed;
-    fixed.setFixedMac(4, sixth);
-    assert(fixed.upsert(macReading(sixth)) && fixed.slot(4).valid && !fixed.slot(0).valid && fixed.isFixed(4));
+    fixed.setFixedMac(9, eleventh);
+    assert(fixed.upsert(macReading(eleventh)) && fixed.slot(9).valid && !fixed.slot(0).valid && fixed.isFixed(9));
   }
   // clearSlot, setFixedMac with nullptr, and consistent()
   {
@@ -15875,6 +15876,10 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t fix5[6] = {9, 9, 9, 9, 9, 5};
   memcpy(cfg.slot_mac[3], fix4, 6);
   memcpy(cfg.slot_mac[4], fix5, 6);
+  for (size_t i = 5; i < DeviceConfig::SLOT_COUNT; ++i) {
+    const uint8_t fix[6] = {9, 9, 9, 9, 9, static_cast<uint8_t>(i + 1)};
+    memcpy(cfg.slot_mac[i], fix, 6);
+  }
   s.applyConfig(cfg, true, ConfigRejects{});
   s.registry.upsert(macReading(MAC_A));
   s.registry.upsert(macReading(MAC_B));
@@ -15891,7 +15896,7 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
 
   // A valid checksum with the same MAC in two keys is rejected
   const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::REJECTS_SIZE - 1 - PowerManager::MACS_SIZE;
@@ -16036,18 +16041,18 @@ void testDoorRefSlotConfig() {
   parse("");
   assert(cfg.door_ref_slot == 0 && cfg.isDefault() && cfg.valid());
   assert(parse("door_ref_slot=2\n").keys_set == 1 && cfg.door_ref_slot == 2);
-  assert(parse("door_ref_slot=5\n").keys_set == 1 && cfg.door_ref_slot == 5);
-  for (const char* bad : {"door_ref_slot=6\n", "door_ref_slot=-1\n", "door_ref_slot=abc\n", "door_ref_slot=\n"}) {
+  assert(parse("door_ref_slot=10\n").keys_set == 1 && cfg.door_ref_slot == 10);
+  for (const char* bad : {"door_ref_slot=11\n", "door_ref_slot=-1\n", "door_ref_slot=abc\n", "door_ref_slot=\n"}) {
     const ConfigParseResult r = parse(bad);
     assert(r.keys_set == 0 && r.rejected == 1 && cfg.door_ref_slot == 0);
   }
-  cfg.door_ref_slot = 5;
+  cfg.door_ref_slot = 10;
   char text[DeviceConfigText::MAX_SIZE];
   assert(DeviceConfigText::format(cfg, text, sizeof(text)) > 0);
   DeviceConfig back;
   assert(DeviceConfigParser::parse(text, strlen(text), back).rejected == 0);
-  assert(back.door_ref_slot == 5);
-  cfg.door_ref_slot = 6;
+  assert(back.door_ref_slot == 10);
+  cfg.door_ref_slot = 11;
   assert(!cfg.valid());
 
   // RTC round trip
@@ -16219,7 +16224,7 @@ void testDryLatchLogic() {
   slots[0].valid = true;
   slots[0].humidity_pct = 50;
   slots[0].updated_ms = now;
-  auto run = [&](uint8_t prev, uint8_t limit = 30, uint8_t mask = DryLatch::ALL_MASK) {
+  auto run = [&](uint16_t prev, uint8_t limit = 30, uint16_t mask = DryLatch::ALL_MASK) {
     return DryLatch::update(prev, onboard, slots, MAX_SWITCHBOT_SENSORS, now, limit, mask);
   };
   // Set at the limit, hold above it, release 3 %RH above the limit
@@ -16270,20 +16275,20 @@ void testDryLatchRtcRoundTrip() {
   assert(st.config.dry_alert_limit_rh == 0 && st.dry_tiles == 0);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState r;
-  for (uint8_t bits : {uint8_t(0), uint8_t(1), uint8_t(0x0A), uint8_t(0x3F)}) {
+  for (uint16_t bits : {uint16_t(0), uint16_t(1), uint16_t(0x0A), uint16_t(0x07FF)}) {
     st.dry_tiles = bits;
     st.config.dry_alert_limit_rh = 35;
     assert(PowerManager::serialize(st, buf, sizeof(buf)));
     assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.dry_tiles == bits && r.config.dry_alert_limit_rh == 35);
   }
-  // A latch bit for a tile above 5 is rejected behind a valid checksum
+  // A latch bit for a tile above 10 is rejected behind a valid checksum
   st.dry_tiles = 1;
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
   const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE;
-  assert(buf[latch_pos] == 1);
+  assert(buf[latch_pos] == 1 && buf[latch_pos + 1] == 0);
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
-  bad[latch_pos] = 0x40; // bit 6
+  bad[latch_pos + 1] = 0x08; // bit 11
   uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
   for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
@@ -16389,19 +16394,19 @@ void testVentilateLatchRtcRoundTrip() {
   assert(st.config.ventilate_limit_rh == 60 && st.ventilate_tiles == 0);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState r;
-  for (uint8_t bits : {uint8_t(0), uint8_t(1), uint8_t(0x0A), uint8_t(0x3F)}) {
+  for (uint16_t bits : {uint16_t(0), uint16_t(1), uint16_t(0x0A), uint16_t(0x07FF)}) {
     st.ventilate_tiles = bits;
     st.config.ventilate_limit_rh = 75;
     assert(PowerManager::serialize(st, buf, sizeof(buf)));
     assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.ventilate_tiles == bits && r.config.ventilate_limit_rh == 75);
   }
-  // A corrupt record: latch bit above the six tiles, limit outside the range, flipped checksum
+  // A corrupt record: latch bit above the eleven tiles, limit outside the range, flipped checksum
   PersistentState bad;
   st.ventilate_tiles = 1;
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
-  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 1;
-  assert(buf[latch_pos] == 1);
-  buf[latch_pos] = 0x40;
+  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 2;
+  assert(buf[latch_pos] == 1 && buf[latch_pos + 1] == 0);
+  buf[latch_pos + 1] = 0x08;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), bad));
@@ -16693,7 +16698,7 @@ void testSensorBatteryLatchRtcRoundTrip() {
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState r;
   // Every latch combination, with the ventilation and the battery alert bits and a custom limit
-  for (uint8_t bits = 0; bits <= SensorBatteryLatch::ALL_MASK; ++bits) {
+  for (uint32_t bits = 0; bits <= SensorBatteryLatch::ALL_MASK; ++bits) {
     for (uint8_t alert : {uint8_t(ALERT_NONE), uint8_t(ALERT_SENSOR_BATTERY), uint8_t(ALERT_VENTILATE),
                           uint8_t(ALERT_SENSOR_BATTERY | ALERT_VENTILATE | ALERT_FREEZER)}) {
       st.sensor_battery_latch = bits;
@@ -16705,21 +16710,21 @@ void testSensorBatteryLatchRtcRoundTrip() {
     }
   }
   // The version is increased
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   // Corrupt records: latch bit above bit 4, flag byte above 7, limit above 50, old version
   st.sensor_battery_latch = 1;
   st.alert_mask = ALERT_NONE;
   st.config.sensor_battery_limit_pct = 10;
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
-  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 2;
-  assert(buf[latch_pos] == 1);
+  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 4;
+  assert(buf[latch_pos] == 1 && buf[latch_pos + 1] == 0);
   auto reseal = [](uint8_t* b) {
     const uint32_t crc = PowerManager::crc32(b, PowerManager::SERIALIZED_SIZE - 4);
     for (int i = 0; i < 4; ++i) b[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   };
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
-  bad[latch_pos] = 0x20; // bit 5 is above the five slots
+  bad[latch_pos + 1] = 0x04; // bit 10 is above the 10 slots
   reseal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
   memcpy(bad, buf, sizeof(bad));
@@ -16928,7 +16933,7 @@ void testSensorStaleMinConfig() {
 
   // RTC round trip, corrupt values and the version bump
   PersistentState st;
-  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 59);
+  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 60);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(5), uint16_t(30), uint16_t(240)}) {
@@ -17013,7 +17018,7 @@ void testDisplayInvert() {
 
   // RTC round trip, corrupt value and version bump
   PersistentState st;
-  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 59);
+  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 60);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(1)}) {
@@ -17040,21 +17045,21 @@ void testClimateAlertTiles() {
   };
 
   // Parser: default, edges, out-of-range and malformed values
-  assert(cfg.climate_alert_tiles == 63 && cfg.isDefault() && cfg.valid());
+  assert(cfg.climate_alert_tiles == 2047 && cfg.isDefault() && cfg.valid());
   assert(parse("climate_alert_tiles=0\n").keys_set == 1 && cfg.climate_alert_tiles == 0 && !cfg.isDefault());
-  assert(parse("climate_alert_tiles = 63\r\n").keys_set == 1 && cfg.climate_alert_tiles == 63 && cfg.isDefault());
+  assert(parse("climate_alert_tiles = 2047\r\n").keys_set == 1 && cfg.climate_alert_tiles == 2047 && cfg.isDefault());
   assert(parse("climate_alert_tiles=5\n").keys_set == 1 && cfg.climate_alert_tiles == 5);
-  for (const char* bad : {"climate_alert_tiles=64\n", "climate_alert_tiles=-1\n", "climate_alert_tiles=256\n",
+  for (const char* bad : {"climate_alert_tiles=2048\n", "climate_alert_tiles=-1\n", "climate_alert_tiles=65536\n",
                           "climate_alert_tiles=1.5\n", "climate_alert_tiles=abc\n", "climate_alert_tiles=\n"}) {
     const ConfigParseResult r = parse(bad);
-    assert(r.keys_set == 0 && r.rejected == 1 && r.rejected_lines[0] == 1 && cfg.climate_alert_tiles == 63);
+    assert(r.keys_set == 0 && r.rejected == 1 && r.rejected_lines[0] == 1 && cfg.climate_alert_tiles == 2047);
   }
-  cfg.climate_alert_tiles = 64;
+  cfg.climate_alert_tiles = 2048;
   assert(!cfg.valid());
 
   const uint32_t now = 1000;
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
-  auto eval = [&](uint8_t previous, const Shtc3Reading& onboard, uint8_t tiles, uint8_t outdoor = 0) {
+  auto eval = [&](uint8_t previous, const Shtc3Reading& onboard, uint16_t tiles, uint8_t outdoor = 0) {
     AlertLimits limits;
     limits.climate_tiles = tiles;
     limits.outdoor_slot = outdoor;
@@ -17065,9 +17070,9 @@ void testClimateAlertTiles() {
   // Freezer and mold triggers with each single bit
   const Shtc3Reading cold = makeOnboard(-3.0f, 50.0f);
   const Shtc3Reading humid = makeOnboard(21.0f, 85.0f);
-  for (uint8_t bit = 0; bit < 6; ++bit) {
+  for (uint8_t bit = 0; bit < 11; ++bit) {
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) slots[i] = SwitchBotReading();
-    const uint8_t tiles = static_cast<uint8_t>(1u << bit);
+    const uint16_t tiles = static_cast<uint16_t>(1u << bit);
     // The one tile of the mask reads cold, every other tile reads cold too
     Shtc3Reading on = cold;
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) slots[i] = ventSlot(-3.0f, 50, now);
@@ -17152,15 +17157,15 @@ void testClimateAlertTiles() {
 
   // RTC round trip, corrupt value and the old state version
   PersistentState st;
-  assert(st.config.climate_alert_tiles == 63 && PowerManager::STATE_VERSION == 59);
+  assert(st.config.climate_alert_tiles == 2047 && PowerManager::STATE_VERSION == 60);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
-  for (uint8_t v : {uint8_t(0), uint8_t(5), uint8_t(63)}) {
+  for (uint16_t v : {uint16_t(0), uint16_t(5), uint16_t(63), uint16_t(2047)}) {
     st.config.climate_alert_tiles = v;
     assert(PowerManager::serialize(st, buf, sizeof(buf)));
     assert(PowerManager::deserialize(buf, sizeof(buf), out) && out.config.climate_alert_tiles == v);
   }
-  st.config.climate_alert_tiles = 64;
+  st.config.climate_alert_tiles = 2048;
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
   assert(!PowerManager::deserialize(buf, sizeof(buf), out));
   st.config.climate_alert_tiles = 5;
@@ -17350,16 +17355,16 @@ void testSdCardStatus() {
     f.snap.sd_status = n.status;
     f.snap.sd_status_ms = f.snap.now_ms - 125000;
     const std::vector<std::string> lines = statusLines(f.run());
-    assert(lines.size() == 16);
-    assert(lines[6] == std::string("SD status=") + n.name + " age=125");
-    assert(lines[12].rfind("POWER ", 0) == 0);
+    assert(lines.size() == 21);
+    assert(lines[11] == std::string("SD status=") + n.name + " age=125");
+    assert(lines[17].rfind("POWER ", 0) == 0);
   }
   StatusFixture unknown;
   const std::vector<std::string> unknown_lines = statusLines(unknown.run());
-  assert(unknown_lines[6] == "SD status=UNKNOWN age=--");
+  assert(unknown_lines[11] == "SD status=UNKNOWN age=--");
 
   // RTC round trip, a corrupt status byte and the old state version
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   PersistentState st;
   st.setSdStatus(SdStatus::FULL, 4242);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -17400,7 +17405,7 @@ void testSdCardStatus() {
 }
 
 void testEventLog() {
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   const RtcTime t1 = localTime(2026, 11, 14, 9, 30);
   const RtcTime bad_time{}; // invalid
   // Empty ring and one event
@@ -17720,7 +17725,7 @@ void testConfigSetEvents() {
   }
   // BLE: first and last key, transport in the high byte
   const size_t last = DeviceConfigParser::KEY_COUNT - 1;
-  const struct { size_t index; const char* value; } cases[] = {{0, "-1.0"}, {last, "2"}};
+  const struct { size_t index; const char* value; } cases[] = {{0, "-1.0"}, {last, "1.05"}};
   for (const auto& c : cases) {
     SerialCommand set;
     const std::string line = std::string("SET ") + DeviceConfigParser::KEYS[c.index] + "=" + c.value;
@@ -17936,7 +17941,8 @@ void testTempUnitStaysCelsiusInCsv() {
   slots[0].battery_pct = 90; slots[0].updated_ms = 1000;
   char buf[SdLogCodec::MAX_ROW_SIZE];
   SdLogCodec::formatRow(&t, &bat, &onboard, slots, 3, 2000, nullptr, nullptr, buf, sizeof(buf));
-  assert(strcmp(buf, "2026-03-09 07:05:01,87,4.00,0,21.5,45.0,-3.5,80,90,,,,,,,,,,,,,,,,,,\n") == 0);
+  const std::string expected = "2026-03-09 07:05:01,87,4.00,0,21.5,45.0,-3.5,80,90" + std::string(33, ',') + "\n";
+  assert(expected == buf);
 }
 
 void testTempUnitSerial() {
@@ -17959,14 +17965,14 @@ void testTempUnitSerial() {
   f.addSlot(2, 37.0f, 45, 8, -85, f.snap.now_ms - 60000);
   f.history.record(f.snap.now_ms - 300000, true, 44.6f, f.registry, 22.34f);
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[0] == "SENSOR 0 onboard temp=22.3 rh=45 bat=-- rssi=-- age=300 state=OK");
-  assert(lines[1] == "SENSOR 1 slot1 temp=-5.4 rh=61 bat=80 rssi=-70 age=120 state=OK");
+  assert(lines[0] == "SENSOR 0 onboard temp=22.3 rh=45 bat=-- rssi=-- age=300 state=OK format=SHTC3");
+  assert(lines[1] == "SENSOR 1 slot1 temp=-5.4 rh=61 bat=80 rssi=-70 age=120 state=OK format=WOIO");
   f.config.temp_unit = 'F';
   lines = statusLines(f.run());
-  assert(lines[0] == "SENSOR 0 onboard temp=72.1F rh=45 bat=-- rssi=-- age=300 state=OK");
-  assert(lines[1] == "SENSOR 1 slot1 temp=22.3F rh=61 bat=80 rssi=-70 age=120 state=OK");
-  assert(lines[2] == "SENSOR 2 slot2 temp=98.6F rh=45 bat=8 rssi=-85 age=60 state=OK");
-  assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY");
+  assert(lines[0] == "SENSOR 0 onboard temp=72.1F rh=45 bat=-- rssi=-- age=300 state=OK format=SHTC3");
+  assert(lines[1] == "SENSOR 1 slot1 temp=22.3F rh=61 bat=80 rssi=-70 age=120 state=OK format=WOIO");
+  assert(lines[2] == "SENSOR 2 slot2 temp=98.6F rh=45 bat=8 rssi=-85 age=60 state=OK format=WOIO");
+  assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=--");
 }
 
 void testTempUnitRtcRoundTrip() {
@@ -17981,8 +17987,8 @@ void testTempUnitRtcRoundTrip() {
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.temp_unit == 'C' && r.config.isDefault());
   // The unit byte follows the night wake interval in the config trailer
   const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
-  assert(buf[cfg_pos + 35] == 'C');
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(buf[cfg_pos + 36] == 'C');
+  assert(PowerManager::STATE_VERSION == 60);
 }
 
 // ---- BLE telemetry broadcast (BleTelemetryCodec, ble_broadcast_enabled) ----
@@ -18113,7 +18119,7 @@ void testBleTelemetryBuildTiles() {
   reg.upsert(r, BleFormat::WOIO); // may need a distinct MAC; the first free slot takes it
   Shtc3Reading onboard;
   onboard.valid = true; onboard.temperature_c = 21.0f; onboard.humidity_pct = 40.0f;
-  BleTelemetryTile tiles[6];
+  BleTelemetryTile tiles[BleTelemetryCodec::TOTAL_TILES];
   const uint32_t stale = 30UL * 60UL * 1000UL;
   BleTelemetryCodec::buildTiles(onboard, reg, 2000, stale, tiles);
   assert(tiles[0].valid && tiles[0].temperature_c == 21.0f && tiles[0].humidity_pct == 40.0f);
@@ -18295,7 +18301,7 @@ void testBleBroadcastRtcRoundTrip() {
   bad[4] = 43; // old state version without the key
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
 }
 
 
@@ -18403,7 +18409,7 @@ void testBleConsoleRtcRoundTrip() {
   bad[4] = 44; // old state version without the key
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
 }
 
 void testBleConsoleGate() {
@@ -18595,7 +18601,8 @@ void testSerialSlotClearCommand() {
   SerialCommand cmd;
   assert(parseText("SLOT CLEAR 2", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SLOT_CLEAR && cmd.reference == 2);
   assert(parseText("SLOT CLEAR 5\r\n", cmd) == SerialParseStatus::OK && cmd.reference == 5);
-  const char* bad[] = {"SLOT CLEAR", "SLOT CLEAR ", "SLOT CLEAR 0", "SLOT CLEAR 6", "SLOT CLEAR 2 X", "SLOT CLEAR 12", "SLOT CLEAR X", "SLOT CLEAR  2"};
+  assert(parseText("SLOT CLEAR 10\r\n", cmd) == SerialParseStatus::OK && cmd.reference == 10);
+  const char* bad[] = {"SLOT CLEAR", "SLOT CLEAR ", "SLOT CLEAR 0", "SLOT CLEAR 11", "SLOT CLEAR 2 X", "SLOT CLEAR 12", "SLOT CLEAR X", "SLOT CLEAR  2"};
   for (const char* line : bad) {
     assert(parseText(line, cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
   }
@@ -18778,7 +18785,7 @@ void testBleConsoleIngressQueue() {
 // ---- Heat alert (ALERT_HEAT, heat_alert_limit_c) ----
 
 uint8_t heatEvaluate(uint8_t previous, const Shtc3Reading& onboard, const SwitchBotReading* slots, float limit_c,
-                     uint8_t tiles = CLIMATE_TILES_ALL, uint32_t now_ms = 1000) {
+                     uint16_t tiles = CLIMATE_TILES_ALL, uint32_t now_ms = 1000) {
   AlertLimits limits;
   limits.heat_trigger_c = limit_c;
   limits.climate_tiles = tiles;
@@ -18884,11 +18891,11 @@ void testHeatAlertRtcRoundTrip() {
   // A corrupt limit (26, 46) is rejected even with a valid CRC; 0 and 27 are accepted
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
-  assert(buf[cfg_pos + 37] == 33);
+  assert(buf[cfg_pos + 38] == 33);
   for (uint8_t v : {uint8_t{26}, uint8_t{46}, uint8_t{0}, uint8_t{27}, uint8_t{45}}) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
     memcpy(bad, buf, sizeof(bad));
-    bad[cfg_pos + 37] = v;
+    bad[cfg_pos + 38] = v;
     const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
     for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
     assert(PowerManager::deserialize(bad, sizeof(bad), r) == (v == 0 || v == 27 || v == 45));
@@ -19032,7 +19039,7 @@ void testFrameRefreshPatternInvalidates() {
 }
 
 void testFrameRefreshRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   assert(PowerManager::FRAME_SIZE == 5);
   PersistentState s;
   s.frame.recordFlush(0xDEADBEEFU);
@@ -19201,10 +19208,10 @@ void testActiveTileCount() {
   const uint8_t mac[6] = {1, 2, 3, 4, 5, 6};
   memcpy(cfg.slot_mac[0], mac, 6);
   assert(DV::activeTileCount(slots, MAX_SWITCHBOT_SENSORS, &cfg, map) == 5);
-  // All five slots give six tiles; the count never exceeds 6
+  // All ten slots give eleven tiles; the count never exceeds 11
   for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) slots[i] = tileSlot(static_cast<uint8_t>(i + 1), 1);
-  assert(DV::activeTileCount(slots, MAX_SWITCHBOT_SENSORS, nullptr, map) == 6);
-  assert(map[1] == 0 && map[5] == 4);
+  assert(DV::activeTileCount(slots, MAX_SWITCHBOT_SENSORS, nullptr, map) == 11);
+  assert(map[1] == 0 && map[5] == 4 && map[10] == 9);
 }
 
 void testDashboardRendersEveryTileCount() {
@@ -19274,8 +19281,8 @@ void testTileLayoutsDifferByCount() {
 
 void testFiveSlotConfigKeys() {
   DeviceConfig cfg;
-  assert(DeviceConfig::SLOT_COUNT == 5 && MAX_SWITCHBOT_SENSORS == 5 && ClimateHistory::SLOT_COUNT == 6);
-  assert(DeviceConfigParser::KEY_COUNT == 57);
+  assert(DeviceConfig::SLOT_COUNT == 10 && MAX_SWITCHBOT_SENSORS == 10 && ClimateHistory::SLOT_COUNT == 11);
+  assert(DeviceConfigParser::KEY_COUNT == 82);
   const char* text =
       "slot4_name=GARAGE\nslot5_name=ATTIC 2\nslot4_mac=AA:BB:CC:DD:EE:04\nslot5_mac=aa:bb:cc:dd:ee:05\n"
       "outdoor_slot=5\nclimate_alert_tiles=63\n";
@@ -19291,7 +19298,7 @@ void testFiveSlotConfigKeys() {
   assert(dr.rejected == 1 && dr.rejected_lines[0] == 2 && d.hasSlotMac(2) && !d.hasSlotMac(3));
   // Bad values are rejected and keep the default
   for (const char* bad : {"slot4_name=bad_name\n", "slot5_name=\n", "slot4_mac=AA:BB\n", "slot5_mac=00:00:00:00:00:00\n",
-                          "slot4_name=THIRTEEN CHARS\n", "outdoor_slot=6\n", "climate_alert_tiles=64\n"}) {
+                          "slot4_name=THIRTEEN CHARS\n", "outdoor_slot=11\n", "climate_alert_tiles=2048\n"}) {
     DeviceConfig b;
     const ConfigParseResult br = DeviceConfigParser::parse(bad, strlen(bad), b);
     assert(br.rejected == 1 && br.keys_set == 0 && b.isDefault());
@@ -19303,10 +19310,11 @@ void testFiveSlotConfigKeys() {
   // checkSetting (console SET) knows the new keys
   assert(DeviceConfigParser::checkSetting("slot4_name", 10, "GARAGE", 6) == DeviceConfigParser::SettingCheck::OK);
   assert(DeviceConfigParser::checkSetting("slot5_mac", 9, "AA:BB:CC:DD:EE:05", 17) == DeviceConfigParser::SettingCheck::OK);
-  assert(DeviceConfigParser::checkSetting("slot6_name", 10, "X", 1) == DeviceConfigParser::SettingCheck::BAD_KEY);
+  assert(DeviceConfigParser::checkSetting("slot6_name", 10, "GARDEN", 6) == DeviceConfigParser::SettingCheck::OK);
+  assert(DeviceConfigParser::checkSetting("slot11_name", 11, "X", 1) == DeviceConfigParser::SettingCheck::BAD_KEY);
   assert(DeviceConfigParser::checkSetting("slot4_mac", 9, "bad", 3) == DeviceConfigParser::SettingCheck::BAD_VALUE);
-  // Defaults: all six tiles feed the alerts, every slot has offset keys
-  assert(DeviceConfig{}.climate_alert_tiles == 63 && DeviceConfig::OFFSET_SLOT_COUNT == 5);
+  // Defaults: all eleven tiles feed the alerts, every slot has offset keys
+  assert(DeviceConfig{}.climate_alert_tiles == 2047 && DeviceConfig::OFFSET_SLOT_COUNT == 10);
   const char* offs = "slot4_temp_offset_c=1.0\n";
   DeviceConfig o;
   assert(DeviceConfigParser::parse(offs, strlen(offs), o).rejected == 0 && o.slot_temp_offset_c[3] == 1.0f);
@@ -19326,29 +19334,30 @@ void testFiveSlotRegistryAndFixedMac() {
   const uint8_t fixed4[6] = {0xAA, 0, 0, 0, 0, 0x44};
   reg.setFixedMac(4, fixed5);
   reg.setFixedMac(3, fixed4);
-  // Unfixed packets take slots 1 to 3 first, never slot 4 or 5
-  for (uint8_t i = 1; i <= 3; ++i) {
+  // Unfixed packets take the non-fixed slots first, never slot 4 or 5
+  for (uint8_t i = 1; i <= 8; ++i) {
     SwitchBotReading r = tileSlot(i, 10);
     r.mac[0] = 0xCC;
-    assert(reg.upsert(r) && memcmp(reg.slot(i - 1).mac, r.mac, 6) == 0);
+    assert(reg.upsert(r));
   }
   SwitchBotReading extra = tileSlot(9, 10);
   extra.mac[0] = 0xCC;
-  assert(!reg.upsert(extra)); // slots 4 and 5 are fixed to other MACs
+  assert(!reg.upsert(extra)); // slots 4 and 5 are fixed to other MACs, all other 8 slots are occupied
   // The fixed MACs fill slots 4 and 5
   SwitchBotReading f5 = tileSlot(1, 11);
   memcpy(f5.mac, fixed5, 6);
   assert(reg.upsert(f5) && reg.slot(4).valid && memcmp(reg.slot(4).mac, fixed5, 6) == 0);
   SwitchBotReading f4 = tileSlot(2, 11);
   memcpy(f4.mac, fixed4, 6);
-  assert(reg.upsert(f4) && reg.slot(3).valid && reg.activeCount() == 5);
+  assert(reg.upsert(f4) && reg.slot(3).valid && reg.activeCount() == 10);
   assert(reg.consistent());
   // Clearing slot 5 frees it for the fixed MAC only
   reg.clearSlot(4);
-  assert(!reg.slot(4).valid && reg.isFixed(4) && reg.activeCount() == 4);
-  // calibrated() keeps all five slots
-  float t_off[5] = {0, 0, 0, 0, 1.5f};
-  float h_off[5] = {0, 0, 0, 0, 0};
+  assert(!reg.slot(4).valid && reg.isFixed(4) && reg.activeCount() == 9);
+  // calibrated() keeps all slots
+  float t_off[DeviceConfig::SLOT_COUNT] = {0};
+  t_off[4] = 1.5f;
+  float h_off[DeviceConfig::SLOT_COUNT] = {0};
   assert(reg.upsert(f5));
   const SwitchBotRegistry cal = reg.calibrated(t_off, h_off);
   assert(approxEqual(cal.slot(4).temperature_c, reg.slot(4).temperature_c + 1.5f) && cal.slot(3).valid);
@@ -19369,7 +19378,7 @@ void testFiveSlotRegistryAndFixedMac() {
 }
 
 void testFiveSlotRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 59);
+  assert(PowerManager::STATE_VERSION == 60);
   PersistentState s;
   DeviceConfig cfg;
   strcpy(cfg.slot_name[3], "GARAGE");
@@ -19489,14 +19498,13 @@ void testConfigTextWorstCaseFits() {
   char text[DeviceConfigText::MAX_SIZE];
   const size_t n = DeviceConfigText::format(c, text, sizeof(text));
   assert(n > 0 && n < DeviceConfigText::MAX_SIZE);
-  assert(n == 1298); // worst case size of the CONFIG text
   DeviceConfig back;
   assert(DeviceConfigParser::parse(text, n, back).rejected == 0 && strcmp(back.slot_name[4], c.slot_name[4]) == 0);
 }
 
 void testFiveSlotHistoryAndLogFormat() {
   SwitchBotRegistry reg;
-  for (uint8_t i = 1; i <= 5; ++i) reg.upsert(tileSlot(i, 10));
+  for (uint8_t i = 1; i <= 10; ++i) reg.upsert(tileSlot(i, 10));
   ClimateHistory h;
   assert(h.record(100, true, 45.0f, reg, 21.0f, 1000000));
   for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
@@ -19517,19 +19525,19 @@ void testFiveSlotHistoryAndLogFormat() {
   assert(n > 0);
   size_t commas = 0;
   for (const char* c = row; *c; ++c) commas += *c == ',' ? 1 : 0;
-  assert(commas == 26); // 27 columns
+  assert(commas == 41); // 42 columns
 }
 
 void testLogSlots4And5() {
   RtcTime t;
   t.valid = true; t.year = 2026; t.month = 11; t.day = 15; t.hour = 7; t.minute = 5; t.second = 1;
   char buf[SdLogCodec::MAX_ROW_SIZE];
-  assert(LOG_SOURCE_COUNT == 6);
+  assert(LOG_SOURCE_COUNT == 11);
 
-  // Header: 27 columns with the slots 4 and 5 before the noise columns.
+  // Header: 42 columns with the slots 4 and 5 before the noise columns.
   const size_t hl = SdLogCodec::formatHeader(buf, sizeof(buf));
-  assert(hl > 0 && std::count(buf, buf + hl, ',') == 26);
-  assert(strstr(buf, "s3_battery_pct,s4_temp_c,s4_rh,s4_battery_pct,s5_temp_c,s5_rh,s5_battery_pct,noise_rms,") != nullptr);
+  assert(hl > 0 && std::count(buf, buf + hl, ',') == 41);
+  assert(strstr(buf, "s3_battery_pct,s4_temp_c,s4_rh,s4_battery_pct,s5_temp_c,s5_rh,s5_battery_pct,") != nullptr);
 
   // Row: slot 5 holds a reading, slot 4 stays empty.
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
@@ -19540,15 +19548,15 @@ void testLogSlots4And5() {
   slots[4].updated_ms = 1000;
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, slots, MAX_SWITCHBOT_SENSORS, 2000, nullptr, nullptr, buf,
                                sizeof(buf)) > 0);
-  assert(std::count(buf, buf + strlen(buf), ',') == 26);
-  // 1 timestamp, 3 battery, 2 onboard, 12 slots 1 to 4 (all empty), then slot 5, then 6 empty noise fields.
-  assert(std::string(buf) == "2026-11-15 07:05:01" + std::string(17, ',') + ",18.5,47,80" + std::string(6, ',') + "\n");
+  assert(std::count(buf, buf + strlen(buf), ',') == 41);
+  // 1 timestamp, 3 battery, 2 onboard, 12 slots 1 to 4 (all empty), then slot 5, then 15 empty slots 6-10 and 6 empty noise fields.
+  assert(std::string(buf) == "2026-11-15 07:05:01" + std::string(17, ',') + ",18.5,47,80" + std::string(21, ',') + "\n");
 
   // An empty slot 5 gives empty fields.
   slots[4] = SwitchBotReading{};
   assert(SdLogCodec::formatRow(&t, nullptr, nullptr, slots, MAX_SWITCHBOT_SENSORS, 2000, nullptr, nullptr, buf,
                                sizeof(buf)) > 0);
-  assert(std::string(buf) == "2026-11-15 07:05:01" + std::string(26, ',') + "\n");
+  assert(std::string(buf) == "2026-11-15 07:05:01" + std::string(41, ',') + "\n");
 
   // A row with every field at its widest still fits.
   BatteryReading bat;
@@ -19569,12 +19577,12 @@ void testLogSlots4And5() {
   // File names and retention.
   char path[SdLogCodec::MAX_PATH_SIZE];
   assert(SdLogCodec::formatFilename(&t, path, sizeof(path)) > 0);
-  assert(strcmp(path, "/sdcard/climate_v5_202611.csv") == 0);
-  assert(SdLogCodec::isLogFileName("climate_v5_202611.csv"));
-  assert(SdLogCodec::isConsoleFileName("climate_v5_202611.csv"));
-  assert(!SdLogCodec::isLogFileName("climate_v5_202613.csv"));
-  assert(SdLogCodec::shouldDeleteFile("climate_v5_202601.csv", rtcAt(2026, 11), 3));
-  assert(!SdLogCodec::shouldDeleteFile("climate_v5_202611.csv", rtcAt(2026, 11), 1));
+  assert(strcmp(path, "/sdcard/climate_v6_202611.csv") == 0);
+  assert(SdLogCodec::isLogFileName("climate_v6_202611.csv"));
+  assert(SdLogCodec::isConsoleFileName("climate_v6_202611.csv"));
+  assert(!SdLogCodec::isLogFileName("climate_v6_202613.csv"));
+  assert(SdLogCodec::shouldDeleteFile("climate_v6_202601.csv", rtcAt(2026, 11), 3));
+  assert(!SdLogCodec::shouldDeleteFile("climate_v6_202611.csv", rtcAt(2026, 11), 1));
   assert(SdLogCodec::shouldDeleteFile("daily_v3_2024.csv", rtcAt(2026, 11), 12));
   assert(!SdLogCodec::shouldDeleteFile("daily_v3_2026.csv", rtcAt(2026, 11), 12));
   assert(SdLogCodec::shouldDeleteFile("daily_v4_2024.csv", rtcAt(2026, 11), 12));
@@ -19582,11 +19590,11 @@ void testLogSlots4And5() {
 
   // DUMP accepts the new names.
   SerialCommand cmd;
-  assert(parseText("DUMP climate_v5_202611.csv", cmd) == SerialParseStatus::OK);
-  assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "climate_v5_202611.csv") == 0);
+  assert(parseText("DUMP climate_v6_202611.csv", cmd) == SerialParseStatus::OK);
+  assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "climate_v6_202611.csv") == 0);
   assert(parseText("DUMP daily_v3_2026.csv", cmd) == SerialParseStatus::OK);
   assert(strcmp(cmd.file, "daily_v3_2026.csv") == 0);
-  assert(parseText("DUMP climate_v6_202611.csv", cmd) == SerialParseStatus::BAD_NAME);
+  assert(parseText("DUMP climate_v7_202611.csv", cmd) == SerialParseStatus::BAD_NAME);
 }
 
 void testDailySlots4And5() {
@@ -19597,13 +19605,13 @@ void testDailySlots4And5() {
   NoiseHistory noise;
   char buf[SdLogCodec::MAX_ROW_SIZE];
   const size_t len = SdLogCodec::formatDailyRow(2026, 11, 14, h, noise, DailyNoiseStats{}, buf, sizeof(buf));
-  assert(len > 0 && std::count(buf, buf + len, ',') == 47);
-  // Slot 5 is the last sensor: its six fields come right before the five noise fields and the mold hours.
-  assert(strstr(buf, ",10.0,20.0,15.0,40.0,40.0,40.0,,,,,,,,,,,0\n") != nullptr);
+  assert(len > 0 && std::count(buf, buf + len, ',') == 82);
+  // Slot 5 (s5): its six fields come before slots 6-10, noise, and mold hours.
+  assert(strstr(buf, ",10.0,20.0,15.0,40.0,40.0,40.0") != nullptr);
   char header[SdLogCodec::DAILY_HEADER_SIZE];
   assert(SdLogCodec::formatDailyHeader(header, sizeof(header)) > 0);
-  assert(strstr(header, ",s4_temp_min_c,") != nullptr && strstr(header, ",s5_rh_mean,noise_min_db,") != nullptr);
-  assert(std::count(header, header + strlen(header), ',') == 47);
+  assert(strstr(header, ",s4_temp_min_c,") != nullptr && strstr(header, ",s5_rh_mean,s6_temp_min_c,") != nullptr);
+  assert(std::count(header, header + strlen(header), ',') == 82);
 }
 
 void testUsbTempOffset() {

@@ -43,12 +43,12 @@ public enum EventText {
             return "reset \(reason)" + (ResetMetrics.isAbnormal(reason: reason) ? " (abnormal)" : "")
         case "SLOT_ASSIGN":
             let slot = d >> 8, format = d & 0xFF
-            guard (0...0xFFFF).contains(d), (1...5).contains(slot), bleFormats.indices.contains(format) else { return raw }
+            guard (0...0xFFFF).contains(d), (1...10).contains(slot), bleFormats.indices.contains(format) else { return raw }
             return "slot \(slot) \(bleFormats[format])"
         case "SLOT_RELEASE":
             // Low byte is the slot; the high byte 1 marks a manual release (`SLOT CLEAR`), 0 the timer (`slot_release_h`).
             let slot = d & 0xFF, manual = d >> 8
-            guard (0...0xFFFF).contains(d), (1...5).contains(slot), manual <= 1 else { return raw }
+            guard (0...0xFFFF).contains(d), (1...10).contains(slot), manual <= 1 else { return raw }
             return manual == 1 ? "Slot \(slot) released by the user" : "slot \(slot) released"
         case "CONFIG_SET":
             let index = d & 0xFF, transport = d >> 8

@@ -432,21 +432,20 @@ void flushFramebuffer() {
   g_skip_counted = false;
 }
 
-// Tells the mode controller whether slot 4 or 5 is active, so a short KEY press in the stats view
-// selects the other page.
-void updateStatsSecondPage() {
+// Tells the mode controller how many pages of sensors exist in the stats view.
+void updateStatsPages() {
   SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
   portENTER_CRITICAL(&g_registry_mux);
   for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
     snapshot[i] = g_state.registry.slot(i);
   }
   portEXIT_CRITICAL(&g_registry_mux);
-  g_mode_controller.setStatsSecondPage(
-      DashboardView::statsHasSecondPage(snapshot, MAX_SWITCHBOT_SENSORS, &g_state.config));
+  g_mode_controller.setStatsPages(
+      DashboardView::statsTotalPages(snapshot, MAX_SWITCHBOT_SENSORS, &g_state.config));
 }
 
 void renderDashboard() {
-  updateStatsSecondPage(); // before the first render: a restored page 2 falls back without slot 4 and 5
+  updateStatsPages(); // before the first render: a restored page falls back without active slots
   SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
   portENTER_CRITICAL(&g_registry_mux);
   const SwitchBotRegistry calibrated = calibratedRegistry();
@@ -934,7 +933,7 @@ void refreshSensors() {
       config().staleTimeoutMs());
 }
 
-// Advertises the climate tiles as one non-connectable frame for 100 ms (interval 20 ms) and stops
+// Advertises the climate tiles as non-connectable frames (Page 0 and Page 1) and stops
 // the advertising again before the deep sleep. A low battery alert and the empty battery protection
 // skip it (BleTelemetryCodec::shouldBroadcast). Call it after refreshSensors() (tiles and cell) and
 // after the chime functions (chimeOnAlerts() stores the alert mask). The BLE scan is stopped here, so the registry needs no lock.
@@ -942,15 +941,13 @@ void broadcastTelemetry() {
   if (!BleTelemetryCodec::shouldBroadcast(config().ble_broadcast_enabled, g_state.battery)) {
     return;
   }
-  BleTelemetryTile tiles[BleTelemetryCodec::TILE_COUNT];
+  BleTelemetryTile tiles[BleTelemetryCodec::TOTAL_TILES];
   BleTelemetryCodec::buildTiles(g_onboard_reading, calibratedRegistry(), nowMs(), config().staleTimeoutMs(), tiles);
   // AD structure: length, type 0xFF (Manufacturer Specific Data), company ID and payload. The frame
   // holds NUL bytes, so addData(char*, size_t) takes it, not a String.
   uint8_t ad[2 + BleTelemetryCodec::MANUFACTURER_DATA_SIZE];
   ad[0] = static_cast<uint8_t>(1 + BleTelemetryCodec::MANUFACTURER_DATA_SIZE);
   ad[1] = 0xFF;
-  BleTelemetryCodec::encode(tiles, BleTelemetryCodec::sequenceFrom(g_state.boot_count),
-                            BleTelemetryCodec::cellPercent(g_state.battery), g_state.alert_mask, ad + 2);
   // The scan phase called deinit(false) before: init again for the advertising. A failed init skips the broadcast.
   if (!BLEDevice::init("rlcd-panel")) {
     Serial.println("BLE telemetry init failed");
@@ -958,18 +955,27 @@ void broadcastTelemetry() {
   }
   BLEAdvertising* advertising = BLEDevice::getAdvertising();
   if (advertising != nullptr) {
-    BLEAdvertisementData adv_data;
-    adv_data.setFlags(0x06); // general discoverable, no BR/EDR
-    adv_data.addData(reinterpret_cast<char*>(ad), sizeof(ad));
-    advertising->setAdvertisementData(adv_data);
     advertising->setAdvertisementType(BLE_GAP_CONN_MODE_NON); // non-connectable (NimBLE conn_mode)
     advertising->setMinInterval(BleTelemetryCodec::INTERVAL_UNITS);
     advertising->setMaxInterval(BleTelemetryCodec::INTERVAL_UNITS);
-    if (advertising->start()) {
-      delay(g_state.battery.usb_powered ? 1000 : BleTelemetryCodec::ADVERTISE_MS);
-      advertising->stop();
-    } else {
-      Serial.println("BLE telemetry start failed");
+    const uint32_t total_ms = g_state.battery.usb_powered ? 1000 : BleTelemetryCodec::ADVERTISE_MS;
+    const uint32_t page_ms = total_ms / BleTelemetryCodec::PAGE_COUNT;
+
+    for (uint8_t page = 0; page < BleTelemetryCodec::PAGE_COUNT; ++page) {
+      BleTelemetryCodec::encode(tiles, BleTelemetryCodec::TOTAL_TILES,
+                                BleTelemetryCodec::sequenceFrom(g_state.boot_count),
+                                BleTelemetryCodec::cellPercent(g_state.battery), g_state.alert_mask,
+                                page, ad + 2);
+      BLEAdvertisementData adv_data;
+      adv_data.setFlags(0x06); // general discoverable, no BR/EDR
+      adv_data.addData(reinterpret_cast<char*>(ad), sizeof(ad));
+      advertising->setAdvertisementData(adv_data);
+      if (advertising->start()) {
+        delay(page_ms);
+        advertising->stop();
+      } else {
+        Serial.println("BLE telemetry start failed");
+      }
     }
   }
   BLEDevice::deinit(false);
@@ -1562,7 +1568,7 @@ void setup() {
         break;
     }
     if (g_mode_controller.mode() == DisplayMode::SENSOR_STATS) {
-      updateStatsSecondPage(); // only this view reads the flag
+      updateStatsPages(); // only this view reads the flag
     }
     switch (g_mode_controller.updateWithLongPress(digitalRead(PIN_BTN_KEY) == LOW, millis())) {
       case ButtonEvent::MODE_CHANGED:
