@@ -1409,3 +1409,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `VentilationGuide` compares the absolute humidity of room and outdoor air. The room timer state is persisted in `SharedPreferences`. `OutdoorWeatherService` reads Open-Meteo for fixed coordinates (Berlin, 52.52 N 13.41 E; no location setting); a sensor slot can replace it as outdoor source. The advice needs a frame younger than 35 minutes and an outdoor reading younger than 1 hour. The frame CRC-8 is no authentication: a nearby device can forge a frame.
 - The app scans only while it is visible (foreground only, no background service). Each alert bit of the first frame counts as new. A rising alert bit starts a vibration pattern and posts a notification. A ventilation stop or abort advice posts a notification while the window is open.
 - `TelemetryFrameTest` reads `tests/fixtures/ble_telemetry_vectors.txt`. `VentilationGuideTest` and `ClimateMathTest` cover the formulas. `OutdoorResolverTest` covers the freshness rules of `OutdoorResolver`. The stop button of an active ventilation stays visible when stale data hides the advice. CI job `Android phone companion tests and APK` runs `gradle testDebugUnitTest assembleDebug`. `scripts/install-phone-apk.sh [serial|host:port] [apk]` installs the APK with `adb install -r` and starts the app.
+
+## Door-based ventilation dependency for windowless rooms
+
+- **Code:** `rlcd_panel/ventilate_latch.h`, `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `docs/config.example.ini`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `tests/test_firmware_logic.cpp`.
+- The new `config.ini` key `door_ref_slot` (default `0`, range `0` to `5`) selects the reference sensor slot for door-based ventilation of slot 1. Value `0` turns the comparison off and falls back to pure relative humidity.
+- When `door_ref_slot` is active (2 to 5), slot 1 checks the absolute humidity difference against the reference slot: absolute humidity of slot 1 must exceed the reference slot by at least `1.0` g/m³ (`DOOR_TRIGGER_DIFF_GM3`) and relative humidity must exceed `ventilate_limit_rh` to set the `V` badge.
+- The badge releases when the absolute humidity difference drops below `0.5` g/m³ (`DOOR_RELEASE_DIFF_GM3`) or the relative humidity drops 2 %RH below `ventilate_limit_rh`.
+- A stale, empty or invalid reference slot clears the badge.
+- RTC state version 59: stores `door_ref_slot` after `outdoor_slot` in the config trailer.
