@@ -184,14 +184,14 @@ public:
 
 // Packet format of a decoded advertisement. WOIO is the Manufacturer Data of a WoIOSensor, METER the
 // Service Data of a Meter or Meter Plus.
-enum class BleFormat : uint8_t { WOIO = 0, METER = 1, BTHOME = 2, ATC = 3 };
-constexpr size_t BLE_FORMAT_COUNT = 4;
+enum class BleFormat : uint8_t { WOIO = 0, METER = 1, BTHOME = 2, ATC = 3, THERMOPRO = 4 };
+constexpr size_t BLE_FORMAT_COUNT = 5;
 
 // Packets the registry rejected during the current scan. The registry rejects a packet when no slot is
 // free or when each free slot has a fixed MAC of another sensor. Each counter stops at 65535. This is
 // no persistent state: resetRejects() clears it at the start of each scan.
 struct BleRejectStats {
-  uint16_t by_format[BLE_FORMAT_COUNT] = {0, 0, 0, 0};
+  uint16_t by_format[BLE_FORMAT_COUNT] = {0, 0, 0, 0, 0};
   uint8_t last_mac[6] = {0, 0, 0, 0, 0, 0};
   bool has_last = false;
 
@@ -547,6 +547,7 @@ public:
       case BleFormat::METER: return "METER";
       case BleFormat::BTHOME: return "BTHOME";
       case BleFormat::ATC: return "ATC";
+      case BleFormat::THERMOPRO: return "THERMOPRO";
       default: return "WOIO";
     }
   }

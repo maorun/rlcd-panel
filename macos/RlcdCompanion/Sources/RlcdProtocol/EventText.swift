@@ -13,8 +13,8 @@ public enum EventText {
     static let resetReasons = [
         "UNKNOWN", "POWERON", "EXT", "SW", "PANIC", "INT_WDT", "TASK_WDT", "WDT", "DEEPSLEEP", "BROWNOUT", "SDIO",
     ]
-    /// `BleFormat` values 0 to 3.
-    static let bleFormats = ["WOIO", "METER", "BTHOME", "ATC"]
+    /// `BleFormat` values 0 to 4.
+    static let bleFormats = ["WOIO", "METER", "BTHOME", "ATC", "THERMOPRO"]
     /// `SdStatus` values 1 to 5 (`SdStatusCodec::name`); 0 is `UNKNOWN`, which the firmware never records.
     static let sdStatuses = [1: "OK", 2: "NO_CARD", 3: "MOUNT_FAILED", 4: "WRITE_FAILED", 5: "FULL"]
 

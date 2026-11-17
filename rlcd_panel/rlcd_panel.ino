@@ -33,6 +33,7 @@
 #include "switchbot_ble.h"
 #include "bthome_ble.h"
 #include "atc_ble.h"
+#include "thermopro_ble.h"
 
 // Allocate 16 KB for the Arduino loop task stack to prevent stack overflows during serial console operations (default 8 KB).
 SET_LOOP_TASK_STACK_SIZE(16 * 1024);
@@ -171,6 +172,30 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
     portEXIT_CRITICAL(&g_registry_mux);
   }
 
+  // ThermoPro sensors (TP357, TP358, etc.) carry their readings in Manufacturer Data (0xC2 header).
+  static void handleThermoPro(BLEAdvertisedDevice& advertisedDevice, const String& mfg) {
+    const String name = advertisedDevice.haveName() ? advertisedDevice.getName().c_str() : "";
+    SwitchBotReading reading;
+    if (!ThermoProBleParser::parseManufacturerData(
+            reinterpret_cast<const uint8_t*>(mfg.c_str()),
+            mfg.length(),
+            advertisedDevice.getAddress().getNative(),
+            name.c_str(),
+            reading)) {
+      return;
+    }
+    reading.rssi = SwitchBotBleParser::clampRssi(advertisedDevice.getRSSI());
+    reading.updated_ms = nowMs();
+
+    if (collectForConsoleScan(reading, BleFormat::THERMOPRO)) {
+      return;
+    }
+    portENTER_CRITICAL(&g_registry_mux);
+    g_state.registry.upsert(reading, BleFormat::THERMOPRO);
+    g_scan_completion.onPacket(g_state.registry, reading);
+    portEXIT_CRITICAL(&g_registry_mux);
+  }
+
   void onResult(BLEAdvertisedDevice advertisedDevice) override {
     if (advertisedDevice.haveServiceData() &&
         advertisedDevice.getServiceDataUUID().equals(BLEUUID(BTHOME_SERVICE_UUID))) {
@@ -181,6 +206,15 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
         advertisedDevice.getServiceDataUUID().equals(BLEUUID(ATC_SERVICE_UUID))) {
       handleAtc(advertisedDevice);
       return;
+    }
+
+    if (advertisedDevice.haveManufacturerData()) {
+      const String mfg_probe = advertisedDevice.getManufacturerData();
+      if (mfg_probe.length() >= THERMOPRO_MIN_PAYLOAD_LEN &&
+          static_cast<uint8_t>(mfg_probe[0]) == THERMOPRO_HEADER_BYTE) {
+        handleThermoPro(advertisedDevice, mfg_probe);
+        return;
+      }
     }
 
     const String mfg = advertisedDevice.haveManufacturerData() ? advertisedDevice.getManufacturerData() : String();

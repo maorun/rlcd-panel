@@ -287,7 +287,7 @@ public struct ScanRow: Equatable, Identifiable {
 /// Parsed `SCAN` reply.
 public struct ScanReply: Equatable {
     public static let header = "mac,format,rssi,slot,temp_c,rh_pct,battery_pct"
-    public static let formats: Set<String> = ["WOIO", "METER", "BTHOME", "ATC"]
+    public static let formats: Set<String> = ["WOIO", "METER", "BTHOME", "ATC", "THERMOPRO"]
 
     /// Rows in the order of the reply.
     public let rows: [ScanRow]

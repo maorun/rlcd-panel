@@ -19,6 +19,7 @@
 #include "../rlcd_panel/board_pins.h"
 #include "../rlcd_panel/bthome_ble.h"
 #include "../rlcd_panel/atc_ble.h"
+#include "../rlcd_panel/thermopro_ble.h"
 #include "../rlcd_panel/button_handler.h"
 #include "../rlcd_panel/clap_detector.h"
 #include "../rlcd_panel/climate_math.h"
@@ -519,6 +520,166 @@ void testPvvxRegistryUpdate() {
   assert(reg.slot(0).battery_pct == 80);
   assert(approxEqual(reg.slot(0).temperature_c, 23.2f, 0.001f));
   assert(reg.slot(0).mac[0] == 0xA4 && reg.slot(0).mac[5] == 0x33);
+}
+
+void testThermoProValidPacket() {
+  // TP357S vector: 0xC2, 0xD6, 0x00, 0x43, 0x22, 0x0B, 0x01 (21.4 C, 67 %, battery 0x22 -> 100 %)
+  const uint8_t pkt1[] = {0xC2, 0xD6, 0x00, 0x43, 0x22, 0x0B, 0x01};
+  const uint8_t mac1[6] = {0xFF, 0xAC, 0x31, 0xC7, 0xAE, 0xF2};
+  SwitchBotReading r1;
+  assert(ThermoProBleParser::parseManufacturerData(pkt1, sizeof(pkt1), mac1, "TP357S (AEF2)", r1));
+  assert(r1.valid);
+  assert(approxEqual(r1.temperature_c, 21.4f, 0.001f));
+  assert(r1.humidity_pct == 67);
+  assert(r1.battery_pct == 100);
+  assert(memcmp(r1.mac, mac1, 6) == 0);
+
+  // TP357 vector: 0xC2, 0xCA, 0x00, 0x4B, 0x21, 0x0B, 0x01 (20.2 C, 75 %, battery 0x21 -> 50 %)
+  const uint8_t pkt2[] = {0xC2, 0xCA, 0x00, 0x4B, 0x21, 0x0B, 0x01};
+  const uint8_t mac2[6] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x02};
+  SwitchBotReading r2;
+  assert(ThermoProBleParser::parseManufacturerData(pkt2, sizeof(pkt2), mac2, "TP357 (99FA)", r2));
+  assert(r2.valid);
+  assert(approxEqual(r2.temperature_c, 20.2f, 0.001f));
+  assert(r2.humidity_pct == 75);
+  assert(r2.battery_pct == 50);
+  assert(memcmp(r2.mac, mac2, 6) == 0);
+
+  // TP358 / TP359 / TP393 with name prefix
+  const uint8_t pkt3[] = {0xC2, 0xCC, 0x00, 0x2A, 0x22, 0x0B, 0x01};
+  SwitchBotReading r3;
+  assert(ThermoProBleParser::parseManufacturerData(pkt3, sizeof(pkt3), mac2, "TP358", r3));
+  assert(approxEqual(r3.temperature_c, 20.4f, 0.001f));
+  assert(r3.humidity_pct == 42);
+
+  // Without name (empty or null)
+  SwitchBotReading r4;
+  assert(ThermoProBleParser::parseManufacturerData(pkt1, sizeof(pkt1), mac1, nullptr, r4));
+  assert(r4.valid);
+  assert(approxEqual(r4.temperature_c, 21.4f, 0.001f));
+  SwitchBotReading r5;
+  assert(ThermoProBleParser::parseManufacturerData(pkt1, sizeof(pkt1), mac1, "", r5));
+  assert(r5.valid);
+}
+
+void testThermoProNegativeTemperature() {
+  // -10.5 C: int16 -105 = 0xFF97 -> low 0x97, high 0xFF
+  const uint8_t pkt1[] = {0xC2, 0x97, 0xFF, 50, 0x22};
+  const uint8_t mac[6] = {1, 2, 3, 4, 5, 6};
+  SwitchBotReading r;
+  assert(ThermoProBleParser::parseManufacturerData(pkt1, sizeof(pkt1), mac, "TP357", r));
+  assert(approxEqual(r.temperature_c, -10.5f, 0.001f));
+  assert(r.humidity_pct == 50);
+
+  // -50.0 C limit: -500 = 0xFE0C -> low 0x0C, high 0xFE
+  const uint8_t pkt_limit[] = {0xC2, 0x0C, 0xFE, 80, 0x21};
+  assert(ThermoProBleParser::parseManufacturerData(pkt_limit, sizeof(pkt_limit), mac, "TP357", r));
+  assert(approxEqual(r.temperature_c, -50.0f, 0.001f));
+
+  // 100.0 C limit: 1000 = 0x03E8 -> low 0xE8, high 0x03
+  const uint8_t pkt_max[] = {0xC2, 0xE8, 0x03, 30, 0x22};
+  assert(ThermoProBleParser::parseManufacturerData(pkt_max, sizeof(pkt_max), mac, "TP357", r));
+  assert(approxEqual(r.temperature_c, 100.0f, 0.001f));
+}
+
+void testThermoProBatteryDecoding() {
+  const uint8_t mac[6] = {1, 2, 3, 4, 5, 6};
+  SwitchBotReading r;
+  // 0x22 -> 100%
+  const uint8_t p22[] = {0xC2, 0x00, 0x01, 50, 0x22};
+  assert(ThermoProBleParser::parseManufacturerData(p22, sizeof(p22), mac, "TP357", r));
+  assert(r.battery_pct == 100);
+
+  // 0x21 -> 50%
+  const uint8_t p21[] = {0xC2, 0x00, 0x01, 50, 0x21};
+  assert(ThermoProBleParser::parseManufacturerData(p21, sizeof(p21), mac, "TP357", r));
+  assert(r.battery_pct == 50);
+
+  // 0x20 -> 10%
+  const uint8_t p20[] = {0xC2, 0x00, 0x01, 50, 0x20};
+  assert(ThermoProBleParser::parseManufacturerData(p20, sizeof(p20), mac, "TP357", r));
+  assert(r.battery_pct == 10);
+
+  // 2 -> 100%, 1 -> 50%, 0 -> 10%
+  const uint8_t p2[] = {0xC2, 0x00, 0x01, 50, 2};
+  assert(ThermoProBleParser::parseManufacturerData(p2, sizeof(p2), mac, "TP357", r));
+  assert(r.battery_pct == 100);
+  const uint8_t p1[] = {0xC2, 0x00, 0x01, 50, 1};
+  assert(ThermoProBleParser::parseManufacturerData(p1, sizeof(p1), mac, "TP357", r));
+  assert(r.battery_pct == 50);
+  const uint8_t p0[] = {0xC2, 0x00, 0x01, 50, 0};
+  assert(ThermoProBleParser::parseManufacturerData(p0, sizeof(p0), mac, "TP357", r));
+  assert(r.battery_pct == 10);
+
+  // Direct percentage 85 -> 85%
+  const uint8_t p85[] = {0xC2, 0x00, 0x01, 50, 85};
+  assert(ThermoProBleParser::parseManufacturerData(p85, sizeof(p85), mac, "TP357", r));
+  assert(r.battery_pct == 85);
+
+  // Unknown value 0xFF -> -1
+  const uint8_t pff[] = {0xC2, 0x00, 0x01, 50, 0xFF};
+  assert(ThermoProBleParser::parseManufacturerData(pff, sizeof(pff), mac, "TP357", r));
+  assert(r.battery_pct == -1);
+}
+
+void testThermoProRejectsInvalid() {
+  const uint8_t mac[6] = {1, 2, 3, 4, 5, 6};
+  SwitchBotReading r;
+
+  // Null payload or length < 5
+  assert(!ThermoProBleParser::parseManufacturerData(nullptr, 7, mac, "TP357", r));
+  const uint8_t short_pkt[] = {0xC2, 0xD6, 0x00, 0x43};
+  assert(!ThermoProBleParser::parseManufacturerData(short_pkt, sizeof(short_pkt), mac, "TP357", r));
+
+  // Null MAC or zero MAC
+  const uint8_t valid_pkt[] = {0xC2, 0xD6, 0x00, 0x43, 0x22};
+  assert(!ThermoProBleParser::parseManufacturerData(valid_pkt, sizeof(valid_pkt), nullptr, "TP357", r));
+  const uint8_t zero_mac[6] = {0, 0, 0, 0, 0, 0};
+  assert(!ThermoProBleParser::parseManufacturerData(valid_pkt, sizeof(valid_pkt), zero_mac, "TP357", r));
+
+  // Non-0xC2 header
+  const uint8_t wrong_header[] = {0xC1, 0xD6, 0x00, 0x43, 0x22};
+  assert(!ThermoProBleParser::parseManufacturerData(wrong_header, sizeof(wrong_header), mac, "TP357", r));
+
+  // Name mismatch
+  assert(!ThermoProBleParser::parseManufacturerData(valid_pkt, sizeof(valid_pkt), mac, "SwitchBot", r));
+  assert(!ThermoProBleParser::parseManufacturerData(valid_pkt, sizeof(valid_pkt), mac, "ATC_123456", r));
+
+  // Out of range temperature (< -50.0 C or > 100.0 C)
+  // -50.1 C = -501 = 0xFE0B -> low 0x0B, high 0xFE
+  const uint8_t too_cold[] = {0xC2, 0x0B, 0xFE, 50, 0x22};
+  assert(!ThermoProBleParser::parseManufacturerData(too_cold, sizeof(too_cold), mac, "TP357", r));
+  // 100.1 C = 1001 = 0x03E9 -> low 0xE9, high 0x03
+  const uint8_t too_hot[] = {0xC2, 0xE9, 0x03, 50, 0x22};
+  assert(!ThermoProBleParser::parseManufacturerData(too_hot, sizeof(too_hot), mac, "TP357", r));
+
+  // Out of range humidity (> 100 %)
+  const uint8_t bad_rh[] = {0xC2, 0xD6, 0x00, 101, 0x22};
+  assert(!ThermoProBleParser::parseManufacturerData(bad_rh, sizeof(bad_rh), mac, "TP357", r));
+}
+
+void testThermoProRegistryAndScan() {
+  SwitchBotRegistry reg;
+  const uint8_t mac[6] = {0xAA, 0xBB, 0xCC, 0x11, 0x22, 0x33};
+  reg.setFixedMac(1, mac);
+
+  const uint8_t pkt[] = {0xC2, 0xD6, 0x00, 0x43, 0x22, 0x0B, 0x01};
+  SwitchBotReading r;
+  assert(ThermoProBleParser::parseManufacturerData(pkt, sizeof(pkt), mac, "TP357S (2233)", r));
+  r.updated_ms = 5000;
+  assert(reg.upsert(r, BleFormat::THERMOPRO));
+  assert(!reg.slot(0).valid);
+  assert(reg.slot(1).valid);
+  assert(approxEqual(reg.slot(1).temperature_c, 21.4f, 0.001f));
+  assert(reg.slot(1).humidity_pct == 67);
+  assert(reg.slot(1).battery_pct == 100);
+
+  // Scan collector with formatName
+  ScanCollector collector;
+  collector.add(r, BleFormat::THERMOPRO);
+  assert(collector.size() == 1);
+  assert(collector.at(0).format == BleFormat::THERMOPRO);
+  assert(strcmp(ScanCollector::formatName(collector.at(0).format), "THERMOPRO") == 0);
 }
 
 void testBtHomeCombinedRegistry() {
@@ -11201,23 +11362,23 @@ void testBleRejectEachFormatAndSlotsUnchanged() {
   SwitchBotRegistry reg;
   fillRegistry(reg);
   const SwitchBotRegistry before = reg;
-  const BleFormat formats[4] = {BleFormat::WOIO, BleFormat::METER, BleFormat::BTHOME, BleFormat::ATC};
-  for (size_t f = 0; f < 4; ++f) {
+  const BleFormat formats[5] = {BleFormat::WOIO, BleFormat::METER, BleFormat::BTHOME, BleFormat::ATC, BleFormat::THERMOPRO};
+  for (size_t f = 0; f < 5; ++f) {
     for (size_t n = 0; n <= f; ++n) {
       assert(!reg.upsert(rejectReading(static_cast<uint8_t>(20 + f)), formats[f]));
     }
   }
-  for (size_t f = 0; f < 4; ++f) {
+  for (size_t f = 0; f < 5; ++f) {
     assert(reg.rejects().by_format[f] == f + 1);
   }
-  assert(reg.rejects().total() == 10 && reg.rejects().last_mac[5] == 23);
+  assert(reg.rejects().total() == 15 && reg.rejects().last_mac[5] == 24);
   for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
     assert(memcmp(&reg.slot(i), &before.slot(i), sizeof(SwitchBotReading)) == 0);
   }
   // An invalid reading is no packet and counts nothing.
   SwitchBotReading invalid;
   assert(!reg.upsert(invalid, BleFormat::ATC));
-  assert(reg.rejects().total() == 10);
+  assert(reg.rejects().total() == 15);
 }
 
 void testBleRejectSaturationAndReset() {
@@ -11228,11 +11389,12 @@ void testBleRejectSaturationAndReset() {
     reg.upsert(rejectReading(31), BleFormat::METER);
     reg.upsert(rejectReading(32), BleFormat::BTHOME);
     reg.upsert(rejectReading(33), BleFormat::ATC);
+    reg.upsert(rejectReading(34), BleFormat::THERMOPRO);
   }
-  for (size_t f = 0; f < 4; ++f) {
+  for (size_t f = 0; f < 5; ++f) {
     assert(reg.rejects().by_format[f] == 65535);
   }
-  assert(reg.rejects().total() == 4u * 65535u);
+  assert(reg.rejects().total() == 5u * 65535u);
   reg.resetRejects();
   assert(reg.rejects().total() == 0 && !reg.rejects().has_last && reg.rejects().last_mac[5] == 0);
   assert(reg.activeCount() == 5);
@@ -11242,16 +11404,17 @@ void testBleRejectStatusLine() {
   StatusFixture f;
   std::vector<std::string> lines = statusLines(f.run());
   assert(lines.size() == 16);
-  assert(lines[10] == "BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0");
+  assert(lines[10] == "BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0 thermopro=0");
   assert(lines[11] == "RECEPTION s1=-- s2=-- s3=-- s4=-- s5=--");
   assert(lines[12].rfind("POWER ", 0) == 0);
   fillRegistry(f.registry);
   f.registry.upsert(rejectReading(0xAB), BleFormat::BTHOME);
   f.registry.upsert(rejectReading(0xCD), BleFormat::ATC);
   f.registry.upsert(rejectReading(0xCD), BleFormat::ATC);
+  f.registry.upsert(rejectReading(0xEF), BleFormat::THERMOPRO);
   lines = statusLines(f.run());
   assert(lines.size() == 16);
-  assert(lines[10] == "BLE rejected=3 last=AA:00:00:00:00:CD woio=0 meter=0 bthome=1 atc=2");
+  assert(lines[10] == "BLE rejected=4 last=AA:00:00:00:00:EF woio=0 meter=0 bthome=1 atc=2 thermopro=1");
   assert(lines[12].rfind("POWER ", 0) == 0);
   // The slot lines stay as before.
   assert(lines[0].rfind("SENSOR 0 ", 0) == 0);
@@ -11269,10 +11432,11 @@ void testBleRejectStatusWorstCaseLength() {
     f.registry.upsert(r, BleFormat::METER);
     f.registry.upsert(r, BleFormat::BTHOME);
     f.registry.upsert(r, BleFormat::ATC);
+    f.registry.upsert(r, BleFormat::THERMOPRO);
   }
   const std::vector<std::string> lines = statusLines(f.run());
   assert(lines.size() == 16);
-  assert(lines[10] == "BLE rejected=262140 last=FF:FF:FF:FF:FF:FF woio=65535 meter=65535 bthome=65535 atc=65535");
+  assert(lines[10] == "BLE rejected=327675 last=FF:FF:FF:FF:FF:FF woio=65535 meter=65535 bthome=65535 atc=65535 thermopro=65535");
 }
 
 namespace {
@@ -11381,7 +11545,7 @@ void testStatusRuntimeLinePositionCrcAndNoSideEffect() {
   snprintf(expected, sizeof(expected), "CRC32 %08lx", static_cast<unsigned long>(crc.value()));
   assert(lines[15] == expected);
   assert(out.find("RUNTIME ") < crc_at);
-  assert(lines[15] == "CRC32 1eba154e"); // fixed value of the whole reply
+  assert(lines[15] == "CRC32 863d2a4d"); // fixed value of the whole reply
   // The command leaves the history unchanged.
   assert(h.size() == before.size() && h.head() == before.head() && h.last_sample_ms == before.last_sample_ms &&
          h.has_sampled == before.has_sampled);
@@ -13149,6 +13313,7 @@ void testSerialScanOneRowForEachFormat() {
     c.add(scanReading(0x02, -3.2f, 70, -1, -71), BleFormat::METER);
     c.add(scanReading(0x03, 0.0f, 0, 100, -80), BleFormat::BTHOME);
     c.add(scanReading(0x04, 30.0f, 100, 5, -90), BleFormat::ATC);
+    c.add(scanReading(0x05, 18.4f, 55, 50, -65), BleFormat::THERMOPRO);
     return true;
   });
   const std::string head = "BEGIN SCAN\nmac,format,rssi,slot,temp_c,rh_pct,battery_pct\n";
@@ -13156,7 +13321,8 @@ void testSerialScanOneRowForEachFormat() {
       "AA:BB:CC:DD:EE:01,WOIO,-60,-,21.5,45,88\n"
       "AA:BB:CC:DD:EE:02,METER,-71,-,-3.2,70,\n"
       "AA:BB:CC:DD:EE:03,BTHOME,-80,-,0.0,0,100\n"
-      "AA:BB:CC:DD:EE:04,ATC,-90,-,30.0,100,5\n";
+      "AA:BB:CC:DD:EE:04,ATC,-90,-,30.0,100,5\n"
+      "AA:BB:CC:DD:EE:05,THERMOPRO,-65,-,18.4,55,50\n";
   assert(sink.out.compare(0, head.size() + rows.size(), head + rows) == 0);
   SerialCrc32 crc;
   const std::string body = head + rows;
@@ -19703,6 +19869,11 @@ int main() {
   testAtcPvvxRejectsInvalid();
   testAtcRegistryFixedMac();
   testPvvxRegistryUpdate();
+  testThermoProValidPacket();
+  testThermoProNegativeTemperature();
+  testThermoProBatteryDecoding();
+  testThermoProRejectsInvalid();
+  testThermoProRegistryAndScan();
   testClimateMathReferencePoints();
   testClimateMathInvalidInput();
   testComfortZone();
@@ -20127,6 +20298,6 @@ testSerialConfigNegativeSmallOffset();
   testSdCardStatus();
   testClimateMathFixtureVectors();
   testStaleAgeBadge();
-  printf("All 218 firmware logic test suites passed.\n");
+  printf("All 223 firmware logic test suites passed.\n");
   return 0;
 }
