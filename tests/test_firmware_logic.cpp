@@ -20090,6 +20090,226 @@ static void testStaleAgeBadge() {
   }
 }
 
+// ---- Restore of the 24-hour histories from the card ----
+
+// Builds one 42-column row. `temp` and `rh` are the onboard values; slot 1 gets temp + 1 and rh + 10.
+static std::string restoreCsvRow(int day, int hour, const char* temp, const char* rh, int usb, bool slot1 = true) {
+  char ts[32];
+  snprintf(ts, sizeof(ts), "2026-03-%02d %02d:05:01", day, hour);
+  std::string row = std::string(ts) + ",87,4.00," + std::to_string(usb) + "," + temp + "," + rh;
+  row += slot1 ? ",22.5,55,90" : ",,,";
+  row += std::string(9 * 3, ',') + ",,,,,,\n"; // slots 2 to 10, then the six noise columns
+  return row;
+}
+
+static RtcTime restoreNow(int day, int hour, int minute) {
+  RtcTime t;
+  t.valid = true; t.year = 2026; t.month = 3; t.day = static_cast<uint8_t>(day);
+  t.hour = static_cast<uint8_t>(hour); t.minute = static_cast<uint8_t>(minute);
+  return t;
+}
+
+static size_t restoreFromText(
+    ClimateHistory& h, const std::string& text, const RtcTime& now, uint32_t now_ms, uint16_t fixed) {
+  SdLogCodec::ClimateRowBuffer rows;
+  SdLogCodec::parseClimateTail(text.c_str(), text.size(), true, rows);
+  return h.restore(rows.rows, rows.count, now, now_ms, fixed);
+}
+
+void testParseClimateRow() {
+  const std::string line = restoreCsvRow(9, 7, "21.5", "45.0", 1);
+  ClimateHistory::RestoreRow row;
+  assert(SdLogCodec::parseClimateRow(line.c_str(), line.size(), row));
+  assert(row.usb && row.temp[0] == 215 && row.rh[0] == 450);
+  assert(row.temp_mask == 0x3 && row.rh_mask == 0x3);
+  assert(row.temp[1] == 225 && row.rh[1] == 550);
+  const int64_t expected = NtpTime::daysFromCivil(2026, 3, 9) * 1440 + 7 * 60 + 5;
+  assert(row.minutes == expected);
+
+  // 26 columns are rejected
+  std::string shorter = line.substr(0, line.size() - 1);
+  shorter.erase(shorter.rfind(',', shorter.rfind(',') - 1));
+  assert(!SdLogCodec::parseClimateRow(shorter.c_str(), shorter.size(), row));
+  // 43 columns are rejected as well
+  const std::string longer = line.substr(0, line.size() - 1) + ",1";
+  assert(!SdLogCodec::parseClimateRow(longer.c_str(), longer.size(), row));
+
+  // Empty fields are missing values
+  const std::string empty = restoreCsvRow(9, 7, "", "", 0, false);
+  assert(SdLogCodec::parseClimateRow(empty.c_str(), empty.size(), row));
+  assert(!row.usb && row.temp_mask == 0 && row.rh_mask == 0);
+  // A negative temperature, a bad number, a bad timestamp and the header are rejected or parsed
+  const std::string cold = restoreCsvRow(9, 7, "-3.5", "80.0", 0);
+  assert(SdLogCodec::parseClimateRow(cold.c_str(), cold.size(), row) && row.temp[0] == -35);
+  const std::string bad = restoreCsvRow(9, 7, "abc", "45.0", 0);
+  assert(!SdLogCodec::parseClimateRow(bad.c_str(), bad.size(), row));
+  const std::string over = restoreCsvRow(9, 7, "21.5", "100.5", 0);
+  assert(!SdLogCodec::parseClimateRow(over.c_str(), over.size(), row));
+  char header[1024];
+  const size_t hl = SdLogCodec::formatHeader(header, sizeof(header));
+  assert(!SdLogCodec::parseClimateRow(header, hl, row));
+  assert(!SdLogCodec::parseClimateRow(nullptr, 0, row));
+}
+
+void testClimateRestoreFixedSlotAndUsbMask() {
+  std::string text;
+  for (int h = 0; h < 24; ++h) {
+    // Hours 0 to 23 of 8 March: temperature 10.0 + h / 10, humidity 40 + h, USB on even hours
+    char t[16];
+    snprintf(t, sizeof(t), "%.1f", 10.0 + h / 10.0);
+    text += restoreCsvRow(8, h, t, std::to_string(40 + h).c_str(), h % 2 == 0 ? 1 : 0);
+  }
+  ClimateHistory h;
+  const RtcTime now = restoreNow(9, 0, 0);
+  assert(restoreFromText(h, text, now, 5000000, 0x01) == 24); // slot 1 has a fixed MAC
+  assert(h.slots[0].size() == 24 && h.temperatures[0].size() == 24);
+  assert(h.slots[0].at(23) == 630 && h.temperatures[0].at(0) == 100);
+  assert(h.slots[1].size() == 24 && h.temperatures[1].at(23) == 225);
+  assert(h.slots[2].size() == 0 && h.temperatures[2].size() == 0); // no fixed MAC: stays empty
+  // Bit 0 is the newest sample (hour 23, no USB), bit 1 is hour 22 (USB)
+  assert(!h.onboardOnUsb(0) && h.onboardOnUsb(1) && !h.onboardOnUsb(2));
+  assert(h.usb_mask == 0xAAAAAAu && h.restoreUsbMask(h.usb_mask));
+  // last_sample_ms follows the newest row (23:05, now 00:00): 55 minutes ago
+  assert(h.has_sampled && h.last_sample_ms == 5000000u - 55u * 60000u);
+  assert(!h.sampleDue(5000000)); // the gate does not push the same hour again
+  assert(h.sampleDue(h.last_sample_ms + ClimateHistory::SAMPLE_INTERVAL_MS));
+
+  // Without a fixed MAC no slot is restored, the onboard sensor still is
+  ClimateHistory g;
+  assert(restoreFromText(g, text, now, 5000000, 0) == 24);
+  assert(g.slots[1].size() == 0 && g.temperatures[1].size() == 0 && g.slots[0].size() == 24);
+}
+
+void testClimateRestoreGapAndAge() {
+  const RtcTime now = restoreNow(9, 0, 30);
+  // Hours 18 to 23, a gap of 2 hours (rows 14 and 15 missing), then hours 10 to 13
+  std::string text;
+  for (int h = 10; h <= 13; ++h) text += restoreCsvRow(8, h, "20.0", "50", 0);
+  for (int h = 16; h <= 23; ++h) text += restoreCsvRow(8, h, "21.0", "51", 0);
+  ClimateHistory h;
+  assert(restoreFromText(h, text, now, 9000000, 0) == 8); // stops at the gap
+  assert(h.slots[0].size() == 8 && h.slots[0].at(0) == 510);
+
+  // A row without onboard values ends the run like a gap
+  std::string partial;
+  for (int h = 10; h <= 21; ++h) partial += restoreCsvRow(8, h, "20.0", "50", 0);
+  partial += restoreCsvRow(8, 22, "", "", 0, true);
+  partial += restoreCsvRow(8, 23, "21.0", "51", 0);
+  ClimateHistory p;
+  assert(restoreFromText(p, partial, now, 9000000, 0) == 1);
+  assert(p.slots[0].size() == 1 && p.temperatures[0].size() == 1);
+  // The newest row without onboard values restores nothing
+  ClimateHistory q;
+  assert(restoreFromText(q, restoreCsvRow(8, 23, "", "", 0, true), now, 9000000, 0) == 0 && !q.has_sampled);
+
+  // Rows older than 24 hours are skipped: 7 March 23:05 is 24 h 55 min old at 00:00
+  std::string old;
+  old += restoreCsvRow(7, 23, "19.0", "49", 0);
+  for (int hh = 0; hh <= 23; ++hh) old += restoreCsvRow(8, hh, "20.0", "50", 0);
+  ClimateHistory a;
+  assert(restoreFromText(a, old, restoreNow(9, 0, 0), 9000000, 0) == 24);
+  assert(a.slots[0].at(0) == 500); // 7 March is out
+  // Only rows older than 24 hours: nothing changes
+  ClimateHistory b;
+  assert(restoreFromText(b, restoreCsvRow(7, 10, "19.0", "49", 0), now, 9000000, 0) == 0);
+  assert(!b.has_sampled && b.slots[0].size() == 0);
+}
+
+void testClimateRestoreMonthChange() {
+  // 10 rows in the current file (1 April 00..09), 30 rows in the previous file (the last 30 hours of March)
+  RtcTime now;
+  now.valid = true; now.year = 2026; now.month = 4; now.day = 1; now.hour = 10; now.minute = 0;
+  std::string march;
+  for (int h = 18; h < 24; ++h) march += restoreCsvRow(30, h, "18.0", "60", 0);
+  for (int h = 0; h < 24; ++h) march += restoreCsvRow(31, h, "18.0", "60", 0);
+  auto april_row = [](int h) {
+    char ts[32];
+    snprintf(ts, sizeof(ts), "2026-04-01 %02d:05:01", h);
+    return std::string(ts) + ",87,4.00,0,22.0,44.0" + std::string(30, ',') + ",,,,,,\n";
+  };
+  std::string april;
+  for (int h = 0; h < 10; ++h) april += april_row(h);
+  SdLogCodec::ClimateRowBuffer rows;
+  SdLogCodec::ClimateRowBuffer older;
+  assert(SdLogCodec::parseClimateTail(april.c_str(), april.size(), true, rows) == 10);
+  assert(SdLogCodec::parseClimateTail(march.c_str(), march.size(), true, older) == 30);
+  rows.prepend(older);
+  assert(rows.count == 40);
+  ClimateHistory h;
+  assert(h.restore(rows.rows, rows.count, now, 7000000, 0) == 24); // 24 newest hours, contiguous across the month
+  assert(h.slots[0].at(23) == 440 && h.slots[0].at(13) == 600 && h.slots[0].at(14) == 440);
+  assert(h.slots[0].at(0) == 600);
+  // The previous month name
+  RtcTime prev;
+  assert(SdLogCodec::previousMonth(now, prev) && prev.year == 2026 && prev.month == 3);
+  RtcTime jan = now; jan.year = 2026; jan.month = 1;
+  assert(SdLogCodec::previousMonth(jan, prev) && prev.year == 2025 && prev.month == 12);
+  char path[SdLogCodec::MAX_PATH_SIZE];
+  assert(SdLogCodec::formatFilename(&prev, path, sizeof(path)) > 0 &&
+         std::string(path) == "/sdcard/climate_v6_202512.csv");
+}
+
+void testClimateRestoreNoChange() {
+  const std::string text = restoreCsvRow(8, 23, "21.0", "51", 0);
+  // Invalid RTC time, stopped oscillator, early year
+  RtcTime invalid = restoreNow(9, 0, 30);
+  invalid.valid = false;
+  ClimateHistory a;
+  assert(restoreFromText(a, text, invalid, 1000, 0x01) == 0 && !a.has_sampled && a.slots[0].size() == 0);
+  RtcTime stopped = restoreNow(9, 0, 30);
+  stopped.oscillator_stopped = true;
+  assert(restoreFromText(a, text, stopped, 1000, 0x01) == 0 && !a.has_sampled);
+  RtcTime early = restoreNow(9, 0, 30);
+  early.year = 2024;
+  assert(restoreFromText(a, text, early, 1000, 0x01) == 0 && !a.has_sampled);
+  // A row from the future of the RTC
+  assert(restoreFromText(a, text, restoreNow(8, 20, 0), 1000, 0x01) == 0 && !a.has_sampled);
+  // A missing file: no rows
+  assert(restoreFromText(a, "", restoreNow(9, 0, 30), 1000, 0x01) == 0 && !a.has_sampled);
+  assert(a.restore(nullptr, 0, restoreNow(9, 0, 30), 1000, 0x01) == 0);
+  // Only bad rows (the header and garbage)
+  char header[1024];
+  SdLogCodec::formatHeader(header, sizeof(header));
+  assert(restoreFromText(a, std::string(header) + "garbage\n", restoreNow(9, 0, 30), 1000, 0x01) == 0);
+  assert(!a.has_sampled && a.usb_mask == 0);
+  // A history that already holds samples stays as it is
+  ClimateHistory b;
+  b.slots[0].push(500);
+  assert(restoreFromText(b, text, restoreNow(9, 0, 30), 1000, 0x01) == 0 && b.slots[0].size() == 1);
+}
+
+void testClimateRestoreTailParsing() {
+  // A tail that starts inside a line skips the partial first line and a last line without a newline
+  std::string full = restoreCsvRow(8, 21, "20.0", "50", 0) + restoreCsvRow(8, 22, "21.0", "51", 0) +
+                     restoreCsvRow(8, 23, "22.0", "52", 0);
+  const std::string tail = full.substr(40, full.size() - 40 - 10); // cuts the first line and the last newline
+  SdLogCodec::ClimateRowBuffer rows;
+  assert(SdLogCodec::parseClimateTail(tail.c_str(), tail.size(), false, rows) == 1);
+  assert(rows.rows[0].temp[0] == 210);
+  // A full buffer keeps the newest rows
+  SdLogCodec::ClimateRowBuffer big;
+  ClimateHistory::RestoreRow r;
+  for (int i = 0; i < 60; ++i) {
+    r.minutes = i;
+    big.append(r);
+  }
+  assert(big.count == SdLogCodec::RESTORE_ROW_CAPACITY && big.rows[0].minutes == 12 && big.rows[47].minutes == 59);
+  // prepend keeps the newest rows in order when both buffers are large
+  SdLogCodec::ClimateRowBuffer cur, prev;
+  for (int i = 0; i < 40; ++i) { r.minutes = 100 + i; cur.append(r); }
+  for (int i = 0; i < 30; ++i) { r.minutes = i; prev.append(r); }
+  cur.prepend(prev);
+  assert(cur.count == SdLogCodec::RESTORE_ROW_CAPACITY && cur.rows[0].minutes == 22 && cur.rows[7].minutes == 29 &&
+         cur.rows[8].minutes == 100 && cur.rows[47].minutes == 139);
+  // prepend of an empty buffer and onto an empty buffer
+  SdLogCodec::ClimateRowBuffer none, only;
+  only.append(r);
+  only.prepend(none);
+  assert(only.count == 1);
+  none.prepend(only);
+  assert(none.count == 1);
+}
+
 int main() {
   testTempUnitConfig();
   testClimateMathToDisplay();
@@ -20592,6 +20812,12 @@ testSerialConfigNegativeSmallOffset();
   testSdCardStatus();
   testClimateMathFixtureVectors();
   testStaleAgeBadge();
-  printf("All 223 firmware logic test suites passed.\n");
+  testParseClimateRow();
+  testClimateRestoreFixedSlotAndUsbMask();
+  testClimateRestoreGapAndAge();
+  testClimateRestoreMonthChange();
+  testClimateRestoreNoChange();
+  testClimateRestoreTailParsing();
+  printf("All 229 firmware logic test suites passed.\n");
   return 0;
 }

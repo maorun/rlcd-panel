@@ -1183,6 +1183,22 @@ void loadConfigFromCard(WakeupCause cause) {
   }
 }
 
+// Refills the 24-hour histories from the hourly rows of the card after a power-on. It needs a valid RTC
+// time and a mounted card; each failure leaves the histories empty and never blocks the wake cycle.
+void restoreHistoriesFromCard(WakeupCause cause) {
+  if (cause != WakeupCause::POWER_ON || g_state.sd_status == SdStatus::NO_CARD ||
+      g_state.sd_status == SdStatus::MOUNT_FAILED) {
+    return;
+  }
+  uint16_t fixed_slots = 0;
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    if (config().hasSlotMac(i)) {
+      fixed_slots = static_cast<uint16_t>(fixed_slots | (1u << i));
+    }
+  }
+  SdLogger::restoreHistories(g_state.history, g_rtc_time, nowMs(), fixed_slots);
+}
+
 // Evaluates the climate thresholds and the sensor dropout, and sounds a chime for each alert that
 // switched on. A valid sensor slot that went stale sets ALERT_SENSOR_LOST. The mask is stored even
 // while muted or in quiet hours, so unmuting or the end of the quiet hours never replays an old
@@ -1311,6 +1327,8 @@ void setup() {
 
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   g_rtc.begin(Wire);
+  updateRtc();
+  restoreHistoriesFromCard(cause);
   // The panel starts at the first flush; an unchanged frame on a timer wakeup never starts it.
 
   g_pending_slot_release = g_state.releaseDeadSlots(nowMs()); // before the scan, so a free slot takes a new sensor in this cycle
