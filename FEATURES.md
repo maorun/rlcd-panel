@@ -1444,3 +1444,10 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `ClimateChartView` and `DailyChartView` draw each line as a dashed red `RuleMark` with its name. The app sends no new command.
 - `ChartLimitsTests` cover the known sample, the value 0, the out-of-range value, the missing reply and the label texts.
 - The charts draw each line for every sensor. They ignore `climate_alert_tiles`, which limits the firmware alerts to some tiles. A line widens the automatic Y range, so the user sees the distance of the curve to the limit.
+
+## Alert timeline in the macOS diagnostics view
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/AlertTimeline.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/AlertTimelineTests.swift`
+- `AlertTimeline.build(rows:now:)` pairs each `ALERT_RISE` with the next `ALERT_FALL` of the same alert bit into one `AlertInterval`. An alert without a fall stays open until the injected `now` (`isOpen`).
+- A fall without a rise starts at the first row with a valid time and has `startUnknown`. An `EVENTS_DROPPED` row sets `startUnknown` on each interval that is open at that row. Other event codes and rows without a valid time are ignored.
+- `DiagnosticsView` shows the intervals in the group `Alert timeline` as horizontal Swift Charts bars, one row for each alert, from `model.events` (the existing `EVENTS` read action or an opened events file). Red is an open alert, a dimmed bar has an unknown start. The app sends no new command.

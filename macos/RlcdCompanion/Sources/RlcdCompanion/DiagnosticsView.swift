@@ -1,3 +1,4 @@
+import Charts
 import RlcdProtocol
 import SwiftUI
 
@@ -35,6 +36,10 @@ struct DiagnosticsView: View {
                         Text("No diagnostics yet. Press the refresh button.").font(.caption).foregroundStyle(.secondary)
                     }
                 }.frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            GroupBox("Alert timeline") {
+                alertTimeline().frame(maxWidth: .infinity, alignment: .leading)
             }
 
             GroupBox("Maintenance and tests") {
@@ -128,6 +133,26 @@ struct DiagnosticsView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.subheadline.bold())
             content().font(.system(.caption, design: .monospaced))
+        }
+    }
+
+    /// Horizontal bars of the alert intervals from the event ring (`model.events`, filled by the existing read action).
+    @ViewBuilder private func alertTimeline() -> some View {
+        let intervals = AlertTimeline.build(rows: model.events, now: Date())
+        if intervals.isEmpty {
+            Text("No alert events. Read the panel data to load the event ring.")
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            let names = Array(Set(intervals.map(\.name))).sorted()
+            Chart(Array(intervals.enumerated()), id: \.offset) { _, i in
+                BarMark(xStart: .value("Start", i.start), xEnd: .value("End", max(i.end, i.start.addingTimeInterval(60))), y: .value("Alert", i.name))
+                    .foregroundStyle(i.isOpen ? Color.red : Color.orange)
+                    .opacity(i.startUnknown ? 0.5 : 1)
+            }
+            .chartYScale(domain: names)
+            .frame(height: CGFloat(names.count) * 28 + 40)
+            Text("Dimmed bar: start unknown. Red bar: alert still active.")
+                .font(.caption).foregroundStyle(.secondary)
         }
     }
 
