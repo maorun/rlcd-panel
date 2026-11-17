@@ -65,6 +65,8 @@ final class AppModel: ConsoleLinkDelegate {
     var climateMonths: [String] = []
     var climateMonth = ""
     var climateData: ClimateFolder?
+    /// Rows of the selected month and the two months before it, for the battery forecast (60 days).
+    var climateForecastRows: [ClimateRow] = []
     var archiveSummary: String?
     /// Folder of the running download. A later folder choice does not split the files of one run.
     private var downloadFolder: URL?
@@ -1022,12 +1024,20 @@ final class AppModel: ConsoleLinkDelegate {
 
     func selectClimateMonth(_ month: String) {
         climateMonth = month
-        guard let folder = archiveFolder, !month.isEmpty else { climateData = ClimateFolder(rows: [], failedFiles: []); return }
-        climateData = ClimateLog.load(from: folder, month: month)
+        guard let folder = archiveFolder, !month.isEmpty else {
+            climateData = ClimateFolder(rows: [], failedFiles: [])
+            climateForecastRows = []
+            return
+        }
+        let current = ClimateLog.load(from: folder, month: month)
+        climateData = current
+        let earlier = [2, 1].compactMap { ClimateLog.earlierMonth(month, by: $0) }.filter(climateMonths.contains)
+        climateForecastRows = earlier.flatMap { ClimateLog.load(from: folder, month: $0).rows } + current.rows
     }
 
     func hideClimateCharts() {
         climateMonths = []
         climateData = nil
+        climateForecastRows = []
     }
 }

@@ -154,6 +154,14 @@ public struct ClimateLog: Equatable {
             && (0...23).contains(h) && (0...59).contains(mi) && (0...60).contains(s)
     }
 
+    /// The month `YYYYMM` that lies `by` months before `month` (`by` 1 gives the previous month), or `nil` for a bad month.
+    public static func earlierMonth(_ month: String, by: Int) -> String? {
+        guard month.count == 6, let y = Int(month.prefix(4)), let m = Int(month.suffix(2)), (1...12).contains(m) else { return nil }
+        let index = y * 12 + (m - 1) - by
+        guard index >= 0 else { return nil }
+        return String(format: "%04d%02d", index / 12, index % 12 + 1)
+    }
+
     /// Reads the climate files of one month (`YYYYMM`) from the folder (local files only). A file that fails to
     /// parse is listed in `failedFiles`. When two files hold the same timestamp, the newer format wins.
     public static func load(from folder: URL, month: String) -> ClimateFolder {

@@ -1295,6 +1295,17 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The button `Show climate charts` in `ArchiveView` shows `ClimateChartView`: a month picker, for each sensor one Swift Charts view with the hourly temperature and humidity, and one chart with `noise_db`, `noise_l10` and `noise_l90`. The view reads local files only and sends no console command.
 - `ClimateLogTests` cover all four formats, empty fields, a row with a wrong column count, an unknown header, the file names and the month load with the newer-format rule.
 
+## Sensor battery forecast in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/BatteryForecast.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/BatteryForecastTests.swift`.
+- `BatteryForecast.estimate(rows:sensor:limitPct:)` reads the `batteryPct` of one slot (1 to 5) from the `ClimateLog` rows of the last 60 days before the newest row. It uses only the rows after the last rise of 10 % or more (a new battery). It calculates a least-squares line over the remaining rows and returns the date when the line reaches `limitPct`.
+- It returns `nil` for fewer than 7 days of data, for a drop below 3 %, for a line that does not fall, and for the onboard sensor (no battery column). A line that already reached the limit gives the time of the newest row. A battery change within 7 days of the newest row leaves too little data, so the view shows `not enough data`.
+- `BatteryForecast.limitPct(config:)` reads `sensor_battery_limit_pct` from the last `CONFIG` reply, else 10 %. The value 0 (`BAT LOW` off) also gives 10 %. The window counts back from the newest row, and timestamps parse in Europe/Berlin time (`PanelClock.timeZone`).
+- `AppModel.climateForecastRows` holds the rows of the selected month and the two months before it (`ClimateLog.earlierMonth`), so the 60-day window spans month files.
+- `ClimateChartView` shows `Battery change near <date>` or `Battery forecast: not enough data` below the charts of each slot. The app sends no new command and the firmware does not change.
+- `ClimateChartView` also shows the forecast for a slot that has no climate values in the selected month, when an earlier month of the window holds battery data.
+- `BatteryForecastTests` cover a line of 1 % per week from 80 %, the rows after a rise from 12 % to 100 %, a rise of 9 % and of 10 %, 6 days and exactly 7 days of data, the 60-day window, unsorted rows and gaps, a drop of 2 %, a flat and a rising line, the onboard sensor, a reached limit, a line across the DST change, `ClimateLog.earlierMonth`, and the limit from a config, from a value of 0 and the default.
+
 ## Second stats page for slots 4 and 5
 
 - **Code:** `rlcd_panel/dashboard_view.h`, `rlcd_panel/button_handler.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`
