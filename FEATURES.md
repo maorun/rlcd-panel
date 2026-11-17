@@ -1461,3 +1461,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `restore` changes nothing for an invalid RTC time, a stopped oscillator, a year before 2025, a row newer than the RTC time, histories that already hold samples and rows older than 24 hours.
 - No new RTC state and no new `config.ini` key. `STATE_VERSION` stays 61.
 - Host tests: `testParseClimateRow`, `testClimateRestoreFixedSlotAndUsbMask`, `testClimateRestoreGapAndAge`, `testClimateRestoreMonthChange`, `testClimateRestoreNoChange` and `testClimateRestoreTailParsing`.
+
+## Sensor display names bound to MAC addresses
+
+- A display name belongs to the sensor MAC, not to the slot index. `DeviceConfig::nameForMac(mac)` returns the `slotN_name` of the slot whose fixed MAC (`slotN_mac`) equals `mac`. A missing, zero or unknown MAC and a fixed MAC without a name give `nullptr`.
+- A slot tile shows the name of the MAC of its sensor: the MAC of the live reading, else the fixed MAC of the slot (`DashboardView::slotActiveMac`). A sensor that moves to another slot keeps its name. A slot with an unknown MAC shows the default title (`SENSOR N` in the tile, `S<N>` in the stats view, `slot<N>` in `STATUS`) even when `slotN_name` is set. A `slotN_name` without `slotN_mac` matches no sensor. The `onboard_name` key is unchanged.
+- `DashboardView::tileTitle` and `DashboardView::statsLabel` take the MAC as last argument. The tile headers, the stats view, the chart views and the console command `STATUS` use it.
+- The macOS app (`ConfigReply.name(forSlot:activeMac:)`, `ConfigReply.name(forMac:)`), the Wear OS app and the Android phone app (`PanelConfig.nameForMac`, `PanelConfig.tileName(index, activeMac)`) look up the name by MAC. The telemetry frame carries no MAC, so a tile uses the fixed MAC of its slot.
+- Migration: a `config.ini` with `slotN_name` but without `slotN_mac` shows the default titles until the user sets `slotN_mac` (the console command `SCAN` lists the MACs). `docs/config.ini` and `docs/config.example.ini` state this rule.
+- No new `config.ini` key and no new RTC state. `STATE_VERSION` stays 61.
+- Host tests: `testSensorNamesFollowMac`, `testSensorNames` and `testSerialStatusStates`. App tests: `MenuBarSummaryTests.nameFollowsTheSensorMac`, `PanelConfigTest` (Wear OS and Android).
+

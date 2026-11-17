@@ -390,14 +390,50 @@ public struct ConfigReply: Equatable {
     /// `ble_console` value; 0 when the firmware does not report the key.
     public var bleConsoleLevel: Int { Int(values["ble_console"] ?? "") ?? 0 }
 
-    /// Sensor name for tile index (0 = onboard_name, 1..10 = slot1_name..slot10_name).
-    public func name(forSlot slot: Int) -> String? {
+    /// Sensor name for tile index (0 = onboard_name). A slot tile (1..10) shows the name that is bound to
+    /// `activeMac`, the MAC of the sensor in the slot; the telemetry frame carries no MAC, so the default is
+    /// the fixed MAC of the slot (`slotN_mac`). A slot without a known MAC has no name: `slotN_name` never
+    /// shows for another sensor.
+    public func name(forSlot slot: Int, activeMac: String? = nil) -> String? {
         if slot == 0 {
             if let n = values["onboard_name"], !n.isEmpty { return n }
-        } else if (1...10).contains(slot) {
+            return nil
+        }
+        guard (1...10).contains(slot) else { return nil }
+        return name(forMac: activeMac ?? mac(forSlot: slot))
+    }
+
+    /// Name of the sensor with `mac`: the `slotN_name` of the slot whose fixed MAC (`slotN_mac`) equals
+    /// `mac`, whatever slot the sensor sits in. `nil` for an unknown or zero MAC and for a fixed MAC without a name.
+    public func name(forMac mac: String?) -> String? {
+        guard let wanted = Self.normalizedMac(mac) else { return nil }
+        for slot in 1...10 where Self.normalizedMac(values["slot\(slot)_mac"]) == wanted {
             if let n = values["slot\(slot)_name"], !n.isEmpty { return n }
+            return nil
         }
         return nil
+    }
+
+    /// Upper-case hex pairs separated by colons; `nil` for a malformed or all-zero MAC.
+    static func normalizedMac(_ mac: String?) -> String? {
+        guard let mac else { return nil }
+        let hex = mac.filter { $0 != ":" && $0 != "-" }.uppercased()
+        guard hex.count == 12, hex.allSatisfy({ $0.isHexDigit }), hex.contains(where: { $0 != "0" }) else { return nil }
+        var out: [String] = []
+        var i = hex.startIndex
+        while i < hex.endIndex {
+            let j = hex.index(i, offsetBy: 2)
+            out.append(String(hex[i..<j]))
+            i = j
+        }
+        return out.joined(separator: ":")
+    }
+
+    /// True when the config names or fixes the slot (`slotN_name` or `slotN_mac`): the firmware keeps a tile for it
+    /// even without a reading, although a name alone shows only the default title.
+    public func isConfigured(slot: Int) -> Bool {
+        guard (1...10).contains(slot) else { return slot == 0 }
+        return !(values["slot\(slot)_name"] ?? "").isEmpty || mac(forSlot: slot) != nil
     }
 
     /// Fixed MAC for slot index (1..10 = slot1_mac..slot10_mac).

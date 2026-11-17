@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Sensor display names bound to MAC addresses
-  - Rank: [Total: 34, Use: 8, Setup: 9, Harmony: 9, Safety: 8, Effort: M]
-  - Location: rlcd_panel/device_config.h, rlcd_panel/dashboard_view.h, rlcd_panel/serial_console.h, rlcd_panel/rlcd_panel.ino, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, wearos/RlcdWatch/app/src/main/java/de/mdriemel/rlcdwatch/telemetry/TelemetrySnapshot.kt, android/RlcdPhone/app/src/main/java/de/mdriemel/rlcdphone/telemetry/TelemetrySnapshot.kt, tests/test_firmware_logic.cpp, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyParserTests.swift
-  - Goal: Currently `slotN_name` binds to the slot index `N` (1 to 10). When a sensor is discovered dynamically or reassigned to a different slot, it receives the name of the slot instead of its own name. An unknown sensor in slot 1 shows the name of slot 1. Bind each configured sensor name to the sensor MAC address: `DeviceConfig` resolves a slot display name by looking up the active MAC address of the slot in `slot_mac` (or pairing `slotN_name` with `slotN_mac`). When a slot holds an unknown MAC address without a configured name, the firmware shows the default fallback title ("S1" to "S10") instead of `slotN_name`. When a known MAC address is assigned to any slot, the slot displays the configured name of that MAC address. Update the tile headers, the stats view, the console command `STATUS`, and the companion apps (`macos/RlcdCompanion`, `wearos/RlcdWatch`, `android/RlcdPhone`) to resolve sensor names by MAC address.
-  - Acceptance test: Host tests assert that a slot with a known sensor MAC displays its configured name regardless of slot index, a slot with an unknown sensor MAC displays its default fallback title ("S1" to "S10") even when `slotN_name` is set, a reassigned sensor retains its name in the new slot, and the serial console `STATUS` line displays the name matched by MAC. Companion app tests in macOS, Wear OS, and Android verify name lookup by sensor MAC address. `test_firmware_logic`, `swift test`, and Android/Wear OS unit tests pass.
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 ## Priority 3: Display and Logging (Score 22–27)

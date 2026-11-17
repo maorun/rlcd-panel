@@ -26,7 +26,7 @@ struct MainView: View {
             panelsView
             if let frame = model.frame {
                 let activeIndices = (0..<min(frame.tiles.count, tileNames.count)).filter { i in
-                    i == 0 || frame.tiles[i].isValid || model.config?.name(forSlot: i) != nil || model.config?.mac(forSlot: i) != nil
+                    i == 0 || frame.tiles[i].isValid || model.config?.isConfigured(slot: i) == true
                 }
                 let visibleIndices = activeIndices.isEmpty ? Array(0..<min(4, frame.tiles.count)) : activeIndices
                 let columnCount = visibleIndices.count <= 2 ? max(1, visibleIndices.count) : (visibleIndices.count == 3 ? 3 : (visibleIndices.count <= 4 ? 2 : 3))

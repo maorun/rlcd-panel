@@ -274,8 +274,12 @@ inline void renderScene(
   strcpy(config.slot_name[4], "DACHBODEN");
   config.outdoor_slot = 2;  // GARTEN is the outdoor sensor
   config.wall_frsi_pct = 70; // the stats view shows the WALL text
+  for (size_t i = 0; i < 5; ++i) {
+    memcpy(config.slot_mac[i], slots[i].mac, 6); // a name belongs to the MAC of its sensor
+  }
   for (size_t i = live_slots; i < DeviceConfig::SLOT_COUNT; ++i) {
-    config.slot_name[i][0] = '\0'; // no name: the slot gets no tile
+    config.slot_name[i][0] = '\0'; // no name and no fixed MAC: the slot gets no tile
+    memset(config.slot_mac[i], 0, 6);
   }
 
   DashboardView::renderMode(

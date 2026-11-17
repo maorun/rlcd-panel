@@ -10,25 +10,53 @@ import java.io.File
 data class PanelConfig(
     val values: Map<String, String> = emptyMap()
 ) {
-    val tileNames: List<String>
-        get() = listOf(
-            values["onboard_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[0],
-            values["slot1_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[1],
-            values["slot2_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[2],
-            values["slot3_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[3],
-            values["slot4_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[4],
-            values["slot5_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[5],
-            values["slot6_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[6],
-            values["slot7_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[7],
-            values["slot8_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[8],
-            values["slot9_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[9],
-            values["slot10_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[10]
-        )
+    /** Highest slot index (slot1 to slot10). */
+    private val slotCount = 10
 
-    fun tileName(index: Int): String {
-        val names = tileNames
-        return if (index in names.indices) names[index] else "Tile $index"
+    /** Normalizes a MAC address to upper-case hex pairs separated by colons; null for a malformed or zero MAC. */
+    private fun normalizeMac(mac: String?): String? {
+        val hex = mac?.filter { it != ':' && it != '-' }?.uppercase() ?: return null
+        if (hex.length != 12 || !hex.all { it in '0'..'9' || it in 'A'..'F' } || hex.all { it == '0' }) {
+            return null
+        }
+        return hex.chunked(2).joinToString(":")
     }
+
+    /** Fixed MAC of slot [slot] (1..10, key slotN_mac), null without one. */
+    fun slotMac(slot: Int): String? =
+        if (slot in 1..slotCount) normalizeMac(values["slot${slot}_mac"]) else null
+
+    /**
+     * Display name that is bound to the sensor [mac]: the slotN_name of the slot whose fixed MAC (slotN_mac)
+     * equals [mac], whatever slot the sensor sits in. Null for an unknown MAC or a fixed MAC without a name.
+     */
+    fun nameForMac(mac: String?): String? {
+        val wanted = normalizeMac(mac) ?: return null
+        for (slot in 1..slotCount) {
+            if (slotMac(slot) == wanted) {
+                return values["slot${slot}_name"]?.takeIf { it.isNotBlank() }
+            }
+        }
+        return null
+    }
+
+    /**
+     * Title of tile [index] (0 = onboard, 1..10 = registry slot). A slot tile shows the name of the sensor
+     * with [activeMac]; the telemetry frame carries no MAC, so the default is the fixed MAC of the slot.
+     * A slot without a known MAC shows the default title ("Slot N"), never the slotN_name of that index.
+     */
+    fun tileName(index: Int, activeMac: String? = slotMac(index)): String {
+        if (index == 0) {
+            return values["onboard_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[0]
+        }
+        if (index in 1..slotCount) {
+            return nameForMac(activeMac) ?: TelemetryFrame.DEFAULT_TILE_NAMES[index]
+        }
+        return "Tile $index"
+    }
+
+    val tileNames: List<String>
+        get() = (0..slotCount).map { tileName(it) }
 
     companion object {
         const val CONFIG_FILE_NAME = "config.ini"

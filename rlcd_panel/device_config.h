@@ -105,9 +105,10 @@ struct DeviceConfig {
   static constexpr size_t MAC_BYTES = 6;
   static constexpr size_t NAME_MAX_CHARS = 12; // longest sensor name; a name buffer adds the terminator
 
-  // Display names of the onboard sensor and of the five registry slots (keys onboard_name and
-  // slot1_name to slot5_name). Empty means the default title. A name holds 1 to 12 characters of
-  // A-Z, 0-9, space and '-': all of them have a glyph in the 5x7 font.
+  // Display names of the onboard sensor and of the registry slots (keys onboard_name and
+  // slot1_name to slot10_name). Empty means the default title. A slot name belongs to the fixed MAC
+  // of the same slot (slotN_mac): nameForMac() finds it by the MAC of the sensor, not by the slot index.
+  // A name holds 1 to 12 characters of A-Z, 0-9, space and '-': all of them have a glyph in the 5x7 font.
   char onboard_name[NAME_MAX_CHARS + 1] = {0};
   char slot_name[SLOT_COUNT][NAME_MAX_CHARS + 1] = {};
 
@@ -225,6 +226,20 @@ struct DeviceConfig {
 
   bool hasSlotMac(size_t slot) const {
     return slot < SLOT_COUNT && !macIsZero(slot_mac[slot]);
+  }
+
+  // Configured display name of the sensor with `mac`: the name of the slot whose fixed MAC equals `mac`.
+  // nullptr for a missing or zero MAC, an unknown MAC and a fixed MAC without a name.
+  const char* nameForMac(const uint8_t* mac) const {
+    if (mac == nullptr || macIsZero(mac)) {
+      return nullptr;
+    }
+    for (size_t i = 0; i < SLOT_COUNT; ++i) {
+      if (hasSlotMac(i) && memcmp(slot_mac[i], mac, MAC_BYTES) == 0) {
+        return slot_name[i][0] != '\0' ? slot_name[i] : nullptr;
+      }
+    }
+    return nullptr;
   }
 
   // True when `mac` is a fixed MAC of a slot other than `except` (pass SLOT_COUNT for none).
