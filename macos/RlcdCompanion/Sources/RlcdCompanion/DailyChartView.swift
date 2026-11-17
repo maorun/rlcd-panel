@@ -8,6 +8,7 @@ import SwiftUI
 struct DailyChartView: View {
     let folder: DailyFolder
     var temperatureUnit = "°C"
+    var limits: [ChartLimit] = []
 
     private struct Point: Identifiable {
         let id: String
@@ -60,17 +61,27 @@ struct DailyChartView: View {
         }
     }
 
-    private func chart(_ title: String, _ data: [Point]) -> some View {
+    private func chart(_ title: String, _ data: [Point], limits: [ChartLimit] = []) -> some View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.caption).foregroundStyle(.secondary)
             if data.isEmpty {
                 Text("No data").font(.caption2).foregroundStyle(.secondary)
             } else {
-                Chart(data) {
-                    LineMark(x: .value("Day", $0.date, unit: .day), y: .value(title, $0.value))
-                        .foregroundStyle(by: .value("Series", $0.series))
-                    PointMark(x: .value("Day", $0.date, unit: .day), y: .value(title, $0.value))
-                        .foregroundStyle(by: .value("Series", $0.series))
+                Chart {
+                    ForEach(data) {
+                        LineMark(x: .value("Day", $0.date, unit: .day), y: .value(title, $0.value))
+                            .foregroundStyle(by: .value("Series", $0.series))
+                        PointMark(x: .value("Day", $0.date, unit: .day), y: .value(title, $0.value))
+                            .foregroundStyle(by: .value("Series", $0.series))
+                    }
+                    ForEach(limits, id: \.key) { limit in
+                        RuleMark(y: .value(limit.label, limit.value))
+                            .lineStyle(StrokeStyle(lineWidth: 1, dash: [4, 3]))
+                            .foregroundStyle(.red)
+                            .annotation(position: .top, alignment: .leading) {
+                                Text(limit.label).font(.caption2).foregroundStyle(.red)
+                            }
+                    }
                 }
                 .chartYScale(domain: .automatic(includesZero: false))
                 .frame(height: 110)
@@ -89,8 +100,8 @@ struct DailyChartView: View {
                     if !temp.isEmpty || !rh.isEmpty { // slots 4 and 5 exist only in daily_v3 rows
                         Text(DailyLog.sensorNames[sensor]).font(.headline)
                         HStack(alignment: .top) {
-                            chart("Temperature (\(temperatureUnit))", temp)
-                            chart("Humidity (%RH)", rh)
+                            chart("Temperature (\(temperatureUnit))", temp, limits: ChartLimits.temperature(limits))
+                            chart("Humidity (%RH)", rh, limits: ChartLimits.humidity(limits))
                         }
                         let mold = moldPoints(sensor)
                         if !mold.isEmpty { moldChart(mold) } // only daily_v4 rows hold the mold hours

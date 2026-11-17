@@ -1435,3 +1435,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - A change of the mute state changes the frame CRC-32, so `FrameRefresh` flushes the next frame.
 - The preview `docs/display_preview_muted.png` shows the badge. `PREVIEW_SCENE_COUNT` is 18.
 - A `MUTE` change in the console and a `BOOT` toggle in the grace window call `renderDashboard()`, so the panel shows the new state at once.
+
+## Alert limit lines in the macOS climate charts
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/ChartLimits.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DailyChartView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ArchiveView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ChartLimitsTests.swift`
+- `ChartLimits.from(config:)` reads the last `ConfigReply` and gives one `ChartLimit` for each active limit: `mold_alert_limit_rh` (`Mold`) and `dry_alert_limit_rh` (`Dry`) for the humidity charts, `freeze_alert_limit_c` (`Freeze`) and `heat_alert_limit_c` (`Heat (feels-like)`) for the temperature charts.
+- A value of 0 for `dry_alert_limit_rh` and `heat_alert_limit_c` (off), a missing key and a value outside the `ConfigSchema` range give no line. `freeze_alert_limit_c` has no off value, so 0.0 gives a line. Without a `CONFIG` reply the list is empty.
+- `ClimateChartView` and `DailyChartView` draw each line as a dashed red `RuleMark` with its name. The app sends no new command.
+- `ChartLimitsTests` cover the known sample, the value 0, the out-of-range value, the missing reply and the label texts.
+- The charts draw each line for every sensor. They ignore `climate_alert_tiles`, which limits the firmware alerts to some tiles. A line widens the automatic Y range, so the user sees the distance of the curve to the limit.
