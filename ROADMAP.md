@@ -35,12 +35,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Alert timeline from the event ring in the macOS app
-  - Rank: [Total: 26, Use: 5, Setup: 4, Harmony: 7, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/AlertTimeline.swift, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/AlertTimelineTests.swift
-  - Goal: The `EVENTS` reply lists `ALERT_RISE` and `ALERT_FALL` rows, but the user must pair them by hand. Add `AlertTimeline.build(rows:now:)` to `RlcdProtocol`. It pairs each `ALERT_RISE` with the next `ALERT_FALL` of the same alert bit (the alert bit as `EventText` reads the detail) into one interval. An alert without a fall stays open until `now`. A fall without a rise gives an interval from the first row of the reply with the flag `startUnknown`. An `EVENTS_DROPPED` row sets `startUnknown` on each interval that starts before the next rise. Rows with other codes are ignored. `DiagnosticsView` shows the intervals as one horizontal bar row for each alert with Swift Charts, from the `EVENTS` reply that the user requests with the existing read action.
-  - Acceptance test: Swift `AlertTimelineTests` assert one interval for a rise and a fall, an open interval until the injected `now`, `startUnknown` for a fall without a rise and after an `EVENTS_DROPPED` row, two separate intervals for two alert bits in one reply, and no interval for `CONFIG_SET` rows. `swift test` and `swift build -c release` pass.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.
