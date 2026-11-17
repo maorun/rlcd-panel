@@ -92,13 +92,15 @@ class MainActivity : ComponentActivity() {
         bleScanner = BleTelemetryScanner(
             context = this,
             onSnapshot = { incoming ->
+                val mergedFrame = TelemetryFrame.merge(snapshot?.frame, incoming.frame)
+                val mergedSnapshot = TelemetrySnapshot(frame = mergedFrame, receivedAtMillis = incoming.receivedAtMillis)
                 // The first frame after the app start reports each active alert as new.
                 val rising = if (snapshot == null) {
                     incoming.frame.alerts
                 } else {
                     AlertTransitions.risingAlerts(snapshot?.frame, incoming.frame)
                 }
-                snapshot = incoming
+                snapshot = mergedSnapshot
                 statusMessage = "Seq #${incoming.frame.sequence} empfangen"
                 if (!rising.isEmpty) {
                     vibrateAlert()
@@ -293,7 +295,7 @@ class MainActivity : ComponentActivity() {
 
     private fun restoreRoomStates() {
         val map = mutableMapOf<Int, RoomVentilationState>()
-        for (i in 0 until TelemetryFrame.TILE_COUNT) {
+        for (i in 0 until TelemetryFrame.TOTAL_TILES) {
             val isVent = prefs.getBoolean("is_vent_${i}", false)
             val startMs = prefs.getLong("start_ms_${i}", 0L)
             // Drop a timer that is older than the maximum ventilation age (the app was away).
@@ -306,7 +308,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun cycleOutdoorSource() {
-        val totalTiles = snapshot?.frame?.tiles?.size ?: TelemetryFrame.TILE_COUNT
+        val totalTiles = snapshot?.frame?.tiles?.size ?: TelemetryFrame.TOTAL_TILES
         val nextSource = when (val src = outdoorSource) {
             is OutdoorSource.OpenMeteo -> {
                 OutdoorSource.SensorSlot(

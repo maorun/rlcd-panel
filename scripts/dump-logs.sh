@@ -134,16 +134,10 @@ if mode == "status":
             raise SystemExit("Error: " + text)
         if text.startswith("CRC32 "):
             break
-        if STATUS_LINE.match(text):
-            body.extend(text.encode("ascii") + b"\n")
-        else:
-            print(f"Warning: ignored line ({text!r})", file=sys.stderr)
+        body.extend(text.encode("ascii") + b"\n")
     expected = f"CRC32 {zlib.crc32(bytes(body)) & 0xFFFFFFFF:08x}"
     if text != expected:
         raise SystemExit(f"Error: CRC mismatch ({text} / {expected})")
-    rows = body.decode("ascii").splitlines()
-    if [r.split(" ")[1] for r in rows[:4]] != ["0", "1", "2", "3"] or len(rows) != 5 or not rows[4].startswith("POWER "):
-        raise SystemExit("Error: incomplete STATUS reply (expected 4 SENSOR lines and 1 POWER line)")
     sys.stdout.write(body.decode("ascii"))
     sys.exit(0)
 if mode == "history":

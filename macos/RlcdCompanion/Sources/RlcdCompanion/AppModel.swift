@@ -147,7 +147,8 @@ final class AppModel: ConsoleLinkDelegate {
         scanner.onFrame = { [weak self] f, r in
             guard let self else { return }
             let prev = self.frame
-            self.frame = f
+            let merged = TelemetryFrame.merge(current: prev, incoming: f)
+            self.frame = merged
             self.frameDate = Date()
             self.now = Date()
             self.rssi = r
