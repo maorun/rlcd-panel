@@ -762,6 +762,202 @@ public:
     return pos;
   }
 
+  // ---- Restore of the 24-hour histories from the hourly rows ----
+
+  static constexpr size_t CLIMATE_COLUMNS = 6 + 3 * (LOG_SOURCE_COUNT - 1) + 6; // 42
+  static constexpr size_t RESTORE_TAIL_BYTES = 8192; // the read limit of each file
+  static constexpr size_t RESTORE_ROW_CAPACITY = 48;
+
+  // The newest rows of a log file, oldest first. A full buffer drops the oldest row.
+  struct ClimateRowBuffer {
+    ClimateHistory::RestoreRow rows[RESTORE_ROW_CAPACITY];
+    size_t count = 0;
+
+    void append(const ClimateHistory::RestoreRow& row) {
+      if (count == RESTORE_ROW_CAPACITY) {
+        memmove(rows, rows + 1, (RESTORE_ROW_CAPACITY - 1) * sizeof(rows[0]));
+        --count;
+      }
+      rows[count++] = row;
+    }
+
+    // Puts the rows of `older` in front of the own rows (the newest rows win when they do not all fit).
+    // Works in place: the 3 KB buffer must not be copied onto the small loop task stack.
+    void prepend(const ClimateRowBuffer& older) {
+      const size_t total = older.count + count;
+      const size_t kept = total < RESTORE_ROW_CAPACITY ? total : RESTORE_ROW_CAPACITY;
+      const size_t own = count < kept ? count : kept;
+      const size_t from_older = kept - own;
+      memmove(rows + from_older, rows + (count - own), own * sizeof(rows[0]));
+      memcpy(rows, older.rows + (older.count - from_older), from_older * sizeof(rows[0]));
+      count = kept;
+    }
+  };
+
+  // Parses a decimal with at most one fractional digit ("-3.5", "80", "21.0") into tenths. False for an
+  // empty field, other characters or a value outside [lo, hi].
+  static bool parseTenths(const char* s, size_t len, int lo_tenths, int hi_tenths, int16_t& out) {
+    size_t i = 0;
+    bool negative = false;
+    if (i < len && s[i] == '-') {
+      negative = true;
+      ++i;
+    }
+    int whole = 0;
+    size_t digits = 0;
+    while (i < len && s[i] >= '0' && s[i] <= '9' && digits < 4) {
+      whole = whole * 10 + (s[i] - '0');
+      ++i;
+      ++digits;
+    }
+    int frac = 0;
+    if (i < len && s[i] == '.') {
+      ++i;
+      if (i >= len || s[i] < '0' || s[i] > '9') {
+        return false;
+      }
+      frac = s[i] - '0';
+      ++i;
+    }
+    if (digits == 0 || i != len) {
+      return false;
+    }
+    const int tenths = (negative ? -1 : 1) * (whole * 10 + frac);
+    if (tenths < lo_tenths || tenths > hi_tenths) {
+      return false;
+    }
+    out = static_cast<int16_t>(tenths);
+    return true;
+  }
+
+  // Parses one hourly data row of the current format (42 columns, without the newline) for the restore.
+  // An empty field is a missing value. A wrong column count, a bad timestamp or a bad number rejects the
+  // row. The header line has a bad timestamp, so it is rejected too.
+  static bool parseClimateRow(const char* line, size_t len, ClimateHistory::RestoreRow& out) {
+    if (line == nullptr) {
+      return false;
+    }
+    while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
+      --len;
+    }
+    const char* fields[CLIMATE_COLUMNS];
+    size_t lens[CLIMATE_COLUMNS];
+    size_t n = 0;
+    size_t start = 0;
+    for (size_t i = 0; i <= len; ++i) {
+      if (i == len || line[i] == ',') {
+        if (n == CLIMATE_COLUMNS) {
+          return false;
+        }
+        fields[n] = line + start;
+        lens[n] = i - start;
+        ++n;
+        start = i + 1;
+      }
+    }
+    if (n != CLIMATE_COLUMNS) {
+      return false;
+    }
+    // "YYYY-MM-DD hh:mm:ss"
+    const char* t = fields[0];
+    if (lens[0] != 19 || t[4] != '-' || t[7] != '-' || t[10] != ' ' || t[13] != ':' || t[16] != ':') {
+      return false;
+    }
+    int v[6];
+    static const size_t POS[6] = {0, 5, 8, 11, 14, 17};
+    static const size_t WIDTH[6] = {4, 2, 2, 2, 2, 2};
+    for (size_t k = 0; k < 6; ++k) {
+      v[k] = 0;
+      for (size_t d = 0; d < WIDTH[k]; ++d) {
+        const char c = t[POS[k] + d];
+        if (c < '0' || c > '9') {
+          return false;
+        }
+        v[k] = v[k] * 10 + (c - '0');
+      }
+    }
+    if (v[0] < 2000 || v[0] > 2099 || v[1] < 1 || v[1] > 12 ||
+        !NtpTime::isValidDate(v[0], static_cast<uint8_t>(v[1]), static_cast<uint8_t>(v[2])) || v[3] > 23 ||
+        v[4] > 59 || v[5] > 59) {
+      return false;
+    }
+    ClimateHistory::RestoreRow row;
+    row.minutes = NtpTime::daysFromCivil(v[0], static_cast<uint8_t>(v[1]), static_cast<uint8_t>(v[2])) * 1440 +
+                  v[3] * 60 + v[4];
+    row.usb = lens[3] == 1 && fields[3][0] == '1';
+    if (lens[3] != 0 && !(lens[3] == 1 && (fields[3][0] == '0' || fields[3][0] == '1'))) {
+      return false;
+    }
+    // Onboard climate in columns 4 and 5, then three columns for each slot: temperature, humidity, battery.
+    for (size_t src = 0; src < LOG_SOURCE_COUNT; ++src) {
+      const size_t col = src == 0 ? 4 : 6 + 3 * (src - 1);
+      if (lens[col] != 0) {
+        if (!parseTenths(fields[col], lens[col], -1000, 1000, row.temp[src])) {
+          return false;
+        }
+        row.temp_mask = static_cast<uint16_t>(row.temp_mask | (1u << src));
+      }
+      if (lens[col + 1] != 0) {
+        if (!parseTenths(fields[col + 1], lens[col + 1], 0, 1000, row.rh[src])) {
+          return false;
+        }
+        row.rh_mask = static_cast<uint16_t>(row.rh_mask | (1u << src));
+      }
+    }
+    out = row;
+    return true;
+  }
+
+  // Parses the rows of a file tail. `from_start` is true when the buffer starts at the file start, else the
+  // first line is partial and skipped. A line without a newline at the end is partial and skipped. A bad
+  // line (also the header) is skipped, so a gap of hours ends the restore at the gap. Returns the rows added.
+  static size_t parseClimateTail(const char* buf, size_t len, bool from_start, ClimateRowBuffer& out) {
+    if (buf == nullptr) {
+      return 0;
+    }
+    size_t added = 0;
+    size_t pos = 0;
+    if (!from_start) {
+      while (pos < len && buf[pos] != '\n') {
+        ++pos;
+      }
+      if (pos < len) {
+        ++pos;
+      }
+    }
+    while (pos < len) {
+      size_t eol = pos;
+      while (eol < len && buf[eol] != '\n') {
+        ++eol;
+      }
+      if (eol == len) {
+        break; // no newline: a partial line
+      }
+      ClimateHistory::RestoreRow row;
+      if (parseClimateRow(buf + pos, eol - pos, row)) {
+        out.append(row);
+        ++added;
+      }
+      pos = eol + 1;
+    }
+    return added;
+  }
+
+  // The month before `now`, for the file of the previous month. False for an invalid time.
+  static bool previousMonth(const RtcTime& now, RtcTime& out) {
+    if (!now.valid || now.month < 1 || now.month > 12 || now.year < 2001) {
+      return false;
+    }
+    out = now;
+    if (now.month == 1) {
+      out.month = 12;
+      out.year = static_cast<uint16_t>(now.year - 1);
+    } else {
+      out.month = static_cast<uint8_t>(now.month - 1);
+    }
+    return true;
+  }
+
 private:
   // Appends ",<value in tenths as x.y>" or "," for a missing value.
   static size_t appendTenths(char* out, size_t capacity, size_t pos, bool present, int16_t tenths) {
@@ -1060,12 +1256,62 @@ public:
     return result;
   }
 
+  // Restores the 24-hour histories from the hourly rows of the card after a power-on (see
+  // ClimateHistory::restore). Reads the last RESTORE_TAIL_BYTES of the current month file and, with fewer
+  // than 24 rows, of the previous month file. `fixed_slots` has bit k set for a registry slot k + 1 with a
+  // fixed MAC. A missing card or file, a read failure or a bad row changes nothing. Returns the restored rows.
+  static size_t restoreHistories(
+      ClimateHistory& history, const RtcTime& now, uint32_t now_ms, uint16_t fixed_slots) {
+    char path[SdLogCodec::MAX_PATH_SIZE];
+    if (!now.valid || SdLogCodec::formatFilename(&now, path, sizeof(path)) == 0) {
+      return 0;
+    }
+    if (tryMount() != SdStatus::OK) {
+      return 0;
+    }
+    // Static: the buffers would use the whole loop task stack. setup() runs once per wake cycle.
+    static char buf[SdLogCodec::RESTORE_TAIL_BYTES];
+    static SdLogCodec::ClimateRowBuffer rows;
+    rows = SdLogCodec::ClimateRowBuffer{};
+    readTail(path, buf, sizeof(buf), rows);
+    if (rows.count < 24) {
+      RtcTime before;
+      static SdLogCodec::ClimateRowBuffer older;
+      older = SdLogCodec::ClimateRowBuffer{};
+      if (SdLogCodec::previousMonth(now, before) && SdLogCodec::formatFilename(&before, path, sizeof(path)) != 0 &&
+          readTail(path, buf, sizeof(buf), older) > 0) {
+        rows.prepend(older);
+      }
+    }
+    SD_MMC.end();
+    return history.restore(rows.rows, rows.count, now, now_ms, fixed_slots);
+  }
+
   // Mounts the card for a console command; the caller unmounts with SD_MMC.end().
   static bool mountCard() {
     return mount();
   }
 
 private:
+  // Reads the last `capacity` bytes of one file and parses its rows. A missing file or a short read gives 0.
+  static size_t readTail(const char* path, char* buf, size_t capacity, SdLogCodec::ClimateRowBuffer& out) {
+    File file = SD_MMC.open(path + strlen(SdLogCodec::MOUNT_POINT), FILE_READ);
+    if (!file || file.isDirectory()) {
+      return 0;
+    }
+    const size_t size = file.size();
+    const size_t want = size < capacity ? size : capacity;
+    size_t added = 0;
+    if (want > 0 && file.seek(size - want)) {
+      const size_t n = file.read(reinterpret_cast<uint8_t*>(buf), want);
+      if (n == want) {
+        added = SdLogCodec::parseClimateTail(buf, n, want == size, out);
+      }
+    }
+    file.close();
+    return added;
+  }
+
   // Pins first, then begin(): required by ESP32 core 3.3.12. 1-bit mode.
   static bool mount() {
     return tryMount() == SdStatus::OK;

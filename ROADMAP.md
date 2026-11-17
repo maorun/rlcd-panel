@@ -27,12 +27,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Restore of the 24-hour histories from the MicroSD card after a power-on
-  - Rank: [Total: 28, Use: 7, Setup: 5, Harmony: 9, Safety: 7, Effort: M]
-  - Location: rlcd_panel/sd_logger.h, rlcd_panel/sparkline.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp
-  - Goal: A power-on (battery change, reset) clears the RTC memory. The sparklines, the records, the mold hours and the charts stay empty for 24 hours, but the card holds the hourly rows. At a power-on with a valid RTC time, the firmware mounts the card for the config load and then reads the end of the current `climate_v5_YYYYMM.csv` file (and the previous month file when the current file has fewer than 24 rows). Add `SdLogCodec::parseClimateRow` (27 columns; an empty field is a missing value; a wrong column count rejects the row) and `ClimateHistory::restore`. The restore pushes the newest contiguous hours, at most 24 and not older than 24 hours, into the onboard history, the onboard `usb_mask` (from the `usb` column) and the history of each slot with a fixed MAC (`slotN_mac`). Slots without a fixed MAC stay empty, because the registry order after a power-on is not known. A gap of more than one hour ends the restore at the gap. The read is limited to the last 8192 bytes of each file. A missing file, a read failure or a bad row changes nothing and never blocks the wake cycle. `last_sample_ms` follows the newest restored row, so the hourly gate does not push the same hour two times.
-  - Acceptance test: Host tests assert the parse of a known row, the rejected row with 26 columns, empty fields as missing values, a restore of 24 rows into the onboard history and a fixed MAC slot, no restore for a slot without a fixed MAC, the stop at a 2-hour gap, the skip of rows older than 24 hours, the month change with 10 rows in the current file and 30 rows in the previous file, the `usb_mask` bits, and no change for an invalid RTC time and for a missing file.
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 ## Rules for ranking

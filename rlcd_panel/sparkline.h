@@ -511,6 +511,90 @@ struct ClimateHistory {
   bool freshWithin24h(uint32_t now_ms) const {
     return has_sampled && static_cast<uint32_t>(now_ms - last_sample_ms) < 24UL * SAMPLE_INTERVAL_MS;
   }
+
+  // One hourly CSV row for the restore after a power-on. `minutes` is the local RTC time of the row in
+  // minutes since 1970-01-01. Bit i of `temp_mask` and `rh_mask` is set when source i (0 onboard, 1 to 10
+  // a slot) has a value; `temp` and `rh` hold it in 0.1 steps.
+  struct RestoreRow {
+    int64_t minutes = 0;
+    bool usb = false;
+    uint16_t temp_mask = 0;
+    uint16_t rh_mask = 0;
+    int16_t temp[SLOT_COUNT] = {};
+    int16_t rh[SLOT_COUNT] = {};
+  };
+  static constexpr uint16_t RESTORE_MIN_TRUSTED_YEAR = 2025;
+  static constexpr int64_t RESTORE_MAX_AGE_MIN = 24 * 60;
+  // Largest step between two rows that still counts as one hour: the hourly write drifts by up to one
+  // wake interval, so a step of 61 to 90 minutes is no gap.
+  static constexpr int64_t RESTORE_MAX_STEP_MIN = 90;
+
+  // True when the row holds both onboard values. A row without them ends the restore like a gap, so the
+  // onboard humidity history, temperature history and `usb_mask` keep the same length.
+  static bool hasOnboard(const RestoreRow& row) {
+    return (row.temp_mask & 1u) != 0 && (row.rh_mask & 1u) != 0;
+  }
+
+  // Refills the histories from the hourly rows of the card after a power-on. `rows` runs from the oldest
+  // to the newest row. The restore takes the newest run of rows that is at most 24 hours old, has no step
+  // above RESTORE_MAX_STEP_MIN and holds at most 24 rows, and pushes it oldest first into the onboard
+  // history (with `usb_mask`) and into each slot that `fixed_slots` marks (bit k is registry slot k + 1
+  // = history 1 + k; the registry order after a power-on is unknown for a slot without a fixed MAC, so
+  // that slot stays empty). `last_sample_ms` follows the newest row, so the hourly gate does not push the
+  // same hour twice. It changes nothing for an invalid or untrusted RTC time, for histories that already
+  // hold a sample and for rows that are too old, too new or out of order. Returns the restored rows.
+  size_t restore(
+      const RestoreRow* rows, size_t count, const RtcTime& now, uint32_t now_ms, uint16_t fixed_slots) {
+    if (rows == nullptr || count == 0 || has_sampled || !now.valid || now.oscillator_stopped ||
+        now.year < RESTORE_MIN_TRUSTED_YEAR || now.year > 2099 ||
+        !NtpTime::isValidDate(now.year, now.month, now.day) || now.hour > 23 || now.minute > 59) {
+      return 0;
+    }
+    for (size_t i = 0; i < SLOT_COUNT; ++i) {
+      if (slots[i].size() != 0 || temperatures[i].size() != 0) {
+        return 0;
+      }
+    }
+    const int64_t now_min = NtpTime::daysFromCivil(now.year, now.month, now.day) * 1440 +
+                            static_cast<int64_t>(now.hour) * 60 + now.minute;
+    const size_t end = count;
+    const int64_t newest_age = now_min - rows[end - 1].minutes;
+    if (newest_age < 0 || newest_age > RESTORE_MAX_AGE_MIN || !hasOnboard(rows[end - 1])) {
+      return 0;
+    }
+    size_t first = end - 1;
+    while (first > 0 && end - first < 24) {
+      const int64_t step = rows[first].minutes - rows[first - 1].minutes;
+      if (step <= 0 || step > RESTORE_MAX_STEP_MIN || !hasOnboard(rows[first - 1]) || now_min - rows[first - 1].minutes > RESTORE_MAX_AGE_MIN) {
+        break;
+      }
+      --first;
+    }
+    bool pushed = false;
+    for (size_t r = first; r < end; ++r) {
+      const RestoreRow& row = rows[r];
+      for (size_t i = 0; i < SLOT_COUNT; ++i) {
+        if (i != ONBOARD && ((fixed_slots >> (i - 1)) & 1u) == 0) {
+          continue;
+        }
+        if (((row.rh_mask >> i) & 1u) != 0 && slots[i].pushPercent(static_cast<float>(row.rh[i]) / 10.0f)) {
+          pushed = true;
+        }
+        if (((row.temp_mask >> i) & 1u) != 0 &&
+            temperatures[i].pushCelsius(static_cast<float>(row.temp[i]) / 10.0f)) {
+          if (i == ONBOARD) {
+            usb_mask = ((usb_mask << 1) | (row.usb ? 1u : 0u)) & USB_MASK_ALL;
+          }
+          pushed = true;
+        }
+      }
+    }
+    if (pushed) {
+      last_sample_ms = now_ms - static_cast<uint32_t>(newest_age * 60000);
+      has_sampled = true;
+    }
+    return pushed ? end - first : 0;
+  }
 };
 
 // Daily minimum and maximum of the last 7 days for each of the 6 sensors (onboard + 5 slots). A day is
