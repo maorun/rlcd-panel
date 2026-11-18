@@ -6,6 +6,7 @@ private let fullStatus = statusText.replacingOccurrences(
     of: "RESET reason=POWERON abnormal=0", with: "RESET reason=TASK_WDT abnormal=2")
     .replacingOccurrences(of: "SHTC3 nack=0 short=0 crc=0 run=0", with: "SHTC3 nack=4 short=1 crc=2 run=3")
     + "AWAKE last_ms=850 avg_ms=900 max_ms=1200 samples=24\n"
+    + "MEMORY free=212345 min=150000 largest=110592 psram=8300000\n"
 
 private func lines(_ text: String) -> [String] { text.split(separator: "\n").map(String.init) }
 
@@ -18,6 +19,27 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         #expect(d.reset == ResetMetrics(reason: "TASK_WDT", abnormalCount: 2))
         #expect(d.runtime == RuntimeMetrics(hours: nil, samples: 3, cycles: 1.2, scanSavedMs: 1500))
         #expect(d.awake == AwakeMetrics(lastMs: 850, avgMs: 900, maxMs: 1200, samples: 24))
+    }
+
+    @Test func parsesMemoryLine() throws {
+        let s = try StatusReply.parse(lines: lines(fullStatus))
+        let d = try DiagnosticsReply.parse(status: s)
+        #expect(d.memory == MemoryMetrics(free: 212345, min: 150000, largest: 110592, psram: 8300000))
+        #expect(d.memory?.isLow == false)
+        let low = try MemoryMetrics.parse(line: "MEMORY free=1 min=1 largest=16383 psram=0")
+        #expect(low.isLow)
+        #expect(try MemoryMetrics.parse(line: "MEMORY free=1 min=1 largest=16384 psram=0").isLow == false)
+    }
+
+    @Test func missingMemoryLineGivesNil() throws {
+        let d = try DiagnosticsReply.parse(otherLines: [:])
+        #expect(d.memory == nil)
+    }
+
+    @Test func badMemoryFieldThrows() {
+        #expect(throws: ParseError.self) { try MemoryMetrics.parse(line: "MEMORY free=x min=1 largest=1 psram=1") }
+        #expect(throws: ParseError.self) { try DiagnosticsReply.parse(otherLines: ["MEMORY": "free=x"]) }
+        #expect(throws: ParseError.self) { try MemoryMetrics.parse(line: "MEMORY free=1 min=1 largest=1") }
     }
 
     @Test func dashFieldsGiveNil() throws {

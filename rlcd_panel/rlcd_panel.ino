@@ -1490,6 +1490,10 @@ void setup() {
       snap.cycle_tenths = g_cycles.cycleTenths();
       snap.scan_saved_ms = g_scan_saved_ms;
       snap.awake = &g_state.awake;
+      snap.free_heap = ESP.getFreeHeap();
+      snap.min_free_heap = ESP.getMinFreeHeap();
+      snap.largest_heap = ESP.getMaxAllocHeap();
+      snap.free_psram = ESP.getFreePsram();
       snap.reception = &g_state.reception;
       snap.reset_reason = ResetReasonCodec::text(g_reset_reason);
       snap.rtc_trim_valid = g_rtc.readOffset(snap.rtc_trim);

@@ -33,6 +33,7 @@ struct DiagnosticsView: View {
                         group("Clock sync (NTP)") { ntp(d.ntp) }
                         group("Battery runtime") { runtime(d.runtime) }
                         group("Awake time") { awake(d.awake) }
+                        group("Memory") { memory(d.memory) }
                     } else {
                         Text("No diagnostics yet. Press the refresh button.").font(.caption).foregroundStyle(.secondary)
                     }
@@ -295,6 +296,16 @@ struct DiagnosticsView: View {
     @ViewBuilder private func awake(_ m: AwakeMetrics?) -> some View {
         if let m {
             Text("last \(n(m.lastMs)) ms  avg \(n(m.avgMs)) ms  max \(n(m.maxMs)) ms  samples \(n(m.samples))")
+        } else { unknown }
+    }
+
+    @ViewBuilder private func memory(_ m: MemoryMetrics?) -> some View {
+        if let m {
+            Text("free \(m.free) B  min \(m.min) B  largest \(m.largest) B  PSRAM \(m.psram) B")
+            if m.isLow {
+                Label("Largest block below \(MemoryMetrics.lowLargestBytes) B", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+            }
         } else { unknown }
     }
 

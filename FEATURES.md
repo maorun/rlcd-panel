@@ -1826,3 +1826,14 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `EventCode::POWER_SOURCE` 15 records a change of the power source in the event ring. Detail 1 is USB power, detail 0 is battery power. `EventRing::MAX_CODE` is 15.
 - `PersistentState::recordPowerChange(previous, current, now)` compares the `usb_powered` flag of the previous wake cycle (RTC copy) with the new reading in `refreshSensors()`. It records an event only when both readings are valid and the flag changed. A power-on records nothing. The RTC layout and `STATE_VERSION` do not change.
 - The macOS `EventText` shows `USB power connected` and `Battery power`. Another detail shows the raw text.
+
+## Memory line in STATUS
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `tests/fixtures/status_reply_sample.txt`, `tests/test_firmware_logic.cpp`
+- The console command `STATUS` shows the new line `MEMORY free=<N> min=<N> largest=<N> psram=<N>` after the `AWAKE` line and before the `CRC32` line. The `CRC32` value covers the new line.
+- The fields are bytes: `ESP.getFreeHeap()`, `ESP.getMinFreeHeap()`, `ESP.getMaxAllocHeap()` and `ESP.getFreePsram()`. `SerialStatusSnapshot` holds them in `free_heap`, `min_free_heap`, `largest_heap` and `free_psram`. The sketch fills them for each `STATUS` command.
+- The values do not go to RTC memory. `PersistentState` and `STATE_VERSION` do not change.
+- The macOS `MemoryMetrics.parse` reads the line. A missing line gives `nil`. A non-numeric or missing field throws `ParseError.badLine`.
+- `DiagnosticsView` shows the four values and a warning symbol when `largest` is below 16384 bytes.
+- Thus the user sees a memory shortage, for example after a long USB console session, without a look at the display.
+- Host tests cover the line text, its position after `AWAKE` and the new CRC-32. `DiagnosticsTests` cover the four values, the missing line and `free=x`. The fixture `tests/fixtures/status_reply_sample.txt` holds the line, and the Android and Wear OS `StatusReplyTest` classes read it.

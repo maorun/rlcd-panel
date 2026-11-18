@@ -713,6 +713,10 @@ struct SerialStatusSnapshot {
   int32_t cycle_tenths = -1;              // CycleTracker::cycleTenths(); negative when NVS is unreadable
   uint32_t scan_saved_ms = 0;             // scan time that the last early stop saved
   const AwakeTimeStats* awake = nullptr;  // measured awake time of the timer wakeups
+  uint32_t free_heap = 0;                 // ESP.getFreeHeap(), bytes; not stored in RTC memory
+  uint32_t min_free_heap = 0;             // ESP.getMinFreeHeap(), bytes
+  uint32_t largest_heap = 0;              // ESP.getMaxAllocHeap(), bytes
+  uint32_t free_psram = 0;                // ESP.getFreePsram(), bytes
   const ReceptionHistory* reception = nullptr; // BLE reception rate of each registry slot
   bool rtc_trim_valid = false;            // the offset register was read
   int32_t rtc_trim = 0;                   // PCF85063A offset register value, -64 to 63
@@ -737,7 +741,7 @@ struct SerialStatusSnapshot {
 //   so execute() ignores CONFIG.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW> format=<...> mac=<...>" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 5 (slots, calibrated readings), a missing value gives "--";
-//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "RTC trim=<N|--> drift_ppm=<N|-->" (offset register of the PCF85063A; the drift rate only for a figure of 24 h or more), then "NTP ok=<0|1|--> failures=<N> age_s=<N|--> next_s=<N|-->" (RTC copy of the NTP state; "--" without an attempt or without Wi-Fi credentials; next_s is the time to the next due attempt; age_s and next_s use the 32-bit clock difference of NtpSchedule::due and wrap like it), then "SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>[ usb_offset=<x>]" (the offset only on USB power), then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N> thermopro=<N> unassigned=<N> jumps=<N>" (packets of the current scan that no slot took; unassigned counts the packets blocked by slot_auto_assign=0; jumps counts the pending packets of a large reading jump that JumpGuard dropped), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1> acked=<hex mask>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "CRC32 <8 hex digits>" over all lines
+//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "RTC trim=<N|--> drift_ppm=<N|-->" (offset register of the PCF85063A; the drift rate only for a figure of 24 h or more), then "NTP ok=<0|1|--> failures=<N> age_s=<N|--> next_s=<N|-->" (RTC copy of the NTP state; "--" without an attempt or without Wi-Fi credentials; next_s is the time to the next due attempt; age_s and next_s use the 32-bit clock difference of NtpSchedule::due and wrap like it), then "SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>[ usb_offset=<x>]" (the offset only on USB power), then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N> thermopro=<N> unassigned=<N> jumps=<N>" (packets of the current scan that no slot took; unassigned counts the packets blocked by slot_auto_assign=0; jumps counts the pending packets of a large reading jump that JumpGuard dropped), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1> acked=<hex mask>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "MEMORY free=<N> min=<N> largest=<N> psram=<N>" (heap and PSRAM bytes of the current wake cycle; no RTC state), then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 7), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
@@ -1518,6 +1522,14 @@ public:
       len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len,
                                           "AWAKE last_ms=%s avg_ms=%s max_ms=%s samples=%lu\n", last, avg, max, samples));
     }
+    if (len >= sizeof(text)) {
+      return;
+    }
+    len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "MEMORY free=%lu min=%lu largest=%lu psram=%lu\n",
+                                        static_cast<unsigned long>(snap.free_heap),
+                                        static_cast<unsigned long>(snap.min_free_heap),
+                                        static_cast<unsigned long>(snap.largest_heap),
+                                        static_cast<unsigned long>(snap.free_psram)));
     if (len >= sizeof(text)) {
       return;
     }

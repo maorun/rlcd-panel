@@ -235,6 +235,29 @@ public struct AwakeMetrics: Equatable {
     }
 }
 
+/// `MEMORY free=<N> min=<N> largest=<N> psram=<N>` (bytes).
+public struct MemoryMetrics: Equatable {
+    /// `largest` below this value shows a warning.
+    public static let lowLargestBytes = 16384
+
+    public let free: Int
+    public let min: Int
+    public let largest: Int
+    public let psram: Int
+
+    public var isLow: Bool { largest < MemoryMetrics.lowLargestBytes }
+
+    public static func parse(line: String) throws -> MemoryMetrics {
+        let f = fieldMap(line)
+        func value(_ key: String) throws -> Int {
+            guard let v = try counter(f, key, line: line) else { throw ParseError.badLine(line) }
+            return v
+        }
+        return MemoryMetrics(free: try value("free"), min: try value("min"), largest: try value("largest"),
+                             psram: try value("psram"))
+    }
+}
+
 /// The commands that the refresh button of the diagnostics view sends, in this order.
 public let diagnosticsRefreshCommands: [ConsoleCommand] = [.status, .version]
 
@@ -248,10 +271,11 @@ public struct DiagnosticsReply: Equatable {
     public let reception: ReceptionMetrics?
     public let rtcTrim: RtcTrimMetrics?
     public let ntp: NtpMetrics?
+    public let memory: MemoryMetrics?
 
     public init(shtc3: Shtc3Stats?, ble: BleRejectMetrics?, reset: ResetMetrics?, runtime: RuntimeMetrics?,
                 awake: AwakeMetrics?, reception: ReceptionMetrics?, rtcTrim: RtcTrimMetrics? = nil,
-                ntp: NtpMetrics? = nil) {
+                ntp: NtpMetrics? = nil, memory: MemoryMetrics? = nil) {
         self.shtc3 = shtc3
         self.ble = ble
         self.reset = reset
@@ -260,6 +284,7 @@ public struct DiagnosticsReply: Equatable {
         self.reception = reception
         self.rtcTrim = rtcTrim
         self.ntp = ntp
+        self.memory = memory
     }
 
     /// `otherLines` of `StatusReply`. A present line with a bad counter throws `ParseError.badLine`.
@@ -272,7 +297,8 @@ public struct DiagnosticsReply: Equatable {
             awake: try otherLines["AWAKE"].map(AwakeMetrics.parse(line:)),
             reception: try otherLines["RECEPTION"].map(ReceptionMetrics.parse(line:)),
             rtcTrim: try otherLines["RTC"].map(RtcTrimMetrics.parse(line:)),
-            ntp: try otherLines["NTP"].flatMap(NtpMetrics.parse(line:)))
+            ntp: try otherLines["NTP"].flatMap(NtpMetrics.parse(line:)),
+            memory: try otherLines["MEMORY"].map(MemoryMetrics.parse(line:)))
     }
 
     public static func parse(status: StatusReply) throws -> DiagnosticsReply {
