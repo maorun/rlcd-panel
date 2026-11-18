@@ -125,6 +125,7 @@ enum class EventCode : uint8_t {
   CONFIG_SET = 11,      // a console SET succeeded; detail is the DeviceConfigParser::KEYS index (low byte), transport (high byte: 0 USB, 1 BLE)
   SD_FAULT = 12,        // the card status changed to a fault or back to OK; detail is the SdStatus
   ALERT_ACK = 13,       // a console ACK stopped the chime reminder of an alert; detail is the alert bit (mask)
+  SLOT_STALE = 14,      // a slot became stale or recovered; detail is the slot number (low byte), high byte 0 lost, 1 back
 };
 
 struct LogEvent {
@@ -145,7 +146,7 @@ struct LogEvent {
 class EventRing {
 public:
   static constexpr size_t CAPACITY = 16;
-  static constexpr uint8_t MAX_CODE = static_cast<uint8_t>(EventCode::ALERT_ACK);
+  static constexpr uint8_t MAX_CODE = static_cast<uint8_t>(EventCode::SLOT_STALE);
 
   size_t size() const { return count_; }
   uint16_t dropped() const { return dropped_; }
@@ -554,6 +555,7 @@ public:
       case EventCode::CONFIG_SET: return "CONFIG_SET";
       case EventCode::SD_FAULT: return "SD_FAULT";
       case EventCode::ALERT_ACK: return "ALERT_ACK";
+      case EventCode::SLOT_STALE: return "SLOT_STALE";
       case EventCode::NONE: break;
     }
     return nullptr;
