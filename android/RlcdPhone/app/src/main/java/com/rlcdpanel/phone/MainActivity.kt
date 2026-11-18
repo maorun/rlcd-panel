@@ -50,6 +50,7 @@ import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryHistory
 import com.rlcdpanel.phone.protocol.EventsReply
+import com.rlcdpanel.phone.protocol.RejectsReply
 import com.rlcdpanel.phone.protocol.WeekReply
 import com.rlcdpanel.phone.ventilation.OutdoorClimate
 import com.rlcdpanel.phone.ventilation.LocationInput
@@ -105,6 +106,8 @@ class MainActivity : ComponentActivity() {
     private var showFinder by mutableStateOf(false)
     private var showChime by mutableStateOf(false)
     private var showSlots by mutableStateOf(false)
+    private var showRejects by mutableStateOf(false)
+    private var rejectsState by mutableStateOf(RejectsState())
     private var slotState by mutableStateOf(SlotConfigState())
     private var chimeState by mutableStateOf(ChimeState())
     private var finderState by mutableStateOf(SensorFinderState())
@@ -237,6 +240,15 @@ class MainActivity : ComponentActivity() {
                 BackHandler { closeFinder() }
                 return@setContent
             }
+            if (showRejects) {
+                RejectsScreen(
+                    state = rejectsState,
+                    onRead = { withConsolePermission { readRejects() } },
+                    onBack = { closeRejects() }
+                )
+                BackHandler { closeRejects() }
+                return@setContent
+            }
             if (showSlots) {
                 SlotConfigScreen(
                     state = slotState,
@@ -271,6 +283,7 @@ class MainActivity : ComponentActivity() {
                     onOpenFinder = { showHealth = false; showFinder = true },
                     onOpenChime = { showHealth = false; showChime = true },
                     onOpenSlots = { showHealth = false; showSlots = true },
+                    onOpenRejects = { showHealth = false; showRejects = true },
                     onBack = { closeSensorHealth() }
                 )
                 BackHandler { closeSensorHealth() }
@@ -408,6 +421,7 @@ class MainActivity : ComponentActivity() {
         configState = configState.copy(isReading = false)
         if (weekState.isReading) weekState = WeekState(message = "Abgebrochen. Erneut lesen.")
         if (eventState.isReading) eventState = EventLogState(message = "Abgebrochen. Erneut lesen.")
+        if (rejectsState.isReading) rejectsState = RejectsState(message = "Abgebrochen. Erneut lesen.")
         if (chimeState.isBusy) chimeState = chimeState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, STATUS lesen")
         if (calibState.isBusy) {
             calibState = calibState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, CONFIG lesen")
@@ -425,6 +439,7 @@ class MainActivity : ComponentActivity() {
             pendingConsoleAction = null
             if (grants.isNotEmpty() && grants.values.all { it }) action()
             else if (showEvents) eventState = EventLogState(message = "Bluetooth-Berechtigung fehlt")
+            else if (showRejects) rejectsState = RejectsState(message = "Bluetooth-Berechtigung fehlt")
             else if (showWeek) weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
             else if (showFinder) finderState = finderState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else if (showSlots) slotState = slotState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
@@ -569,6 +584,31 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun closeRejects() {
+        consoleClient.cancel()
+        pendingConsoleAction = null
+        rejectsState = RejectsState()
+        showRejects = false
+        showHealth = true
+    }
+
+    /** Sends `REJECTS` after a tap. A failed CRC-32 or a timeout gives one error text; the command is not repeated. */
+    private fun readRejects() {
+        stopBleScan()
+        rejectsState = RejectsState(isReading = true)
+        consoleClient.send("REJECTS") { reply ->
+            rejectsState = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    val log = RejectsReply.parse(reply.lines)
+                    RejectsState(rows = log.rows, dropped = log.dropped, loaded = true)
+                } catch (e: ParseException) {
+                    RejectsState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
+                }
+                else -> RejectsState(message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
     private fun closeSlots() {
         consoleClient.cancel()
         pendingConsoleAction = null
@@ -667,7 +707,7 @@ class MainActivity : ComponentActivity() {
 
     /** Runs [action] after the Bluetooth permissions; the action sends console commands. */
     private fun withConsolePermission(action: () -> Unit) {
-        if (calibState.isBusy || chimeState.isBusy || weekState.isReading || eventState.isReading || finderState.isBusy || slotState.isBusy || consoleClient.isRunning) return
+        if (calibState.isBusy || chimeState.isBusy || weekState.isReading || eventState.isReading || rejectsState.isReading || finderState.isBusy || slotState.isBusy || consoleClient.isRunning) return
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
@@ -676,6 +716,7 @@ class MainActivity : ComponentActivity() {
         if (needed.isNotEmpty()) {
             pendingConsoleAction = action
             if (showEvents) eventState = EventLogState(isReading = true)
+            else if (showRejects) rejectsState = RejectsState(isReading = true)
             else if (showWeek) weekState = WeekState(isReading = true)
             else if (showFinder) finderState = finderState.copy(isBusy = true, message = null)
             else if (showSlots) slotState = slotState.copy(isBusy = true, message = null)

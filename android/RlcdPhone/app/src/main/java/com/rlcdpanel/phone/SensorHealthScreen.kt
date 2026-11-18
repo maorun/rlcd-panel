@@ -65,6 +65,7 @@ fun SensorHealthScreen(
     onOpenFinder: () -> Unit = {},
     onOpenChime: () -> Unit = {},
     onOpenSlots: () -> Unit = {},
+    onOpenRejects: () -> Unit = {},
     onBack: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -97,6 +98,9 @@ fun SensorHealthScreen(
             }
             item {
                 OutlinedButton(onClick = onOpenSlots) { Text("Slot configuration") }
+            }
+            item {
+                OutlinedButton(onClick = onOpenRejects) { Text("Rejected packets") }
             }
             item {
                 Text(
