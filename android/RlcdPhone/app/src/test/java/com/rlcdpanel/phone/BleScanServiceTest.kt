@@ -26,6 +26,7 @@ class BleScanServiceTest {
         assertEquals("rlcd_ventilation_channel", BleScanService.ALERT_CHANNEL_ID)
         assertEquals(800, BleScanService.NOTIFICATION_ID)
         assertEquals(900, BleScanService.ALERT_NOTIFICATION_ID)
+        assertEquals("Telemetrieempfang aktiv", BleScanService.FOREGROUND_NOTIFICATION_TEXT)
     }
 
     @Test
