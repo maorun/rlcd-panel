@@ -1649,3 +1649,11 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `REJECTS` replies `BEGIN REJECTS`, the header `mac,format,reason,count`, one row for each entry, `DROPPED,<N>` when MACs were lost and the `CRC32` line. Extra text gives `ERR BAD_ARG`. The command reads only the RTC copy, mounts no card and runs on USB and on BLE at each `ble_console` level.
 - `tests/fixtures/rejects_reply_sample.txt` holds the reply sample. The tests cover each reason, the `DROPPED` row, `resetRejects()`, saturation, the state round trip, each invalid block, the parser, the BLE gate and the fixture with its CRC-32.
 - Validation: the host tests and `arduino-cli compile rlcd_panel` pass. The companion apps do not parse `REJECTS` yet.
+
+## Mute toggle and chime test in the Android app
+
+- `StatusReply.muted` parses `muted=<0|1>` of the `POWER` line (`null` for a missing or bad field).
+- `ChimeCommand` builds `MUTE <0|1>` and `BEEP <N>` for bits 0 to 7 (`IllegalArgumentException` for another bit). `ALERT_NAMES` maps the bits: Freezer, Humidity, Noise, Charge full, Battery low, Ventilate, Sensor battery, Heat. `failureText` shows `ERR READ_ONLY` as `Set ble_console=2 to apply`, and words `ERR MUTED` and `ERR PLAY_FAILED`. `okText` shows `OK BEEP <N> <ms>`.
+- `ChimeScreen` has a mute switch, a `Read mute state` button and one `Test` button for each alert bit. `SensorHealthScreen` has the button `Chime and alerts`. `MainActivity` sends `MUTE`, then `STATUS`, through `BleConsoleClient.send` only after a tap, and cancels the command in `onStop`.
+- `StatusReplyTest` asserts `muted=0`, `muted=1` and a missing field. `ChimeCommandTest` asserts `MUTE 1`, `MUTE 0`, `BEEP 0` to `BEEP 7`, the failure of bit 8 and bit -1, and the reply texts.
+- The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.

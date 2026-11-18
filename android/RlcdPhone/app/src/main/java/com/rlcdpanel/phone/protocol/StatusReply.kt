@@ -47,7 +47,9 @@ data class StatusReply(
     /** The raw `SENSOR` lines, for the strict parser of [SensorHealth]. */
     val sensorLines: List<String>,
     /** Null for `ok=--` (no attempt, no Wi-Fi credentials) and without an `NTP` line. */
-    val ntp: NtpState? = null
+    val ntp: NtpState? = null,
+    /** `muted=<0|1>` of the `POWER` line; null for a missing or bad field. */
+    val muted: Boolean? = null
 ) {
     val isUsbPower: Boolean get() = powerSource == "USB"
 
@@ -71,6 +73,7 @@ data class StatusReply(
             var reception: List<ReceptionRate?>? = null
             var src: String? = null
             var ntp: NtpState? = null
+            var muted: Boolean? = null
             for (line in lines) {
                 val words = line.split(' ').filter { it.isNotEmpty() }
                 val head = words.firstOrNull() ?: continue
@@ -87,13 +90,20 @@ data class StatusReply(
                             )
                         )
                     }
-                    "POWER" -> src = f["src"]
+                    "POWER" -> {
+                        src = f["src"]
+                        muted = when (f["muted"]) {
+                            "0" -> false
+                            "1" -> true
+                            else -> null
+                        }
+                    }
                     "RECEPTION" -> reception = parseReception(line)
                     "NTP" -> ntp = parseNtp(line)
                 }
             }
             if (sensors.isEmpty()) throw ParseException("SENSOR")
-            return StatusReply(sensors, reception, src, sensorLines, ntp)
+            return StatusReply(sensors, reception, src, sensorLines, ntp, muted)
         }
 
         private fun digits(s: String?): Long? =

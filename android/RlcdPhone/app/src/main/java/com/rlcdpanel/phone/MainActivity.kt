@@ -34,6 +34,7 @@ import com.rlcdpanel.phone.finder.SensorFinderList
 import com.rlcdpanel.phone.finder.SensorFinderScanner
 import com.rlcdpanel.phone.finder.SlotAssignment
 import com.rlcdpanel.phone.protocol.CalibrationBatch
+import com.rlcdpanel.phone.protocol.ChimeCommand
 import com.rlcdpanel.phone.protocol.CalibrationReply
 import com.rlcdpanel.phone.protocol.ConsoleReply
 import com.rlcdpanel.phone.protocol.ParseException
@@ -94,6 +95,8 @@ class MainActivity : ComponentActivity() {
     private var showCalib by mutableStateOf(false)
     private var showWeek by mutableStateOf(false)
     private var showFinder by mutableStateOf(false)
+    private var showChime by mutableStateOf(false)
+    private var chimeState by mutableStateOf(ChimeState())
     private var finderState by mutableStateOf(SensorFinderState())
     private val finderList = SensorFinderList()
     private var finderScanner: SensorFinderScanner? = null
@@ -212,6 +215,17 @@ class MainActivity : ComponentActivity() {
                 BackHandler { closeFinder() }
                 return@setContent
             }
+            if (showChime) {
+                ChimeScreen(
+                    state = chimeState,
+                    onRead = { withConsolePermission { readChimeState() } },
+                    onMute = { on -> withConsolePermission { setMute(on) } },
+                    onTest = { bit -> withConsolePermission { testChime(bit) } },
+                    onBack = { closeChime() }
+                )
+                BackHandler { closeChime() }
+                return@setContent
+            }
             if (showHealth) {
                 SensorHealthScreen(
                     state = healthState,
@@ -222,6 +236,7 @@ class MainActivity : ComponentActivity() {
                     onReadConfig = { ensureConsolePermissionAndRead(CONSOLE_CONFIG) },
                     onOpenCalibration = { showHealth = false; showCalib = true },
                     onOpenFinder = { showHealth = false; showFinder = true },
+                    onOpenChime = { showHealth = false; showChime = true },
                     onBack = { closeSensorHealth() }
                 )
                 BackHandler { closeSensorHealth() }
@@ -357,6 +372,7 @@ class MainActivity : ComponentActivity() {
         healthState = healthState.copy(isReading = false)
         configState = configState.copy(isReading = false)
         if (weekState.isReading) weekState = WeekState(message = "Abgebrochen. Erneut lesen.")
+        if (chimeState.isBusy) chimeState = chimeState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, STATUS lesen")
         if (calibState.isBusy) {
             calibState = calibState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, CONFIG lesen")
         }
@@ -374,6 +390,7 @@ class MainActivity : ComponentActivity() {
             if (grants.isNotEmpty() && grants.values.all { it }) action()
             else if (showWeek) weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
             else if (showFinder) finderState = finderState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
+            else if (showChime) chimeState = chimeState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else calibState = calibState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             return@registerForActivityResult
         }
@@ -489,6 +506,63 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun closeChime() {
+        consoleClient.cancel()
+        pendingConsoleAction = null
+        chimeState = ChimeState()
+        showChime = false
+        showHealth = true
+    }
+
+    /** Sends `STATUS` after a tap and shows the mute state of the `POWER` line. */
+    private fun readChimeState() {
+        stopBleScan()
+        chimeState = chimeState.copy(isBusy = true, isError = false, message = null)
+        consoleClient.send(ChimeCommand.STATUS) { reply -> chimeState = chimeStateAfterStatus(reply, null) }
+    }
+
+    /** Sends `MUTE <0|1>`, then `STATUS` to confirm the state. */
+    private fun setMute(on: Boolean) {
+        stopBleScan()
+        chimeState = chimeState.copy(isBusy = true, isError = false, message = null)
+        consoleClient.send(ChimeCommand.mute(on)) { reply ->
+            val failure = ChimeCommand.failureText(reply) { BleConsoleClient.errorText(it) }
+            if (failure != null) {
+                chimeState = chimeState.copy(isBusy = false, isError = true, message = failure)
+            } else {
+                consoleClient.send(ChimeCommand.STATUS) { status -> chimeState = chimeStateAfterStatus(status, on) }
+            }
+        }
+    }
+
+    private fun chimeStateAfterStatus(reply: ConsoleReply, expected: Boolean?): ChimeState {
+        if (reply !is ConsoleReply.Frame) {
+            return chimeState.copy(isBusy = false, isError = true, message = BleConsoleClient.errorText(reply))
+        }
+        return try {
+            val muted = StatusReply.parse(reply.lines).muted
+            chimeState.copy(
+                isBusy = false, isError = false, muted = muted ?: expected,
+                message = if (expected != null) "Stumm ${if (expected) "an" else "aus"}" else null
+            )
+        } catch (e: ParseException) {
+            chimeState.copy(isBusy = false, isError = true, message = "Antwort nicht lesbar: ${e.line.take(80)}")
+        }
+    }
+
+    /** Sends `BEEP <bit>` after a tap. */
+    private fun testChime(bit: Int) {
+        stopBleScan()
+        chimeState = chimeState.copy(isBusy = true, isError = false, message = null)
+        consoleClient.send(ChimeCommand.beep(bit)) { reply ->
+            val failure = ChimeCommand.failureText(reply) { BleConsoleClient.errorText(it) }
+            chimeState = chimeState.copy(
+                isBusy = false, isError = failure != null,
+                message = failure ?: ChimeCommand.okText((reply as ConsoleReply.Status).line)
+            )
+        }
+    }
+
     private fun closeCalibration() {
         consoleClient.cancel()
         pendingConsoleAction = null
@@ -499,7 +573,7 @@ class MainActivity : ComponentActivity() {
 
     /** Runs [action] after the Bluetooth permissions; the action sends console commands. */
     private fun withConsolePermission(action: () -> Unit) {
-        if (calibState.isBusy || weekState.isReading || finderState.isBusy || consoleClient.isRunning) return
+        if (calibState.isBusy || chimeState.isBusy || weekState.isReading || finderState.isBusy || consoleClient.isRunning) return
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
@@ -509,6 +583,7 @@ class MainActivity : ComponentActivity() {
             pendingConsoleAction = action
             if (showWeek) weekState = WeekState(isReading = true)
             else if (showFinder) finderState = finderState.copy(isBusy = true, message = null)
+            else if (showChime) chimeState = chimeState.copy(isBusy = true, message = null)
             else calibState = calibState.copy(isBusy = true, message = null)
             consolePermissionLauncher.launch(needed.toTypedArray())
             return

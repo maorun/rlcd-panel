@@ -108,4 +108,13 @@ class StatusReplyTest {
         } catch (e: ParseException) {
         }
     }
+
+    @Test
+    fun parsesMutedFlag() {
+        assertEquals(false, StatusReply.parse(fixtureLines()).muted)
+        val on = fixtureLines().map { if (it.startsWith("POWER")) it.replace("muted=0", "muted=1") else it }
+        assertEquals(true, StatusReply.parse(on).muted)
+        val missing = fixtureLines().map { if (it.startsWith("POWER")) it.replace(" muted=0", "") else it }
+        assertNull(StatusReply.parse(missing).muted)
+    }
 }

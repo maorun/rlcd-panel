@@ -63,6 +63,7 @@ fun SensorHealthScreen(
     onReadConfig: () -> Unit = {},
     onOpenCalibration: () -> Unit = {},
     onOpenFinder: () -> Unit = {},
+    onOpenChime: () -> Unit = {},
     onBack: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -89,6 +90,9 @@ fun SensorHealthScreen(
             }
             item {
                 OutlinedButton(onClick = onOpenFinder) { Text("Find nearby sensors") }
+            }
+            item {
+                OutlinedButton(onClick = onOpenChime) { Text("Chime and alerts") }
             }
             item {
                 Text(
