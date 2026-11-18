@@ -1811,3 +1811,12 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - A failed CRC-32, a timeout or an `ERR` reply gives one error text through `BleConsoleClient.errorText`. The command is not repeated. A read that `onStop` aborts shows `Abgebrochen. Erneut lesen.`
 - `RejectsReplyTest` reads `tests/fixtures/rejects_reply_sample.txt` and covers each row, the reasons, the counts, the dropped count, the CRC-32 frame, the fix texts and the error cases.
 - The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.
+
+## Ventilation advice in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/VentilationAdvice.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/VentilationAdviceTests.swift`, `tests/fixtures/ventilation_vectors.txt`
+- `VentilationAdvice.make(indoor:outdoor:)` ports `VentilationGuide.analysiereLueftung` with the same limits (48 and 53 %RH, hysteresis 0.1 and 0.5 g/m³, cold limit 5 °C, minimum indoor temperature 17.5 °C) and the same `VentilationAction` values. It gives the absolute humidity of both tiles and the difference in g/m³. It gives `nil` for a tile without a reading, a NaN value and a value out of range.
+- `VentilationAdvice.outdoorTile` takes the outdoor tile from `outdoor_slot` of the last `CONFIG` reply (1 to 5, slot N is tile N). It gives `nil` for a missing or stale frame (older than 35 min, as in the Android app), a missing `CONFIG` reply, `outdoor_slot=0` and an invalid outdoor tile.
+- The tile list shows the advice title and the difference (`AH +4.3 g/m³`) for each valid indoor tile. The outdoor tile shows no advice. The app sends no console command for the advice.
+- `tests/fixtures/ventilation_vectors.txt` holds the shared rows (indoor and outdoor values, window state, minutes, action, difference). `VentilationAdviceTests`, and both Kotlin `VentilationGuideTest` classes read it. The Swift test also checks the difference and the `nil` cases.
+- The Kotlin tests run in CI only. The local machine has no Android SDK.

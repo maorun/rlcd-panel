@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Ventilation advice in the macOS app
-  - Rank: [Total: 31, Use: 8, Setup: 3, Harmony: 10, Safety: 10, Effort: M]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/VentilationAdvice.swift, macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/VentilationAdviceTests.swift, tests/fixtures/ventilation_vectors.txt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/ventilation/VentilationGuideTest.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/VentilationGuideTest.kt
-  - Goal: The Android app and the Wear OS app show a ventilation advice from `VentilationGuide.analysiereLueftung`. The macOS app shows only the `VENTILATE` alert bit. Port `analysiereLueftung` to `VentilationAdvice.make(indoor:outdoor:)` in `RlcdProtocol` with the same limits, the same `VentilationAction` values and the same absolute humidity difference in g/m3. Take the outdoor tile from `outdoor_slot` of the last `CONFIG` reply. Give `nil` for a stale frame, a missing `CONFIG` reply, `outdoor_slot=0`, an invalid outdoor tile and an invalid indoor tile. Show the advice for each valid indoor tile in the tile list of `Views.swift`. Do not send a console command for the advice. Put shared input and output rows in `tests/fixtures/ventilation_vectors.txt`.
-  - Acceptance test: In `VentilationAdviceTests`, read the fixture and assert the action and the difference of each row. Assert `nil` for `outdoor_slot=0`, a stale frame and an invalid outdoor tile. In both Kotlin `VentilationGuideTest` classes, read the same fixture and assert the same actions. Run `swift test` in `macos/RlcdCompanion` and `gradle testDebugUnitTest` in `android/RlcdPhone` and `wearos/RlcdWatch`.
-
 - [ ] Event code for a change of the power source
   - Rank: [Total: 30, Use: 6, Setup: 7, Harmony: 8, Safety: 9, Effort: S]
   - Location: rlcd_panel/sd_logger.h, rlcd_panel/power_manager.h, rlcd_panel/rlcd_panel.ino, macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/EventTextTests.swift, tests/test_firmware_logic.cpp, AGENTS.md

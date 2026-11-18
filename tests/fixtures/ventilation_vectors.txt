@@ -1,0 +1,16 @@
+# Shared test vectors of the ventilation advice (VentilationGuide.analysiereLueftung).
+# Read by the macOS companion tests, the Android phone tests and the Wear OS tests.
+# Columns: indoor_temp_c | indoor_rh_pct | outdoor_temp_c | outdoor_rh_pct | ventilating | minutes | action | abs_humidity_diff_gm3
+# ventilating is 0 (window closed) or 1 (window open). '-' means no advice (invalid input).
+21.0 | 52.9 | 10.0 | 50.0 | 0 | 0 | NICHT_LUEFTEN | 4.99
+20.0 | 55.0 | 25.0 | 80.0 | 0 | 0 | NICHT_LUEFTEN | -8.92
+20.0 | 55.0 | 20.0 | 54.0 | 0 | 0 | NEUTRAL | 0.17
+21.0 | 60.0 | 4.9 | 60.0 | 0 | 0 | LUEFTUNG_STARTEN | 6.94
+21.0 | 60.0 | 5.0 | 50.0 | 0 | 0 | LUEFTUNG_STARTEN | 7.59
+20.0 | 48.0 | 8.0 | 50.0 | 1 | 4 | LUEFTUNG_BEENDEN | 4.16
+17.5 | 52.0 | 2.0 | 50.0 | 1 | 3 | LUEFTUNG_ABBRECHEN | 4.97
+19.0 | 52.0 | 10.0 | 50.0 | 1 | 15 | LUEFTUNG_ABBRECHEN | 3.77
+20.0 | 50.0 | 20.0 | 50.0 | 1 | 2 | LUEFTUNG_ABBRECHEN | 0.00
+20.0 | 52.0 | 10.0 | 50.0 | 1 | 3 | WEITER_LUEFTEN | 4.29
+20.0 | 50.0 | -60.0 | 50.0 | 0 | 0 | - | -
+20.0 | 105.0 | 10.0 | 50.0 | 0 | 0 | - | -

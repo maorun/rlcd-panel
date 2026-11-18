@@ -5,8 +5,49 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.File
 
 class VentilationGuideTest {
+
+    private data class FixtureRow(
+        val tempInnen: Double, val rFInnen: Double, val tempAussen: Double, val rFAussen: Double,
+        val ventilating: Boolean, val minutes: Int, val action: String?, val diff: Double?
+    )
+
+    private fun loadFixture(): List<FixtureRow> {
+        var dir: File? = File(".").canonicalFile
+        var file: File? = null
+        while (dir != null && file == null) {
+            val candidate = File(dir, "tests/fixtures/ventilation_vectors.txt")
+            if (candidate.isFile) file = candidate
+            dir = dir.parentFile
+        }
+        checkNotNull(file) { "Could not locate tests/fixtures/ventilation_vectors.txt" }
+        return file.readLines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }.map { line ->
+            val f = line.split("|").map { it.trim() }
+            FixtureRow(f[0].toDouble(), f[1].toDouble(), f[2].toDouble(), f[3].toDouble(),
+                f[4] == "1", f[5].toInt(), if (f[6] == "-") null else f[6],
+                if (f[7] == "-") null else f[7].toDouble())
+        }
+    }
+
+    @Test
+    fun testSharedFixtureVectors() {
+        val rows = loadFixture()
+        assertTrue(rows.isNotEmpty())
+        for (row in rows) {
+            val result = VentilationGuide.analysiereLueftung(
+                row.tempInnen, row.rFInnen, row.tempAussen, row.rFAussen, row.ventilating, row.minutes
+            )
+            if (row.action == null) {
+                assertNull("$row", result)
+            } else {
+                assertNotNull("$row", result)
+                assertEquals("$row", row.action, result!!.aktion.name)
+                assertEquals("$row", row.diff!!, result.daten.differenz, 0.01)
+            }
+        }
+    }
 
     @Test
     fun testAbsoluteHumidityFormula() {
