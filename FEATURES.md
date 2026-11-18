@@ -1714,3 +1714,12 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `SlotConfigScreen` disables the auto-assign switch, the `Bearbeiten` button, the `Leeren` button and the dialog confirm button while `canWrite` is false. It shows `Set ble_console=2 to apply` in that state.
 - `SlotConfigTest` covers the name-only command, the name and MAC commands, a rejected name without MAC, the clear command and `canWrite`.
 - Validation: `./scripts/check-protocol-sync.sh` passes. The local machine has no Android SDK, so `gradle testDebugUnitTest assembleDebug` did not run locally. CI runs it.
+
+## Rejected packet list in the macOS app
+
+- `ConsoleCommand.rejects` sends `REJECTS`. The app sends it only on the `Read rejects` button, on USB and on BLE.
+- `RejectsReply.parse` (`RejectsReply.swift`) reads the header `mac,format,reason,count`, one row for each MAC and the optional last row `DROPPED,<N>`. It throws `ParseError.badLine` for a wrong column count, an unknown format, an unknown reason, a count outside 1 to 255, an invalid or repeated MAC, and a misplaced `DROPPED` row.
+- `RejectReason` (`FULL`, `UNASSIGNED`, `DISABLED`, `JUMP`) gives the fix hint: `Free a slot`, `Assign to slot`, `Set slot<N>_enabled=1`, `Check the sensor position`.
+- `ScannerView` shows the box `Rejected sensors` with MAC, format badge, reason, count and hint. A `FULL` row shows the `Free slot <N>` buttons of `AppModel.freeableSlots`. An `UNASSIGNED` row shows the `Assign to slot` menu of `SlotAssignment`.
+- `RejectsReplyTests` cover the fixture `tests/fixtures/rejects_reply_sample.txt`, an empty log, the bad rows, the hints and the command line.
+- Validation: `swift build` and `swift build -c release` pass. `swift test` does not run locally (Command Line Tools have no Testing macros); a `swiftc` harness checked the parser cases. CI runs `swift test`.

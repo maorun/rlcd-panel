@@ -42,6 +42,8 @@ final class AppModel: ConsoleLinkDelegate {
     private var reportSections: [DiagnosticsReport.Section] = []
     private var reportRemaining: [ConsoleCommand] = []
     var scanResult: ScanReply?
+    /// Reply of the last `REJECTS` command, `nil` before a user read.
+    var rejectsResult: RejectsReply?
     /// The guided setup of one new sensor, `nil` while the assistant is closed.
     var setup: SetupAssistant?
     /// Entries of the assistant view: the MAC under choice, its name and the calibration reference.
@@ -258,7 +260,7 @@ final class AppModel: ConsoleLinkDelegate {
         lastConfig = nil // names and unit belong to the old panel
         diagnostics = nil
         version = nil
-        scanResult = nil; panelImage = nil
+        scanResult = nil; panelImage = nil; rejectsResult = nil
         calibration = nil
         clearArchive()
         panelTime = nil
@@ -275,7 +277,7 @@ final class AppModel: ConsoleLinkDelegate {
 
     func disconnectConsole() {
         stopRepeatScan(.user)
-        scanResult = nil; panelImage = nil
+        scanResult = nil; panelImage = nil; rejectsResult = nil
         calibration = nil
         clearArchive()
         panelTime = nil
@@ -289,7 +291,7 @@ final class AppModel: ConsoleLinkDelegate {
 
     func selectTransport(_ t: Transport) {
         stopRepeatScan(.user)
-        scanResult = nil; panelImage = nil
+        scanResult = nil; panelImage = nil; rejectsResult = nil
         calibration = nil
         clearArchive()
         transport = t
@@ -490,6 +492,7 @@ final class AppModel: ConsoleLinkDelegate {
         guard ConsoleCommand.slotClear(slot).line != nil else { message = "Slot not valid"; return }
         message = nil
         scanResult = nil // the slot column of the old scan is stale now
+        rejectsResult = nil // the rows describe the state before the change
         queue = [.slotClear(slot), .status]
         sendNext()
     }
@@ -546,7 +549,7 @@ final class AppModel: ConsoleLinkDelegate {
         guard canApply else { message = "Apply not allowed"; return }
         message = nil
         batchSummary = nil
-        if changes.contains(where: { SlotAssignment.isMacKey($0.key) }) { scanResult = nil } // slot column goes stale
+        if changes.contains(where: { SlotAssignment.isMacKey($0.key) }) { scanResult = nil; rejectsResult = nil } // slot column goes stale
         batch = ConfigBatch(changes: changes)
         sendNextBatchCommand()
     }
@@ -565,6 +568,7 @@ final class AppModel: ConsoleLinkDelegate {
     func setupAssign() {
         guard canSet else { message = "SET needs ble_console=2 or the USB serial link"; return }
         scanResult = nil // the slot column is stale once the SET runs
+        rejectsResult = nil // the rows describe the state before the change
         runSetup { [status, config] in $0.beginAssign(status: status, config: config) }
     }
     func setupCheckReception() { runSetup { $0.checkReception() } }
@@ -618,6 +622,15 @@ final class AppModel: ConsoleLinkDelegate {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
         message = nil
         queue = [.scan]
+        sendNext()
+    }
+
+    /// Reads the rejected packets of the last BLE scan with `REJECTS`. Runs only on the user's button, on USB and on BLE.
+    func readRejects() {
+        guard consoleConnected else { message = "Console not connected"; return }
+        guard pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        message = nil
+        queue = [.rejects]
         sendNext()
     }
 
@@ -728,7 +741,7 @@ final class AppModel: ConsoleLinkDelegate {
         closeRestore()
         message = nil
         batchSummary = nil
-        if changes.contains(where: { SlotAssignment.isMacKey($0.key) }) { scanResult = nil }
+        if changes.contains(where: { SlotAssignment.isMacKey($0.key) }) { scanResult = nil; rejectsResult = nil }
         batch = ConfigBatch(changes: changes)
         sendNextBatchCommand()
     }
@@ -905,6 +918,7 @@ final class AppModel: ConsoleLinkDelegate {
         }
         message = nil
         scanResult = nil // the slot column is stale once the SET runs; the scan below reloads it
+        rejectsResult = nil // the rows describe the state before the change
         queue = [cmd, .config]
         if transport == .usb { queue.append(.scan) } // the slot column of the old scan is stale now
         sendNext()
@@ -926,6 +940,7 @@ final class AppModel: ConsoleLinkDelegate {
         message = nil
         batchSummary = nil
         scanResult = nil // the slot column is stale once the SET runs
+        rejectsResult = nil // the rows describe the state before the change
         assigningMac = mac
         batch = ConfigBatch(commands: commands)
         sendNextBatchCommand()
@@ -955,6 +970,7 @@ final class AppModel: ConsoleLinkDelegate {
             if case .dump = cmd { archiveSummary = "Download stopped, saved \(downloadStats.saved), failed \(downloadStats.failed)" }
             if cmd == .scan { scanResult = nil; stopRepeatScan(.scanFailed) } // no reply ends the repeat
             if cmd == .screen { panelImage = nil }
+            if cmd == .rejects { rejectsResult = nil }
             pendingCommand = nil
             queue.removeAll()
             endBatchAfterLoss()
@@ -1002,6 +1018,7 @@ final class AppModel: ConsoleLinkDelegate {
                 stopRepeatScan(.linkLost)
                 scanResult = nil // the slot column of a lost link is stale
                 panelImage = nil
+                rejectsResult = nil
                 config = nil // the ble_console level of a lost link must not gate SET on the next link
                 draft = [:]
                 abandonCommands()
@@ -1033,6 +1050,7 @@ final class AppModel: ConsoleLinkDelegate {
             case (_, let .corrupt(e)):
                 message = "Reply rejected: \(e)"
                 if cmd == .screen { panelImage = nil } // a rejected frame must not stay next to the error
+                if cmd == .rejects { rejectsResult = nil }
                 if cmd == .scan { stopRepeatScan(.scanFailed) }
                 // A wrong CRC-32 follows a complete frame, so the stream stays in step and the next file may follow.
                 // Any other error leaves the stream out of step.
@@ -1054,6 +1072,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if case .salt = cmd { salt = nil }
                 if case .saltMagnesium = cmd { saltMagnesium = nil }
                 if cmd == .screen { panelImage = nil } // ERR NO_FRAME must not leave an old image
+                if cmd == .rejects { rejectsResult = nil }
                 if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
                 if cmd == .scan, text.hasPrefix("ERR") { stopRepeatScan(.scanFailed) }
                 batch?.receive(status: text)
@@ -1088,6 +1107,10 @@ final class AppModel: ConsoleLinkDelegate {
                 config = try ConfigReply.parse(lines: lines)
                 lastConfig = config
                 if batch != nil { draft = [:] } // the panel state replaces the edits
+            case let (.rejects, .frame(lines)):
+                rejectsResult = nil // a reply that fails to parse must not leave the old rows
+                rejectsResult = try RejectsReply.parse(lines: lines)
+            case (.rejects, .file): message = "Unexpected file reply"
             case let (.scan, .frame(lines)):
                 scanResult = nil // a reply that fails to parse must not leave the old rows
                 scanResult = try ScanReply.parse(lines: lines)

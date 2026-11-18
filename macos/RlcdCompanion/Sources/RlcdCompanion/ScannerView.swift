@@ -54,9 +54,57 @@ struct ScannerView: View {
                         Text("\(scan.dropped) more sensors not listed.").font(.caption).foregroundStyle(.secondary)
                     }
                 }
+                rejectsBox
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
         .onDisappear { model.stopRepeatScan(.viewClosed) }
+    }
+
+    /// Packets that the last scan of the panel rejected, with a fix for each reason. Reads only on the button (USB and BLE).
+    private var rejectsBox: some View {
+        GroupBox("Rejected sensors") {
+            VStack(alignment: .leading, spacing: 4) {
+                Button("Read rejects") { model.readRejects() }
+                    .disabled(!model.consoleConnected || !model.isIdle)
+                if let rejects = model.rejectsResult {
+                    if rejects.rows.isEmpty { Text("No packet rejected.").font(.caption).foregroundStyle(.secondary) }
+                    ForEach(rejects.rows) { row in rejectRow(row) }
+                    if rejects.dropped > 0 {
+                        Text("\(rejects.dropped) more sensors not listed.").font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+            }.frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private func rejectRow(_ r: RejectRow) -> some View {
+        HStack {
+            Text(r.mac).font(.system(.caption, design: .monospaced))
+            Text(r.format).font(.caption2).padding(.horizontal, 4)
+                .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+            Text(r.reason.rawValue)
+            Text("x\(r.count)").foregroundStyle(.secondary)
+            Text(r.reason.fixHint).foregroundStyle(.secondary)
+            Spacer()
+            switch r.reason {
+            case .full:
+                ForEach(model.freeableSlots, id: \.self) { n in
+                    Button("Free slot \(n)") { model.clearSlot(n) }
+                        .disabled(!model.canSet || !model.isIdle)
+                }
+            case .unassigned:
+                Menu("Assign to slot") {
+                    ForEach(Array(SlotAssignment.slots), id: \.self) { n in
+                        Button("Slot \(n)" + (SlotAssignment.warning(slot: n, mac: r.mac, config: model.config) != nil ? " (MAC in use)" : "")) {
+                            model.assign(slot: n, mac: r.mac, name: model.scanNames[r.mac] ?? "")
+                        }
+                    }
+                }
+                .disabled(!model.canSet || !model.isIdle)
+            case .disabled, .jump:
+                EmptyView()
+            }
+        }.font(.callout)
     }
 
     private func seriesView(_ s: ScanSeries.Stats) -> some View {
