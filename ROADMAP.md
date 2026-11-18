@@ -59,12 +59,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Wear OS watch face complication
-  - Rank: [Total: 26, Use: 8, Setup: 2, Harmony: 7, Safety: 9, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/complication/ClimateComplicationService.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/complication/ClimateComplicationModel.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/BleScanService.kt, wearos/RlcdWatch/app/src/main/AndroidManifest.xml, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/complication/ClimateComplicationModelTest.kt
-  - Goal: The tile needs a swipe, so the user does not see the room climate on the watch face. Add a `ComplicationDataSourceService` with the types `SHORT_TEXT` and `RANGED_VALUE`. Read the focused room from `TelemetryCache`; do not scan BLE. Show `<T>°` and `<RH>%` as short text, and the humidity 0 to 100 as ranged value. Show `--` for an empty cache, a failed decode or a frame older than 35 minutes. Request a complication update in `BleScanService` for each new sequence number.
-  - Acceptance test: Assert in `ClimateComplicationModelTest` the text for a fixture vector of `ble_telemetry_vectors.txt`, `--` for an empty cache, `--` for a frame of 36 minutes, `--` for a bad CRC-8 and the ranged value 0 to 100. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`.
-
 - [ ] Restore of the seven-day history from the daily file
   - Rank: [Total: 26, Use: 7, Setup: 3, Harmony: 8, Safety: 8, Effort: M]
   - Location: rlcd_panel/sparkline.h, rlcd_panel/sd_logger.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp
