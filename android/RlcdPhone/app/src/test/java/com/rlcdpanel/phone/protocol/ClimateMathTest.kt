@@ -19,7 +19,9 @@ class ClimateMathTest {
         val comfort: String,
     )
 
-    private fun number(text: String): Double? = if (text == "-") null else text.toDouble()
+    private fun parse(text: String): Double = if (text.equals("nan", ignoreCase = true)) Double.NaN else text.toDouble()
+
+    private fun number(text: String): Double? = if (text == "-") null else parse(text)
 
     private fun vectors(): List<Vector> {
         var dir: File? = File(".").canonicalFile
@@ -35,7 +37,7 @@ class ClimateMathTest {
             if (line.isEmpty() || line.startsWith("#")) return@mapNotNull null
             val cols = line.split("|").map { it.trim() }
             check(cols.size == 6) { "Bad vector line ${index + 1}" }
-            Vector(index + 1, cols[0].toDouble(), cols[1].toDouble(), number(cols[2]), number(cols[3]), number(cols[4]), cols[5])
+            Vector(index + 1, parse(cols[0]), parse(cols[1]), number(cols[2]), number(cols[3]), number(cols[4]), cols[5])
         }
     }
 
