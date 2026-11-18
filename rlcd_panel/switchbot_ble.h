@@ -207,6 +207,7 @@ public:
 struct BleRejectStats {
   uint16_t by_format[BLE_FORMAT_COUNT] = {0, 0, 0, 0, 0};
   uint16_t unassigned = 0; // rejects of a new MAC while slot_auto_assign is 0 (also counted in by_format)
+  uint16_t jumps = 0;      // pending packets of a large reading jump that JumpGuard dropped (not in by_format)
   uint8_t last_mac[6] = {0, 0, 0, 0, 0, 0};
   bool has_last = false;
 
@@ -216,6 +217,42 @@ struct BleRejectStats {
       sum += by_format[i];
     }
     return sum;
+  }
+};
+
+// Confirmation of a large reading jump. A packet that differs from a stored reading younger than 10 minutes
+// by more than 8.0 C or more than 25 %RH stays pending. A second packet of the same MAC within 1.0 C and
+// 5 %RH of the pending packet confirms the change. A packet near the stored reading drops the pending
+// packet. No persistent state: SwitchBotRegistry::endScan() drops each pending packet. A held packet keeps
+// updated_ms unchanged, so a jump that lasts across scans passes only after the stored reading is 10 minutes
+// old: a wake interval above 600 s turns the guard off.
+struct JumpGuard {
+  static constexpr uint32_t MAX_AGE_MS = 600000;
+  static constexpr float JUMP_TEMP_C = 8.0f;
+  static constexpr int JUMP_RH_PCT = 25;
+  static constexpr float CONFIRM_TEMP_C = 1.0f;
+  static constexpr int CONFIRM_RH_PCT = 5;
+
+  static float absf(float v) {
+    return v < 0.0f ? -v : v;
+  }
+
+  static int absDiff(uint8_t a, uint8_t b) {
+    return a > b ? a - b : b - a;
+  }
+
+  // True when `fresh` is a large jump from the stored reading `stored`.
+  static bool isJump(const SwitchBotReading& stored, const SwitchBotReading& fresh) {
+    if (!stored.valid || (fresh.updated_ms - stored.updated_ms) >= MAX_AGE_MS) {
+      return false;
+    }
+    return absf(fresh.temperature_c - stored.temperature_c) > JUMP_TEMP_C ||
+           absDiff(fresh.humidity_pct, stored.humidity_pct) > JUMP_RH_PCT;
+  }
+
+  static bool confirms(const SwitchBotReading& pending, const SwitchBotReading& fresh) {
+    return absf(fresh.temperature_c - pending.temperature_c) <= CONFIRM_TEMP_C &&
+           absDiff(fresh.humidity_pct, pending.humidity_pct) <= CONFIRM_RH_PCT;
   }
 };
 
@@ -286,7 +323,24 @@ public:
     if (index < MAX_SWITCHBOT_SENSORS) {
       slots_[index] = SwitchBotReading{};
       assigned_[index] = false;
+      pending_valid_[index] = false;
     }
+  }
+
+  // Call at the end of each BLE scan: drops each pending packet of JumpGuard and counts it in
+  // BleRejectStats::jumps.
+  void endScan() {
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (pending_valid_[i]) {
+        pending_valid_[i] = false;
+        countJump();
+      }
+    }
+  }
+
+  // True when JumpGuard holds a pending packet for slot `index`.
+  bool hasPending(size_t index) const {
+    return index < MAX_SWITCHBOT_SENSORS && pending_valid_[index];
   }
 
   // True when every stored reading obeys the fixed MACs: a fixed slot holds its own MAC only, and
@@ -310,6 +364,18 @@ public:
     // 1. Update existing sensor slot with matching MAC
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       if (isSlotEnabled(i) && slots_[i].valid && memcmp(slots_[i].mac, reading.mac, 6) == 0) {
+        if (JumpGuard::isJump(slots_[i], reading)) {
+          if (pending_valid_[i] && JumpGuard::confirms(pending_[i], reading)) {
+            pending_valid_[i] = false;
+          } else {
+            pending_[i] = reading;
+            pending_valid_[i] = true;
+            return false; // held, not a reject
+          }
+        } else if (pending_valid_[i]) {
+          pending_valid_[i] = false;
+          countJump();
+        }
         int8_t prev_battery = slots_[i].battery_pct;
         const uint32_t prev_count = slots_[i].packet_count;
         slots_[i] = reading;
@@ -385,6 +451,7 @@ public:
       }
     }
     slots_[index] = reading;
+    pending_valid_[index] = false;
     return true;
   }
 
@@ -461,6 +528,12 @@ private:
     return true;
   }
 
+  void countJump() {
+    if (rejects_.jumps < UINT16_MAX) {
+      ++rejects_.jumps;
+    }
+  }
+
   void markAssigned(size_t index, BleFormat format) {
     assigned_[index] = true;
     assigned_format_[index] = format;
@@ -468,6 +541,8 @@ private:
 
   SwitchBotReading slots_[MAX_SWITCHBOT_SENSORS];
   bool assigned_[MAX_SWITCHBOT_SENSORS] = {};
+  SwitchBotReading pending_[MAX_SWITCHBOT_SENSORS];
+  bool pending_valid_[MAX_SWITCHBOT_SENSORS] = {};
   BleFormat assigned_format_[MAX_SWITCHBOT_SENSORS] = {BleFormat::WOIO, BleFormat::WOIO, BleFormat::WOIO, BleFormat::WOIO, BleFormat::WOIO};
   bool fixed_[MAX_SWITCHBOT_SENSORS] = {};
   uint8_t fixed_mac_[MAX_SWITCHBOT_SENSORS][6] = {};

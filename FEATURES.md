@@ -1518,3 +1518,13 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - A `FILE` line with an unknown name prints the warning `SKIP <name>` on stderr, so a later format change is visible.
 - `scripts/dump-logs.sh --self-test` checks a fixed list of good and bad names without a serial port and exits 0 or 1. The CI job `Host tests` runs it.
 - No firmware change and no new `config.ini` key.
+
+## Confirmation of a large reading jump
+
+- `JumpGuard` in `switchbot_ble.h`: `SwitchBotRegistry::upsert` holds a packet as pending when a slot reading is younger than 10 minutes and the packet of the same MAC differs by more than 8.0 C or more than 25 %RH. The slot keeps its value and `upsert` returns false without a reject count.
+- A second packet of the same MAC within 1.0 C and 5 %RH of the pending packet confirms the change, and the slot takes the newest packet. A packet near the stored reading drops the pending packet.
+- `SwitchBotRegistry::endScan()` drops each pending packet at the end of `scanOnce()`. The pending packet is not in RTC memory. An empty slot, a stale slot and a reading of 10 minutes or older take the first packet.
+- `BleRejectStats::jumps` counts each dropped pending packet (saturates at 65535, reset by `resetRejects()`). A held packet does not reach `ScanCompletion::onPacket`.
+- The console command `STATUS` appends ` jumps=<N>` to the `BLE` line. `BleRejectMetrics.jumps` (`Diagnostics.swift`) parses the optional field and `DiagnosticsView` shows it.
+- No new `config.ini` key and no new RTC state.
+- Host tests: `testJumpGuard`, `testJumpGuardStatusLine` in `test_firmware_logic.cpp`. Companion test: `DiagnosticsTests.bleRejectJumpsField`.
