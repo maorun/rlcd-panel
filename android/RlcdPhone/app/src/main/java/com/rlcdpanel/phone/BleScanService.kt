@@ -78,7 +78,7 @@ class BleScanService : Service() {
         }
 
         // Always satisfy startForeground first to comply with Android 8+ foreground service contract
-        val notification = buildForegroundNotification(_statusMessage.value)
+        val notification = buildForegroundNotification(FOREGROUND_NOTIFICATION_TEXT)
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 startForeground(
@@ -126,7 +126,7 @@ class BleScanService : Service() {
         _isScanning.value = started
         if (started) {
             _statusMessage.value = "Suche..."
-            updateForegroundNotification("Suche nach RLCD-Panel...")
+            updateForegroundNotification(FOREGROUND_NOTIFICATION_TEXT)
         } else {
             stopForegroundAndSelf()
         }
@@ -164,8 +164,6 @@ class BleScanService : Service() {
             vibrateAlert()
             postAlertNotification(transition.risingAlerts.names.joinToString(", "))
         }
-
-        updateForegroundNotification(transition.statusMessage)
     }
 
     private fun createNotificationChannels() {
@@ -196,7 +194,7 @@ class BleScanService : Service() {
         }
     }
 
-    private fun buildForegroundNotification(contentText: String): Notification {
+    private fun buildForegroundNotification(contentText: String = FOREGROUND_NOTIFICATION_TEXT): Notification {
         val openAppIntent = PendingIntent.getActivity(
             this,
             0,
@@ -217,6 +215,7 @@ class BleScanService : Service() {
             .setContentIntent(openAppIntent)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Beenden", stopIntent)
             .setOngoing(true)
+            .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
@@ -300,6 +299,7 @@ class BleScanService : Service() {
         const val ALERT_NOTIFICATION_ID = 900
         const val SERVICE_CHANNEL_ID = "rlcd_scan_service_channel"
         const val ALERT_CHANNEL_ID = "rlcd_ventilation_channel"
+        const val FOREGROUND_NOTIFICATION_TEXT = "Telemetrieempfang aktiv"
 
         fun computeTransition(
             current: TelemetrySnapshot?,
