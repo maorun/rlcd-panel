@@ -24,12 +24,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Home screen widget in the Android app
-  - Rank: [Total: 26, Use: 8, Setup: 2, Harmony: 7, Safety: 9, Effort: M]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/widget/ClimateWidgetReceiver.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/widget/ClimateWidgetModel.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/BleScanService.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TelemetryHistory.kt, android/RlcdPhone/app/src/main/res/xml/climate_widget_info.xml, android/RlcdPhone/app/src/main/AndroidManifest.xml, android/RlcdPhone/app/build.gradle.kts, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/widget/ClimateWidgetModelTest.kt
-  - Goal: The phone user must open the app to see the climate. The watch has a tile, but the phone has no glanceable view. Add a Jetpack Glance home screen widget (4 x 2 cells). `ClimateWidgetModel.build(snapshot, nowMs, config)` gives up to four rows with the tile name of `PanelConfig.tileName`, the temperature, the humidity and the `STALE` or `BAT LOW` badge, plus the active alert names and the data age. Read the last frame of each page from the store that `BleScanService` writes. Show `--` and `Open the app` for an empty store, a failed decode or a frame older than 35 minutes. Make `BleScanService` request a widget update only for a new sequence number. The widget starts no BLE scan and no network request. A tap opens `MainActivity`.
-  - Acceptance test: In `ClimateWidgetModelTest`, decode a frame of `tests/fixtures/ble_telemetry_vectors.txt` and assert the four rows, the names and the alert names. Assert `--` for an empty store and for a frame of 36 minutes. Assert the `STALE` badge for a tile without its valid bit. Assert that the same sequence number requests no update. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

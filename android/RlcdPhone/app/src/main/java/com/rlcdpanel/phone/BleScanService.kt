@@ -22,6 +22,10 @@ import com.rlcdpanel.phone.protocol.AlertTransitions
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryHistory
 import com.rlcdpanel.phone.protocol.TelemetryHistoryStore
+import com.rlcdpanel.phone.widget.ClimateWidget
+import com.rlcdpanel.phone.widget.ClimateWidgetModel
+import com.rlcdpanel.phone.widget.WidgetSnapshotStore
+import androidx.glance.appwidget.updateAll
 import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
@@ -174,10 +178,32 @@ class BleScanService : Service() {
         _snapshot.value = transition.snapshot
         _statusMessage.value = transition.statusMessage
         recordHistory(incoming.frame, incoming.receivedAtMillis)
+        requestWidgetUpdate(transition.snapshot)
 
         if (!transition.risingAlerts.isEmpty) {
             vibrateAlert()
             postAlertNotification(transition.risingAlerts.names.joinToString(", "))
+        }
+    }
+
+    /**
+     * Stores the snapshot and refreshes the widget, only for a frame that the widget did not show.
+     * The check, the key and the rollback run on the single writer thread, so they cannot race.
+     */
+    private fun requestWidgetUpdate(snapshot: TelemetrySnapshot) {
+        val context = applicationContext
+        widgetWriter.execute {
+            if (!ClimateWidgetModel.shouldRequestUpdate(lastWidgetSequence, snapshot.frame)) return@execute
+            val previous = lastWidgetSequence
+            lastWidgetSequence = ClimateWidgetModel.updateKey(snapshot.frame)
+            try {
+                WidgetSnapshotStore.save(context, snapshot)
+                kotlinx.coroutines.runBlocking { ClimateWidget().updateAll(context) }
+            } catch (e: Exception) {
+                android.util.Log.w("BleScanService", "Widget update failed", e)
+                // Allow a retry with the next frame of the same sequence number.
+                lastWidgetSequence = previous
+            }
         }
     }
 
@@ -320,6 +346,8 @@ class BleScanService : Service() {
         private var historyLoadQueued = false
         // One thread writes the file, so the main thread never waits for the disk and writes stay in order.
         private val historyWriter = java.util.concurrent.Executors.newSingleThreadExecutor()
+        private val widgetWriter = java.util.concurrent.Executors.newSingleThreadExecutor()
+        @Volatile private var lastWidgetSequence: Int? = null // written on widgetWriter only
 
         private val _history = MutableStateFlow(TelemetryHistory())
         val history: StateFlow<TelemetryHistory> = _history.asStateFlow()
@@ -437,6 +465,7 @@ class BleScanService : Service() {
 
         fun resetForTest() {
             _snapshot.value = null
+            lastWidgetSequence = null
             _history.value = TelemetryHistory()
             historyStore = null
             historyLoadQueued = false
