@@ -127,7 +127,8 @@ struct PersistentState {
   // the registry lock.
   void applyConfig(const DeviceConfig& next, bool from_sd, const ConfigRejects& rejects) {
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
-      if (memcmp(config.slot_mac[i], next.slot_mac[i], DeviceConfig::MAC_BYTES) != 0) {
+      if (memcmp(config.slot_mac[i], next.slot_mac[i], DeviceConfig::MAC_BYTES) != 0 ||
+          (config.isSlotEnabled(i) && !next.isSlotEnabled(i))) {
         resetSlot(i);
       }
     }
@@ -136,6 +137,7 @@ struct PersistentState {
     config_rejects = rejects;
     registry.setAutoAssign(config.slot_auto_assign != 0);
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
+      registry.setSlotEnabled(i, config.isSlotEnabled(i));
       registry.setFixedMac(i, config.hasSlotMac(i) ? config.slot_mac[i] : nullptr);
     }
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
@@ -340,7 +342,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 62;
+  static constexpr uint8_t STATE_VERSION = 63;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -373,8 +375,8 @@ public:
   static constexpr size_t REJECTS_SIZE = 1 + ConfigRejects::MAX_LINES * 2;
   // The offset arrays keep one entry for each of the slots. Each slot has offset keys.
   // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
-  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, door ref slot, ventilate limit, sensor battery limit, display invert, climate alert tiles (uint16), battery offset (int16), slot release hours, night wake interval (uint16), temperature unit (one byte, 'C' or 'F'), chime repeat hours, heat alert limit, dry alert limit, wall FRSI percent, BLE broadcast enabled, BLE console, USB temperature offset (int8), RH gain and one RH gain for each slot (int8 in 0.002 steps around 1.00), RH offset (float), one temperature offset and one RH offset for each slot (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
-  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + (1 + DeviceConfig::SLOT_COUNT) + 2 * DeviceConfig::SLOT_COUNT * 4 + NAMES_SIZE + MACS_SIZE + 1 + REJECTS_SIZE;
+  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, door ref slot, ventilate limit, sensor battery limit, display invert, climate alert tiles (uint16), battery offset (int16), slot release hours, night wake interval (uint16), temperature unit (one byte, 'C' or 'F'), chime repeat hours, heat alert limit, dry alert limit, wall FRSI percent, BLE broadcast enabled, BLE console, USB temperature offset (int8), RH gain and one RH gain for each slot (int8 in 0.002 steps around 1.00), RH offset (float), one temperature offset and one RH offset for each slot (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), slot enabled mask (uint16), the rejected line count and the line numbers of the first four rejected lines (uint16 each).
+  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + (1 + DeviceConfig::SLOT_COUNT) + 2 * DeviceConfig::SLOT_COUNT * 4 + NAMES_SIZE + MACS_SIZE + 1 + 2 + REJECTS_SIZE;
   // Header: magic, version, mode, chart sensor, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -688,6 +690,8 @@ public:
     memcpy(out + pos, state.config.slot_mac, MACS_SIZE);
     pos += MACS_SIZE;
     out[pos++] = state.config_from_sd ? 1 : 0;
+    out[pos++] = static_cast<uint8_t>(state.config.slot_enabled_mask & 0xFF);
+    out[pos++] = static_cast<uint8_t>((state.config.slot_enabled_mask >> 8) & 0xFF);
     out[pos++] = state.config_rejects.count;
     for (size_t i = 0; i < ConfigRejects::MAX_LINES; ++i) {
       out[pos++] = static_cast<uint8_t>(state.config_rejects.lines[i] & 0xFF);
@@ -1052,6 +1056,8 @@ public:
     memcpy(s.config.slot_mac, data + pos, MACS_SIZE);
     pos += MACS_SIZE;
     const uint8_t config_flags = data[pos++];
+    s.config.slot_enabled_mask = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    pos += 2;
     s.config_rejects.count = data[pos++];
     for (size_t i = 0; i < ConfigRejects::MAX_LINES; ++i) {
       s.config_rejects.lines[i] = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
@@ -1127,6 +1133,10 @@ public:
     pos += USB_MASK_SIZE;
     s.registry.setAutoAssign(s.config.slot_auto_assign != 0);
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
+      if (!s.config.isSlotEnabled(i) && s.registry.slot(i).valid) {
+        return false; // disabled slot must not have a valid reading in consistent state
+      }
+      s.registry.setSlotEnabled(i, s.config.isSlotEnabled(i));
       s.registry.setFixedMac(i, s.config.hasSlotMac(i) ? s.config.slot_mac[i] : nullptr);
     }
     if (!s.registry.consistent()) {

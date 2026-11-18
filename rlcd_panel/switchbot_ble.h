@@ -250,6 +250,23 @@ public:
     return index < MAX_SWITCHBOT_SENSORS && fixed_[index];
   }
 
+  void setSlotEnabled(size_t index, bool enabled) {
+    if (index >= MAX_SWITCHBOT_SENSORS) {
+      return;
+    }
+    if (enabled) {
+      enabled_mask_ = static_cast<uint16_t>(enabled_mask_ | (1u << index));
+    } else {
+      enabled_mask_ = static_cast<uint16_t>(enabled_mask_ & ~(1u << index));
+      slots_[index] = SwitchBotReading{};
+      assigned_[index] = false;
+    }
+  }
+
+  bool isSlotEnabled(size_t index) const {
+    return index < MAX_SWITCHBOT_SENSORS && ((enabled_mask_ & (1u << index)) != 0);
+  }
+
   const uint8_t* fixedMac(size_t index) const {
     return isFixed(index) ? fixed_mac_[index] : nullptr;
   }
@@ -276,7 +293,7 @@ public:
   // no unfixed slot holds a MAC that another slot has fixed.
   bool consistent() const {
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
-      if (slots_[i].valid && !accepts(i, slots_[i].mac)) {
+      if (slots_[i].valid && (!isSlotEnabled(i) || !accepts(i, slots_[i].mac))) {
         return false;
       }
     }
@@ -292,7 +309,7 @@ public:
 
     // 1. Update existing sensor slot with matching MAC
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
-      if (slots_[i].valid && memcmp(slots_[i].mac, reading.mac, 6) == 0) {
+      if (isSlotEnabled(i) && slots_[i].valid && memcmp(slots_[i].mac, reading.mac, 6) == 0) {
         int8_t prev_battery = slots_[i].battery_pct;
         const uint32_t prev_count = slots_[i].packet_count;
         slots_[i] = reading;
@@ -307,7 +324,7 @@ public:
 
     // 2. A slot that is fixed to this MAC takes it, also when an earlier slot is free.
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
-      if (fixed_[i] && memcmp(fixed_mac_[i], reading.mac, 6) == 0) {
+      if (isSlotEnabled(i) && fixed_[i] && memcmp(fixed_mac_[i], reading.mac, 6) == 0) {
         slots_[i] = reading;
         slots_[i].format = format;
         slots_[i].packet_count = 1;
@@ -319,7 +336,7 @@ public:
     // 3. Allocate the first free unfixed slot, unless another slot has fixed this MAC.
     // With slot_auto_assign=0 only step 2 may take a new MAC.
     for (size_t i = 0; auto_assign_ && i < MAX_SWITCHBOT_SENSORS; ++i) {
-      if (!slots_[i].valid && accepts(i, reading.mac)) {
+      if (isSlotEnabled(i) && !slots_[i].valid && accepts(i, reading.mac)) {
         slots_[i] = reading;
         slots_[i].format = format;
         slots_[i].packet_count = 1;
@@ -430,6 +447,9 @@ private:
   // True when slot `index` may hold `mac`: its own fixed MAC only, or, without a fixed MAC, any MAC
   // that no other slot has fixed.
   bool accepts(size_t index, const uint8_t* mac) const {
+    if (!isSlotEnabled(index)) {
+      return false;
+    }
     if (fixed_[index]) {
       return memcmp(fixed_mac_[index], mac, 6) == 0;
     }
@@ -453,6 +473,7 @@ private:
   uint8_t fixed_mac_[MAX_SWITCHBOT_SENSORS][6] = {};
   BleRejectStats rejects_;
   bool auto_assign_ = true;
+  uint16_t enabled_mask_ = 0x03FF;
 };
 
 // Reception rate of each registry slot over the last 24 BLE scans. Bit 0 of a mask is the newest scan; a set
