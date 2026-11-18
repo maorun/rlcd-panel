@@ -164,9 +164,15 @@ public:
     return rising != 0 ? now_ms : last_ms;
   }
 
+  // Bits that the user acknowledged (ACK <N>) stay active but never repeat. A bit that went off is no longer
+  // acknowledged, so the next rise chimes again.
+  static uint8_t ackAfter(uint8_t ack, uint8_t mask) {
+    return static_cast<uint8_t>(ack & mask & ALERT_MASK_ALL);
+  }
+
   static Repeat repeat(bool muted, uint8_t mask, bool quiet, uint8_t chime_mask, uint8_t repeat_h,
-                       uint32_t last_ms, uint32_t now_ms) {
-    const uint8_t active = repeatableBits(mask);
+                       uint32_t last_ms, uint32_t now_ms, uint8_t ack_mask = ALERT_NONE) {
+    const uint8_t active = static_cast<uint8_t>(repeatableBits(mask) & ~ack_mask);
     if (repeat_h == 0) {
       return {ALERT_NONE, now_ms}; // off: the stamp follows the clock, so enabling the key never chimes at once
     }

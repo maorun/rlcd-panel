@@ -1023,6 +1023,7 @@ void applyAlertStep(const AlertEvaluator::Step& step) {
   g_state.last_chime_ms = AlertEvaluator::edgeStamp(
       g_state.alert_mask, step.mask, config().chime_alert_mask, g_state.last_chime_ms, nowMs());
   g_state.alert_mask = step.mask;
+  g_state.alert_ack = AlertEvaluator::ackAfter(g_state.alert_ack, step.mask); // a fallen alert loses its acknowledgement
   playChime(step.chime);
 }
 
@@ -1255,7 +1256,7 @@ void chimeOnChargeFull() {
 void chimeRepeat() {
   const AlertEvaluator::Repeat r = AlertEvaluator::repeat(
       g_state.muted, g_state.alert_mask, quietHours().isActive(g_rtc_time), config().chime_alert_mask,
-      config().chime_repeat_h, g_state.last_chime_ms, nowMs());
+      config().chime_repeat_h, g_state.last_chime_ms, nowMs(), g_state.alert_ack);
   g_state.last_chime_ms = r.stamp;
   playChime(r.chime);
 }
@@ -1477,6 +1478,7 @@ void setup() {
       snap.alert_mask = g_state.alert_mask;
       snap.sensor_battery_latch = g_state.sensor_battery_latch;
       snap.muted = g_state.muted;
+      snap.alert_ack = g_state.alert_ack;
       snap.now_ms = nowMs();
       snap.sd_status = g_state.sd_status;
       snap.sd_status_ms = g_state.sd_status_ms;
@@ -1539,6 +1541,13 @@ void setup() {
       if (g_state.muted != was_muted) {
         renderDashboard(); // the header mute marker shows the new state
       }
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::ACK) {
+      // RTC copy only, no card access; the save of this wake cycle writes the state.
+      RtcTime ack_now = g_rtc_time;
+      if (!g_rtc.readTime(ack_now)) {
+        ack_now = g_rtc_time;
+      }
+      Runner::ackReply(sink, g_state.acknowledgeAlert(command.reference, ack_now), command.reference);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SLOT_CLEAR) {
       // RTC copy only, no card access; the save of this wake cycle writes the state.
       RtcTime clear_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again (I2C, outside the lock)
