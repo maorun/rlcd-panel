@@ -21,14 +21,22 @@ object SlotConfig {
     }
 
     /**
-     * `SET slotN_mac=<MAC>` then `SET slotN_name=<NAME>` for a name that is not empty. The name is upper-cased. The
-     * firmware rejects an empty name (`ERR BAD_VALUE`), so an empty name leaves the stored name as it is.
+     * `SET slotN_mac=<MAC>` then `SET slotN_name=<NAME>`. The name is upper-cased. An empty MAC with a name sends the
+     * name only (`slotN_name` needs no fixed MAC) and first clears a stored fixed MAC. An empty MAC and an empty name
+     * clear the fixed MAC. An empty name with a MAC leaves the stored name as it is, because the firmware rejects an
+     * empty name (`ERR BAD_VALUE`).
      * [config] is the cached panel config for the duplicate check.
      */
     fun define(slot: Int, mac: String, name: String, config: PanelConfig): Plan {
         if (slot !in SlotAssignment.SLOTS) return Plan.Invalid("Slot $slot gibt es nicht")
         if (mac.isEmpty()) {
-            return if (name.isEmpty()) clear(slot) else Plan.Invalid("Ein Name braucht eine feste MAC")
+            if (name.isEmpty()) return clear(slot)
+            nameError(name)?.let { return Plan.Invalid(it) }
+            val nameCommand = "SET slot${slot}_name=${name.uppercase()}"
+            // An erased MAC field clears the fixed MAC that the slot holds.
+            return Plan.Commands(
+                if (config.slotMac(slot) != null) listOf("SET slot${slot}_mac=", nameCommand) else listOf(nameCommand)
+            )
         }
         if (!SlotAssignment.isValidMac(mac)) return Plan.Invalid("MAC: Format AA:BB:CC:DD:EE:FF")
         nameError(name)?.let { return Plan.Invalid(it) }

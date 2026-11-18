@@ -57,7 +57,7 @@ class SlotConfigTest {
         assertTrue(SlotConfig.define(1, "A4:C1:38", "A", empty) is SlotConfig.Plan.Invalid)
         assertTrue(SlotConfig.define(1, "00:00:00:00:00:00", "A", empty) is SlotConfig.Plan.Invalid)
         assertTrue(SlotConfig.define(11, mac, "A", empty) is SlotConfig.Plan.Invalid)
-        assertTrue(SlotConfig.define(1, "", "A", empty) is SlotConfig.Plan.Invalid)
+        assertTrue(SlotConfig.define(1, "", "A B", empty) is SlotConfig.Plan.Invalid)
         assertTrue(SlotConfig.clear(0) is SlotConfig.Plan.Invalid)
     }
 
@@ -74,5 +74,47 @@ class SlotConfigTest {
         assertNull(config.slotName(4))
         assertEquals(false, config.slotAutoAssign)
         assertEquals(true, empty.slotAutoAssign)
+    }
+
+    @Test
+    fun nameWithoutMacSetsNameOnly() {
+        assertEquals(listOf("SET slot1_name=KITCHEN"), commands(SlotConfig.define(1, "", "kitchen", empty)))
+    }
+
+    @Test
+    fun nameWithMacSetsBothCommands() {
+        assertEquals(
+            listOf("SET slot1_mac=A4:C1:38:11:22:33", "SET slot1_name=KITCHEN"),
+            commands(SlotConfig.define(1, mac, "kitchen", empty))
+        )
+    }
+
+    @Test
+    fun nameWithoutMacClearsAStoredFixedMac() {
+        val config = PanelConfig(mapOf("slot1_mac" to "A4:C1:38:11:22:33"))
+        assertEquals(
+            listOf("SET slot1_mac=", "SET slot1_name=KITCHEN"),
+            commands(SlotConfig.define(1, "", "kitchen", config))
+        )
+    }
+
+    @Test
+    fun invalidNameWithoutMacIsRejected() {
+        assertTrue(SlotConfig.define(1, "", "BAD NAME", empty) is SlotConfig.Plan.Invalid)
+        assertTrue(SlotConfig.define(1, "", "ABCDEFGHIJKLM", empty) is SlotConfig.Plan.Invalid)
+    }
+
+    @Test
+    fun emptyNameAndMacClearTheSlot() {
+        assertEquals(listOf("SET slot1_mac="), commands(SlotConfig.define(1, "", "", empty)))
+    }
+
+    @Test
+    fun canWriteOnlyForBleConsoleTwo() {
+        assertEquals(false, empty.canWrite)
+        assertEquals(0, empty.bleConsole)
+        assertEquals(false, PanelConfig(mapOf("ble_console" to "1")).canWrite)
+        assertEquals(true, PanelConfig(mapOf("ble_console" to " 2 ")).canWrite)
+        assertEquals(false, PanelConfig(mapOf("ble_console" to "x")).canWrite)
     }
 }
