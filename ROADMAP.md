@@ -25,12 +25,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] 24-hour telemetry history and CSV share in the Android app
-  - Rank: [Total: 26, Use: 8, Setup: 2, Harmony: 7, Safety: 9, Effort: M]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TelemetryHistory.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/HistoryScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/main/AndroidManifest.xml, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/TelemetryHistoryTest.kt
-  - Goal: The phone app shows only the last frame. The macOS app has `TelemetryLog` and `CsvExport`. Add `TelemetryHistory`: one row for each frame with a new sequence number (receive time, sequence, cell percentage, alert mask, the tiles in Celsius); a frame with the sequence of the last row adds no row; the history keeps 7 days or 20,000 rows, oldest out first. `TelemetryHistoryStore` writes `telemetry.json` in `filesDir` at most once a minute through `telemetry.json.tmp` and a rename, and a missing or corrupt file gives an empty history. `HistoryScreen` draws a 24-hour temperature chart and humidity chart for each tile with Compose `Canvas` (gaps for missing values) and has a `Share CSV` button. The button sends the CSV text (header line, Celsius values, empty fields for missing values, the same columns as `CsvExport.swift`) with an `ACTION_SEND` intent. The history records only while the app scans, as the scanner does now.
-  - Acceptance test: `TelemetryHistoryTest` asserts one row for two frames with the same sequence, the age limit of 7 days, the row limit of 20,000, a round trip through the JSON text, an empty history for a corrupt text, the CSV header and a row with an empty field for a stale tile, and the points of the 24-hour window. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

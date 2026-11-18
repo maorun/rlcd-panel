@@ -20,7 +20,11 @@ import androidx.core.content.ContextCompat
 import com.rlcdpanel.phone.protocol.AlertMask
 import com.rlcdpanel.phone.protocol.AlertTransitions
 import com.rlcdpanel.phone.protocol.TelemetryFrame
+import com.rlcdpanel.phone.protocol.TelemetryHistory
+import com.rlcdpanel.phone.protocol.TelemetryHistoryStore
+import java.io.File
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 
@@ -47,6 +51,16 @@ class BleScanService : Service() {
         super.onCreate()
         instance = this
         createNotificationChannels()
+        val store = TelemetryHistoryStore(File(filesDir, TelemetryHistoryStore.FILE_NAME))
+        historyStore = store
+        if (!historyLoadQueued) {
+            historyLoadQueued = true
+            // Parse on the writer thread. Rows that arrive meanwhile merge with the stored rows.
+            historyWriter.execute {
+                val stored = store.load()
+                _history.update { current -> mergeHistory(stored, current) }
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -159,11 +173,27 @@ class BleScanService : Service() {
         val transition = computeTransition(_snapshot.value, incoming)
         _snapshot.value = transition.snapshot
         _statusMessage.value = transition.statusMessage
+        recordHistory(incoming.frame, incoming.receivedAtMillis)
 
         if (!transition.risingAlerts.isEmpty) {
             vibrateAlert()
             postAlertNotification(transition.risingAlerts.names.joinToString(", "))
         }
+    }
+
+    private fun recordHistory(frame: TelemetryFrame, receivedAtMillis: Long) {
+        // Only page 0 holds the tiles 0 to 5 of the CSV columns. A page 1 frame holds the slots 6 to 10.
+        if (!shouldRecord(frame)) return
+        // A duplicate sequence returns the same object. The load merge may change the value meanwhile, so retry.
+        var updated: TelemetryHistory
+        while (true) {
+            val before = _history.value
+            updated = before.addFrame(frame, receivedAtMillis)
+            if (updated === before) return
+            if (_history.compareAndSet(before, updated)) break
+        }
+        val store = historyStore ?: return
+        historyWriter.execute { saveLatest(store, _history, receivedAtMillis, throttled = true) }
     }
 
     private fun createNotificationChannels() {
@@ -271,6 +301,9 @@ class BleScanService : Service() {
     }
 
     override fun onDestroy() {
+        historyStore?.let { store ->
+            historyWriter.execute { saveLatest(store, _history, System.currentTimeMillis(), throttled = false) }
+        }
         if (instance === this) {
             instance = null
         }
@@ -283,6 +316,13 @@ class BleScanService : Service() {
     companion object {
         private var instance: BleScanService? = null
         private var pendingStop: Boolean = false
+        private var historyStore: TelemetryHistoryStore? = null
+        private var historyLoadQueued = false
+        // One thread writes the file, so the main thread never waits for the disk and writes stay in order.
+        private val historyWriter = java.util.concurrent.Executors.newSingleThreadExecutor()
+
+        private val _history = MutableStateFlow(TelemetryHistory())
+        val history: StateFlow<TelemetryHistory> = _history.asStateFlow()
 
         private val _snapshot = MutableStateFlow<TelemetrySnapshot?>(null)
         val snapshot: StateFlow<TelemetrySnapshot?> = _snapshot.asStateFlow()
@@ -300,6 +340,30 @@ class BleScanService : Service() {
         const val SERVICE_CHANNEL_ID = "rlcd_scan_service_channel"
         const val ALERT_CHANNEL_ID = "rlcd_ventilation_channel"
         const val FOREGROUND_NOTIFICATION_TEXT = "Telemetrieempfang aktiv"
+
+        /** Only page 0 holds the tiles 0 to 5 of the CSV columns. A page 1 frame holds the slots 6 to 10. */
+        fun shouldRecord(frame: TelemetryFrame): Boolean = frame.page == 0
+
+        /**
+         * Saves the value that the flow holds when the writer thread runs. The writer thread runs a queued
+         * load merge first, so a save never writes a history without the stored rows.
+         */
+        fun saveLatest(
+            store: TelemetryHistoryStore,
+            history: StateFlow<TelemetryHistory>,
+            nowMillis: Long,
+            throttled: Boolean
+        ) {
+            val latest = history.value
+            if (throttled) store.saveThrottled(latest, nowMillis) else store.save(latest, nowMillis)
+        }
+
+        /** Rows of the file first, then the rows that arrived while the file loaded. */
+        fun mergeHistory(stored: TelemetryHistory, live: TelemetryHistory): TelemetryHistory {
+            var merged = stored
+            for (r in live.rows) merged = merged.add(r)
+            return merged
+        }
 
         fun computeTransition(
             current: TelemetrySnapshot?,
@@ -373,6 +437,9 @@ class BleScanService : Service() {
 
         fun resetForTest() {
             _snapshot.value = null
+            _history.value = TelemetryHistory()
+            historyStore = null
+            historyLoadQueued = false
             _isScanning.value = false
             _statusMessage.value = "Bereit"
             instance = null

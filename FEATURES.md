@@ -1537,3 +1537,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `BleScanService` writes the cache, so the tile stays current while the app is closed. A stale frame shows `--` at the next refresh, up to 15 minutes after the 35 minute limit.
 - A tap opens `MainActivity`. The tile asks for a refresh every 15 minutes; a new cache entry requests an update at once.
 - `TelemetryCacheTest` covers the round trip of a fixture vector, an empty cache, bad hex, bad CRC-8, the 35 minute limit and the alert names. No firmware change.
+
+## 24-hour telemetry history and CSV share in the Android app
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TelemetryHistory.kt`, `HistoryScreen.kt`, `BleScanService.kt`, `MainActivity.kt`, `PhoneDashboardScreen.kt`.
+- `TelemetryHistory` adds one `HistoryRow` for each frame with a new sequence number: receive time, sequence, cell percentage, alert mask and 6 tiles in Celsius. A frame with the sequence of the last row adds no row. The history keeps 7 days (measured from the newest row) or 20,000 rows, oldest out first.
+- `BleScanService` records only page 0 frames (`shouldRecord`), because page 1 holds the slots 6 to 10. The history records only while the app scans.
+- `TelemetryHistoryStore` writes `telemetry.json` in `filesDir` through `telemetry.json.tmp` and a rename, at most once a minute (`saveThrottled`). A single writer thread runs the load, the merge with live rows and each save (`saveLatest` reads the value when the task runs). `onDestroy` saves at once. A missing or corrupt file, or a wrong version, gives an empty history. A load drops rows older than 7 days and sorts the rows.
+- `HistoryScreen` (button `Verlauf 24 h` on the dashboard, `BackHandler` in `MainActivity`) draws a 24-hour temperature chart and humidity chart for each tile with Compose `Canvas`. A missing value or a pause above 30 minutes breaks the line. A flat curve sits in the middle of the box. The points are computed once a minute.
+- `Share CSV` sends the text with `ACTION_SEND` (`text/plain`). The columns match `CsvExport.telemetry` of the macOS app (`time,sequence,cell_pct,alerts,t0_c,rh0_pct` to `t5_c,rh5_pct`; ISO-8601 UTC time; 2 and 1 decimals; empty field for a missing value). The text holds the newest 1,500 rows (`HistoryScreenText.SHARE_MAX_ROWS`), and the screen states this cap.
+- No `config.ini` key and no firmware change.
+- Tests: `TelemetryHistoryTest` (duplicate sequence, age limit, row limit, JSON round trip, corrupt JSON, CSV header and row, 24-hour window, chart gaps, store throttle, page filter, load merge). CI job `Android phone companion tests and APK` runs them.
