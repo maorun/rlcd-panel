@@ -1800,7 +1800,7 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `EventsReply.parse` follows `EventsReply.parse` of `Replies.swift`: `BEGIN EVENTS`, header `time,event,detail`, rows with 3 columns and an integer detail. A bad line, a missing header or a row with another column count throws `ParseException`. An `EVENTS_DROPPED` row gives `EventsLog.dropped` and is no row.
 - `EventText.describe` is a port of the macOS `EventText`. It gives the same texts for the event codes 1 to 15 and the raw text `<event>,<detail>` for an unknown event or a detail outside the range. `EventText.isAbnormal` marks an abnormal `RESET`; the screen shows it in the error colour.
 - A failed CRC-32, a timeout or an `ERR` reply gives one error text through `BleConsoleClient.errorText`. The command is not repeated. A read that `onStop` aborts shows `Abgebrochen. Erneut lesen.`
-- `tests/fixtures/events_reply_sample.txt` holds 13 rows and the `CRC32` line. `EventsReplyTest`, `EventTextTest` and the macOS `EventTextTests.sharedEventsFixtureGivesTheTexts` read it.
+- `tests/fixtures/events_reply_sample.txt` holds 15 rows and the `CRC32` line. `EventsReplyTest`, `EventTextTest` and the macOS `EventTextTests.sharedEventsFixtureGivesTheTexts` read it.
 - The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`. `swift test` and `scripts/check-protocol-sync.sh` pass locally.
 
 ## Rejected packet list over the BLE console in the Android app
@@ -1853,3 +1853,9 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `BleScanService` creates one `SilenceWatch` when the scan starts and calls `check()` once each minute on the main looper. No scan setting changes.
 - `SILENT` posts the notification `Panel silent since <HH:mm>` (time of the last frame, id 902) on the channel `rlcd_silence_channel` without vibration. `BACK` cancels it. A stop of the scan cancels it too.
 - `SilenceWatchTest` covers `SILENT` at 35 min plus 1 s, no second `SILENT` at 60 min, `BACK` once, a new `SILENT` after `BACK`, no report without a frame and a clock that runs back.
+
+## Power source event texts in the Android app
+
+- `EventText.describe` of the Android app has the case `POWER_SOURCE` (`EventCode` 15). Detail 1 gives `USB power connected`, detail 0 gives `Battery power`, the same texts as the macOS `EventText`. Each other detail gives the raw text `POWER_SOURCE,<detail>`.
+- `tests/fixtures/events_reply_sample.txt` holds two `POWER_SOURCE` rows (detail 1 and detail 0) before the `FUTURE_EVENT` row and a new `CRC32` line.
+- `EventTextTest` asserts the three texts. `EventsReplyTest` asserts 14 rows and the valid fixture CRC-32. The macOS `EventTextTests.sharedEventsFixtureGivesTheTexts` asserts the two texts.

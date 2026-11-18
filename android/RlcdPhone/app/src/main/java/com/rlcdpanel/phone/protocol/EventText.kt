@@ -96,6 +96,11 @@ object EventText {
                 else if (key == null) "Config set: key #$index"
                 else "Config set: $key (${if (transport == 0) "USB" else "BLE"})"
             }
+            "POWER_SOURCE" -> when (d) {
+                1 -> "USB power connected"
+                0 -> "Battery power"
+                else -> raw
+            }
             "SD_FAULT" -> SD_STATUSES[d]?.let { if (d == 1) "SD card OK" else "SD card fault: $it" } ?: raw
             else -> raw
         }

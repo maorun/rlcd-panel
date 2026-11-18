@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Power source event texts in the Android app
-  - Rank: [Total: 31, Use: 5, Setup: 7, Harmony: 9, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/EventText.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/EventTextTest.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/EventsReplyTest.kt, tests/fixtures/events_reply_sample.txt, macos/RlcdCompanion/Tests/RlcdProtocolTests/EventTextTests.swift
-  - Goal: The firmware records `EventCode::POWER_SOURCE` 15, and the macOS `EventText` shows it. The Android `EventText.describe` has no case for `POWER_SOURCE`, so the event log screen shows the raw text `POWER_SOURCE,1`. Add the case `POWER_SOURCE` to `EventText.describe`. Give `USB power connected` for detail 1 and `Battery power` for detail 0, the same texts as `EventText.swift`. Give the raw text `<event>,<detail>` for each other detail. Add two `POWER_SOURCE` rows (detail 1 and detail 0) to `tests/fixtures/events_reply_sample.txt` before the `FUTURE_EVENT` row and calculate the `CRC32` line again.
-  - Acceptance test: In `EventTextTest`, assert `USB power connected` for detail 1, `Battery power` for detail 0 and `POWER_SOURCE,2` for detail 2. In `EventsReplyTest`, assert the new row count and that the fixture CRC-32 is correct. In the macOS `EventTextTests`, read the same fixture and assert the same two texts. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` and `swift test` in `macos/RlcdCompanion`.
-
 - [ ] Panel clock read and sync in the Android app
   - Rank: [Total: 31, Use: 6, Setup: 8, Harmony: 9, Safety: 8, Effort: M]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/PanelClock.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/PanelClockTest.kt

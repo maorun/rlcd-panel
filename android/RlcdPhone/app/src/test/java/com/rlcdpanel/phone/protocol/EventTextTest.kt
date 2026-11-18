@@ -30,6 +30,13 @@ class EventTextTest {
     }
 
     @Test
+    fun powerSourceGivesUsbAndBattery() {
+        assertEquals("USB power connected", EventText.describe(row("POWER_SOURCE", 1)))
+        assertEquals("Battery power", EventText.describe(row("POWER_SOURCE", 0)))
+        assertEquals("POWER_SOURCE,2", EventText.describe(row("POWER_SOURCE", 2)))
+    }
+
+    @Test
     fun sdFaultGivesStatusText() {
         assertEquals("SD card fault: NO_CARD", EventText.describe(row("SD_FAULT", 2)))
         assertEquals("SD card OK", EventText.describe(row("SD_FAULT", 1)))
