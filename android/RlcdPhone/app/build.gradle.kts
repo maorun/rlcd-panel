@@ -4,6 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+val appVersionCode = (project.findProperty("versionCode") as? String)?.toIntOrNull() ?: 1
+val appVersionName = (project.findProperty("versionName") as? String) ?: "1.0.0"
+
 android {
     namespace = "com.rlcdpanel.phone"
     compileSdk = 34
@@ -12,8 +15,8 @@ android {
         applicationId = "com.rlcdpanel.phone"
         minSdk = 26
         targetSdk = 34
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = appVersionCode
+        versionName = appVersionName
     }
 
     signingConfigs {
