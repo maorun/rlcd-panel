@@ -90,6 +90,7 @@ fun PhoneDashboardScreen(
     onOpenSensorHealth: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
     onOpenWeek: () -> Unit = {},
+    onOpenEvents: () -> Unit = {},
     /** Protocol source badge of each tile index, from the last sensor health read; tile 0 is always the onboard sensor. */
     sourceBadges: Map<Int, String> = emptyMap(),
     outdoorLocation: OutdoorLocation = OutdoorLocation(),
@@ -121,7 +122,8 @@ fun PhoneDashboardScreen(
                         onToggleScan = onToggleScan,
                         onOpenSensorHealth = onOpenSensorHealth,
                         onOpenHistory = onOpenHistory,
-                        onOpenWeek = onOpenWeek
+                        onOpenWeek = onOpenWeek,
+                        onOpenEvents = onOpenEvents
                     )
                 }
 
@@ -196,7 +198,8 @@ private fun StatusHeader(
     onToggleScan: () -> Unit,
     onOpenSensorHealth: () -> Unit,
     onOpenHistory: () -> Unit,
-    onOpenWeek: () -> Unit
+    onOpenWeek: () -> Unit,
+    onOpenEvents: () -> Unit
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -256,6 +259,14 @@ private fun StatusHeader(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F), contentColor = Color.White)
             ) {
                 Text("Wochenverlauf 7 Tage")
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Button(
+                onClick = onOpenEvents,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F), contentColor = Color.White)
+            ) {
+                Text("Ereignisse")
             }
         }
     }

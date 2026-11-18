@@ -1791,3 +1791,13 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - A page 1 frame merges into the stored snapshot and sets the receive time, so the age text then describes the newest page (same limit as the dashboard).
 - Tests: `ClimateWidgetModelTest` reads `tests/fixtures/ble_telemetry_vectors.txt` and covers the four rows, the names, the alert names, `--` for an empty store and for a frame of 36 minutes, the `STALE` and `BAT LOW` badges, the same sequence number and the store round trip.
 - Validation: `check-protocol-sync.sh` passes (the protocol files did not change). The local machine has no Android SDK, so `gradle testDebugUnitTest assembleDebug` did not run locally. CI runs it.
+
+## Event log screen over the BLE console in the Android app
+
+- **Code:** `android/RlcdPhone/.../protocol/EventsReply.kt`, `EventText.kt`, `EventLogScreen.kt`, `MainActivity.kt`, `PhoneDashboardScreen.kt`, `tests/fixtures/events_reply_sample.txt`.
+- The phone could not read the event ring of the panel. The `Ereignisse` button now sends `EVENTS` over the BLE console after a tap and shows the rows newest first.
+- `EventsReply.parse` follows `EventsReply.parse` of `Replies.swift`: `BEGIN EVENTS`, header `time,event,detail`, rows with 3 columns and an integer detail. A bad line, a missing header or a row with another column count throws `ParseException`. An `EVENTS_DROPPED` row gives `EventsLog.dropped` and is no row.
+- `EventText.describe` is a port of the macOS `EventText`. It gives the same texts for the event codes 1 to 15 and the raw text `<event>,<detail>` for an unknown event or a detail outside the range. `EventText.isAbnormal` marks an abnormal `RESET`; the screen shows it in the error colour.
+- A failed CRC-32, a timeout or an `ERR` reply gives one error text through `BleConsoleClient.errorText`. The command is not repeated. A read that `onStop` aborts shows `Abgebrochen. Erneut lesen.`
+- `tests/fixtures/events_reply_sample.txt` holds 13 rows and the `CRC32` line. `EventsReplyTest`, `EventTextTest` and the macOS `EventTextTests.sharedEventsFixtureGivesTheTexts` read it.
+- The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`. `swift test` and `scripts/check-protocol-sync.sh` pass locally.
