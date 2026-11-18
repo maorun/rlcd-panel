@@ -1688,3 +1688,12 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - The manifest requests `BLUETOOTH_CONNECT`. `MainActivity` asks for it with `BLUETOOTH_SCAN` on SDK 31 and later before the first read.
 - Validation: `./scripts/check-protocol-sync.sh` and `--self-test` pass. `ConsoleWireTest` covers the chunks for MTU 23 and 185, the names of `tests/fixtures/config_reply_sample.txt` and a bad CRC-32 that keeps the old cache.
 - The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.
+
+## Monthly alert statistics in the macOS app
+
+- `AlertStats.load(from:)` (`AlertStats.swift`, `RlcdProtocol`) reads each `events_*` file of the archive folder (local files only, no console command). It parses a file with `EventsReply.parse(file:)` and joins the rows of all good files in name order. `AlertTimeline.build(rows:now:)` then builds the intervals.
+- `AlertStats.build(intervals:)` splits an interval at each month boundary (Mac time zone). For each alert and each month `AlertMonthStat` holds `rises` (intervals with a known start that begin in the month), `hours` (the part of those intervals in the month) and `unknownStarts`. An interval with `startUnknown` counts only in `unknownStarts`, so a guessed start does not add to the hours. An interval from 31 January 23:00 to 1 February 01:00 gives 1 hour in each month and 1 rise in January.
+- A file with a bad name (`LogArchive.isValidName`), a size above `ReplyAssembler.maxFileBytes`, an unreadable text or a bad line goes to `AlertStatsResult.skippedFiles`. The other files still count.
+- `AlertStatsView` shows a Swift Charts bar chart of the active hours for each month, grouped by alert, with the rises as bar labels. The `Show alert statistics` button of `ArchiveView` fills `AppModel.alertStats`; a new archive folder clears it.
+- `AlertStatsTests` write event files to a temporary folder and assert the counts and hours for each month, the month split, the `startUnknown` count after an `EVENTS_DROPPED` row and the skipped corrupt file.
+- Validation: `swift build -c release` passes. `swift test` cannot run on the local Command Line Tools (no Testing macros); a `swiftc` harness with the same assertions passed, and the CI job `macOS companion tests` runs the suite.

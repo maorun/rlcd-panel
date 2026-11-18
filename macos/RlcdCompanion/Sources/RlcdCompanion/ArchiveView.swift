@@ -20,6 +20,8 @@ struct ArchiveView: View {
                         .disabled(model.archiveFolder == nil)
                     Button("Show climate charts") { model.showClimateCharts() }
                         .disabled(model.archiveFolder == nil)
+                    Button("Show alert statistics") { model.alertStats = model.archiveFolder.map { AlertStats.load(from: $0) } }
+                        .disabled(model.archiveFolder == nil)
                     Button("Open events file") { openEventsFile() }
                     Button("Select new files") { model.selectNewArchiveFiles() }
                         .disabled(model.archiveFolder == nil || model.archiveFiles.isEmpty)
@@ -46,6 +48,7 @@ struct ArchiveView: View {
                 }
                 if let summary = model.archiveSummary { Text(summary).font(.caption).foregroundStyle(.secondary) }
                 if let daily = model.dailyFolder { DailyChartView(folder: daily, limits: ChartLimits.from(config: model.lastConfig)) }
+                if let stats = model.alertStats { AlertStatsView(result: stats) }
                 if model.climateData != nil { ClimateChartView(model: model) }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -81,6 +84,7 @@ struct ArchiveView: View {
         if panel.runModal() == .OK {
             model.archiveFolder = panel.url
             model.dailyFolder = nil
+            model.alertStats = nil
             model.hideClimateCharts()
             model.selectNewArchiveFiles() // the plan depends on the local copies in the folder
         }
