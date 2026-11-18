@@ -27,6 +27,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.rlcdpanel.watch.complication.ClimateComplicationService
 import com.rlcdpanel.watch.console.BleConsoleClient
+import com.rlcdpanel.watch.protocol.ChimeCommand
 import com.rlcdpanel.watch.protocol.AlertTransitions
 import com.rlcdpanel.watch.protocol.ConfigCache
 import com.rlcdpanel.watch.protocol.ParseException
@@ -220,7 +221,8 @@ class MainActivity : ComponentActivity() {
                 BackHandler { showSensorHealth = false }
                 SensorHealthScreen(
                     state = healthState,
-                    onRead = { readSensorHealth() }
+                    onRead = { readSensorHealth() },
+                    onSetMute = { setMute(it) }
                 )
                 return@setContent
             }
@@ -276,7 +278,7 @@ class MainActivity : ComponentActivity() {
         consoleClient.cancel()
         isReadingConfig = false
         // An open permission dialog keeps pendingHealthRead, so its result still starts the tapped STATUS read.
-        healthState = healthState.copy(isReading = false)
+        healthState = healthState.copy(isReading = false, isMuting = false)
         // Background scanning continues in BleScanService.
         super.onStop()
     }
@@ -407,6 +409,37 @@ class MainActivity : ComponentActivity() {
             } catch (e: Exception) {
                 val reason = if (reply is ConsoleReply.Frame) "Antwort nicht lesbar" else BleConsoleClient.errorText(reply)
                 healthState.copy(isReading = false, message = reason)
+            }
+        }
+    }
+
+    /**
+     * Sends `MUTE <0|1>`, then `STATUS`. The toggle follows the `STATUS` reply only; a failed command
+     * keeps the old state and is not retried.
+     */
+    private fun setMute(on: Boolean) {
+        if (healthState.isReading || healthState.isMuting || isReadingConfig || consoleClient.isRunning) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
+        ) {
+            healthState = healthState.copy(message = "Bluetooth-Berechtigung fehlt")
+            return
+        }
+        healthState = healthState.copy(isMuting = true, message = null)
+        consoleClient.send(ChimeCommand.mute(on)) { reply ->
+            val failure = ChimeCommand.failureText(reply) { SensorHealthText.muteFallback(it) }
+            if (failure != null) {
+                healthState = healthState.copy(isMuting = false, message = failure)
+            } else {
+                consoleClient.send(ChimeCommand.STATUS) { status ->
+                    healthState = try {
+                        SensorHealthState(status = StatusReply.parseReply(status))
+                    } catch (e: Exception) {
+                        val reason = if (status is ConsoleReply.Frame) "Antwort nicht lesbar" else SensorHealthText.muteFallback(status)
+                        healthState.copy(isMuting = false, message = "Mute gesendet, Stand unbestätigt. $reason")
+                    }
+                }
             }
         }
     }

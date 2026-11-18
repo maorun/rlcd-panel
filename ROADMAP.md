@@ -21,11 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Mute toggle in the Wear OS app
-  - Rank: [Total: 29, Use: 7, Setup: 4, Harmony: 9, Safety: 9, Effort: M]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ChimeCommand.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ChimeCommandTest.kt, scripts/check-protocol-sync.sh
-  - Goal: The watch shows the `muted=<0|1>` field of `StatusReply`, but the user cannot mute the panel chime from the wrist, for example at night. Copy `ChimeCommand.kt` of the Android app into the Wear OS protocol package and add `ChimeCommand.kt` to `FILES` of `scripts/check-protocol-sync.sh`. Add one toggle to `SensorHealthScreen`. A tap sends `MUTE 1` or `MUTE 0` through `BleConsoleClient.send`, then `STATUS`, and shows the new state from the reply. Show `ERR READ_ONLY` as `Set ble_console=2 to apply` and a timeout as `Panel not in range`. Do not change the toggle before the panel replies. Do not retry a failed command.
-  - Acceptance test: Run `./scripts/check-protocol-sync.sh` and assert exit 0. In `ChimeCommandTest`, assert `MUTE 1`, `MUTE 0` and the texts of `OK MUTE 1`, `ERR READ_ONLY` and a timeout. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`.
 
 ## Priority 3: Display and Logging (Score 22–27)
 

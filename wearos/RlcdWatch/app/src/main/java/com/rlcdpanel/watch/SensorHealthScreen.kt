@@ -18,14 +18,20 @@ import androidx.wear.compose.foundation.lazy.items
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.Card
 import androidx.wear.compose.material.Chip
+import androidx.wear.compose.material.Icon
+import androidx.wear.compose.material.ToggleChip
+import androidx.wear.compose.material.ToggleChipDefaults
 import androidx.wear.compose.material.ChipDefaults
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.PositionIndicator
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
+import com.rlcdpanel.watch.console.BleConsoleClient
+import com.rlcdpanel.watch.protocol.ConsoleReply
 import com.rlcdpanel.watch.protocol.NtpState
 import com.rlcdpanel.watch.protocol.ReceptionRate
+import com.rlcdpanel.watch.protocol.ReplyError
 import com.rlcdpanel.watch.protocol.StatusReply
 import com.rlcdpanel.watch.protocol.StatusSensor
 
@@ -34,6 +40,7 @@ import com.rlcdpanel.watch.protocol.StatusSensor
  */
 data class SensorHealthState(
     val isReading: Boolean = false,
+    val isMuting: Boolean = false,
     val status: StatusReply? = null,
     val message: String? = null
 )
@@ -48,6 +55,11 @@ object SensorHealthText {
     fun isRateWeak(rate: ReceptionRate?): Boolean = rate?.isWeak == true
     fun ntp(ntp: NtpState?): String? = ntp?.let { "Uhr-Sync ${if (it.ok) "ok" else "Fehler"}, ${it.failures} Fehlversuche" }
 
+    /** Text of a failed `MUTE` or `STATUS` reply that `ChimeCommand.failureText` does not word itself. */
+    fun muteFallback(reply: ConsoleReply): String =
+        if (reply is ConsoleReply.Corrupt && reply.error == ReplyError.Timeout) "Panel not in range"
+        else BleConsoleClient.errorText(reply)
+
     /** Reception rate of the slot of a `SENSOR` line; slot 0 is the onboard sensor and has none; slots 1 to 10 are possible. */
     fun rateOf(status: StatusReply, sensor: StatusSensor): ReceptionRate? =
         if (sensor.index in 1..10) status.reception?.getOrNull(sensor.index - 1) else null
@@ -56,7 +68,8 @@ object SensorHealthText {
 @Composable
 fun SensorHealthScreen(
     state: SensorHealthState,
-    onRead: () -> Unit
+    onRead: () -> Unit,
+    onSetMute: (Boolean) -> Unit = {}
 ) {
     val listState = rememberScalingLazyListState()
     MaterialTheme {
@@ -99,6 +112,24 @@ fun SensorHealthScreen(
                             color = Color(0xFFB0BEC5),
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    }
+                }
+                val muted = status?.muted
+                if (muted != null) {
+                    item {
+                        ToggleChip(
+                            checked = muted,
+                            onCheckedChange = { onSetMute(!muted) },
+                            enabled = !state.isReading && !state.isMuting,
+                            modifier = Modifier.fillMaxWidth(0.85f),
+                            label = { Text(if (state.isMuting) "Sende ..." else "Panel stumm", fontSize = 12.sp, maxLines = 1) },
+                            toggleControl = {
+                                Icon(
+                                    imageVector = ToggleChipDefaults.switchIcon(checked = muted),
+                                    contentDescription = if (muted) "an" else "aus"
+                                )
+                            }
                         )
                     }
                 }
