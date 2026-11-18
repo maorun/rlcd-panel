@@ -222,7 +222,7 @@ struct BleRejectStats {
 
 // Reason why the registry rejected a packet. NONE marks an unused RejectLog entry. SLOT_OFF is the reason
 // "DISABLED" in the REJECTS reply; the Arduino core defines the macro DISABLED, so the enum cannot use the name.
-enum class RejectReason : uint8_t { NONE = 0, FULL = 1, UNASSIGNED = 2, SLOT_OFF = 3, JUMP = 4 };
+enum class RejectReason : uint8_t { NONE = 0, FULL = 1, UNASSIGNED = 2, SLOT_OFF = 3, JUMP = 4, WEAK = 5 };
 
 // The MACs of the rejected packets of the current scan with the reason. Each MAC has one entry; a further
 // packet of the MAC raises the count (saturates at 255) and keeps the first reason. A ninth MAC raises
@@ -284,7 +284,7 @@ struct RejectLog {
     out[pos] = dropped;
   }
 
-  // Rejects a reason above JUMP, a format outside the known ones, a used entry with count 0, an unused
+  // Rejects a reason above WEAK, a format outside the known ones, a used entry with count 0, an unused
   // entry with other bytes, a used entry after an unused one, a repeated MAC and `dropped` while an entry is free.
   bool restore(const uint8_t* data) {
     RejectLog next;
@@ -294,7 +294,7 @@ struct RejectLog {
       const uint8_t format = e[6];
       const uint8_t reason = e[7];
       const uint8_t count = e[8];
-      if (reason > static_cast<uint8_t>(RejectReason::JUMP)) {
+      if (reason > static_cast<uint8_t>(RejectReason::WEAK)) {
         return false;
       }
       if (reason == 0) {
@@ -389,6 +389,16 @@ public:
 
   bool autoAssign() const {
     return auto_assign_;
+  }
+
+  // A new MAC with an RSSI below this value (dBm) gets no free slot in step 3 and counts as WEAK.
+  // 0 is off. Updates of a slot that holds the MAC and fixed MAC slots ignore it.
+  void setMinAssignRssi(int8_t dbm) {
+    min_assign_rssi_ = dbm;
+  }
+
+  int8_t minAssignRssi() const {
+    return min_assign_rssi_;
   }
 
   bool isFixed(size_t index) const {
@@ -509,7 +519,8 @@ public:
 
     // 3. Allocate the first free unfixed slot, unless another slot has fixed this MAC.
     // With slot_auto_assign=0 only step 2 may take a new MAC.
-    for (size_t i = 0; auto_assign_ && i < MAX_SWITCHBOT_SENSORS; ++i) {
+    const bool weak = auto_assign_ && min_assign_rssi_ != 0 && reading.rssi < min_assign_rssi_;
+    for (size_t i = 0; auto_assign_ && !weak && i < MAX_SWITCHBOT_SENSORS; ++i) {
       if (isSlotEnabled(i) && !slots_[i].valid && accepts(i, reading.mac)) {
         slots_[i] = reading;
         slots_[i].format = format;
@@ -527,6 +538,9 @@ public:
       ++rejects_.unassigned;
     }
     RejectReason reason = auto_assign_ ? RejectReason::FULL : RejectReason::UNASSIGNED;
+    if (weak && hasFreeUnfixedSlot(reading.mac)) {
+      reason = RejectReason::WEAK;
+    }
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       if (!isSlotEnabled(i) && fixed_[i] && memcmp(fixed_mac_[i], reading.mac, 6) == 0) {
         reason = RejectReason::SLOT_OFF;
@@ -648,6 +662,16 @@ private:
     return true;
   }
 
+  // True when step 3 of upsert would give `mac` a slot without the RSSI limit.
+  bool hasFreeUnfixedSlot(const uint8_t* mac) const {
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (isSlotEnabled(i) && !slots_[i].valid && accepts(i, mac)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   void countJump(size_t index) {
     if (rejects_.jumps < UINT16_MAX) {
       ++rejects_.jumps;
@@ -670,6 +694,7 @@ private:
   BleRejectStats rejects_;
   RejectLog reject_log_;
   bool auto_assign_ = true;
+  int8_t min_assign_rssi_ = 0;
   uint16_t enabled_mask_ = 0x03FF;
 };
 

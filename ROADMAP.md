@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Minimum signal strength for the automatic slot assignment
-  - Rank: [Total: 31, Use: 6, Setup: 9, Harmony: 8, Safety: 8, Effort: M]
-  - Location: rlcd_panel/device_config.h, rlcd_panel/switchbot_ble.h, rlcd_panel/power_manager.h, rlcd_panel/rlcd_panel.ino, docs/config.example.ini, macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ConfigSchemaTests.swift, tests/test_firmware_logic.cpp
-  - Goal: With `slot_auto_assign=1` a sensor of a neighbor can take a free slot. `slot_auto_assign=0` blocks each new sensor, also a sensor of the user. Add the `config.ini` key `auto_assign_min_rssi` (0 is off, else -100 to -40 dBm, default 0). Store it as 1 byte `int8` at the end of the config trailer. Increase `KEY_COUNT` by one. Make `SwitchBotRegistry::upsert` reject a new MAC with a weaker RSSI than the limit in step 3 (free unfixed slot). Keep the updates of a slot that already holds the MAC. Keep the fixed MAC slots without a limit. Add `RejectReason::WEAK` (5, text `WEAK`) and record it in `RejectLog`. Accept the new reason in the `PersistentState::reject_log` check. Increase `STATE_VERSION` by one. Add the key to `docs/config.example.ini`, to `ConfigSchema.entries` and to `ConfigSchemaTests.rangesMatchFirmwareConstants`. If `RejectsReply` exists, accept `WEAK` there and give it the hint `Move the sensor nearer or lower auto_assign_min_rssi`.
-  - Acceptance test: In `tests/test_firmware_logic.cpp`, set `auto_assign_min_rssi=-70`. Send a new MAC with RSSI -80 and assert no slot and one `WEAK` row in `RejectLog`. Send it with RSSI -60 and assert a slot. Assert that a held slot updates at RSSI -90. Assert that a fixed MAC slot takes a packet at RSSI -95. Assert that -101, -39 and 5 are rejected lines. Assert the trailer round trip and that `testConfigExampleTemplateInSync` passes. Run the host unit tests, `arduino-cli compile rlcd_panel` and `cd macos/RlcdCompanion && swift test`.
-
 - [ ] Alert acknowledge buttons in the macOS diagnostics view
   - Rank: [Total: 29, Use: 7, Setup: 4, Harmony: 9, Safety: 9, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift
