@@ -42,6 +42,12 @@ struct MainView: View {
                                     Text("MOLD \(mold)H").font(.system(size: 9, weight: .bold)).foregroundStyle(.red)
                                 }
                             }
+                            if let mac = model.config?.mac(forSlot: i) {
+                                Text(mac)
+                                    .font(.system(size: 9, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .lineLimit(1)
+                            }
                             if let t = frame.tiles[i].temperatureC, let h = frame.tiles[i].humidityPct {
                                 Text(String(format: "%.1f °C", t)).font(.title2)
                                 Text(String(format: "%.1f %%RH", h)).foregroundStyle(.secondary)
@@ -222,7 +228,8 @@ struct MainView: View {
                 // STATUS temperatures follow temp_unit; the unit comes from CONFIG ("?" until it arrives).
                 let unit = model.config?.temperatureUnit ?? "?"
                 ForEach(s.sensors, id: \.index) { x in
-                    Text("\(x.name)\(x.badge.map { " \($0)" } ?? ""): \(x.temperature.map { String(format: "%.1f °\(unit)", $0) } ?? "--") "
+                    let macText = model.config?.mac(forSlot: x.index).map { " (\($0))" } ?? ""
+                    Text("\(x.name)\(x.badge.map { " \($0)" } ?? "")\(macText): \(x.temperature.map { String(format: "%.1f °\(unit)", $0) } ?? "--") "
                          + "\(x.humidity.map { String(format: "%.1f %%RH", $0) } ?? "--") [\(x.state)]")
                 }
                 Text("Power: \(s.powerSource ?? "?") \(s.cellVolts.map { String(format: "%.2f V", $0) } ?? "")")
