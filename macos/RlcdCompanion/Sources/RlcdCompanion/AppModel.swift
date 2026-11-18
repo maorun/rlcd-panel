@@ -217,6 +217,17 @@ final class AppModel: ConsoleLinkDelegate {
         }
     }
 
+    /// Outdoor tile of the ventilation advice from `outdoor_slot` of the cached `CONFIG` reply; `nil` for a stale frame,
+    /// a missing config, `outdoor_slot` 0 and an invalid tile. Reads only the frame; sends no console command.
+    var ventilationOutdoorTile: TelemetryTile? {
+        VentilationAdvice.outdoorTile(frame: frame, frameDate: frameDate, config: lastConfig, now: now)
+    }
+
+    /// Advice for the indoor tile `index`; `nil` for the outdoor tile itself and for an invalid indoor tile.
+    func ventilationAdvice(forTile index: Int) -> VentilationAdvice? {
+        VentilationAdvice.advice(forTile: index, frame: frame, frameDate: frameDate, config: lastConfig, now: now)
+    }
+
     /// Count of hours above mold_alert_limit_rh in the last 24 hours for a given sensor (0..5).
     func moldHours(forSensor sensor: Int) -> Int? {
         guard let limitStr = config?.values["mold_alert_limit_rh"], let limit = Double(limitStr) else { return nil }

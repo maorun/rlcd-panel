@@ -64,6 +64,12 @@ struct MainView: View {
                                     Spacer()
                                     Text(cz.label).font(.caption2.bold()).foregroundStyle(cz == .ok ? .green : .secondary)
                                 }
+                                if let advice = model.ventilationAdvice(forTile: i) {
+                                    Text(advice.title).font(.caption2.bold()).foregroundStyle(ventilationColor(advice.action))
+                                        .lineLimit(1)
+                                    Text(String(format: "AH %+.1f g/m³", advice.difference)).font(.system(size: 9))
+                                        .foregroundStyle(.secondary).help(advice.message)
+                                }
                             } else {
                                 Text("--").font(.title2)
                                 Text("-- %RH").foregroundStyle(.secondary)
@@ -284,4 +290,14 @@ func ageText(_ date: Date?, now: Date = Date()) -> String {
     guard let date else { return "never" }
     let s = max(0, Int(now.timeIntervalSince(date)))
     return s < 60 ? "\(s) s ago" : "\(s / 60) min ago"
+}
+
+private func ventilationColor(_ action: VentilationAction) -> Color {
+    switch action {
+    case .luftungStarten, .weiterLuften: return .green
+    case .luftungBeenden: return .blue
+    case .luftungAbbrechen: return .orange
+    case .nichtLuften: return .red
+    case .neutral: return .secondary
+    }
 }
