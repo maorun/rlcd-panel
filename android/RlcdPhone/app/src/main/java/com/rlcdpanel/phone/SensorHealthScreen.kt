@@ -19,6 +19,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.rlcdpanel.phone.protocol.ConfigCache
+import com.rlcdpanel.phone.protocol.ConfigCacheInfo
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.SensorHealth
 
@@ -26,6 +28,13 @@ import com.rlcdpanel.phone.protocol.SensorHealth
 data class SensorHealthState(
     val isReading: Boolean = false,
     val rows: List<SensorHealth> = emptyList(),
+    val message: String? = null
+)
+
+/** Cache of the last `CONFIG` read: [info] is null without a cache; [message] tells a failed read. */
+data class ConfigReadState(
+    val isReading: Boolean = false,
+    val info: ConfigCacheInfo? = null,
     val message: String? = null
 )
 
@@ -41,6 +50,9 @@ fun SensorHealthScreen(
     state: SensorHealthState,
     panelConfig: PanelConfig,
     onRead: () -> Unit,
+    configState: ConfigReadState = ConfigReadState(),
+    nowMillis: Long = 0L,
+    onReadConfig: () -> Unit = {},
     onBack: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -52,11 +64,32 @@ fun SensorHealthScreen(
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedButton(onClick = onBack) { Text("Zurück") }
-                    Button(onClick = onRead, enabled = !state.isReading) {
+                    Button(onClick = onRead, enabled = !state.isReading && !configState.isReading) {
                         Text(if (state.isReading) "Lese…" else "Read sensor health")
                     }
                 }
             }
+            item {
+                Button(onClick = onReadConfig, enabled = !state.isReading && !configState.isReading) {
+                    Text(if (configState.isReading) "Lese…" else "Read panel config")
+                }
+            }
+            item {
+                Text(
+                    configState.info?.let { "Panel-Config: ${ConfigCache.ageText(it, nowMillis)} gelesen" }
+                        ?: "Panel-Config: noch nicht gelesen",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            configState.info?.takeIf { it.rejectedLines.isNotEmpty() }?.let { info ->
+                item {
+                    Text(
+                        "Panel lehnt Zeilen ab: ${info.rejectedLines.joinToString(", ")}",
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+            }
+            configState.message?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
             item {
                 Text(
                     "Liest STATUS über die BLE-Konsole. Das Panel braucht USB-Strom und ble_console 1 oder 2.",
