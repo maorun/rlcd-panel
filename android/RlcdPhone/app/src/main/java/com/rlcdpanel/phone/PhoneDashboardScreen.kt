@@ -50,7 +50,7 @@ import java.util.Locale
 /** A tile counts as stale when no packet arrived for this long. */
 const val STALE_AFTER_MILLIS: Long = OutdoorResolver.MAX_FRAME_AGE_MS
 
-private val PhoneColors = darkColorScheme(
+internal val PhoneColors = darkColorScheme(
     primary = Color(0xFF90CAF9),
     background = Color(0xFF000000),
     surface = Color(0xFF121212),
@@ -76,6 +76,7 @@ fun PhoneDashboardScreen(
     onSelectRoomIndex: (Int) -> Unit,
     onToggleVentilation: () -> Unit,
     onOpenSensorHealth: () -> Unit = {},
+    onOpenHistory: () -> Unit = {},
     /** Protocol source badge of each tile index, from the last sensor health read; tile 0 is always the onboard sensor. */
     sourceBadges: Map<Int, String> = emptyMap()
 ) {
@@ -96,7 +97,8 @@ fun PhoneDashboardScreen(
                         statusMessage = statusMessage,
                         nowMillis = nowMillis,
                         onToggleScan = onToggleScan,
-                        onOpenSensorHealth = onOpenSensorHealth
+                        onOpenSensorHealth = onOpenSensorHealth,
+                        onOpenHistory = onOpenHistory
                     )
                 }
 
@@ -168,7 +170,8 @@ private fun StatusHeader(
     statusMessage: String,
     nowMillis: Long,
     onToggleScan: () -> Unit,
-    onOpenSensorHealth: () -> Unit
+    onOpenSensorHealth: () -> Unit,
+    onOpenHistory: () -> Unit
 ) {
     Card(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -212,6 +215,14 @@ private fun StatusHeader(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F), contentColor = Color.White)
             ) {
                 Text("Sensor health")
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Button(
+                onClick = onOpenHistory,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F), contentColor = Color.White)
+            ) {
+                Text("Verlauf 24 h")
             }
         }
     }

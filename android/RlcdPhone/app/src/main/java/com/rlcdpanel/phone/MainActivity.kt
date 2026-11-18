@@ -36,6 +36,7 @@ import com.rlcdpanel.phone.protocol.SensorHealth
 import com.rlcdpanel.phone.protocol.StatusReply
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
+import com.rlcdpanel.phone.protocol.TelemetryHistory
 import com.rlcdpanel.phone.ventilation.OutdoorClimate
 import com.rlcdpanel.phone.ventilation.OutdoorResolver
 import com.rlcdpanel.phone.ventilation.OutdoorSource
@@ -69,6 +70,7 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var consoleClient: BleConsoleClient
     private var showHealth by mutableStateOf(false)
+    private var showHistory by mutableStateOf(false)
     private var healthState by mutableStateOf(SensorHealthState())
     // Kept after the health screen closes, so the dashboard tiles keep their protocol badges.
     private var sourceBadges by mutableStateOf<Map<Int, String>>(emptyMap())
@@ -124,6 +126,18 @@ class MainActivity : ComponentActivity() {
             val isScanning by BleScanService.isScanning.collectAsState()
             val statusMessage by BleScanService.statusMessage.collectAsState()
 
+            if (showHistory) {
+                val history by BleScanService.history.collectAsState()
+                HistoryScreen(
+                    history = history,
+                    panelConfig = panelConfig,
+                    nowMillis = nowMillis,
+                    onShare = { shareHistoryCsv(history) },
+                    onBack = { showHistory = false }
+                )
+                BackHandler { showHistory = false }
+                return@setContent
+            }
             if (showHealth) {
                 SensorHealthScreen(
                     state = healthState,
@@ -234,6 +248,7 @@ class MainActivity : ComponentActivity() {
                     toggleVentilationForFocusedRoom()
                 },
                 onOpenSensorHealth = { showHealth = true },
+                onOpenHistory = { showHistory = true },
                 sourceBadges = sourceBadges
             )
         }
@@ -264,6 +279,15 @@ class MainActivity : ComponentActivity() {
         } else {
             healthState = SensorHealthState(message = "Bluetooth-Berechtigung fehlt")
         }
+    }
+
+    /** Sends the newest rows as CSV text. The cap keeps the intent below the binder limit. */
+    private fun shareHistoryCsv(history: TelemetryHistory) {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, history.toCsv(HistoryScreenText.SHARE_MAX_ROWS))
+        }
+        startActivity(Intent.createChooser(send, "Share CSV"))
     }
 
     private fun closeSensorHealth() {
