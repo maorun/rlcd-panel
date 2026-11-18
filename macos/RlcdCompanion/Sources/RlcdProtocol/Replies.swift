@@ -293,7 +293,7 @@ public enum EventsReply {
 }
 
 /// Digits with an optional leading minus; no plus sign, no space.
-private func plainInt(_ s: String) -> Int? {
+func plainInt(_ s: String) -> Int? {
     let digits = s.hasPrefix("-") ? s.dropFirst() : Substring(s)
     guard !digits.isEmpty, digits.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
     return Int(s)
@@ -484,6 +484,8 @@ public struct ConfigReply: Equatable {
 /// The console commands that the app may send. The app sends one only after a user action.
 public enum ConsoleCommand: Equatable {
     case status, history, events, week, config, version, scan, screen
+    /// `REJECTS`: the packets that the last BLE scan rejected (works on USB and on BLE).
+    case rejects
     case list
     case dump(String)
     case time
@@ -517,6 +519,7 @@ public enum ConsoleCommand: Equatable {
         case .config: return "CONFIG"
         case .version: return "VERSION"
         case .scan: return "SCAN"
+        case .rejects: return "REJECTS"
         case .screen: return "SCREEN"
         case .list: return "LIST"
         case let .dump(name): return LogArchive.isValidName(name) ? "DUMP \(name)" : nil
