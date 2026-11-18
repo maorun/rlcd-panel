@@ -45,12 +45,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: `TelemetryHistory` holds only the data that the phone received while it scanned. The panel keeps 7 days of minimum and maximum values in `WeekHistory`, and the `WEEK` command runs on BLE. Depend on the generic `BleConsoleClient.send`. Port `WeekReply.parse` from `Replies.swift` to Kotlin. Add a `WeekScreen` with 7 bars from minimum to maximum for temperature and humidity of each sensor. Show a gap day as an empty bar. Use the `PanelConfig` names for the sensor titles.
   - Acceptance test: Add `tests/fixtures/week_reply_sample.txt` with 42 rows and one gap day. Parse it in `WeekReplyTest` and in the Swift `ReplyTests.weekSharedFixture`, and assert equal values. Assert `null` for an empty field and an error for a wrong column count. Run `gradle testDebugUnitTest` in `android/RlcdPhone` and `swift test` in `macos/RlcdCompanion`.
 
-- [ ] Protocol sync check for the Wear OS and Android sources
-  - Rank: [Total: 28, Use: 3, Setup: 5, Harmony: 10, Safety: 10, Effort: S]
-  - Location: scripts/check-protocol-sync.sh, .github/workflows/ci.yml, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/ClimateMathTest.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ClimateMathTest.kt, tests/fixtures/climate_math_vectors.txt
-  - Goal: `AGENTS.md` requires equal protocol code in `wearos/RlcdWatch` and `android/RlcdPhone`, but no check enforces it. The Kotlin tests also do not read `tests/fixtures/climate_math_vectors.txt`. Add `scripts/check-protocol-sync.sh`. Compare `AlertTransitions.kt`, `Checksums.kt`, `ClimateMath.kt`, `PanelConfig.kt` and `TelemetryFrame.kt` after the removal of the `package` line. Print each file that differs and exit 1. Add `--self-test` with a fixed good pair and a bad pair. Add a Wear OS `ClimateMathTest` and make both Kotlin tests read the shared vectors.
-  - Acceptance test: Run `scripts/check-protocol-sync.sh` in the CI job `Host tests` and assert exit 0. Run `scripts/check-protocol-sync.sh --self-test` and assert that the bad pair gives exit 1. Assert in both `ClimateMathTest` classes that each vector of `climate_math_vectors.txt` matches within its tolerance. Run `gradle testDebugUnitTest` in `android/RlcdPhone` and `wearos/RlcdWatch`.
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 

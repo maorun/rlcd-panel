@@ -1569,3 +1569,11 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - An invalid, stopped or untrusted RTC time, a week with a stamp or a value, a missing card or file, and corrupt rows change nothing.
 - No `config.ini` key. The RTC `PersistentState` layout and `STATE_VERSION` stay unchanged.
 - Tests: `testParseDailyRow`, `testWeekRestoreFromDailyRows`, `testWeekRestoreYearChange`, `testWeekRestoreNoChange`, `testWeekRestoreTailAndBuffer`.
+
+### Protocol sync check for the Wear OS and Android sources
+
+- `scripts/check-protocol-sync.sh` compares `AlertTransitions.kt`, `Checksums.kt`, `ClimateMath.kt`, `PanelConfig.kt`, `ReplyAssembler.kt` and `TelemetryFrame.kt` of `wearos/RlcdWatch` and `android/RlcdPhone` after it removes the `package` line. It prints `DIFFERS <file>` for each difference and exits 1. A missing file exits 2.
+- `--self-test` builds a good pair (exit 0), a bad pair (exit 1) and a pair with a missing file (exit 2) in a temporary directory.
+- The CI job `Host tests` runs the check and the self-test.
+- The Wear OS `PanelConfig.kt` and the new `ReplyAssembler.kt` now equal the Android phone sources. The Wear OS app does not use the `ConfigCache` yet.
+- A new Wear OS `ClimateMathTest` and the Android `ClimateMathTest` check each row of `tests/fixtures/climate_math_vectors.txt` with a tolerance of 0.05.
