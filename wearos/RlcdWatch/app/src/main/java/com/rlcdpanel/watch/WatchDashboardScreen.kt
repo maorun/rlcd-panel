@@ -61,6 +61,7 @@ fun WatchDashboardScreen(
     configStatus: String? = null,
     isReadingConfig: Boolean = false,
     onReadConfig: () -> Unit = {},
+    onOpenSensorHealth: () -> Unit = {},
     onToggleScan: () -> Unit,
     onCycleOutdoorSource: () -> Unit,
     onSelectRoomIndex: (Int) -> Unit,
@@ -96,6 +97,15 @@ fun WatchDashboardScreen(
                         status = configStatus,
                         isReading = isReadingConfig,
                         onReadConfig = onReadConfig
+                    )
+                }
+
+                item {
+                    Chip(
+                        onClick = onOpenSensorHealth,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text("Sensor health", fontSize = 12.sp, maxLines = 1) }
                     )
                 }
 

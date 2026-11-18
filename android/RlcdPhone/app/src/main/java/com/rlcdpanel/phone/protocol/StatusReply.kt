@@ -67,6 +67,13 @@ data class StatusReply(
         private fun number(s: String?): Double? =
             if (s == null || s == "--" || s.isEmpty()) null else s.toDoubleOrNull()
 
+        /** Parses a console reply; a reply without a good CRC-32 frame (bad CRC-32, timeout, `ERR`) throws. */
+        fun parseReply(reply: ConsoleReply): StatusReply = when (reply) {
+            is ConsoleReply.Frame -> parse(reply.lines)
+            is ConsoleReply.Status -> throw ParseException(reply.line)
+            is ConsoleReply.Corrupt -> throw ParseException(reply.error.toString())
+        }
+
         fun parse(lines: List<String>): StatusReply {
             val sensors = mutableListOf<StatusSensor>()
             val sensorLines = mutableListOf<String>()

@@ -1744,3 +1744,13 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - A changed value clears the stored checks. A new reference chip clears them too.
 - `TwoPointCalibrationTest` uses the input values of the macOS `TwoPointCalibrationTests`. `CalibrationReplyTest` covers the `SALT 7` and `SALT 10 MGCL2` replies and the batch order for slot 7.
 - Validation: `./scripts/check-protocol-sync.sh` passes. The local machine has no Android SDK and no `kotlinc`, so `gradle testDebugUnitTest assembleDebug` did not run locally. CI runs it.
+
+## Wear OS sensor health screen
+
+- `wearos/RlcdWatch/.../protocol/StatusReply.kt` and `SensorHealth.kt` are copies of the phone files (only the `package` line differs). `StatusReply.parseReply(reply)` parses a `ConsoleReply.Frame` and throws `ParseException` for a bad CRC-32, a timeout and an `ERR` reply (new in both apps).
+- `scripts/check-protocol-sync.sh` lists `SensorHealth.kt` and `StatusReply.kt` in `FILES`.
+- `WatchDashboardScreen` has the `Sensor health` chip. The chip opens `SensorHealthScreen`; it starts no command. The `Read sensor health` chip in the screen sends `STATUS` through `BleConsoleClient`. The system back gesture returns to the dashboard.
+- `SensorHealthScreen` shows one `ScalingLazyColumn` row for each `SENSOR` line: name, state (`OK`, `STALE`, `BATLOW`, `EMPTY`), battery, RSSI and the rate of the `RECEPTION` line. A rate below 50 % and 3 or more NTP failures show a warning symbol.
+- A bad CRC-32, a timeout or an `ERR` reply shows the reason and keeps the last good reply.
+- Tests: `StatusReplyTest` (watch) parses `tests/fixtures/status_reply_sample.txt` (six `SENSOR` lines, states, `RECEPTION s3=0/12`, `muted`, bad CRC-32).
+- Validation: `check-protocol-sync.sh` and `--self-test` pass. The local machine has no Android SDK, so `gradle testDebugUnitTest assembleDebug` did not run locally. CI runs it.
