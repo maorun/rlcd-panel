@@ -16,20 +16,27 @@ object OutdoorWeatherService {
     private const val MAX_RESPONSE_CHARS = 16_384
     private const val READ_TIMEOUT_MS = 5000
 
+    /** Builds the request URL with 4 decimals for each coordinate. */
+    fun requestUrl(latitude: Double, longitude: Double): String = String.format(
+        Locale.US,
+        "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f&current=temperature_2m,relative_humidity_2m",
+        latitude,
+        longitude
+    )
+
+    /** Fetches current weather for the stored outdoor location. */
+    suspend fun fetchCurrent(location: OutdoorLocation): OutdoorClimate? =
+        fetchCurrent(location.latitude, location.longitude, location.name)
+
     /**
      * Fetches current weather for the given coordinates.
      */
     suspend fun fetchCurrent(
-        latitude: Double = 52.52,
-        longitude: Double = 13.41,
+        latitude: Double,
+        longitude: Double,
         locationName: String = "Open-Meteo"
     ): OutdoorClimate? = withContext(Dispatchers.IO) {
-        val urlString = String.format(
-            Locale.US,
-            "https://api.open-meteo.com/v1/forecast?latitude=%.4f&longitude=%.4f&current=temperature_2m,relative_humidity_2m",
-            latitude,
-            longitude
-        )
+        val urlString = requestUrl(latitude, longitude)
 
         var connection: HttpURLConnection? = null
         try {

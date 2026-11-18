@@ -7,9 +7,9 @@ sealed class OutdoorSource {
     abstract val displayName: String
 
     data class OpenMeteo(
-        val latitude: Double = 52.52,
-        val longitude: Double = 13.41,
-        val locationName: String = "Wetterdienst"
+        val latitude: Double = OutdoorLocation.DEFAULT_LATITUDE,
+        val longitude: Double = OutdoorLocation.DEFAULT_LONGITUDE,
+        val locationName: String = OutdoorLocation.DEFAULT_NAME
     ) : OutdoorSource() {
         override val displayName: String
             get() = locationName
@@ -23,6 +23,10 @@ sealed class OutdoorSource {
             get() = slotName
     }
 }
+
+/** Open-Meteo source for a stored location. */
+fun OutdoorLocation.toSource(): OutdoorSource.OpenMeteo =
+    OutdoorSource.OpenMeteo(latitude, longitude, name)
 
 /**
  * Outdoor climate snapshot.

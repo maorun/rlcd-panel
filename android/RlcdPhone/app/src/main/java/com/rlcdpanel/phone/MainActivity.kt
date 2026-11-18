@@ -41,6 +41,11 @@ import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryHistory
 import com.rlcdpanel.phone.ventilation.OutdoorClimate
+import com.rlcdpanel.phone.ventilation.LocationInput
+import com.rlcdpanel.phone.ventilation.OutdoorLocation
+import com.rlcdpanel.phone.ventilation.OutdoorLocationStore
+import com.rlcdpanel.phone.ventilation.SharedLocationPrefs
+import com.rlcdpanel.phone.ventilation.toSource
 import com.rlcdpanel.phone.ventilation.OutdoorResolver
 import com.rlcdpanel.phone.ventilation.OutdoorSource
 import com.rlcdpanel.phone.ventilation.OutdoorWeatherService
@@ -63,6 +68,11 @@ class MainActivity : ComponentActivity() {
 
     private var outdoorSource by mutableStateOf<OutdoorSource>(OutdoorSource.OpenMeteo())
     private var openMeteoClimate by mutableStateOf<OutdoorClimate?>(null)
+    private var outdoorLocation by mutableStateOf(OutdoorLocation())
+    // Place of the cached reading; a changed place drops the reading.
+    private var openMeteoLocation by mutableStateOf<OutdoorLocation?>(null)
+    private var showLocationDialog by mutableStateOf(false)
+    private lateinit var locationStore: OutdoorLocationStore
     private var focusedRoomIndex by mutableIntStateOf(0)
 
     private var roomStates by mutableStateOf<Map<Int, RoomVentilationState>>(emptyMap())
@@ -105,6 +115,11 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("rlcd_ventilation_prefs", Context.MODE_PRIVATE)
+        locationStore = OutdoorLocationStore(
+            SharedLocationPrefs(getSharedPreferences(OutdoorLocationStore.PREFS_NAME, Context.MODE_PRIVATE))
+        )
+        outdoorLocation = locationStore.load()
+        outdoorSource = outdoorLocation.toSource()
         panelConfig = PanelConfig.load(this)
         configState = ConfigReadState(info = ConfigCache.info(filesDir))
         createNotificationChannel()
@@ -182,7 +197,7 @@ class MainActivity : ComponentActivity() {
             // Determine effective outdoor climate
             val effectiveOutdoor: OutdoorClimate? = OutdoorResolver.resolve(
                 source = outdoorSource,
-                openMeteo = openMeteoClimate,
+                openMeteo = OutdoorResolver.cacheFor(openMeteoClimate, openMeteoLocation, outdoorLocation),
                 tiles = snapshot?.frame?.tiles,
                 frameReceivedAtMillis = snapshot?.receivedAtMillis,
                 nowMillis = nowMillis
@@ -280,7 +295,12 @@ class MainActivity : ComponentActivity() {
                 },
                 onOpenSensorHealth = { showHealth = true },
                 onOpenHistory = { showHistory = true },
-                sourceBadges = sourceBadges
+                sourceBadges = sourceBadges,
+                outdoorLocation = outdoorLocation,
+                showLocationDialog = showLocationDialog,
+                onOpenLocation = { showLocationDialog = true },
+                onDismissLocation = { showLocationDialog = false },
+                onSaveLocation = { lat, lon, name -> saveOutdoorLocation(lat, lon, name) }
             )
         }
     }
@@ -491,18 +511,36 @@ class MainActivity : ComponentActivity() {
 
     private fun fetchWeatherIfNeeded() {
         if (outdoorSource is OutdoorSource.OpenMeteo) {
-            val src = outdoorSource as OutdoorSource.OpenMeteo
+            val location = outdoorLocation
             // Cancel an older fetch, so a late reply cannot overwrite a newer one.
             weatherJob?.cancel()
             weatherJob = lifecycleScope.launch {
-                val weather = OutdoorWeatherService.fetchCurrent(
-                    latitude = src.latitude,
-                    longitude = src.longitude,
-                    locationName = src.displayName
-                )
-                if (weather != null) {
+                val weather = OutdoorWeatherService.fetchCurrent(location)
+                if (weather != null && OutdoorResolver.acceptFetched(location, outdoorLocation)) {
                     openMeteoClimate = weather
+                    openMeteoLocation = location
                 }
+            }
+        }
+    }
+
+    private fun saveOutdoorLocation(latitude: String, longitude: String, name: String): String? {
+        return when (val result = locationStore.save(latitude, longitude, name)) {
+            is LocationInput.Invalid -> result.message
+            is LocationInput.Valid -> {
+                if (result.location != outdoorLocation) {
+                    val moved = !OutdoorResolver.isSamePlace(result.location, outdoorLocation)
+                    outdoorLocation = result.location
+                    if (outdoorSource is OutdoorSource.OpenMeteo) outdoorSource = result.location.toSource()
+                    if (moved) {
+                        // Drop the reading of the old place, so no advice uses it.
+                        openMeteoClimate = null
+                        openMeteoLocation = null
+                        fetchWeatherIfNeeded()
+                    }
+                }
+                showLocationDialog = false
+                null
             }
         }
     }
@@ -558,7 +596,7 @@ class MainActivity : ComponentActivity() {
                         slotName = panelConfig.tileName(nextIndex)
                     )
                 } else {
-                    OutdoorSource.OpenMeteo()
+                    outdoorLocation.toSource()
                 }
             }
         }
