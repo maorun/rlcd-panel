@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Event codes for a lost and a recovered sensor slot
-  - Rank: [Total: 34, Use: 7, Setup: 9, Harmony: 9, Safety: 9, Effort: M]
-  - Location: rlcd_panel/sd_logger.h, rlcd_panel/power_manager.h, rlcd_panel/rlcd_panel.ino, macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/EventTextTests.swift, tests/test_firmware_logic.cpp
-  - Goal: `ALERT_SENSOR_LOST` is one bit for all slots. The event ring records only `ALERT_RISE` and `ALERT_FALL` of this bit. The user cannot see which sensor was lost and for how long. Add `EventCode::SLOT_STALE` (14). Use the slot number (1 to 10) as the low byte of the detail. Use the high byte 0 for a lost slot and 1 for a recovered slot. Set `EventRing::MAX_CODE` to 14. Store the stale bits of each slot in `PersistentState::stale_slots` (`uint16_t`, 2 bytes just before the checksum). Reject a bit above bit 9 and a bit of an empty slot. Increase `STATE_VERSION` by one. After each BLE scan, compare `isStale` of each valid slot with its bit. Record one event for each change. A slot that `resetSlot` or `SLOT CLEAR` clears loses its bit and records no event. A power-on sets the bits to 0. Add the texts `Slot <N> lost` and `Slot <N> back` to `EventText`.
-  - Acceptance test: In `tests/test_firmware_logic.cpp`, fill slot 2 and advance the clock past `staleTimeoutMs()`. Assert one `SLOT_STALE` event with detail `0x0002`. Send a new packet and assert one event with detail `0x0102`. Assert that a second scan without a change records no event. Assert that `resetSlot` clears the bit without an event. Assert a serialize and deserialize round trip, and the rejection of bit 10 and of a bit for an empty slot. In `EventTextTests`, assert both texts. Run the host unit tests, `arduino-cli compile rlcd_panel` and `cd macos/RlcdCompanion && swift test`.
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 - [ ] Salt check and two-point calibration in the Android app

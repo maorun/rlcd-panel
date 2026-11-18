@@ -99,6 +99,7 @@ struct PersistentState {
   uint16_t sensor_battery_latch = 0; // low battery latch, bits 0..9 are the registry slots (SensorBatteryLatch)
   uint32_t last_chime_ms = 0; // clock value of the last chime or alert rising edge (chime_repeat_h)
   uint8_t alert_mask = ALERT_NONE; // alerts active in the last wake cycle (hysteresis latch)
+  uint16_t stale_slots = 0;        // stale latch, bits 0..9 are the registry slots (recordStaleChanges)
   uint8_t alert_ack = ALERT_NONE;  // acknowledged alert bits (console ACK): no chime reminder while the alert stays on
   NoiseBand noise_band = NoiseBand::QUIET; // band of the last noise window (hysteresis latch)
   NtpSyncState ntp;          // NTP attempt time, result and backoff
@@ -189,6 +190,26 @@ struct PersistentState {
     }
   }
 
+  // Compares isStale of each valid slot with its bit in stale_slots after a BLE scan. One SLOT_STALE event for
+  // each change: slot number 1 to 10 in the low byte, high byte 0 for lost (newly stale), 1 for back. A slot
+  // without a reading loses its bit and records nothing.
+  void recordStaleChanges(const RtcTime& now, uint32_t now_ms, uint32_t timeout_ms) {
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      const uint16_t bit = static_cast<uint16_t>(1u << i);
+      const SwitchBotReading& r = registry.slot(i);
+      if (!r.valid) {
+        stale_slots = static_cast<uint16_t>(stale_slots & ~bit);
+        continue;
+      }
+      const bool stale = r.isStale(now_ms, timeout_ms);
+      if (stale == ((stale_slots & bit) != 0)) {
+        continue;
+      }
+      stale_slots = static_cast<uint16_t>(stale ? (stale_slots | bit) : (stale_slots & ~bit));
+      events.record(now, EventCode::SLOT_STALE, static_cast<uint16_t>((stale ? 0u : 0x0100u) | (i + 1)));
+    }
+  }
+
   // Manual release (console SLOT CLEAR): false for a slot with a fixed MAC, no change (the next scan takes the same
   // sensor again). Otherwise resetSlot; an occupied slot records SLOT_RELEASE with the slot number in the low byte and
   // 1 (manual) in the high byte. An empty slot records nothing.
@@ -227,6 +248,7 @@ struct PersistentState {
     sensor_battery_latch = static_cast<uint16_t>(sensor_battery_latch & ~(1u << index));
     ventilate_tiles = static_cast<uint16_t>(ventilate_tiles & ~(2u << index));
     dry_tiles = static_cast<uint16_t>(dry_tiles & ~(2u << index));
+    stale_slots = static_cast<uint16_t>(stale_slots & ~(1u << index));
     history.slots[1 + index].clear();
     history.temperatures[1 + index].clear();
     reception.clear(index);
@@ -358,7 +380,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 65;
+  static constexpr uint8_t STATE_VERSION = 66;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -416,7 +438,9 @@ public:
   static constexpr size_t REJECT_LOG_SIZE = RejectLog::SERIALIZED_SIZE;
   // Acknowledged alert bits (1 byte, just before the checksum).
   static constexpr size_t ALERT_ACK_SIZE = 1;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + 4;
+  // Stale slot latch (uint16, bits 0..9, just before the checksum).
+  static constexpr size_t STALE_SIZE = 2;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -764,6 +788,8 @@ public:
     state.reject_log.serialize(out + pos);
     pos += REJECT_LOG_SIZE;
     out[pos++] = state.alert_ack;
+    out[pos++] = static_cast<uint8_t>(state.stale_slots & 0xFF);
+    out[pos++] = static_cast<uint8_t>((state.stale_slots >> 8) & 0xFF);
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -1161,6 +1187,16 @@ public:
     s.alert_ack = data[pos++];
     if ((s.alert_ack & ~s.alert_mask) != 0) {
       return false; // an acknowledged bit of an alert that is off is corrupt
+    }
+    s.stale_slots = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    pos += 2;
+    if ((s.stale_slots >> MAX_SWITCHBOT_SENSORS) != 0) {
+      return false; // a bit above bit 9 is corrupt
+    }
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if ((s.stale_slots & (1u << i)) != 0 && !s.registry.slot(i).valid) {
+        return false; // a stale bit of an empty slot is corrupt
+      }
     }
     s.registry.setAutoAssign(s.config.slot_auto_assign != 0);
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {

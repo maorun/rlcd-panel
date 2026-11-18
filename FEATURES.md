@@ -1723,3 +1723,14 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `ScannerView` shows the box `Rejected sensors` with MAC, format badge, reason, count and hint. A `FULL` row shows the `Free slot <N>` buttons of `AppModel.freeableSlots`. An `UNASSIGNED` row shows the `Assign to slot` menu of `SlotAssignment`.
 - `RejectsReplyTests` cover the fixture `tests/fixtures/rejects_reply_sample.txt`, an empty log, the bad rows, the hints and the command line.
 - Validation: `swift build` and `swift build -c release` pass. `swift test` does not run locally (Command Line Tools have no Testing macros); a `swiftc` harness checked the parser cases. CI runs `swift test`.
+
+## Event codes for a lost and a recovered sensor slot
+
+- `EventCode::SLOT_STALE` (14, `EventRing::MAX_CODE` 14) records each change of the stale state of a registry slot. The low byte of the detail is the slot number (1 to 10). The high byte is 0 for a lost slot (newly stale) and 1 for a recovered slot.
+- `PersistentState::stale_slots` (`uint16_t`, 2 bytes just before the checksum, `PowerManager::STALE_SIZE`) holds one bit for each slot. `deserialize` rejects a bit above bit 9 and a bit of an empty slot. A power-on sets it to 0. `STATE_VERSION` is 66.
+- `PersistentState::recordStaleChanges` runs after each BLE scan in `setup()` (`rlcd_panel.ino`). It compares `isStale` (with `DeviceConfig::staleTimeoutMs()`) of each valid slot with its bit and records one event for each change. A second scan without a change records no event.
+- Ten slots that go stale in one scan record ten events. The ring holds 16 events, so a full ring drops the oldest event and `EVENTS_DROPPED` reports the loss.
+- `PersistentState::resetSlot` (also `SLOT CLEAR`, `applyConfig` and `releaseDeadSlots`) clears the bit without an event.
+- `EventText.describe` shows `Slot <N> lost` and `Slot <N> back`. A slot outside 1 to 10 or a high byte above 1 gives the raw text.
+- `testSlotStaleEvents` covers the lost and back events with detail `0x0002` and `0x0102`, the quiet second scan, `resetSlot`, the round trip and the rejection of bit 10 and of a bit of an empty slot. `EventTextTests.slotStaleGivesLostAndBack` covers the texts.
+- Validation: host tests (231 suites), `arduino-cli compile --profile rlcd_panel_s3 rlcd_panel` and `swift test` (437 tests) pass.

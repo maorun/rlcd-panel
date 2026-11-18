@@ -53,6 +53,11 @@ public enum EventText {
             let slot = d & 0xFF, manual = d >> 8
             guard (0...0xFFFF).contains(d), (1...10).contains(slot), manual <= 1 else { return raw }
             return manual == 1 ? "Slot \(slot) released by the user" : "slot \(slot) released"
+        case "SLOT_STALE":
+            // Low byte is the slot; the high byte 0 marks a lost slot, 1 a slot that is back.
+            let slot = d & 0xFF, back = d >> 8
+            guard (0...0xFFFF).contains(d), (1...10).contains(slot), back <= 1 else { return raw }
+            return back == 1 ? "Slot \(slot) back" : "Slot \(slot) lost"
         case "CONFIG_SET":
             let index = d & 0xFF, transport = d >> 8
             guard (0...0xFFFF).contains(d), transport <= 1 else { return raw }
