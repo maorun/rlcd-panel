@@ -175,6 +175,9 @@ struct DiagnosticsView: View {
             if let unassigned = m.unassigned {
                 Text("unassigned \(n(unassigned))")
             }
+            if let jumps = m.jumps {
+                Text("jumps \(n(jumps))")
+            }
         } else { unknown }
     }
 

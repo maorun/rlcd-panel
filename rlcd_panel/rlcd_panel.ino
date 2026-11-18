@@ -144,8 +144,10 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
       return;
     }
     portENTER_CRITICAL(&g_registry_mux);
-    g_state.registry.upsert(reading, BleFormat::BTHOME);
-    g_scan_completion.onPacket(g_state.registry, reading);
+    // A packet that JumpGuard holds is no reading yet: it must not end the scan early.
+    if (g_state.registry.upsert(reading, BleFormat::BTHOME)) {
+      g_scan_completion.onPacket(g_state.registry, reading);
+    }
     portEXIT_CRITICAL(&g_registry_mux);
   }
 
@@ -167,8 +169,10 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
       return;
     }
     portENTER_CRITICAL(&g_registry_mux);
-    g_state.registry.upsert(reading, BleFormat::ATC);
-    g_scan_completion.onPacket(g_state.registry, reading);
+    // A packet that JumpGuard holds is no reading yet: it must not end the scan early.
+    if (g_state.registry.upsert(reading, BleFormat::ATC)) {
+      g_scan_completion.onPacket(g_state.registry, reading);
+    }
     portEXIT_CRITICAL(&g_registry_mux);
   }
 
@@ -191,8 +195,10 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
       return;
     }
     portENTER_CRITICAL(&g_registry_mux);
-    g_state.registry.upsert(reading, BleFormat::THERMOPRO);
-    g_scan_completion.onPacket(g_state.registry, reading);
+    // A packet that JumpGuard holds is no reading yet: it must not end the scan early.
+    if (g_state.registry.upsert(reading, BleFormat::THERMOPRO)) {
+      g_scan_completion.onPacket(g_state.registry, reading);
+    }
     portEXIT_CRITICAL(&g_registry_mux);
   }
 
@@ -254,8 +260,10 @@ class SwitchBotAdvertisedCallbacks : public BLEAdvertisedDeviceCallbacks {
       return;
     }
     portENTER_CRITICAL(&g_registry_mux);
-    g_state.registry.upsert(reading, format);
-    g_scan_completion.onPacket(g_state.registry, reading);
+    // A packet that JumpGuard holds is no reading yet: it must not end the scan early.
+    if (g_state.registry.upsert(reading, format)) {
+      g_scan_completion.onPacket(g_state.registry, reading);
+    }
     portEXIT_CRITICAL(&g_registry_mux);
   }
 };
@@ -625,6 +633,9 @@ void scanOnce(bool full_scan) {
     g_scan_running = false;
     delay(100); // let a late completion callback from the BLE task finish
   }
+  portENTER_CRITICAL(&g_registry_mux);
+  g_state.registry.endScan();
+  portEXIT_CRITICAL(&g_registry_mux);
 }
 
 // BLE console service (Nordic UART layout). The BLE task only queues the RX bytes and the

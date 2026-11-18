@@ -61,7 +61,7 @@ public struct Shtc3Stats: Equatable {
     }
 }
 
-/// `BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>[ thermopro=<N>][ unassigned=<N>]`.
+/// `BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N>[ thermopro=<N>][ unassigned=<N>][ jumps=<N>]`.
 public struct BleRejectMetrics: Equatable {
     public let rejected: Int?
     public let lastMac: String?
@@ -72,10 +72,12 @@ public struct BleRejectMetrics: Equatable {
     public let thermopro: Int?
     /// Packets of a new MAC that `slot_auto_assign=0` blocked. `nil` for an older firmware.
     public let unassigned: Int?
+    /// Pending packets of a large reading jump that `JumpGuard` dropped. `nil` for an older firmware.
+    public let jumps: Int?
 
     public init(
         rejected: Int? = nil, lastMac: String? = nil, woio: Int? = nil, meter: Int? = nil,
-        bthome: Int? = nil, atc: Int? = nil, thermopro: Int? = nil, unassigned: Int? = nil
+        bthome: Int? = nil, atc: Int? = nil, thermopro: Int? = nil, unassigned: Int? = nil, jumps: Int? = nil
     ) {
         self.rejected = rejected
         self.lastMac = lastMac
@@ -85,6 +87,7 @@ public struct BleRejectMetrics: Equatable {
         self.atc = atc
         self.thermopro = thermopro
         self.unassigned = unassigned
+        self.jumps = jumps
     }
 
     public static func parse(line: String) throws -> BleRejectMetrics {
@@ -95,7 +98,8 @@ public struct BleRejectMetrics: Equatable {
             woio: try counter(f, "woio", line: line), meter: try counter(f, "meter", line: line),
             bthome: try counter(f, "bthome", line: line), atc: try counter(f, "atc", line: line),
             thermopro: f["thermopro"] == nil ? nil : try counter(f, "thermopro", line: line),
-            unassigned: f["unassigned"] == nil ? nil : try counter(f, "unassigned", line: line))
+            unassigned: f["unassigned"] == nil ? nil : try counter(f, "unassigned", line: line),
+            jumps: f["jumps"] == nil ? nil : try counter(f, "jumps", line: line))
     }
 }
 

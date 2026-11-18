@@ -11674,7 +11674,7 @@ void testBleRejectStatusLine() {
   StatusFixture f;
   std::vector<std::string> lines = statusLines(f.run());
   assert(lines.size() == 21);
-  assert(lines[15] == "BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0 thermopro=0 unassigned=0");
+  assert(lines[15] == "BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0 thermopro=0 unassigned=0 jumps=0");
   assert(lines[16] == "RECEPTION s1=-- s2=-- s3=-- s4=-- s5=-- s6=-- s7=-- s8=-- s9=-- s10=--");
   assert(lines[17].rfind("POWER ", 0) == 0);
   fillRegistry(f.registry);
@@ -11684,10 +11684,127 @@ void testBleRejectStatusLine() {
   f.registry.upsert(rejectReading(0xEF), BleFormat::THERMOPRO);
   lines = statusLines(f.run());
   assert(lines.size() == 21);
-  assert(lines[15] == "BLE rejected=4 last=AA:00:00:00:00:EF woio=0 meter=0 bthome=1 atc=2 thermopro=1 unassigned=0");
+  assert(lines[15] == "BLE rejected=4 last=AA:00:00:00:00:EF woio=0 meter=0 bthome=1 atc=2 thermopro=1 unassigned=0 jumps=0");
   assert(lines[17].rfind("POWER ", 0) == 0);
   // The slot lines stay as before.
   assert(lines[0].rfind("SENSOR 0 ", 0) == 0);
+}
+
+static SwitchBotReading jumpReading(float temp, uint8_t rh, uint32_t at_ms, uint8_t id = 1) {
+  SwitchBotReading r = rejectReading(id);
+  r.temperature_c = temp;
+  r.humidity_pct = rh;
+  r.updated_ms = at_ms;
+  return r;
+}
+
+void testJumpGuard() {
+  // a jump of 9.0 C stays pending and the slot keeps its value
+  SwitchBotRegistry reg;
+  assert(reg.upsert(jumpReading(20.0f, 50, 1000)));
+  assert(!reg.upsert(jumpReading(29.0f, 50, 2000)));
+  assert(reg.hasPending(0) && reg.slot(0).temperature_c == 20.0f && reg.slot(0).packet_count == 1);
+  assert(reg.rejects().total() == 0 && reg.rejects().jumps == 0);
+  // a confirming second packet sets the newest value
+  assert(reg.upsert(jumpReading(29.5f, 52, 3000)));
+  assert(!reg.hasPending(0) && reg.slot(0).temperature_c == 29.5f && reg.slot(0).humidity_pct == 52);
+  assert(reg.slot(0).packet_count == 2 && reg.rejects().jumps == 0);
+  // a packet near the old value drops the pending packet
+  SwitchBotRegistry drop;
+  drop.upsert(jumpReading(20.0f, 50, 1000));
+  assert(!drop.upsert(jumpReading(29.0f, 50, 2000)));
+  assert(drop.upsert(jumpReading(20.5f, 50, 3000)));
+  assert(!drop.hasPending(0) && drop.slot(0).temperature_c == 20.5f && drop.rejects().jumps == 1);
+  // a pending packet that no packet confirms: a third unrelated jump replaces it
+  SwitchBotRegistry other;
+  other.upsert(jumpReading(20.0f, 50, 1000));
+  assert(!other.upsert(jumpReading(29.0f, 50, 2000)));
+  assert(!other.upsert(jumpReading(35.0f, 50, 3000)));
+  assert(other.hasPending(0) && other.slot(0).temperature_c == 20.0f);
+  // 7.9 C and 24 %RH pass at once; the limit is strict
+  SwitchBotRegistry pass;
+  pass.upsert(jumpReading(20.0f, 50, 1000));
+  assert(pass.upsert(jumpReading(27.9f, 74, 2000)) && !pass.hasPending(0));
+  assert(pass.slot(0).temperature_c == 27.9f && pass.slot(0).humidity_pct == 74);
+  assert(pass.upsert(jumpReading(35.875f, 74, 3000)) && !pass.hasPending(0)); // 7.975 C, below the limit
+  SwitchBotRegistry exact;
+  exact.upsert(jumpReading(20.0f, 50, 1000));
+  assert(exact.upsert(jumpReading(28.0f, 75, 2000)) && !exact.hasPending(0)); // 8.0 C and 25 %RH are no jump
+  // 26 %RH is held
+  SwitchBotRegistry rh;
+  rh.upsert(jumpReading(20.0f, 50, 1000));
+  assert(!rh.upsert(jumpReading(20.0f, 76, 2000)) && rh.hasPending(0) && rh.slot(0).humidity_pct == 50);
+  // an empty slot takes the first packet
+  SwitchBotRegistry empty;
+  assert(empty.upsert(jumpReading(-30.0f, 100, 1000)) && empty.slot(0).temperature_c == -30.0f);
+  // a reading of 10 minutes or older takes the first packet
+  SwitchBotRegistry old;
+  old.upsert(jumpReading(20.0f, 50, 1000));
+  assert(old.upsert(jumpReading(40.0f, 50, 1000 + JumpGuard::MAX_AGE_MS)) && !old.hasPending(0));
+  assert(old.slot(0).temperature_c == 40.0f);
+  SwitchBotRegistry young;
+  young.upsert(jumpReading(20.0f, 50, 1000));
+  assert(!young.upsert(jumpReading(40.0f, 50, 1000 + JumpGuard::MAX_AGE_MS - 1)));
+  // a stale slot takes the first packet (stale timeout 30 min is above the 10 min limit)
+  SwitchBotRegistry stale;
+  stale.upsert(jumpReading(20.0f, 50, 1000));
+  assert(stale.upsert(jumpReading(40.0f, 90, 1000 + SENSOR_STALE_TIMEOUT_MS + 1)) && stale.slot(0).temperature_c == 40.0f);
+  // a scan end drops the pending packet and counts it
+  SwitchBotRegistry end;
+  end.upsert(jumpReading(20.0f, 50, 1000));
+  end.upsert(jumpReading(29.0f, 50, 2000));
+  end.endScan();
+  assert(!end.hasPending(0) && end.slot(0).temperature_c == 20.0f && end.rejects().jumps == 1);
+  end.endScan();
+  assert(end.rejects().jumps == 1);
+  // after the drop the next jump is held again, no stale confirmation
+  assert(!end.upsert(jumpReading(29.0f, 50, 3000)) && end.slot(0).temperature_c == 20.0f);
+  // resetRejects clears the counter
+  end.resetRejects();
+  assert(end.rejects().jumps == 0);
+  // clearSlot drops a pending packet without a count
+  SwitchBotRegistry clr;
+  clr.upsert(jumpReading(20.0f, 50, 1000));
+  clr.upsert(jumpReading(29.0f, 50, 2000));
+  clr.clearSlot(0);
+  assert(!clr.hasPending(0) && clr.rejects().jumps == 0);
+  // a later confirmation matches the newest pending value, not the first one
+  SwitchBotRegistry newest;
+  newest.upsert(jumpReading(20.0f, 50, 1000));
+  assert(!newest.upsert(jumpReading(29.0f, 50, 2000)));
+  assert(!newest.upsert(jumpReading(35.0f, 50, 3000)));
+  assert(!newest.upsert(jumpReading(29.0f, 50, 4000))); // a pending 35.0 C packet exists: 29.0 C is no confirmation
+  assert(newest.upsert(jumpReading(29.5f, 50, 5000)) && newest.slot(0).temperature_c == 29.5f);
+  // a fixed-MAC slot holds a jump too
+  SwitchBotRegistry fixed;
+  const uint8_t fixed_mac[6] = {0xAA, 0, 0, 0, 0, 1};
+  fixed.setFixedMac(0, fixed_mac);
+  fixed.upsert(jumpReading(20.0f, 50, 1000));
+  assert(!fixed.upsert(jumpReading(29.0f, 50, 2000)) && fixed.hasPending(0) && fixed.slot(0).temperature_c == 20.0f);
+  // restoreSlot drops a pending packet without a count
+  SwitchBotRegistry restored;
+  restored.upsert(jumpReading(20.0f, 50, 1000));
+  restored.upsert(jumpReading(29.0f, 50, 2000));
+  assert(restored.restoreSlot(0, jumpReading(21.0f, 50, 3000)));
+  assert(!restored.hasPending(0) && restored.rejects().jumps == 0);
+  // saturation at 65535
+  SwitchBotRegistry sat;
+  sat.upsert(jumpReading(20.0f, 50, 1000));
+  for (int i = 0; i < 65540; ++i) {
+    sat.upsert(jumpReading(29.0f, 50, 2000));
+    sat.endScan();
+  }
+  assert(sat.rejects().jumps == 65535);
+}
+
+void testJumpGuardStatusLine() {
+  StatusFixture f;
+  f.registry.upsert(jumpReading(20.0f, 50, 1000));
+  f.registry.upsert(jumpReading(29.0f, 50, 2000));
+  f.registry.endScan();
+  const std::vector<std::string> lines = statusLines(f.run());
+  assert(lines[15].find("unassigned=0 jumps=1") != std::string::npos);
+  assert(lines[15].rfind("BLE rejected=0 ", 0) == 0);
 }
 
 void testSlotAutoAssign() {
@@ -11740,7 +11857,7 @@ void testSlotAutoAssignStatus() {
   f.registry.upsert(rejectReading(0xAB), BleFormat::BTHOME);
   f.registry.upsert(rejectReading(0xAB), BleFormat::BTHOME);
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[15] == "BLE rejected=2 last=AA:00:00:00:00:AB woio=0 meter=0 bthome=2 atc=0 thermopro=0 unassigned=2");
+  assert(lines[15] == "BLE rejected=2 last=AA:00:00:00:00:AB woio=0 meter=0 bthome=2 atc=0 thermopro=0 unassigned=2 jumps=0");
 }
 
 void testSlotAutoAssignConfigKey() {
@@ -11795,9 +11912,16 @@ void testBleRejectStatusWorstCaseLength() {
     f.registry.upsert(r, BleFormat::ATC);
     f.registry.upsert(r, BleFormat::THERMOPRO);
   }
+  // saturate the jump counter: slot 1 (id 1, 50 %RH) gets a jump packet and a scan end, again and again
+  SwitchBotReading jump = rejectReading(1);
+  jump.humidity_pct = 90;
+  for (uint32_t n = 0; n < 65540; ++n) {
+    f.registry.upsert(jump);
+    f.registry.endScan();
+  }
   const std::vector<std::string> lines = statusLines(f.run());
   assert(lines.size() == 21);
-  assert(lines[15] == "BLE rejected=327675 last=FF:FF:FF:FF:FF:FF woio=65535 meter=65535 bthome=65535 atc=65535 thermopro=65535 unassigned=65535");
+  assert(lines[15] == "BLE rejected=327675 last=FF:FF:FF:FF:FF:FF woio=65535 meter=65535 bthome=65535 atc=65535 thermopro=65535 unassigned=65535 jumps=65535");
 }
 
 namespace {
@@ -21075,6 +21199,8 @@ testBleRejectEachFormatAndSlotsUnchanged();
 testBleRejectSaturationAndReset();
 testBleRejectStatusLine();
 testBleRejectStatusWorstCaseLength();
+testJumpGuard();
+testJumpGuardStatusLine();
 testSlotAutoAssign();
 testSlotAutoAssignStatus();
 testSlotAutoAssignScan();
