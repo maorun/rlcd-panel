@@ -112,4 +112,32 @@ class SlotAssignmentTest {
         assertFalse(result!!.ok)
         assertTrue(result!!.summary.contains("CONFIG lesen fehlgeschlagen"))
     }
+
+    @Test
+    fun clearBatchRunsEmptySetsThenConfig() {
+        val sent = mutableListOf<String>()
+        var result: SlotAssignment.Result? = null
+        val plan = com.rlcdpanel.phone.protocol.SlotConfig.clear(3) as com.rlcdpanel.phone.protocol.SlotConfig.Plan.Commands
+        SlotAssignment.run(
+            plan.commands,
+            { cmd, cb -> sent += cmd; cb(if (cmd == "CONFIG") ConsoleReply.Frame(listOf("SOURCE SD")) else ConsoleReply.Status("OK SET")) }
+        ) { result = it }
+        assertEquals(listOf("SET slot3_mac=", "CONFIG"), sent)
+        assertTrue(result!!.ok)
+        assertFalse(result!!.readOnly)
+    }
+
+    @Test
+    fun readOnlyStopsBatchAndFlagsHint() {
+        val sent = mutableListOf<String>()
+        var result: SlotAssignment.Result? = null
+        SlotAssignment.run(
+            listOf("SET slot_auto_assign=0"),
+            { cmd, cb -> sent += cmd; cb(ConsoleReply.Status("ERR READ_ONLY")) }
+        ) { result = it }
+        assertEquals(listOf("SET slot_auto_assign=0"), sent)
+        assertTrue(result!!.readOnly)
+        assertTrue(result!!.applied.isEmpty())
+        assertNull(result!!.config)
+    }
 }
