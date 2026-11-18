@@ -1,5 +1,6 @@
 package com.rlcdpanel.watch.complication
 
+import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.protocol.TelemetryFrame
 import kotlin.math.roundToInt
@@ -13,7 +14,8 @@ data class ClimateComplicationModel(
     val temperatureText: String,
     val humidityText: String,
     val humidityValue: Float,
-    val isEmpty: Boolean
+    val isEmpty: Boolean,
+    val roomName: String = ""
 ) {
     companion object {
         const val PLACEHOLDER = "--"
@@ -23,24 +25,30 @@ data class ClimateComplicationModel(
         val EMPTY = ClimateComplicationModel(PLACEHOLDER, PLACEHOLDER, MIN_VALUE, true)
 
         /** Reads the focused room from [cache]. It does not scan BLE. */
-        fun build(cache: TelemetryCache, nowMillis: Long): ClimateComplicationModel {
+        fun build(
+            cache: TelemetryCache,
+            nowMillis: Long,
+            config: PanelConfig = PanelConfig()
+        ): ClimateComplicationModel {
             val focused = cache.focusedRoom()
+            val roomName = config.tileName(focused)
             val cached = cache.read(page = focused / TelemetryFrame.TILES_PER_PAGE)
             if (cached == null || cached.isStale(nowMillis)) {
-                return EMPTY
+                return EMPTY.copy(roomName = roomName)
             }
             // A page 1 frame holds the rooms 6 to 10 at the indices 0 to 4.
             val tile = cached.frame.tiles.getOrNull(focused % TelemetryFrame.TILES_PER_PAGE)
             val temperature = tile?.temperatureC
             val humidity = tile?.humidityPct
             if (temperature == null || humidity == null) {
-                return EMPTY
+                return EMPTY.copy(roomName = roomName)
             }
             return ClimateComplicationModel(
                 temperatureText = "${temperature.roundToInt()}°",
                 humidityText = "${humidity.roundToInt()}%",
                 humidityValue = humidity.coerceIn(MIN_VALUE.toDouble(), MAX_VALUE.toDouble()).toFloat(),
-                isEmpty = false
+                isEmpty = false,
+                roomName = roomName
             )
         }
     }

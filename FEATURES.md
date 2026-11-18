@@ -1677,3 +1677,14 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `EventCode::ALERT_ACK` (13) records the alert mask as detail; `EventRing::MAX_CODE` is 13. `EventText` shows `Alert <name> acknowledged`.
 - `STATUS` appends ` acked=<hex>` to the `POWER` line. `tests/fixtures/status_reply_sample.txt` and its CRC-32 follow; the companion parsers read the `POWER` line by field name, so they stay unchanged.
 - Validation: the host tests, `arduino-cli compile rlcd_panel` and `swift test` pass. The Android tests run in CI only.
+
+## Panel config over the BLE console in the Wear OS app
+
+- **Code:** `wearos/RlcdWatch/.../console/BleConsoleClient.kt`, `.../protocol/ConsoleWire.kt` (both apps), `.../WatchDashboardScreen.kt`, `.../MainActivity.kt`, `.../complication/ClimateComplicationModel.kt`, `scripts/check-protocol-sync.sh`, `wearos/RlcdWatch/app/src/test/.../protocol/ConsoleWireTest.kt`.
+- `ConsoleWire` moved from the `console` package to the `protocol` package of `android/RlcdPhone` and `wearos/RlcdWatch`. `scripts/check-protocol-sync.sh` compares `ConsoleWire.kt` with the other shared files.
+- The watch has its own `BleConsoleClient` (port of the phone client): one GATT connection for each command, MTU 185, writes of `max(1, MTU - 3)` bytes, the `ReplyAssembler` CRC-32 check and a 10 s timeout.
+- `WatchDashboardScreen` shows a `Read panel config` chip. A tap sends `CONFIG` and `MainActivity` stores a good reply through `ConfigCache`. A bad CRC-32, a timeout and an `ERR` reply keep the old cache and show the reason. After a good read the tile and the complication refresh.
+- The tile, the dashboard and the complication use `PanelConfig.tileName`. `ClimateComplicationModel.roomName` holds the name for the content description.
+- The manifest requests `BLUETOOTH_CONNECT`. `MainActivity` asks for it with `BLUETOOTH_SCAN` on SDK 31 and later before the first read.
+- Validation: `./scripts/check-protocol-sync.sh` and `--self-test` pass. `ConsoleWireTest` covers the chunks for MTU 23 and 185, the names of `tests/fixtures/config_reply_sample.txt` and a bad CRC-32 that keeps the old cache.
+- The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.

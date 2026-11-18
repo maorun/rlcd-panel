@@ -1,5 +1,6 @@
 package com.rlcdpanel.watch.complication
 
+import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.protocol.TelemetryCacheStore
 import org.junit.Assert.assertEquals
@@ -61,6 +62,17 @@ class ClimateComplicationModelTest {
         val second = ClimateComplicationModel.build(cacheWith("two_tiles", 0L, focus = 1), 60_000L)
         assertEquals("-3°", second.temperatureText)
         assertEquals("65%", second.humidityText)
+    }
+
+    @Test
+    fun roomNameComesFromPanelConfig() {
+        val config = PanelConfig.parseText("slot1_name=Wohnzimmer\nslot1_mac=B0:E9:FE:00:00:01\n")
+        val fresh = ClimateComplicationModel.build(cacheWith("two_tiles", 0L, focus = 1), 60_000L, config)
+        assertEquals("Wohnzimmer", fresh.roomName)
+        val stale = ClimateComplicationModel.build(cacheWith("two_tiles", 0L, focus = 1), 36L * 60_000L, config)
+        assertTrue(stale.isEmpty)
+        assertEquals("Wohnzimmer", stale.roomName)
+        assertEquals("Slot 1", ClimateComplicationModel.build(cacheWith("two_tiles", 0L, focus = 1), 60_000L).roomName)
     }
 
     @Test
