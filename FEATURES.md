@@ -1558,3 +1558,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The service is registered in `AndroidManifest.xml` with the types `SHORT_TEXT,RANGED_VALUE`. The dependency is `watchface-complications-data-source-ktx` 1.2.1.
 - No `config.ini` key and no firmware change.
 - Tests: `ClimateComplicationModelTest` (text of the `two_tiles` vector for two rooms, empty cache, frame of 36 minutes, bad CRC-8, room without reading, ranged value 0 to 100). The local machine has no Android SDK, so CI runs `gradle testDebugUnitTest assembleDebug`.
+
+## Restore of the seven-day history from the daily file
+
+- **Code:** `rlcd_panel/sd_logger.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/rlcd_panel.ino`.
+- A power-on set each `WeekHistory` day to a gap, so the `WEEK_CHART` view and the `WEEK` command stayed empty for 7 days. The firmware now refills the days from the daily file.
+- `SdLogCodec::parseDailyRow` parses one row of `daily_v5_YYYY.csv` (83 columns). An empty pair is a missing value. A half pair, a wrong column count, a bad number and a bad date reject the row. The header line is rejected too.
+- `WeekHistory::restore` takes the rows of the 7 days before the RTC date, stores the min and max of each sensor, leaves a missing day as a gap and sets the stamp to the RTC date. A later row of the same day wins. A day without any pair counts as no data.
+- `SdLogger::restoreWeek` reads the last 4096 bytes of the file of the current year. From 1 to 7 January it also reads the file of the previous year. `restoreHistoriesFromCard` runs it for a power-on only.
+- An invalid, stopped or untrusted RTC time, a week with a stamp or a value, a missing card or file, and corrupt rows change nothing.
+- No `config.ini` key. The RTC `PersistentState` layout and `STATE_VERSION` stay unchanged.
+- Tests: `testParseDailyRow`, `testWeekRestoreFromDailyRows`, `testWeekRestoreYearChange`, `testWeekRestoreNoChange`, `testWeekRestoreTailAndBuffer`.

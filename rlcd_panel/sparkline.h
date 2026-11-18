@@ -785,6 +785,67 @@ public:
     return true;
   }
 
+  // One row of the daily file for the restore. `day` is the local date in days since 1970-01-01. Bit s of
+  // `temp_mask` and `rh_mask` is set when sensor s (0 onboard, 1 to 10 a slot) has both its minimum and
+  // its maximum; the values are in 0.1 steps.
+  struct RestoreRow {
+    int64_t day = 0;
+    uint16_t temp_mask = 0;
+    uint16_t rh_mask = 0;
+    int16_t temp_min[SENSORS] = {};
+    int16_t temp_max[SENSORS] = {};
+    int16_t rh_min[SENSORS] = {};
+    int16_t rh_max[SENSORS] = {};
+  };
+
+  // Refills the days from the rows of the daily file after a power-on. `rows` run from the oldest to the
+  // newest row; a later row for the same day replaces an earlier one. Only the rows of the 7 days before the RTC date count.
+  // It changes nothing for an invalid or untrusted RTC time, for a week that holds a stamp or a value and
+  // for rows without a day in that range. Else it stores the days (a missing day stays a gap) and takes
+  // the RTC date as stamp. Returns the number of days stored.
+  size_t restore(const RestoreRow* rows, size_t count, const RtcTime& now) {
+    if (rows == nullptr || count == 0 || has_date_ || !now.valid || now.oscillator_stopped ||
+        now.year < MIN_TRUSTED_YEAR || now.year > 2099 || !NtpTime::isValidDate(now.year, now.month, now.day)) {
+      return 0;
+    }
+    for (size_t s = 0; s < SENSORS; ++s) {
+      for (size_t k = 0; k < DAYS; ++k) {
+        for (size_t b = 0; b < DAY_SIZE; ++b) {
+          if (days_[s][k][b] != GAP) {
+            return 0;
+          }
+        }
+      }
+    }
+    const int64_t today = NtpTime::daysFromCivil(now.year, now.month, now.day);
+    bool filled[DAYS] = {};
+    size_t stored = 0;
+    for (size_t i = 0; i < count; ++i) {
+      const int64_t age = today - 1 - rows[i].day;
+      if (age < 0 || age >= static_cast<int64_t>(DAYS)) {
+        continue;
+      }
+      const size_t k = static_cast<size_t>(age);
+      if (rows[i].temp_mask == 0 && rows[i].rh_mask == 0) {
+        continue; // a day without any pair is no data
+      }
+      for (size_t s = 0; s < SENSORS; ++s) {
+        const bool has_t = (rows[i].temp_mask & (1u << s)) != 0;
+        const bool has_h = (rows[i].rh_mask & (1u << s)) != 0;
+        setDay(s, k, has_t, rows[i].temp_min[s], rows[i].temp_max[s], has_h, rows[i].rh_min[s],
+               rows[i].rh_max[s]);
+      }
+      if (!filled[k]) {
+        filled[k] = true;
+        ++stored;
+      }
+    }
+    if (stored > 0) {
+      stamp(now);
+    }
+    return stored;
+  }
+
   void serialize(uint8_t* out) const {
     size_t pos = 0;
     for (size_t s = 0; s < SENSORS; ++s) {

@@ -943,6 +943,154 @@ public:
     return added;
   }
 
+  // ---- Restore of the seven-day history from the daily rows ----
+
+  static constexpr size_t DAILY_COLUMNS = 1 + 6 * LOG_SOURCE_COUNT + 2 + 3 + LOG_SOURCE_COUNT; // 83
+  static constexpr size_t DAILY_TAIL_BYTES = 4096; // the read limit of each file
+  static constexpr size_t DAILY_ROW_CAPACITY = 14;
+
+  // The newest rows of a daily file, oldest first. A full buffer drops the oldest row.
+  struct DailyRowBuffer {
+    WeekHistory::RestoreRow rows[DAILY_ROW_CAPACITY];
+    size_t count = 0;
+
+    void append(const WeekHistory::RestoreRow& row) {
+      if (count == DAILY_ROW_CAPACITY) {
+        memmove(rows, rows + 1, (DAILY_ROW_CAPACITY - 1) * sizeof(rows[0]));
+        --count;
+      }
+      rows[count++] = row;
+    }
+
+    // Appends the rows of `newer` after the own rows.
+    void appendAll(const DailyRowBuffer& newer) {
+      for (size_t i = 0; i < newer.count; ++i) {
+        append(newer.rows[i]);
+      }
+    }
+  };
+
+  // Parses one row of the current daily format (83 columns, without the newline) for the restore. An
+  // empty field is a missing value; a sensor needs both its minimum and its maximum for a pair. A wrong
+  // column count, a bad date or a bad number rejects the row. The header line has a bad date, so it is
+  // rejected too.
+  static bool parseDailyRow(const char* line, size_t len, WeekHistory::RestoreRow& out) {
+    if (line == nullptr) {
+      return false;
+    }
+    while (len > 0 && (line[len - 1] == '\n' || line[len - 1] == '\r')) {
+      --len;
+    }
+    const char* fields[DAILY_COLUMNS];
+    size_t lens[DAILY_COLUMNS];
+    size_t n = 0;
+    size_t start = 0;
+    for (size_t i = 0; i <= len; ++i) {
+      if (i == len || line[i] == ',') {
+        if (n == DAILY_COLUMNS) {
+          return false;
+        }
+        fields[n] = line + start;
+        lens[n] = i - start;
+        ++n;
+        start = i + 1;
+      }
+    }
+    if (n != DAILY_COLUMNS) {
+      return false;
+    }
+    // "YYYY-MM-DD"
+    const char* t = fields[0];
+    if (lens[0] != 10 || t[4] != '-' || t[7] != '-') {
+      return false;
+    }
+    int v[3];
+    static const size_t POS[3] = {0, 5, 8};
+    static const size_t WIDTH[3] = {4, 2, 2};
+    for (size_t k = 0; k < 3; ++k) {
+      v[k] = 0;
+      for (size_t d = 0; d < WIDTH[k]; ++d) {
+        const char c = t[POS[k] + d];
+        if (c < '0' || c > '9') {
+          return false;
+        }
+        v[k] = v[k] * 10 + (c - '0');
+      }
+    }
+    if (v[0] < 2000 || v[0] > 2099 || !NtpTime::isValidDate(v[0], static_cast<uint8_t>(v[1]), static_cast<uint8_t>(v[2]))) {
+      return false;
+    }
+    WeekHistory::RestoreRow row;
+    row.day = NtpTime::daysFromCivil(v[0], static_cast<uint8_t>(v[1]), static_cast<uint8_t>(v[2]));
+    // Six columns for each sensor: temperature min, max, mean, humidity min, max, mean.
+    for (size_t s = 0; s < LOG_SOURCE_COUNT; ++s) {
+      const size_t col = 1 + 6 * s;
+      int16_t lo = 0, hi = 0;
+      const bool t_lo = lens[col] != 0, t_hi = lens[col + 1] != 0;
+      if (t_lo != t_hi) {
+        return false;
+      }
+      if (t_lo) {
+        if (!parseTenths(fields[col], lens[col], -1000, 1000, lo) ||
+            !parseTenths(fields[col + 1], lens[col + 1], -1000, 1000, hi)) {
+          return false;
+        }
+        row.temp_min[s] = lo;
+        row.temp_max[s] = hi;
+        row.temp_mask = static_cast<uint16_t>(row.temp_mask | (1u << s));
+      }
+      const bool h_lo = lens[col + 3] != 0, h_hi = lens[col + 4] != 0;
+      if (h_lo != h_hi) {
+        return false;
+      }
+      if (h_lo) {
+        if (!parseTenths(fields[col + 3], lens[col + 3], 0, 1000, lo) ||
+            !parseTenths(fields[col + 4], lens[col + 4], 0, 1000, hi)) {
+          return false;
+        }
+        row.rh_min[s] = lo;
+        row.rh_max[s] = hi;
+        row.rh_mask = static_cast<uint16_t>(row.rh_mask | (1u << s));
+      }
+    }
+    out = row;
+    return true;
+  }
+
+  // Parses the rows of a daily file tail like parseClimateTail: a partial first line (unless `from_start`),
+  // a line without a newline and a bad line are skipped. Returns the rows added.
+  static size_t parseDailyTail(const char* buf, size_t len, bool from_start, DailyRowBuffer& out) {
+    if (buf == nullptr) {
+      return 0;
+    }
+    size_t added = 0;
+    size_t pos = 0;
+    if (!from_start) {
+      while (pos < len && buf[pos] != '\n') {
+        ++pos;
+      }
+      if (pos < len) {
+        ++pos;
+      }
+    }
+    while (pos < len) {
+      size_t eol = pos;
+      while (eol < len && buf[eol] != '\n') {
+        ++eol;
+      }
+      if (eol == len) {
+        break;
+      }
+      WeekHistory::RestoreRow row;
+      if (parseDailyRow(buf + pos, eol - pos, row)) {
+        out.append(row);
+        ++added;
+      }
+      pos = eol + 1;
+    }
+    return added;
+  }
+
   // The month before `now`, for the file of the previous month. False for an invalid time.
   static bool previousMonth(const RtcTime& now, RtcTime& out) {
     if (!now.valid || now.month < 1 || now.month > 12 || now.year < 2001) {
@@ -1287,6 +1435,37 @@ public:
     return history.restore(rows.rows, rows.count, now, now_ms, fixed_slots);
   }
 
+  // Restores the seven-day history from the daily rows of the card after a power-on (see
+  // WeekHistory::restore). Reads the last DAILY_TAIL_BYTES of the daily file of the current year and, in
+  // the first week of January, of the previous year. A missing card or file, a read failure or a bad row
+  // changes nothing. Returns the days stored.
+  static size_t restoreWeek(WeekHistory& week, const RtcTime& now) {
+    char path[SdLogCodec::MAX_PATH_SIZE];
+    if (!now.valid || now.oscillator_stopped || now.year < WeekHistory::MIN_TRUSTED_YEAR ||
+        SdLogCodec::formatDailyFilename(now.year, path, sizeof(path)) == 0) {
+      return 0;
+    }
+    if (tryMount() != SdStatus::OK) {
+      return 0;
+    }
+    // Static: the buffers would use the whole loop task stack. setup() runs once per wake cycle.
+    static char buf[SdLogCodec::DAILY_TAIL_BYTES];
+    static SdLogCodec::DailyRowBuffer rows;
+    rows = SdLogCodec::DailyRowBuffer{};
+    readDailyTail(path, buf, sizeof(buf), rows);
+    if (now.month == 1 && now.day <= 7) {
+      static SdLogCodec::DailyRowBuffer older;
+      older = SdLogCodec::DailyRowBuffer{};
+      if (SdLogCodec::formatDailyFilename(static_cast<uint16_t>(now.year - 1), path, sizeof(path)) != 0 &&
+          readDailyTail(path, buf, sizeof(buf), older) > 0) {
+        older.appendAll(rows);
+        rows = older;
+      }
+    }
+    SD_MMC.end();
+    return week.restore(rows.rows, rows.count, now);
+  }
+
   // Mounts the card for a console command; the caller unmounts with SD_MMC.end().
   static bool mountCard() {
     return mount();
@@ -1306,6 +1485,25 @@ private:
       const size_t n = file.read(reinterpret_cast<uint8_t*>(buf), want);
       if (n == want) {
         added = SdLogCodec::parseClimateTail(buf, n, want == size, out);
+      }
+    }
+    file.close();
+    return added;
+  }
+
+  // Reads the last `capacity` bytes of one daily file and parses its rows. A missing file or a short read gives 0.
+  static size_t readDailyTail(const char* path, char* buf, size_t capacity, SdLogCodec::DailyRowBuffer& out) {
+    File file = SD_MMC.open(path + strlen(SdLogCodec::MOUNT_POINT), FILE_READ);
+    if (!file || file.isDirectory()) {
+      return 0;
+    }
+    const size_t size = file.size();
+    const size_t want = size < capacity ? size : capacity;
+    size_t added = 0;
+    if (want > 0 && file.seek(size - want)) {
+      const size_t n = file.read(reinterpret_cast<uint8_t*>(buf), want);
+      if (n == want) {
+        added = SdLogCodec::parseDailyTail(buf, n, want == size, out);
       }
     }
     file.close();
