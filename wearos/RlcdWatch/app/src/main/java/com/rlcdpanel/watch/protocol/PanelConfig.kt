@@ -29,6 +29,13 @@ data class PanelConfig(
     fun slotMac(slot: Int): String? =
         if (slot in 1..slotCount) normalizeMac(values["slot${slot}_mac"]) else null
 
+    /** Configured `slotN_name` of slot [slot] (1..10), null without one. */
+    fun slotName(slot: Int): String? =
+        if (slot in 1..slotCount) values["slot${slot}_name"]?.takeIf { it.isNotBlank() } else null
+
+    /** `slot_auto_assign`: a new MAC takes a free slot (default on). */
+    val slotAutoAssign: Boolean get() = values["slot_auto_assign"]?.trim() != "0"
+
     /**
      * Display name that is bound to the sensor [mac]: the slotN_name of the slot whose fixed MAC (slotN_mac)
      * equals [mac], whatever slot the sensor sits in. Null for an unknown MAC or a fixed MAC without a name.

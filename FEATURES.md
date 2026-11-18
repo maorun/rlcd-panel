@@ -1657,3 +1657,13 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `ChimeScreen` has a mute switch, a `Read mute state` button and one `Test` button for each alert bit. `SensorHealthScreen` has the button `Chime and alerts`. `MainActivity` sends `MUTE`, then `STATUS`, through `BleConsoleClient.send` only after a tap, and cancels the command in `onStop`.
 - `StatusReplyTest` asserts `muted=0`, `muted=1` and a missing field. `ChimeCommandTest` asserts `MUTE 1`, `MUTE 0`, `BEEP 0` to `BEEP 7`, the failure of bit 8 and bit -1, and the reply texts.
 - The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.
+
+## Slot configuration screen in the Android app
+
+- `SlotConfigScreen` lists slots 1 to 10 with the name, the fixed MAC address and the sensor format (badge of the last `Read sensor health`, `-` before a read). `SensorHealthScreen` has the button `Slot configuration`.
+- The editor dialog defines the name and the fixed MAC address of a slot. `SlotConfig.define` checks the name (at most 12 characters from `A-Z`, `0-9` and `-`, upper-cased), the MAC format and a duplicate MAC of another slot, and returns `SET slotN_mac=<MAC>` then `SET slotN_name=<NAME>` (no name command for an empty name, because the firmware rejects an empty `slotN_name`).
+- `Leeren` sends `SET slotN_mac=` (an empty value clears the fixed MAC). `SLOT CLEAR <N>` is not used: the firmware answers `ERR FIXED_MAC` for a slot with a fixed MAC.
+- A switch toggles `slot_auto_assign` with `SET slot_auto_assign=<0|1>`; `PanelConfig.slotAutoAssign` reads it (default on). `PanelConfig.slotName` reads `slotN_name`; the Wear OS copy stays equal (`scripts/check-protocol-sync.sh`).
+- `MainActivity` sends the commands through `SlotAssignment.run` (`BleConsoleClient.send`), reads `CONFIG` after the batch and refreshes `PanelConfig` and the cache. The first `ERR` stops the batch. `ERR READ_ONLY` sets `SlotAssignment.Result.readOnly` and shows the hint `Set ble_console=2 to apply`.
+- `SlotConfigTest` asserts the commands for name and MAC, the clear command, the duplicate MAC conflict, the rejected names, and the `slot_auto_assign` commands. `SlotAssignmentTest` asserts the clear batch and the `ERR READ_ONLY` handling.
+- The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.

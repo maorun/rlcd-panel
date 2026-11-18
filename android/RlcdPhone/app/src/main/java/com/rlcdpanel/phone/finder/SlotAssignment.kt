@@ -58,6 +58,8 @@ object SlotAssignment {
         val configFailed: Boolean
     ) {
         val ok: Boolean get() = failure == null && !configFailed
+        /** The panel runs with `ble_console=1`. */
+        val readOnly: Boolean get() = failure == READ_ONLY_TEXT
         val summary: String
             get() = when {
                 failure != null && applied.isNotEmpty() -> "$failure. Übernommen: ${applied.size}. Zustand des Panels unbekannt, CONFIG lesen"

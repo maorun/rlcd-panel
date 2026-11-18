@@ -64,6 +64,7 @@ fun SensorHealthScreen(
     onOpenCalibration: () -> Unit = {},
     onOpenFinder: () -> Unit = {},
     onOpenChime: () -> Unit = {},
+    onOpenSlots: () -> Unit = {},
     onBack: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -93,6 +94,9 @@ fun SensorHealthScreen(
             }
             item {
                 OutlinedButton(onClick = onOpenChime) { Text("Chime and alerts") }
+            }
+            item {
+                OutlinedButton(onClick = onOpenSlots) { Text("Slot configuration") }
             }
             item {
                 Text(

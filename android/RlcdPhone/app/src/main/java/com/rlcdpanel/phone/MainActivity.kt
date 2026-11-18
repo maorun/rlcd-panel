@@ -96,6 +96,8 @@ class MainActivity : ComponentActivity() {
     private var showWeek by mutableStateOf(false)
     private var showFinder by mutableStateOf(false)
     private var showChime by mutableStateOf(false)
+    private var showSlots by mutableStateOf(false)
+    private var slotState by mutableStateOf(SlotConfigState())
     private var chimeState by mutableStateOf(ChimeState())
     private var finderState by mutableStateOf(SensorFinderState())
     private val finderList = SensorFinderList()
@@ -215,6 +217,17 @@ class MainActivity : ComponentActivity() {
                 BackHandler { closeFinder() }
                 return@setContent
             }
+            if (showSlots) {
+                SlotConfigScreen(
+                    state = slotState,
+                    panelConfig = panelConfig,
+                    formats = sourceBadges,
+                    onApply = { commands -> withConsolePermission { applySlotCommands(commands) } },
+                    onBack = { closeSlots() }
+                )
+                BackHandler { closeSlots() }
+                return@setContent
+            }
             if (showChime) {
                 ChimeScreen(
                     state = chimeState,
@@ -237,6 +250,7 @@ class MainActivity : ComponentActivity() {
                     onOpenCalibration = { showHealth = false; showCalib = true },
                     onOpenFinder = { showHealth = false; showFinder = true },
                     onOpenChime = { showHealth = false; showChime = true },
+                    onOpenSlots = { showHealth = false; showSlots = true },
                     onBack = { closeSensorHealth() }
                 )
                 BackHandler { closeSensorHealth() }
@@ -390,6 +404,7 @@ class MainActivity : ComponentActivity() {
             if (grants.isNotEmpty() && grants.values.all { it }) action()
             else if (showWeek) weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
             else if (showFinder) finderState = finderState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
+            else if (showSlots) slotState = slotState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else if (showChime) chimeState = chimeState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else calibState = calibState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             return@registerForActivityResult
@@ -506,6 +521,37 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun closeSlots() {
+        consoleClient.cancel()
+        pendingConsoleAction = null
+        slotState = SlotConfigState()
+        showSlots = false
+        showHealth = true
+    }
+
+    /** Sends the slot [commands] one by one, then `CONFIG`. The first `ERR` stops the batch. */
+    private fun applySlotCommands(commands: List<String>) {
+        stopBleScan()
+        slotState = slotState.copy(isBusy = true, isError = false, readOnly = false, message = null)
+        SlotAssignment.run(commands, consoleClient::send) { result ->
+            result.config?.let { frame ->
+                lifecycleScope.launch {
+                    val info = withContext(Dispatchers.IO) { ConfigCache.store(filesDir, frame, System.currentTimeMillis()) }
+                    if (info != null) {
+                        panelConfig = withContext(Dispatchers.IO) { PanelConfig.load(this@MainActivity) }
+                        configState = ConfigReadState(info = info)
+                    } else if (showSlots) {
+                        slotState = slotState.copy(isError = true, message = "Panel liefert keine SD-Einstellungen. Anzeige ist alt, CONFIG lesen")
+                    }
+                }
+            }
+            // A reply that arrives after closeSlots must not mark the reset screen as busy or failed.
+            if (showSlots) {
+                slotState = slotState.copy(isBusy = false, isError = !result.ok, readOnly = result.readOnly, message = result.summary)
+            }
+        }
+    }
+
     private fun closeChime() {
         consoleClient.cancel()
         pendingConsoleAction = null
@@ -573,7 +619,7 @@ class MainActivity : ComponentActivity() {
 
     /** Runs [action] after the Bluetooth permissions; the action sends console commands. */
     private fun withConsolePermission(action: () -> Unit) {
-        if (calibState.isBusy || chimeState.isBusy || weekState.isReading || finderState.isBusy || consoleClient.isRunning) return
+        if (calibState.isBusy || chimeState.isBusy || weekState.isReading || finderState.isBusy || slotState.isBusy || consoleClient.isRunning) return
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
@@ -583,6 +629,7 @@ class MainActivity : ComponentActivity() {
             pendingConsoleAction = action
             if (showWeek) weekState = WeekState(isReading = true)
             else if (showFinder) finderState = finderState.copy(isBusy = true, message = null)
+            else if (showSlots) slotState = slotState.copy(isBusy = true, message = null)
             else if (showChime) chimeState = chimeState.copy(isBusy = true, message = null)
             else calibState = calibState.copy(isBusy = true, message = null)
             consolePermissionLauncher.launch(needed.toTypedArray())
