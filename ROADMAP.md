@@ -59,12 +59,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Restore of the seven-day history from the daily file
-  - Rank: [Total: 26, Use: 7, Setup: 3, Harmony: 8, Safety: 8, Effort: M]
-  - Location: rlcd_panel/sparkline.h, rlcd_panel/sd_logger.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp
-  - Goal: A power-on sets each `WeekHistory` day to a gap, so the `WEEK_CHART` view and the `WEEK` command stay empty for 7 days. `ClimateHistory::restore` refills only the 24-hour histories. Add `SdLogCodec::parseDailyRow` for the current `daily_v5_YYYY.csv` format. Add `WeekHistory::restore`, which takes the rows of the last 7 days before the RTC date and sets the stamp. Read the last 4096 bytes of the current year file, and of the previous year file in the first week of January. Run it in `restoreHistoriesFromCard` for a power-on only. An invalid RTC time, a week with data and a bad row change nothing. Do not change the RTC state layout.
-  - Acceptance test: Add `testParseDailyRow` for a good row, an empty field, a wrong column count and a bad date. Add `testWeekRestoreFromDailyRows` with 5 rows and one missing day, and assert the gap and the stamp. Add `testWeekRestoreYearChange` and `testWeekRestoreNoChange` for an invalid RTC time and a non-empty week. Run `c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner && rm -f test_runner` and `arduino-cli compile rlcd_panel`.
-
 
 ## Rules for ranking
 

@@ -20514,6 +20514,208 @@ void testParseClimateRow() {
   assert(!SdLogCodec::parseClimateRow(nullptr, 0, row));
 }
 
+// ---- Restore of the seven-day history from the daily file ----
+
+// Builds one 83-column daily row. The onboard sensor gets `t_min`, `t_max` and `rh_min`, `rh_max` (empty
+// text is a missing value); the other ten sensors and the noise columns stay empty.
+static std::string dailyCsvRow(
+    const char* date, const char* t_min, const char* t_max, const char* rh_min, const char* rh_max) {
+  std::string row = std::string(date) + "," + t_min + "," + t_max + ",," + rh_min + "," + rh_max + ",";
+  row += std::string(10 * 6, ',');   // sensors 1 to 10, six empty columns each
+  row += std::string(2 + 3 + 11, ',') + "\n"; // noise range, noise summary, mold hours
+  return row;
+}
+
+void testParseDailyRow() {
+  WeekHistory::RestoreRow row;
+  assert(SdLogCodec::DAILY_COLUMNS == 83);
+  const std::string good = dailyCsvRow("2026-03-08", "18.5", "24.0", "40.0", "55.5");
+  assert(SdLogCodec::parseDailyRow(good.c_str(), good.size(), row));
+  assert(row.day == NtpTime::daysFromCivil(2026, 3, 8));
+  assert(row.temp_mask == 1u && row.rh_mask == 1u);
+  assert(row.temp_min[0] == 185 && row.temp_max[0] == 240 && row.rh_min[0] == 400 && row.rh_max[0] == 555);
+
+  // An empty humidity pair is a missing value, the temperature stays
+  const std::string empty = dailyCsvRow("2026-03-08", "-3.5", "4.0", "", "");
+  assert(SdLogCodec::parseDailyRow(empty.c_str(), empty.size(), row));
+  assert(row.temp_mask == 1u && row.rh_mask == 0u && row.temp_min[0] == -35);
+
+  // One half of a pair is corrupt
+  const std::string half = dailyCsvRow("2026-03-08", "18.5", "", "40.0", "55.5");
+  assert(!SdLogCodec::parseDailyRow(half.c_str(), half.size(), row));
+
+  // A wrong column count and a bad number
+  std::string shortRow = good;
+  shortRow.erase(shortRow.size() - 2);
+  assert(!SdLogCodec::parseDailyRow(shortRow.c_str(), shortRow.size(), row));
+  const std::string longRow = good.substr(0, good.size() - 1) + ",\n";
+  assert(!SdLogCodec::parseDailyRow(longRow.c_str(), longRow.size(), row));
+  const std::string bad = dailyCsvRow("2026-03-08", "abc", "24.0", "40.0", "55.5");
+  assert(!SdLogCodec::parseDailyRow(bad.c_str(), bad.size(), row));
+
+  // A bad date: month 13, 30 February, wrong separator, year out of range, the header line
+  const char* dates[] = {"2026-13-01", "2026-02-30", "2026/03/08", "1999-03-08", "2026-3-08"};
+  for (const char* d : dates) {
+    const std::string r = dailyCsvRow(d, "18.5", "24.0", "40.0", "55.5");
+    assert(!SdLogCodec::parseDailyRow(r.c_str(), r.size(), row));
+  }
+  char header[SdLogCodec::DAILY_HEADER_SIZE];
+  const size_t header_len = SdLogCodec::formatDailyHeader(header, sizeof(header));
+  assert(header_len > 0 && !SdLogCodec::parseDailyRow(header, header_len, row));
+  assert(!SdLogCodec::parseDailyRow(nullptr, 0, row));
+
+  // A real row written by the logger parses
+  ClimateHistory h;
+  h.temperatures[0].pushCelsius(20.0f);
+  h.slots[0].pushPercent(50.0f);
+  char buf[SdLogCodec::MAX_ROW_SIZE];
+  NoiseHistory noise;
+  const size_t len = SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, DailyNoiseStats{}, buf, sizeof(buf));
+  assert(len > 0 && SdLogCodec::parseDailyRow(buf, len, row));
+  assert(row.temp_mask == 1u && row.temp_min[0] == 200 && row.rh_max[0] == 500);
+}
+
+static size_t weekRestoreFromText(WeekHistory& w, const std::string& text, const RtcTime& now) {
+  SdLogCodec::DailyRowBuffer rows;
+  SdLogCodec::parseDailyTail(text.c_str(), text.size(), true, rows);
+  return w.restore(rows.rows, rows.count, now);
+}
+
+void testWeekRestoreFromDailyRows() {
+  // Today is 10 March: days 9, 8, 6, 5 and 4 March exist, 7 March is missing, an old row is ignored
+  std::string text = "header line\n";
+  text += dailyCsvRow("2026-03-02", "1.0", "2.0", "30.0", "35.0");
+  text += dailyCsvRow("2026-03-04", "10.0", "14.0", "40.0", "50.0");
+  text += dailyCsvRow("2026-03-05", "11.0", "15.0", "41.0", "51.0");
+  text += dailyCsvRow("2026-03-06", "12.0", "16.0", "42.0", "52.0");
+  text += "2026-03-07,corrupt row\n";
+  text += dailyCsvRow("2026-03-08", "13.0", "17.0", "43.0", "53.0");
+  text += dailyCsvRow("2026-03-09", "14.0", "18.0", "44.0", "54.0");
+  WeekHistory w;
+  assert(weekRestoreFromText(w, text, restoreNow(10, 0, 5)) == 5);
+  assert(w.hasDate() && w.stampYear() == 2026 && w.stampMonth() == 3 && w.stampDay() == 10);
+  // Day 0 is 9 March, day 6 is 3 March
+  assert(w.hasTemperature(0, 0) && w.temperatureMin(0, 0) == 140 && w.temperatureMax(0, 0) == 180);
+  assert(w.humidityMin(0, 0) == 440 && w.humidityMax(0, 0) == 540);
+  assert(w.temperatureMin(0, 1) == 130);
+  assert(!w.hasTemperature(0, 2) && !w.hasHumidity(0, 2)); // 7 March: the gap
+  assert(w.temperatureMin(0, 3) == 120 && w.temperatureMin(0, 4) == 110 && w.temperatureMin(0, 5) == 100);
+  assert(!w.hasTemperature(0, 6)); // 3 March: no row
+  assert(!w.hasTemperature(1, 0)); // a sensor without values stays a gap
+  assert(w.weekdayOf(0) == 1);     // 9 March 2026 is a Monday
+
+  // The restored block survives the RTC round trip
+  uint8_t block[WeekHistory::SERIALIZED_SIZE];
+  w.serialize(block);
+  WeekHistory back;
+  assert(back.restore(block) && back.temperatureMin(0, 3) == 120);
+
+  // A later midnight step shifts the restored days
+  assert(w.advance(restoreNow(11, 0, 5), ClimateHistory{}, false));
+  assert(w.temperatureMin(0, 1) == 140 && !w.hasTemperature(0, 0));
+}
+
+void testWeekRestoreYearChange() {
+  // Today is 3 January 2026: the days of 2025 and 2026 come from two files
+  SdLogCodec::DailyRowBuffer older;
+  const std::string last_year = dailyCsvRow("2025-12-29", "5.0", "6.0", "60.0", "65.0") +
+                                dailyCsvRow("2025-12-31", "7.0", "9.0", "61.0", "66.0");
+  SdLogCodec::parseDailyTail(last_year.c_str(), last_year.size(), true, older);
+  SdLogCodec::DailyRowBuffer rows;
+  const std::string this_year = dailyCsvRow("2026-01-01", "-2.0", "1.0", "70.0", "75.0") +
+                                dailyCsvRow("2026-01-02", "-1.0", "3.0", "71.0", "76.0");
+  SdLogCodec::parseDailyTail(this_year.c_str(), this_year.size(), true, rows);
+  older.appendAll(rows);
+  RtcTime now = restoreNow(3, 12, 0);
+  now.month = 1;
+  WeekHistory w;
+  assert(w.restore(older.rows, older.count, now) == 4);
+  assert(w.temperatureMin(0, 0) == -10 && w.temperatureMax(0, 0) == 30); // 2 January
+  assert(w.temperatureMin(0, 1) == -20);                                 // 1 January
+  assert(w.temperatureMin(0, 2) == 70 && w.temperatureMax(0, 2) == 90);  // 31 December
+  assert(!w.hasTemperature(0, 3));                                       // 30 December: gap
+  assert(w.temperatureMin(0, 4) == 50);                                  // 29 December
+  assert(w.stampYear() == 2026 && w.stampMonth() == 1 && w.stampDay() == 3);
+
+  // The file of the new year alone leaves the days of the old year as gaps
+  WeekHistory only;
+  assert(weekRestoreFromText(only, this_year, now) == 2);
+  assert(!only.hasTemperature(0, 2));
+}
+
+void testWeekRestoreTailAndBuffer() {
+  // A tail that starts inside a line skips the partial first line and the line without a newline
+  const std::string row8 = dailyCsvRow("2026-03-08", "13.0", "17.0", "43.0", "53.0");
+  const std::string row9 = dailyCsvRow("2026-03-09", "14.0", "18.0", "44.0", "54.0");
+  const std::string cut = row8.substr(20) + row9 + row9.substr(0, 30);
+  SdLogCodec::DailyRowBuffer tail;
+  assert(SdLogCodec::parseDailyTail(cut.c_str(), cut.size(), false, tail) == 1);
+  assert(tail.count == 1 && tail.rows[0].day == NtpTime::daysFromCivil(2026, 3, 9));
+  // The same text read from the file start parses the partial first line as a bad row
+  SdLogCodec::DailyRowBuffer start;
+  assert(SdLogCodec::parseDailyTail(cut.c_str(), cut.size(), true, start) == 1);
+
+  // A full buffer drops the oldest row
+  SdLogCodec::DailyRowBuffer full;
+  std::string many;
+  for (int d = 1; d <= 15; ++d) {
+    char date[16];
+    snprintf(date, sizeof(date), "2026-02-%02d", d);
+    many += dailyCsvRow(date, "1.0", "2.0", "30.0", "35.0");
+  }
+  assert(SdLogCodec::parseDailyTail(many.c_str(), many.size(), true, full) == 15);
+  assert(full.count == SdLogCodec::DAILY_ROW_CAPACITY);
+  assert(full.rows[0].day == NtpTime::daysFromCivil(2026, 2, 2));
+
+  // A later row of the same day wins, a row without any pair is no data
+  const std::string dup = dailyCsvRow("2026-03-09", "1.0", "2.0", "30.0", "35.0") +
+                          dailyCsvRow("2026-03-09", "5.0", "6.0", "31.0", "36.0");
+  WeekHistory w;
+  assert(weekRestoreFromText(w, dup, restoreNow(10, 0, 5)) == 1);
+  assert(w.temperatureMin(0, 0) == 50);
+  const std::string blank = dailyCsvRow("2026-03-09", "", "", "", "");
+  WeekHistory b;
+  assert(weekRestoreFromText(b, blank, restoreNow(10, 0, 5)) == 0 && !b.hasDate());
+}
+
+void testWeekRestoreNoChange() {
+  const std::string text = dailyCsvRow("2026-03-09", "14.0", "18.0", "44.0", "54.0");
+
+  // An invalid, untrusted or stopped RTC time
+  RtcTime invalid = restoreNow(10, 0, 5);
+  invalid.valid = false;
+  WeekHistory a;
+  assert(weekRestoreFromText(a, text, invalid) == 0 && !a.hasDate() && !a.hasTemperature(0, 0));
+  RtcTime old_year = restoreNow(10, 0, 5);
+  old_year.year = 2020;
+  assert(weekRestoreFromText(a, text, old_year) == 0 && !a.hasDate());
+  RtcTime stopped = restoreNow(10, 0, 5);
+  stopped.oscillator_stopped = true;
+  assert(weekRestoreFromText(a, text, stopped) == 0 && !a.hasDate());
+  RtcTime bad_date = restoreNow(31, 0, 5); // 31 March is valid
+  bad_date.month = 4;                      // 31 April is not
+  assert(weekRestoreFromText(a, text, bad_date) == 0 && !a.hasDate());
+
+  // A week with a stamp or a value stays as it is
+  WeekHistory stamped;
+  assert(stamped.advance(restoreNow(10, 0, 5), ClimateHistory{}, false));
+  assert(weekRestoreFromText(stamped, text, restoreNow(10, 0, 5)) == 0 && !stamped.hasTemperature(0, 0));
+  WeekHistory filled;
+  filled.setDay(2, 4, true, 100, 200, false, 0, 0);
+  assert(weekRestoreFromText(filled, text, restoreNow(10, 0, 5)) == 0);
+  assert(!filled.hasDate() && !filled.hasTemperature(0, 0) && filled.temperatureMin(2, 4) == 100);
+
+  // Rows outside the 7 days, a future row, corrupt rows and no rows change nothing
+  WeekHistory w;
+  std::string none = dailyCsvRow("2026-03-02", "1.0", "2.0", "30.0", "35.0");
+  none += dailyCsvRow("2026-03-10", "1.0", "2.0", "30.0", "35.0"); // today
+  none += dailyCsvRow("2026-03-12", "1.0", "2.0", "30.0", "35.0"); // the future
+  none += "2026-03-09,1.0\n";
+  assert(weekRestoreFromText(w, none, restoreNow(10, 0, 5)) == 0 && !w.hasDate());
+  assert(weekRestoreFromText(w, "", restoreNow(10, 0, 5)) == 0 && !w.hasDate());
+  assert(w.restore(nullptr, 0, restoreNow(10, 0, 5)) == 0);
+}
+
 void testClimateRestoreFixedSlotAndUsbMask() {
   std::string text;
   for (int h = 0; h < 24; ++h) {
@@ -20976,6 +21178,11 @@ int main() {
   testWeekChartKeyHandling();
   testWeekChartRendering();
   testWeekHistoryResetSlotClearsSensor();
+  testParseDailyRow();
+  testWeekRestoreFromDailyRows();
+  testWeekRestoreYearChange();
+  testWeekRestoreTailAndBuffer();
+  testWeekRestoreNoChange();
   testSdLogCodec();
   testLogSlots4And5();
   testDailySlots4And5();

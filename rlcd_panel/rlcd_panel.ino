@@ -1194,7 +1194,7 @@ void loadConfigFromCard(WakeupCause cause) {
   }
 }
 
-// Refills the 24-hour histories from the hourly rows of the card after a power-on. It needs a valid RTC
+// Refills the 24-hour histories and the seven-day history from the rows of the card after a power-on. It needs a valid RTC
 // time and a mounted card; each failure leaves the histories empty and never blocks the wake cycle.
 void restoreHistoriesFromCard(WakeupCause cause) {
   if (cause != WakeupCause::POWER_ON || g_state.sd_status == SdStatus::NO_CARD ||
@@ -1208,6 +1208,7 @@ void restoreHistoriesFromCard(WakeupCause cause) {
     }
   }
   SdLogger::restoreHistories(g_state.history, g_rtc_time, nowMs(), fixed_slots);
+  SdLogger::restoreWeek(g_state.week, g_rtc_time);
 }
 
 // Evaluates the climate thresholds and the sensor dropout, and sounds a chime for each alert that
