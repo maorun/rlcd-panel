@@ -46,6 +46,11 @@ jobs:
       - name: Self-test the dump-logs file name pattern
         run: ./scripts/dump-logs.sh --self-test
 
+      - name: Check the protocol sync of the Wear OS and Android sources
+        run: |
+          ./scripts/check-protocol-sync.sh
+          ./scripts/check-protocol-sync.sh --self-test
+
       - name: Test should-release-phone script
         run: |
           ./scripts/should-release-phone.sh --files "android/RlcdPhone/app/build.gradle.kts"
