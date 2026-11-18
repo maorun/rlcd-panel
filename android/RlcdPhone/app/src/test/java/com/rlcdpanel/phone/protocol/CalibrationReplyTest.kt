@@ -223,4 +223,34 @@ class CalibrationReplyTest {
         assertEquals(99999999999L, r.skipped[0].hours)
         assertBad("SKIP slot2 hours=99999999999999999999")
     }
+
+    @Test
+    fun saltReplyOfSlot7AndMgCl2OfSlot10Parse() {
+        val a = SaltReply.parse(listOf("SALT slot7 hours=6 rh_mean=73.0 rh_span=0.4 temp_mean=25.0 reference=75.3", "slot7_rh_offset_pct=2.3"))
+        assertEquals("slot7", (a.outcome as SaltReply.Outcome.Measured).measurement.name)
+        assertEquals(CalibrationProposal("slot7_rh_offset_pct", "2.3"), a.proposal)
+        val b = SaltReply.parse(listOf("BEGIN SALT", "SALT slot10 hours=6 rh_mean=31.0 rh_span=0.3 temp_mean=25.0 reference=32.8"))
+        assertEquals("slot10", (b.outcome as SaltReply.Outcome.Measured).measurement.name)
+        assertEquals(32.8, (b.outcome as SaltReply.Outcome.Measured).measurement.reference, 0.0)
+    }
+
+    @Test
+    fun batchOfSlot7SendsGainThenOffsetThenConfig() {
+        val sent = mutableListOf<String>()
+        CalibrationBatch(
+            listOf(CalibrationProposal("slot7_rh_gain", "1.066"), CalibrationProposal("slot7_rh_offset_pct", "0.8"))
+        ).run({ command, callback -> sent.add(command); callback(ConsoleReply.Status("OK")) }, {})
+        assertEquals(listOf("SET slot7_rh_gain=1.066", "SET slot7_rh_offset_pct=0.8", "CONFIG"), sent)
+    }
+
+    @Test
+    fun batchStopsAtTheFirstErrAndExplainsReadOnly() {
+        val sent = mutableListOf<String>()
+        var result: CalibrationBatch.Result? = null
+        CalibrationBatch(
+            listOf(CalibrationProposal("slot7_rh_gain", "1.066"), CalibrationProposal("slot7_rh_offset_pct", "0.8"))
+        ).run({ command, callback -> sent.add(command); callback(ConsoleReply.Status("ERR READ_ONLY")) }, { result = it })
+        assertEquals(listOf("SET slot7_rh_gain=1.066"), sent)
+        assertTrue(result!!.summary.startsWith("Set ble_console=2 to apply"))
+    }
 }

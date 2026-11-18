@@ -1734,3 +1734,13 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `EventText.describe` shows `Slot <N> lost` and `Slot <N> back`. A slot outside 1 to 10 or a high byte above 1 gives the raw text.
 - `testSlotStaleEvents` covers the lost and back events with detail `0x0002` and `0x0102`, the quiet second scan, `resetSlot`, the round trip and the rejection of bit 10 and of a bit of an empty slot. `EventTextTests.slotStaleGivesLostAndBack` covers the texts.
 - Validation: host tests (231 suites), `arduino-cli compile --profile rlcd_panel_s3 rlcd_panel` and `swift test` (437 tests) pass.
+
+### Android salt check and two-point calibration
+
+- `TwoPointCalibration.kt` (package `protocol`) ports `TwoPointCalibration` of `Calibration.swift`. `compute(naCl, mgCl2, current)` calculates gain and offset from one NaCl and one MgCl2 `SaltReply` of the same sensor. The raw means use the active gain and offset. The gain has steps of 0.002.
+- `Result` holds `gainKey`, `offsetKey`, `gain`, `offset`, `rawNaCl` and `rawMgCl2`. `Failure` has the eight texts of the macOS app. A gain outside 0.90 to 1.10 and an offset outside -10.0 to 10.0 give an error and no command.
+- `CalibrationScreen` shows the reference chips 0 to 10 and the section `Salt check` with the buttons `NaCl (75 %)` and `MgCl2 (33 %)`. A tap sends `SALT N` or `SALT N MGCL2` through `BleConsoleClient.send`. `SKIP`, `UNSTABLE` and `ERR BAD_TEMP` have readable texts.
+- With both checks of one sensor and a read config, `MainActivity` runs `compute`. The button `Apply gain and offset` sends `SET` for the gain, `SET` for the offset, then `CONFIG` through `CalibrationBatch`. The first `ERR` stops the batch. `ERR READ_ONLY` shows `Set ble_console=2 to apply`. Each command needs a user tap.
+- A changed value clears the stored checks. A new reference chip clears them too.
+- `TwoPointCalibrationTest` uses the input values of the macOS `TwoPointCalibrationTests`. `CalibrationReplyTest` covers the `SALT 7` and `SALT 10 MGCL2` replies and the batch order for slot 7.
+- Validation: `./scripts/check-protocol-sync.sh` passes. The local machine has no Android SDK and no `kotlinc`, so `gradle testDebugUnitTest assembleDebug` did not run locally. CI runs it.
