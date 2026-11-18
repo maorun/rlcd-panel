@@ -41,6 +41,24 @@ data class CachedTelemetry(
     fun ageMillis(nowMillis: Long): Long = (nowMillis - receivedAtMillis).coerceAtLeast(0L)
 }
 
+/** Last Open-Meteo reading that [com.rlcdpanel.watch.MainActivity] fetched. */
+data class CachedMeteo(val tempC: Double, val rhPct: Double, val atMillis: Long) {
+    /** True when the reading is older than [CachedOutdoor.MAX_METEO_AGE_MILLIS] or dated in the future. */
+    fun isStale(nowMillis: Long): Boolean =
+        nowMillis < atMillis || nowMillis - atMillis > CachedOutdoor.MAX_METEO_AGE_MILLIS
+}
+
+/**
+ * Outdoor source of the ventilation advice as the app chose it: [slotIndex] is the tile index of a
+ * sensor slot, null selects Open-Meteo with its last reading [meteo].
+ */
+data class CachedOutdoor(val slotIndex: Int?, val meteo: CachedMeteo?) {
+    companion object {
+        /** An Open-Meteo reading older than 1 hour gives no advice. */
+        const val MAX_METEO_AGE_MILLIS: Long = 60L * 60L * 1000L
+    }
+}
+
 /**
  * Cache of the last valid telemetry payload (hex text) and its receive time, one entry for each
  * telemetry page, plus the focused room index. The Wear OS tile reads it and does not scan BLE.
@@ -98,6 +116,35 @@ class TelemetryCache(private val store: TelemetryCacheStore) {
     fun focusedRoom(): Int =
         store.getInt(KEY_FOCUS, 0).coerceIn(0, TelemetryFrame.TOTAL_TILES - 1)
 
+    /** Stores the sensor slot (tile index) as outdoor source of the ventilation advice. */
+    fun saveOutdoorSlot(tileIndex: Int) {
+        store.put(emptyMap(), emptyMap(), mapOf(KEY_OUTDOOR_SLOT to tileIndex))
+    }
+
+    /** Selects Open-Meteo as outdoor source; the last reading stays stored. */
+    fun saveOutdoorOpenMeteo() {
+        store.put(emptyMap(), emptyMap(), mapOf(KEY_OUTDOOR_SLOT to NO_SLOT))
+    }
+
+    fun saveOpenMeteoReading(tempC: Double, rhPct: Double, atMillis: Long) {
+        store.put(
+            strings = mapOf(KEY_METEO_TEMP to tempC.toString(), KEY_METEO_RH to rhPct.toString()),
+            longs = mapOf(KEY_METEO_AT to atMillis),
+            ints = emptyMap()
+        )
+    }
+
+    /** Outdoor source and last Open-Meteo reading; a missing or bad reading gives a null `meteo`. */
+    fun readOutdoor(): CachedOutdoor {
+        val slot = store.getInt(KEY_OUTDOOR_SLOT, NO_SLOT)
+            .takeIf { it in 0 until TelemetryFrame.TOTAL_TILES }
+        val temp = store.getString(KEY_METEO_TEMP)?.toDoubleOrNull()
+        val rh = store.getString(KEY_METEO_RH)?.toDoubleOrNull()
+        val at = store.getLong(KEY_METEO_AT, NO_TIME)
+        val meteo = if (temp != null && rh != null && at != NO_TIME) CachedMeteo(temp, rh, at) else null
+        return CachedOutdoor(slot, meteo)
+    }
+
     companion object {
         const val PREFS_NAME = "rlcd_telemetry_cache"
 
@@ -106,6 +153,11 @@ class TelemetryCache(private val store: TelemetryCacheStore) {
 
         private const val KEY_FOCUS = "focused_room"
         private const val NO_TIME = -1L
+        private const val NO_SLOT = -1
+        private const val KEY_OUTDOOR_SLOT = "outdoor_slot"
+        private const val KEY_METEO_TEMP = "outdoor_meteo_temp"
+        private const val KEY_METEO_RH = "outdoor_meteo_rh"
+        private const val KEY_METEO_AT = "outdoor_meteo_at"
 
         private fun payloadKey(page: Int) = "payload_$page"
         private fun receivedKey(page: Int) = "received_$page"

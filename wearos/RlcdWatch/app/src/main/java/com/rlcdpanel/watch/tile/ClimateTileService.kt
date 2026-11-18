@@ -14,15 +14,18 @@ import androidx.wear.tiles.TileService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.rlcdpanel.watch.MainActivity
+import com.rlcdpanel.watch.protocol.CachedOutdoor
 import com.rlcdpanel.watch.protocol.CachedTelemetry
 import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.protocol.TelemetryFrame
+import com.rlcdpanel.watch.ventilation.VentilationGuide
 import java.util.Locale
 
 /**
  * Text of the tile for one moment. [isEmpty] is true for an empty cache, a failed decode, a stale
  * frame or a focused room without a valid reading; the tile then shows `--` and [hint].
+ * [advice] is the title of the ventilation advice, or null when the tile shows none.
  */
 data class ClimateTileModel(
     val roomName: String,
@@ -32,7 +35,8 @@ data class ClimateTileModel(
     val alerts: String,
     val age: String,
     val hint: String?,
-    val isEmpty: Boolean
+    val isEmpty: Boolean,
+    val advice: String? = null
 ) {
     companion object {
         const val OPEN_HINT = "Open the app"
@@ -53,7 +57,9 @@ data class ClimateTileModel(
             cached: CachedTelemetry?,
             focusedRoom: Int,
             config: PanelConfig,
-            nowMillis: Long
+            nowMillis: Long,
+            outdoor: CachedOutdoor? = null,
+            outdoorCached: CachedTelemetry? = cached
         ): ClimateTileModel {
             val name = config.tileName(focusedRoom)
             if (cached == null || cached.isStale(nowMillis)) {
@@ -73,8 +79,54 @@ data class ClimateTileModel(
                 alerts = if (alertNames.isEmpty()) "No alerts" else alertNames.joinToString(", "),
                 age = formatAge(cached.ageMillis(nowMillis)),
                 hint = null,
-                isEmpty = false
+                isEmpty = false,
+                advice = adviceTitle(tile.temperatureC, tile.humidityPct, focusedRoom, outdoor, outdoorCached, nowMillis)
             )
+        }
+
+        /**
+         * Title of the ventilation advice for the focused room, or null. No advice without an outdoor
+         * source, for the outdoor tile as focused room, for a stale outdoor frame and for an
+         * Open-Meteo reading older than 1 hour. The tile does not know whether a window is open.
+         */
+        private fun adviceTitle(
+            indoorTempC: Double?,
+            indoorRhPct: Double?,
+            focusedRoom: Int,
+            outdoor: CachedOutdoor?,
+            outdoorCached: CachedTelemetry?,
+            nowMillis: Long
+        ): String? {
+            if (outdoor == null || indoorTempC == null || indoorRhPct == null) {
+                return null
+            }
+            val outTemp: Double?
+            val outRh: Double?
+            val slot = outdoor.slotIndex
+            if (slot != null) {
+                if (slot == focusedRoom || outdoorCached == null || outdoorCached.isStale(nowMillis)) {
+                    return null
+                }
+                val outTile = outdoorCached.frame.tiles.getOrNull(slot % TelemetryFrame.TILES_PER_PAGE)
+                if (outdoorCached.frame.page != slot / TelemetryFrame.TILES_PER_PAGE ||
+                    outTile == null || !outTile.isValid
+                ) {
+                    return null
+                }
+                outTemp = outTile.temperatureC
+                outRh = outTile.humidityPct
+            } else {
+                val meteo = outdoor.meteo
+                if (meteo == null || meteo.isStale(nowMillis)) {
+                    return null
+                }
+                outTemp = meteo.tempC
+                outRh = meteo.rhPct
+            }
+            if (outTemp == null || outRh == null) {
+                return null
+            }
+            return VentilationGuide.analysiereLueftung(indoorTempC, indoorRhPct, outTemp, outRh)?.titel
         }
 
         fun formatAge(ageMillis: Long): String {
@@ -93,11 +145,17 @@ class ClimateTileService : TileService() {
     override fun onTileRequest(requestParams: RequestBuilders.TileRequest): ListenableFuture<TileBuilders.Tile> {
         val cache = TelemetryCache(this)
         val focused = cache.focusedRoom()
+        val outdoor = cache.readOutdoor()
+        val focusedPage = focused / TelemetryFrame.TILES_PER_PAGE
+        val cached = cache.read(page = focusedPage)
+        val outdoorPage = outdoor.slotIndex?.let { it / TelemetryFrame.TILES_PER_PAGE } ?: focusedPage
         val model = ClimateTileModel.build(
-            cached = cache.read(page = focused / TelemetryFrame.TILES_PER_PAGE),
+            cached = cached,
             focusedRoom = focused,
             config = PanelConfig.load(this),
-            nowMillis = System.currentTimeMillis()
+            nowMillis = System.currentTimeMillis(),
+            outdoor = outdoor,
+            outdoorCached = if (outdoorPage == focusedPage) cached else cache.read(page = outdoorPage)
         )
         val tile = TileBuilders.Tile.Builder()
             .setResourcesVersion(RESOURCES_VERSION)
@@ -133,7 +191,10 @@ class ClimateTileService : TileService() {
             .setHorizontalAlignment(LayoutElementBuilders.HORIZONTAL_ALIGN_CENTER)
             .addContent(text(model.roomName, 14f, WHITE))
             .addContent(text("${model.temperature}  ${model.humidity}", 22f, WHITE))
-            .addContent(text(model.cell, 12f, GREY))
+        if (model.advice != null) {
+            column.addContent(text(model.advice, 12f, ADVICE, maxLines = 1))
+        }
+        column.addContent(text(model.cell, 12f, GREY))
         if (model.hint != null) {
             column.addContent(text(model.hint, 14f, WHITE))
         } else {
@@ -149,10 +210,10 @@ class ClimateTileService : TileService() {
             .build()
     }
 
-    private fun text(value: String, size: Float, color: Int): LayoutElementBuilders.LayoutElement =
+    private fun text(value: String, size: Float, color: Int, maxLines: Int = 2): LayoutElementBuilders.LayoutElement =
         LayoutElementBuilders.Text.Builder()
             .setText(value)
-            .setMaxLines(2)
+            .setMaxLines(maxLines)
             .setFontStyle(
                 LayoutElementBuilders.FontStyle.Builder()
                     .setSize(sp(size))
@@ -168,6 +229,7 @@ class ClimateTileService : TileService() {
         private const val WHITE = 0xFFFFFFFF.toInt()
         private const val GREY = 0xFFB0B0B0.toInt()
         private const val ALERT = 0xFFFF8A80.toInt()
+        private const val ADVICE = 0xFF80CBC4.toInt()
 
         /** Asks the system to redraw the tile after the cache changed. */
         fun requestUpdate(context: Context) {

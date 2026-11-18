@@ -26,12 +26,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Ventilation advice in the Wear OS tile
-  - Rank: [Total: 27, Use: 7, Setup: 2, Harmony: 8, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/tile/ClimateTileService.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/TelemetryCache.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/ventilation/VentilationGuide.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/tile/ClimateTileModelTest.kt
-  - Goal: Only `MainActivity` shows the ventilation advice. The user must open the app to see it. Store the outdoor source of `MainActivity` in `TelemetryCache`. Store the tile index of a sensor slot, or the last Open-Meteo reading and its time. Make `ClimateTileModel.build` calculate `VentilationGuide.analysiereLueftung` for the focused room. Show the `titel` of the advice as one line below the climate line. Show no advice for a stale frame or a stale outdoor slot. Show no advice when the outdoor tile is the focused room. Show no advice for an Open-Meteo reading older than 1 hour. Do not start a BLE scan or a network request in the tile.
-  - Acceptance test: In `ClimateTileModelTest`, build the model from a fixture frame and a fresh outdoor tile. Assert the advice line. Assert no advice line for the same tile as outdoor source. Assert no advice line for an Open-Meteo reading of 61 minutes. Assert no advice line for a frame older than 35 minutes. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

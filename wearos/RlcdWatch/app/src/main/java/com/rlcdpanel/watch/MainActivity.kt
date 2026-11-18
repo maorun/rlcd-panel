@@ -102,6 +102,10 @@ class MainActivity : ComponentActivity() {
         panelConfig = PanelConfig.load(this)
         telemetryCache = TelemetryCache(this)
         focusedRoomIndex = telemetryCache.focusedRoom()
+        val cachedOutdoor = telemetryCache.readOutdoor()
+        cachedOutdoor.slotIndex?.let {
+            outdoorSource = OutdoorSource.SensorSlot(tileIndex = it, slotName = panelConfig.tileName(it))
+        }
         createNotificationChannel()
         restoreRoomStates()
 
@@ -261,6 +265,8 @@ class MainActivity : ComponentActivity() {
                 )
                 if (weather != null) {
                     openMeteoClimate = weather
+                    telemetryCache.saveOpenMeteoReading(weather.tempC, weather.rhPct, weather.timestampMillis)
+                    ClimateTileService.requestUpdate(this@MainActivity)
                 }
             }
         }
@@ -320,6 +326,11 @@ class MainActivity : ComponentActivity() {
             }
         }
         outdoorSource = nextSource
+        when (nextSource) {
+            is OutdoorSource.SensorSlot -> telemetryCache.saveOutdoorSlot(nextSource.tileIndex)
+            is OutdoorSource.OpenMeteo -> telemetryCache.saveOutdoorOpenMeteo()
+        }
+        ClimateTileService.requestUpdate(this)
         fetchWeatherIfNeeded()
     }
 

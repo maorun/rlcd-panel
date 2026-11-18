@@ -1697,3 +1697,12 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `AlertStatsView` shows a Swift Charts bar chart of the active hours for each month, grouped by alert, with the rises as bar labels. The `Show alert statistics` button of `ArchiveView` fills `AppModel.alertStats`; a new archive folder clears it.
 - `AlertStatsTests` write event files to a temporary folder and assert the counts and hours for each month, the month split, the `startUnknown` count after an `EVENTS_DROPPED` row and the skipped corrupt file.
 - Validation: `swift build -c release` passes. `swift test` cannot run on the local Command Line Tools (no Testing macros); a `swiftc` harness with the same assertions passed, and the CI job `macOS companion tests` runs the suite.
+
+## Ventilation advice in the Wear OS tile
+
+- **Code:** `wearos/RlcdWatch/.../tile/ClimateTileService.kt`, `.../protocol/TelemetryCache.kt`, `.../MainActivity.kt`, `wearos/RlcdWatch/app/src/test/.../tile/ClimateTileModelTest.kt`, `.../protocol/TelemetryCacheTest.kt`.
+- `MainActivity` stores the outdoor source in `TelemetryCache`: the tile index of a sensor slot (`saveOutdoorSlot`), or Open-Meteo (`saveOutdoorOpenMeteo`) with the last reading and its time (`saveOpenMeteoReading`). `readOutdoor` returns `CachedOutdoor`. A cycle of the source and a new reading refresh the tile.
+- `ClimateTileModel.build` calls `VentilationGuide.analysiereLueftung` for the focused room (window closed) and stores the `titel` in `ClimateTileModel.advice`. The tile shows it as one line below the climate line.
+- No advice for a stale or empty frame, a stale outdoor frame, an outdoor slot on another page than its frame, an outdoor tile without a reading, the outdoor tile as focused room, and an Open-Meteo reading older than 1 hour (`CachedMeteo.isStale`).
+- The tile starts no BLE scan and no network request. It shows advice only after the user opened the app and chose an outdoor source. The messages for an open window stay in `MainActivity`.
+- Validation: `./scripts/check-protocol-sync.sh` passes. The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.

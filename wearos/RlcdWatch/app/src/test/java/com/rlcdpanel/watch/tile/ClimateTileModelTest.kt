@@ -1,5 +1,7 @@
 package com.rlcdpanel.watch.tile
 
+import com.rlcdpanel.watch.protocol.CachedMeteo
+import com.rlcdpanel.watch.protocol.CachedOutdoor
 import com.rlcdpanel.watch.protocol.CachedTelemetry
 import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryFrame
@@ -80,5 +82,110 @@ class ClimateTileModelTest {
         val model = ClimateTileModel.build(CachedTelemetry(twoTiles, 10_000L), 0, config, 5_000L)
         assertTrue(model.isEmpty)
         assertEquals("Open the app", model.hint)
+    }
+
+    // Tile 0 of "two_tiles" is 22.0 C / 40.0 %RH, tile 1 is -3.0 C / 65.0 %RH (cold and moist outside).
+    // Room 0 at 22 C and 40 %RH is below the start limit, so tile 0 of a copy becomes a humid room.
+    private val humidRoom = twoTiles.copy(
+        tiles = twoTiles.tiles.toMutableList().also {
+            it[0] = it[0].copy(temperatureC = 22.0, humidityPct = 70.0)
+        }
+    )
+    private val slotOutdoor = CachedOutdoor(slotIndex = 1, meteo = null)
+
+    @Test
+    fun adviceLineShowsTitleBelowClimateLine() {
+        val model = ClimateTileModel.build(
+            CachedTelemetry(humidRoom, 0L), 0, config, 60_000L, slotOutdoor
+        )
+        assertEquals("Kurz Stoßlüften (Kälteschutz!)", model.advice)
+    }
+
+    @Test
+    fun noAdviceWithoutOutdoorSource() {
+        val model = ClimateTileModel.build(CachedTelemetry(humidRoom, 0L), 0, config, 60_000L)
+        assertNull(model.advice)
+    }
+
+    @Test
+    fun noAdviceWhenOutdoorTileIsFocusedRoom() {
+        val model = ClimateTileModel.build(
+            CachedTelemetry(humidRoom, 0L), 1, config, 60_000L, slotOutdoor
+        )
+        assertNull(model.advice)
+    }
+
+    @Test
+    fun openMeteoReadingGivesAdviceWhenFresh() {
+        val outdoor = CachedOutdoor(null, CachedMeteo(tempC = 10.0, rhPct = 50.0, atMillis = 0L))
+        val model = ClimateTileModel.build(
+            CachedTelemetry(humidRoom, 0L), 0, config, 30L * 60_000L, outdoor
+        )
+        assertEquals("Jetzt optimal zum Lüften", model.advice)
+    }
+
+    @Test
+    fun noAdviceForOpenMeteoReadingOlderThanOneHour() {
+        val outdoor = CachedOutdoor(null, CachedMeteo(tempC = 10.0, rhPct = 50.0, atMillis = 0L))
+        val cached = CachedTelemetry(humidRoom, 60L * 60_000L)
+        val fresh = ClimateTileModel.build(cached, 0, config, 60L * 60_000L, outdoor)
+        val stale = ClimateTileModel.build(cached, 0, config, 61L * 60_000L, outdoor)
+        assertEquals("Jetzt optimal zum Lüften", fresh.advice)
+        assertNull(stale.advice)
+    }
+
+    @Test
+    fun noAdviceForFrameOlderThan35Minutes() {
+        val model = ClimateTileModel.build(
+            CachedTelemetry(humidRoom, 0L), 0, config, 35L * 60_000L + 1_000L, slotOutdoor
+        )
+        assertTrue(model.isEmpty)
+        assertNull(model.advice)
+    }
+
+    @Test
+    fun noAdviceForStaleOutdoorFrame() {
+        val staleOutdoor = CachedTelemetry(twoTiles, 0L)
+        val model = ClimateTileModel.build(
+            CachedTelemetry(humidRoom, 50L * 60_000L), 0, config, 60L * 60_000L, slotOutdoor, staleOutdoor
+        )
+        assertNull(model.advice)
+    }
+
+    @Test
+    fun outdoorSlotOnPageOneReadsIndexModuloPageSize() {
+        // Room 7 is index 1 of a page 1 frame: -3.0 C / 65 %RH.
+        val pageOne = CachedTelemetry(twoTiles.copy(page = 1), 50_000L)
+        val outdoor = CachedOutdoor(slotIndex = 7, meteo = null)
+        val model = ClimateTileModel.build(
+            CachedTelemetry(humidRoom, 0L), 0, config, 60_000L, outdoor, pageOne
+        )
+        assertEquals("Kurz Stoßlüften (Kälteschutz!)", model.advice)
+    }
+
+    @Test
+    fun noAdviceForOutdoorFrameOfWrongPage() {
+        val outdoor = CachedOutdoor(slotIndex = 7, meteo = null)
+        val model = ClimateTileModel.build(
+            CachedTelemetry(humidRoom, 0L), 0, config, 60_000L, outdoor, CachedTelemetry(twoTiles, 0L)
+        )
+        assertNull(model.advice)
+    }
+
+    @Test
+    fun noAdviceForOutdoorTileWithoutReading() {
+        val outdoor = CachedOutdoor(slotIndex = 2, meteo = null)
+        val model = ClimateTileModel.build(
+            CachedTelemetry(humidRoom, 0L), 0, config, 60_000L, outdoor
+        )
+        assertNull(model.advice)
+    }
+
+    @Test
+    fun noAdviceWithoutOutdoorFrame() {
+        val model = ClimateTileModel.build(
+            CachedTelemetry(humidRoom, 0L), 0, config, 60_000L, slotOutdoor, null
+        )
+        assertNull(model.advice)
     }
 }
