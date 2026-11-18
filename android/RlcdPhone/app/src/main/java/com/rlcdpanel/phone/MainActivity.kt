@@ -17,6 +17,7 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -29,7 +30,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.rlcdpanel.phone.console.BleConsoleClient
-import com.rlcdpanel.phone.protocol.AlertTransitions
 import com.rlcdpanel.phone.protocol.ConsoleReply
 import com.rlcdpanel.phone.protocol.ParseException
 import com.rlcdpanel.phone.protocol.SensorHealth
@@ -53,9 +53,6 @@ data class RoomVentilationState(
 
 class MainActivity : ComponentActivity() {
 
-    private var snapshot by mutableStateOf<TelemetrySnapshot?>(null)
-    private var isScanning by mutableStateOf(false)
-    private var statusMessage by mutableStateOf("Bereit")
     private var nowMillis by mutableLongStateOf(System.currentTimeMillis())
 
     private var outdoorSource by mutableStateOf<OutdoorSource>(OutdoorSource.OpenMeteo())
@@ -70,7 +67,6 @@ class MainActivity : ComponentActivity() {
     private var scanPermissionDenied = false
     private var weatherJob: Job? = null
 
-    private lateinit var bleScanner: BleTelemetryScanner
     private lateinit var consoleClient: BleConsoleClient
     private var showHealth by mutableStateOf(false)
     private var healthState by mutableStateOf(SensorHealthState())
@@ -82,14 +78,15 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
         // Notifications are optional. Only the scan permissions block the BLE scan.
-        val scanGranted = grants.filterKeys { it != Manifest.permission.POST_NOTIFICATIONS }
-            .values.all { it }
+        val scanGranted = grants.isNotEmpty() &&
+            grants.filterKeys { it != Manifest.permission.POST_NOTIFICATIONS }.values.all { it } &&
+            BleScanService.hasScanPermission(this)
         if (scanGranted) {
             scanPermissionDenied = false
             startBleScan()
         } else {
             scanPermissionDenied = true
-            statusMessage = "Bluetooth-Berechtigung fehlt"
+            BleScanService.updateStatusMessage("Bluetooth-Berechtigung fehlt")
         }
     }
 
@@ -101,33 +98,6 @@ class MainActivity : ComponentActivity() {
         restoreRoomStates()
 
         consoleClient = BleConsoleClient(this)
-        bleScanner = BleTelemetryScanner(
-            context = this,
-            onSnapshot = { incoming ->
-                val mergedFrame = TelemetryFrame.merge(snapshot?.frame, incoming.frame)
-                val mergedSnapshot = incoming.copy(frame = mergedFrame)
-                // The first frame after the app start reports each active alert as new.
-                val rising = if (snapshot == null) {
-                    incoming.frame.alerts
-                } else {
-                    AlertTransitions.risingAlerts(snapshot?.frame, incoming.frame)
-                }
-                snapshot = mergedSnapshot
-                statusMessage = "Seq #${incoming.frame.sequence} empfangen"
-                if (!rising.isEmpty) {
-                    vibrateAlert()
-                    postVentilationNotification(
-                        title = "RLCD Alarm",
-                        message = rising.names.joinToString(", "),
-                        notificationId = ALERT_NOTIFICATION_ID
-                    )
-                }
-            },
-            onError = { message ->
-                isScanning = false
-                statusMessage = message
-            }
-        )
 
         // Fetch Open-Meteo weather every 15 minutes while the activity is visible.
         lifecycleScope.launch {
@@ -150,6 +120,10 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
+            val snapshot by BleScanService.snapshot.collectAsState()
+            val isScanning by BleScanService.isScanning.collectAsState()
+            val statusMessage by BleScanService.statusMessage.collectAsState()
+
             if (showHealth) {
                 SensorHealthScreen(
                     state = healthState,
@@ -268,7 +242,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         // A denied scan permission shows a status hint. The scan button asks again on demand.
-        if (!scanPermissionDenied) {
+        if (!scanPermissionDenied && !BleScanService.isScanning.value) {
             ensurePermissionAndStart()
         }
     }
@@ -276,7 +250,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         consoleClient.cancel()
         healthState = healthState.copy(isReading = false)
-        stopBleScan()
+        // Background scanning continues in BleScanService.
         lastObservedAktionen.clear()
         super.onStop()
     }
@@ -296,7 +270,7 @@ class MainActivity : ComponentActivity() {
         consoleClient.cancel()
         healthState = SensorHealthState()
         showHealth = false
-        if (!scanPermissionDenied) ensurePermissionAndStart()
+        if (!scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
     }
 
     /** Sends STATUS only after a tap on the button. */
@@ -392,7 +366,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun cycleOutdoorSource() {
-        val totalTiles = snapshot?.frame?.tiles?.size ?: TelemetryFrame.TOTAL_TILES
+        val totalTiles = BleScanService.snapshot.value?.frame?.tiles?.size ?: TelemetryFrame.TOTAL_TILES
         val nextSource = when (val src = outdoorSource) {
             is OutdoorSource.OpenMeteo -> {
                 OutdoorSource.SensorSlot(
@@ -442,17 +416,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startBleScan() {
-        val started = bleScanner.start()
-        isScanning = bleScanner.isScanning
-        if (started) {
-            statusMessage = if (snapshot == null) "Scanne nach 0xFFFF..." else "Scan aktiv"
-        }
+        BleScanService.start(this)
     }
 
     private fun stopBleScan() {
-        bleScanner.stop()
-        isScanning = false
-        statusMessage = "Scan pausiert"
+        BleScanService.stop(this)
     }
 
     private fun getVibrator(): Vibrator? {
@@ -518,7 +486,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val CHANNEL_ID = "rlcd_ventilation_channel"
-        const val ALERT_NOTIFICATION_ID = 900
         const val MAX_RESTORED_VENTILATION_MS = 6 * 60 * 60 * 1000L
     }
 }
