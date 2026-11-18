@@ -1638,3 +1638,14 @@ The console command `SCAN` gives `ERR NOT_OVER_BLE` on BLE, so a user without a 
 - `SensorHealthScreen` has the button `Find nearby sensors`. `MainActivity` stops the finder scan in `onStop`, before a console command and when the screen closes.
 - `tests/fixtures/sensor_adv_vectors.txt` holds 47 lines (22 good and 25 rejected, each format has both). `testSensorAdvertisementFixtureVectors` in `tests/test_firmware_logic.cpp` decodes each line with the firmware parsers. `SensorAdvertisementTest` decodes the same lines and asserts the same values. `SlotAssignmentTest` asserts the command order, the upper-case name, the 13-character name, the duplicate MAC, the stop at the first `ERR` and the `READ_ONLY` text.
 - The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.
+
+## Console command REJECTS with the reason of each rejected BLE packet
+
+The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. The user could not see why a sensor does not take a slot. The new console command `REJECTS` lists each rejected MAC with its reason.
+
+- `RejectLog` (`switchbot_ble.h`) holds 8 entries: MAC, `BleFormat`, `RejectReason` and a count that saturates at 255. The reasons are `FULL` (no free slot), `UNASSIGNED` (`slot_auto_assign=0` and no fixed MAC), `DISABLED` and `JUMP` (a pending packet that `JumpGuard` dropped). The enum value for `DISABLED` is `SLOT_OFF`, because the Arduino core defines the macro `DISABLED`.
+- Each MAC has one entry. A later packet of the MAC raises the count and keeps the first reason. A ninth MAC raises `dropped`, which saturates at 255. `SwitchBotRegistry::resetRejects()` clears the log at the start of `scanOnce()`.
+- `PersistentState::reject_log` stores the copy of the last scan, 73 bytes just before the checksum. `scanOnce()` copies it after `endScan()`. A scan that does not start clears it. A reason above `JUMP`, a count of 0, an unknown format, a repeated MAC, a gap and `dropped` with a free entry make the state invalid. `STATE_VERSION` is 64.
+- `REJECTS` replies `BEGIN REJECTS`, the header `mac,format,reason,count`, one row for each entry, `DROPPED,<N>` when MACs were lost and the `CRC32` line. Extra text gives `ERR BAD_ARG`. The command reads only the RTC copy, mounts no card and runs on USB and on BLE at each `ble_console` level.
+- `tests/fixtures/rejects_reply_sample.txt` holds the reply sample. The tests cover each reason, the `DROPPED` row, `resetRejects()`, saturation, the state round trip, each invalid block, the parser, the BLE gate and the fixture with its CRC-32.
+- Validation: the host tests and `arduino-cli compile rlcd_panel` pass. The companion apps do not parse `REJECTS` yet.

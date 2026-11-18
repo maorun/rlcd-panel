@@ -601,9 +601,11 @@ void initBle() {
 }
 
 // Blocks for one scan. The deep sleep cycle needs no concurrent work during the scan.
+// PersistentState::reject_log holds the reject log of the last scan; a scan that does not run clears it.
 void scanOnce(bool full_scan) {
   g_scan_saved_ms = 0;
   if (g_ble_scan == nullptr) {
+    g_state.reject_log = RejectLog{};
     return;
   }
   const uint32_t duration_s = g_power_config.sanitized().scan_duration_s;
@@ -615,6 +617,7 @@ void scanOnce(bool full_scan) {
   g_scan_running = true;
   if (!g_ble_scan->start(duration_s, onScanComplete, false)) {
     g_scan_running = false;
+    g_state.reject_log = RejectLog{}; // the reset ran, so the copy of the last scan must not stay old
     return;
   }
   const uint32_t started = millis();
@@ -635,6 +638,7 @@ void scanOnce(bool full_scan) {
   }
   portENTER_CRITICAL(&g_registry_mux);
   g_state.registry.endScan();
+  g_state.reject_log = g_state.registry.rejectLog();
   portEXIT_CRITICAL(&g_registry_mux);
 }
 
@@ -1422,6 +1426,9 @@ void setup() {
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::WEEK) {
       // The RTC week history answers: no card access, so the console keeps running.
       Runner::showWeek(sink, g_state.week);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::REJECTS) {
+      // The RTC copy of the reject log answers: no card access, no BLE scan, so the console keeps running.
+      Runner::showRejects(sink, g_state.reject_log);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::HISTORY) {
       // The RTC histories answer: no card access, so the console keeps running.
       Runner::showHistory(sink, g_state.history,
