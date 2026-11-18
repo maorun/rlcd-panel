@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Calibration proposals in the Android app
-  - Rank: [Total: 34, Use: 7, Setup: 10, Harmony: 9, Safety: 8, Effort: M]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/CalibrationReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/CalibrationScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/console/BleConsoleClient.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/CalibrationReplyTest.kt, tests/fixtures/calib_reply_sample.txt, macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift
-  - Goal: Only the macOS app shows the `CALIB N` and `SALT N` proposals, so a user without a Mac cannot calibrate. Depend on the generic `BleConsoleClient.send` of the entry above. Port `CalibrationReply` and `SaltReply` from `Calibration.swift` to Kotlin with the same strict number rules. Add a `CalibrationScreen` with a reference sensor picker (0 to 5), the `SENSOR`, `SKIP`, `USB` and proposal lines, and one checkbox for each proposal. Send the selected proposals as `SET` commands, then `CONFIG`. Stop at the first `ERR` line. Show `ERR READ_ONLY` as the text `Set ble_console=2 to apply`. Keep the proposals that the key range rejects out of the list.
-  - Acceptance test: Add `tests/fixtures/calib_reply_sample.txt` with a `SENSOR`, a `SKIP`, a `USB` and two proposal lines. Parse it in `CalibrationReplyTest` and in the Swift `CalibrationTests.sharedFixture`, and assert equal values. Assert that `hours=x` throws an error. Assert that the batch stops after an `ERR READ_ONLY` reply and sends no `CONFIG`. Run `gradle testDebugUnitTest` in `android/RlcdPhone` and `swift test` in `macos/RlcdCompanion`.
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 - [ ] NTP sync state in STATUS and in the companion diagnostics

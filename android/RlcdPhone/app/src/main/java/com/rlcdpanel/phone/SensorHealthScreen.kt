@@ -53,6 +53,7 @@ fun SensorHealthScreen(
     configState: ConfigReadState = ConfigReadState(),
     nowMillis: Long = 0L,
     onReadConfig: () -> Unit = {},
+    onOpenCalibration: () -> Unit = {},
     onBack: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -73,6 +74,9 @@ fun SensorHealthScreen(
                 Button(onClick = onReadConfig, enabled = !state.isReading && !configState.isReading) {
                     Text(if (configState.isReading) "Lese…" else "Read panel config")
                 }
+            }
+            item {
+                OutlinedButton(onClick = onOpenCalibration) { Text("Calibration proposals") }
             }
             item {
                 Text(

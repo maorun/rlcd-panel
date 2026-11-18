@@ -1,0 +1,7 @@
+REFERENCE slot1
+SENSOR onboard hours=12 temp_offset=-1.0 rh_offset=0.0 temp_diff=-1.6 rh_diff=0.5
+SKIP slot2 hours=3
+USB hours=6 bat_hours=6 usb_temp_offset=-2.0 usb_temp_diff=-1.2
+temp_offset_c=-0.4
+usb_temp_offset_c=-0.8
+CRC32 37c47ac8

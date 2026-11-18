@@ -183,6 +183,50 @@ import Testing
         #expect(r.changes(selecting: keys, current: [:]).map(\.key) == ["slot1_rh_offset_pct"]) // 0.0 equals the default
     }
 
+    /// Reads tests/fixtures/calib_reply_sample.txt, the file of the Android phone tests.
+    private static func loadFixture() throws -> Data {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        return try Data(contentsOf: url.appendingPathComponent("tests/fixtures/calib_reply_sample.txt"))
+    }
+
+    /// The Kotlin test `CalibrationReplyTest.sharedFixtureGivesTheSwiftValues` asserts the same values.
+    @Test func sharedFixture() throws {
+        var assembler = ReplyAssembler()
+        guard case .frame(let lines)? = assembler.append(try Self.loadFixture()).first else {
+            Issue.record("fixture is not a valid frame"); return
+        }
+        let r = try CalibrationReply.parse(lines: lines)
+        #expect(r.reference == "slot1")
+        #expect(r.sensors == [CalibrationReply.Sensor(name: "onboard", hours: 12, tempOffset: -1.0, rhOffset: 0.0,
+                                                      tempDiff: -1.6, rhDiff: 0.5)])
+        #expect(r.skipped == [CalibrationReply.Skipped(name: "slot2", hours: 3)])
+        #expect(r.usb == CalibrationReply.UsbSplit(usbHours: 6, batHours: 6, usbTempOffset: -2.0, usbTempDiff: -1.2))
+        #expect(r.proposals == [CalibrationReply.Proposal(key: "temp_offset_c", value: "-0.4"),
+                                CalibrationReply.Proposal(key: "usb_temp_offset_c", value: "-0.8")])
+    }
+
+    @Test func hoursLetterThrowsOnEveryLine() {
+        for bad in ["SENSOR slot1 hours=x temp_offset=0.0 rh_offset=0.0 temp_diff=0.4 rh_diff=-2.1",
+                    "SKIP slot2 hours=x",
+                    "USB hours=x bat_hours=6 usb_temp_offset=0.0 usb_temp_diff=--"] {
+            #expect(throws: ParseError.badLine(bad)) { try CalibrationReply.parse(lines: ["REFERENCE slot1", bad]) }
+        }
+    }
+
+    @Test func macosBatchStopsFurtherSetCommandsOnReadOnly() throws {
+        let r = try CalibrationReply.parse(lines: Self.usbReply)
+        var batch = ConfigBatch(changes: r.changes(selecting: Set(r.proposals.map(\.key)), current: [:]))
+        var sent: [ConsoleCommand] = []
+        while let cmd = batch.next() {
+            sent.append(cmd)
+            batch.receive(status: "ERR READ_ONLY")
+        }
+        // The macOS batch still sends `CONFIG` after the failure, to refresh the active values. The Android batch skips it.
+        #expect(sent.filter { if case .set = $0 { return true } else { return false } }.count == 1)
+        #expect(batch.failure?.reply == "ERR READ_ONLY")
+    }
+
     @Test func calibCommandLine() {
         for n in 0...10 { #expect(ConsoleCommand.calib(n).line == "CALIB \(n)") }
         #expect(ConsoleCommand.calib(11).line == nil)
