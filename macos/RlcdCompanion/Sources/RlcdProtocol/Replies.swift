@@ -78,6 +78,8 @@ public struct StatusReply: Equatable {
     public let cellPercent: Double?
     public let alertMask: UInt8
     public let muted: Bool
+    /// Acknowledged alert bits (`acked=<hex>` of the `POWER` line, 0 for older firmware).
+    public let ackedMask: UInt8
     /// Lines in the reply that this parser does not read in full (SHTC3, BLE, RUNTIME, ...), by first word. `RESET` is also here: `resetReason` reads only the reason, `DiagnosticsReply` reads the abnormal count.
     public let otherLines: [String: String]
     /// The raw `SENSOR` lines in reply order, for the strict parser of `SensorHealth`.
@@ -94,6 +96,7 @@ public struct StatusReply: Equatable {
         var pct: Double?
         var mask: UInt8?
         var muted = false
+        var acked: UInt8 = 0
         var other: [String: String] = [:]
         var sensorLines: [String] = []
         for line in lines {
@@ -120,6 +123,10 @@ public struct StatusReply: Equatable {
                 guard let m = f["alerts"].flatMap({ UInt8($0, radix: 16) }) else { throw ParseError.badLine(line) }
                 mask = m
                 muted = f["muted"] == "1"
+                if let a = f["acked"] {
+                    guard let value = UInt8(a, radix: 16) else { throw ParseError.badLine(line) }
+                    acked = value
+                }
             default:
                 other[String(head)] = line
             }
@@ -128,7 +135,7 @@ public struct StatusReply: Equatable {
         guard !sensors.isEmpty else { throw ParseError.missingLine("SENSOR") }
         return StatusReply(
             sensors: sensors, sdStatus: sd, resetReason: reset, powerSource: src, cellVolts: volts,
-            cellPercent: pct, alertMask: mask, muted: muted, otherLines: other, sensorLines: sensorLines)
+            cellPercent: pct, alertMask: mask, muted: muted, ackedMask: acked, otherLines: other, sensorLines: sensorLines)
     }
 }
 
@@ -493,6 +500,8 @@ public enum ConsoleCommand: Equatable {
     case beep(Int)
     case pattern(Int)
     case mute(Bool)
+    /// `ACK N` (N 0 to 7): stops the chime reminder of one active alert. The firmware answers `ERR NOT_ACTIVE` for an alert that is off.
+    case ack(Int)
     case rtcTrim
     /// `SLOT CLEAR N` (N 1 to 10): frees one registry slot at once. The firmware answers `ERR FIXED_MAC` for a slot with a fixed MAC.
     case slotClear(Int)
@@ -504,6 +513,15 @@ public enum ConsoleCommand: Equatable {
 
     public static func beep(bit: Int) -> ConsoleCommand { .beep(bit) }
     public static func pattern(n: Int) -> ConsoleCommand { .pattern(n) }
+
+    /// Text for the error replies of `ACK`; other text stays as it is.
+    public static func ackMessage(_ reply: String) -> String {
+        switch reply {
+        case "ERR NOT_ACTIVE": return "The alert is off"
+        case "ERR READ_ONLY": return "Set ble_console=2 to apply"
+        default: return reply
+        }
+    }
 
     /// Keys whose empty value the firmware accepts (no fixed MAC).
     static let emptyAllowedKeys: Set<String> = Set((1...10).map { "slot\($0)_mac" })
@@ -534,6 +552,9 @@ public enum ConsoleCommand: Equatable {
             guard (0...2).contains(n) else { return nil }
             return "PATTERN \(n)"
         case let .mute(on): return on ? "MUTE 1" : "MUTE 0"
+        case let .ack(bit):
+            guard (0...7).contains(bit) else { return nil }
+            return "ACK \(bit)"
         case .rtcTrim: return "RTC TRIM"
         case let .slotClear(slot):
             guard SlotAssignment.slots.contains(slot) else { return nil }

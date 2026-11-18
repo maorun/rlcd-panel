@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Alert acknowledge buttons in the macOS diagnostics view
-  - Rank: [Total: 29, Use: 7, Setup: 4, Harmony: 9, Safety: 9, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift
-  - Goal: The firmware has the console command `ACK <N>`, but the macOS app does not send it. The user must type it in a terminal or use `MUTE`, which silences each alert. Parse `acked=<hex>` of the `POWER` line into `StatusReply.ackedMask` (0 for a missing field, `ParseError.badLine` for a bad hex value). Add `ConsoleCommand.ack(bit)` for bits 0 to 7. In `DiagnosticsView`, show one row for each active alert bit of `alertMask` with the alert name of `AlertTransitions`. Show an `Acknowledge` button for an active bit that is not in `ackedMask`. Show `Acknowledged` for a bit in `ackedMask`. `AppModel.acknowledge(bit)` sends `ACK <N>`, then `STATUS`. Show `ERR NOT_ACTIVE` as `The alert is off` and `ERR READ_ONLY` as `Set ble_console=2 to apply`. Send each command only on a user action.
-  - Acceptance test: In `ReplyTests`, parse `tests/fixtures/status_reply_sample.txt` and assert `ackedMask == 0`. Assert `ackedMask` for `acked=02` and for a missing field. Assert that `acked=zz` throws `ParseError.badLine`. Assert that `ConsoleCommand.ack(1).line` is `ACK 1`, and that bit 8 gives `nil`. Run `cd macos/RlcdCompanion && swift test && swift build -c release`.
-
 - [ ] Acknowledge action in the Wear OS alert notification
   - Rank: [Total: 28, Use: 8, Setup: 3, Harmony: 9, Safety: 8, Effort: M]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/BleScanService.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/AckReceiver.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AckCommand.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/console/BleConsoleClient.kt, wearos/RlcdWatch/app/src/main/AndroidManifest.xml, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/AckCommandTest.kt

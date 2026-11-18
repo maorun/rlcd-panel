@@ -117,6 +117,41 @@ struct ReplyAssemblerTests {
         #expect(a.append(Data("OK SET temp_unit\nERR READ_ONLY\n".utf8)) == [.status("OK SET temp_unit"), .status("ERR READ_ONLY")])
     }
 
+    private func statusLines(power: String) -> [String] {
+        ["SENSOR 0 Onboard temp=21.4 rh=45.0 bat=-- rssi=-- age=120 state=OK", power]
+    }
+
+    @Test func ackedMaskOfSharedFixtureIsZero() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let data = try Data(contentsOf: url.appendingPathComponent("tests/fixtures/status_reply_sample.txt"))
+        var a = ReplyAssembler()
+        guard case .frame(let lines)? = a.append(data).first else { Issue.record("fixture is not a frame"); return }
+        #expect(try StatusReply.parse(lines: lines).ackedMask == 0)
+    }
+
+    @Test func ackedMaskParsing() throws {
+        let acked = try StatusReply.parse(lines: statusLines(power: "POWER src=USB v=4.05 pct=88 alerts=0A muted=0 acked=02"))
+        #expect(acked.ackedMask == 2)
+        let missing = try StatusReply.parse(lines: statusLines(power: "POWER src=USB v=4.05 pct=88 alerts=0A muted=0"))
+        #expect(missing.ackedMask == 0)
+        let bad = "POWER src=USB v=4.05 pct=88 alerts=0A muted=0 acked=zz"
+        #expect(throws: ParseError.badLine(bad)) { try StatusReply.parse(lines: statusLines(power: bad)) }
+    }
+
+    @Test func ackCommandLines() {
+        #expect(ConsoleCommand.ack(1).line == "ACK 1")
+        for bit in 0...7 { #expect(ConsoleCommand.ack(bit).line == "ACK \(bit)") }
+        #expect(ConsoleCommand.ack(8).line == nil)
+        #expect(ConsoleCommand.ack(-1).line == nil)
+    }
+
+    @Test func ackErrorTexts() {
+        #expect(ConsoleCommand.ackMessage("ERR NOT_ACTIVE") == "The alert is off")
+        #expect(ConsoleCommand.ackMessage("ERR READ_ONLY") == "Set ble_console=2 to apply")
+        #expect(ConsoleCommand.ackMessage("OK ACK 1") == "OK ACK 1")
+    }
+
     @Test func slotClearReplies() {
         var a = ReplyAssembler()
         #expect(a.append(Data("OK SLOT CLEAR 2\nERR FIXED_MAC\nERR BAD_ARG\n".utf8))

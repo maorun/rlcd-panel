@@ -475,6 +475,15 @@ final class AppModel: ConsoleLinkDelegate {
         sendNext()
     }
 
+    /// Stops the chime reminder of one active alert (`ACK N`), then reads `STATUS` again so the row follows the panel.
+    /// Runs only on the user's button. The firmware answers `ERR NOT_ACTIVE` for an alert that is off and `ERR READ_ONLY` on BLE with `ble_console` 1.
+    func acknowledge(bit: Int) {
+        guard isIdle, ConsoleCommand.ack(bit).line != nil else { return }
+        message = nil
+        queue = [.ack(bit), .status]
+        sendNext()
+    }
+
     /// Slots with a reading (`STATUS` state other than `EMPTY`) and without a fixed MAC (`CONFIG`): `SLOT CLEAR` accepts them.
     var freeableSlots: [Int] {
         guard let sensors = status?.sensors, let config else { return [] } // without CONFIG a fixed MAC is unknown
@@ -1059,6 +1068,7 @@ final class AppModel: ConsoleLinkDelegate {
                 batch?.receive(status: "ERR CORRUPT")
             case (_, let .status(text)):
                 message = text
+                if case .ack = cmd { message = ConsoleCommand.ackMessage(text) }
                 // A file that the card no longer holds (log retention) does not stop the other files.
                 var keepQueue = false
                 if case .dump = cmd {
@@ -1077,6 +1087,8 @@ final class AppModel: ConsoleLinkDelegate {
                 if cmd == .scan, text.hasPrefix("ERR") { stopRepeatScan(.scanFailed) }
                 batch?.receive(status: text)
                 if text.hasPrefix("ERR"), !keepQueue { queue.removeAll() }
+                // A failed ACK still reads STATUS, so the row follows the panel (the alert may have cleared).
+                if case .ack = cmd, text.hasPrefix("ERR") { queue = [.status] }
                 if cmd == .time || text.hasPrefix("TIME ") || text == "TIME" {
                     if let t = try? TimeReply.parse(text) {
                         panelTime = t
@@ -1158,7 +1170,7 @@ final class AppModel: ConsoleLinkDelegate {
                 queue.removeAll()
                 finishDownload(cmd, text: "unexpected reply")
             case (.set, .frame): batch?.receive(status: "ERR UNEXPECTED_REPLY")
-            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.rtcTrim, .frame), (.slotClear, .frame):
+            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.ack, .frame), (.rtcTrim, .frame), (.slotClear, .frame):
                 message = "Unexpected frame reply"
             }
         } catch {
