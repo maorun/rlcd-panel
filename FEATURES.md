@@ -590,7 +590,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The new console command `STATUS` shows all sensor values on the host without a view change. It takes no argument: `STATUS now` gives `ERR UNKNOWN`.
 - The reply has one line `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW>` for index `0` (onboard) and for the slots `1` to `3`. A missing value gives `--`. The name is the configured name, or `onboard` and `slot1` to `slot3`; a space in a name becomes `_`.
 - The slot lines show the calibrated readings. The onboard line shows the newest hourly sample of the RTC history, so its `age` is the time since that sample; `bat` and `rssi` are `--`. `state` is `EMPTY` without a reading, `STALE` after 30 minutes without a packet (the onboard line: 90 minutes, one hourly sample interval plus 30 minutes), `BATLOW` when the `SensorBatteryLatch` bit of the slot is set, else `OK`. `STALE` has priority over `BATLOW`. The onboard `age` uses the shared hourly sample time (`ClimateHistory::last_sample_ms`): when only a slot delivered a sample in that hour, an old onboard value shows a small `age`.
-- Then one line `POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>` and the line `CRC32 <8 hex digits>` over all bytes before it.
+- Then one line `POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1> acked=<hex mask>` and the line `CRC32 <8 hex digits>` over all bytes before it.
 - The command reads the RTC copy (`g_state`) only. It does not mount the card and does not stop the console. It runs on USB power only (`PowerManager::serialConsoleAllowed`). A short serial write ends the reply without the `CRC32` line.
 - `./scripts/dump-logs.sh --status [port]` sends `STATUS`, checks the CRC-32 and prints the lines.
 
@@ -1667,3 +1667,13 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `MainActivity` sends the commands through `SlotAssignment.run` (`BleConsoleClient.send`), reads `CONFIG` after the batch and refreshes `PanelConfig` and the cache. The first `ERR` stops the batch. `ERR READ_ONLY` sets `SlotAssignment.Result.readOnly` and shows the hint `Set ble_console=2 to apply`.
 - `SlotConfigTest` asserts the commands for name and MAC, the clear command, the duplicate MAC conflict, the rejected names, and the `slot_auto_assign` commands. `SlotAssignmentTest` asserts the clear batch and the `ERR READ_ONLY` handling.
 - The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.
+
+## Console command ACK for the chime reminder
+
+- `ACK <N>` (N is the bit number 0 to 7, like `BEEP <N>`) stops the reminder of `chime_repeat_h` for one active alert. `MUTE` silences each alert; `ACK` silences one. The alert stays on, the tiles and the `STATUS` mask do not change.
+- `PersistentState::acknowledgeAlert` stores the bit in `PersistentState::alert_ack` (1 byte just before the checksum; a bit that is off in `alert_mask` is rejected as corrupt). It replies `OK ACK <N>`. An alert that is off gives `ERR NOT_ACTIVE` and no change. A repeated `ACK` of the same bit replies `OK ACK <N>` and records no second event. `ERR BAD_ARG` covers a missing bit, a bit above 7 and extra text. `STATE_VERSION` is 65.
+- `AlertEvaluator::repeat` takes the acknowledged bits as last argument and skips them. `AlertEvaluator::ackAfter` clears a bit when its alert falls (`applyAlertStep`), so the next rise chimes again. A rising edge chimes as before.
+- `ACK` is a write command: `ERR READ_ONLY` on BLE with `ble_console` 1. It needs no card, and `execute()` ignores it.
+- `EventCode::ALERT_ACK` (13) records the alert mask as detail; `EventRing::MAX_CODE` is 13. `EventText` shows `Alert <name> acknowledged`.
+- `STATUS` appends ` acked=<hex>` to the `POWER` line. `tests/fixtures/status_reply_sample.txt` and its CRC-32 follow; the companion parsers read the `POWER` line by field name, so they stay unchanged.
+- Validation: the host tests, `arduino-cli compile rlcd_panel` and `swift test` pass. The Android tests run in CI only.

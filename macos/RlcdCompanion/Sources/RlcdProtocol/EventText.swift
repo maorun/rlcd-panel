@@ -25,6 +25,9 @@ public enum EventText {
         case "ALERT_RISE", "ALERT_FALL":
             guard let name = alertNames[d] else { return raw }
             return "\(name) alert \(row.event == "ALERT_RISE" ? "on" : "off")"
+        case "ALERT_ACK":
+            guard let name = alertNames[d] else { return raw }
+            return "Alert \(name) acknowledged"
         case "CONFIG_LOAD":
             guard d >= 0 else { return raw }
             return "config loaded, \(d) rejected line\(d == 1 ? "" : "s")"

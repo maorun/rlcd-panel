@@ -99,6 +99,7 @@ struct PersistentState {
   uint16_t sensor_battery_latch = 0; // low battery latch, bits 0..9 are the registry slots (SensorBatteryLatch)
   uint32_t last_chime_ms = 0; // clock value of the last chime or alert rising edge (chime_repeat_h)
   uint8_t alert_mask = ALERT_NONE; // alerts active in the last wake cycle (hysteresis latch)
+  uint8_t alert_ack = ALERT_NONE;  // acknowledged alert bits (console ACK): no chime reminder while the alert stays on
   NoiseBand noise_band = NoiseBand::QUIET; // band of the last noise window (hysteresis latch)
   NtpSyncState ntp;          // NTP attempt time, result and backoff
   RtcDriftState rtc_drift;   // RTC drift of the last NTP sync
@@ -200,6 +201,20 @@ struct PersistentState {
     if (occupied) {
       events.record(now, EventCode::SLOT_RELEASE, static_cast<uint16_t>(0x0100u | (index + 1)));
     }
+    return true;
+  }
+
+  // Console ACK: stops the chime reminder of the active alert bit `bit` (0 to 7). False for an alert that is off.
+  bool acknowledgeAlert(uint8_t bit, const RtcTime& now) {
+    const uint8_t flag = static_cast<uint8_t>(1u << (bit & 7));
+    if ((alert_mask & flag & ALERT_MASK_ALL) == 0) {
+      return false;
+    }
+    if ((alert_ack & flag) != 0) {
+      return true; // repeated ACK: no second event, so a script cannot flush the ring
+    }
+    alert_ack = static_cast<uint8_t>(alert_ack | flag);
+    events.record(now, EventCode::ALERT_ACK, flag);
     return true;
   }
 
@@ -343,7 +358,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 64;
+  static constexpr uint8_t STATE_VERSION = 65;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -399,7 +414,9 @@ public:
   static constexpr size_t USB_MASK_SIZE = 3;
   // Reject log of the last BLE scan (just before the checksum).
   static constexpr size_t REJECT_LOG_SIZE = RejectLog::SERIALIZED_SIZE;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + 4;
+  // Acknowledged alert bits (1 byte, just before the checksum).
+  static constexpr size_t ALERT_ACK_SIZE = 1;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -746,6 +763,7 @@ public:
     out[pos++] = static_cast<uint8_t>((state.history.usb_mask >> 16) & 0xFF);
     state.reject_log.serialize(out + pos);
     pos += REJECT_LOG_SIZE;
+    out[pos++] = state.alert_ack;
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -1140,6 +1158,10 @@ public:
       return false; // a bad reason, a zero count or a gap is corrupt
     }
     pos += REJECT_LOG_SIZE;
+    s.alert_ack = data[pos++];
+    if ((s.alert_ack & ~s.alert_mask) != 0) {
+      return false; // an acknowledged bit of an alert that is off is corrupt
+    }
     s.registry.setAutoAssign(s.config.slot_auto_assign != 0);
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       if (!s.config.isSlotEnabled(i) && s.registry.slot(i).valid) {

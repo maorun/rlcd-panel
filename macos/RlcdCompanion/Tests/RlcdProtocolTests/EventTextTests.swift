@@ -114,6 +114,13 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("CONFIG_SET", 0x0200)) == "CONFIG_SET,512")
     }
 
+    @Test func alertAckGivesName() {
+        #expect(EventText.describe(row("ALERT_ACK", 2)) == "Alert HUMIDITY acknowledged")
+        #expect(EventText.describe(row("ALERT_ACK", 128)) == "Alert HEAT acknowledged")
+        #expect(EventText.describe(row("ALERT_ACK", 3)) == "ALERT_ACK,3")
+        #expect(EventText.describe(row("ALERT_ACK", 0)) == "ALERT_ACK,0")
+    }
+
     @Test func sdFaultGivesStatusText() {
         #expect(EventText.describe(row("SD_FAULT", 1)) == "SD card OK")
         #expect(EventText.describe(row("SD_FAULT", 2)) == "SD card fault: NO_CARD")
