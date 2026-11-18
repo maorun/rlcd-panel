@@ -1,0 +1,56 @@
+# Shared test vectors of the sensor advertisements (rlcd_panel/switchbot_ble.h, bthome_ble.h, atc_ble.h, thermopro_ble.h).
+# Read by the C++ host tests; the Android phone app (SensorAdvertisement.decode) reads the same file.
+# The input is what the firmware gets from the BLE stack, so the hex strings use the same bytes:
+#   mfg = Manufacturer Data with the 2-byte little-endian company ID first (the first byte of a ThermoPro frame is 0xC2),
+#   svc_uuid = the 16-bit UUID of the first Service Data (hex), svc = the Service Data bytes after the UUID.
+# Dispatch order of the firmware: BTHOME (0xFCD2), ATC (0x181A), ThermoPro (mfg byte 0 = 0xC2, 5 bytes or more), SwitchBot.
+# Line: name | ble_mac | adv_name | mfg | svc_uuid | svc | format | mac | temp_c | rh_pct | battery_pct
+# "-" is an empty field. Format "null" means that the packet is rejected (the output fields are then "-").
+# Battery -1 means that the packet has no battery value. Temperature tolerance is 0.05 C.
+woio_positive | 11:22:33:44:55:66 | - | 6909AABBCCDDEE01000005952D | - | - | WOIO | AA:BB:CC:DD:EE:01 | 21.5 | 45 | -1
+woio_negative | 11:22:33:44:55:66 | - | 6909AABBCCDDEE02000004033C | - | - | WOIO | AA:BB:CC:DD:EE:02 | -3.4 | 60 | -1
+woio_unit_flag_same_values | 11:22:33:44:55:66 | - | 6909AABBCCDDEE0100000595AD | - | - | WOIO | AA:BB:CC:DD:EE:01 | 21.5 | 45 | -1
+woio_with_service_battery | 11:22:33:44:55:66 | - | 6909AABBCCDDEE01000005952D | FD3D | 77005A | WOIO | AA:BB:CC:DD:EE:01 | 21.5 | 45 | 90
+woio_humidity_101 | 11:22:33:44:55:66 | - | 6909AABBCCDDEE0300000595E5 | - | - | null | - | - | - | -
+woio_bad_fraction | 11:22:33:44:55:66 | - | 6909AABBCCDDEE0300000A952D | - | - | null | - | - | - | -
+woio_short_12_bytes | 11:22:33:44:55:66 | - | 6909AABBCCDDEE0100000595 | - | - | null | - | - | - | -
+woio_wrong_company | 11:22:33:44:55:66 | - | 6A09AABBCCDDEE01000005952D | - | - | null | - | - | - | -
+meter_positive | 11:22:33:44:55:66 | - | - | FD3D | 54006403962D | METER | 11:22:33:44:55:66 | 22.3 | 45 | 100
+meter_plus_negative | 11:22:33:44:55:66 | - | - | FD3D | 69005A04033C | METER | 11:22:33:44:55:66 | -3.4 | 60 | 90
+meter_bad_type | 11:22:33:44:55:66 | - | - | FD3D | 55006403962D | null | - | - | - | -
+meter_bad_length_5_bytes | 11:22:33:44:55:66 | - | - | FD3D | 5400640396 | null | - | - | - | -
+meter_humidity_101 | 11:22:33:44:55:66 | - | - | FD3D | 5400640396E5 | null | - | - | - | -
+meter_battery_101 | 11:22:33:44:55:66 | - | - | FD3D | 54006503962D | null | - | - | - | -
+bthome_all_values | 11:22:33:44:55:66 | - | - | FCD2 | 40015A020208039411 | BTHOME | 11:22:33:44:55:66 | 20.5 | 45 | 90
+bthome_humidity_u8 | 11:22:33:44:55:66 | - | - | FCD2 | 400202082E2D | BTHOME | 11:22:33:44:55:66 | 20.5 | 45 | -1
+bthome_negative | 11:22:33:44:55:66 | - | - | FCD2 | 4002F3FD2E32 | BTHOME | 11:22:33:44:55:66 | -5.25 | 50 | -1
+bthome_humidity_rounds_up | 11:22:33:44:55:66 | - | - | FCD2 | 4002020803C711 | BTHOME | 11:22:33:44:55:66 | 20.5 | 46 | -1
+bthome_encrypted | 11:22:33:44:55:66 | - | - | FCD2 | 410202082E2D | null | - | - | - | -
+bthome_version_1 | 11:22:33:44:55:66 | - | - | FCD2 | 200202082E2D | null | - | - | - | -
+bthome_humidity_out_of_range | 11:22:33:44:55:66 | - | - | FCD2 | 40020208031127 | null | - | - | - | -
+bthome_missing_humidity | 11:22:33:44:55:66 | - | - | FCD2 | 40020208 | null | - | - | - | -
+atc_format | 11:22:33:44:55:66 | - | - | 181A | A4C13811223300D72D5A0BB801 | ATC | A4:C1:38:11:22:33 | 21.5 | 45 | 90
+atc_negative | 11:22:33:44:55:66 | - | - | 181A | A4C138112233FFCE325A0BB801 | ATC | A4:C1:38:11:22:33 | -5.0 | 50 | 90
+pvvx_format | 11:22:33:44:55:66 | - | - | 181A | 33221138C1A466089411B80B5A0100 | ATC | A4:C1:38:11:22:33 | 21.5 | 45 | 90
+atc_bad_length_14_bytes | 11:22:33:44:55:66 | - | - | 181A | A4C13811223300D72D5A0BB80100 | null | - | - | - | -
+atc_humidity_101 | 11:22:33:44:55:66 | - | - | 181A | A4C13811223300D7655A0BB801 | null | - | - | - | -
+atc_temperature_100_1 | 11:22:33:44:55:66 | - | - | 181A | A4C13811223303E92D5A0BB801 | null | - | - | - | -
+atc_battery_101 | 11:22:33:44:55:66 | - | - | 181A | A4C13811223300D72D650BB801 | null | - | - | - | -
+atc_zero_mac | 11:22:33:44:55:66 | - | - | 181A | 00000000000000D72D5A0BB801 | null | - | - | - | -
+pvvx_humidity_100_01 | 11:22:33:44:55:66 | - | - | 181A | 33221138C1A466081127B80B5A0100 | null | - | - | - | -
+thermopro_percent | 11:22:33:44:55:66 | TP357 (ABCD) | C2D7002D5A | - | - | THERMOPRO | 11:22:33:44:55:66 | 21.5 | 45 | 90
+thermopro_negative_no_name | 11:22:33:44:55:66 | - | C2CEFF325A | - | - | THERMOPRO | 11:22:33:44:55:66 | -5.0 | 50 | 90
+thermopro_bars_full | 11:22:33:44:55:66 | - | C2D7002D02 | - | - | THERMOPRO | 11:22:33:44:55:66 | 21.5 | 45 | 100
+thermopro_bars_high_nibble | 11:22:33:44:55:66 | - | C2D7002D21 | - | - | THERMOPRO | 11:22:33:44:55:66 | 21.5 | 45 | 50
+thermopro_battery_unknown | 11:22:33:44:55:66 | - | C2D7002D65 | - | - | THERMOPRO | 11:22:33:44:55:66 | 21.5 | 45 | -1
+thermopro_humidity_101 | 11:22:33:44:55:66 | - | C2D700655A | - | - | null | - | - | - | -
+thermopro_temperature_100_1 | 11:22:33:44:55:66 | - | C2E9032D5A | - | - | null | - | - | - | -
+thermopro_short_4_bytes | 11:22:33:44:55:66 | - | C2D7002D | - | - | null | - | - | - | -
+thermopro_wrong_name | 11:22:33:44:55:66 | ABC | C2D7002D5A | - | - | null | - | - | - | -
+thermopro_zero_mac | 00:00:00:00:00:00 | - | C2D7002D5A | - | - | null | - | - | - | -
+dispatch_woio_bad_falls_to_meter | 11:22:33:44:55:66 | - | 6909AABBCCDDEE0300000A952D | FD3D | 54006403962D | METER | 11:22:33:44:55:66 | 22.3 | 45 | 100
+dispatch_thermopro_wins_over_switchbot_service | 11:22:33:44:55:66 | - | C2D7002D5A | FD3D | 54006403962D | THERMOPRO | 11:22:33:44:55:66 | 21.5 | 45 | 90
+bthome_unknown_object_ends_parse_keeps_values | 11:22:33:44:55:66 | - | - | FCD2 | 400202082E2DFF00 | BTHOME | 11:22:33:44:55:66 | 20.5 | 45 | -1
+bthome_truncated_value | 11:22:33:44:55:66 | - | - | FCD2 | 402E2D0202 | null | - | - | - | -
+bthome_battery_101_ignored | 11:22:33:44:55:66 | - | - | FCD2 | 4001650202082E2D | BTHOME | 11:22:33:44:55:66 | 20.5 | 45 | -1
+no_data | 11:22:33:44:55:66 | - | - | - | - | null | - | - | - | -

@@ -62,6 +62,7 @@ fun SensorHealthScreen(
     nowMillis: Long = 0L,
     onReadConfig: () -> Unit = {},
     onOpenCalibration: () -> Unit = {},
+    onOpenFinder: () -> Unit = {},
     onBack: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -85,6 +86,9 @@ fun SensorHealthScreen(
             }
             item {
                 OutlinedButton(onClick = onOpenCalibration) { Text("Calibration proposals") }
+            }
+            item {
+                OutlinedButton(onClick = onOpenFinder) { Text("Find nearby sensors") }
             }
             item {
                 Text(
