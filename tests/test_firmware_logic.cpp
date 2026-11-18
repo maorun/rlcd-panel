@@ -18855,6 +18855,98 @@ void testBleTelemetryFixtureVectors() {
   assert(vectors == 13);
 }
 
+std::vector<uint8_t> advHexBytes(const std::string& hex) {
+  std::vector<uint8_t> out;
+  if (hex == "-") return out;
+  assert(hex.size() % 2 == 0);
+  for (size_t i = 0; i < hex.size(); i += 2) {
+    out.push_back(static_cast<uint8_t>(strtoul(hex.substr(i, 2).c_str(), nullptr, 16)));
+  }
+  return out;
+}
+
+std::string advMacText(const uint8_t* mac) {
+  char buf[18];
+  snprintf(buf, sizeof(buf), "%02X:%02X:%02X:%02X:%02X:%02X", mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+  return buf;
+}
+
+// Same dispatch order as SwitchBotAdvertisedCallbacks::onResult in rlcd_panel.ino.
+bool advDecodeLikeFirmware(const std::vector<uint8_t>& ble_mac, const std::string& name,
+                           const std::vector<uint8_t>& mfg, uint16_t svc_uuid,
+                           const std::vector<uint8_t>& svc, SwitchBotReading& out, BleFormat& format) {
+  const uint8_t* mfg_p = mfg.empty() ? nullptr : mfg.data();
+  const uint8_t* svc_p = svc.empty() ? nullptr : svc.data();
+  if (svc_uuid == BTHOME_SERVICE_UUID) {
+    format = BleFormat::BTHOME;
+    return BtHomeBleParser::parseServiceData(svc_uuid, ble_mac.data(), svc_p, svc.size(), out);
+  }
+  if (svc_uuid == ATC_SERVICE_UUID) {
+    format = BleFormat::ATC;
+    return AtcBleParser::parseServiceData(svc_uuid, svc_p, svc.size(), out);
+  }
+  if (mfg.size() >= THERMOPRO_MIN_PAYLOAD_LEN && mfg[0] == THERMOPRO_HEADER_BYTE) {
+    format = BleFormat::THERMOPRO;
+    return ThermoProBleParser::parseManufacturerData(mfg_p, mfg.size(), ble_mac.data(), name.c_str(), out);
+  }
+  const bool has_switchbot_svc = svc_uuid == SWITCHBOT_SERVICE_UUID;
+  SwitchBotReading probe;
+  format = SwitchBotBleParser::parseManufacturerData(mfg_p, mfg.size(), probe) ? BleFormat::WOIO : BleFormat::METER;
+  if (mfg.empty() && !has_switchbot_svc) return false;
+  return SwitchBotBleParser::parseAdvertisement(mfg_p, mfg.size(), has_switchbot_svc ? svc_p : nullptr,
+                                                has_switchbot_svc ? svc.size() : 0, ble_mac.data(), out);
+}
+
+void testSensorAdvertisementFixtureVectors() {
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  std::ifstream in(root + "tests/fixtures/sensor_adv_vectors.txt");
+  assert(in.good());
+  std::string line;
+  int vectors = 0;
+  int rejected = 0;
+  while (std::getline(in, line)) {
+    if (line.empty() || line[0] == '#') continue;
+    std::vector<std::string> f;
+    size_t start = 0;
+    while (true) {
+      const size_t bar = line.find(" | ", start);
+      f.push_back(line.substr(start, bar == std::string::npos ? std::string::npos : bar - start));
+      if (bar == std::string::npos) break;
+      start = bar + 3;
+    }
+    assert(f.size() == 11);
+    std::vector<uint8_t> ble_mac;
+    for (size_t i = 0; i < f[1].size(); i += 3) {
+      ble_mac.push_back(static_cast<uint8_t>(strtoul(f[1].substr(i, 2).c_str(), nullptr, 16)));
+    }
+    assert(ble_mac.size() == 6);
+    const std::string name = f[2] == "-" ? std::string() : f[2];
+    const uint16_t svc_uuid = f[4] == "-" ? 0 : static_cast<uint16_t>(strtoul(f[4].c_str(), nullptr, 16));
+    SwitchBotReading reading;
+    BleFormat format = BleFormat::WOIO;
+    const bool ok = advDecodeLikeFirmware(ble_mac, name, advHexBytes(f[3]), svc_uuid, advHexBytes(f[5]), reading, format);
+    if (f[6] == "null") {
+      assert(!ok);
+      ++rejected;
+    } else {
+      assert(ok);
+      assert(reading.valid);
+      const BleFormat want = f[6] == "WOIO" ? BleFormat::WOIO : f[6] == "METER" ? BleFormat::METER
+                           : f[6] == "BTHOME" ? BleFormat::BTHOME : f[6] == "ATC" ? BleFormat::ATC : BleFormat::THERMOPRO;
+      assert(format == want);
+      assert(advMacText(reading.mac) == f[7]);
+      assert(fabsf(reading.temperature_c - strtof(f[8].c_str(), nullptr)) <= 0.05f);
+      assert(reading.humidity_pct == static_cast<uint8_t>(atoi(f[9].c_str())));
+      assert(reading.battery_pct == static_cast<int8_t>(atoi(f[10].c_str())));
+    }
+    ++vectors;
+  }
+  assert(vectors == 47);
+  assert(rejected == 25);
+}
+
 void testClimateMathFixtureVectors() {
   std::string here = __FILE__;
   const size_t cut = here.rfind("tests/");
@@ -21589,6 +21681,7 @@ testSerialConfigNegativeSmallOffset();
   testConfigCheckTool();
   testSdCardStatus();
   testClimateMathFixtureVectors();
+  testSensorAdvertisementFixtureVectors();
   testStaleAgeBadge();
   testParseClimateRow();
   testClimateRestoreFixedSlotAndUsbMask();
@@ -21597,6 +21690,6 @@ testSerialConfigNegativeSmallOffset();
   testClimateRestoreNoChange();
   testClimateRestoreTailParsing();
   testSlotEnabledFeature();
-  printf("All 230 firmware logic test suites passed.\n");
+  printf("All 231 firmware logic test suites passed.\n");
   return 0;
 }

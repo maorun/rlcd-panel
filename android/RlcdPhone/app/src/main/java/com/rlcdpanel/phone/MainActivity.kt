@@ -30,6 +30,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.rlcdpanel.phone.console.BleConsoleClient
+import com.rlcdpanel.phone.finder.SensorFinderList
+import com.rlcdpanel.phone.finder.SensorFinderScanner
+import com.rlcdpanel.phone.finder.SlotAssignment
 import com.rlcdpanel.phone.protocol.CalibrationBatch
 import com.rlcdpanel.phone.protocol.CalibrationReply
 import com.rlcdpanel.phone.protocol.ConsoleReply
@@ -90,6 +93,10 @@ class MainActivity : ComponentActivity() {
     private var showHistory by mutableStateOf(false)
     private var showCalib by mutableStateOf(false)
     private var showWeek by mutableStateOf(false)
+    private var showFinder by mutableStateOf(false)
+    private var finderState by mutableStateOf(SensorFinderState())
+    private val finderList = SensorFinderList()
+    private var finderScanner: SensorFinderScanner? = null
     private var weekState by mutableStateOf(WeekState())
     private var calibState by mutableStateOf(CalibrationState())
     private var pendingConsoleAction: (() -> Unit)? = null
@@ -193,6 +200,18 @@ class MainActivity : ComponentActivity() {
                 BackHandler { closeCalibration() }
                 return@setContent
             }
+            if (showFinder) {
+                SensorFinderScreen(
+                    state = finderState,
+                    panelConfig = panelConfig,
+                    onScan = { startFinderScan() },
+                    onStopScan = { stopFinderScan() },
+                    onAssign = { slot, mac, name -> withConsolePermission { assignSensor(slot, mac, name) } },
+                    onBack = { closeFinder() }
+                )
+                BackHandler { closeFinder() }
+                return@setContent
+            }
             if (showHealth) {
                 SensorHealthScreen(
                     state = healthState,
@@ -202,6 +221,7 @@ class MainActivity : ComponentActivity() {
                     nowMillis = System.currentTimeMillis(),
                     onReadConfig = { ensureConsolePermissionAndRead(CONSOLE_CONFIG) },
                     onOpenCalibration = { showHealth = false; showCalib = true },
+                    onOpenFinder = { showHealth = false; showFinder = true },
                     onBack = { closeSensorHealth() }
                 )
                 BackHandler { closeSensorHealth() }
@@ -330,6 +350,10 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         val consoleWasRunning = consoleClient.isRunning
         consoleClient.cancel()
+        stopFinderScan()
+        if (finderState.isBusy) {
+            finderState = finderState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, CONFIG lesen")
+        }
         healthState = healthState.copy(isReading = false)
         configState = configState.copy(isReading = false)
         if (weekState.isReading) weekState = WeekState(message = "Abgebrochen. Erneut lesen.")
@@ -349,6 +373,7 @@ class MainActivity : ComponentActivity() {
             pendingConsoleAction = null
             if (grants.isNotEmpty() && grants.values.all { it }) action()
             else if (showWeek) weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
+            else if (showFinder) finderState = finderState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else calibState = calibState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             return@registerForActivityResult
         }
@@ -396,6 +421,74 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun closeFinder() {
+        stopFinderScan()
+        consoleClient.cancel()
+        pendingConsoleAction = null
+        finderList.clear()
+        finderState = SensorFinderState()
+        showFinder = false
+        showHealth = true
+    }
+
+    /** Starts the finder scan after a tap; the background scan of the telemetry pauses meanwhile. */
+    private fun startFinderScan() {
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            listOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isNotEmpty()) {
+            finderState = finderState.copy(isError = true, message = "Bluetooth-Berechtigung fehlt. Erst Sensor-Status öffnen und erlauben.")
+            return
+        }
+        stopBleScan()
+        finderList.clear()
+        val scanner = finderScanner ?: SensorFinderScanner(
+            this,
+            onResult = { ad, rssi ->
+                // A result that arrives after stop or close must not refill the list.
+                if (showFinder && finderState.isScanning) {
+                    finderList.add(ad, rssi, System.currentTimeMillis())
+                    finderState = finderState.copy(rows = finderList.sorted())
+                }
+            },
+            onError = { text -> finderState = finderState.copy(isScanning = false, isError = true, message = text) }
+        ).also { finderScanner = it }
+        val started = scanner.start()
+        finderState = SensorFinderState(isScanning = started, message = if (started) null else finderState.message, isError = !started)
+    }
+
+    /** Stops the finder scan. Called from the button, `closeFinder` and `onStop`. */
+    private fun stopFinderScan() {
+        finderScanner?.stop()
+        if (finderState.isScanning) finderState = finderState.copy(isScanning = false)
+    }
+
+    /** Sends `SET slotN_mac`, `SET slotN_name` and `CONFIG` after a tap. The first `ERR` stops the batch. */
+    private fun assignSensor(slot: Int, mac: String, name: String) {
+        val commands = SlotAssignment.batch(slot, mac, name)
+        if (commands == null || SlotAssignment.warning(slot, mac, panelConfig) != null) {
+            finderState = finderState.copy(isBusy = false, isError = true, message = "Eingabe ungültig oder MAC doppelt")
+            return
+        }
+        stopFinderScan()
+        stopBleScan()
+        finderState = finderState.copy(isBusy = true, isError = false, message = null)
+        SlotAssignment.run(commands, consoleClient::send) { result ->
+            result.config?.let { frame ->
+                lifecycleScope.launch {
+                    val info = withContext(Dispatchers.IO) { ConfigCache.store(filesDir, frame, System.currentTimeMillis()) }
+                    if (info != null) {
+                        panelConfig = withContext(Dispatchers.IO) { PanelConfig.load(this@MainActivity) }
+                        configState = ConfigReadState(info = info)
+                    }
+                }
+            }
+            finderState = finderState.copy(isBusy = false, isError = !result.ok, message = result.summary)
+        }
+    }
+
     private fun closeCalibration() {
         consoleClient.cancel()
         pendingConsoleAction = null
@@ -406,7 +499,7 @@ class MainActivity : ComponentActivity() {
 
     /** Runs [action] after the Bluetooth permissions; the action sends console commands. */
     private fun withConsolePermission(action: () -> Unit) {
-        if (calibState.isBusy || weekState.isReading || consoleClient.isRunning) return
+        if (calibState.isBusy || weekState.isReading || finderState.isBusy || consoleClient.isRunning) return
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
@@ -414,7 +507,9 @@ class MainActivity : ComponentActivity() {
         }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
         if (needed.isNotEmpty()) {
             pendingConsoleAction = action
-            if (showWeek) weekState = WeekState(isReading = true) else calibState = calibState.copy(isBusy = true, message = null)
+            if (showWeek) weekState = WeekState(isReading = true)
+            else if (showFinder) finderState = finderState.copy(isBusy = true, message = null)
+            else calibState = calibState.copy(isBusy = true, message = null)
             consolePermissionLauncher.launch(needed.toTypedArray())
             return
         }
