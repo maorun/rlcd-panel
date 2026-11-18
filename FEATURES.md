@@ -1838,3 +1838,11 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `DiagnosticsView` shows the four values and a warning symbol when `largest` is below 16384 bytes.
 - Thus the user sees a memory shortage, for example after a long USB console session, without a look at the display.
 - Host tests cover the line text, its position after `AWAKE` and the new CRC-32. `DiagnosticsTests` cover the four values, the missing line and `free=x`. The fixture `tests/fixtures/status_reply_sample.txt` holds the line, and the Android and Wear OS `StatusReplyTest` classes read it.
+
+## PNG export of the panel image in the macOS app
+
+- `PanelImage.pngData()` (`PanelImage.swift`) encodes the 400 x 300 pixels as a 1-bit grayscale PNG with `CoreGraphics` and `ImageIO`. A set pixel is black. The method gives `nil` when the encoder fails.
+- `PanelView` has a `Save PNG` button next to `Refresh`. The button stays disabled until the first image exists.
+- A click opens an `NSSavePanel` with the default name `panel_<YYYYMMDD_HHMMSS>.png`. The app writes `pngData()` to the chosen URL with an atomic write (`AppModel.exportPanelPng`) and shows `PNG saved: <name>` or `PNG export failed: <reason>` in `message`. An encoder failure gives a message and no save panel.
+- The export sends no console command. It works on each transport, because it uses the last image only.
+- `PanelImageTests.pngRoundTripKeepsCornersAndCheckerboard` reads the PNG back with `CGImageSource` and checks the size, the four corner pixels and a checkerboard pixel.

@@ -1,4 +1,7 @@
+import CoreGraphics
 import Foundation
+import ImageIO
+import UniformTypeIdentifiers
 
 /// The 400 x 300 1-bit image of the panel, decoded from the `screen.bin` body of the `SCREEN` reply.
 ///
@@ -44,5 +47,29 @@ public struct PanelImage: Equatable {
             }
         }
         return out
+    }
+
+    /// PNG file of the image: 1-bit grayscale, black for a set pixel. `nil` when the encoder fails.
+    public func pngData() -> Data? {
+        let rowBytes = (Self.width + 7) / 8
+        var packed = [UInt8](repeating: 0xFF, count: rowBytes * Self.height)
+        for y in 0..<Self.height {
+            for x in 0..<Self.width where isBlack(x: x, y: y) {
+                packed[y * rowBytes + x / 8] &= ~UInt8(0x80 >> (x % 8))
+            }
+        }
+        guard let provider = CGDataProvider(data: Data(packed) as CFData),
+              let image = CGImage(
+                width: Self.width, height: Self.height, bitsPerComponent: 1, bitsPerPixel: 1,
+                bytesPerRow: rowBytes, space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.none.rawValue),
+                provider: provider, decode: nil, shouldInterpolate: false, intent: .defaultIntent)
+        else { return nil }
+        let out = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(out, UTType.png.identifier as CFString, 1, nil)
+        else { return nil }
+        CGImageDestinationAddImage(destination, image, nil)
+        guard CGImageDestinationFinalize(destination) else { return nil }
+        return out as Data
     }
 }

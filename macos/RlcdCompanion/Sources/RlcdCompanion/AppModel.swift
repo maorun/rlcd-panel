@@ -185,6 +185,25 @@ final class AppModel: ConsoleLinkDelegate {
         }
     }
 
+    /// Saves the last panel image as a PNG file. Sends no console command.
+    func exportPanelPng() {
+        guard let image = panelImage else { return }
+        guard let data = image.pngData() else { message = "PNG export failed: encoder error"; return }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.dateFormat = "yyyyMMdd_HHmmss"
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "panel_\(formatter.string(from: Date())).png"
+        panel.allowedContentTypes = [.png]
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try data.write(to: url, options: .atomic)
+            message = "PNG saved: \(url.lastPathComponent)"
+        } catch {
+            message = "PNG export failed: \(error.localizedDescription)"
+        }
+    }
+
     /// Enables or disables macOS alert notifications.
     func toggleNotifications(_ enabled: Bool) {
         if enabled {
