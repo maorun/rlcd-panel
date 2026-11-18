@@ -1846,3 +1846,10 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - A click opens an `NSSavePanel` with the default name `panel_<YYYYMMDD_HHMMSS>.png`. The app writes `pngData()` to the chosen URL with an atomic write (`AppModel.exportPanelPng`) and shows `PNG saved: <name>` or `PNG export failed: <reason>` in `message`. An encoder failure gives a message and no save panel.
 - The export sends no console command. It works on each transport, because it uses the last image only.
 - `PanelImageTests.pngRoundTripKeepsCornersAndCheckerboard` reads the PNG back with `CGImageSource` and checks the size, the four corner pixels and a checkerboard pixel.
+
+## Wear OS panel silence notification
+
+- `SilenceWatch` (`protocol/SilenceWatch.kt`) is a pure state machine with an injected clock (`clock: () -> Long`, default `System.currentTimeMillis()`). `check()` returns `SILENT` once when the last frame is older than 35 min (`SILENCE_MS`). `onFrame()` returns `BACK` once for the first frame after `SILENT`. Without a frame since the service start it reports nothing. A clock that runs back gives no `SILENT` and moves the last frame time to the new time.
+- `BleScanService` creates one `SilenceWatch` when the scan starts and calls `check()` once each minute on the main looper. No scan setting changes.
+- `SILENT` posts the notification `Panel silent since <HH:mm>` (time of the last frame, id 902) on the channel `rlcd_silence_channel` without vibration. `BACK` cancels it. A stop of the scan cancels it too.
+- `SilenceWatchTest` covers `SILENT` at 35 min plus 1 s, no second `SILENT` at 60 min, `BACK` once, a new `SILENT` after `BACK`, no report without a frame and a clock that runs back.

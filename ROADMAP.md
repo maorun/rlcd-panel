@@ -24,12 +24,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Panel silence notification in the Wear OS app
-  - Rank: [Total: 27, Use: 7, Setup: 5, Harmony: 7, Safety: 8, Effort: M]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/SilenceWatch.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/BleScanService.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/SilenceWatchTest.kt
-  - Goal: The watch tile shows `--` for a frame older than 35 min, but the user gets no notice when the panel stops to send, for example with an empty battery or a crash. Add `SilenceWatch` as a pure state machine with an injected clock. It reports `SILENT` once when the last frame is older than 35 min and `BACK` once at the next frame. Without any frame since the service start it reports nothing. `BleScanService` posts one notification `Panel silent since <HH:mm>` for `SILENT` and removes it for `BACK`. Do not vibrate for this notification. Do not raise the scan rate.
-  - Acceptance test: In `SilenceWatchTest`, assert `SILENT` once at 35 min plus 1 s, no second `SILENT` at 60 min, `BACK` once at the next frame and no report without a first frame. Assert that a clock that runs back gives no `SILENT`. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.
