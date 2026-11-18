@@ -1764,3 +1764,11 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - The console command `REJECTS` shows `WEAK` in the reason column.
 - `docs/config.example.ini` lists `auto_assign_min_rssi=0`. The macOS `ConfigSchema.entries` holds the key (range -100 to -40, 0 is off). `RejectReason.weak` in `RejectsReply.swift` gives the hint `Move the sensor nearer or lower auto_assign_min_rssi`.
 - Tests: `testAutoAssignMinRssi` in `tests/test_firmware_logic.cpp` (limit -70: RSSI -80 gives no slot and one `WEAK` row, -60 gives a slot, a held slot updates at -90, a fixed MAC slot takes -95, -101, -39 and 5 are rejected lines, trailer round trip, bad trailer byte). `testConfigExampleTemplateInSync` passes. `ConfigSchemaTests` cover the range.
+
+## Alert acknowledge buttons in the macOS diagnostics view
+
+- `StatusReply.ackedMask` (`Replies.swift`) holds the `acked=<hex>` field of the `POWER` line. A missing field gives 0 (older firmware). A bad hex value throws `ParseError.badLine`.
+- `ConsoleCommand.ack(bit)` sends `ACK <N>` for the bits 0 to 7. Another bit gives no line.
+- `AppModel.acknowledge(bit:)` sends `ACK <N>`, then `STATUS`, only on a user action. `ERR NOT_ACTIVE` shows as `The alert is off`. `ERR READ_ONLY` shows as `Set ble_console=2 to apply`.
+- `DiagnosticsView` shows one row for each active bit of `alertMask` with the alert name of `AlertMask`. A bit outside `ackedMask` has an `Acknowledge` button. A bit inside it shows `Acknowledged`.
+- Tests: `ReplyTests` cover the shared status fixture, `acked=02`, a missing field, `acked=zz` and the `ACK` lines.

@@ -96,6 +96,10 @@ struct DiagnosticsView: View {
                             .disabled(!model.canSet || !model.isIdle)
                     }
 
+                    if let s = model.status {
+                        alertRows(s)
+                    }
+
                     if let r = model.lastChimeResult {
                         Text("Chime reply: \(r)").font(.caption.monospaced())
                     }
@@ -134,6 +138,25 @@ struct DiagnosticsView: View {
         VStack(alignment: .leading, spacing: 2) {
             Text(title).font(.subheadline.bold())
             content().font(.system(.caption, design: .monospaced))
+        }
+    }
+
+    /// One row for each active alert bit with `Acknowledge` or `Acknowledged`.
+    @ViewBuilder private func alertRows(_ s: StatusReply) -> some View {
+        ForEach((0..<8).filter { s.alertMask & (1 << $0) != 0 }, id: \.self) { bit in
+            HStack {
+                Text(AlertMask(rawValue: 1 << UInt8(bit)).names.first ?? "Alert \(bit)")
+                Spacer()
+                if s.ackedMask & (1 << UInt8(bit)) != 0 {
+                    Text("Acknowledged").foregroundStyle(.secondary)
+                } else {
+                    Button("Acknowledge") { model.acknowledge(bit: bit) }
+                        .disabled(!model.canSet || !model.isIdle)
+                }
+            }
+        }
+        if let m = model.message, m == ConsoleCommand.ackMessage("ERR NOT_ACTIVE") || m == ConsoleCommand.ackMessage("ERR READ_ONLY") {
+            Text(m).font(.caption).foregroundStyle(.red)
         }
     }
 
