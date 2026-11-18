@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Event code for a change of the power source
-  - Rank: [Total: 30, Use: 6, Setup: 7, Harmony: 8, Safety: 9, Effort: S]
-  - Location: rlcd_panel/sd_logger.h, rlcd_panel/power_manager.h, rlcd_panel/rlcd_panel.ino, macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/EventTextTests.swift, tests/test_firmware_logic.cpp, AGENTS.md
-  - Goal: The event ring does not record when the user connects or disconnects the USB power. The user cannot relate a charge, a console session or a temperature step to the power source. Add `EventCode::POWER_SOURCE` 15 with detail 1 for USB power and 0 for battery power. Set `EventRing::MAX_CODE` to 15. Add `PersistentState::recordPowerChange(previous, current, now)`. Compare the `usb_powered` flag of the RTC copy of the previous wake cycle with the new reading before the overwrite. Record an event only when both readings are valid and the flag changed. A power-on records nothing. Do not change the RTC layout or `STATE_VERSION`. Show the event as `USB power connected` and `Battery power` in the macOS `EventText`.
-  - Acceptance test: In `tests/test_firmware_logic.cpp`, assert one event for battery to USB and one for USB to battery. Assert no event for an equal flag, an invalid previous reading and a power-on. Assert that the RTC ring check accepts code 15 and rejects code 16. In `EventTextTests`, assert both texts and the raw text for detail 2. Run the host unit tests and `swift test` in `macos/RlcdCompanion`.
-
 - [ ] Memory line in STATUS
   - Rank: [Total: 29, Use: 3, Setup: 8, Harmony: 8, Safety: 10, Effort: S]
   - Location: rlcd_panel/serial_console.h, rlcd_panel/rlcd_panel.ino, macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsTests.swift, tests/fixtures/status_reply_sample.txt, tests/test_firmware_logic.cpp, AGENTS.md

@@ -893,6 +893,7 @@ void refreshSensors() {
   // After a reset of the RTC state the latch starts off: a cell at 16..19 % raises no alert until
   // it reaches the set threshold.
   const bool was_low = g_state.battery.low_battery;
+  const BatteryReading previous_battery = g_state.battery;
   g_state.battery = BatteryMonitor::read(config().battery_offset_mv);
   g_state.battery.low_battery = BatteryMonitor::updateLowBattery(g_state.battery, was_low);
   g_state.battery_history.record(nowMs(), g_state.battery);
@@ -900,6 +901,7 @@ void refreshSensors() {
   readOnboardShtc3(g_onboard_reading, g_state.battery.valid && g_state.battery.usb_powered, g_state.shtc3);
   updateCycles();
   updateRtc();
+  g_state.recordPowerChange(previous_battery, g_state.battery, g_rtc_time);
   if (g_reset_event_pending) {
     g_state.events.record(g_rtc_time, EventCode::RESET, g_reset_event_detail);
     g_reset_event_pending = false;

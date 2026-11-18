@@ -58,6 +58,9 @@ public enum EventText {
             let slot = d & 0xFF, back = d >> 8
             guard (0...0xFFFF).contains(d), (1...10).contains(slot), back <= 1 else { return raw }
             return back == 1 ? "Slot \(slot) back" : "Slot \(slot) lost"
+        case "POWER_SOURCE":
+            guard d == 0 || d == 1 else { return raw }
+            return d == 1 ? "USB power connected" : "Battery power"
         case "CONFIG_SET":
             let index = d & 0xFF, transport = d >> 8
             guard (0...0xFFFF).contains(d), transport <= 1 else { return raw }

@@ -98,6 +98,12 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("SLOT_RELEASE", 0x0202)) == "SLOT_RELEASE,514")
     }
 
+    @Test func powerSourceGivesUsbAndBattery() {
+        #expect(EventText.describe(row("POWER_SOURCE", 1)) == "USB power connected")
+        #expect(EventText.describe(row("POWER_SOURCE", 0)) == "Battery power")
+        #expect(EventText.describe(row("POWER_SOURCE", 2)) == "POWER_SOURCE,2")
+    }
+
     @Test func slotStaleGivesLostAndBack() {
         #expect(EventText.describe(row("SLOT_STALE", 0x0002)) == "Slot 2 lost")
         #expect(EventText.describe(row("SLOT_STALE", 0x0102)) == "Slot 2 back")
