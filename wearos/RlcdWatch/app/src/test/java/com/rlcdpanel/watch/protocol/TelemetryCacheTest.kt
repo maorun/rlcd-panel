@@ -133,4 +133,48 @@ class TelemetryCacheTest {
         cache.saveFocusedRoom(99)
         assertEquals(TelemetryFrame.TOTAL_TILES - 1, cache.focusedRoom())
     }
+
+    @Test
+    fun outdoorDefaultsToOpenMeteoWithoutReading() {
+        val outdoor = TelemetryCache(MemoryStore()).readOutdoor()
+        assertNull(outdoor.slotIndex)
+        assertNull(outdoor.meteo)
+    }
+
+    @Test
+    fun outdoorSlotAndOpenMeteoRoundTrip() {
+        val cache = TelemetryCache(MemoryStore())
+        cache.saveOpenMeteoReading(8.5, 71.0, 1_234L)
+        cache.saveOutdoorSlot(3)
+        assertEquals(3, cache.readOutdoor().slotIndex)
+
+        cache.saveOutdoorOpenMeteo()
+        val outdoor = cache.readOutdoor()
+        assertNull(outdoor.slotIndex)
+        assertEquals(CachedMeteo(8.5, 71.0, 1_234L), outdoor.meteo)
+    }
+
+    @Test
+    fun outdoorSlotOutOfRangeGivesOpenMeteo() {
+        val store = MemoryStore()
+        store.ints["outdoor_slot"] = TelemetryFrame.TOTAL_TILES
+        assertNull(TelemetryCache(store).readOutdoor().slotIndex)
+    }
+
+    @Test
+    fun brokenMeteoTextGivesNoReading() {
+        val store = MemoryStore()
+        store.strings["outdoor_meteo_temp"] = "abc"
+        store.strings["outdoor_meteo_rh"] = "50.0"
+        store.longs["outdoor_meteo_at"] = 1L
+        assertNull(TelemetryCache(store).readOutdoor().meteo)
+    }
+
+    @Test
+    fun meteoReadingIsStaleAfterOneHour() {
+        val meteo = CachedMeteo(8.5, 71.0, 0L)
+        assertFalse(meteo.isStale(60L * 60_000L))
+        assertTrue(meteo.isStale(60L * 60_000L + 1L))
+        assertTrue(CachedMeteo(8.5, 71.0, 10L).isStale(5L))
+    }
 }
