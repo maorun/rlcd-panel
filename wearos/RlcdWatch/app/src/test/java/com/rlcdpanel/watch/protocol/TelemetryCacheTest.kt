@@ -116,7 +116,7 @@ class TelemetryCacheTest {
     @Test
     fun alertNamesOfTwoAlertBits() {
         val cache = TelemetryCache(MemoryStore())
-        // 255 alert mask of extremes_hot_wet has all bits; build a frame with FREEZER + HEAT instead.
+        // Override the alert mask of the two_tiles vector with FREEZER (1) and HEAT (128), then fix the CRC-8.
         val bytes = payload("two_tiles")
         bytes[3] = (1 or 128).toByte()
         bytes[bytes.size - 1] = Checksums.crc8(bytes, 0, bytes.size - 1).toByte()

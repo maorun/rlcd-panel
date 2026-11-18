@@ -18,6 +18,8 @@ import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.rlcdpanel.watch.protocol.AlertMask
+import com.rlcdpanel.watch.protocol.TelemetryCache
+import com.rlcdpanel.watch.tile.ClimateTileService
 import com.rlcdpanel.watch.protocol.AlertTransitions
 import com.rlcdpanel.watch.protocol.TelemetryFrame
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -152,6 +154,9 @@ class BleScanService : Service() {
         stopSelf()
     }
 
+    private var lastCachedSequence = -1
+    private var lastCachedPage = -1
+
     private fun handleIncomingSnapshot(incoming: TelemetrySnapshot) {
         if (!_isScanning.value || bleScanner == null) {
             return
@@ -159,6 +164,7 @@ class BleScanService : Service() {
         val transition = computeTransition(_snapshot.value, incoming)
         _snapshot.value = transition.snapshot
         _statusMessage.value = transition.statusMessage
+        cacheForTile(incoming)
 
         if (!transition.risingAlerts.isEmpty) {
             vibrateAlert()
@@ -166,6 +172,20 @@ class BleScanService : Service() {
         }
 
         updateForegroundNotification(transition.statusMessage)
+    }
+
+    /** Writes the payload of a frame with a new sequence number for the Wear OS tile. */
+    private fun cacheForTile(snapshot: TelemetrySnapshot) {
+        val payload = snapshot.payload ?: return
+        val frame = snapshot.frame
+        if (frame.sequence == lastCachedSequence && frame.page == lastCachedPage) {
+            return
+        }
+        if (TelemetryCache(this).save(payload, snapshot.receivedAtMillis)) {
+            lastCachedSequence = frame.sequence
+            lastCachedPage = frame.page
+            ClimateTileService.requestUpdate(this)
+        }
     }
 
     private fun createNotificationChannels() {

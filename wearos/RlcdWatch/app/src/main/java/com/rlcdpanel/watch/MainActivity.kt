@@ -58,8 +58,6 @@ class MainActivity : ComponentActivity() {
     private var notificationPermissionAsked = false
     private lateinit var prefs: SharedPreferences
     private lateinit var telemetryCache: TelemetryCache
-    private var lastCachedSequence = -1
-    private var lastCachedPage = -1
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -97,10 +95,6 @@ class MainActivity : ComponentActivity() {
             val snapshot by BleScanService.snapshot.collectAsState()
             val isScanning by BleScanService.isScanning.collectAsState()
             val statusMessage by BleScanService.statusMessage.collectAsState()
-
-            LaunchedEffect(snapshot) {
-                cacheSnapshot(snapshot)
-            }
 
             LaunchedEffect(Unit) {
                 while (true) {
@@ -207,6 +201,7 @@ class MainActivity : ComponentActivity() {
                 onSelectRoomIndex = { index ->
                     focusedRoomIndex = index
                     telemetryCache.saveFocusedRoom(index)
+                    ClimateTileService.requestUpdate(this@MainActivity)
                 },
                 onToggleVentilation = {
                     toggleVentilationForFocusedRoom()
@@ -226,20 +221,6 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         // Background scanning continues in BleScanService.
         super.onStop()
-    }
-
-    /** Writes the payload of a snapshot with a new sequence number for the Wear OS tile. */
-    private fun cacheSnapshot(snapshot: TelemetrySnapshot?) {
-        val payload = snapshot?.payload ?: return
-        val frame = snapshot.frame
-        if (frame.sequence == lastCachedSequence && frame.page == lastCachedPage) {
-            return
-        }
-        if (telemetryCache.save(payload, snapshot.receivedAtMillis)) {
-            lastCachedSequence = frame.sequence
-            lastCachedPage = frame.page
-            ClimateTileService.requestUpdate(this)
-        }
     }
 
     private fun fetchWeatherIfNeeded() {

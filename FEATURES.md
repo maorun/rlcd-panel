@@ -1534,5 +1534,6 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The watch app has a tile `ClimateTileService` (`androidx.wear.tiles`, `androidx.wear.protolayout`) with the name, temperature and humidity of the focused room, the panel cell percentage, the active alert names and the age of the data.
 - The tile does not scan BLE. `TelemetryCache` stores the 24-byte payload of the last valid frame of each page (hex text) and its receive time in `SharedPreferences`. `MainActivity` writes it for each new sequence number and stores the focused room.
 - The tile shows `--` and `Open the app` for an empty cache, a failed decode (length, version, CRC-8), a frame older than 35 minutes or a focused room without a reading.
+- `BleScanService` writes the cache, so the tile stays current while the app is closed. A stale frame shows `--` at the next refresh, up to 15 minutes after the 35 minute limit.
 - A tap opens `MainActivity`. The tile asks for a refresh every 15 minutes; a new cache entry requests an update at once.
 - `TelemetryCacheTest` covers the round trip of a fixture vector, an empty cache, bad hex, bad CRC-8, the 35 minute limit and the alert names. No firmware change.

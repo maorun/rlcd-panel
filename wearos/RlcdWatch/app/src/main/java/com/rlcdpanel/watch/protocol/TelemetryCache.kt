@@ -35,7 +35,8 @@ data class CachedTelemetry(
     val receivedAtMillis: Long
 ) {
     /** True when the frame is older than [TelemetryCache.MAX_AGE_MILLIS] (35 minutes). */
-    fun isStale(nowMillis: Long): Boolean = ageMillis(nowMillis) > TelemetryCache.MAX_AGE_MILLIS
+    fun isStale(nowMillis: Long): Boolean =
+        nowMillis < receivedAtMillis || ageMillis(nowMillis) > TelemetryCache.MAX_AGE_MILLIS
 
     fun ageMillis(nowMillis: Long): Long = (nowMillis - receivedAtMillis).coerceAtLeast(0L)
 }

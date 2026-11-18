@@ -18,6 +18,7 @@ import com.rlcdpanel.watch.protocol.CachedTelemetry
 import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.protocol.TelemetryFrame
+import java.util.Locale
 
 /**
  * Text of the tile for one moment. [isEmpty] is true for an empty cache, a failed decode, a stale
@@ -66,8 +67,8 @@ data class ClimateTileModel(
             val alertNames = cached.frame.alerts.names
             return ClimateTileModel(
                 roomName = name,
-                temperature = String.format("%.1f °C", tile.temperatureC),
-                humidity = String.format("%.0f %%", tile.humidityPct),
+                temperature = String.format(Locale.US, "%.1f °C", tile.temperatureC),
+                humidity = String.format(Locale.US, "%.0f %%", tile.humidityPct),
                 cell = cached.frame.cellPercent?.let { "Panel $it %" } ?: "Panel --",
                 alerts = if (alertNames.isEmpty()) "No alerts" else alertNames.joinToString(", "),
                 age = formatAge(cached.ageMillis(nowMillis)),
@@ -170,7 +171,7 @@ class ClimateTileService : TileService() {
 
         /** Asks the system to redraw the tile after the cache changed. */
         fun requestUpdate(context: Context) {
-            getUpdater(context).requestUpdate(ClimateTileService::class.java)
+            TileService.getUpdater(context).requestUpdate(ClimateTileService::class.java)
         }
     }
 }
