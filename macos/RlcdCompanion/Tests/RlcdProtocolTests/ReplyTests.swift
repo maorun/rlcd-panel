@@ -226,6 +226,26 @@ struct ReplyParserTests {
         #expect(ConsoleCommand.week.line == "WEEK")
     }
 
+    /// Reads tests/fixtures/week_reply_sample.txt, the file of the Android phone tests.
+    @Test func weekSharedFixture() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let data = try Data(contentsOf: url.appendingPathComponent("tests/fixtures/week_reply_sample.txt"))
+        var assembler = ReplyAssembler()
+        guard case .frame(let fixtureLines)? = assembler.append(data).first else { Issue.record("fixture is not a valid frame"); return }
+        let rows = try WeekReply.parse(lines: fixtureLines)
+        #expect(rows.count == 42)
+        #expect(rows[0] == WeekRow(sensor: 0, day: 0, date: "2026-11-17", temperatureMinC: 15.0, temperatureMaxC: 19.5,
+                                   humidityMinPct: 40.0, humidityMaxPct: 55.0))
+        #expect(rows[41] == WeekRow(sensor: 5, day: 6, date: "2026-11-11", temperatureMinC: 23.0, temperatureMaxC: 27.5,
+                                    humidityMinPct: 56.0, humidityMaxPct: 71.0))
+        let gaps = rows.filter { $0.temperatureMinC == nil }
+        #expect(gaps.count == 1)
+        #expect(gaps[0].sensor == 2 && gaps[0].day == 3 && gaps[0].date == "2026-11-14")
+        #expect(gaps[0].temperatureMaxC == nil && gaps[0].humidityMinPct == nil && gaps[0].humidityMaxPct == nil)
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,2026-11-14,1,2,3,4,5"]) }
+    }
+
     @Test func events() throws {
         let rows = try EventsReply.parse(lines: lines(eventsText))
         #expect(rows.count == 3)

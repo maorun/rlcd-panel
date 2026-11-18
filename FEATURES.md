@@ -1601,3 +1601,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The Android `StatusReply.ntp` returns `null` for `ok=--` and a missing line. A bad field throws `ParseException`. `SensorHealthScreen` shows a warning from 3 failures.
 - The new line shifts each following `STATUS` line index by one. `tests/fixtures/status_reply_sample.txt` holds the line and the new CRC-32.
 - The local machine has no Android SDK and no Xcode, so CI runs `swift test` and `gradle testDebugUnitTest assembleDebug`.
+
+## Seven-day chart over the BLE console in the Android app
+
+- **Code:** `android/RlcdPhone/.../protocol/WeekReply.kt`, `WeekScreen.kt`, `MainActivity.kt`, `PhoneDashboardScreen.kt`, `tests/fixtures/week_reply_sample.txt`.
+- The phone kept only the data from its own scan. The `Wochenverlauf 7 Tage` button now reads `WEEK` over the BLE console and shows the 7 days of `WeekHistory` from the panel.
+- `WeekReply.parse` follows `WeekReply.parse` of `Replies.swift`: header, 7 columns, sensor 0 to 10, day 0 to 6, date `YYYY-MM-DD` or empty, no duplicate sensor and day, minimum not above maximum. A bad line throws `ParseException`.
+- The Kotlin parser is stricter for a number. It accepts only a plain decimal, `--` or an empty field. Padding, `NaN` and `Infinity` throw `ParseException`.
+- `WeekScreen` draws 7 bars from the daily minimum to the daily maximum for temperature and humidity of each sensor, oldest day left. The scale is shared by the 7 bars. The minimum span is 2.0 C and 5.0 %RH. The humidity scale stays inside 0 to 100 %RH. A gap day is an empty bar outline. The titles come from `PanelConfig.tileName`.
+- A read that `onStop` aborts shows `Abgebrochen. Erneut lesen.`
+- `tests/fixtures/week_reply_sample.txt` holds 42 rows, one gap day (sensor 2, day 3) and the `CRC32` line. `WeekReplyTest` and `ReplyTests.weekSharedFixture` assert the same values.
+- The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`. The Swift parser rules were compiled and checked against the fixture with `swiftc`, because `swift test` fails on this machine (`TestingMacros` plugin not found).

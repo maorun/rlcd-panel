@@ -21,11 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Seven-day chart over the BLE console in the Android app
-  - Rank: [Total: 28, Use: 7, Setup: 2, Harmony: 9, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/WeekReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/WeekScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/WeekReplyTest.kt, tests/fixtures/week_reply_sample.txt, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift
-  - Goal: `TelemetryHistory` holds only the data that the phone received while it scanned. The panel keeps 7 days of minimum and maximum values in `WeekHistory`, and the `WEEK` command runs on BLE. Depend on the generic `BleConsoleClient.send`. Port `WeekReply.parse` from `Replies.swift` to Kotlin. Add a `WeekScreen` with 7 bars from minimum to maximum for temperature and humidity of each sensor. Show a gap day as an empty bar. Use the `PanelConfig` names for the sensor titles.
-  - Acceptance test: Add `tests/fixtures/week_reply_sample.txt` with 42 rows and one gap day. Parse it in `WeekReplyTest` and in the Swift `ReplyTests.weekSharedFixture`, and assert equal values. Assert `null` for an empty field and an error for a wrong column count. Run `gradle testDebugUnitTest` in `android/RlcdPhone` and `swift test` in `macos/RlcdCompanion`.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
