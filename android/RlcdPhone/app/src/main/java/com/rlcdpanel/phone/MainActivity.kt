@@ -40,6 +40,7 @@ import com.rlcdpanel.phone.protocol.ConfigCache
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryHistory
+import com.rlcdpanel.phone.protocol.WeekReply
 import com.rlcdpanel.phone.ventilation.OutdoorClimate
 import com.rlcdpanel.phone.ventilation.LocationInput
 import com.rlcdpanel.phone.ventilation.OutdoorLocation
@@ -88,6 +89,8 @@ class MainActivity : ComponentActivity() {
     private var showHealth by mutableStateOf(false)
     private var showHistory by mutableStateOf(false)
     private var showCalib by mutableStateOf(false)
+    private var showWeek by mutableStateOf(false)
+    private var weekState by mutableStateOf(WeekState())
     private var calibState by mutableStateOf(CalibrationState())
     private var pendingConsoleAction: (() -> Unit)? = null
     private var healthState by mutableStateOf(SensorHealthState())
@@ -162,6 +165,16 @@ class MainActivity : ComponentActivity() {
                     onBack = { showHistory = false }
                 )
                 BackHandler { showHistory = false }
+                return@setContent
+            }
+            if (showWeek) {
+                WeekScreen(
+                    state = weekState,
+                    panelConfig = panelConfig,
+                    onRead = { withConsolePermission { readWeek() } },
+                    onBack = { closeWeek() }
+                )
+                BackHandler { closeWeek() }
                 return@setContent
             }
             if (showCalib) {
@@ -295,6 +308,7 @@ class MainActivity : ComponentActivity() {
                 },
                 onOpenSensorHealth = { showHealth = true },
                 onOpenHistory = { showHistory = true },
+                onOpenWeek = { showWeek = true },
                 sourceBadges = sourceBadges,
                 outdoorLocation = outdoorLocation,
                 showLocationDialog = showLocationDialog,
@@ -318,6 +332,7 @@ class MainActivity : ComponentActivity() {
         consoleClient.cancel()
         healthState = healthState.copy(isReading = false)
         configState = configState.copy(isReading = false)
+        if (weekState.isReading) weekState = WeekState(message = "Abgebrochen. Erneut lesen.")
         if (calibState.isBusy) {
             calibState = calibState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, CONFIG lesen")
         }
@@ -333,6 +348,7 @@ class MainActivity : ComponentActivity() {
         if (action != null) {
             pendingConsoleAction = null
             if (grants.isNotEmpty() && grants.values.all { it }) action()
+            else if (showWeek) weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
             else calibState = calibState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             return@registerForActivityResult
         }
@@ -356,6 +372,30 @@ class MainActivity : ComponentActivity() {
         startActivity(Intent.createChooser(send, "Share CSV"))
     }
 
+    private fun closeWeek() {
+        consoleClient.cancel()
+        pendingConsoleAction = null
+        weekState = WeekState()
+        showWeek = false
+        if (!scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
+    }
+
+    /** Sends `WEEK` after a tap. */
+    private fun readWeek() {
+        stopBleScan()
+        weekState = WeekState(isReading = true)
+        consoleClient.send("WEEK") { reply ->
+            weekState = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    WeekState(rows = WeekReply.parse(reply.lines))
+                } catch (e: ParseException) {
+                    WeekState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
+                }
+                else -> WeekState(message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
     private fun closeCalibration() {
         consoleClient.cancel()
         pendingConsoleAction = null
@@ -366,7 +406,7 @@ class MainActivity : ComponentActivity() {
 
     /** Runs [action] after the Bluetooth permissions; the action sends console commands. */
     private fun withConsolePermission(action: () -> Unit) {
-        if (calibState.isBusy || consoleClient.isRunning) return
+        if (calibState.isBusy || weekState.isReading || consoleClient.isRunning) return
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
@@ -374,7 +414,7 @@ class MainActivity : ComponentActivity() {
         }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
         if (needed.isNotEmpty()) {
             pendingConsoleAction = action
-            calibState = calibState.copy(isBusy = true, message = null)
+            if (showWeek) weekState = WeekState(isReading = true) else calibState = calibState.copy(isBusy = true, message = null)
             consolePermissionLauncher.launch(needed.toTypedArray())
             return
         }
