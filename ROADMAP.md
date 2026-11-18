@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Memory line in STATUS
-  - Rank: [Total: 29, Use: 3, Setup: 8, Harmony: 8, Safety: 10, Effort: S]
-  - Location: rlcd_panel/serial_console.h, rlcd_panel/rlcd_panel.ino, macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsTests.swift, tests/fixtures/status_reply_sample.txt, tests/test_firmware_logic.cpp, AGENTS.md
-  - Goal: The diagnostics view of the panel shows only the free heap of the current wake cycle. The console and the companion apps cannot see a memory shortage, for example after a long USB console session. Add the `STATUS` line `MEMORY free=<N> min=<N> largest=<N> psram=<N>` after the `AWAKE` line. Fill `SerialStatusSnapshot` with `ESP.getFreeHeap()`, `ESP.getMinFreeHeap()`, `ESP.getMaxAllocHeap()` and `ESP.getFreePsram()` in bytes. Do not store the values in RTC memory. Add `MemoryMetrics` in `Diagnostics.swift`. A missing line gives `nil`, a non-numeric field throws `ParseError.badLine`. Show the four values in `DiagnosticsView` and a warning symbol when `largest` is below 16384 bytes.
-  - Acceptance test: In `tests/test_firmware_logic.cpp`, assert the line text, its position after `AWAKE` and the new CRC-32 in `testStatusRuntimeLinePositionCrcAndNoSideEffect`. Add the line to `tests/fixtures/status_reply_sample.txt`. In `DiagnosticsTests`, assert the four values, `nil` for a missing line and `ParseError.badLine` for `free=x`. Assert that the Android and Wear OS `StatusReplyTest` classes still pass with the new fixture line. Run the host unit tests, `swift test` in `macos/RlcdCompanion` and `gradle testDebugUnitTest` in `android/RlcdPhone` and `wearos/RlcdWatch`.
-
 - [ ] Mute toggle in the Wear OS app
   - Rank: [Total: 29, Use: 7, Setup: 4, Harmony: 9, Safety: 9, Effort: M]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ChimeCommand.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ChimeCommandTest.kt, scripts/check-protocol-sync.sh

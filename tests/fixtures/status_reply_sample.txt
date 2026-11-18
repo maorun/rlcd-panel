@@ -11,4 +11,5 @@ SHTC3 nack=0 short=0 crc=0 run=0 retried=0
 BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0 thermopro=0
 RECEPTION s1=24/24 s2=-- s3=0/12 s4=10/24 s5=11/24
 POWER src=USB v=4.05 pct=88 alerts=00 muted=0 acked=00
-CRC32 37ee7bc3
+MEMORY free=212345 min=150000 largest=110592 psram=8300000
+CRC32 95359eed

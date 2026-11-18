@@ -131,7 +131,7 @@ class StatusReplyTest {
 
     @Test
     fun badCrcThrowsParseException() {
-        val text = Fixtures.file("status_reply_sample.txt").readText().replace("CRC32 37ee7bc3", "CRC32 00000000")
+        val text = Fixtures.file("status_reply_sample.txt").readText().replace("CRC32 95359eed", "CRC32 00000000")
         val reply = ReplyAssembler().append(text.toByteArray())!!
         assertTrue(reply is ConsoleReply.Corrupt)
         try {
