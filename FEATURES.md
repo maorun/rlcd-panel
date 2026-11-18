@@ -1706,3 +1706,11 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - No advice for a stale or empty frame, a stale outdoor frame, an outdoor slot on another page than its frame, an outdoor tile without a reading, the outdoor tile as focused room, and an Open-Meteo reading older than 1 hour (`CachedMeteo.isStale`).
 - The tile starts no BLE scan and no network request. It shows advice only after the user opened the app and chose an outdoor source. The messages for an open window stay in `MainActivity`.
 - Validation: `./scripts/check-protocol-sync.sh` passes. The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.
+
+### Android slot name without a fixed MAC and write lock
+
+- `SlotConfig.define` accepts an empty MAC. A valid name with an empty MAC gives `SET slotN_name=<NAME>` (upper-cased), preceded by `SET slotN_mac=` when the slot holds a fixed MAC. A name and a MAC give `SET slotN_mac=<MAC>` first, then the name command. An empty name and an empty MAC give `SET slotN_mac=`. `nameError` rejects an invalid name in each case.
+- `PanelConfig` of the phone app and the Wear OS app has `bleConsole` (`ble_console`, default 0) and `canWrite` (true only for `ble_console=2`). Both files stay equal except the `package` line.
+- `SlotConfigScreen` disables the auto-assign switch, the `Bearbeiten` button, the `Leeren` button and the dialog confirm button while `canWrite` is false. It shows `Set ble_console=2 to apply` in that state.
+- `SlotConfigTest` covers the name-only command, the name and MAC commands, a rejected name without MAC, the clear command and `canWrite`.
+- Validation: `./scripts/check-protocol-sync.sh` passes. The local machine has no Android SDK, so `gradle testDebugUnitTest assembleDebug` did not run locally. CI runs it.

@@ -36,6 +36,12 @@ data class PanelConfig(
     /** `slot_auto_assign`: a new MAC takes a free slot (default on). */
     val slotAutoAssign: Boolean get() = values["slot_auto_assign"]?.trim() != "0"
 
+    /** `ble_console` level (0 off, 1 read only, 2 read and write; default 0). */
+    val bleConsole: Int get() = values["ble_console"]?.trim()?.toIntOrNull() ?: 0
+
+    /** True only when `ble_console` is 2: the panel accepts `SET` over BLE. */
+    val canWrite: Boolean get() = bleConsole == 2
+
     /**
      * Display name that is bound to the sensor [mac]: the slotN_name of the slot whose fixed MAC (slotN_mac)
      * equals [mac], whatever slot the sensor sits in. Null for an unknown MAC or a fixed MAC without a name.

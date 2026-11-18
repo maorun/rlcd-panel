@@ -66,11 +66,11 @@ fun SlotConfigScreen(
                     Switch(
                         checked = panelConfig.slotAutoAssign,
                         onCheckedChange = { onApply(SlotConfig.autoAssign(it)) },
-                        enabled = !state.isBusy
+                        enabled = !state.isBusy && panelConfig.canWrite
                     )
                 }
             }
-            if (state.readOnly) {
+            if (state.readOnly || !panelConfig.canWrite) {
                 item { Text(SlotAssignment.READ_ONLY_TEXT, color = MaterialTheme.colorScheme.error) }
             }
             state.message?.takeIf { !state.readOnly }?.let {
@@ -91,10 +91,10 @@ fun SlotConfigScreen(
                         Text("MAC: ${panelConfig.slotMac(slot) ?: "nicht fest"}")
                         Text("Format: ${formats[slot] ?: "-"}")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { editing = slot }, enabled = !state.isBusy) { Text("Bearbeiten") }
+                            OutlinedButton(onClick = { editing = slot }, enabled = !state.isBusy && panelConfig.canWrite) { Text("Bearbeiten") }
                             OutlinedButton(
                                 onClick = { (SlotConfig.clear(slot) as? SlotConfig.Plan.Commands)?.let { onApply(it.commands) } },
-                                enabled = !state.isBusy
+                                enabled = !state.isBusy && panelConfig.canWrite
                             ) { Text("Leeren") }
                         }
                     }
@@ -147,7 +147,7 @@ private fun SlotEditorDialog(
         confirmButton = {
             Button(
                 onClick = { (plan as? SlotConfig.Plan.Commands)?.let { onApply(it.commands) } },
-                enabled = plan is SlotConfig.Plan.Commands
+                enabled = plan is SlotConfig.Plan.Commands && panelConfig.canWrite
             ) { Text("Anwenden") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } }
