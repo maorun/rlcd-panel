@@ -35,7 +35,12 @@ import com.rlcdpanel.phone.finder.SensorFinderScanner
 import com.rlcdpanel.phone.finder.SlotAssignment
 import com.rlcdpanel.phone.protocol.CalibrationBatch
 import com.rlcdpanel.phone.protocol.ChimeCommand
+import com.rlcdpanel.phone.protocol.CalibrationProposal
 import com.rlcdpanel.phone.protocol.CalibrationReply
+import com.rlcdpanel.phone.protocol.SaltCommand
+import com.rlcdpanel.phone.protocol.SaltReply
+import com.rlcdpanel.phone.protocol.SaltText
+import com.rlcdpanel.phone.protocol.TwoPointCalibration
 import com.rlcdpanel.phone.protocol.ConsoleReply
 import com.rlcdpanel.phone.protocol.ParseException
 import com.rlcdpanel.phone.protocol.SensorHealth
@@ -192,7 +197,8 @@ class MainActivity : ComponentActivity() {
             if (showCalib) {
                 CalibrationScreen(
                     state = calibState,
-                    onPickReference = { calibState = calibState.copy(reference = it, reply = null, selected = emptySet(), message = null, isError = false) },
+                    currentConfig = panelConfig.values,
+                    onPickReference = { calibState = calibState.copy(reference = it, reply = null, selected = emptySet(), message = null, isError = false, naCl = null, mgCl2 = null) },
                     onRead = { withConsolePermission { readCalibration() } },
                     onToggle = { key ->
                         calibState = calibState.copy(
@@ -200,6 +206,8 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     onApply = { withConsolePermission { applyCalibration() } },
+                    onSalt = { magnesium -> withConsolePermission { readSalt(magnesium) } },
+                    onApplyTwoPoint = { withConsolePermission { applyTwoPoint() } },
                     onBack = { closeCalibration() }
                 )
                 BackHandler { closeCalibration() }
@@ -660,9 +668,51 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Sends `SALT N` or `SALT N MGCL2` after a tap. With both checks of one sensor, the two-point result follows. */
+    private fun readSalt(magnesium: Boolean) {
+        stopBleScan()
+        val n = calibState.reference
+        val line = SaltCommand.line(n, magnesium) ?: return
+        calibState = calibState.copy(isBusy = true, isError = false, message = null)
+        consoleClient.send(line) { reply ->
+            calibState = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    val salt = SaltReply.parse(reply.lines)
+                    val expected = if (n == 0) "onboard" else "slot$n"
+                    val name = when (val o = salt.outcome) {
+                        is SaltReply.Outcome.Measured -> o.measurement.name
+                        is SaltReply.Outcome.Skipped -> o.name
+                        is SaltReply.Outcome.Unstable -> o.name
+                    }
+                    if (name != expected) {
+                        calibState.copy(isBusy = false, isError = true, message = "Antwort gehört zu $name, nicht zu $expected")
+                    } else if (magnesium) {
+                        calibState.copy(isBusy = false, mgCl2 = salt)
+                    } else {
+                        calibState.copy(isBusy = false, naCl = salt)
+                    }
+                } catch (e: ParseException) {
+                    calibState.copy(isBusy = false, isError = true, message = "Antwort nicht lesbar: ${e.line.take(80)}")
+                }
+                is ConsoleReply.Status -> calibState.copy(isBusy = false, isError = true, message = SaltText.status(reply.line))
+                else -> calibState.copy(isBusy = false, isError = true, message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
     /** Sends the selected proposals as `SET`, then `CONFIG`. The first `ERR` stops the batch and skips `CONFIG`. */
     private fun applyCalibration() {
-        val chosen = calibState.chosen
+        runBatch(calibState.chosen, clearReply = true)
+    }
+
+    /** Sends `SET` for the gain, `SET` for the offset, then `CONFIG`. */
+    private fun applyTwoPoint() {
+        val current = panelConfig.values.takeIf { it.isNotEmpty() }
+        val result = TwoPointCalibration.evaluate(calibState.naCl, calibState.mgCl2, current).result ?: return
+        runBatch(result.proposals, clearReply = false)
+    }
+
+    private fun runBatch(chosen: List<CalibrationProposal>, clearReply: Boolean) {
         if (chosen.isEmpty()) return
         stopBleScan()
         calibState = calibState.copy(isBusy = true, message = null)
@@ -676,12 +726,15 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
-            // The offsets changed on the panel, so the old proposals are stale. A new read gives fresh ones.
+            // The values changed on the panel, so the old proposals and salt checks are stale. A new read gives fresh ones.
             val ok = result.failure == null && !result.configFailed
+            val changed = result.applied.isNotEmpty()
             calibState = calibState.copy(
                 isBusy = false, message = result.summary, isError = !ok,
-                reply = if (result.failure == null) null else calibState.reply,
-                selected = if (result.failure == null) emptySet() else calibState.selected
+                reply = if (changed || (clearReply && result.failure == null)) null else calibState.reply,
+                selected = if (changed || (clearReply && result.failure == null)) emptySet() else calibState.selected,
+                naCl = if (changed) null else calibState.naCl,
+                mgCl2 = if (changed) null else calibState.mgCl2
             )
         }
     }
