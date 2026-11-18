@@ -142,15 +142,40 @@ private func loadStatusFixture() throws -> Data {
         #expect(rows[1].badge == nil)
     }
 
-    @Test func statusSensorCarriesFormat() throws {
+    @Test func statusSensorCarriesFormatAndMac() throws {
         let s = try StatusReply.parse(lines: [
-            "SENSOR 0 Onboard temp=21.4 rh=45.0 bat=-- rssi=-- age=120 state=OK format=SHTC3",
-            "SENSOR 1 A temp=1 rh=1 bat=80 rssi=-60 age=9 state=OK",
+            "SENSOR 0 Onboard temp=21.4 rh=45.0 bat=-- rssi=-- age=120 state=OK format=SHTC3 mac=--",
+            "SENSOR 1 A temp=1 rh=1 bat=80 rssi=-60 age=9 state=OK format=WOIO mac=AA:BB:CC:DD:EE:01",
+            "SENSOR 2 B temp=1 rh=1 bat=80 rssi=-60 age=9 state=OK",
             "POWER src=USB v=4.05 pct=88 alerts=00 muted=0"])
         #expect(s.sensors[0].format == "SHTC3")
         #expect(s.sensors[0].badge == "[I2C]")
-        #expect(s.sensors[1].format == nil)
-        #expect(s.sensors[1].badge == nil)
+        #expect(s.sensors[0].mac == nil)
+        #expect(s.sensors[1].format == "WOIO")
+        #expect(s.sensors[1].badge == "[SB]")
+        #expect(s.sensors[1].mac == "AA:BB:CC:DD:EE:01")
+        #expect(s.sensors[2].mac == nil)
+    }
+
+    @Test func rowsPopulatesLiveMacFromStatusLine() throws {
+        let lines = [
+            "SENSOR 1 A temp=22.1 rh=48.5 bat=87 rssi=-61 age=14 state=OK mac=11:22:33:44:55:66",
+            "SENSOR 2 B temp=20.0 rh=50.0 bat=90 rssi=-50 age=10 state=OK mac=--",
+        ]
+        let s = try status(lines)
+        let rowsWithoutConfig = try SensorHealth.rows(status: s, config: nil)
+        #expect(rowsWithoutConfig[0].mac == "11:22:33:44:55:66")
+        #expect(rowsWithoutConfig[1].mac == nil)
+
+        let c = try ConfigReply.parse(lines: [
+            "slot1_mac=AA:BB:CC:DD:EE:FF",
+            "slot2_mac=99:88:77:66:55:44",
+        ])
+        let rowsWithConfig = try SensorHealth.rows(status: s, config: c)
+        // Live MAC from status line takes priority over config
+        #expect(rowsWithConfig[0].mac == "11:22:33:44:55:66")
+        // Empty live MAC (-- ) falls back to config
+        #expect(rowsWithConfig[1].mac == "99:88:77:66:55:44")
     }
 
     @Test func rowsPopulatesMacFromConfig() throws {

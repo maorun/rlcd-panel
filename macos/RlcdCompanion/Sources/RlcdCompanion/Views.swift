@@ -42,7 +42,7 @@ struct MainView: View {
                                     Text("MOLD \(mold)H").font(.system(size: 9, weight: .bold)).foregroundStyle(.red)
                                 }
                             }
-                            if let mac = model.config?.mac(forSlot: i) {
+                            if let mac = model.status?.sensors.first(where: { $0.index == i })?.mac ?? model.config?.mac(forSlot: i) {
                                 Text(mac)
                                     .font(.system(size: 9, design: .monospaced))
                                     .foregroundStyle(.secondary)
@@ -228,7 +228,8 @@ struct MainView: View {
                 // STATUS temperatures follow temp_unit; the unit comes from CONFIG ("?" until it arrives).
                 let unit = model.config?.temperatureUnit ?? "?"
                 ForEach(s.sensors, id: \.index) { x in
-                    let macText = model.config?.mac(forSlot: x.index).map { " (\($0))" } ?? ""
+                    let mac = x.mac ?? model.config?.mac(forSlot: x.index)
+                    let macText = mac.map { " (\($0))" } ?? ""
                     Text("\(x.name)\(x.badge.map { " \($0)" } ?? "")\(macText): \(x.temperature.map { String(format: "%.1f °\(unit)", $0) } ?? "--") "
                          + "\(x.humidity.map { String(format: "%.1f %%RH", $0) } ?? "--") [\(x.state)]")
                 }

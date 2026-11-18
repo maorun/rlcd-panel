@@ -101,7 +101,7 @@ public struct SensorHealth: Equatable {
             let age = try value(f, "age", line: line)
             guard let state = f["state"], !state.isEmpty else { throw ParseError.badLine(line) }
             let rate = reception.flatMap { $0.slots[slot - 1] }
-            let mac = config?.mac(forSlot: slot)
+            let mac = sourceFormat(f["mac"]) ?? config?.mac(forSlot: slot)
             out.append(SensorHealth(
                 slot: slot, name: String(words[2]), mac: mac, rssi: rssi, battery: battery, ageSeconds: age, state: state,
                 format: sourceFormat(f["format"]), reception: rate,

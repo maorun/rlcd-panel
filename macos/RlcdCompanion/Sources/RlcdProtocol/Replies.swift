@@ -25,7 +25,7 @@ func sourceFormat(_ s: String?) -> String? {
     return s
 }
 
-/// `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...> format=<...>`.
+/// `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...> format=<...> mac=<...>`.
 public struct StatusSensor: Equatable {
     public let index: Int
     public let name: String
@@ -37,6 +37,32 @@ public struct StatusSensor: Equatable {
     public let state: String
     /// `format=` of the `SENSOR` line (`SHTC3`, `WOIO`, ...); `nil` for a missing field, `--` or an empty text.
     public let format: String?
+    /// `mac=` of the `SENSOR` line; `nil` for a missing field, `--` or an empty text.
+    public let mac: String?
+
+    public init(
+        index: Int,
+        name: String,
+        temperature: Double?,
+        humidity: Double?,
+        battery: Double?,
+        rssi: Double?,
+        ageSeconds: Double?,
+        state: String,
+        format: String? = nil,
+        mac: String? = nil
+    ) {
+        self.index = index
+        self.name = name
+        self.temperature = temperature
+        self.humidity = humidity
+        self.battery = battery
+        self.rssi = rssi
+        self.ageSeconds = ageSeconds
+        self.state = state
+        self.format = format
+        self.mac = mac
+    }
 
     /// The protocol source badge of `format`, `nil` without a known format.
     public var badge: String? { SensorHealth.badge(forFormat: format) }
@@ -81,7 +107,8 @@ public struct StatusReply: Equatable {
                 sensors.append(StatusSensor(
                     index: idx, name: String(words[2]), temperature: number(f["temp"]),
                     humidity: number(f["rh"]), battery: number(f["bat"]), rssi: number(f["rssi"]),
-                    ageSeconds: number(f["age"]), state: f["state"] ?? "", format: sourceFormat(f["format"])))
+                    ageSeconds: number(f["age"]), state: f["state"] ?? "", format: sourceFormat(f["format"]),
+                    mac: sourceFormat(f["mac"])))
             case "SD": sd = f["status"]
             case "RESET":
                 reset = f["reason"]
