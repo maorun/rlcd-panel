@@ -1548,3 +1548,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `Share CSV` sends the text with `ACTION_SEND` (`text/plain`). The columns match `CsvExport.telemetry` of the macOS app (`time,sequence,cell_pct,alerts,t0_c,rh0_pct` to `t5_c,rh5_pct`; ISO-8601 UTC time; 2 and 1 decimals; empty field for a missing value). The text holds the newest 1,500 rows (`HistoryScreenText.SHARE_MAX_ROWS`), and the screen states this cap.
 - No `config.ini` key and no firmware change.
 - Tests: `TelemetryHistoryTest` (duplicate sequence, age limit, row limit, JSON round trip, corrupt JSON, CSV header and row, 24-hour window, chart gaps, store throttle, page filter, load merge). CI job `Android phone companion tests and APK` runs them.
+
+## Wear OS watch face complication
+
+- `ClimateComplicationService` (`complication` package, extends `ComplicationDataSourceService`) shows the focused room on the watch face. It supports `SHORT_TEXT` (`<T>°` with the title `<RH>%`) and `RANGED_VALUE` (humidity 0 to 100). A tap opens `MainActivity`.
+- `ClimateComplicationModel.build` reads the focused room from `TelemetryCache`. It does not scan BLE. An empty cache, a failed decode (length, version or CRC-8), a frame older than 35 minutes and a room without a valid reading give `--` and the ranged value 0.
+- `BleScanService` calls `ClimateComplicationService.requestUpdate` for each new sequence number, next to the tile update.
+- The service is registered in `AndroidManifest.xml` with the types `SHORT_TEXT,RANGED_VALUE`. The dependency is `watchface-complications-data-source-ktx` 1.2.1.
+- No `config.ini` key and no firmware change.
+- Tests: `ClimateComplicationModelTest` (text of the `two_tiles` vector for two rooms, empty cache, frame of 36 minutes, bad CRC-8, room without reading, ranged value 0 to 100). The local machine has no Android SDK, so CI runs `gradle testDebugUnitTest assembleDebug`.

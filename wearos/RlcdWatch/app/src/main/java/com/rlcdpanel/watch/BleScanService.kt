@@ -17,6 +17,7 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.rlcdpanel.watch.complication.ClimateComplicationService
 import com.rlcdpanel.watch.protocol.AlertMask
 import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.tile.ClimateTileService
@@ -174,7 +175,7 @@ class BleScanService : Service() {
         updateForegroundNotification(transition.statusMessage)
     }
 
-    /** Writes the payload of a frame with a new sequence number for the Wear OS tile. */
+    /** Writes the payload of a frame with a new sequence number for the Wear OS tile and the complication. */
     private fun cacheForTile(snapshot: TelemetrySnapshot) {
         val payload = snapshot.payload ?: return
         val frame = snapshot.frame
@@ -185,6 +186,7 @@ class BleScanService : Service() {
             lastCachedSequence = frame.sequence
             lastCachedPage = frame.page
             ClimateTileService.requestUpdate(this)
+            ClimateComplicationService.requestUpdate(this)
         }
     }
 
