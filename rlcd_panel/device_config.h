@@ -98,6 +98,8 @@ struct DeviceConfig {
   static constexpr uint8_t MAX_BLE_BROADCAST_ENABLED = 1;
   static constexpr uint8_t DEFAULT_SLOT_AUTO_ASSIGN = 1; // 1 gives a new MAC the first free slot
   static constexpr uint8_t MAX_SLOT_AUTO_ASSIGN = 1;
+  static constexpr uint16_t DEFAULT_SLOT_ENABLED_MASK = 0x03FF; // all 10 slots enabled (bits 0..9)
+  static constexpr uint16_t SLOT_ENABLED_ALL = 0x03FF;
   static constexpr uint8_t DEFAULT_BLE_CONSOLE = 0; // 0 starts no BLE console service
   static constexpr uint8_t MAX_BLE_CONSOLE = 2;
   static constexpr uint16_t DEFAULT_CLIMATE_ALERT_TILES = 0x07FF; // all 11 tiles feed the freezer and mold alerts
@@ -168,8 +170,23 @@ struct DeviceConfig {
   uint8_t wall_frsi_pct = DEFAULT_WALL_FRSI_PCT; // temperature factor of the outer wall for the WALL text in percent, 0 = off, else 50..95
   uint8_t ble_broadcast_enabled = DEFAULT_BLE_BROADCAST_ENABLED; // 1 = advertise the climate tiles after each scan (ble_telemetry.h), 0 = off
   uint8_t slot_auto_assign = DEFAULT_SLOT_AUTO_ASSIGN; // 1 = a new MAC takes the first free slot, 0 = only a slot with a fixed MAC (slotN_mac) takes a reading
+  uint16_t slot_enabled_mask = DEFAULT_SLOT_ENABLED_MASK; // bit i (0..9) = 1 enables slot i + 1, 0 disables and hides it
   uint8_t ble_console = DEFAULT_BLE_CONSOLE; // BLE console on USB power: 0 off, 1 read commands, 2 also SET (serial_console.h)
   uint16_t climate_alert_tiles = DEFAULT_CLIMATE_ALERT_TILES; // bit 0 onboard, bits 1..10 slots 1..10: tiles of the freezer and mold alerts, 0..2047
+
+  bool isSlotEnabled(size_t slot) const {
+    return slot < SLOT_COUNT && ((slot_enabled_mask & (1u << slot)) != 0);
+  }
+
+  void setSlotEnabled(size_t slot, bool enabled) {
+    if (slot < SLOT_COUNT) {
+      if (enabled) {
+        slot_enabled_mask = static_cast<uint16_t>(slot_enabled_mask | (1u << slot));
+      } else {
+        slot_enabled_mask = static_cast<uint16_t>(slot_enabled_mask & ~(1u << slot));
+      }
+    }
+  }
 
   // Onboard temperature offset: temp_offset_c, plus usb_temp_offset_c on USB power. Battery power ignores the USB key.
   float onboardTempOffsetC(bool usb_powered) const {
@@ -312,7 +329,7 @@ struct DeviceConfig {
             (dry_alert_limit_rh >= MIN_DRY_ALERT_LIMIT_RH && dry_alert_limit_rh <= MAX_DRY_ALERT_LIMIT_RH)) &&
            (wall_frsi_pct == 0 || (wall_frsi_pct >= MIN_WALL_FRSI_PCT && wall_frsi_pct <= MAX_WALL_FRSI_PCT)) &&
            ble_broadcast_enabled <= MAX_BLE_BROADCAST_ENABLED && ble_console <= MAX_BLE_CONSOLE &&
-           slot_auto_assign <= MAX_SLOT_AUTO_ASSIGN &&
+           slot_auto_assign <= MAX_SLOT_AUTO_ASSIGN && (slot_enabled_mask & ~SLOT_ENABLED_ALL) == 0 &&
            (night_wake_interval_s == 0 ||
             (night_wake_interval_s >= MIN_NIGHT_WAKE_INTERVAL_S && night_wake_interval_s <= MAX_NIGHT_WAKE_INTERVAL_S));
   }
@@ -344,7 +361,8 @@ struct DeviceConfig {
            slot_release_h == d.slot_release_h && night_wake_interval_s == d.night_wake_interval_s &&
            temp_unit == d.temp_unit && chime_repeat_h == d.chime_repeat_h &&
            heat_alert_limit_c == d.heat_alert_limit_c && dry_alert_limit_rh == d.dry_alert_limit_rh && wall_frsi_pct == d.wall_frsi_pct && ble_broadcast_enabled == d.ble_broadcast_enabled &&
-           ble_console == d.ble_console && slot_auto_assign == d.slot_auto_assign;
+           ble_console == d.ble_console && slot_auto_assign == d.slot_auto_assign &&
+           slot_enabled_mask == d.slot_enabled_mask;
   }
 };
 
@@ -392,7 +410,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 8192;
-  static constexpr size_t KEY_COUNT = 84;
+  static constexpr size_t KEY_COUNT = 94;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -423,6 +441,8 @@ public:
       "slot9_rh_offset_pct", "slot10_rh_offset_pct",
       "slot6_rh_gain", "slot7_rh_gain", "slot8_rh_gain", "slot9_rh_gain", "slot10_rh_gain",
       "wall_frsi_pct", "slot_auto_assign",
+      "slot1_enabled", "slot2_enabled", "slot3_enabled", "slot4_enabled", "slot5_enabled",
+      "slot6_enabled", "slot7_enabled", "slot8_enabled", "slot9_enabled", "slot10_enabled",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -801,6 +821,27 @@ private:
     return true;
   }
 
+  // Keys slot1_enabled to slot10_enabled (index 84..93): 0 or 1.
+  // Returns false for any other key.
+  static bool parseEnabledKey(const char* key, size_t key_len, const char* val, size_t val_len, DeviceConfig& cfg,
+                              bool& ok, int& index) {
+    static const char* const enabled_keys[DeviceConfig::SLOT_COUNT] = {
+        "slot1_enabled", "slot2_enabled", "slot3_enabled", "slot4_enabled", "slot5_enabled",
+        "slot6_enabled", "slot7_enabled", "slot8_enabled", "slot9_enabled", "slot10_enabled"};
+    for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
+      if (keyIs(key, key_len, enabled_keys[i])) {
+        index = static_cast<int>(84 + i);
+        uint8_t enabled = 0;
+        ok = parseIntIn(val, val_len, 0, 1, enabled);
+        if (ok) {
+          cfg.setSlotEnabled(i, enabled != 0);
+        }
+        return true;
+      }
+    }
+    return false;
+  }
+
   static void reject(ConfigParseResult& result, uint16_t line_no) {
     if (result.rejected < ConfigRejects::MAX_LINES) {
       result.rejected_lines[result.rejected] = line_no;
@@ -954,6 +995,8 @@ private:
       // index and ok set by parseSlotKey
     } else if (parseGainKey(key, key_len, val, val_len, cfg, ok, index)) {
       // index and ok set by parseGainKey
+    } else if (parseEnabledKey(key, key_len, val, val_len, cfg, ok, index)) {
+      // index and ok set by parseEnabledKey
     } else if (parseNameKey(key, key_len, val, val_len, cfg, ok, index)) {
       // index and ok set by parseNameKey
     } else if (parseMacKey(key, key_len, val, val_len, cfg, ok, index)) {
@@ -1049,6 +1092,11 @@ public:
       const uint8_t* m = cfg.slot_mac[i];
       snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X", m[0], m[1], m[2], m[3], m[4], m[5]);
       ok = putLine(out, cap, pos, key, mac);
+    }
+    for (size_t i = 0; ok && i < DeviceConfig::SLOT_COUNT; ++i) {
+      char key[16];
+      snprintf(key, sizeof(key), "slot%u_enabled", static_cast<unsigned>(i + 1));
+      ok = putInt(out, cap, pos, key, cfg.isSlotEnabled(i) ? 1 : 0);
     }
     if (!ok) {
       out[0] = '\0';

@@ -1265,28 +1265,32 @@ public:
           state = since > ClimateHistory::SAMPLE_INTERVAL_MS + cfg.staleTimeoutMs() ? "STALE" : "OK";
         }
       } else {
-        const SwitchBotReading& r = cal.slot(i - 1);
-        if (r.valid) {
-          switch (r.format) {
-            case BleFormat::WOIO: format_str = "WOIO"; break;
-            case BleFormat::METER: format_str = "METER"; break;
-            case BleFormat::BTHOME: format_str = "BTHOME"; break;
-            case BleFormat::ATC: format_str = "ATC"; break;
-            case BleFormat::THERMOPRO: format_str = "THERMOPRO"; break;
+        if (!cfg.isSlotEnabled(i - 1)) {
+          state = "DISABLED";
+        } else {
+          const SwitchBotReading& r = cal.slot(i - 1);
+          if (r.valid) {
+            switch (r.format) {
+              case BleFormat::WOIO: format_str = "WOIO"; break;
+              case BleFormat::METER: format_str = "METER"; break;
+              case BleFormat::BTHOME: format_str = "BTHOME"; break;
+              case BleFormat::ATC: format_str = "ATC"; break;
+              case BleFormat::THERMOPRO: format_str = "THERMOPRO"; break;
+            }
+            formatTemp(temp, sizeof(temp), r.temperature_c, cfg.temp_unit);
+            snprintf(rh, sizeof(rh), "%u", static_cast<unsigned>(r.humidity_pct));
+            if (r.battery_pct >= 0) {
+              snprintf(bat, sizeof(bat), "%d", static_cast<int>(r.battery_pct));
+            }
+            snprintf(rssi, sizeof(rssi), "%d", static_cast<int>(r.rssi));
+            snprintf(age, sizeof(age), "%lu", static_cast<unsigned long>(static_cast<uint32_t>(snap.now_ms - r.updated_ms) / 1000UL));
+            state = r.isStale(snap.now_ms, cfg.staleTimeoutMs()) ? "STALE"
+                                           : (SensorBatteryLatch::isSet(snap.sensor_battery_latch, i - 1) ? "BATLOW" : "OK");
           }
-          formatTemp(temp, sizeof(temp), r.temperature_c, cfg.temp_unit);
-          snprintf(rh, sizeof(rh), "%u", static_cast<unsigned>(r.humidity_pct));
-          if (r.battery_pct >= 0) {
-            snprintf(bat, sizeof(bat), "%d", static_cast<int>(r.battery_pct));
-          }
-          snprintf(rssi, sizeof(rssi), "%d", static_cast<int>(r.rssi));
-          snprintf(age, sizeof(age), "%lu", static_cast<unsigned long>(static_cast<uint32_t>(snap.now_ms - r.updated_ms) / 1000UL));
-          state = r.isStale(snap.now_ms, cfg.staleTimeoutMs()) ? "STALE"
-                                         : (SensorBatteryLatch::isSet(snap.sensor_battery_latch, i - 1) ? "BATLOW" : "OK");
         }
       }
       char mac[18] = "--";
-      if (i > 0) {
+      if (i > 0 && cfg.isSlotEnabled(i - 1)) {
         const SwitchBotReading& r = cal.slot(i - 1);
         if (r.valid) {
           snprintf(mac, sizeof(mac), "%02X:%02X:%02X:%02X:%02X:%02X",

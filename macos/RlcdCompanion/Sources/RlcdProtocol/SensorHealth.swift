@@ -112,7 +112,7 @@ public struct SensorHealth: Equatable {
 
     public static func verdict(state: String, rssi: Double?, battery: Double?, rate: ReceptionMetrics.Rate?,
                                limit: Double?) -> Verdict {
-        if state == "EMPTY" { return .empty }
+        if state == "EMPTY" || state == "DISABLED" { return .empty }
         if state == "STALE" { return .stale }
         if state == "BATLOW" { return .battery }
         if let limit, limit > 0, let battery, battery <= limit + batteryMargin { return .battery }

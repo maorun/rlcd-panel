@@ -255,6 +255,9 @@ public:
 
   // True when registry slot `slot` gets a tile.
   static bool slotActive(const SwitchBotReading* slots, size_t slot_count, const DeviceConfig* config, size_t slot) {
+    if (config != nullptr && !config->isSlotEnabled(slot)) {
+      return false;
+    }
     if (slots != nullptr && slot < slot_count && slots[slot].valid) {
       return true;
     }
@@ -266,6 +269,9 @@ public:
   // the slot, else nullptr. The display name follows this MAC, not the slot index.
   static const uint8_t* slotActiveMac(const SwitchBotReading* slots, size_t slot_count, const DeviceConfig* config,
                                       size_t slot) {
+    if (config != nullptr && !config->isSlotEnabled(slot)) {
+      return nullptr;
+    }
     if (slots != nullptr && slot < slot_count && slots[slot].valid) {
       return slots[slot].mac;
     }
@@ -1238,6 +1244,11 @@ public:
       char label[DeviceConfig::NAME_MAX_CHARS + 1];
       statsLabel(label, sizeof(label), config, i, slotActiveMac(switchbot_slots, switchbot_count, config, i));
       char line[40];
+      if (config != nullptr && !config->isSlotEnabled(i)) {
+        snprintf(line, sizeof(line), "%s DISABLED", label);
+        drawLine(fb, 10, y, line);
+        continue;
+      }
       if (!sb.valid) {
         snprintf(line, sizeof(line), "%s NO SIGNAL", label);
         drawLine(fb, 10, y, line);
