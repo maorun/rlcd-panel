@@ -1500,3 +1500,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The Wear OS app has no `STATUS` console and reads only the telemetry frame, so it has no change.
 - No firmware change and no new `config.ini` key.
 - Tests: `SensorHealthTests.formatGivesBadge`, `missingFormatGivesNil`, `emptyAndUnknownFormatGiveNoBadge`, `statusSensorCarriesFormat` and the same four tests in `SensorHealthTest.kt`.
+
+## Sensor MAC addresses in the macOS companion app
+
+- The macOS companion app displays configured sensor MAC addresses (`slotN_mac` from `config.ini`) across all main sensor views.
+- Telemetry tiles (`Views.swift`): each tile with a fixed MAC shows the MAC address below the sensor title in monospaced font.
+- Status view (`Views.swift`): each sensor line includes the MAC address in parentheses after the name and format badge.
+- Sensor health (`DiagnosticsView.swift`, `SensorHealth.swift`): `SensorHealth` carries the optional `mac` string from `ConfigReply.mac(forSlot:)`; `DiagnosticsView` displays the MAC address in an aligned column.
+- No firmware change and no new `config.ini` key.
+- Tests: `SensorHealthTests.rowsPopulatesMacFromConfig`.

@@ -152,4 +152,21 @@ private func loadStatusFixture() throws -> Data {
         #expect(s.sensors[1].format == nil)
         #expect(s.sensors[1].badge == nil)
     }
+
+    @Test func rowsPopulatesMacFromConfig() throws {
+        let lines = [
+            "SENSOR 1 A temp=22.1 rh=48.5 bat=87 rssi=-61 age=14 state=OK",
+            "SENSOR 2 B temp=20.0 rh=50.0 bat=90 rssi=-50 age=10 state=OK",
+        ]
+        let s = try status(lines)
+        let c = try ConfigReply.parse(lines: [
+            "slot1_mac=AA:BB:CC:DD:EE:FF",
+            "slot2_mac=",
+        ])
+        let rows = try SensorHealth.rows(status: s, config: c)
+        #expect(rows[0].mac == "AA:BB:CC:DD:EE:FF")
+        #expect(rows[1].mac == nil)
+        let rowsWithoutConfig = try SensorHealth.rows(status: s, config: nil)
+        #expect(rowsWithoutConfig[0].mac == nil)
+    }
 }

@@ -30,6 +30,7 @@ public struct SensorHealth: Equatable {
 
     public let slot: Int
     public let name: String
+    public let mac: String?
     public let rssi: Double?
     public let battery: Double?
     public let ageSeconds: Double?
@@ -39,6 +40,30 @@ public struct SensorHealth: Equatable {
     /// `nil` without a `RECEPTION` line or for an empty slot.
     public let reception: ReceptionMetrics.Rate?
     public let verdict: Verdict
+
+    public init(
+        slot: Int,
+        name: String,
+        mac: String? = nil,
+        rssi: Double?,
+        battery: Double?,
+        ageSeconds: Double?,
+        state: String,
+        format: String?,
+        reception: ReceptionMetrics.Rate?,
+        verdict: Verdict
+    ) {
+        self.slot = slot
+        self.name = name
+        self.mac = mac
+        self.rssi = rssi
+        self.battery = battery
+        self.ageSeconds = ageSeconds
+        self.state = state
+        self.format = format
+        self.reception = reception
+        self.verdict = verdict
+    }
 
     public var advice: String { verdict.advice }
     public var badge: String? { Self.badge(forFormat: format) }
@@ -76,8 +101,9 @@ public struct SensorHealth: Equatable {
             let age = try value(f, "age", line: line)
             guard let state = f["state"], !state.isEmpty else { throw ParseError.badLine(line) }
             let rate = reception.flatMap { $0.slots[slot - 1] }
+            let mac = config?.mac(forSlot: slot)
             out.append(SensorHealth(
-                slot: slot, name: String(words[2]), rssi: rssi, battery: battery, ageSeconds: age, state: state,
+                slot: slot, name: String(words[2]), mac: mac, rssi: rssi, battery: battery, ageSeconds: age, state: state,
                 format: sourceFormat(f["format"]), reception: rate,
                 verdict: verdict(state: state, rssi: rssi, battery: battery, rate: rate, limit: limit)))
         }
