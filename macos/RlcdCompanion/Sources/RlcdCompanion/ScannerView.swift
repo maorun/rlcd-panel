@@ -8,6 +8,7 @@ struct ScannerView: View {
     var body: some View {
         GroupBox("Sensor scanner") {
             VStack(alignment: .leading, spacing: 6) {
+                SetupAssistantView(model: model)
                 HStack {
                     Button("Scan (4 s)") { model.scan() }
                         .disabled(!model.consoleConnected || model.transport != .usb)

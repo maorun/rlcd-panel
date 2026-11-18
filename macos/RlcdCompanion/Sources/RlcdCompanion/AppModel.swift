@@ -42,6 +42,12 @@ final class AppModel: ConsoleLinkDelegate {
     private var reportSections: [DiagnosticsReport.Section] = []
     private var reportRemaining: [ConsoleCommand] = []
     var scanResult: ScanReply?
+    /// The guided setup of one new sensor, `nil` while the assistant is closed.
+    var setup: SetupAssistant?
+    /// Entries of the assistant view: the MAC under choice, its name and the calibration reference.
+    var setupChosen: String?
+    var setupName = ""
+    var setupReference = 0
     /// RSSI series of the repeated scan; runs only on a user toggle and on the USB link.
     var scanSeries = ScanSeries()
     private var repeatTask: Task<Void, Never>?
@@ -294,7 +300,9 @@ final class AppModel: ConsoleLinkDelegate {
         scanner.setConsoleWanted(false)
         serial.close()
         config = nil // the ble_console level of the old link must not gate SET on the new link
+        status = nil // the sensor list of the old panel must not feed the slot choice
         draft = [:] // edits belong to the panel that was read
+        setup?.linkLost("link changed")
         assembler.reset()
         abandonCommands()
     }
@@ -314,6 +322,7 @@ final class AppModel: ConsoleLinkDelegate {
 
     /// A lost link, a timeout or a reset ends a running batch, so the form unlocks.
     private func endBatchAfterLoss() {
+        if setup?.pending != nil { setup?.linkLost("no reply") } // an idle assistant survives an unrelated timeout
         guard let b = batch else { return }
         batchSummary = b.summary + " (no reply)"
         batch = nil
@@ -538,6 +547,61 @@ final class AppModel: ConsoleLinkDelegate {
         if changes.contains(where: { SlotAssignment.isMacKey($0.key) }) { scanResult = nil } // slot column goes stale
         batch = ConfigBatch(changes: changes)
         sendNextBatchCommand()
+    }
+
+    // MARK: Setup assistant. Each method runs on one user click and sends the commands of that click.
+
+    func openSetup() { setup = SetupAssistant(); setupChosen = nil; setupName = ""; setupReference = 0 }
+    /// A running batch must finish first: a close in the middle would leave a half assignment.
+    func closeSetup() {
+        if let a = setup, a.pending != nil, !a.isStopped { message = "Wait for the running command"; return }
+        setup = nil
+    }
+
+    func setupScan() { setupChosen = nil; runSetup { $0.beginScan(onUsb: transport == .usb) } }
+    func setupChoose(mac: String, name: String) { setup?.choose(mac: mac, name: name) }
+    func setupAssign() {
+        guard canSet else { message = "SET needs ble_console=2 or the USB serial link"; return }
+        scanResult = nil // the slot column is stale once the SET runs
+        runSetup { [status, config] in $0.beginAssign(status: status, config: config) }
+    }
+    func setupCheckReception() { runSetup { $0.checkReception() } }
+    func setupCalibrate(reference: Int) { runSetup { $0.beginCalibrate(reference: reference) } }
+    func setupApply() {
+        guard canSet else { message = "SET needs ble_console=2 or the USB serial link"; return }
+        runSetup { [config] in $0.beginApply(config: config) }
+    }
+
+    private func runSetup(_ action: (inout SetupAssistant) -> ConsoleCommand?) {
+        guard var assistant = setup else { return }
+        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        message = nil
+        let command = action(&assistant)
+        setup = assistant
+        guard let command else { return }
+        queue = [command]
+        sendNext()
+        // A failed send ended the assistant through the link-lost path. A command without a console line never left.
+        if pendingCommand == nil, var a = setup, a.pending != nil, !a.isStopped {
+            a.commandNotSent()
+            setup = a
+        }
+    }
+
+    /// Hands the reply of an assistant command to the assistant, then sends the next command of its batch.
+    private func advanceSetup(_ cmd: ConsoleCommand, _ reply: ConsoleReply) {
+        guard var assistant = setup, assistant.pending == cmd else { return }
+        assistant.receive(reply)
+        if cmd == .config, !assistant.isStopped, assistant.step == .verify || assistant.step == .done {
+            // The batch ended: the stored hours hold the old offsets, so a new CALIB must follow.
+            clearCalibration()
+            if let mac = assistant.chosenMac, !assistant.isStopped { scanNames[mac] = nil }
+        }
+        let next = assistant.nextCommand()
+        if next?.data == nil, next != nil { assistant.commandNotSent() }
+        setup = assistant
+        guard let next, next.data != nil else { return }
+        queue = [next]
     }
 
     private func sendNextBatchCommand() {
@@ -930,6 +994,8 @@ final class AppModel: ConsoleLinkDelegate {
             consoleState = state
             consoleConnected = connected
             if !connected {
+                status = nil // the sensor list of a lost link must not feed the slot choice of the next one
+                setup?.linkLost(state)
                 stopRepeatScan(.linkLost)
                 scanResult = nil // the slot column of a lost link is stale
                 panelImage = nil
@@ -955,6 +1021,7 @@ final class AppModel: ConsoleLinkDelegate {
         activeLink.commandDidFinish()
         recordReport(cmd, reply)
         defer {
+            advanceSetup(cmd, reply)
             advanceReport()
             if batch != nil { advanceBatch() } else { sendNext() }
         }
@@ -1028,6 +1095,8 @@ final class AppModel: ConsoleLinkDelegate {
                 panelImage = try PanelImage.decode(bytes)
             case (.screen, .frame): message = "Unexpected frame reply"
             case let (.calib, .frame(lines)):
+                // The assistant reads its own CALIB reply; the shared calibration view must not show it.
+                if setup?.pending == cmd { break }
                 calibration = nil
                 let parsed = try CalibrationReply.parse(lines: lines)
                 calibration = parsed

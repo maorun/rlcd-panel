@@ -10,7 +10,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - **Audio & Alerts:** `ES8311` chimes (freezer, mold, heat, noise, dropout, charge full) with repeat & quiet hours, `BOOT` mute, `ES7210` noise & transient monitor (L10/L90), mic self-test & speaker loopback.
 - **Logging & Time:** MicroSD hourly CSV (`climate_v5`), daily summaries (`daily_v4` with mold hours), event log (`events_v1`), retention & free-space check, Wi-Fi NTP sync, `PCF85063A` RTC drift tracking & frequency trim (`RTC TRIM`).
 - **Configuration & Console:** MicroSD `config.ini` up to 8 KB with host validator, USB serial & BLE console (`STATUS`, `CONFIG`, `SET`, `LIST`, `DUMP`, `SCAN`, `CALIB`, `SALT`, `RTC TRIM`, `MUTE`, `SLOT CLEAR`, `BEEP`, `PATTERN`, `SCREEN`, `TIME`, `HISTORY`, `WEEK`, `EVENTS`, `VERSION`), `CONFIG_SET` and `SD_FAULT` event recording.
-- **macOS Companion App:** Signed `.app` bundle & menu bar summary, live BLE telemetry, panel pinning, `config.ini` editor & backup, BLE scanner with repeated scan mode, sensor health table, calibration assistant with single & two-point salt check, diagnostics & clipboard report, log archive & charts (including 7-day week chart), remote screen, CSV export, open at login.
+- **macOS Companion App:** Signed `.app` bundle & menu bar summary, live BLE telemetry, panel pinning, `config.ini` editor & backup, BLE scanner with repeated scan mode, guided sensor setup assistant, sensor health table, calibration assistant with single & two-point salt check, diagnostics & clipboard report, log archive & charts (including 7-day week chart), remote screen, CSV export, open at login.
 
 ## Deep sleep power management with periodic wakeup
 
@@ -1612,3 +1612,17 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - A read that `onStop` aborts shows `Abgebrochen. Erneut lesen.`
 - `tests/fixtures/week_reply_sample.txt` holds 42 rows, one gap day (sensor 2, day 3) and the `CRC32` line. `WeekReplyTest` and `ReplyTests.weekSharedFixture` assert the same values.
 - The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`. The Swift parser rules were compiled and checked against the fixture with `swiftc`, because `swift test` fails on this machine (`TestingMacros` plugin not found).
+
+## Guided sensor setup assistant in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/SetupAssistant.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/SetupAssistantView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ScannerView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/SetupAssistantTests.swift`.
+- `SetupAssistant` is a pure state machine with an injected clock. The steps are `scan`, `choose`, `assign`, `verify` and `calibrate`. The view starts it with `Set up a new sensor` in the scanner box. The button needs the USB link.
+- Step `scan` sends `SCAN` on the USB link only. Step `choose` lists only rows with slot `-`, sorted by `ScanReply.sortedByRssi`. The optional name follows the rules of `SlotAssignment.batch`.
+- Step `assign` picks the first slot without a fixed MAC, without a reading and not disabled by `slotN_enabled=0`. It sends `SlotAssignment.batch(slot:mac:name:)` through `ConfigBatch`, then `CONFIG`. It needs a known `STATUS` and `CONFIG` and `canSet`. A MAC that another slot holds gives a hint and no command.
+- Step `verify` sends `STATUS` on each `Check reception` click. It passes when the `SENSOR` line of the slot has the chosen `mac=` and `state=OK`. Another MAC or another state keeps the step and shows the line values.
+- Step `calibrate` sends `CALIB <N>` (not the new slot). The reply selects only the keys of the new slot. The user may add the other proposals. `Apply selected` sends them through `ConfigBatch`, then `CONFIG`. `Finish without calibration` ends the assistant.
+- The assistant sends one command for each user click. The next command of a running batch belongs to the same click. The first `ERR` reply, a reply that the parser rejects, a lost link, a timeout of a pending command or a transport switch stops the assistant. The view shows the reply text. A `SET` that the panel already applied stays.
+- The `Cancel` button waits while a batch runs, so the panel does not keep a half assignment. The idle limit is 1800 s since the last click.
+- The assistant keeps its `CALIB` reply to itself. The calibration box of the app does not show it. A finished batch clears the stored calibration and the typed name of the MAC.
+- `SetupAssistantTests` feed recorded `SCAN`, `CONFIG`, `STATUS` and `CALIB` replies. They assert the command order, the free slot, the choose list without slot rows, `ERR FIXED_MAC` before `CONFIG`, a `STATUS` line with another MAC, a lost link and the idle clock.
+- `swift test` fails on this machine (`TestingMacros` plugin not found, no Xcode). `swift build` passes. The 21 tests ran in a `swiftc` harness over the real sources. CI runs `swift test`.
