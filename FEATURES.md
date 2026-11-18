@@ -1801,3 +1801,13 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - A failed CRC-32, a timeout or an `ERR` reply gives one error text through `BleConsoleClient.errorText`. The command is not repeated. A read that `onStop` aborts shows `Abgebrochen. Erneut lesen.`
 - `tests/fixtures/events_reply_sample.txt` holds 13 rows and the `CRC32` line. `EventsReplyTest`, `EventTextTest` and the macOS `EventTextTests.sharedEventsFixtureGivesTheTexts` read it.
 - The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`. `swift test` and `scripts/check-protocol-sync.sh` pass locally.
+
+## Rejected packet list over the BLE console in the Android app
+
+- **Code:** `android/RlcdPhone/.../protocol/RejectsReply.kt`, `RejectsScreen.kt`, `SensorHealthScreen.kt`, `MainActivity.kt`, `tests/fixtures/rejects_reply_sample.txt`.
+- The phone could not show which sensor the panel blocks. The `Rejected packets` button of the sensor health screen opens `RejectsScreen`. A tap on `Read rejected packets` sends `REJECTS` over the BLE console. The app sends nothing else on its own.
+- `RejectsReply.parse` reads `BEGIN REJECTS`, the header `mac,format,reason,count`, rows and one optional `DROPPED,<N>` row at the end. A wrong column count, an invalid MAC, an unknown format, an unknown reason, a count of 0 or above 255, a repeated or early `DROPPED` row and a missing header throw `ParseException`.
+- Each row shows the MAC, the format, the reason, the count and one fix text: `FULL` gives `Free a slot`, `UNASSIGNED` gives `Assign the MAC to a slot`, `DISABLED` gives `Enable the slot in slot_enabled_mask`, `JUMP` gives `Check the sensor position`, `WEAK` gives `Move the sensor nearer or lower auto_assign_min_rssi`. The screen shows the count of lost MACs when `DROPPED` is above 0.
+- A failed CRC-32, a timeout or an `ERR` reply gives one error text through `BleConsoleClient.errorText`. The command is not repeated. A read that `onStop` aborts shows `Abgebrochen. Erneut lesen.`
+- `RejectsReplyTest` reads `tests/fixtures/rejects_reply_sample.txt` and covers each row, the reasons, the counts, the dropped count, the CRC-32 frame, the fix texts and the error cases.
+- The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.

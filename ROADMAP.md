@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Rejected packet list over the BLE console in the Android app
-  - Rank: [Total: 33, Use: 5, Setup: 9, Harmony: 9, Safety: 10, Effort: M]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/RejectsScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/RejectsReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/RejectsReplyTest.kt
-  - Goal: The Android sensor health screen shows the `BLE rejected=<N>` counter, but not the MAC and the reason of each rejected packet. The user cannot find the sensor that the panel blocks. Add `RejectsReply.parse(lines)` for the `REJECTS` reply (`BEGIN REJECTS`, header `mac,format,reason,count`, rows, optional `DROPPED,<N>` row, `CRC32` line). Accept the reasons `FULL`, `UNASSIGNED`, `DISABLED`, `JUMP` and `WEAK` and the formats `WOIO`, `METER`, `BTHOME`, `ATC` and `THERMOPRO`. Add `RejectsScreen` with one row for each MAC and one fix text for each reason: `FULL` gives `Free a slot`, `UNASSIGNED` gives `Assign the MAC to a slot`, `WEAK` gives `Move the sensor nearer or lower auto_assign_min_rssi`. Open it from a button of `SensorHealthScreen`. Send `REJECTS` only on a user tap.
-  - Acceptance test: In `RejectsReplyTest`, read `tests/fixtures/rejects_reply_sample.txt` and assert each row, the reasons and the dropped count. Assert that an unknown reason, an unknown format and a count of 0 throw `ParseException`. Assert the fix text of each reason. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`.
-
 - [ ] Ventilation advice in the macOS app
   - Rank: [Total: 31, Use: 8, Setup: 3, Harmony: 10, Safety: 10, Effort: M]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/VentilationAdvice.swift, macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/VentilationAdviceTests.swift, tests/fixtures/ventilation_vectors.txt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/ventilation/VentilationGuideTest.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/VentilationGuideTest.kt
