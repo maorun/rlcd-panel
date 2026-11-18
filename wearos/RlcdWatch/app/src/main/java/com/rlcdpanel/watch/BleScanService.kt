@@ -11,7 +11,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -23,10 +25,14 @@ import com.rlcdpanel.watch.protocol.AlertMask
 import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.tile.ClimateTileService
 import com.rlcdpanel.watch.protocol.AlertTransitions
+import com.rlcdpanel.watch.protocol.SilenceWatch
 import com.rlcdpanel.watch.protocol.TelemetryFrame
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 /**
  * Result of computing a new incoming snapshot transition against the previous snapshot.
@@ -44,6 +50,16 @@ class BleScanService : Service() {
 
     private var bleScanner: BleTelemetryScanner? = null
     private var lastNotificationText: String? = null
+    private var silenceWatch = SilenceWatch()
+    private val silenceHandler = Handler(Looper.getMainLooper())
+    private val silenceCheck = object : Runnable {
+        override fun run() {
+            if (silenceWatch.check() == SilenceWatch.Event.SILENT) {
+                postSilenceNotification(silenceWatch.lastFrameAtMillis)
+            }
+            silenceHandler.postDelayed(this, SILENCE_CHECK_MS)
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -131,12 +147,26 @@ class BleScanService : Service() {
         if (started) {
             _statusMessage.value = "Suche..."
             updateForegroundNotification("Suche nach RLCD-Panel...")
+            startSilenceWatch()
         } else {
             stopForegroundAndSelf()
         }
     }
 
+    private fun startSilenceWatch() {
+        silenceHandler.removeCallbacks(silenceCheck)
+        cancelSilenceNotification()
+        silenceWatch = SilenceWatch()
+        silenceHandler.postDelayed(silenceCheck, SILENCE_CHECK_MS)
+    }
+
+    private fun stopSilenceWatch() {
+        silenceHandler.removeCallbacks(silenceCheck)
+        cancelSilenceNotification()
+    }
+
     fun stopScanning() {
+        stopSilenceWatch()
         bleScanner?.stop()
         bleScanner = null
         _isScanning.value = false
@@ -146,6 +176,7 @@ class BleScanService : Service() {
     }
 
     private fun stopForegroundAndSelf() {
+        stopSilenceWatch()
         lastNotificationText = null
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -162,6 +193,9 @@ class BleScanService : Service() {
     private fun handleIncomingSnapshot(incoming: TelemetrySnapshot) {
         if (!_isScanning.value || bleScanner == null) {
             return
+        }
+        if (silenceWatch.onFrame() == SilenceWatch.Event.BACK) {
+            cancelSilenceNotification()
         }
         val transition = computeTransition(_snapshot.value, incoming)
         _snapshot.value = transition.snapshot
@@ -216,6 +250,18 @@ class BleScanService : Service() {
                 enableVibration(true)
             }
             manager.createNotificationChannel(alertChannel)
+
+            // Default-importance channel without vibration for the panel silence notice
+            val silenceChannel = NotificationChannel(
+                SILENCE_CHANNEL_ID,
+                "Panel-Stille",
+                NotificationManager.IMPORTANCE_DEFAULT
+            ).apply {
+                description = "Hinweis, wenn das Panel keine Telemetrie mehr sendet"
+                enableVibration(false)
+                setVibrationPattern(null)
+            }
+            manager.createNotificationChannel(silenceChannel)
         }
     }
 
@@ -300,6 +346,36 @@ class BleScanService : Service() {
         manager.notify(ALERT_NOTIFICATION_ID, notification)
     }
 
+    private fun postSilenceNotification(lastFrameMillis: Long?) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        val since = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(lastFrameMillis ?: System.currentTimeMillis()))
+        val openApp = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(this, SILENCE_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("RLCD Panel")
+            .setContentText("Panel silent since $since")
+            .setContentIntent(openApp)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setVibrate(null)
+            .setOnlyAlertOnce(true)
+            .build()
+        manager.notify(SILENCE_NOTIFICATION_ID, notification)
+    }
+
+    private fun cancelSilenceNotification() {
+        (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)?.cancel(SILENCE_NOTIFICATION_ID)
+    }
+
     private fun getVibrator(): Vibrator? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val manager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
@@ -320,6 +396,7 @@ class BleScanService : Service() {
         if (instance === this) {
             instance = null
         }
+        stopSilenceWatch()
         bleScanner?.stop()
         bleScanner = null
         _isScanning.value = false
@@ -343,6 +420,9 @@ class BleScanService : Service() {
         const val ACTION_STOP = "com.rlcdpanel.watch.action.STOP_SCAN"
         const val NOTIFICATION_ID = 801
         const val ALERT_NOTIFICATION_ID = 901
+        const val SILENCE_NOTIFICATION_ID = 902
+        private const val SILENCE_CHECK_MS = 60_000L
+        const val SILENCE_CHANNEL_ID = "rlcd_silence_channel"
         private const val ACK_REQUEST_BASE = 100
         private const val ACK_NOTIFICATION_BASE = 910
 
