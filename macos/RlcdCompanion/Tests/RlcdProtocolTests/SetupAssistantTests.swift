@@ -56,7 +56,8 @@ import Testing
         #expect(a.beginScan(onUsb: true) == .scan)
         a.receive(Self.scan)
         #expect(a.step == .choose)
-        #expect(a.choose(mac: Self.newMac, name: "Kueche"))
+        let chosen = a.choose(mac: Self.newMac, name: "Kueche")
+        #expect(chosen)
         #expect(a.step == .assign)
 
         #expect(a.beginAssign(status: Self.status(), config: Self.config()) == .set(key: "slot2_mac", value: Self.newMac))
@@ -100,7 +101,8 @@ import Testing
         a.receive(Self.scan)
         #expect(a.candidates.map(\.mac) == [Self.newMac, "AA:BB:CC:DD:EE:08"]) // sorted by RSSI
         #expect(!a.candidates.contains { $0.slot != nil })
-        #expect(!a.choose(mac: "AA:BB:CC:DD:EE:01"))
+        let chosen = a.choose(mac: "AA:BB:CC:DD:EE:01")
+        #expect(!chosen)
         #expect(a.step == .choose)
     }
 
@@ -243,7 +245,8 @@ import Testing
         var a = SetupAssistant()
         _ = a.beginScan(onUsb: true)
         a.receive(Self.scan)
-        #expect(!a.choose(mac: Self.newMac, name: "Name with space"))
+        let chosen = a.choose(mac: Self.newMac, name: "Name with space")
+        #expect(!chosen)
         #expect(a.step == .choose)
         a.choose(mac: Self.newMac)
         var values = Self.config().values
@@ -306,7 +309,8 @@ import Testing
         #expect(a.beginScan(onUsb: true) == .scan)
         a.receive(Self.scan)
         t = t.addingTimeInterval(SetupAssistant.maxIdleSeconds - 1) // total time is above the limit
-        #expect(a.choose(mac: Self.newMac))
+        let chosen = a.choose(mac: Self.newMac)
+        #expect(chosen)
         #expect(!a.isStopped)
     }
 }
