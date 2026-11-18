@@ -18423,7 +18423,8 @@ void testEventLog() {
       {EventCode::EMPTY_PROTECTION, "EMPTY_PROTECTION"}, {EventCode::RESET, "RESET"},
       {EventCode::SLOT_ASSIGN, "SLOT_ASSIGN"},        {EventCode::SLOT_RELEASE, "SLOT_RELEASE"},
       {EventCode::CONFIG_SET, "CONFIG_SET"},          {EventCode::SD_FAULT, "SD_FAULT"},
-      {EventCode::ALERT_ACK, "ALERT_ACK"},         {EventCode::SLOT_STALE, "SLOT_STALE"}};
+      {EventCode::ALERT_ACK, "ALERT_ACK"},         {EventCode::SLOT_STALE, "SLOT_STALE"},
+      {EventCode::POWER_SOURCE, "POWER_SOURCE"}};
   for (const auto& c : codes) {
     EventRing r;
     r.record(t1, c.code, 65535);
@@ -18528,7 +18529,7 @@ void testEventLog() {
       {0, 17},                        // count above 16
       {3 + 0, 2},                     // time flag above 1
       {3 + 8, 0},                     // code NONE in a used entry
-      {3 + 8, 15},                    // code above the last
+      {3 + 8, 16},                    // code above the last
       {3 + 3, 13},                    // month 13
       {3 + 4, 32},                    // day 32
       {3 + 5, 24},                    // hour 24
@@ -18668,7 +18669,7 @@ void testResetAndSlotEvents() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.events.at(0).code == EventCode::SLOT_RELEASE);
   const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE;
-  buf[base + 3 + 8] = 15;
+  buf[base + 3 + 8] = 16;
   const uint32_t crc = PowerManager::crc32(buf, PowerManager::SERIALIZED_SIZE - 4);
   for (int i = 0; i < 4; ++i) buf[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState bad;
@@ -18741,20 +18742,46 @@ void testConfigSetEvents() {
     EventRing ring;
     assert(!TestRunner::setConfig(st, sink, cmd, [](const char*, size_t) {}, &ring, &t1, 0) && ring.size() == 0);
   }
-  // RTC ring check: code 11 passes, code 15 fails (code 14 is SLOT_STALE)
+  // RTC ring check: code 11 passes, code 15 (POWER_SOURCE) passes, code 16 fails
   LogEvent items[EventRing::CAPACITY] = {};
   items[0].code = EventCode::CONFIG_SET;
   items[0].detail = 0x0130;
   EventRing back;
   assert(back.restore(1, 0, items) && back.at(0).code == EventCode::CONFIG_SET);
   items[0].code = static_cast<EventCode>(15);
+  assert(back.restore(1, 0, items) && back.at(0).code == EventCode::POWER_SOURCE);
+  items[0].code = static_cast<EventCode>(16);
   assert(!back.restore(1, 0, items));
+}
+
+void testPowerSourceEvents() {
+  RtcTime t1;
+  t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 19; t1.hour = 9; t1.minute = 0; t1.second = 0;
+  assert(static_cast<uint8_t>(EventCode::POWER_SOURCE) == 15 && EventRing::MAX_CODE == 15);
+  auto reading = [](bool valid, bool usb) {
+    BatteryReading r;
+    r.valid = valid;
+    r.usb_powered = usb;
+    return r;
+  };
+  PersistentState st;
+  st.recordPowerChange(reading(true, false), reading(true, true), t1);
+  assert(st.events.size() == 1 && st.events.at(0).code == EventCode::POWER_SOURCE && st.events.at(0).detail == 1);
+  st.recordPowerChange(reading(true, true), reading(true, false), t1);
+  assert(st.events.size() == 2 && st.events.at(1).detail == 0);
+  st.recordPowerChange(reading(true, true), reading(true, true), t1);
+  st.recordPowerChange(reading(false, false), reading(true, true), t1);
+  st.recordPowerChange(reading(true, false), reading(false, true), t1);
+  assert(st.events.size() == 2);
+  PersistentState fresh; // power-on: the RTC copy holds no valid reading
+  fresh.recordPowerChange(fresh.battery, reading(true, true), t1);
+  assert(fresh.events.size() == 0);
 }
 
 void testSlotStaleEvents() {
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 18; t1.hour = 9; t1.minute = 0; t1.second = 0;
-  assert(static_cast<uint8_t>(EventCode::SLOT_STALE) == 14 && EventRing::MAX_CODE == 14);
+  assert(static_cast<uint8_t>(EventCode::SLOT_STALE) == 14 && EventRing::MAX_CODE == 15);
   auto reading = [](uint8_t last) {
     SwitchBotReading r;
     r.valid = true;
@@ -18826,7 +18853,7 @@ void testSlotStaleEvents() {
 void testSdFaultEvents() {
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 15; t1.hour = 9; t1.minute = 0; t1.second = 0;
-  assert(static_cast<uint8_t>(EventCode::SD_FAULT) == 12 && static_cast<uint8_t>(EventCode::ALERT_ACK) == 13 && EventRing::MAX_CODE == 14);
+  assert(static_cast<uint8_t>(EventCode::SD_FAULT) == 12 && static_cast<uint8_t>(EventCode::ALERT_ACK) == 13 && EventRing::MAX_CODE == 15);
   const int32_t ok = static_cast<int32_t>(SdStatus::OK);
   assert(SdStatusCodec::faultEventDetail(SdStatus::OK, SdStatus::WRITE_FAILED) ==
          static_cast<int32_t>(SdStatus::WRITE_FAILED));
@@ -18854,13 +18881,13 @@ void testSdFaultEvents() {
   assert(SdLogCodec::formatEventRow(back.events.at(0), row, sizeof(row)) > 0);
   assert(std::string(row) == "2026-11-15 09:00:00,SD_FAULT,4\n");
 
-  // ring check: code 12 passes, code 15 fails
+  // ring check: code 12 passes, code 16 fails
   LogEvent items[EventRing::CAPACITY] = {};
   items[0].code = EventCode::SD_FAULT;
   items[0].detail = 1;
   EventRing ring;
   assert(ring.restore(1, 0, items) && ring.at(0).code == EventCode::SD_FAULT);
-  items[0].code = static_cast<EventCode>(15);
+  items[0].code = static_cast<EventCode>(16);
   assert(!ring.restore(1, 0, items));
 }
 
@@ -21691,6 +21718,7 @@ int main() {
   testResetAndSlotEvents();
   testConfigSetEvents();
   testSdFaultEvents();
+  testPowerSourceEvents();
   testSlotStaleEvents();
   testChimeRepeat();
   testNightWakeInterval();

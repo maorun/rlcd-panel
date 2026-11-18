@@ -211,6 +211,16 @@ struct PersistentState {
     }
   }
 
+  // Compares the usb_powered flag of the previous wake cycle (RTC copy, read before the overwrite) with the new
+  // reading. One POWER_SOURCE event when both readings are valid and the flag changed: detail 1 USB power, 0 battery
+  // power. A power-on has no valid previous reading and records nothing.
+  void recordPowerChange(const BatteryReading& previous, const BatteryReading& current, const RtcTime& now) {
+    if (!previous.valid || !current.valid || previous.usb_powered == current.usb_powered) {
+      return;
+    }
+    events.record(now, EventCode::POWER_SOURCE, current.usb_powered ? 1 : 0);
+  }
+
   // Manual release (console SLOT CLEAR): false for a slot with a fixed MAC, no change (the next scan takes the same
   // sensor again). Otherwise resetSlot; an occupied slot records SLOT_RELEASE with the slot number in the low byte and
   // 1 (manual) in the high byte. An empty slot records nothing.

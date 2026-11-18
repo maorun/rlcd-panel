@@ -1820,3 +1820,9 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - The tile list shows the advice title and the difference (`AH +4.3 g/m³`) for each valid indoor tile. The outdoor tile shows no advice. The app sends no console command for the advice.
 - `tests/fixtures/ventilation_vectors.txt` holds the shared rows (indoor and outdoor values, window state, minutes, action, difference). `VentilationAdviceTests`, and both Kotlin `VentilationGuideTest` classes read it. The Swift test also checks the difference and the `nil` cases.
 - The Kotlin tests run in CI only. The local machine has no Android SDK.
+
+## Power source event
+
+- `EventCode::POWER_SOURCE` 15 records a change of the power source in the event ring. Detail 1 is USB power, detail 0 is battery power. `EventRing::MAX_CODE` is 15.
+- `PersistentState::recordPowerChange(previous, current, now)` compares the `usb_powered` flag of the previous wake cycle (RTC copy) with the new reading in `refreshSensors()`. It records an event only when both readings are valid and the flag changed. A power-on records nothing. The RTC layout and `STATE_VERSION` do not change.
+- The macOS `EventText` shows `USB power connected` and `Battery power`. Another detail shows the raw text.
