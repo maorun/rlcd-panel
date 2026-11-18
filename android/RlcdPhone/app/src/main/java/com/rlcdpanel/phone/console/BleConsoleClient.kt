@@ -7,6 +7,7 @@ import android.bluetooth.BluetoothGattCharacteristic
 import android.bluetooth.BluetoothGattDescriptor
 import android.bluetooth.BluetoothManager
 import android.bluetooth.BluetoothProfile
+import android.bluetooth.BluetoothStatusCodes
 import android.bluetooth.le.ScanCallback
 import android.bluetooth.le.ScanFilter
 import android.bluetooth.le.ScanResult
@@ -29,9 +30,10 @@ object ConsoleUuids {
 }
 
 /**
- * One-shot client for the panel console: scans for the console service, opens one GATT connection, requests MTU 185,
- * subscribes to the TX notifications, writes `STATUS\n` once on the RX characteristic, waits for the reply (10 s in
- * total) and disconnects. The only command that the client sends is `STATUS`. The caller holds the
+ * One-shot client for the panel console: scans for the console service, opens one GATT connection for one command,
+ * requests MTU 185, subscribes to the TX notifications, writes the command plus LF in chunks of `MTU - 3` bytes on
+ * the RX characteristic, waits for the reply (10 s in total) and disconnects. The app sends a command only after a
+ * tap of the user (`STATUS`, `CONFIG`). The caller holds the
  * `BLUETOOTH_CONNECT` and `BLUETOOTH_SCAN` permissions (SDK 31 and later; `ACCESS_FINE_LOCATION` before).
  */
 @SuppressLint("MissingPermission")
@@ -42,14 +44,24 @@ class BleConsoleClient(private val context: Context) {
     private var assembler = ReplyAssembler()
     private var onResult: ((ConsoleReply) -> Unit)? = null
     private var running = false
+    private var pendingWrites: ArrayDeque<ByteArray> = ArrayDeque()
+    @Volatile private var mtu = ConsoleWire.DEFAULT_MTU
+    private var command: String = ""
 
     private val timeoutTask = Runnable { finish(assembler.timeout()) }
 
     val isRunning: Boolean get() = running
 
-    /** Starts one `STATUS` read. [callback] runs once on the main thread; a second call while running is ignored. */
-    fun readStatus(callback: (ConsoleReply) -> Unit) {
+    /** Starts one [command]. [callback] runs once on the main thread; a second call while running is ignored. */
+    fun send(command: String, callback: (ConsoleReply) -> Unit) {
         if (running) return
+        if (command.isEmpty() || '\n' in command || '\r' in command) {
+            callback(ConsoleReply.Status("ERR BAD_COMMAND"))
+            return
+        }
+        this.command = command
+        mtu = ConsoleWire.DEFAULT_MTU
+        pendingWrites = ArrayDeque()
         val adapter = (context.getSystemService(Context.BLUETOOTH_SERVICE) as? BluetoothManager)?.adapter
         val leScanner = adapter?.takeIf { it.isEnabled }?.bluetoothLeScanner
         if (leScanner == null) {
@@ -91,6 +103,7 @@ class BleConsoleClient(private val context: Context) {
 
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) {
+            if (!isCurrent(g)) return
             if (newState == BluetoothProfile.STATE_CONNECTED) {
                 if (!g.requestMtu(MTU)) g.discoverServices()
             } else if (newState == BluetoothProfile.STATE_DISCONNECTED) {
@@ -99,10 +112,13 @@ class BleConsoleClient(private val context: Context) {
         }
 
         override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) {
+            if (!isCurrent(g)) return
+            if (status == BluetoothGatt.GATT_SUCCESS) this@BleConsoleClient.mtu = mtu
             g.discoverServices()
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) {
+            if (!isCurrent(g)) return
             val tx = g.getService(ConsoleUuids.SERVICE)?.getCharacteristic(ConsoleUuids.TX)
             val cccd = tx?.getDescriptor(ConsoleUuids.CCCD)
             if (status != BluetoothGatt.GATT_SUCCESS || tx == null || cccd == null) {
@@ -114,28 +130,44 @@ class BleConsoleClient(private val context: Context) {
         }
 
         override fun onDescriptorWrite(g: BluetoothGatt, descriptor: BluetoothGattDescriptor, status: Int) {
+            if (!isCurrent(g)) return
             val rx = g.getService(ConsoleUuids.SERVICE)?.getCharacteristic(ConsoleUuids.RX)
             if (status != BluetoothGatt.GATT_SUCCESS || rx == null) {
                 main.post { finish(ConsoleReply.Status("ERR NO_CONSOLE")) }
                 return
             }
-            writeCharacteristic(g, rx, COMMAND)
+            // The queue belongs to the main thread, like send() and the write confirmations.
+            main.post {
+                if (!isCurrent(g)) return@post
+                pendingWrites = ArrayDeque(ConsoleWire.chunks(ConsoleWire.frame(command), mtu))
+                writeNext(g, rx)
+            }
         }
 
         override fun onCharacteristicWrite(g: BluetoothGatt, c: BluetoothGattCharacteristic, status: Int) {
-            if (status != BluetoothGatt.GATT_SUCCESS) main.post { finish(ConsoleReply.Status("ERR WRITE_FAILED")) }
+            if (!isCurrent(g)) return
+            if (status != BluetoothGatt.GATT_SUCCESS) {
+                main.post { finish(ConsoleReply.Status("ERR WRITE_FAILED")) }
+                return
+            }
+            main.post { if (isCurrent(g)) writeNext(g, c) }
         }
 
         @Deprecated("Used below SDK 33")
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic) {
+            if (!isCurrent(g)) return
             @Suppress("DEPRECATION")
             deliver(c.value ?: return)
         }
 
         override fun onCharacteristicChanged(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) {
+            if (!isCurrent(g)) return
             deliver(value)
         }
     }
+
+    /** True while a command runs and [g] is its connection. A callback of an older connection is ignored. */
+    private fun isCurrent(g: BluetoothGatt): Boolean = running && (gatt == null || gatt === g)
 
     private fun deliver(chunk: ByteArray) {
         main.post {
@@ -154,10 +186,22 @@ class BleConsoleClient(private val context: Context) {
         }
     }
 
+    /** Writes the next chunk; the next call follows the write confirmation. */
+    private fun writeNext(g: BluetoothGatt, rx: BluetoothGattCharacteristic) {
+        val chunk = pendingWrites.removeFirstOrNull() ?: return
+        val written = try {
+            writeCharacteristic(g, rx, chunk)
+        } catch (e: SecurityException) {
+            finish(ConsoleReply.Status("ERR PERMISSION"))
+            return
+        }
+        if (!written) main.post { finish(ConsoleReply.Status("ERR WRITE_FAILED")) }
+    }
+
     @Suppress("DEPRECATION")
-    private fun writeCharacteristic(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray) {
-        if (android.os.Build.VERSION.SDK_INT >= 33) {
-            g.writeCharacteristic(c, value, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT)
+    private fun writeCharacteristic(g: BluetoothGatt, c: BluetoothGattCharacteristic, value: ByteArray): Boolean {
+        return if (android.os.Build.VERSION.SDK_INT >= 33) {
+            g.writeCharacteristic(c, value, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT) == BluetoothStatusCodes.SUCCESS
         } else {
             c.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
             c.value = value
@@ -181,9 +225,6 @@ class BleConsoleClient(private val context: Context) {
     companion object {
         const val MTU = 185
         const val TIMEOUT_MS = 10_000L
-        /** The only command that the app sends. */
-        val COMMAND = "STATUS\n".toByteArray()
-
         /** Text for a reply that is not a [ConsoleReply.Frame]. */
         fun errorText(reply: ConsoleReply): String = when (reply) {
             is ConsoleReply.Frame -> ""

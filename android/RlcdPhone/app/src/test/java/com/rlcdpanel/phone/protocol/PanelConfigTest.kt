@@ -1,10 +1,130 @@
 package com.rlcdpanel.phone.protocol
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Rule
 import org.junit.Test
+import org.junit.rules.TemporaryFolder
+import java.io.File
 
 class PanelConfigTest {
+
+    @get:Rule
+    val tmp = TemporaryFolder()
+
+    private fun sampleReply(): ConsoleReply {
+        val assembler = ReplyAssembler()
+        return assembler.append(Fixtures.file("config_reply_sample.txt").readBytes())
+            ?: throw AssertionError("Fixture gave no reply")
+    }
+
+    @Test
+    fun parsesConfigReply() {
+        val reply = sampleReply() as ConsoleReply.Frame
+        val parsed = PanelConfig.parseConfigReply(reply.lines)
+        assertEquals("SD", parsed.source)
+        assertEquals(listOf(12, 31), parsed.rejectedLines)
+        assertFalse(parsed.text.contains("REJECTED"))
+        val config = PanelConfig.parseText(parsed.text)
+        assertEquals("Office", config.tileName(0))
+        assertEquals("Wohnzimmer", config.tileName(1))
+        assertEquals("Keller", config.tileName(2))
+        assertEquals("Balkon", config.tileName(3))
+        assertEquals("B0:E9:FE:00:00:02", config.slotMac(2))
+        assertEquals("3", config.values["outdoor_slot"])
+    }
+
+    @Test
+    fun cachePreferredOverAsset() {
+        val dir = tmp.newFolder()
+        assertEquals(null, ConfigCache.info(dir))
+        val info = ConfigCache.store(dir, sampleReply(), 1_000L)
+        assertEquals(listOf(12, 31), info?.rejectedLines)
+        val external = File(tmp.newFolder(), "config.ini").apply { writeText("slot1_name=Extern\nslot1_mac=B0:E9:FE:00:00:01\n") }
+        val asset = { "slot1_name=Asset\nslot1_mac=B0:E9:FE:00:00:01\n".byteInputStream() }
+
+        val config = PanelConfig.loadFrom(ConfigCache.file(dir), external, asset)
+        assertEquals("Wohnzimmer", config.tileName(1))
+        assertEquals(1_000L, ConfigCache.info(dir)?.readAtMillis)
+        assertEquals(listOf(12, 31), ConfigCache.info(dir)?.rejectedLines)
+        assertFalse(File(dir, "config.ini.tmp").exists())
+    }
+
+    @Test
+    fun withoutCacheExternalThenAssetWins() {
+        val dir = tmp.newFolder()
+        val external = File(tmp.newFolder(), "config.ini").apply { writeText("slot1_name=Extern\nslot1_mac=B0:E9:FE:00:00:01\n") }
+        val asset = { "slot1_name=Asset\nslot1_mac=B0:E9:FE:00:00:01\n".byteInputStream() }
+        assertEquals("Extern", PanelConfig.loadFrom(ConfigCache.file(dir), external, asset).tileName(1))
+        assertEquals("Asset", PanelConfig.loadFrom(ConfigCache.file(dir), File(dir, "none.ini"), asset).tileName(1))
+    }
+
+    @Test
+    fun badCrcAndErrKeepOldCache() {
+        val dir = tmp.newFolder()
+        ConfigCache.store(dir, sampleReply(), 1_000L)
+        val before = ConfigCache.file(dir).readText()
+
+        val bad = ReplyAssembler().append(
+            Fixtures.file("config_reply_sample.txt").readText().replace("CRC32 4f72fbea", "CRC32 00000000").toByteArray()
+        )
+        assertTrue(bad is ConsoleReply.Corrupt)
+        assertEquals(null, ConfigCache.store(dir, bad!!, 2_000L))
+
+        val err = ReplyAssembler().append("ERR READ_ONLY\n".toByteArray())!!
+        assertEquals(null, ConfigCache.store(dir, err, 3_000L))
+        assertEquals(null, ConfigCache.store(dir, ReplyAssembler().timeout(), 4_000L))
+        assertEquals(null, ConfigCache.store(dir, ConsoleReply.Frame(listOf("SOURCE SD")), 5_000L))
+
+        assertEquals(before, ConfigCache.file(dir).readText())
+        assertEquals(1_000L, ConfigCache.info(dir)?.readAtMillis)
+    }
+
+    @Test
+    fun emptyCacheFallsThroughAndForeignLinesAreDropped() {
+        val dir = tmp.newFolder()
+        ConfigCache.file(dir).writeText("# REJECTED line=1\n")
+        val asset = { "slot1_name=Asset\nslot1_mac=B0:E9:FE:00:00:01\n".byteInputStream() }
+        assertEquals("Asset", PanelConfig.loadFrom(ConfigCache.file(dir), null, asset).tileName(1))
+
+        val parsed = PanelConfig.parseConfigReply(listOf("slot1_name=Ok", "Evil Key=1", "x=\u0001", "SOURCE SD"))
+        assertEquals("slot1_name=Ok\n", parsed.text)
+        val huge = List(600) { "slot1_name=" + "a".repeat(20) }
+        assertEquals("", PanelConfig.parseConfigReply(huge).text)
+    }
+
+    @Test
+    fun defaultSourceReplyKeepsOldCache() {
+        val dir = tmp.newFolder()
+        ConfigCache.store(dir, sampleReply(), 1_000L)
+        val before = ConfigCache.file(dir).readText()
+        val defaults = ConsoleReply.Frame(listOf("slot1_name=Slot 1", "SOURCE DEFAULT"))
+        assertEquals(null, ConfigCache.store(dir, defaults, 2_000L))
+        assertEquals(before, ConfigCache.file(dir).readText())
+    }
+
+    @Test
+    fun infoFallsBackToFileTimeWithoutReadAtLine() {
+        val dir = tmp.newFolder()
+        assertEquals(null, ConfigCache.info(dir))
+        val file = ConfigCache.file(dir)
+        file.writeText("slot1_name=A\n# REJECTED line=7\n")
+        file.setLastModified(5_000L)
+        val info = ConfigCache.info(dir)
+        assertEquals(5_000L, info?.readAtMillis)
+        assertEquals(listOf(7), info?.rejectedLines)
+    }
+
+    @Test
+    fun ageTextUsesMinutesHoursDays() {
+        val info = ConfigCacheInfo(0L, emptyList())
+        assertEquals("gerade eben", ConfigCache.ageText(info, 30_000L))
+        assertEquals("vor 5 min", ConfigCache.ageText(info, 5 * 60_000L))
+        assertEquals("vor 3 h", ConfigCache.ageText(info, 3 * 3_600_000L))
+        assertEquals("vor 3 Tagen", ConfigCache.ageText(info, 3 * 86_400_000L))
+    }
 
     @Test
     fun emptyConfigReturnsDefaultNames() {

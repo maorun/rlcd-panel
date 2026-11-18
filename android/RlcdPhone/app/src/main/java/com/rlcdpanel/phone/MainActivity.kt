@@ -34,6 +34,7 @@ import com.rlcdpanel.phone.protocol.ConsoleReply
 import com.rlcdpanel.phone.protocol.ParseException
 import com.rlcdpanel.phone.protocol.SensorHealth
 import com.rlcdpanel.phone.protocol.StatusReply
+import com.rlcdpanel.phone.protocol.ConfigCache
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryHistory
@@ -43,9 +44,11 @@ import com.rlcdpanel.phone.ventilation.OutdoorSource
 import com.rlcdpanel.phone.ventilation.OutdoorWeatherService
 import com.rlcdpanel.phone.ventilation.VentilationAction
 import com.rlcdpanel.phone.ventilation.VentilationGuide
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class RoomVentilationState(
     val isVentilating: Boolean = false,
@@ -64,6 +67,7 @@ class MainActivity : ComponentActivity() {
     private val lastObservedAktionen = mutableMapOf<Int, VentilationAction>()
     private var panelConfig by mutableStateOf(PanelConfig())
 
+    private var pendingConsoleCommand = CONSOLE_STATUS
     private var notificationPermissionAsked = false
     private var scanPermissionDenied = false
     private var weatherJob: Job? = null
@@ -72,6 +76,7 @@ class MainActivity : ComponentActivity() {
     private var showHealth by mutableStateOf(false)
     private var showHistory by mutableStateOf(false)
     private var healthState by mutableStateOf(SensorHealthState())
+    private var configState by mutableStateOf(ConfigReadState())
     // Kept after the health screen closes, so the dashboard tiles keep their protocol badges.
     private var sourceBadges by mutableStateOf<Map<Int, String>>(emptyMap())
     private lateinit var prefs: SharedPreferences
@@ -96,6 +101,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("rlcd_ventilation_prefs", Context.MODE_PRIVATE)
         panelConfig = PanelConfig.load(this)
+        configState = ConfigReadState(info = ConfigCache.info(filesDir))
         createNotificationChannel()
         restoreRoomStates()
 
@@ -142,7 +148,10 @@ class MainActivity : ComponentActivity() {
                 SensorHealthScreen(
                     state = healthState,
                     panelConfig = panelConfig,
-                    onRead = { ensureConsolePermissionAndRead() },
+                    onRead = { ensureConsolePermissionAndRead(CONSOLE_STATUS) },
+                    configState = configState,
+                    nowMillis = System.currentTimeMillis(),
+                    onReadConfig = { ensureConsolePermissionAndRead(CONSOLE_CONFIG) },
                     onBack = { closeSensorHealth() }
                 )
                 BackHandler { closeSensorHealth() }
@@ -265,6 +274,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         consoleClient.cancel()
         healthState = healthState.copy(isReading = false)
+        configState = configState.copy(isReading = false)
         // Background scanning continues in BleScanService.
         lastObservedAktionen.clear()
         super.onStop()
@@ -274,8 +284,11 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
         if (!showHealth) return@registerForActivityResult
+        val command = pendingConsoleCommand
         if (grants.values.all { it }) {
-            readSensorHealth()
+            runConsoleCommand(command)
+        } else if (command == CONSOLE_CONFIG) {
+            configState = configState.copy(isReading = false, message = "Bluetooth-Berechtigung fehlt")
         } else {
             healthState = SensorHealthState(message = "Bluetooth-Berechtigung fehlt")
         }
@@ -293,31 +306,64 @@ class MainActivity : ComponentActivity() {
     private fun closeSensorHealth() {
         consoleClient.cancel()
         healthState = SensorHealthState()
+        configState = configState.copy(isReading = false, message = null)
         showHealth = false
         if (!scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
     }
 
-    /** Sends STATUS only after a tap on the button. */
-    private fun ensureConsolePermissionAndRead() {
-        if (healthState.isReading) return
+    /** Sends [command] (`STATUS` or `CONFIG`) only after a tap on a button. */
+    private fun ensureConsolePermissionAndRead(command: String) {
+        if (healthState.isReading || configState.isReading) return
+        pendingConsoleCommand = command
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
             listOf(Manifest.permission.ACCESS_FINE_LOCATION)
         }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
         if (needed.isNotEmpty()) {
-            healthState = SensorHealthState(isReading = true)
+            markConsoleReading(command)
             consolePermissionLauncher.launch(needed.toTypedArray())
             return
         }
-        readSensorHealth()
+        runConsoleCommand(command)
+    }
+
+    private fun markConsoleReading(command: String) {
+        if (command == CONSOLE_CONFIG) {
+            configState = configState.copy(isReading = true, message = null)
+        } else {
+            healthState = SensorHealthState(isReading = true)
+        }
+    }
+
+    private fun runConsoleCommand(command: String) {
+        if (command == CONSOLE_CONFIG) readPanelConfig() else readSensorHealth()
+    }
+
+    /** Reads `CONFIG`. A good reply replaces the cache; every other reply keeps the old cache. */
+    private fun readPanelConfig() {
+        stopBleScan()
+        configState = configState.copy(isReading = true, message = null)
+        consoleClient.send(CONSOLE_CONFIG) { reply ->
+            // The file write syncs to flash, so it stays off the main thread.
+            lifecycleScope.launch {
+                val info = withContext(Dispatchers.IO) { ConfigCache.store(filesDir, reply, System.currentTimeMillis()) }
+                if (info != null) {
+                    panelConfig = withContext(Dispatchers.IO) { PanelConfig.load(this@MainActivity) }
+                    configState = ConfigReadState(info = info)
+                } else {
+                    val text = if (reply is ConsoleReply.Frame) "Panel liefert keine SD-Einstellungen" else BleConsoleClient.errorText(reply)
+                    configState = configState.copy(isReading = false, message = "$text. Alter Stand bleibt erhalten.")
+                }
+            }
+        }
     }
 
     private fun readSensorHealth() {
         // The telemetry scan stops, so the console scan and connection have the radio.
         stopBleScan()
         healthState = SensorHealthState(isReading = true)
-        consoleClient.readStatus { reply ->
+        consoleClient.send(CONSOLE_STATUS) { reply ->
             healthState = when (reply) {
                 is ConsoleReply.Frame -> try {
                     val status = StatusReply.parse(reply.lines)
@@ -513,3 +559,7 @@ class MainActivity : ComponentActivity() {
         const val MAX_RESTORED_VENTILATION_MS = 6 * 60 * 60 * 1000L
     }
 }
+
+/** Console commands that a tap on a button sends. */
+private const val CONSOLE_STATUS = "STATUS"
+private const val CONSOLE_CONFIG = "CONFIG"
