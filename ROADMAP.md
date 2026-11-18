@@ -21,11 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 
 
-- [ ] Console command REJECTS with the reason of each rejected BLE packet
-  - Rank: [Total: 34, Use: 6, Setup: 10, Harmony: 9, Safety: 9, Effort: M]
-  - Location: rlcd_panel/switchbot_ble.h, rlcd_panel/power_manager.h, rlcd_panel/serial_console.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp, tests/fixtures/rejects_reply_sample.txt
-  - Goal: The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. The user cannot see why a sensor does not take a slot. Add `RejectLog` to `switchbot_ble.h`: 8 entries with MAC, `BleFormat`, reason code and a count that saturates at 255. Use the reason codes `FULL`, `UNASSIGNED`, `DISABLED` and `JUMP`. Merge each packet of a known MAC into its entry. Count each further MAC in `dropped`, which saturates at 255. Clear the log with `resetRejects()` at the start of `scanOnce()`. Store the log in `PersistentState::reject_log` just before the checksum (73 bytes: 9 bytes for each entry plus `dropped`). Reject a count of 0 in a used entry and a reason code above `JUMP`. Increase `STATE_VERSION` by one. Add the console command `REJECTS`. Reply `BEGIN REJECTS` and the header `mac,format,reason,count`. Then send one row for each entry and a `DROPPED,<N>` row for lost MACs. End with the `CRC32` line. Give `ERR BAD_ARG` for extra text. Read only the RTC copy. Allow the command on USB and on BLE at each `ble_console` level.
-  - Acceptance test: In `tests/test_firmware_logic.cpp`, fill all slots and send a packet of a new MAC. Assert one `FULL` row. Set `slot_auto_assign` to 0 and assert one `UNASSIGNED` row. Send a large jump and call `endScan()`. Assert one `JUMP` row. Send 9 MACs and assert the `DROPPED,1` row. Assert that `resetRejects()` clears the log. Assert a serialize and deserialize round trip, and the rejection of a bad reason code. Compare the reply with `tests/fixtures/rejects_reply_sample.txt` and its CRC-32. Run the host unit tests. Run `arduino-cli compile rlcd_panel`.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 

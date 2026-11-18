@@ -36,7 +36,7 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, REJECTS };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
@@ -70,7 +70,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..5", "SALT 0..5", "SALT 0..5 MGCL2", "BEEP 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..5", "SCAN", "SCREEN", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..5", "SALT 0..5", "SALT 0..5 MGCL2", "BEEP 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "REJECTS", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..5", "SCAN", "SCREEN", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -211,6 +211,13 @@ public:
         return SerialParseStatus::BAD_ARG; // WEEK takes no argument
       }
       out.kind = SerialCommandKind::WEEK;
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "REJECTS")) {
+      if (cmd_len != len) {
+        return SerialParseStatus::BAD_ARG; // REJECTS takes no argument
+      }
+      out.kind = SerialCommandKind::REJECTS;
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "HISTORY")) {
@@ -1084,6 +1091,49 @@ public:
     send(sink, line);
   }
 
+  // Sends the RejectLog copy of the last BLE scan from the RTC state as CSV: one row per rejected MAC with its format,
+  // reason (FULL, UNASSIGNED, DISABLED or JUMP) and packet count, then a DROPPED,<N> row when MACs were lost. The card and
+  // the state stay untouched. A short write ends the reply, so the host sees no CRC32 line.
+  static void showRejects(Sink& sink, const RejectLog& log) {
+    static const char* const FORMATS[BLE_FORMAT_COUNT] = {"WOIO", "METER", "BTHOME", "ATC", "THERMOPRO"};
+    static const char* const REASONS[] = {"NONE", "FULL", "UNASSIGNED", "DISABLED", "JUMP"};
+    SerialCrc32 crc;
+    auto emit = [&](const char* text) {
+      const size_t len = strlen(text);
+      if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+        return false;
+      }
+      crc.update(reinterpret_cast<const uint8_t*>(text), len);
+      return true;
+    };
+    if (!emit("BEGIN REJECTS\n") || !emit("mac,format,reason,count\n")) {
+      return;
+    }
+    for (size_t i = 0; i < log.size(); ++i) {
+      const RejectLog::Entry& e = log.entries[i];
+      char line[64];
+      snprintf(line, sizeof(line), "%02X:%02X:%02X:%02X:%02X:%02X,%s,%s,%u\n", static_cast<unsigned>(e.mac[0]),
+               static_cast<unsigned>(e.mac[1]), static_cast<unsigned>(e.mac[2]), static_cast<unsigned>(e.mac[3]),
+               static_cast<unsigned>(e.mac[4]), static_cast<unsigned>(e.mac[5]),
+               FORMATS[static_cast<size_t>(e.format) < BLE_FORMAT_COUNT ? static_cast<size_t>(e.format) : 0],
+               REASONS[static_cast<size_t>(e.reason) <= static_cast<size_t>(RejectReason::JUMP) ? static_cast<size_t>(e.reason) : 0],
+               static_cast<unsigned>(e.count));
+      if (!emit(line)) {
+        return;
+      }
+    }
+    if (log.dropped > 0) {
+      char line[24];
+      snprintf(line, sizeof(line), "DROPPED,%u\n", static_cast<unsigned>(log.dropped));
+      if (!emit(line)) {
+        return;
+      }
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
   // Sends the 7-day minimum and maximum of each sensor from the RTC copy as CSV: one row per sensor (0 onboard, 1 to 5 a
   // slot) and day (day 0 is the day before the stamp). The date is empty without a stamp, a gap day gives empty value
   // fields. Values are in 0.5 steps. The card and the state stay untouched. A short write ends the reply, so the host
@@ -1730,7 +1780,7 @@ public:
         command.kind == SerialCommandKind::SCAN || command.kind == SerialCommandKind::MUTE ||
         command.kind == SerialCommandKind::SCREEN || command.kind == SerialCommandKind::SET ||
         command.kind == SerialCommandKind::RTC_TRIM || command.kind == SerialCommandKind::WEEK ||
-        command.kind == SerialCommandKind::SLOT_CLEAR) {
+        command.kind == SerialCommandKind::SLOT_CLEAR || command.kind == SerialCommandKind::REJECTS) {
       return;
     }
     if (!storage.mount()) {
@@ -1757,6 +1807,7 @@ public:
       case SerialCommandKind::RTC_TRIM:
       case SerialCommandKind::WEEK:
       case SerialCommandKind::SLOT_CLEAR:
+      case SerialCommandKind::REJECTS:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;

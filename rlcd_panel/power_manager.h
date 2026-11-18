@@ -111,6 +111,7 @@ struct PersistentState {
   Shtc3Health shtc3;          // failed reads of the onboard SHTC3 by cause; a power-on sets them to 0
   AwakeTimeStats awake;       // measured awake time of the timer wakeups on battery power
   FrameRefresh frame;         // CRC-32 of the last flushed frame and the skipped cycles in a row
+  RejectLog reject_log;       // rejected packets of the last BLE scan (REJECTS command)
   ReceptionHistory reception; // BLE reception mask and scan count of each registry slot
   WeekHistory week;           // daily minimum and maximum of the last 7 days for the week chart
 
@@ -342,7 +343,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 63;
+  static constexpr uint8_t STATE_VERSION = 64;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -396,7 +397,9 @@ public:
   static constexpr size_t WEEK_SIZE = WeekHistory::SERIALIZED_SIZE;
   // USB power mask of the onboard temperature samples (3 bytes, little-endian, just before the checksum).
   static constexpr size_t USB_MASK_SIZE = 3;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + 4;
+  // Reject log of the last BLE scan (just before the checksum).
+  static constexpr size_t REJECT_LOG_SIZE = RejectLog::SERIALIZED_SIZE;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -741,6 +744,8 @@ public:
     out[pos++] = static_cast<uint8_t>(state.history.usb_mask & 0xFF);
     out[pos++] = static_cast<uint8_t>((state.history.usb_mask >> 8) & 0xFF);
     out[pos++] = static_cast<uint8_t>((state.history.usb_mask >> 16) & 0xFF);
+    state.reject_log.serialize(out + pos);
+    pos += REJECT_LOG_SIZE;
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -1131,6 +1136,10 @@ public:
       return false; // a bit beyond the onboard samples is corrupt
     }
     pos += USB_MASK_SIZE;
+    if (!s.reject_log.restore(data + pos)) {
+      return false; // a bad reason, a zero count or a gap is corrupt
+    }
+    pos += REJECT_LOG_SIZE;
     s.registry.setAutoAssign(s.config.slot_auto_assign != 0);
     for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
       if (!s.config.isSlotEnabled(i) && s.registry.slot(i).valid) {

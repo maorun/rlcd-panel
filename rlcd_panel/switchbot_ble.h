@@ -220,6 +220,114 @@ struct BleRejectStats {
   }
 };
 
+// Reason why the registry rejected a packet. NONE marks an unused RejectLog entry. SLOT_OFF is the reason
+// "DISABLED" in the REJECTS reply; the Arduino core defines the macro DISABLED, so the enum cannot use the name.
+enum class RejectReason : uint8_t { NONE = 0, FULL = 1, UNASSIGNED = 2, SLOT_OFF = 3, JUMP = 4 };
+
+// The MACs of the rejected packets of the current scan with the reason. Each MAC has one entry; a further
+// packet of the MAC raises the count (saturates at 255) and keeps the first reason. A ninth MAC raises
+// `dropped` (saturates at 255). SwitchBotRegistry::resetRejects() clears it at the start of each scan;
+// PersistentState keeps a copy of the last scan (73 bytes: 9 bytes per entry plus `dropped`).
+struct RejectLog {
+  static constexpr size_t CAPACITY = 8;
+  static constexpr size_t ENTRY_SIZE = 9; // MAC 6, format 1, reason 1, count 1
+  static constexpr size_t SERIALIZED_SIZE = CAPACITY * ENTRY_SIZE + 1;
+
+  struct Entry {
+    uint8_t mac[6] = {0, 0, 0, 0, 0, 0};
+    BleFormat format = BleFormat::WOIO;
+    RejectReason reason = RejectReason::NONE;
+    uint8_t count = 0;
+  };
+
+  Entry entries[CAPACITY];
+  uint8_t dropped = 0;
+
+  void record(const uint8_t* mac, BleFormat format, RejectReason reason) {
+    for (size_t i = 0; i < CAPACITY; ++i) {
+      if (entries[i].reason == RejectReason::NONE) {
+        memcpy(entries[i].mac, mac, 6);
+        entries[i].format = format;
+        entries[i].reason = reason;
+        entries[i].count = 1;
+        return;
+      }
+      if (memcmp(entries[i].mac, mac, 6) == 0) {
+        if (entries[i].count < UINT8_MAX) {
+          ++entries[i].count;
+        }
+        return;
+      }
+    }
+    if (dropped < UINT8_MAX) {
+      ++dropped;
+    }
+  }
+
+  size_t size() const {
+    size_t n = 0;
+    while (n < CAPACITY && entries[n].reason != RejectReason::NONE) {
+      ++n;
+    }
+    return n;
+  }
+
+  void serialize(uint8_t* out) const {
+    size_t pos = 0;
+    for (const Entry& e : entries) {
+      memcpy(out + pos, e.mac, 6);
+      pos += 6;
+      out[pos++] = static_cast<uint8_t>(e.format);
+      out[pos++] = static_cast<uint8_t>(e.reason);
+      out[pos++] = e.count;
+    }
+    out[pos] = dropped;
+  }
+
+  // Rejects a reason above JUMP, a format outside the known ones, a used entry with count 0, an unused
+  // entry with other bytes, a used entry after an unused one, a repeated MAC and `dropped` while an entry is free.
+  bool restore(const uint8_t* data) {
+    RejectLog next;
+    bool gap = false;
+    for (size_t i = 0; i < CAPACITY; ++i) {
+      const uint8_t* e = data + i * ENTRY_SIZE;
+      const uint8_t format = e[6];
+      const uint8_t reason = e[7];
+      const uint8_t count = e[8];
+      if (reason > static_cast<uint8_t>(RejectReason::JUMP)) {
+        return false;
+      }
+      if (reason == 0) {
+        for (size_t b = 0; b < ENTRY_SIZE; ++b) {
+          if (e[b] != 0) {
+            return false;
+          }
+        }
+        gap = true;
+        continue;
+      }
+      if (gap || count == 0 || format >= BLE_FORMAT_COUNT) {
+        return false;
+      }
+      for (size_t j = 0; j < i; ++j) {
+        if (memcmp(next.entries[j].mac, e, 6) == 0) {
+          return false; // one entry per MAC
+        }
+      }
+      memcpy(next.entries[i].mac, e, 6);
+      next.entries[i].format = static_cast<BleFormat>(format);
+      next.entries[i].reason = static_cast<RejectReason>(reason);
+      next.entries[i].count = count;
+    }
+    next.dropped = data[CAPACITY * ENTRY_SIZE];
+    if (next.dropped != 0 && next.size() != CAPACITY) {
+      return false;
+    }
+    *this = next;
+    return true;
+  }
+};
+
 // Confirmation of a large reading jump. A packet that differs from a stored reading younger than 10 minutes
 // by more than 8.0 C or more than 25 %RH stays pending. A second packet of the same MAC within 1.0 C and
 // 5 %RH of the pending packet confirms the change. A packet near the stored reading drops the pending
@@ -333,7 +441,7 @@ public:
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       if (pending_valid_[i]) {
         pending_valid_[i] = false;
-        countJump();
+        countJump(i);
       }
     }
   }
@@ -374,7 +482,7 @@ public:
           }
         } else if (pending_valid_[i]) {
           pending_valid_[i] = false;
-          countJump();
+          countJump(i);
         }
         int8_t prev_battery = slots_[i].battery_pct;
         const uint32_t prev_count = slots_[i].packet_count;
@@ -418,6 +526,13 @@ public:
     if (!auto_assign_ && rejects_.unassigned < UINT16_MAX) {
       ++rejects_.unassigned;
     }
+    RejectReason reason = auto_assign_ ? RejectReason::FULL : RejectReason::UNASSIGNED;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (!isSlotEnabled(i) && fixed_[i] && memcmp(fixed_mac_[i], reading.mac, 6) == 0) {
+        reason = RejectReason::SLOT_OFF;
+      }
+    }
+    reject_log_.record(reading.mac, format, reason);
     memcpy(rejects_.last_mac, reading.mac, 6);
     rejects_.has_last = true;
     return false;
@@ -430,6 +545,11 @@ public:
   // Call at the start of each scan.
   void resetRejects() {
     rejects_ = BleRejectStats{};
+    reject_log_ = RejectLog{};
+  }
+
+  const RejectLog& rejectLog() const {
+    return reject_log_;
   }
 
   const SwitchBotReading& slot(size_t index) const {
@@ -528,10 +648,11 @@ private:
     return true;
   }
 
-  void countJump() {
+  void countJump(size_t index) {
     if (rejects_.jumps < UINT16_MAX) {
       ++rejects_.jumps;
     }
+    reject_log_.record(pending_[index].mac, slots_[index].format, RejectReason::JUMP);
   }
 
   void markAssigned(size_t index, BleFormat format) {
@@ -547,6 +668,7 @@ private:
   bool fixed_[MAX_SWITCHBOT_SENSORS] = {};
   uint8_t fixed_mac_[MAX_SWITCHBOT_SENSORS][6] = {};
   BleRejectStats rejects_;
+  RejectLog reject_log_;
   bool auto_assign_ = true;
   uint16_t enabled_mask_ = 0x03FF;
 };
