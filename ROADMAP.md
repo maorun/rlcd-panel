@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Sensor health screen over the BLE console in the Wear OS app
-  - Rank: [Total: 32, Use: 6, Setup: 8, Harmony: 9, Safety: 9, Effort: M]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/WatchDashboardScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, scripts/check-protocol-sync.sh, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/StatusReplyTest.kt
-  - Goal: The telemetry frame has no sensor battery, no RSSI and no reception rate. The watch user must use the phone to find a weak sensor. Copy `StatusReply.kt` of the phone into the `protocol` package of the watch. Add `StatusReply.kt` to `FILES` of `scripts/check-protocol-sync.sh`. Add a `Sensor health` chip to `WatchDashboardScreen`. A tap sends `STATUS` through the watch `BleConsoleClient`. Show one `ScalingLazyColumn` row for each `SENSOR` line with the name, the state (`OK`, `STALE`, `BATLOW`, `EMPTY`), the battery, the RSSI and the reception rate of the `RECEPTION` line. Show a warning symbol for a rate below 50 % and for 3 or more NTP failures. Show a bad CRC-32, a timeout and an `ERR` reply as the reason and keep the last good reply. Do not start a command without a tap.
-  - Acceptance test: Run `./scripts/check-protocol-sync.sh` and assert exit 0 with `StatusReply.kt` in the list. Run `./scripts/check-protocol-sync.sh --self-test`. In the watch `StatusReplyTest`, parse `tests/fixtures/status_reply_sample.txt` and assert the six `SENSOR` lines, the states, `RECEPTION s3=0/12` and `muted`. Assert that a bad CRC-32 throws `ParseException`. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` and in `android/RlcdPhone`.
-
 - [ ] Minimum signal strength for the automatic slot assignment
   - Rank: [Total: 31, Use: 6, Setup: 9, Harmony: 8, Safety: 8, Effort: M]
   - Location: rlcd_panel/device_config.h, rlcd_panel/switchbot_ble.h, rlcd_panel/power_manager.h, rlcd_panel/rlcd_panel.ino, docs/config.example.ini, macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ConfigSchemaTests.swift, tests/test_firmware_logic.cpp

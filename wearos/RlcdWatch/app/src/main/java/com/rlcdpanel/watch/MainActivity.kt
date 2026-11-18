@@ -12,6 +12,7 @@ import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.activity.ComponentActivity
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.collectAsState
@@ -28,6 +29,8 @@ import com.rlcdpanel.watch.complication.ClimateComplicationService
 import com.rlcdpanel.watch.console.BleConsoleClient
 import com.rlcdpanel.watch.protocol.AlertTransitions
 import com.rlcdpanel.watch.protocol.ConfigCache
+import com.rlcdpanel.watch.protocol.ParseException
+import com.rlcdpanel.watch.protocol.StatusReply
 import com.rlcdpanel.watch.protocol.ConsoleReply
 import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryCache
@@ -63,6 +66,9 @@ class MainActivity : ComponentActivity() {
     private var configStatus by mutableStateOf<String?>(null)
     private var isReadingConfig by mutableStateOf(false)
     private lateinit var consoleClient: BleConsoleClient
+    private var showSensorHealth by mutableStateOf(false)
+    private var healthState by mutableStateOf(SensorHealthState())
+    private var pendingHealthRead = false
 
     private var scanPermissionDenied = false
     private var notificationPermissionAsked = false
@@ -87,8 +93,17 @@ class MainActivity : ComponentActivity() {
     private val consolePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
+        val health = pendingHealthRead
+        pendingHealthRead = false
         if (grants.isNotEmpty() && grants.values.all { it }) {
-            startConfigRead()
+            if (health) {
+                healthState = healthState.copy(isReading = true, message = null)
+                startHealthRead()
+            } else {
+                startConfigRead()
+            }
+        } else if (health) {
+            healthState = healthState.copy(isReading = false, message = "Bluetooth-Berechtigung fehlt")
         } else {
             isReadingConfig = false
             configStatus = "Bluetooth-Berechtigung fehlt"
@@ -201,6 +216,15 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            if (showSensorHealth) {
+                BackHandler { showSensorHealth = false }
+                SensorHealthScreen(
+                    state = healthState,
+                    onRead = { readSensorHealth() }
+                )
+                return@setContent
+            }
+
             WatchDashboardScreen(
                 snapshot = snapshot,
                 panelConfig = panelConfig,
@@ -217,6 +241,7 @@ class MainActivity : ComponentActivity() {
                 configStatus = configStatus,
                 isReadingConfig = isReadingConfig,
                 onReadConfig = { readPanelConfig() },
+                onOpenSensorHealth = { showSensorHealth = true },
                 onToggleScan = {
                     if (isScanning) {
                         stopBleScan()
@@ -250,6 +275,8 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         consoleClient.cancel()
         isReadingConfig = false
+        // An open permission dialog keeps pendingHealthRead, so its result still starts the tapped STATUS read.
+        healthState = healthState.copy(isReading = false)
         // Background scanning continues in BleScanService.
         super.onStop()
     }
@@ -336,7 +363,7 @@ class MainActivity : ComponentActivity() {
 
     /** Asks for BLUETOOTH_CONNECT and BLUETOOTH_SCAN (SDK 31 and later), then sends `CONFIG` once. */
     private fun readPanelConfig() {
-        if (isReadingConfig || consoleClient.isRunning) return
+        if (isReadingConfig || healthState.isReading || consoleClient.isRunning) return
         isReadingConfig = true
         configStatus = null
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -349,6 +376,39 @@ class MainActivity : ComponentActivity() {
             return
         }
         startConfigRead()
+    }
+
+    /** Asks for the console permissions, then sends `STATUS` once. Only a tap in the sensor health screen calls it. */
+    private fun readSensorHealth() {
+        if (healthState.isReading || pendingHealthRead || isReadingConfig || consoleClient.isRunning) return
+        healthState = healthState.copy(isReading = true, message = null)
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            emptyList()
+        }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isNotEmpty()) {
+            pendingHealthRead = true
+            consolePermissionLauncher.launch(needed.toTypedArray())
+            return
+        }
+        startHealthRead()
+    }
+
+    /** A good reply replaces the rows; a bad CRC-32, a timeout or an `ERR` reply keeps the last good reply. */
+    private fun startHealthRead() {
+        if (consoleClient.isRunning) {
+            healthState = healthState.copy(isReading = false, message = "Panel-Verbindung ist belegt")
+            return
+        }
+        consoleClient.send("STATUS") { reply ->
+            healthState = try {
+                SensorHealthState(status = StatusReply.parseReply(reply))
+            } catch (e: Exception) {
+                val reason = if (reply is ConsoleReply.Frame) "Antwort nicht lesbar" else BleConsoleClient.errorText(reply)
+                healthState.copy(isReading = false, message = reason)
+            }
+        }
     }
 
     /** A good reply replaces the cache; a bad CRC-32, a timeout or an `ERR` reply keeps the old one. */
