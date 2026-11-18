@@ -182,6 +182,28 @@ public struct RtcTrimMetrics: Equatable {
     }
 }
 
+/// `NTP ok=<0|1|--> failures=<N> age_s=<N|--> next_s=<N|-->`: state of the clock sync. `parse` gives `nil` for `ok=--`.
+public struct NtpMetrics: Equatable {
+    /// The panel shows a warning from this many failures in a row.
+    public static let warnFailures = 3
+    public let ok: Bool
+    public let failures: Int
+    public let ageSeconds: Int?
+    public let nextSeconds: Int?
+
+    public var isWarning: Bool { failures >= Self.warnFailures }
+
+    public static func parse(line: String) throws -> NtpMetrics? {
+        let f = fieldMap(line)
+        guard let ok = f["ok"] else { throw ParseError.badLine(line) }
+        if ok == "--" { return nil }
+        guard ok == "0" || ok == "1" else { throw ParseError.badLine(line) }
+        guard let failures = try counter(f, "failures", line: line) else { throw ParseError.badLine(line) }
+        return NtpMetrics(ok: ok == "1", failures: failures, ageSeconds: try counter(f, "age_s", line: line),
+                          nextSeconds: try counter(f, "next_s", line: line))
+    }
+}
+
 /// `RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>`.
 public struct RuntimeMetrics: Equatable {
     /// Estimated remaining battery hours.
@@ -225,9 +247,11 @@ public struct DiagnosticsReply: Equatable {
     public let awake: AwakeMetrics?
     public let reception: ReceptionMetrics?
     public let rtcTrim: RtcTrimMetrics?
+    public let ntp: NtpMetrics?
 
     public init(shtc3: Shtc3Stats?, ble: BleRejectMetrics?, reset: ResetMetrics?, runtime: RuntimeMetrics?,
-                awake: AwakeMetrics?, reception: ReceptionMetrics?, rtcTrim: RtcTrimMetrics? = nil) {
+                awake: AwakeMetrics?, reception: ReceptionMetrics?, rtcTrim: RtcTrimMetrics? = nil,
+                ntp: NtpMetrics? = nil) {
         self.shtc3 = shtc3
         self.ble = ble
         self.reset = reset
@@ -235,6 +259,7 @@ public struct DiagnosticsReply: Equatable {
         self.awake = awake
         self.reception = reception
         self.rtcTrim = rtcTrim
+        self.ntp = ntp
     }
 
     /// `otherLines` of `StatusReply`. A present line with a bad counter throws `ParseError.badLine`.
@@ -246,7 +271,8 @@ public struct DiagnosticsReply: Equatable {
             runtime: try otherLines["RUNTIME"].map(RuntimeMetrics.parse(line:)),
             awake: try otherLines["AWAKE"].map(AwakeMetrics.parse(line:)),
             reception: try otherLines["RECEPTION"].map(ReceptionMetrics.parse(line:)),
-            rtcTrim: try otherLines["RTC"].map(RtcTrimMetrics.parse(line:)))
+            rtcTrim: try otherLines["RTC"].map(RtcTrimMetrics.parse(line:)),
+            ntp: try otherLines["NTP"].flatMap(NtpMetrics.parse(line:)))
     }
 
     public static func parse(status: StatusReply) throws -> DiagnosticsReply {

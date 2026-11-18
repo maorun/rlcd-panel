@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.ConfigCache
 import com.rlcdpanel.phone.protocol.ConfigCacheInfo
+import com.rlcdpanel.phone.protocol.NtpState
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.SensorHealth
 
@@ -28,7 +29,8 @@ import com.rlcdpanel.phone.protocol.SensorHealth
 data class SensorHealthState(
     val isReading: Boolean = false,
     val rows: List<SensorHealth> = emptyList(),
-    val message: String? = null
+    val message: String? = null,
+    val ntp: NtpState? = null
 )
 
 /** Cache of the last `CONFIG` read: [info] is null without a cache; [message] tells a failed read. */
@@ -42,6 +44,12 @@ data class ConfigReadState(
 object SensorHealthText {
     fun rssi(row: SensorHealth): String = row.rssi?.let { "RSSI ${it.toInt()} dBm" } ?: "RSSI --"
     fun rate(row: SensorHealth): String = row.reception?.let { "Empfang ${it.received}/${it.scans} (${it.percent} %)" } ?: "Empfang --"
+    fun ntp(ntp: NtpState?): String = when {
+        ntp == null -> "Uhr-Sync --"
+        else -> "Uhr-Sync ${if (ntp.ok) "ok" else "fehlgeschlagen"}, Fehler ${ntp.failures}" +
+            (ntp.ageSeconds?.let { ", vor ${it / 60} min" } ?: "") +
+            (ntp.nextSeconds?.let { ", nächster Versuch in ${it / 60} min" } ?: "")
+    }
     fun battery(row: SensorHealth): String = row.battery?.let { "Batterie ${it.toInt()} %" } ?: "Batterie --"
 }
 
@@ -101,6 +109,15 @@ fun SensorHealthScreen(
                 )
             }
             state.message?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            if (state.rows.isNotEmpty()) {
+                item {
+                    Text(
+                        (if (state.ntp?.isWarning == true) "⚠ " else "") + SensorHealthText.ntp(state.ntp),
+                        color = if (state.ntp?.isWarning == true) MaterialTheme.colorScheme.error
+                        else MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            }
             items(state.rows, key = { it.slot }) { row ->
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {

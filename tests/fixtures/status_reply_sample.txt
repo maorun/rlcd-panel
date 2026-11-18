@@ -6,8 +6,9 @@ SENSOR 4 Bad temp=19.5 rh=62.0 bat=9 rssi=-60 age=10 state=BATLOW
 SENSOR 5 Garage temp=12.0 rh=55.0 bat=80 rssi=-90 age=10 state=OK
 SD status=OK age=30
 RESET reason=POWERON abnormal=0
+NTP ok=1 failures=0 age_s=3600 next_s=82800
 SHTC3 nack=0 short=0 crc=0 run=0 retried=0
 BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0 thermopro=0
 RECEPTION s1=24/24 s2=-- s3=0/12 s4=10/24 s5=11/24
 POWER src=USB v=4.05 pct=88 alerts=00 muted=0
-CRC32 d52fa4d7
+CRC32 190d8029

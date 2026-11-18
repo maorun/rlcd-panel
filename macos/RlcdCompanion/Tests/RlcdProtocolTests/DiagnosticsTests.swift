@@ -51,6 +51,22 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         #expect(try RtcTrimMetrics.parse(line: "RTC trim=0 drift_ppm=-3").canTrim)
     }
 
+    @Test func ntpLine() throws {
+        let d = try DiagnosticsReply.parse(otherLines: ["NTP": "NTP ok=0 failures=4 age_s=900 next_s=--"])
+        #expect(d.ntp == NtpMetrics(ok: false, failures: 4, ageSeconds: 900, nextSeconds: nil))
+        #expect(d.ntp?.isWarning == true)
+        let good = try NtpMetrics.parse(line: "NTP ok=1 failures=0 age_s=60 next_s=86340")
+        #expect(good == NtpMetrics(ok: true, failures: 0, ageSeconds: 60, nextSeconds: 86340) && good?.isWarning == false)
+        #expect(try NtpMetrics.parse(line: "NTP ok=0 failures=2 age_s=1 next_s=1")?.isWarning == false)
+        #expect(try NtpMetrics.parse(line: "NTP ok=-- failures=0 age_s=-- next_s=--") == nil)
+        #expect(try DiagnosticsReply.parse(otherLines: ["NTP": "NTP ok=-- failures=0 age_s=-- next_s=--"]).ntp == nil)
+        #expect(try DiagnosticsReply.parse(otherLines: [:]).ntp == nil)
+        for bad in ["NTP ok=0 failures=x age_s=1 next_s=1", "NTP ok=2 failures=0 age_s=1 next_s=1",
+                    "NTP ok=1 age_s=1 next_s=1", "NTP ok=1 failures=0 age_s=y next_s=1"] {
+            #expect(throws: ParseError.badLine(bad)) { try NtpMetrics.parse(line: bad) }
+        }
+    }
+
     @Test func rejectsBadRtcTrimLine() {
         for bad in ["RTC trim=x drift_ppm=--", "RTC trim=- drift_ppm=--", "RTC trim=64 drift_ppm=--",
                     "RTC trim=-65 drift_ppm=--", "RTC trim=1 drift_ppm=y", "RTC drift_ppm=--", "RTC trim=1",

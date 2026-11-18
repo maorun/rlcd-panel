@@ -699,6 +699,8 @@ struct SerialStatusSnapshot {
   bool rtc_trim_valid = false;            // the offset register was read
   int32_t rtc_trim = 0;                   // PCF85063A offset register value, -64 to 63
   const RtcDriftState* rtc_drift = nullptr; // last NTP drift figure
+  const NtpSyncState* ntp = nullptr;      // RTC copy of the NTP attempt state
+  bool ntp_credentials = false;           // Wi-Fi credentials exist in wifi_config.h
 };
 
 // Runs one parsed command. Storage mounts the card for the command and unmounts it on every
@@ -717,7 +719,7 @@ struct SerialStatusSnapshot {
 //   so execute() ignores CONFIG.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW> format=<...> mac=<...>" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 5 (slots, calibrated readings), a missing value gives "--";
-//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "RTC trim=<N|--> drift_ppm=<N|-->" (offset register of the PCF85063A; the drift rate only for a figure of 24 h or more), then "SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>[ usb_offset=<x>]" (the offset only on USB power), then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N> thermopro=<N> unassigned=<N> jumps=<N>" (packets of the current scan that no slot took; unassigned counts the packets blocked by slot_auto_assign=0; jumps counts the pending packets of a large reading jump that JumpGuard dropped), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "CRC32 <8 hex digits>" over all lines
+//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|-->" (age since the last card result), then "RESET reason=<TEXT> abnormal=<N|-->", then "RTC trim=<N|--> drift_ppm=<N|-->" (offset register of the PCF85063A; the drift rate only for a figure of 24 h or more), then "NTP ok=<0|1|--> failures=<N> age_s=<N|--> next_s=<N|-->" (RTC copy of the NTP state; "--" without an attempt or without Wi-Fi credentials; next_s is the time to the next due attempt; age_s and next_s use the 32-bit clock difference of NtpSchedule::due and wrap like it), then "SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>[ usb_offset=<x>]" (the offset only on USB power), then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N> thermopro=<N> unassigned=<N> jumps=<N>" (packets of the current scan that no slot took; unassigned counts the packets blocked by slot_auto_assign=0; jumps counts the pending packets of a large reading jump that JumpGuard dropped), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 7), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
@@ -1341,6 +1343,23 @@ public:
         snprintf(ppm, sizeof(ppm), "%ld", static_cast<long>(snap.rtc_drift->rate_ppm));
       }
       len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "RTC trim=%s drift_ppm=%s\n", trim, ppm));
+      if (len >= sizeof(text)) {
+        return;
+      }
+    }
+    {
+      char ok[4] = "--", failures[8] = "0", age[12] = "--", next[12] = "--";
+      if (snap.ntp != nullptr && snap.ntp_credentials && snap.ntp->has_attempted) {
+        snprintf(ok, sizeof(ok), "%u", snap.ntp->last_ok ? 1U : 0U);
+        snprintf(failures, sizeof(failures), "%u", static_cast<unsigned>(snap.ntp->failures));
+        const uint32_t elapsed = static_cast<uint32_t>(snap.now_ms - snap.ntp->last_attempt_ms);
+        const uint32_t delay = snap.ntp->last_ok ? NtpSchedule::syncIntervalMs(snap.config->ntp_sync_interval_h)
+                                                 : NtpSchedule::retryDelayMs(snap.ntp->failures);
+        snprintf(age, sizeof(age), "%lu", static_cast<unsigned long>(elapsed / 1000UL));
+        snprintf(next, sizeof(next), "%lu", static_cast<unsigned long>(elapsed >= delay ? 0UL : (delay - elapsed) / 1000UL));
+      }
+      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "NTP ok=%s failures=%s age_s=%s next_s=%s\n",
+                                          ok, failures, age, next));
       if (len >= sizeof(text)) {
         return;
       }

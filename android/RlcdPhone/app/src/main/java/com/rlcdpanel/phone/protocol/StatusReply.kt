@@ -29,6 +29,15 @@ data class ReceptionRate(val received: Int, val scans: Int) {
     }
 }
 
+/** `NTP ok=<0|1|--> failures=<N> age_s=<N|--> next_s=<N|-->`: state of the clock sync. */
+data class NtpState(val ok: Boolean, val failures: Int, val ageSeconds: Long?, val nextSeconds: Long?) {
+    val isWarning: Boolean get() = failures >= WARN_FAILURES
+
+    companion object {
+        const val WARN_FAILURES = 3
+    }
+}
+
 /** Parsed `STATUS` reply. Unknown lines are ignored, so a newer firmware does not break the parser. */
 data class StatusReply(
     val sensors: List<StatusSensor>,
@@ -36,7 +45,9 @@ data class StatusReply(
     val reception: List<ReceptionRate?>?,
     val powerSource: String?,
     /** The raw `SENSOR` lines, for the strict parser of [SensorHealth]. */
-    val sensorLines: List<String>
+    val sensorLines: List<String>,
+    /** Null for `ok=--` (no attempt, no Wi-Fi credentials) and without an `NTP` line. */
+    val ntp: NtpState? = null
 ) {
     val isUsbPower: Boolean get() = powerSource == "USB"
 
@@ -59,6 +70,7 @@ data class StatusReply(
             val sensorLines = mutableListOf<String>()
             var reception: List<ReceptionRate?>? = null
             var src: String? = null
+            var ntp: NtpState? = null
             for (line in lines) {
                 val words = line.split(' ').filter { it.isNotEmpty() }
                 val head = words.firstOrNull() ?: continue
@@ -77,10 +89,29 @@ data class StatusReply(
                     }
                     "POWER" -> src = f["src"]
                     "RECEPTION" -> reception = parseReception(line)
+                    "NTP" -> ntp = parseNtp(line)
                 }
             }
             if (sensors.isEmpty()) throw ParseException("SENSOR")
-            return StatusReply(sensors, reception, src, sensorLines)
+            return StatusReply(sensors, reception, src, sensorLines, ntp)
+        }
+
+        private fun digits(s: String?): Long? =
+            if (s != null && s.isNotEmpty() && s.length <= 12 && s.all { it in '0'..'9' }) s.toLongOrNull() else null
+
+        /** `NTP ok=<0|1|--> failures=<N> age_s=<N|--> next_s=<N|-->`; `ok=--` gives null, a bad field throws. */
+        private fun parseNtp(line: String): NtpState? {
+            val f = fields(line)
+            val ok = f["ok"]
+            if (ok == "--") return null
+            if (ok != "0" && ok != "1") throw ParseException(line)
+            val failures = digits(f["failures"]) ?: throw ParseException(line)
+            if (failures > 255) throw ParseException(line)
+            val age = f["age_s"]
+            val next = f["next_s"]
+            val ageValue = if (age == "--") null else digits(age) ?: throw ParseException(line)
+            val nextValue = if (next == "--") null else digits(next) ?: throw ParseException(line)
+            return NtpState(ok == "1", failures.toInt(), ageValue, nextValue)
         }
 
         /** `RECEPTION s1=<N>/<M> ... s5=<N>/<M>` (up to s10); a missing s1 to s5 or a bad number throws. */

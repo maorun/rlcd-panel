@@ -1589,3 +1589,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `tests/fixtures/calib_reply_sample.txt` is shared. `CalibrationReplyTest` and `CalibrationTests.sharedFixture` assert the same values.
 - The salt screen and the two-point calibration stay macOS only. The phone ports only the `SaltReply` parser.
 - The local machine has no Android SDK, so CI runs `gradle testDebugUnitTest assembleDebug`.
+
+## NTP sync state in STATUS and in the companion diagnostics
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `macos/RlcdCompanion/.../Diagnostics.swift`, `DiagnosticsView.swift`, `android/RlcdPhone/.../protocol/StatusReply.kt`, `SensorHealthScreen.kt`.
+- The user could not see why the clock does not sync. `STATUS` now shows `NTP ok=<0|1|--> failures=<N> age_s=<N|--> next_s=<N|-->` right after the `RTC` line.
+- The line reads only the RTC copy of `NtpSyncState`. It does not start Wi-Fi and does not change state. `age_s` is the time since the last attempt.
+- `next_s` is the time to the next due attempt: `ntp_sync_interval_h` after a success, `NtpSchedule::retryDelayMs(failures)` after a failure. An overdue attempt shows 0.
+- Without an attempt or without Wi-Fi credentials the line shows `ok=-- failures=0 age_s=-- next_s=--`.
+- The macOS `NtpMetrics.parse` (`Diagnostics.swift`) returns `nil` for `ok=--` and a missing line. A bad field throws `ParseError.badLine`. `DiagnosticsView` shows a warning symbol from 3 failures.
+- The Android `StatusReply.ntp` returns `null` for `ok=--` and a missing line. A bad field throws `ParseException`. `SensorHealthScreen` shows a warning from 3 failures.
+- The new line shifts each following `STATUS` line index by one. `tests/fixtures/status_reply_sample.txt` holds the line and the new CRC-32.
+- The local machine has no Android SDK and no Xcode, so CI runs `swift test` and `gradle testDebugUnitTest assembleDebug`.

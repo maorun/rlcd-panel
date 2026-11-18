@@ -11342,11 +11342,11 @@ void testBleReceptionHistory() {
   StatusFixture f;
   f.addSlot(1, 20.0f, 50, 80, -60, f.snap.now_ms - 1000);
   f.snap.reception = &back.reception;
-  assert(statusLines(f.run())[16] == "RECEPTION s1=11/24 s2=3/4 s3=-- s4=-- s5=-- s6=-- s7=-- s8=-- s9=-- s10=--");
+  assert(statusLines(f.run())[17] == "RECEPTION s1=11/24 s2=3/4 s3=-- s4=-- s5=-- s6=-- s7=-- s8=-- s9=-- s10=--");
   f.snap.reception = &st.reception;
-  assert(statusLines(f.run())[16] == "RECEPTION s1=-- s2=3/4 s3=-- s4=-- s5=-- s6=-- s7=-- s8=-- s9=-- s10=--");
+  assert(statusLines(f.run())[17] == "RECEPTION s1=-- s2=3/4 s3=-- s4=-- s5=-- s6=-- s7=-- s8=-- s9=-- s10=--");
   f.snap.reception = nullptr;
-  assert(statusLines(f.run())[16] == "RECEPTION s1=-- s2=-- s3=-- s4=-- s5=-- s6=-- s7=-- s8=-- s9=-- s10=--");
+  assert(statusLines(f.run())[17] == "RECEPTION s1=-- s2=-- s3=-- s4=-- s5=-- s6=-- s7=-- s8=-- s9=-- s10=--");
 
   // Widest case: five slots with 24/24, wide names and wide counters still fit the reply buffer (CRC32 line present).
   StatusFixture w;
@@ -11365,8 +11365,8 @@ void testBleReceptionHistory() {
   }
   w.snap.reception = &full;
   const std::vector<std::string> wl = statusLines(w.run());
-  assert(wl.size() == 21 && wl[16] == "RECEPTION s1=24/24 s2=24/24 s3=24/24 s4=24/24 s5=24/24 s6=-- s7=-- s8=-- s9=-- s10=--");
-  assert(wl[20].rfind("CRC32 ", 0) == 0);
+  assert(wl.size() == 22 && wl[17] == "RECEPTION s1=24/24 s2=24/24 s3=24/24 s4=24/24 s5=24/24 s6=-- s7=-- s8=-- s9=-- s10=--");
+  assert(wl[21].rfind("CRC32 ", 0) == 0);
 
   // An RTC image of the old STATE_VERSION is rejected, also with a valid checksum.
   uint8_t old[PowerManager::SERIALIZED_SIZE];
@@ -11401,13 +11401,13 @@ void testBleReceptionHistory() {
 void testSerialStatusEmptyAndMissingValues() {
   StatusFixture f;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 21);
+  assert(lines.size() == 22);
   assert(lines[0] == "SENSOR 0 onboard temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=SHTC3 mac=--");
   assert(lines[1] == "SENSOR 1 slot1 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=-- mac=--");
   assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=-- mac=--");
   assert(lines[12] == "RESET reason=UNKNOWN abnormal=--");
-  assert(lines[17] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
-  assert(lines[20].rfind("CRC32 ", 0) == 0);
+  assert(lines[18] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
+  assert(lines[21].rfind("CRC32 ", 0) == 0);
 }
 
 void testSerialStatusStates() {
@@ -11575,8 +11575,8 @@ void testSerialStatusWorstCaseLineLength() {
   for (int i = 0; i < 30; ++i) wide_awake.record(65535);
   f.snap.awake = &wide_awake;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 21 && lines[11].rfind("SD status=", 0) == 0 && lines[12] == "RESET reason=TASK_WDT abnormal=65535" &&
-         lines[14].rfind("SHTC3 ", 0) == 0 && lines[15].rfind("BLE ", 0) == 0 && lines[17].rfind("POWER ", 0) == 0 && lines[18].rfind("RUNTIME ", 0) == 0 && lines[19].rfind("AWAKE ", 0) == 0 && lines[20].size() == 14);
+  assert(lines.size() == 22 && lines[11].rfind("SD status=", 0) == 0 && lines[12] == "RESET reason=TASK_WDT abnormal=65535" &&
+         lines[15].rfind("SHTC3 ", 0) == 0 && lines[16].rfind("BLE ", 0) == 0 && lines[18].rfind("POWER ", 0) == 0 && lines[19].rfind("RUNTIME ", 0) == 0 && lines[20].rfind("AWAKE ", 0) == 0 && lines[21].size() == 14);
   for (size_t i = 0; i < 11; ++i) {
     assert(lines[i].rfind("SENSOR ", 0) == 0 && lines[i].find(" state=") != std::string::npos);
   }
@@ -11673,19 +11673,19 @@ void testBleRejectSaturationAndReset() {
 void testBleRejectStatusLine() {
   StatusFixture f;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 21);
-  assert(lines[15] == "BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0 thermopro=0 unassigned=0 jumps=0");
-  assert(lines[16] == "RECEPTION s1=-- s2=-- s3=-- s4=-- s5=-- s6=-- s7=-- s8=-- s9=-- s10=--");
-  assert(lines[17].rfind("POWER ", 0) == 0);
+  assert(lines.size() == 22);
+  assert(lines[16] == "BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0 thermopro=0 unassigned=0 jumps=0");
+  assert(lines[17] == "RECEPTION s1=-- s2=-- s3=-- s4=-- s5=-- s6=-- s7=-- s8=-- s9=-- s10=--");
+  assert(lines[18].rfind("POWER ", 0) == 0);
   fillRegistry(f.registry);
   f.registry.upsert(rejectReading(0xAB), BleFormat::BTHOME);
   f.registry.upsert(rejectReading(0xCD), BleFormat::ATC);
   f.registry.upsert(rejectReading(0xCD), BleFormat::ATC);
   f.registry.upsert(rejectReading(0xEF), BleFormat::THERMOPRO);
   lines = statusLines(f.run());
-  assert(lines.size() == 21);
-  assert(lines[15] == "BLE rejected=4 last=AA:00:00:00:00:EF woio=0 meter=0 bthome=1 atc=2 thermopro=1 unassigned=0 jumps=0");
-  assert(lines[17].rfind("POWER ", 0) == 0);
+  assert(lines.size() == 22);
+  assert(lines[16] == "BLE rejected=4 last=AA:00:00:00:00:EF woio=0 meter=0 bthome=1 atc=2 thermopro=1 unassigned=0 jumps=0");
+  assert(lines[18].rfind("POWER ", 0) == 0);
   // The slot lines stay as before.
   assert(lines[0].rfind("SENSOR 0 ", 0) == 0);
 }
@@ -11803,8 +11803,8 @@ void testJumpGuardStatusLine() {
   f.registry.upsert(jumpReading(29.0f, 50, 2000));
   f.registry.endScan();
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[15].find("unassigned=0 jumps=1") != std::string::npos);
-  assert(lines[15].rfind("BLE rejected=0 ", 0) == 0);
+  assert(lines[16].find("unassigned=0 jumps=1") != std::string::npos);
+  assert(lines[16].rfind("BLE rejected=0 ", 0) == 0);
 }
 
 void testSlotAutoAssign() {
@@ -11857,7 +11857,7 @@ void testSlotAutoAssignStatus() {
   f.registry.upsert(rejectReading(0xAB), BleFormat::BTHOME);
   f.registry.upsert(rejectReading(0xAB), BleFormat::BTHOME);
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[15] == "BLE rejected=2 last=AA:00:00:00:00:AB woio=0 meter=0 bthome=2 atc=0 thermopro=0 unassigned=2 jumps=0");
+  assert(lines[16] == "BLE rejected=2 last=AA:00:00:00:00:AB woio=0 meter=0 bthome=2 atc=0 thermopro=0 unassigned=2 jumps=0");
 }
 
 void testSlotAutoAssignConfigKey() {
@@ -11920,8 +11920,8 @@ void testBleRejectStatusWorstCaseLength() {
     f.registry.endScan();
   }
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 21);
-  assert(lines[15] == "BLE rejected=327675 last=FF:FF:FF:FF:FF:FF woio=65535 meter=65535 bthome=65535 atc=65535 thermopro=65535 unassigned=65535 jumps=65535");
+  assert(lines.size() == 22);
+  assert(lines[16] == "BLE rejected=327675 last=FF:FF:FF:FF:FF:FF woio=65535 meter=65535 bthome=65535 atc=65535 thermopro=65535 unassigned=65535 jumps=65535");
 }
 
 namespace {
@@ -11943,13 +11943,13 @@ void testStatusRuntimeLineValid() {
   f.snap.cycle_tenths = 123;
   f.snap.scan_saved_ms = 0;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 21);
-  assert(lines[18] == "RUNTIME h=29 samples=12 cycles=12.3 scan_saved_ms=0");
+  assert(lines.size() == 22);
+  assert(lines[19] == "RUNTIME h=29 samples=12 cycles=12.3 scan_saved_ms=0");
   // An early scan stop saves awake time and raises the runtime by the same ratio as the diagnostics view.
   f.snap.scan_saved_ms = 4000;
   const BatteryRuntime expected = h.estimate(f.snap.battery, 4000);
   assert(expected.valid && expected.hours > 29);
-  assert(statusLines(f.run())[18] ==
+  assert(statusLines(f.run())[19] ==
          "RUNTIME h=" + std::to_string(expected.hours) + " samples=12 cycles=12.3 scan_saved_ms=4000");
 }
 
@@ -11961,21 +11961,21 @@ void testStatusRuntimeLineNoEstimate() {
   // Too few samples
   const BatteryHistory few = runtimeHistory(BatteryHistory::MIN_SAMPLES - 1);
   f.snap.battery_history = &few;
-  assert(statusLines(f.run())[18] == "RUNTIME h=-- samples=5 cycles=0.0 scan_saved_ms=0");
+  assert(statusLines(f.run())[19] == "RUNTIME h=-- samples=5 cycles=0.0 scan_saved_ms=0");
   // Flat slope
   BatteryHistory flat;
   for (size_t i = 0; i < 12; ++i) {
     flat.push(3.90f);
   }
   f.snap.battery_history = &flat;
-  assert(statusLines(f.run())[18] == "RUNTIME h=-- samples=12 cycles=0.0 scan_saved_ms=0");
+  assert(statusLines(f.run())[19] == "RUNTIME h=-- samples=12 cycles=0.0 scan_saved_ms=0");
   // USB power gives no estimate, a missing history reads as no samples
   const BatteryHistory ok = runtimeHistory(12);
   f.snap.battery_history = &ok;
   f.snap.battery.usb_powered = true;
-  assert(statusLines(f.run())[18] == "RUNTIME h=-- samples=12 cycles=0.0 scan_saved_ms=0");
+  assert(statusLines(f.run())[19] == "RUNTIME h=-- samples=12 cycles=0.0 scan_saved_ms=0");
   f.snap.battery_history = nullptr;
-  assert(statusLines(f.run())[18] == "RUNTIME h=-- samples=0 cycles=0.0 scan_saved_ms=0");
+  assert(statusLines(f.run())[19] == "RUNTIME h=-- samples=0 cycles=0.0 scan_saved_ms=0");
 }
 
 void testStatusRuntimeLineUnknownCycles() {
@@ -11985,7 +11985,7 @@ void testStatusRuntimeLineUnknownCycles() {
   f.snap.battery.usb_powered = false;
   f.snap.battery.voltage_v = 3.78f;
   f.snap.cycle_tenths = -1;
-  assert(statusLines(f.run())[18] == "RUNTIME h=29 samples=12 cycles=-- scan_saved_ms=0");
+  assert(statusLines(f.run())[19] == "RUNTIME h=29 samples=12 cycles=-- scan_saved_ms=0");
 }
 
 void testStatusRuntimeLineWorstCaseLength() {
@@ -12002,9 +12002,9 @@ void testStatusRuntimeLineWorstCaseLength() {
   const BatteryRuntime expected = h.estimate(f.snap.battery, f.snap.scan_saved_ms);
   assert(expected.valid && expected.hours == 99u * 24u + 12u);
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 21);
-  assert(lines[18] == "RUNTIME h=2388 samples=24 cycles=9999.9 scan_saved_ms=4294967295");
-  assert(lines[20].size() == 14);
+  assert(lines.size() == 22);
+  assert(lines[19] == "RUNTIME h=2388 samples=24 cycles=9999.9 scan_saved_ms=4294967295");
+  assert(lines[21].size() == 14);
 }
 
 void testStatusRuntimeLinePositionCrcAndNoSideEffect() {
@@ -12018,17 +12018,17 @@ void testStatusRuntimeLinePositionCrcAndNoSideEffect() {
   f.snap.cycle_tenths = 123;
   const std::string out = f.run();
   const std::vector<std::string> lines = statusLines(out);
-  assert(lines.size() == 21);
-  assert(lines[17].rfind("POWER ", 0) == 0);
-  assert(lines[18].rfind("RUNTIME ", 0) == 0);
-  assert(lines[20].rfind("CRC32 ", 0) == 0 && lines[20].size() == 14);
+  assert(lines.size() == 22);
+  assert(lines[18].rfind("POWER ", 0) == 0);
+  assert(lines[19].rfind("RUNTIME ", 0) == 0);
+  assert(lines[21].rfind("CRC32 ", 0) == 0 && lines[21].size() == 14);
   // The CRC-32 covers the RUNTIME line too.
   const size_t crc_at = out.rfind("CRC32 ");
   SerialCrc32 crc;
   crc.update(reinterpret_cast<const uint8_t*>(out.data()), crc_at);
   char expected[24];
   snprintf(expected, sizeof(expected), "CRC32 %08lx", static_cast<unsigned long>(crc.value()));
-  assert(lines[20] == expected);
+  assert(lines[21] == expected);
   assert(out.find("RUNTIME ") < crc_at);
   // The command leaves the history unchanged.
   assert(h.size() == before.size() && h.head() == before.head() && h.last_sample_ms == before.last_sample_ms &&
@@ -12036,6 +12036,38 @@ void testStatusRuntimeLinePositionCrcAndNoSideEffect() {
   for (size_t k = 0; k < BatteryHistory::CAPACITY; ++k) {
     assert(h.rawSample(k) == before.rawSample(k) && h.rawTime(k) == before.rawTime(k));
   }
+}
+
+void testStatusNtpLine() {
+  StatusFixture f;
+  NtpSyncState ntp;
+  f.snap.ntp = &ntp;
+  f.snap.ntp_credentials = true;
+  std::vector<std::string> lines = statusLines(f.run());
+  assert(lines[14] == "NTP ok=-- failures=0 age_s=-- next_s=--"); // no attempt
+  // One success 1 h ago: default interval 24 h leaves 23 h.
+  ntp.has_attempted = true;
+  ntp.last_ok = true;
+  ntp.last_attempt_ms = f.snap.now_ms - 3600000;
+  lines = statusLines(f.run());
+  assert(lines[13].rfind("RTC ", 0) == 0);
+  assert(lines[14] == "NTP ok=1 failures=0 age_s=3600 next_s=82800");
+  // Four failures, 10 min ago: retry delay 2 h, 1 h 50 min left.
+  ntp.last_ok = false;
+  ntp.failures = 4;
+  ntp.last_attempt_ms = f.snap.now_ms - 600000;
+  lines = statusLines(f.run());
+  assert(lines[14] == "NTP ok=0 failures=4 age_s=600 next_s=6600");
+  // An overdue retry gives 0.
+  ntp.last_attempt_ms = f.snap.now_ms - 30000000;
+  assert(statusLines(f.run())[14] == "NTP ok=0 failures=4 age_s=30000 next_s=0");
+  // Without credentials the fields stay "--".
+  f.snap.ntp_credentials = false;
+  assert(statusLines(f.run())[14] == "NTP ok=-- failures=0 age_s=-- next_s=--");
+  // Without an RTC copy pointer the fields stay "--".
+  f.snap.ntp_credentials = true;
+  f.snap.ntp = nullptr;
+  assert(statusLines(f.run())[14] == "NTP ok=-- failures=0 age_s=-- next_s=--");
 }
 
 void testSerialStatusPowerLine() {
@@ -12046,10 +12078,10 @@ void testSerialStatusPowerLine() {
   f.snap.alert_mask = 0x25;
   f.snap.muted = true;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[17] == "POWER src=BAT v=3.62 pct=42 alerts=25 muted=1");
+  assert(lines[18] == "POWER src=BAT v=3.62 pct=42 alerts=25 muted=1");
   f.snap.battery.valid = false;
   lines = statusLines(f.run());
-  assert(lines[17] == "POWER src=BAT v=-- pct=-- alerts=25 muted=1");
+  assert(lines[18] == "POWER src=BAT v=-- pct=-- alerts=25 muted=1");
 }
 
 struct FakeResetStore {
@@ -12279,16 +12311,16 @@ void testShtc3StatusLine() {
   f.snap.shtc3.run = 4;
   f.snap.shtc3.retried = 7;
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 21);
+  assert(lines.size() == 22);
   assert(lines[12].rfind("RESET ", 0) == 0);
-  assert(lines[14] == "SHTC3 nack=1 short=22 crc=65535 run=4 retried=7 usb_offset=0.0"); // fixture runs on USB power
-  assert(lines[17].rfind("POWER ", 0) == 0);
+  assert(lines[15] == "SHTC3 nack=1 short=22 crc=65535 run=4 retried=7 usb_offset=0.0"); // fixture runs on USB power
+  assert(lines[18].rfind("POWER ", 0) == 0);
   StatusFixture clean;
-  assert(statusLines(clean.run())[14] == "SHTC3 nack=0 short=0 crc=0 run=0 retried=0 usb_offset=0.0");
+  assert(statusLines(clean.run())[15] == "SHTC3 nack=0 short=0 crc=0 run=0 retried=0 usb_offset=0.0");
   clean.config.usb_temp_offset_c = -1.2f;
-  assert(statusLines(clean.run())[14] == "SHTC3 nack=0 short=0 crc=0 run=0 retried=0 usb_offset=-1.2");
+  assert(statusLines(clean.run())[15] == "SHTC3 nack=0 short=0 crc=0 run=0 retried=0 usb_offset=-1.2");
   clean.snap.battery.usb_powered = false; // battery power: the key stays out of the line
-  assert(statusLines(clean.run())[14] == "SHTC3 nack=0 short=0 crc=0 run=0 retried=0");
+  assert(statusLines(clean.run())[15] == "SHTC3 nack=0 short=0 crc=0 run=0 retried=0");
   // The CRC32 line covers all lines before it, including the new retried field.
   const std::string reply = f.run();
   const size_t crc_at = reply.rfind("CRC32 ");
@@ -12411,30 +12443,30 @@ void testAwakeStatsRuntimeEstimate() {
 void testAwakeStatsStatusLine() {
   StatusFixture f;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines.size() == 21);
-  assert(lines[18].rfind("RUNTIME ", 0) == 0);
-  assert(lines[19] == "AWAKE last_ms=-- avg_ms=-- max_ms=-- samples=0");
-  assert(lines[20].rfind("CRC32 ", 0) == 0);
+  assert(lines.size() == 22);
+  assert(lines[19].rfind("RUNTIME ", 0) == 0);
+  assert(lines[20] == "AWAKE last_ms=-- avg_ms=-- max_ms=-- samples=0");
+  assert(lines[21].rfind("CRC32 ", 0) == 0);
   AwakeTimeStats a;
   a.record(6400);
   a.record(3200);
   f.snap.awake = &a;
   const std::string out = f.run();
   lines = statusLines(out);
-  assert(lines[19] == "AWAKE last_ms=3200 avg_ms=4800 max_ms=6400 samples=2");
+  assert(lines[20] == "AWAKE last_ms=3200 avg_ms=4800 max_ms=6400 samples=2");
   // The CRC-32 covers the AWAKE line.
   const size_t crc_at = out.rfind("CRC32 ");
   SerialCrc32 crc;
   crc.update(reinterpret_cast<const uint8_t*>(out.data()), crc_at);
   char expected[24];
   snprintf(expected, sizeof(expected), "CRC32 %08lx", static_cast<unsigned long>(crc.value()));
-  assert(lines[20] == expected && out.find("AWAKE ") < crc_at && out.find("RUNTIME ") < out.find("AWAKE "));
+  assert(lines[21] == expected && out.find("AWAKE ") < crc_at && out.find("RUNTIME ") < out.find("AWAKE "));
   // The widest values fit the line.
   AwakeTimeStats wide;
   for (int i = 0; i < 30; ++i) wide.record(65535);
   f.snap.awake = &wide;
   lines = statusLines(f.run());
-  assert(lines[19].rfind("AWAKE last_ms=65535 avg_ms=655", 0) == 0 && lines[19].find(" max_ms=65535 samples=24") != std::string::npos);
+  assert(lines[20].rfind("AWAKE last_ms=65535 avg_ms=655", 0) == 0 && lines[20].find(" max_ms=65535 samples=24") != std::string::npos);
 }
 
 void testAwakeStatsRtcRoundTrip() {
@@ -17999,9 +18031,9 @@ void testSdCardStatus() {
     f.snap.sd_status = n.status;
     f.snap.sd_status_ms = f.snap.now_ms - 125000;
     const std::vector<std::string> lines = statusLines(f.run());
-    assert(lines.size() == 21);
+    assert(lines.size() == 22);
     assert(lines[11] == std::string("SD status=") + n.name + " age=125");
-    assert(lines[17].rfind("POWER ", 0) == 0);
+    assert(lines[18].rfind("POWER ", 0) == 0);
   }
   StatusFixture unknown;
   const std::vector<std::string> unknown_lines = statusLines(unknown.run());
@@ -21417,6 +21449,7 @@ testStatusRuntimeLineNoEstimate();
 testStatusRuntimeLineUnknownCycles();
 testStatusRuntimeLineWorstCaseLength();
 testStatusRuntimeLinePositionCrcAndNoSideEffect();
+testStatusNtpLine();
 testSerialStatusResetLine();
 testShtc3Classification();
 testShtc3HealthCounters();
