@@ -16,6 +16,18 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.KeyboardType
+import com.rlcdpanel.phone.ventilation.OutdoorLocation
+import com.rlcdpanel.phone.ventilation.OutdoorLocationStore
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -78,9 +90,18 @@ fun PhoneDashboardScreen(
     onOpenSensorHealth: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
     /** Protocol source badge of each tile index, from the last sensor health read; tile 0 is always the onboard sensor. */
-    sourceBadges: Map<Int, String> = emptyMap()
+    sourceBadges: Map<Int, String> = emptyMap(),
+    outdoorLocation: OutdoorLocation = OutdoorLocation(),
+    showLocationDialog: Boolean = false,
+    onOpenLocation: () -> Unit = {},
+    onDismissLocation: () -> Unit = {},
+    /** Returns an error text for a rejected input, `null` after a save. */
+    onSaveLocation: (String, String, String) -> String? = { _, _, _ -> null }
 ) {
     MaterialTheme(colorScheme = PhoneColors) {
+        if (showLocationDialog) {
+            OutdoorLocationDialog(outdoorLocation, onDismissLocation, onSaveLocation)
+        }
         Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             LazyColumn(
                 modifier = Modifier
@@ -110,7 +131,8 @@ fun PhoneDashboardScreen(
                     OutdoorCard(
                         outdoorClimate = outdoorClimate,
                         outdoorSource = outdoorSource,
-                        onCycleOutdoorSource = onCycleOutdoorSource
+                        onCycleOutdoorSource = onCycleOutdoorSource,
+                        onOpenLocation = onOpenLocation
                     )
                 }
 
@@ -250,7 +272,8 @@ private fun AlertBadges(alerts: AlertMask) {
 private fun OutdoorCard(
     outdoorClimate: OutdoorClimate?,
     outdoorSource: OutdoorSource,
-    onCycleOutdoorSource: () -> Unit
+    onCycleOutdoorSource: () -> Unit,
+    onOpenLocation: () -> Unit
 ) {
     Card(onClick = onCycleOutdoorSource, modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.padding(14.dp)) {
@@ -281,8 +304,56 @@ private fun OutdoorCard(
                 color = if (outdoorClimate != null) Color.White else Color.Gray
             )
             Text(text = "Tippen wechselt die Quelle", fontSize = 11.sp, color = Color.Gray)
+            if (outdoorSource is OutdoorSource.OpenMeteo) {
+                TextButton(onClick = onOpenLocation) { Text("Ort ändern") }
+            }
         }
     }
+}
+
+@Composable
+private fun OutdoorLocationDialog(
+    location: OutdoorLocation,
+    onDismiss: () -> Unit,
+    onSave: (String, String, String) -> String?
+) {
+    var lat by rememberSaveable { mutableStateOf(OutdoorLocationStore.formatCoordinate(location.latitude)) }
+    var lon by rememberSaveable { mutableStateOf(OutdoorLocationStore.formatCoordinate(location.longitude)) }
+    var name by rememberSaveable { mutableStateOf(location.name) }
+    var error by remember { mutableStateOf<String?>(null) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Ort der Außendaten") },
+        text = {
+            Column {
+                OutlinedTextField(
+                    value = name,
+                    onValueChange = { name = it },
+                    label = { Text("Ortsname") },
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = lat,
+                    onValueChange = { lat = it },
+                    label = { Text("Breitengrad (-90 bis 90)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true
+                )
+                OutlinedTextField(
+                    value = lon,
+                    onValueChange = { lon = it },
+                    label = { Text("Längengrad (-180 bis 180)") },
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                    singleLine = true
+                )
+                error?.let { Text(text = it, color = Color(0xFFEF9A9A), fontSize = 13.sp) }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { error = onSave(lat, lon, name) }) { Text("Speichern") }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } }
+    )
 }
 
 @Composable

@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Outdoor location setting in the Android app
-  - Rank: [Total: 30, Use: 8, Setup: 7, Harmony: 6, Safety: 9, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/ventilation/OutdoorSource.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/ventilation/OutdoorWeatherService.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/ventilation/OutdoorLocationStore.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/PhoneDashboardScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/ventilation/OutdoorLocationStoreTest.kt
-  - Goal: `OutdoorSource.OpenMeteo` uses the fixed Berlin coordinates 52.52 N 13.41 E. A user in another city gets wrong ventilation advice. Add a settings dialog with latitude, longitude and a place name. Validate latitude -90 to 90 and longitude -180 to 180, with at most 4 decimals. Store the values in `SharedPreferences` through `OutdoorLocationStore`. Keep Berlin as the default. Do not request a location permission. Clear the cached Open-Meteo reading after a change, so the next advice uses the new place.
-  - Acceptance test: Assert in `OutdoorLocationStoreTest` the default, a round trip, the rejection of latitude 91 and longitude -181, and the rejection of a non-numeric text. Assert that `OutdoorWeatherService.requestUrl` contains the stored coordinates with 4 decimals. Assert that a change clears the cached reading in `OutdoorResolverTest`. Run `gradle testDebugUnitTest` in `android/RlcdPhone`.
-
 - [ ] Seven-day chart over the BLE console in the Android app
   - Rank: [Total: 28, Use: 7, Setup: 2, Harmony: 9, Safety: 10, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/WeekReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/WeekScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/WeekReplyTest.kt, tests/fixtures/week_reply_sample.txt, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift

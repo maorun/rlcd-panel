@@ -15,6 +15,24 @@ object OutdoorResolver {
     /** An Open-Meteo reading counts as stale after this time. */
     const val MAX_OUTDOOR_AGE_MS: Long = 60 * 60 * 1000L
 
+    /**
+     * Returns the cached Open-Meteo reading only for the location it was fetched for. A changed
+     * location drops the reading, so the next advice waits for a fetch of the new place.
+     */
+    fun cacheFor(
+        cached: OutdoorClimate?,
+        cachedLocation: OutdoorLocation?,
+        current: OutdoorLocation
+    ): OutdoorClimate? = cached?.takeIf { cachedLocation != null && isSamePlace(cachedLocation, current) }
+
+    /** A rename keeps the coordinates, so it needs no new reading. */
+    fun isSamePlace(a: OutdoorLocation, b: OutdoorLocation): Boolean =
+        a.latitude == b.latitude && a.longitude == b.longitude
+
+    /** A late reply counts only for the place that is current now. */
+    fun acceptFetched(fetchedFor: OutdoorLocation, current: OutdoorLocation): Boolean =
+        isSamePlace(fetchedFor, current)
+
     fun isFrameFresh(receivedAtMillis: Long?, nowMillis: Long): Boolean =
         receivedAtMillis != null && nowMillis - receivedAtMillis <= MAX_FRAME_AGE_MS
 
