@@ -67,6 +67,8 @@ final class AppModel: ConsoleLinkDelegate {
     var archiveFolder: URL?
     /// Rows of the daily summary files in `archiveFolder`, read from local files only.
     var dailyFolder: DailyFolder?
+    /// Monthly alert statistics from the `events_v1` files in `archiveFolder`, read from local files only.
+    var alertStats: AlertStatsResult?
     /// Hourly climate charts: the months with a file in the archive folder, the selected month and its rows.
     var climateMonths: [String] = []
     var climateMonth = ""
@@ -882,6 +884,7 @@ final class AppModel: ConsoleLinkDelegate {
         if let text { downloadStats.failed += 1; message = "\(name): \(text)" }
         if queue.isEmpty {
             if dailyFolder != nil, let folder = downloadFolder { dailyFolder = DailyLog.load(from: folder) } // visible charts follow the new files
+            if alertStats != nil, let folder = downloadFolder { alertStats = AlertStats.load(from: folder) } // the alert statistics follow the new files
             if climateData != nil { showClimateCharts() } // the hourly charts follow the new files too
             downloadFolder = nil
             archiveSummary = "Saved \(downloadStats.saved), failed \(downloadStats.failed)"
