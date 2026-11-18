@@ -24,12 +24,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] PNG export of the panel image in the macOS app
-  - Rank: [Total: 27, Use: 4, Setup: 6, Harmony: 7, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/PanelImage.swift, macos/RlcdCompanion/Sources/RlcdCompanion/PanelView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/PanelImageTests.swift
-  - Goal: `PanelView` shows the framebuffer of the `SCREEN` reply, but the user cannot save it. A bug report or a layout check needs a file. Add `PanelImage.pngData()` in `RlcdProtocol`. It encodes the 400 x 300 pixels as a 1-bit grayscale PNG with `CoreGraphics` and `ImageIO`, black for a set pixel. Add one `Save PNG` button to `PanelView` with an `NSSavePanel` and the default name `panel_<YYYYMMDD_HHMMSS>.png`. Disable the button before the first image. Do not send a console command for the export.
-  - Acceptance test: In `PanelImageTests`, decode a known 15,000-byte frame, call `pngData()`, read the PNG back with `CGImageSource` and assert the size 400 x 300 and the value of the four corner pixels and one checkerboard pixel. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
-
 - [ ] Panel silence notification in the Wear OS app
   - Rank: [Total: 27, Use: 7, Setup: 5, Harmony: 7, Safety: 8, Effort: M]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/SilenceWatch.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/BleScanService.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/SilenceWatchTest.kt

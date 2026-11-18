@@ -1,4 +1,6 @@
+import CoreGraphics
 import Foundation
+import ImageIO
 import Testing
 @testable import RlcdProtocol
 
@@ -65,6 +67,33 @@ struct PanelImageTests {
         let offset = (5 * 400 + 3) * 4
         #expect(Array(rgba[offset..<offset + 4]) == [0, 0, 0, 255])
         #expect(Array(rgba[0..<4]) == [255, 255, 255, 255])
+    }
+
+    @Test func pngRoundTripKeepsCornersAndCheckerboard() throws {
+        // black: corners (0,0), (0,299), (399,299) and checkerboard pixels (1,1), (2,0); (399,0), (1,0) and (0,1) stay white
+        let black = [(0, 0), (0, 299), (399, 299), (1, 1), (2, 0)]
+        let image = try PanelImage.decode(frame(black: black))
+        let png = try #require(image.pngData())
+        let source = try #require(CGImageSourceCreateWithData(png as CFData, nil))
+        let cg = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        #expect(cg.width == 400 && cg.height == 300)
+        var gray = [UInt8](repeating: 0, count: 400 * 300)
+        let context = try #require(CGContext(
+            data: &gray, width: 400, height: 300, bitsPerComponent: 8, bytesPerRow: 400,
+            space: CGColorSpaceCreateDeviceGray(), bitmapInfo: CGImageAlphaInfo.none.rawValue))
+        context.draw(cg, in: CGRect(x: 0, y: 0, width: 400, height: 300))
+        func value(_ x: Int, _ y: Int) -> UInt8 { gray[y * 400 + x] }
+        #expect(value(0, 0) == 0)
+        #expect(value(399, 0) == 255)
+        #expect(value(0, 299) == 0)
+        #expect(value(399, 299) == 0)
+        #expect(value(1, 1) == 0 && value(2, 0) == 0)
+        #expect(value(1, 0) == 255 && value(0, 1) == 255)
+        // each pixel of the PNG equals the decoded image
+        let mismatches = (0..<300).reduce(0) { sum, y in
+            sum + (0..<400).filter { (value($0, y) == 0) != image.isBlack(x: $0, y: y) }.count
+        }
+        #expect(mismatches == 0)
     }
 
     @Test func commandLine() {

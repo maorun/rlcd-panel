@@ -12,6 +12,8 @@ struct PanelView: View {
                 HStack {
                     Button("Refresh") { model.refreshPanelImage() }
                         .disabled(!model.consoleConnected || model.transport != .usb)
+                    Button("Save PNG") { model.exportPanelPng() }
+                        .disabled(model.panelImage == nil)
                     if model.transport != .usb {
                         Text("SCREEN needs the USB serial link.").font(.caption).foregroundStyle(.secondary)
                     }
