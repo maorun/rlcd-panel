@@ -49,6 +49,7 @@ import com.rlcdpanel.phone.protocol.ConfigCache
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryHistory
+import com.rlcdpanel.phone.protocol.EventsReply
 import com.rlcdpanel.phone.protocol.WeekReply
 import com.rlcdpanel.phone.ventilation.OutdoorClimate
 import com.rlcdpanel.phone.ventilation.LocationInput
@@ -99,6 +100,8 @@ class MainActivity : ComponentActivity() {
     private var showHistory by mutableStateOf(false)
     private var showCalib by mutableStateOf(false)
     private var showWeek by mutableStateOf(false)
+    private var showEvents by mutableStateOf(false)
+    private var eventState by mutableStateOf(EventLogState())
     private var showFinder by mutableStateOf(false)
     private var showChime by mutableStateOf(false)
     private var showSlots by mutableStateOf(false)
@@ -182,6 +185,15 @@ class MainActivity : ComponentActivity() {
                     onBack = { showHistory = false }
                 )
                 BackHandler { showHistory = false }
+                return@setContent
+            }
+            if (showEvents) {
+                EventLogScreen(
+                    state = eventState,
+                    onRead = { withConsolePermission { readEvents() } },
+                    onBack = { closeEvents() }
+                )
+                BackHandler { closeEvents() }
                 return@setContent
             }
             if (showWeek) {
@@ -366,6 +378,7 @@ class MainActivity : ComponentActivity() {
                 onOpenSensorHealth = { showHealth = true },
                 onOpenHistory = { showHistory = true },
                 onOpenWeek = { showWeek = true },
+                onOpenEvents = { showEvents = true },
                 sourceBadges = sourceBadges,
                 outdoorLocation = outdoorLocation,
                 showLocationDialog = showLocationDialog,
@@ -394,6 +407,7 @@ class MainActivity : ComponentActivity() {
         healthState = healthState.copy(isReading = false)
         configState = configState.copy(isReading = false)
         if (weekState.isReading) weekState = WeekState(message = "Abgebrochen. Erneut lesen.")
+        if (eventState.isReading) eventState = EventLogState(message = "Abgebrochen. Erneut lesen.")
         if (chimeState.isBusy) chimeState = chimeState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, STATUS lesen")
         if (calibState.isBusy) {
             calibState = calibState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, CONFIG lesen")
@@ -410,6 +424,7 @@ class MainActivity : ComponentActivity() {
         if (action != null) {
             pendingConsoleAction = null
             if (grants.isNotEmpty() && grants.values.all { it }) action()
+            else if (showEvents) eventState = EventLogState(message = "Bluetooth-Berechtigung fehlt")
             else if (showWeek) weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
             else if (showFinder) finderState = finderState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else if (showSlots) slotState = slotState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
@@ -435,6 +450,31 @@ class MainActivity : ComponentActivity() {
             putExtra(Intent.EXTRA_TEXT, history.toCsv(HistoryScreenText.SHARE_MAX_ROWS))
         }
         startActivity(Intent.createChooser(send, "Share CSV"))
+    }
+
+    private fun closeEvents() {
+        consoleClient.cancel()
+        pendingConsoleAction = null
+        eventState = EventLogState()
+        showEvents = false
+        if (!scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
+    }
+
+    /** Sends `EVENTS` after a tap. A failed CRC-32 or a timeout gives one error text; the command is not repeated. */
+    private fun readEvents() {
+        stopBleScan()
+        eventState = EventLogState(isReading = true)
+        consoleClient.send("EVENTS") { reply ->
+            eventState = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    val log = EventsReply.parse(reply.lines)
+                    EventLogState(rows = log.rows, dropped = log.dropped, loaded = true)
+                } catch (e: ParseException) {
+                    EventLogState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
+                }
+                else -> EventLogState(message = BleConsoleClient.errorText(reply))
+            }
+        }
     }
 
     private fun closeWeek() {
@@ -627,7 +667,7 @@ class MainActivity : ComponentActivity() {
 
     /** Runs [action] after the Bluetooth permissions; the action sends console commands. */
     private fun withConsolePermission(action: () -> Unit) {
-        if (calibState.isBusy || chimeState.isBusy || weekState.isReading || finderState.isBusy || slotState.isBusy || consoleClient.isRunning) return
+        if (calibState.isBusy || chimeState.isBusy || weekState.isReading || eventState.isReading || finderState.isBusy || slotState.isBusy || consoleClient.isRunning) return
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
@@ -635,7 +675,8 @@ class MainActivity : ComponentActivity() {
         }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
         if (needed.isNotEmpty()) {
             pendingConsoleAction = action
-            if (showWeek) weekState = WeekState(isReading = true)
+            if (showEvents) eventState = EventLogState(isReading = true)
+            else if (showWeek) weekState = WeekState(isReading = true)
             else if (showFinder) finderState = finderState.copy(isBusy = true, message = null)
             else if (showSlots) slotState = slotState.copy(isBusy = true, message = null)
             else if (showChime) chimeState = chimeState.copy(isBusy = true, message = null)

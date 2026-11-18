@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Event log screen over the BLE console in the Android app
-  - Rank: [Total: 34, Use: 7, Setup: 8, Harmony: 9, Safety: 10, Effort: M]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/EventLogScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/EventsReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/EventText.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/EventsReplyTest.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/EventTextTest.kt, tests/fixtures/events_reply_sample.txt, macos/RlcdCompanion/Tests/RlcdProtocolTests/EventTextTests.swift
-  - Goal: The Android app cannot read the event ring of the panel. The user must use the macOS app to see resets, slot changes, card faults and lost sensors. Add `EventsReply.parse(lines)` for the `EVENTS` reply (`BEGIN EVENTS`, header `time,event,detail`, rows, optional `EVENTS_DROPPED` row). Add `EventText.describe(row)` with the same texts as the macOS `EventText` for the event codes 1 to 14. Show an unknown event or a detail outside the range as the raw text `<event>,<detail>`. Add `EventLogScreen`. It sends `EVENTS` through `BleConsoleClient.send` only on a user tap and shows the rows newest first. Show a failed CRC-32 or a timeout as one error text. Do not retry the command. Put one sample reply in `tests/fixtures/events_reply_sample.txt`.
-  - Acceptance test: In `EventsReplyTest`, read the fixture and assert the row count, the first row and the dropped count. Assert that a row with two columns throws `ParseException`. In `EventTextTest`, assert the texts of `RESET` 4, `SLOT_STALE` 0x0103, `SLOT_RELEASE` 0x0102, `SD_FAULT` 2 and an unknown event. In the macOS `EventTextTests`, read the same fixture and assert the same texts. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` and `swift test` in `macos/RlcdCompanion`.
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 - [ ] Rejected packet list over the BLE console in the Android app

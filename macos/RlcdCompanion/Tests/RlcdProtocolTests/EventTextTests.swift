@@ -186,4 +186,22 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(throws: ParseError.self) { try EventsReply.parse(file: "time,event,detail\nt,RESET,4,5\n") }
         #expect(try EventsReply.parse(file: "time,event,detail\n").isEmpty)
     }
+
+    @Test func sharedEventsFixtureGivesTheTexts() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("tests/fixtures/events_reply_sample.txt")
+        let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
+            .filter { !$0.hasPrefix("CRC32") }
+        let rows = try EventsReply.parse(lines: lines)
+        #expect(rows.count == 13)
+        #expect(rows[0] == EventRow(time: "2026-11-18 09:00:00", event: "EVENTS_DROPPED", detail: 0))
+        let texts = rows.dropFirst().map(EventText.describe)
+        #expect(texts[0] == "reset PANIC (abnormal)")
+        #expect(texts[3] == "Slot 3 back")
+        #expect(texts[4] == "Slot 2 released by the user")
+        #expect(texts[5] == "SD card fault: NO_CARD")
+        #expect(texts[11] == "FUTURE_EVENT,7")
+    }
 }
