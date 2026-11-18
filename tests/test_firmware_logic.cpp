@@ -11399,9 +11399,9 @@ void testSerialStatusEmptyAndMissingValues() {
   StatusFixture f;
   const std::vector<std::string> lines = statusLines(f.run());
   assert(lines.size() == 21);
-  assert(lines[0] == "SENSOR 0 onboard temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=SHTC3");
-  assert(lines[1] == "SENSOR 1 slot1 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=--");
-  assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=--");
+  assert(lines[0] == "SENSOR 0 onboard temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=SHTC3 mac=--");
+  assert(lines[1] == "SENSOR 1 slot1 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=-- mac=--");
+  assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=-- mac=--");
   assert(lines[12] == "RESET reason=UNKNOWN abnormal=--");
   assert(lines[17] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0");
   assert(lines[20].rfind("CRC32 ", 0) == 0);
@@ -11418,10 +11418,10 @@ void testSerialStatusStates() {
   f.snap.sensor_battery_latch = 0b110; // slot 3 is stale and latched: STALE wins
   f.history.record(f.snap.now_ms - 300000, true, 44.6f, f.registry, 22.34f);
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[0] == "SENSOR 0 onboard temp=22.3 rh=45 bat=-- rssi=-- age=300 state=OK format=SHTC3");
-  assert(lines[1] == "SENSOR 1 LIVING_ROOM temp=-5.4 rh=61 bat=80 rssi=-70 age=120 state=OK format=WOIO");
-  assert(lines[2] == "SENSOR 2 slot2 temp=21.5 rh=45 bat=8 rssi=-85 age=60 state=BATLOW format=WOIO");
-  assert(lines[3] == "SENSOR 3 slot3 temp=19.0 rh=50 bat=-- rssi=-90 age=1801 state=STALE format=WOIO");
+  assert(lines[0] == "SENSOR 0 onboard temp=22.3 rh=45 bat=-- rssi=-- age=300 state=OK format=SHTC3 mac=--");
+  assert(lines[1] == "SENSOR 1 LIVING_ROOM temp=-5.4 rh=61 bat=80 rssi=-70 age=120 state=OK format=WOIO mac=00:00:00:00:00:01");
+  assert(lines[2] == "SENSOR 2 slot2 temp=21.5 rh=45 bat=8 rssi=-85 age=60 state=BATLOW format=WOIO mac=00:00:00:00:00:02");
+  assert(lines[3] == "SENSOR 3 slot3 temp=19.0 rh=50 bat=-- rssi=-90 age=1801 state=STALE format=WOIO mac=00:00:00:00:00:03");
 }
 
 void testSensorNamesFollowMac() {
@@ -11540,10 +11540,10 @@ void testSerialStatusOnboardStaleAndOffset() {
   const uint32_t hour_ms = ClimateHistory::SAMPLE_INTERVAL_MS;
   f.history.record(f.snap.now_ms - hour_ms - 1000000, true, 40.0f, f.registry, -0.04f); // 1000 s past the hour
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[0] == "SENSOR 0 onboard temp=0.0 rh=40 bat=-- rssi=-- age=4600 state=OK format=SHTC3"); // hourly sample is no stale
+  assert(lines[0] == "SENSOR 0 onboard temp=0.0 rh=40 bat=-- rssi=-- age=4600 state=OK format=SHTC3 mac=--"); // hourly sample is no stale
   f.snap.now_ms += SENSOR_STALE_TIMEOUT_MS;
   lines = statusLines(f.run());
-  assert(lines[0] == "SENSOR 0 onboard temp=0.0 rh=40 bat=-- rssi=-- age=6400 state=STALE format=SHTC3");
+  assert(lines[0] == "SENSOR 0 onboard temp=0.0 rh=40 bat=-- rssi=-- age=6400 state=STALE format=SHTC3 mac=--");
   // Boundary: age equal to one interval plus the timeout is OK, one millisecond more is STALE.
   StatusFixture g;
   g.history.record(g.snap.now_ms - hour_ms - SENSOR_STALE_TIMEOUT_MS, true, 40.0f, g.registry, 20.0f);
@@ -18482,14 +18482,14 @@ void testTempUnitSerial() {
   f.addSlot(2, 37.0f, 45, 8, -85, f.snap.now_ms - 60000);
   f.history.record(f.snap.now_ms - 300000, true, 44.6f, f.registry, 22.34f);
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[0] == "SENSOR 0 onboard temp=22.3 rh=45 bat=-- rssi=-- age=300 state=OK format=SHTC3");
-  assert(lines[1] == "SENSOR 1 slot1 temp=-5.4 rh=61 bat=80 rssi=-70 age=120 state=OK format=WOIO");
+  assert(lines[0] == "SENSOR 0 onboard temp=22.3 rh=45 bat=-- rssi=-- age=300 state=OK format=SHTC3 mac=--");
+  assert(lines[1] == "SENSOR 1 slot1 temp=-5.4 rh=61 bat=80 rssi=-70 age=120 state=OK format=WOIO mac=00:00:00:00:00:01");
   f.config.temp_unit = 'F';
   lines = statusLines(f.run());
-  assert(lines[0] == "SENSOR 0 onboard temp=72.1F rh=45 bat=-- rssi=-- age=300 state=OK format=SHTC3");
-  assert(lines[1] == "SENSOR 1 slot1 temp=22.3F rh=61 bat=80 rssi=-70 age=120 state=OK format=WOIO");
-  assert(lines[2] == "SENSOR 2 slot2 temp=98.6F rh=45 bat=8 rssi=-85 age=60 state=OK format=WOIO");
-  assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=--");
+  assert(lines[0] == "SENSOR 0 onboard temp=72.1F rh=45 bat=-- rssi=-- age=300 state=OK format=SHTC3 mac=--");
+  assert(lines[1] == "SENSOR 1 slot1 temp=22.3F rh=61 bat=80 rssi=-70 age=120 state=OK format=WOIO mac=00:00:00:00:00:01");
+  assert(lines[2] == "SENSOR 2 slot2 temp=98.6F rh=45 bat=8 rssi=-85 age=60 state=OK format=WOIO mac=00:00:00:00:00:02");
+  assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=-- mac=--");
 }
 
 void testTempUnitRtcRoundTrip() {

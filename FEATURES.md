@@ -1503,9 +1503,11 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 
 ## Sensor MAC addresses in the macOS companion app
 
-- The macOS companion app displays configured sensor MAC addresses (`slotN_mac` from `config.ini`) across all main sensor views.
-- Telemetry tiles (`Views.swift`): each tile with a fixed MAC shows the MAC address below the sensor title in monospaced font.
+- The firmware console command `STATUS` reports the live MAC address `mac=<AA:BB:CC:DD:EE:FF|-->` on each `SENSOR` line.
+- The macOS companion app parses the live MAC address and displays it across all main sensor views, falling back to `slotN_mac` from `config.ini` when available.
+- Telemetry tiles (`Views.swift`): each active sensor tile shows its MAC address below the sensor title in monospaced font.
 - Status view (`Views.swift`): each sensor line includes the MAC address in parentheses after the name and format badge.
-- Sensor health (`DiagnosticsView.swift`, `SensorHealth.swift`): `SensorHealth` carries the optional `mac` string from `ConfigReply.mac(forSlot:)`; `DiagnosticsView` displays the MAC address in an aligned column.
-- No firmware change and no new `config.ini` key.
-- Tests: `SensorHealthTests.rowsPopulatesMacFromConfig`.
+- Sensor health (`DiagnosticsView.swift`, `SensorHealth.swift`): `SensorHealth` carries the live `mac` string from `StatusSensor.mac` (or `ConfigReply.mac(forSlot:)`); `DiagnosticsView` displays the MAC address in an aligned column.
+- Diagnostics report (`DiagnosticsReport.swift`): redacts `mac=` in sensor lines when `includeNames` is false.
+- No new `config.ini` key and no new RTC state.
+- Host tests: `testSerialStatusEmptyAndMissingValues`, `testSerialStatusStates` in `test_firmware_logic.cpp`. Companion tests: `SensorHealthTests.statusSensorCarriesFormatAndMac`, `rowsPopulatesLiveMacFromStatusLine`, `rowsPopulatesMacFromConfig`.

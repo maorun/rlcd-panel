@@ -57,7 +57,10 @@ public enum DiagnosticsReport {
             // An unknown shape must not leak the name: keep only the word and the index.
             return parts.count >= 2 ? "\(parts[0]) \(parts[1]) \(hiddenValue)" : line
         }
-        return "\(parts[0]) \(parts[1]) \(hiddenValue)" + parts[2][end.lowerBound...]
+        let rest = parts[2][end.lowerBound...].split(separator: " ", omittingEmptySubsequences: true).map { part -> String in
+            part.hasPrefix("mac=") && part != "mac=--" ? "mac=" + hiddenValue : String(part)
+        }.joined(separator: " ")
+        return "\(parts[0]) \(parts[1]) \(hiddenValue) " + rest
     }
 
     /// `BLE rejected=.. last=<MAC|--> ...`: the MAC belongs to a foreign device.
