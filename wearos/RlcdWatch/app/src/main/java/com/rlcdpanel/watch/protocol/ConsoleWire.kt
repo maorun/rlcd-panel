@@ -1,4 +1,4 @@
-package com.rlcdpanel.phone.console
+package com.rlcdpanel.watch.protocol
 
 /** Wire format of one console command. No Android types, so a unit test runs it on the JVM. */
 object ConsoleWire {

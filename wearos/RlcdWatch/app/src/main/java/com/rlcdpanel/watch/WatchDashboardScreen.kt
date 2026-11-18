@@ -58,6 +58,9 @@ fun WatchDashboardScreen(
     ventilationDurationMinutes: Int,
     ventilationAdvice: VentilationEmpfehlung?,
     isSelfComparison: Boolean,
+    configStatus: String? = null,
+    isReadingConfig: Boolean = false,
+    onReadConfig: () -> Unit = {},
     onToggleScan: () -> Unit,
     onCycleOutdoorSource: () -> Unit,
     onSelectRoomIndex: (Int) -> Unit,
@@ -85,6 +88,14 @@ fun WatchDashboardScreen(
                         statusMessage = statusMessage,
                         nowMillis = nowMillis,
                         onToggleScan = onToggleScan
+                    )
+                }
+
+                item {
+                    ReadConfigChip(
+                        status = configStatus,
+                        isReading = isReadingConfig,
+                        onReadConfig = onReadConfig
                     )
                 }
 
@@ -196,6 +207,44 @@ private fun HeaderStatusCard(
                 )
             }
         )
+    }
+}
+
+@Composable
+private fun ReadConfigChip(
+    status: String?,
+    isReading: Boolean,
+    onReadConfig: () -> Unit
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 8.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Chip(
+            onClick = onReadConfig,
+            enabled = !isReading,
+            modifier = Modifier.fillMaxWidth(0.85f),
+            colors = ChipDefaults.secondaryChipColors(),
+            label = {
+                Text(
+                    text = if (isReading) "Lese Panel ..." else "Read panel config",
+                    fontSize = 12.sp,
+                    maxLines = 1
+                )
+            }
+        )
+        if (status != null) {
+            Text(
+                text = status,
+                fontSize = 10.sp,
+                color = Color(0xFFB0BEC5),
+                textAlign = TextAlign.Center,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
     }
 }
 

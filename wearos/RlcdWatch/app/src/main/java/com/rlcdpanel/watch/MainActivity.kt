@@ -24,7 +24,11 @@ import androidx.compose.runtime.setValue
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
+import com.rlcdpanel.watch.complication.ClimateComplicationService
+import com.rlcdpanel.watch.console.BleConsoleClient
 import com.rlcdpanel.watch.protocol.AlertTransitions
+import com.rlcdpanel.watch.protocol.ConfigCache
+import com.rlcdpanel.watch.protocol.ConsoleReply
 import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.protocol.TelemetryFrame
@@ -34,8 +38,10 @@ import com.rlcdpanel.watch.ventilation.OutdoorSource
 import com.rlcdpanel.watch.ventilation.OutdoorWeatherService
 import com.rlcdpanel.watch.ventilation.VentilationAction
 import com.rlcdpanel.watch.ventilation.VentilationGuide
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 data class RoomVentilationState(
     val isVentilating: Boolean = false,
@@ -53,6 +59,10 @@ class MainActivity : ComponentActivity() {
     private var roomStates by mutableStateOf<Map<Int, RoomVentilationState>>(emptyMap())
     private val lastObservedAktionen = mutableMapOf<Int, VentilationAction>()
     private var panelConfig by mutableStateOf(PanelConfig())
+
+    private var configStatus by mutableStateOf<String?>(null)
+    private var isReadingConfig by mutableStateOf(false)
+    private lateinit var consoleClient: BleConsoleClient
 
     private var scanPermissionDenied = false
     private var notificationPermissionAsked = false
@@ -74,8 +84,20 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private val consolePermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { grants ->
+        if (grants.isNotEmpty() && grants.values.all { it }) {
+            startConfigRead()
+        } else {
+            isReadingConfig = false
+            configStatus = "Bluetooth-Berechtigung fehlt"
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        consoleClient = BleConsoleClient(this)
         prefs = getSharedPreferences("rlcd_ventilation_prefs", Context.MODE_PRIVATE)
         panelConfig = PanelConfig.load(this)
         telemetryCache = TelemetryCache(this)
@@ -188,6 +210,9 @@ class MainActivity : ComponentActivity() {
                 ventilationDurationMinutes = durationMinutes,
                 ventilationAdvice = advice,
                 isSelfComparison = isSelfComparison,
+                configStatus = configStatus,
+                isReadingConfig = isReadingConfig,
+                onReadConfig = { readPanelConfig() },
                 onToggleScan = {
                     if (isScanning) {
                         stopBleScan()
@@ -219,6 +244,8 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        consoleClient.cancel()
+        isReadingConfig = false
         // Background scanning continues in BleScanService.
         super.onStop()
     }
@@ -294,6 +321,52 @@ class MainActivity : ComponentActivity() {
         }
         outdoorSource = nextSource
         fetchWeatherIfNeeded()
+    }
+
+    /** Asks for BLUETOOTH_CONNECT and BLUETOOTH_SCAN (SDK 31 and later), then sends `CONFIG` once. */
+    private fun readPanelConfig() {
+        if (isReadingConfig || consoleClient.isRunning) return
+        isReadingConfig = true
+        configStatus = null
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            emptyList()
+        }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isNotEmpty()) {
+            consolePermissionLauncher.launch(needed.toTypedArray())
+            return
+        }
+        startConfigRead()
+    }
+
+    /** A good reply replaces the cache; a bad CRC-32, a timeout or an `ERR` reply keeps the old one. */
+    private fun startConfigRead() {
+        isReadingConfig = true
+        consoleClient.send("CONFIG") { reply ->
+            // The write and the reload touch the disk, so they run off the main thread.
+            lifecycleScope.launch {
+                val (info, loaded) = withContext(Dispatchers.IO) {
+                    val stored = ConfigCache.store(filesDir, reply, System.currentTimeMillis())
+                    stored to stored?.let { PanelConfig.load(this@MainActivity) }
+                }
+                isReadingConfig = false
+                if (info != null && loaded != null) {
+                    panelConfig = loaded
+                    ClimateTileService.requestUpdate(this@MainActivity)
+                    ClimateComplicationService.requestUpdate(this@MainActivity)
+                    configStatus = "Config gelesen" +
+                        if (info.rejectedLines.isEmpty()) "" else ", ${info.rejectedLines.size} Zeilen abgelehnt"
+                } else {
+                    val reason = when {
+                        reply !is ConsoleReply.Frame -> BleConsoleClient.errorText(reply)
+                        PanelConfig.parseConfigReply(reply.lines).source != "SD" -> "Panel ohne SD-Config"
+                        else -> "Cache nicht beschreibbar"
+                    }
+                    configStatus = "$reason. Alter Stand bleibt."
+                }
+            }
+        }
     }
 
     private fun ensurePermissionAndStart() {

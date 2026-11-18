@@ -17,6 +17,7 @@ import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
 import com.rlcdpanel.phone.protocol.ConsoleReply
+import com.rlcdpanel.phone.protocol.ConsoleWire
 import com.rlcdpanel.phone.protocol.ReplyAssembler
 import com.rlcdpanel.phone.protocol.ReplyError
 import java.util.UUID

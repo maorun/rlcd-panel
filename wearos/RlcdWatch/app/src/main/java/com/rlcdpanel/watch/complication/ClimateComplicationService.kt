@@ -13,6 +13,7 @@ import androidx.wear.watchface.complications.datasource.ComplicationDataSourceSe
 import androidx.wear.watchface.complications.datasource.ComplicationDataSourceUpdateRequester
 import androidx.wear.watchface.complications.datasource.ComplicationRequest
 import com.rlcdpanel.watch.MainActivity
+import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryCache
 
 /**
@@ -28,7 +29,7 @@ class ClimateComplicationService : ComplicationDataSourceService() {
         request: ComplicationRequest,
         listener: ComplicationRequestListener
     ) {
-        val model = ClimateComplicationModel.build(TelemetryCache(this), System.currentTimeMillis())
+        val model = ClimateComplicationModel.build(TelemetryCache(this), System.currentTimeMillis(), PanelConfig.load(this))
         listener.onComplicationData(build(request.complicationType, model))
     }
 
@@ -42,7 +43,7 @@ class ClimateComplicationService : ComplicationDataSourceService() {
         return when (type) {
             ComplicationType.SHORT_TEXT -> ShortTextComplicationData.Builder(
                 PlainComplicationText.Builder(model.temperatureText).build(),
-                PlainComplicationText.Builder("Temperature ${model.temperatureText}").build()
+                PlainComplicationText.Builder(describe("Temperature", model.temperatureText, model.roomName)).build()
             )
                 .setTitle(PlainComplicationText.Builder(model.humidityText).build())
                 .setTapAction(tap)
@@ -52,7 +53,7 @@ class ClimateComplicationService : ComplicationDataSourceService() {
                 model.humidityValue,
                 ClimateComplicationModel.MIN_VALUE,
                 ClimateComplicationModel.MAX_VALUE,
-                PlainComplicationText.Builder("Humidity ${model.humidityText}").build()
+                PlainComplicationText.Builder(describe("Humidity", model.humidityText, model.roomName)).build()
             )
                 .setText(PlainComplicationText.Builder(model.humidityText).build())
                 .setTapAction(tap)
@@ -61,6 +62,10 @@ class ClimateComplicationService : ComplicationDataSourceService() {
             else -> null
         }
     }
+
+    /** Content description with the room name of [PanelConfig.tileName]. */
+    private fun describe(label: String, value: String, roomName: String): String =
+        if (roomName.isEmpty()) "$label $value" else "$roomName $label $value"
 
     companion object {
         /** Asks the system to redraw each complication of this service after the cache changed. */

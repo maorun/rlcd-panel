@@ -24,12 +24,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Panel config over the BLE console in the Wear OS app
-  - Rank: [Total: 31, Use: 6, Setup: 7, Harmony: 9, Safety: 9, Effort: M]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/console/BleConsoleClient.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConsoleWire.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConsoleWire.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/console/BleConsoleClient.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/WatchDashboardScreen.kt, wearos/RlcdWatch/app/src/main/AndroidManifest.xml, scripts/check-protocol-sync.sh, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ConsoleWireTest.kt
-  - Goal: The watch has `ConfigCache` in `PanelConfig.kt`, but no code fills it. The watch shows only the names of the bundled asset. Move `ConsoleWire` into the `protocol` package of both apps. Add `ConsoleWire.kt` to the file list of `scripts/check-protocol-sync.sh`. Port `BleConsoleClient` to the watch. Keep one GATT connection for each command and writes of `max(1, MTU - 3)` bytes. Keep the `ReplyAssembler` CRC-32 check and the timeout. Add a `Read panel config` chip to `WatchDashboardScreen` that sends `CONFIG`. Store a good reply through `ConfigCache`. Keep the old cache on a bad CRC-32 or a timeout. Make the tile and the complication use `PanelConfig.tileName`. Request `BLUETOOTH_CONNECT` on SDK 31 and later.
-  - Acceptance test: Run `./scripts/check-protocol-sync.sh` and assert exit 0 with `ConsoleWire.kt` in the list. Run `./scripts/check-protocol-sync.sh --self-test`. In `ConsoleWireTest`, assert the chunks for MTU 23 and MTU 185. Feed `tests/fixtures/config_reply_sample.txt` to `PanelConfig.parseConfigReply` and assert the names. Assert that a bad CRC-32 keeps the old cache. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`.
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Ventilation advice in the Wear OS tile

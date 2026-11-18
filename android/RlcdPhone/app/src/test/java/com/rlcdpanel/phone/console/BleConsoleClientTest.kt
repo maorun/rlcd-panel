@@ -1,5 +1,6 @@
 package com.rlcdpanel.phone.console
 
+import com.rlcdpanel.phone.protocol.ConsoleWire
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertThrows
