@@ -1577,3 +1577,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The CI job `Host tests` runs the check and the self-test.
 - The Wear OS `PanelConfig.kt` and the new `ReplyAssembler.kt` now equal the Android phone sources. The Wear OS app does not use the `ConfigCache` yet.
 - A new Wear OS `ClimateMathTest` and the Android `ClimateMathTest` check each row of `tests/fixtures/climate_math_vectors.txt` with a tolerance of 0.05.
+
+## Calibration proposals in the Android app
+
+- **Code:** `android/RlcdPhone/.../protocol/CalibrationReply.kt`, `protocol/CalibrationBatch.kt`, `CalibrationScreen.kt`, `MainActivity.kt`, `SensorHealthScreen.kt`.
+- A user without a Mac could not read the `CALIB N` proposals. The phone app now reads them over the BLE console. The `Calibration proposals` button of the sensor health screen opens the `CalibrationScreen`.
+- `CalibrationReply` and `SaltReply` follow the parsing rules of `Calibration.swift`: digit-only hours, plain decimals, the last line of a key wins. A bad line throws `ParseException`, for example `hours=x`. `CalibrationKeys` drops each proposal outside the key range.
+- The screen has a reference picker (0 to 5), the `SENSOR`, `SKIP` and `USB` lines and one checkbox for each proposal. A change of the reference clears the reply.
+- `CalibrationBatch` sends each selected proposal as `SET`, then `CONFIG`, through `BleConsoleClient.send`. The first `ERR` stops the batch and sends no `CONFIG`. `ERR READ_ONLY` shows as `Set ble_console=2 to apply`. A timeout or a corrupt reply shows that the panel state is unknown. A good `CONFIG` reply refreshes the config cache.
+- The macOS `ConfigBatch` still sends `CONFIG` after a failed `SET`. The phone batch skips it by design.
+- `tests/fixtures/calib_reply_sample.txt` is shared. `CalibrationReplyTest` and `CalibrationTests.sharedFixture` assert the same values.
+- The salt screen and the two-point calibration stay macOS only. The phone ports only the `SaltReply` parser.
+- The local machine has no Android SDK, so CI runs `gradle testDebugUnitTest assembleDebug`.

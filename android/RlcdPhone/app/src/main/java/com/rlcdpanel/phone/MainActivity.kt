@@ -30,6 +30,8 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.rlcdpanel.phone.console.BleConsoleClient
+import com.rlcdpanel.phone.protocol.CalibrationBatch
+import com.rlcdpanel.phone.protocol.CalibrationReply
 import com.rlcdpanel.phone.protocol.ConsoleReply
 import com.rlcdpanel.phone.protocol.ParseException
 import com.rlcdpanel.phone.protocol.SensorHealth
@@ -75,6 +77,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var consoleClient: BleConsoleClient
     private var showHealth by mutableStateOf(false)
     private var showHistory by mutableStateOf(false)
+    private var showCalib by mutableStateOf(false)
+    private var calibState by mutableStateOf(CalibrationState())
+    private var pendingConsoleAction: (() -> Unit)? = null
     private var healthState by mutableStateOf(SensorHealthState())
     private var configState by mutableStateOf(ConfigReadState())
     // Kept after the health screen closes, so the dashboard tiles keep their protocol badges.
@@ -144,6 +149,22 @@ class MainActivity : ComponentActivity() {
                 BackHandler { showHistory = false }
                 return@setContent
             }
+            if (showCalib) {
+                CalibrationScreen(
+                    state = calibState,
+                    onPickReference = { calibState = calibState.copy(reference = it, reply = null, selected = emptySet(), message = null, isError = false) },
+                    onRead = { withConsolePermission { readCalibration() } },
+                    onToggle = { key ->
+                        calibState = calibState.copy(
+                            selected = if (key in calibState.selected) calibState.selected - key else calibState.selected + key
+                        )
+                    },
+                    onApply = { withConsolePermission { applyCalibration() } },
+                    onBack = { closeCalibration() }
+                )
+                BackHandler { closeCalibration() }
+                return@setContent
+            }
             if (showHealth) {
                 SensorHealthScreen(
                     state = healthState,
@@ -152,6 +173,7 @@ class MainActivity : ComponentActivity() {
                     configState = configState,
                     nowMillis = System.currentTimeMillis(),
                     onReadConfig = { ensureConsolePermissionAndRead(CONSOLE_CONFIG) },
+                    onOpenCalibration = { showHealth = false; showCalib = true },
                     onBack = { closeSensorHealth() }
                 )
                 BackHandler { closeSensorHealth() }
@@ -272,9 +294,13 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        val consoleWasRunning = consoleClient.isRunning
         consoleClient.cancel()
         healthState = healthState.copy(isReading = false)
         configState = configState.copy(isReading = false)
+        if (calibState.isBusy) {
+            calibState = calibState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, CONFIG lesen")
+        }
         // Background scanning continues in BleScanService.
         lastObservedAktionen.clear()
         super.onStop()
@@ -283,6 +309,13 @@ class MainActivity : ComponentActivity() {
     private val consolePermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
+        val action = pendingConsoleAction
+        if (action != null) {
+            pendingConsoleAction = null
+            if (grants.isNotEmpty() && grants.values.all { it }) action()
+            else calibState = calibState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
+            return@registerForActivityResult
+        }
         if (!showHealth) return@registerForActivityResult
         val command = pendingConsoleCommand
         if (grants.values.all { it }) {
@@ -301,6 +334,79 @@ class MainActivity : ComponentActivity() {
             putExtra(Intent.EXTRA_TEXT, history.toCsv(HistoryScreenText.SHARE_MAX_ROWS))
         }
         startActivity(Intent.createChooser(send, "Share CSV"))
+    }
+
+    private fun closeCalibration() {
+        consoleClient.cancel()
+        pendingConsoleAction = null
+        calibState = CalibrationState(reference = calibState.reference)
+        showCalib = false
+        showHealth = true
+    }
+
+    /** Runs [action] after the Bluetooth permissions; the action sends console commands. */
+    private fun withConsolePermission(action: () -> Unit) {
+        if (calibState.isBusy || consoleClient.isRunning) return
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            listOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isNotEmpty()) {
+            pendingConsoleAction = action
+            calibState = calibState.copy(isBusy = true, message = null)
+            consolePermissionLauncher.launch(needed.toTypedArray())
+            return
+        }
+        action()
+    }
+
+    /** Sends `CALIB N` after a tap; the proposals that the key range rejects never reach the list. */
+    private fun readCalibration() {
+        stopBleScan()
+        calibState = calibState.copy(isBusy = true, isError = false, message = null, reply = null, selected = emptySet())
+        consoleClient.send("CALIB ${calibState.reference}") { reply ->
+            calibState = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    val parsed = CalibrationReply.parse(reply.lines)
+                    calibState.copy(isBusy = false, reply = parsed, selected = parsed.proposals.map { it.key }.toSet())
+                } catch (e: ParseException) {
+                    calibState.copy(isBusy = false, isError = true, message = "Antwort nicht lesbar: ${e.line.take(80)}")
+                }
+                is ConsoleReply.Status -> calibState.copy(
+                    isBusy = false, isError = true,
+                    message = if (reply.line.startsWith("ERR READ_ONLY")) CalibrationBatch.failureText(reply.line)
+                    else BleConsoleClient.errorText(reply)
+                )
+                else -> calibState.copy(isBusy = false, isError = true, message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
+    /** Sends the selected proposals as `SET`, then `CONFIG`. The first `ERR` stops the batch and skips `CONFIG`. */
+    private fun applyCalibration() {
+        val chosen = calibState.chosen
+        if (chosen.isEmpty()) return
+        stopBleScan()
+        calibState = calibState.copy(isBusy = true, message = null)
+        CalibrationBatch(chosen).run(consoleClient::send) { result ->
+            result.config?.let { frame ->
+                lifecycleScope.launch {
+                    val info = withContext(Dispatchers.IO) { ConfigCache.store(filesDir, frame, System.currentTimeMillis()) }
+                    if (info != null) {
+                        panelConfig = withContext(Dispatchers.IO) { PanelConfig.load(this@MainActivity) }
+                        configState = ConfigReadState(info = info)
+                    }
+                }
+            }
+            // The offsets changed on the panel, so the old proposals are stale. A new read gives fresh ones.
+            val ok = result.failure == null && !result.configFailed
+            calibState = calibState.copy(
+                isBusy = false, message = result.summary, isError = !ok,
+                reply = if (result.failure == null) null else calibState.reply,
+                selected = if (result.failure == null) emptySet() else calibState.selected
+            )
+        }
     }
 
     private fun closeSensorHealth() {
