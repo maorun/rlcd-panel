@@ -22,11 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Wear OS tile with the focused room and the active alerts
-  - Rank: [Total: 28, Use: 9, Setup: 2, Harmony: 8, Safety: 9, Effort: M]
-  - Location: wearos/RlcdWatch/app/build.gradle.kts, wearos/RlcdWatch/app/src/main/AndroidManifest.xml, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/tile/ClimateTileService.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/TelemetryCache.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/TelemetryCacheTest.kt
-  - Goal: The watch shows the climate only while the app is open. Add a Wear OS tile (`androidx.wear.tiles` and `androidx.wear.protolayout`) that shows the name, the temperature and the humidity of the focused room, the panel cell percentage, the names of the active alerts and the age of the data. The tile does not scan BLE. `TelemetryCache` stores the payload bytes of the last valid frame (hex text) and its receive time in `SharedPreferences`; `MainActivity` writes it for each new sequence number. The tile reads the cache, decodes it with `TelemetryFrame.decodePayload`, and shows `--` and the text `Open the app` when the frame is older than 35 minutes (the freshness rule of `OutdoorResolver`), when the cache is empty, or when the decode fails. A tap on the tile opens `MainActivity`. The tile asks for a refresh every 15 minutes (`freshnessIntervalMillis`).
-  - Acceptance test: `TelemetryCacheTest` asserts the round trip of a vector from `tests/fixtures/ble_telemetry_vectors.txt`, `null` for an empty cache, `null` for a bad hex text and for a bad CRC-8, the stale state at 35 minutes plus 1 s and the fresh state at 34 minutes, and the alert names of a frame with two alert bits. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
 
 ## Priority 3: Display and Logging (Score 22–27)
 

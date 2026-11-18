@@ -75,6 +75,9 @@ dependencies {
     implementation("androidx.wear.compose:compose-material:1.4.0")
     implementation("androidx.wear.compose:compose-foundation:1.4.0")
     implementation("androidx.lifecycle:lifecycle-runtime-ktx:2.8.7")
+    implementation("androidx.wear.tiles:tiles:1.4.1")
+    implementation("androidx.wear.protolayout:protolayout:1.2.1")
+    implementation("com.google.guava:guava:33.3.1-android")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.json:json:20240303")

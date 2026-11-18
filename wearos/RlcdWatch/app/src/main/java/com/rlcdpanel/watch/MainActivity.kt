@@ -26,7 +26,9 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.rlcdpanel.watch.protocol.AlertTransitions
 import com.rlcdpanel.watch.protocol.PanelConfig
+import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.protocol.TelemetryFrame
+import com.rlcdpanel.watch.tile.ClimateTileService
 import com.rlcdpanel.watch.ventilation.OutdoorClimate
 import com.rlcdpanel.watch.ventilation.OutdoorSource
 import com.rlcdpanel.watch.ventilation.OutdoorWeatherService
@@ -55,6 +57,7 @@ class MainActivity : ComponentActivity() {
     private var scanPermissionDenied = false
     private var notificationPermissionAsked = false
     private lateinit var prefs: SharedPreferences
+    private lateinit var telemetryCache: TelemetryCache
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -75,6 +78,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         prefs = getSharedPreferences("rlcd_ventilation_prefs", Context.MODE_PRIVATE)
         panelConfig = PanelConfig.load(this)
+        telemetryCache = TelemetryCache(this)
+        focusedRoomIndex = telemetryCache.focusedRoom()
         createNotificationChannel()
         restoreRoomStates()
 
@@ -195,6 +200,8 @@ class MainActivity : ComponentActivity() {
                 },
                 onSelectRoomIndex = { index ->
                     focusedRoomIndex = index
+                    telemetryCache.saveFocusedRoom(index)
+                    ClimateTileService.requestUpdate(this@MainActivity)
                 },
                 onToggleVentilation = {
                     toggleVentilationForFocusedRoom()
