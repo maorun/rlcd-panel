@@ -19,7 +19,9 @@ data class TelemetrySnapshot(
     val frame: TelemetryFrame,
     val rssi: Int,
     val address: String?,
-    val receivedAtMillis: Long
+    val receivedAtMillis: Long,
+    /** Raw 24-byte payload of the frame, for [com.rlcdpanel.watch.protocol.TelemetryCache]. */
+    val payload: ByteArray? = null
 )
 
 /**
@@ -111,7 +113,8 @@ class BleTelemetryScanner(
                     frame = frame,
                     rssi = result.rssi,
                     address = try { result.device?.address } catch (_: SecurityException) { null },
-                    receivedAtMillis = System.currentTimeMillis()
+                    receivedAtMillis = System.currentTimeMillis(),
+                    payload = payload
                 )
             )
         } catch (_: TelemetryException) {
