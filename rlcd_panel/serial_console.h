@@ -1103,11 +1103,11 @@ public:
   }
 
   // Sends the RejectLog copy of the last BLE scan from the RTC state as CSV: one row per rejected MAC with its format,
-  // reason (FULL, UNASSIGNED, DISABLED or JUMP) and packet count, then a DROPPED,<N> row when MACs were lost. The card and
+  // reason (FULL, UNASSIGNED, DISABLED, JUMP or WEAK) and packet count, then a DROPPED,<N> row when MACs were lost. The card and
   // the state stay untouched. A short write ends the reply, so the host sees no CRC32 line.
   static void showRejects(Sink& sink, const RejectLog& log) {
     static const char* const FORMATS[BLE_FORMAT_COUNT] = {"WOIO", "METER", "BTHOME", "ATC", "THERMOPRO"};
-    static const char* const REASONS[] = {"NONE", "FULL", "UNASSIGNED", "DISABLED", "JUMP"};
+    static const char* const REASONS[] = {"NONE", "FULL", "UNASSIGNED", "DISABLED", "JUMP", "WEAK"};
     SerialCrc32 crc;
     auto emit = [&](const char* text) {
       const size_t len = strlen(text);
@@ -1127,7 +1127,7 @@ public:
                static_cast<unsigned>(e.mac[1]), static_cast<unsigned>(e.mac[2]), static_cast<unsigned>(e.mac[3]),
                static_cast<unsigned>(e.mac[4]), static_cast<unsigned>(e.mac[5]),
                FORMATS[static_cast<size_t>(e.format) < BLE_FORMAT_COUNT ? static_cast<size_t>(e.format) : 0],
-               REASONS[static_cast<size_t>(e.reason) <= static_cast<size_t>(RejectReason::JUMP) ? static_cast<size_t>(e.reason) : 0],
+               REASONS[static_cast<size_t>(e.reason) <= static_cast<size_t>(RejectReason::WEAK) ? static_cast<size_t>(e.reason) : 0],
                static_cast<unsigned>(e.count));
       if (!emit(line)) {
         return;

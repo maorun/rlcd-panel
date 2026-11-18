@@ -101,7 +101,7 @@ struct ScannerView: View {
                     }
                 }
                 .disabled(!model.canSet || !model.isIdle)
-            case .disabled, .jump:
+            case .disabled, .jump, .weak:
                 EmptyView()
             }
         }.font(.callout)

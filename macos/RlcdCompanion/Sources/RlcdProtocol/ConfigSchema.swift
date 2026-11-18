@@ -128,6 +128,7 @@ public enum ConfigSchema {
             out.append(e("slot\(n)_mac", .sensors, .mac, "", "", "Fixed MAC of slot \(n). Empty means no fixed MAC."))
         }
         out.append(e("slot_auto_assign", .sensors, .integer(min: 0, max: 1), "1", "", "1 gives the first free slot to each new sensor MAC. 0 lets only a slot with a fixed MAC take a reading."))
+        out.append(e("auto_assign_min_rssi", .sensors, .integer(min: -100, max: -40, off: 0), "0", "dBm", "A new sensor MAC with a weaker RSSI gets no free slot. 0 is off. Slots that hold the MAC and fixed MAC slots ignore it."))
         for i in 1...10 {
             out.append(e("slot\(i)_enabled", .sensors, .integer(min: 0, max: 1), "1", "", "1 enables sensor slot \(i), 0 disables and hides it."))
         }
@@ -169,6 +170,7 @@ public enum ConfigSchema {
         "wall_frsi_pct", "slot_auto_assign",
         "slot1_enabled", "slot2_enabled", "slot3_enabled", "slot4_enabled", "slot5_enabled",
         "slot6_enabled", "slot7_enabled", "slot8_enabled", "slot9_enabled", "slot10_enabled",
+        "auto_assign_min_rssi",
     ]
     private static let index: [String: Int] = Dictionary(uniqueKeysWithValues: keys.enumerated().map { ($1, $0) })
 

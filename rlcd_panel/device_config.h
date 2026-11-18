@@ -98,6 +98,9 @@ struct DeviceConfig {
   static constexpr uint8_t MAX_BLE_BROADCAST_ENABLED = 1;
   static constexpr uint8_t DEFAULT_SLOT_AUTO_ASSIGN = 1; // 1 gives a new MAC the first free slot
   static constexpr uint8_t MAX_SLOT_AUTO_ASSIGN = 1;
+  static constexpr int8_t DEFAULT_AUTO_ASSIGN_MIN_RSSI = 0; // 0 = off
+  static constexpr int8_t MIN_AUTO_ASSIGN_MIN_RSSI = -100;
+  static constexpr int8_t MAX_AUTO_ASSIGN_MIN_RSSI = -40;
   static constexpr uint16_t DEFAULT_SLOT_ENABLED_MASK = 0x03FF; // all 10 slots enabled (bits 0..9)
   static constexpr uint16_t SLOT_ENABLED_ALL = 0x03FF;
   static constexpr uint8_t DEFAULT_BLE_CONSOLE = 0; // 0 starts no BLE console service
@@ -169,6 +172,7 @@ struct DeviceConfig {
   uint8_t dry_alert_limit_rh = DEFAULT_DRY_ALERT_LIMIT_RH; // a tile at or below this %RH shows the dry air badge, 0 = off, else 20..45
   uint8_t wall_frsi_pct = DEFAULT_WALL_FRSI_PCT; // temperature factor of the outer wall for the WALL text in percent, 0 = off, else 50..95
   uint8_t ble_broadcast_enabled = DEFAULT_BLE_BROADCAST_ENABLED; // 1 = advertise the climate tiles after each scan (ble_telemetry.h), 0 = off
+  int8_t auto_assign_min_rssi = DEFAULT_AUTO_ASSIGN_MIN_RSSI; // a new MAC with a weaker RSSI in dBm gets no free slot, 0 = off, else -100..-40
   uint8_t slot_auto_assign = DEFAULT_SLOT_AUTO_ASSIGN; // 1 = a new MAC takes the first free slot, 0 = only a slot with a fixed MAC (slotN_mac) takes a reading
   uint16_t slot_enabled_mask = DEFAULT_SLOT_ENABLED_MASK; // bit i (0..9) = 1 enables slot i + 1, 0 disables and hides it
   uint8_t ble_console = DEFAULT_BLE_CONSOLE; // BLE console on USB power: 0 off, 1 read commands, 2 also SET (serial_console.h)
@@ -329,6 +333,8 @@ struct DeviceConfig {
             (dry_alert_limit_rh >= MIN_DRY_ALERT_LIMIT_RH && dry_alert_limit_rh <= MAX_DRY_ALERT_LIMIT_RH)) &&
            (wall_frsi_pct == 0 || (wall_frsi_pct >= MIN_WALL_FRSI_PCT && wall_frsi_pct <= MAX_WALL_FRSI_PCT)) &&
            ble_broadcast_enabled <= MAX_BLE_BROADCAST_ENABLED && ble_console <= MAX_BLE_CONSOLE &&
+           (auto_assign_min_rssi == 0 ||
+            (auto_assign_min_rssi >= MIN_AUTO_ASSIGN_MIN_RSSI && auto_assign_min_rssi <= MAX_AUTO_ASSIGN_MIN_RSSI)) &&
            slot_auto_assign <= MAX_SLOT_AUTO_ASSIGN && (slot_enabled_mask & ~SLOT_ENABLED_ALL) == 0 &&
            (night_wake_interval_s == 0 ||
             (night_wake_interval_s >= MIN_NIGHT_WAKE_INTERVAL_S && night_wake_interval_s <= MAX_NIGHT_WAKE_INTERVAL_S));
@@ -362,6 +368,7 @@ struct DeviceConfig {
            temp_unit == d.temp_unit && chime_repeat_h == d.chime_repeat_h &&
            heat_alert_limit_c == d.heat_alert_limit_c && dry_alert_limit_rh == d.dry_alert_limit_rh && wall_frsi_pct == d.wall_frsi_pct && ble_broadcast_enabled == d.ble_broadcast_enabled &&
            ble_console == d.ble_console && slot_auto_assign == d.slot_auto_assign &&
+           auto_assign_min_rssi == d.auto_assign_min_rssi &&
            slot_enabled_mask == d.slot_enabled_mask;
   }
 };
@@ -410,7 +417,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 8192;
-  static constexpr size_t KEY_COUNT = 94;
+  static constexpr size_t KEY_COUNT = 95;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -443,6 +450,7 @@ public:
       "wall_frsi_pct", "slot_auto_assign",
       "slot1_enabled", "slot2_enabled", "slot3_enabled", "slot4_enabled", "slot5_enabled",
       "slot6_enabled", "slot7_enabled", "slot8_enabled", "slot9_enabled", "slot10_enabled",
+      "auto_assign_min_rssi",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -643,6 +651,17 @@ private:
       return false;
     }
     out = v;
+    return true;
+  }
+
+  // auto_assign_min_rssi: 0 (off) or -100 to -40 dBm.
+  static bool parseAutoAssignRssi(const char* s, size_t n, int8_t& out) {
+    int v = 0;
+    if (!parseIntIn(s, n, DeviceConfig::MIN_AUTO_ASSIGN_MIN_RSSI, 0, v) ||
+        (v != 0 && v > DeviceConfig::MAX_AUTO_ASSIGN_MIN_RSSI)) {
+      return false;
+    }
+    out = static_cast<int8_t>(v);
     return true;
   }
 
@@ -971,6 +990,9 @@ private:
     } else if (keyIs(key, key_len, "slot_auto_assign")) {
       index = 83;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_SLOT_AUTO_ASSIGN, cfg.slot_auto_assign);
+    } else if (keyIs(key, key_len, "auto_assign_min_rssi")) {
+      index = 94;
+      ok = parseAutoAssignRssi(val, val_len, cfg.auto_assign_min_rssi);
     } else if (keyIs(key, key_len, "ble_console")) {
       index = 39;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_BLE_CONSOLE, cfg.ble_console);
@@ -1057,6 +1079,7 @@ public:
     ok = ok && putInt(out, cap, pos, "ble_broadcast_enabled", cfg.ble_broadcast_enabled);
     ok = ok && putInt(out, cap, pos, "ble_console", cfg.ble_console);
     ok = ok && putInt(out, cap, pos, "slot_auto_assign", cfg.slot_auto_assign);
+    ok = ok && putSignedInt(out, cap, pos, "auto_assign_min_rssi", cfg.auto_assign_min_rssi);
     ok = ok && putInt(out, cap, pos, "outdoor_slot", cfg.outdoor_slot);
     ok = ok && putInt(out, cap, pos, "door_ref_slot", cfg.door_ref_slot);
     ok = ok && putInt(out, cap, pos, "ventilate_limit_rh", cfg.ventilate_limit_rh);

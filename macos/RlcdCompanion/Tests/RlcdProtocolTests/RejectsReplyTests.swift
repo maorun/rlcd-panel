@@ -67,6 +67,12 @@ import Testing
         #expect(RejectReason.unassigned.fixHint == "Assign to slot")
         #expect(RejectReason.disabled.fixHint == "Set slot<N>_enabled=1")
         #expect(RejectReason.jump.fixHint == "Check the sensor position")
+        #expect(RejectReason.weak.fixHint == "Move the sensor nearer or lower auto_assign_min_rssi")
+    }
+
+    @Test func weakReasonParses() throws {
+        let r = try RejectsReply.parse(lines: Self.head + ["AA:00:00:00:00:02,METER,WEAK,4"])
+        #expect(r.rows[0].reason == .weak && r.rows[0].count == 4)
     }
 
     @Test func commandLine() {

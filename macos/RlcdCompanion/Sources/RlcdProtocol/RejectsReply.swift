@@ -6,6 +6,7 @@ public enum RejectReason: String, Equatable, CaseIterable {
     case unassigned = "UNASSIGNED"
     case disabled = "DISABLED"
     case jump = "JUMP"
+    case weak = "WEAK"
 
     /// Short hint for the user.
     public var fixHint: String {
@@ -14,6 +15,7 @@ public enum RejectReason: String, Equatable, CaseIterable {
         case .unassigned: "Assign to slot"
         case .disabled: "Set slot<N>_enabled=1"
         case .jump: "Check the sensor position"
+        case .weak: "Move the sensor nearer or lower auto_assign_min_rssi"
         }
     }
 }
