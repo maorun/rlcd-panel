@@ -14,6 +14,7 @@ import android.os.VibratorManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -41,9 +42,6 @@ data class RoomVentilationState(
 
 class MainActivity : ComponentActivity() {
 
-    private var snapshot by mutableStateOf<TelemetrySnapshot?>(null)
-    private var isScanning by mutableStateOf(false)
-    private var statusMessage by mutableStateOf("Bereit")
     private var nowMillis by mutableLongStateOf(System.currentTimeMillis())
 
     private var outdoorSource by mutableStateOf<OutdoorSource>(OutdoorSource.OpenMeteo())
@@ -54,17 +52,22 @@ class MainActivity : ComponentActivity() {
     private val lastObservedAktionen = mutableMapOf<Int, VentilationAction>()
     private var panelConfig by mutableStateOf(PanelConfig())
 
-    private lateinit var bleScanner: BleTelemetryScanner
+    private var scanPermissionDenied = false
+    private var notificationPermissionAsked = false
     private lateinit var prefs: SharedPreferences
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { grants ->
-        val granted = grants.values.all { it }
-        if (granted) {
+        val scanGranted = grants.isNotEmpty() &&
+            grants.filterKeys { it != Manifest.permission.POST_NOTIFICATIONS }.values.all { it } &&
+            BleScanService.hasScanPermission(this)
+        if (scanGranted) {
+            scanPermissionDenied = false
             startBleScan()
         } else {
-            statusMessage = "Bluetooth-Berechtigung fehlt"
+            scanPermissionDenied = true
+            BleScanService.updateStatusMessage("Bluetooth-Berechtigung fehlt")
         }
     }
 
@@ -75,24 +78,6 @@ class MainActivity : ComponentActivity() {
         createNotificationChannel()
         restoreRoomStates()
 
-        bleScanner = BleTelemetryScanner(
-            context = this,
-            onSnapshot = { incoming ->
-                val mergedFrame = TelemetryFrame.merge(snapshot?.frame, incoming.frame)
-                val mergedSnapshot = incoming.copy(frame = mergedFrame)
-                val rising = AlertTransitions.risingAlerts(snapshot?.frame, incoming.frame)
-                snapshot = mergedSnapshot
-                statusMessage = "Seq #${incoming.frame.sequence} empfangen"
-                if (!rising.isEmpty) {
-                    vibrateAlert()
-                }
-            },
-            onError = { message ->
-                isScanning = false
-                statusMessage = message
-            }
-        )
-
         // Periodic background fetch of Open-Meteo weather
         lifecycleScope.launch {
             while (true) {
@@ -102,6 +87,10 @@ class MainActivity : ComponentActivity() {
         }
 
         setContent {
+            val snapshot by BleScanService.snapshot.collectAsState()
+            val isScanning by BleScanService.isScanning.collectAsState()
+            val statusMessage by BleScanService.statusMessage.collectAsState()
+
             LaunchedEffect(Unit) {
                 while (true) {
                     nowMillis = System.currentTimeMillis()
@@ -216,12 +205,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
-        ensurePermissionAndStart()
+        if (!scanPermissionDenied && !BleScanService.isScanning.value) {
+            ensurePermissionAndStart()
+        }
         fetchWeatherIfNeeded()
     }
 
     override fun onStop() {
-        stopBleScan()
+        // Background scanning continues in BleScanService.
         super.onStop()
     }
 
@@ -274,7 +265,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun cycleOutdoorSource() {
-        val totalTiles = snapshot?.frame?.tiles?.size ?: TelemetryFrame.TOTAL_TILES
+        val totalTiles = BleScanService.snapshot.value?.frame?.tiles?.size ?: TelemetryFrame.TOTAL_TILES
         val nextSource = when (val src = outdoorSource) {
             is OutdoorSource.OpenMeteo -> {
                 OutdoorSource.SensorSlot(
@@ -305,10 +296,11 @@ class MainActivity : ComponentActivity() {
                 needed.add(Manifest.permission.BLUETOOTH_SCAN)
             }
         }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        if (!notificationPermissionAsked && Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 needed.add(Manifest.permission.POST_NOTIFICATIONS)
             }
+            notificationPermissionAsked = true
         }
         if (needed.isNotEmpty()) {
             permissionLauncher.launch(needed.toTypedArray())
@@ -318,17 +310,11 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun startBleScan() {
-        val started = bleScanner.start()
-        isScanning = bleScanner.isScanning
-        if (started) {
-            statusMessage = if (snapshot == null) "Scanne nach 0xFFFF..." else "Scan aktiv"
-        }
+        BleScanService.start(this)
     }
 
     private fun stopBleScan() {
-        bleScanner.stop()
-        isScanning = false
-        statusMessage = "Scan pausiert"
+        BleScanService.stop(this)
     }
 
     private fun getVibrator(): Vibrator? {
@@ -360,7 +346,7 @@ class MainActivity : ComponentActivity() {
                 "Lüftungsempfehlungen",
                 NotificationManager.IMPORTANCE_HIGH
             ).apply {
-                description = "Meldungen zum Öffnen und Schließen von Fenstern"
+                description = "Lüftungsempfehlungen und Alarme"
                 enableVibration(true)
             }
             val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
