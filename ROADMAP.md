@@ -21,11 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Acknowledge action in the Wear OS alert notification
-  - Rank: [Total: 28, Use: 8, Setup: 3, Harmony: 9, Safety: 8, Effort: M]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/BleScanService.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/AckReceiver.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AckCommand.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/console/BleConsoleClient.kt, wearos/RlcdWatch/app/src/main/AndroidManifest.xml, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/AckCommandTest.kt
-  - Goal: The watch vibrates on a rising alert bit, but the user cannot stop the chime reminder of the panel from the wrist. Add `AckCommand.line(bit)` for bits 0 to 7 and `AckCommand.resultText(reply)`. Add one `Acknowledge` action to the alert notification of `BleScanService` for each rising bit that `chime_repeat_h` can repeat. Do not add it for `CHARGE_FULL`, because it never repeats. The action starts `AckReceiver`, which sends `ACK <N>` through `BleConsoleClient.send`. Replace the notification with `Acknowledged` on `OK ACK <N>`. Show `ERR NOT_ACTIVE` as `The alert is off` and `ERR READ_ONLY` as `Set ble_console=2 to apply`. Show a timeout as `Panel not in range`. Do not send `ACK` without a tap. Do not retry a failed command.
-  - Acceptance test: In `AckCommandTest`, assert `ACK 0` to `ACK 7`, and assert that bit 8 and bit -1 throw `IllegalArgumentException`. Assert the texts of `OK ACK 1`, `ERR NOT_ACTIVE`, `ERR READ_ONLY` and a timeout. Assert that a rising `CHARGE_FULL` bit gives no action and that a rising `HUMIDITY` bit gives one action with bit 1. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
