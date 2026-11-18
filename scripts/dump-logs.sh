@@ -6,6 +6,7 @@
 #        ./scripts/dump-logs.sh --set-time [port] sets the RTC to the local time of this host (TIME SET command; accuracy is about 1 s)
 #        ./scripts/dump-logs.sh --history [port]  writes the 24-hour histories from the RTC copy to sd_logs/history_<host time>.csv (HISTORY command, no card needed)
 #        ./scripts/dump-logs.sh --events [port]   prints the event ring from the RTC copy (EVENTS command, no card needed)
+#        ./scripts/dump-logs.sh --self-test       checks the log file name pattern against fixed names (no serial port, exit 0 or 1)
 # The board answers on USB power only, while it is awake. Press KEY to wake it first.
 set -euo pipefail
 umask 077
@@ -36,7 +37,14 @@ if [[ "${1:-}" == "--events" ]]; then
   MODE=events
   shift
 fi
+if [[ "${1:-}" == "--self-test" ]]; then
+  MODE=self-test
+  shift
+fi
 PORT="${1:-}"
+if [[ "${MODE}" == "self-test" ]]; then
+  PORT=none
+fi
 if [[ -z "${PORT}" ]]; then
   for candidate in /dev/cu.usbmodem* /dev/cu.usbserial* /dev/cu.wchusbserial*; do
     if [[ -e "${candidate}" ]]; then
@@ -50,18 +58,36 @@ if [[ -z "${PORT}" ]]; then
   exit 1
 fi
 
-mkdir -p "${OUT_DIR}"
-chmod 0700 "${OUT_DIR}"
+if [[ "${MODE}" != "self-test" ]]; then
+  mkdir -p "${OUT_DIR}"
+  chmod 0700 "${OUT_DIR}"
+fi
 
 exec python3 -I - "${PORT}" "${BAUD}" "${OUT_DIR}" "${TIMEOUT_S}" "${MODE}" <<'PY'
 import os, re, subprocess, sys, time, zlib
 
 port, baud, out_dir, timeout_s = sys.argv[1], int(sys.argv[2]), sys.argv[3], float(sys.argv[4])
 mode = sys.argv[5]
-NAME = re.compile(r"^(?:climate_v[2345]_20\d\d(?:0[1-9]|1[0-2])|daily_v[1234]_20\d\d|events_v1_20\d\d)\.csv$")
-FILE_LINE = re.compile(r"^FILE ((?:climate_v[2345]_20\d\d(?:0[1-9]|1[0-2])|daily_v[1234]_20\d\d|events_v1_20\d\d)\.csv) (\d{1,9})$")
-BEGIN_LINE = re.compile(r"^BEGIN ((?:climate_v[2345]_20\d\d(?:0[1-9]|1[0-2])|daily_v[1234]_20\d\d|events_v1_20\d\d)\.csv) (\d{1,9})$")
+# One shared pattern for the file names; keep it in sync with LogArchive.swift.
+NAME_PATTERN = r"(?:climate_v[2-6]_20\d\d(?:0[1-9]|1[0-2])|daily_v[1-5]_20\d\d|events_v1_20\d\d)\.csv"
+NAME = re.compile(f"^{NAME_PATTERN}\\Z")
+FILE_LINE = re.compile(f"^FILE ({NAME_PATTERN}) (\\d{{1,9}})\\Z")
+FILE_ANY = re.compile(r"^FILE ([A-Za-z0-9_.\-]{1,64}) (\d{1,9})$")
+BEGIN_LINE = re.compile(f"^BEGIN ({NAME_PATTERN}) (\\d{{1,9}})\\Z")
 MAX_FILE_BYTES = 16 * 1024 * 1024
+
+if mode == "self-test":
+    good = ["climate_v6_202611.csv", "daily_v5_2026.csv", "climate_v2_202501.csv", "events_v1_2026.csv"]
+    bad = ["climate_v7_202611.csv", "climate_v6_202613.csv", "daily_v6_2026.csv", "../climate_v6_202611.csv", "climate_v6_202611.csv.tmp", "climate_v6_202611.csv\n"]
+    errors = [f"not accepted: {n}" for n in good if not (NAME.match(n) and FILE_LINE.match(f"FILE {n} 10") and BEGIN_LINE.match(f"BEGIN {n} 10"))]
+    errors += [f"not rejected: {n}" for n in bad if NAME.match(n) or FILE_LINE.match(f"FILE {n} 10") or BEGIN_LINE.match(f"BEGIN {n} 10")]
+    if not FILE_ANY.match("FILE climate_v7_202611.csv 10") or FILE_ANY.match("FILE bad\x1b[2Jname 10"):
+        errors.append("FILE_ANY check failed")
+    for e in errors:
+        print("FAIL " + e, file=sys.stderr)
+    if not errors:
+        print(f"OK {len(good)} names accepted, {len(bad)} names rejected")
+    sys.exit(1 if errors else 0)
 
 subprocess.run(["stty", "-f" if sys.platform == "darwin" else "-F", port, str(baud), "raw", "-echo"], check=True)
 fd = os.open(port, os.O_RDWR | os.O_NOCTTY)
@@ -90,7 +116,7 @@ def reply_line(deadline):
     # Skip boot log lines: only protocol lines count.
     while True:
         text = line(deadline)
-        if FILE_LINE.match(text) or BEGIN_LINE.match(text) or text.startswith(("END LIST", "ERR ")):
+        if FILE_ANY.match(text) or BEGIN_LINE.match(text) or text.startswith(("END LIST", "ERR ")):
             return text
 
 def drain():
@@ -224,9 +250,14 @@ while True:
     if text.startswith("END LIST"):
         break
     match = FILE_LINE.match(text)
-    if match and int(match.group(2)) <= MAX_FILE_BYTES:
+    if not match:
+        unknown = FILE_ANY.match(text)
+        if unknown:
+            print(f"SKIP {unknown.group(1)}", file=sys.stderr)
+        continue
+    if int(match.group(2)) <= MAX_FILE_BYTES:
         files.append((match.group(1), int(match.group(2))))
-    elif match:
+    else:
         print(f"{match.group(1)}: skipped, larger than {MAX_FILE_BYTES} bytes", file=sys.stderr)
         skipped += 1
 

@@ -43,6 +43,9 @@ jobs:
           ./scripts/check-config.sh "${RUNNER_TEMP}/missing.ini" || status=$?
           test "${status}" -eq 2
 
+      - name: Self-test the dump-logs file name pattern
+        run: ./scripts/dump-logs.sh --self-test
+
       - name: Test should-release-phone script
         run: |
           ./scripts/should-release-phone.sh --files "android/RlcdPhone/app/build.gradle.kts"

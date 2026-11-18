@@ -1511,3 +1511,10 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Diagnostics report (`DiagnosticsReport.swift`): redacts `mac=` in sensor lines when `includeNames` is false.
 - No new `config.ini` key and no new RTC state.
 - Host tests: `testSerialStatusEmptyAndMissingValues`, `testSerialStatusStates` in `test_firmware_logic.cpp`. Companion tests: `SensorHealthTests.statusSensorCarriesFormatAndMac`, `rowsPopulatesLiveMacFromStatusLine`, `rowsPopulatesMacFromConfig`.
+
+## Current log file names in `dump-logs.sh`
+
+- `scripts/dump-logs.sh` uses one shared name pattern for the `NAME`, `FILE_LINE` and `BEGIN_LINE` checks. It accepts `climate_v2` to `climate_v6`, `daily_v1` to `daily_v5` and `events_v1`, the same set as `LogArchive.swift`. The script now copies the current `climate_v6` and `daily_v5` files.
+- A `FILE` line with an unknown name prints the warning `SKIP <name>` on stderr, so a later format change is visible.
+- `scripts/dump-logs.sh --self-test` checks a fixed list of good and bad names without a serial port and exits 0 or 1. The CI job `Host tests` runs it.
+- No firmware change and no new `config.ini` key.
