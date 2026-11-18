@@ -1482,6 +1482,8 @@ void setup() {
       snap.reset_reason = ResetReasonCodec::text(g_reset_reason);
       snap.rtc_trim_valid = g_rtc.readOffset(snap.rtc_trim);
       snap.rtc_drift = &g_state.rtc_drift;
+      snap.ntp = &g_state.ntp;
+      snap.ntp_credentials = NtpSchedule::hasCredentials(RLCD_WIFI_SSID, RLCD_WIFI_PASSWORD);
       ResetCountStore reset_store;
       snap.abnormal_resets = AbnormalResetCounter::read(reset_store);
       Runner::showStatus(sink, snap);

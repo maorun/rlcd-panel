@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] NTP sync state in STATUS and in the companion diagnostics
-  - Rank: [Total: 32, Use: 5, Setup: 9, Harmony: 8, Safety: 10, Effort: S]
-  - Location: rlcd_panel/serial_console.h, rlcd_panel/ntp_sync.h, rlcd_panel/rlcd_panel.ino, macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt, tests/fixtures/status_reply_sample.txt, tests/test_firmware_logic.cpp
-  - Goal: `NtpSyncState` holds the last attempt, the result and the failures in a row, but no console command shows them. The user cannot see why the clock does not sync. Add the `STATUS` line `NTP ok=<0|1|--> failures=<N> age_s=<N|--> next_s=<N|-->` after the `RTC` line. Calculate `next_s` with `NtpSchedule::retryDelayMs` and `ntp_sync_interval_h`. Show `--` without an attempt and without Wi-Fi credentials. Read only the RTC copy; do not start Wi-Fi. Parse the line in `NtpMetrics` (Swift) and `StatusReply.ntp` (Kotlin), with `nil` for `--` and for a missing line. Show a warning symbol at 3 failures or more.
-  - Acceptance test: Add `testStatusNtpLine` with no attempt, one success and four failures, and assert each field. Update the line index and the fixed CRC-32 in `testStatusRuntimeLinePositionCrcAndNoSideEffect`. Add the `NTP` line to `tests/fixtures/status_reply_sample.txt`. Assert the parse in `DiagnosticsTests.ntpLine` and `StatusReplyTest.ntpLine`, and assert `ParseError.badLine` for `failures=x`. Run the host unit tests, `swift test` and `gradle testDebugUnitTest`.
-
 - [ ] Outdoor location setting in the Android app
   - Rank: [Total: 30, Use: 8, Setup: 7, Harmony: 6, Safety: 9, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/ventilation/OutdoorSource.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/ventilation/OutdoorWeatherService.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/ventilation/OutdoorLocationStore.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/PhoneDashboardScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/ventilation/OutdoorLocationStoreTest.kt

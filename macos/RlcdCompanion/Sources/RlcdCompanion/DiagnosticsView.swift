@@ -30,6 +30,7 @@ struct DiagnosticsView: View {
                         group("BLE reception (last 24 scans)") { reception(d.reception) }
                         group("Resets") { reset(d.reset) }
                         group("RTC frequency trim") { rtcTrim(d.rtcTrim) }
+                        group("Clock sync (NTP)") { ntp(d.ntp) }
                         group("Battery runtime") { runtime(d.runtime) }
                         group("Awake time") { awake(d.awake) }
                     } else {
@@ -248,6 +249,17 @@ struct DiagnosticsView: View {
                     .disabled(!model.canSet || !model.isIdle)
             }
         } else { unknown }
+    }
+
+    @ViewBuilder private func ntp(_ m: NtpMetrics?) -> some View {
+        if let m {
+            HStack {
+                if m.isWarning {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                }
+                Text("\(m.ok ? "ok" : "failed")  failures \(m.failures)  last try \(n(m.ageSeconds)) s ago  next in \(n(m.nextSeconds)) s")
+            }
+        } else { Text("no sync attempt yet or no Wi-Fi credentials").foregroundStyle(.secondary) }
     }
 
     @ViewBuilder private func runtime(_ m: RuntimeMetrics?) -> some View {

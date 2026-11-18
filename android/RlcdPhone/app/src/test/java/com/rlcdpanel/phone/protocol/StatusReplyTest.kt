@@ -85,4 +85,27 @@ class StatusReplyTest {
     fun usbPowerFlag() {
         assertTrue(StatusReply.parse(fixtureLines()).isUsbPower)
     }
+
+    @Test
+    fun ntpLine() {
+        val ntp = StatusReply.parse(fixtureLines()).ntp!!
+        assertTrue(ntp.ok)
+        assertEquals(0, ntp.failures)
+        assertEquals(3600L, ntp.ageSeconds)
+        assertEquals(82800L, ntp.nextSeconds)
+        assertTrue(!ntp.isWarning)
+        val failing = fixtureLines().map { if (it.startsWith("NTP")) "NTP ok=0 failures=3 age_s=100 next_s=--" else it }
+        val warn = StatusReply.parse(failing).ntp!!
+        assertTrue(warn.isWarning)
+        assertNull(warn.nextSeconds)
+        val none = fixtureLines().map { if (it.startsWith("NTP")) "NTP ok=-- failures=0 age_s=-- next_s=--" else it }
+        assertNull(StatusReply.parse(none).ntp)
+        assertNull(StatusReply.parse(fixtureLines().filterNot { it.startsWith("NTP") }).ntp)
+        val bad = fixtureLines().map { if (it.startsWith("NTP")) "NTP ok=0 failures=x age_s=1 next_s=1" else it }
+        try {
+            StatusReply.parse(bad)
+            fail("expected ParseException")
+        } catch (e: ParseException) {
+        }
+    }
 }
