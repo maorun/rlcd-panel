@@ -1772,3 +1772,12 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `AppModel.acknowledge(bit:)` sends `ACK <N>`, then `STATUS`, only on a user action. `ERR NOT_ACTIVE` shows as `The alert is off`. `ERR READ_ONLY` shows as `Set ble_console=2 to apply`.
 - `DiagnosticsView` shows one row for each active bit of `alertMask` with the alert name of `AlertMask`. A bit outside `ackedMask` has an `Acknowledge` button. A bit inside it shows `Acknowledged`.
 - Tests: `ReplyTests` cover the shared status fixture, `acked=02`, a missing field, `acked=zz` and the `ACK` lines.
+
+## Wear OS alert acknowledge action
+
+- `wearos/RlcdWatch/.../protocol/AckCommand.kt`: `AckCommand.line(bit)` gives `ACK <bit>` for the bits 0 to 7 and throws `IllegalArgumentException` for another bit. `AckCommand.actionBits(rising)` lists the rising bits that get an action. `REPEATABLE` holds each bit except `CHARGE_FULL` (bit 4, value 16), like `AlertEvaluator::repeatableBits` of the firmware.
+- `AckCommand.resultText(reply)` maps `OK ACK <N>` to `Acknowledged`, `ERR NOT_ACTIVE` to `The alert is off`, `ERR READ_ONLY` to `Set ble_console=2 to apply`, and a timeout or no reply to `Panel not in range`.
+- `BleScanService.postAlertNotification` posts one notification for each rising repeatable bit (id `910 + bit`) with one `Acknowledge` action. The action starts `AckReceiver` with the bit as extra. Other rising bits (`CHARGE_FULL`) share the old notification id 901 without an action. An ACK result and a later alert keep the other actions.
+- `AckReceiver` (registered with `android:exported="false"`) sends `ACK <N>` once through `BleConsoleClient.send` after a tap and replaces the notification of the bit with the result text. It runs one command at a time (a second tap is ignored), ends after 8 s because of the broadcast limit, checks `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT` before it starts (text `Bluetooth permission missing`), and checks `POST_NOTIFICATIONS`. It sends nothing without a tap and does not retry.
+- Tests: `AckCommandTest` covers `ACK 0` to `ACK 7`, bits -1 and 8, the four result texts, no action for `CHARGE_FULL`, and one action with bit 1 for `HUMIDITY`.
+- Validation: `check-protocol-sync.sh` passes (the protocol files did not change). The local machine has no Android SDK, so `gradle testDebugUnitTest assembleDebug` did not run locally. CI runs it.
