@@ -30,6 +30,7 @@ import androidx.wear.compose.material.TimeText
 import com.rlcdpanel.watch.console.BleConsoleClient
 import com.rlcdpanel.watch.protocol.ConsoleReply
 import com.rlcdpanel.watch.protocol.NtpState
+import com.rlcdpanel.watch.protocol.TimeReply
 import com.rlcdpanel.watch.protocol.ReceptionRate
 import com.rlcdpanel.watch.protocol.ReplyError
 import com.rlcdpanel.watch.protocol.StatusReply
@@ -45,6 +46,17 @@ data class SensorHealthState(
     val message: String? = null
 )
 
+/**
+ * Result of the last `TIME` read. A failed read sets [message] and clears [clockReply].
+ * [clockOffsetSeconds] is positive when the panel is ahead of the watch.
+ */
+data class ClockReadState(
+    val isReadingClock: Boolean = false,
+    val clockReply: TimeReply? = null,
+    val clockOffsetSeconds: Long? = null,
+    val clockMessage: String? = null
+)
+
 /** One-line texts of the rows. */
 object SensorHealthText {
     const val WARNING = "⚠"
@@ -53,6 +65,15 @@ object SensorHealthText {
     fun rssi(sensor: StatusSensor): String = sensor.rssi?.let { "${it.toInt()} dBm" } ?: "-- dBm"
     fun rate(rate: ReceptionRate?): String = rate?.let { "Empfang ${it.received}/${it.scans} (${it.percent} %)" } ?: "Empfang --"
     fun isRateWeak(rate: ReceptionRate?): Boolean = rate?.isWeak == true
+    const val CLOCK_WARN_SECONDS = 120L
+
+    /** True for an offset above 120 s in either direction, for `valid=0` and for `osf=1`. */
+    fun isClockWarning(reply: TimeReply, offsetSeconds: Long?): Boolean =
+        !reply.valid || reply.osf || (offsetSeconds != null && Math.abs(offsetSeconds) > CLOCK_WARN_SECONDS)
+
+    fun clockOffset(offsetSeconds: Long?): String =
+        offsetSeconds?.let { "Clock offset: ${if (it > 0) "+" else ""}$it s" } ?: "Clock offset: --"
+
     fun ntp(ntp: NtpState?): String? = ntp?.let { "Uhr-Sync ${if (it.ok) "ok" else "Fehler"}, ${it.failures} Fehlversuche" }
 
     /** Text of a failed `MUTE` or `STATUS` reply that `ChimeCommand.failureText` does not word itself. */
@@ -70,7 +91,9 @@ fun SensorHealthScreen(
     state: SensorHealthState,
     onRead: () -> Unit,
     onSetMute: (Boolean) -> Unit = {},
-    onOpenEvents: () -> Unit = {}
+    onOpenEvents: () -> Unit = {},
+    clockState: ClockReadState = ClockReadState(),
+    onReadClock: () -> Unit = {}
 ) {
     val listState = rememberScalingLazyListState()
     MaterialTheme {
@@ -100,6 +123,39 @@ fun SensorHealthScreen(
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text("Event log", fontSize = 12.sp, maxLines = 1) }
                     )
+                }
+                item {
+                    Chip(
+                        onClick = onReadClock,
+                        enabled = !clockState.isReadingClock && !state.isReading && !state.isMuting,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text(if (clockState.isReadingClock) "Lese Uhr ..." else "Read clock", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                clockState.clockReply?.let { reply ->
+                    item {
+                        val warn = SensorHealthText.isClockWarning(reply, clockState.clockOffsetSeconds)
+                        Text(
+                            text = (if (warn) "${SensorHealthText.WARNING} " else "") + SensorHealthText.clockOffset(clockState.clockOffsetSeconds) +
+                                "\nvalid=${if (reply.valid) 1 else 0} osf=${if (reply.osf) 1 else 0}",
+                            fontSize = 10.sp,
+                            color = if (warn) Color(0xFFFFB74D) else Color(0xFFB0BEC5),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    }
+                }
+                clockState.clockMessage?.let { message ->
+                    item {
+                        Text(
+                            text = message,
+                            fontSize = 10.sp,
+                            color = Color(0xFFFF8A80),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    }
                 }
                 state.message?.let { message ->
                     item {
