@@ -109,6 +109,9 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("MUTE_CHANGE", 0x0101)) == "Chime muted (USB)")
         #expect(EventText.describe(row("MUTE_CHANGE", 0x0200)) == "Chime on (BLE)")
         #expect(EventText.describe(row("MUTE_CHANGE", 0x0302)) == "MUTE_CHANGE,770")
+        #expect(EventText.describe(row("CLOCK_SET", 0x0000)) == "Clock set (USB)")
+        #expect(EventText.describe(row("CLOCK_SET", 0x0101)) == "RTC trimmed (BLE)")
+        #expect(EventText.describe(row("CLOCK_SET", 0x0002)) == "CLOCK_SET,2")
     }
 
     @Test func slotStaleGivesLostAndBack() {
@@ -208,7 +211,7 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
             .filter { !$0.hasPrefix("CRC32") }
         let rows = try EventsReply.parse(lines: lines)
-        #expect(rows.count == 15)
+        #expect(rows.count == 17)
         #expect(rows[0] == EventRow(time: "2026-11-18 09:00:00", event: "EVENTS_DROPPED", detail: 0))
         let texts = rows.dropFirst().map(EventText.describe)
         #expect(texts[0] == "reset PANIC (abnormal)")
@@ -217,6 +220,8 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(texts[5] == "SD card fault: NO_CARD")
         #expect(texts[11] == "USB power connected")
         #expect(texts[12] == "Battery power")
-        #expect(texts[13] == "FUTURE_EVENT,7")
+        #expect(texts[13] == "Clock set (USB)")
+        #expect(texts[14] == "RTC trimmed (BLE)")
+        #expect(texts[15] == "FUTURE_EVENT,7")
     }
 }

@@ -67,6 +67,12 @@ public enum EventText {
             let sources = ["BOOT", "USB", "BLE"]
             guard (0...0xFFFF).contains(d), state <= 1, source < sources.count else { return raw }
             return state == 1 ? "Chime muted (\(sources[source]))" : "Chime on (\(sources[source]))"
+        case "CLOCK_SET":
+            // Low byte is the action (0 TIME SET, 1 RTC TRIM); the high byte is the transport (0 USB, 1 BLE).
+            let action = d & 0xFF, transport = d >> 8
+            guard (0...0xFFFF).contains(d), action <= 1, transport <= 1 else { return raw }
+            let name = transport == 0 ? "USB" : "BLE"
+            return action == 0 ? "Clock set (\(name))" : "RTC trimmed (\(name))"
         case "CONFIG_SET":
             let index = d & 0xFF, transport = d >> 8
             guard (0...0xFFFF).contains(d), transport <= 1 else { return raw }

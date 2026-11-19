@@ -1920,3 +1920,13 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - A text with a comma, a quote character or a line break is quoted by the CSV rules, and each inner quote is doubled. An unknown event gives the raw text `<event>,<detail>`, which the export quotes.
 - The export sends no console command.
 - Tests: `TelemetryLogTests.csvOfHistoryAndEvents` asserts the header, `Slot 3 back`, a quoted text with a comma and the quoted raw text of an unknown event.
+
+## Clock set event
+
+- `EventCode::CLOCK_SET` 17 records a change of the panel clock. `EventRing::MAX_CODE` is 17. The detail low byte is 0 for `TIME SET` and 1 for `RTC TRIM`. The detail high byte is the transport: 0 USB console, 1 BLE console.
+- `SerialConsoleRunner::setTime(sink, rtc, drift, t, events, transport)` records one event with the written time after a successful RTC write. A bad date and a failed RTC write record nothing.
+- `SerialConsoleRunner::trimRtc(sink, rtc, drift, events, now, transport)` records one event after a successful register write and readback. `ERR NO_DRIFT` and `ERR WRITE_FAILED` record nothing. `run_console` reads the RTC time again for the trim event.
+- The RTC layout and `STATE_VERSION` do not change.
+- The macOS, Android and Wear OS `EventText` show `Clock set (<transport>)` and `RTC trimmed (<transport>)` with the transports `USB` and `BLE`. A transport or action above 1 gives the raw text. The Android and Wear OS sources stay equal.
+- `tests/fixtures/events_reply_sample.txt` holds two `CLOCK_SET` rows (detail 0 and 257) before the `FUTURE_EVENT` row and a new `CRC32` line.
+- Tests: the host test asserts detail `0x0000` (USB `TIME SET`), `0x0101` (BLE `RTC TRIM`), no event for a bad date, a failed write and a failed trim, code 17 accepted and code 18 rejected. `EventTextTests` and both `EventTextTest` classes assert `0x0000`, `0x0101` and the raw text of `0x0002`.

@@ -67,6 +67,13 @@ class EventTextTest {
     }
 
     @Test
+    fun clockSetGivesActionAndTransport() {
+        assertEquals("Clock set (USB)", EventText.describe(row("CLOCK_SET", 0x0000)))
+        assertEquals("RTC trimmed (BLE)", EventText.describe(row("CLOCK_SET", 0x0101)))
+        assertEquals("CLOCK_SET,2", EventText.describe(row("CLOCK_SET", 0x0002)))
+    }
+
+    @Test
     fun unknownEventGivesRawText() {
         assertEquals("FUTURE_EVENT,7", EventText.describe(row("FUTURE_EVENT", 7)))
     }
