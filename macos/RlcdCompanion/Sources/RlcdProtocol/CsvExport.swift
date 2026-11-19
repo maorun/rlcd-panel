@@ -26,7 +26,15 @@ public enum CsvExport {
     }
 
     public static func events(_ rows: [EventRow]) -> String {
-        EventsReply.header + "\n" + rows.map { "\($0.time),\($0.event),\($0.detail)\n" }.joined()
+        EventsReply.header + ",text\n" + rows.map {
+            "\($0.time),\($0.event),\($0.detail),\(field(EventText.describe($0)))\n"
+        }.joined()
+    }
+
+    /// Quotes a field with a comma, a quote or a line break and doubles each inner quote.
+    private static func field(_ s: String) -> String {
+        guard s.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" }) else { return s }
+        return "\"" + s.replacingOccurrences(of: "\"", with: "\"\"") + "\""
     }
 
     private static func number(_ v: Double?, _ digits: Int) -> String {

@@ -25,12 +25,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Readable event texts in the macOS event CSV export
-  - Rank: [Total: 26, Use: 4, Setup: 5, Harmony: 7, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/CsvExport.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/TelemetryLogTests.swift
-  - Goal: `CsvExport.events` writes only the columns `time,event,detail`. A user who opens `events.csv` in a spreadsheet sees raw codes, for example `SLOT_STALE,259`. Add the fourth column `text` with `EventText.describe(row)`. Quote a text with a comma or a quote character by the CSV rules. Keep the first three columns unchanged, so a tool that reads them still works. Do not send a console command for the export.
-  - Acceptance test: In the CSV tests, assert the header `time,event,detail,text`, the text `Slot 3 back` for `SLOT_STALE,259`, the quoted form of a text with a comma and the raw text for an unknown event. Run `swift test` in `macos/RlcdCompanion`.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.
