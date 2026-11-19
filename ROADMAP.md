@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Panel silence notification in the macOS app
-  - Rank: [Total: 29, Use: 7, Setup: 4, Harmony: 8, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/SilenceWatch.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/SilenceWatchTests.swift
-  - Goal: The macOS menu bar shows `--` for a frame older than the stale limit, but the app sends no notice when the panel stops to send, for example with an empty battery or a crash. The Wear OS app has `SilenceWatch` for this case. Port `SilenceWatch.kt` to `SilenceWatch` in `RlcdProtocol` as a pure state machine with an injected clock and the same 35 min limit. It reports `silent` once when the last frame is older than the limit and `back` once at the next frame. Without a frame since the app start it reports nothing. A clock that runs back gives no report. `AppModel` checks it at the existing 30 s tick and posts one `UserNotifications` notice `Panel silent since <HH:mm>` for `silent` and removes it for `back`. Post the notice only when the user enabled the notifications.
-  - Acceptance test: In `SilenceWatchTests`, assert `silent` once at 35 min plus 1 s, no second `silent` at 60 min, `back` once at the next frame, no report without a first frame and no report for a clock that runs back. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
-
 - [ ] Panel clock offset in the Wear OS app
   - Rank: [Total: 29, Use: 4, Setup: 6, Harmony: 9, Safety: 10, Effort: S]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/PanelClock.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/PanelClockTest.kt, scripts/check-protocol-sync.sh
