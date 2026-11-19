@@ -49,7 +49,11 @@ data class StatusReply(
     /** Null for `ok=--` (no attempt, no Wi-Fi credentials) and without an `NTP` line. */
     val ntp: NtpState? = null,
     /** `muted=<0|1>` of the `POWER` line; null for a missing or bad field. */
-    val muted: Boolean? = null
+    val muted: Boolean? = null,
+    /** `status=` of the `SD` line; null for a missing field. */
+    val sdStatus: String? = null,
+    /** `free_mb=` of the `SD` line: free card space in MB; null for `--`, a missing field and older firmware. */
+    val sdFreeMb: Int? = null
 ) {
     val isUsbPower: Boolean get() = powerSource == "USB"
 
@@ -81,6 +85,8 @@ data class StatusReply(
             var src: String? = null
             var ntp: NtpState? = null
             var muted: Boolean? = null
+            var sdStatus: String? = null
+            var sdFreeMb: Int? = null
             for (line in lines) {
                 val words = line.split(' ').filter { it.isNotEmpty() }
                 val head = words.firstOrNull() ?: continue
@@ -105,12 +111,17 @@ data class StatusReply(
                             else -> null
                         }
                     }
+                    "SD" -> {
+                        sdStatus = f["status"]
+                        val free = f["free_mb"]
+                        sdFreeMb = if (free == null || free == "--") null else free.toIntOrNull() ?: throw ParseException(line)
+                    }
                     "RECEPTION" -> reception = parseReception(line)
                     "NTP" -> ntp = parseNtp(line)
                 }
             }
             if (sensors.isEmpty()) throw ParseException("SENSOR")
-            return StatusReply(sensors, reception, src, sensorLines, ntp, muted)
+            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb)
         }
 
         private fun digits(s: String?): Long? =

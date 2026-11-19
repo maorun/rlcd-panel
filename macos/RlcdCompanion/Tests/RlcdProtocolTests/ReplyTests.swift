@@ -121,6 +121,19 @@ struct ReplyAssemblerTests {
         ["SENSOR 0 Onboard temp=21.4 rh=45.0 bat=-- rssi=-- age=120 state=OK", power]
     }
 
+    @Test func sdFreeMbParsing() throws {
+        let power = "POWER src=USB v=4.05 pct=88 alerts=0A muted=0"
+        func parse(_ sd: String) throws -> StatusReply {
+            try StatusReply.parse(lines: ["SENSOR 0 Onboard temp=21.4 rh=45.0 bat=-- rssi=-- age=120 state=OK", sd, power])
+        }
+        let ok = try parse("SD status=OK age=30 free_mb=14820")
+        #expect(ok.sdFreeMb == 14820 && ok.sdStatus == "OK")
+        #expect(try parse("SD status=OK age=30 free_mb=--").sdFreeMb == nil)
+        #expect(try parse("SD status=OK age=30").sdFreeMb == nil)
+        let bad = "SD status=OK age=30 free_mb=x"
+        #expect(throws: ParseError.badLine(bad)) { try parse(bad) }
+    }
+
     @Test func ackedMaskOfSharedFixtureIsZero() throws {
         var url = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { url.deleteLastPathComponent() }

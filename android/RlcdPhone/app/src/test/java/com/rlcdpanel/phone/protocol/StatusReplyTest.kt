@@ -87,6 +87,23 @@ class StatusReplyTest {
     }
 
     @Test
+    fun sdFreeMbField() {
+        val status = StatusReply.parse(fixtureLines())
+        assertEquals("OK", status.sdStatus)
+        assertEquals(14820, status.sdFreeMb)
+        val unknown = fixtureLines().map { if (it.startsWith("SD ")) "SD status=OK age=30 free_mb=--" else it }
+        assertNull(StatusReply.parse(unknown).sdFreeMb)
+        val old = fixtureLines().map { if (it.startsWith("SD ")) "SD status=OK age=30" else it }
+        assertNull(StatusReply.parse(old).sdFreeMb)
+        val bad = fixtureLines().map { if (it.startsWith("SD ")) "SD status=OK age=30 free_mb=x" else it }
+        try {
+            StatusReply.parse(bad)
+            fail("expected ParseException")
+        } catch (e: ParseException) {
+        }
+    }
+
+    @Test
     fun ntpLine() {
         val ntp = StatusReply.parse(fixtureLines()).ntp!!
         assertTrue(ntp.ok)

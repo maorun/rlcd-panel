@@ -1083,6 +1083,7 @@ void logToSdCard() {
       have_noise ? &g_noise : nullptr, &cal, config().log_retention_months, &free_mb,
       config().staleTimeoutMs());
   g_sd_free_mb = free_mb; // -1 after a failed mount, so the view never shows an old value
+  g_state.sd_free_mb = free_mb;
   if (result != SdLogResult::NO_TIME) { // no card access: the stored status stays
     setSdStatusLogged(SdStatusCodec::fromLog(result, free_mb, g_state.sd_status), g_rtc_time); // after the noise window
   }
@@ -1193,6 +1194,7 @@ void loadConfigFromCard(WakeupCause cause) {
     return;
   }
   g_sd_free_mb = free_mb;
+  g_state.sd_free_mb = free_mb;
   portENTER_CRITICAL(&g_registry_mux);
   g_state.applyConfig(loaded, result == SdConfigResult::LOADED, rejects);
   portEXIT_CRITICAL(&g_registry_mux);
@@ -1485,6 +1487,7 @@ void setup() {
       snap.now_ms = nowMs();
       snap.sd_status = g_state.sd_status;
       snap.sd_status_ms = g_state.sd_status_ms;
+      snap.sd_free_mb = g_state.sd_free_mb;
       snap.shtc3 = g_state.shtc3;
       snap.battery_history = &g_state.battery_history;
       snap.cycle_tenths = g_cycles.cycleTenths();
