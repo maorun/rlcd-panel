@@ -31,7 +31,8 @@ data class SensorHealthState(
     val isReading: Boolean = false,
     val rows: List<SensorHealth> = emptyList(),
     val message: String? = null,
-    val ntp: NtpState? = null
+    val ntp: NtpState? = null,
+    val sdFreeMb: Int? = null
 )
 
 /** Cache of the last `CONFIG` read: [info] is null without a cache; [message] tells a failed read. */
@@ -59,6 +60,10 @@ object SensorHealthText {
             (ntp.ageSeconds?.let { ", vor ${it / 60} min" } ?: "") +
             (ntp.nextSeconds?.let { ", nächster Versuch in ${it / 60} min" } ?: "")
     }
+    /** Free card space below this value shows a warning. */
+    const val SD_LOW_MB = 100
+    fun sdFree(mb: Int?): String = mb?.let { "SD frei $it MB" } ?: "SD frei --"
+    fun isSdLow(mb: Int?): Boolean = mb != null && mb < SD_LOW_MB
     fun battery(row: SensorHealth): String = row.battery?.let { "Batterie ${it.toInt()} %" } ?: "Batterie --"
 }
 
@@ -162,6 +167,15 @@ fun SensorHealthScreen(
                         (if (state.ntp?.isWarning == true) "⚠ " else "") + SensorHealthText.ntp(state.ntp),
                         color = if (state.ntp?.isWarning == true) MaterialTheme.colorScheme.error
                         else MaterialTheme.colorScheme.onBackground
+                    )
+                }
+            }
+            if (state.rows.isNotEmpty()) {
+                item {
+                    val low = SensorHealthText.isSdLow(state.sdFreeMb)
+                    Text(
+                        (if (low) "⚠ " else "") + SensorHealthText.sdFree(state.sdFreeMb),
+                        color = if (low) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground
                     )
                 }
             }

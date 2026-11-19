@@ -1905,3 +1905,11 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `check()` returns `.silent` once when the last frame is older than the limit. `onFrame()` returns `.back` once for the first frame after `.silent`. Without a frame nothing is reported. A clock that runs back gives no report and anchors the last frame to the new time.
 - `AppModel` calls `onFrame()` for each frame and `check()` at the 30 s tick. For `.silent` with enabled notifications and an app bundle it posts the notice `Panel silent since <HH:mm>` (identifier `rlcd_panel_silence`). A `.silent` event while notifications are off or without an app bundle posts nothing and is not repeated later. For `.back` it removes the delivered notice.
 - Tests: `SilenceWatchTests` assert `silent` once at 35 min plus 1 s, no second `silent` at 60 min, `back` once at the next frame, `silent` again after `back`, no report without a first frame and no report for a clock that runs back.
+
+## Free MicroSD space in STATUS
+
+- `PersistentState::sd_free_mb` (`int32_t`, -1 is unknown) keeps the free card space in MB across the deep sleep. It uses 4 bytes just before the checksum. `rlcd_panel.ino` sets it after each card access that reads the free space (hourly write and config load). A power-on sets it to -1. A value below -1 is rejected. `STATE_VERSION` is 68.
+- The console command `STATUS` appends ` free_mb=<N|-->` to the `SD` line. A console session can now see a full card before the hourly write fails.
+- The macOS `StatusReply.sdFreeMb` and the shared Kotlin `StatusReply.sdFreeMb` and `sdStatus` (phone and watch) parse the field. `--` and a missing field give `nil` or `null`. A non-numeric value throws `ParseError.badLine` or `ParseException`.
+- `DiagnosticsView` (macOS) and `SensorHealthScreen` (Android) show the free space and a warning below 100 MB.
+- Tests: `tests/test_firmware_logic.cpp` asserts the `SD` line with a value and with `--`, the RTC round trip, the rejection of -2 and the `CRC32` line of `tests/fixtures/status_reply_sample.txt`. `ReplyTests`, and both `StatusReplyTest` classes assert the value, `null` for `--` and an error for `free_mb=x`.

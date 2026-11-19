@@ -34,6 +34,7 @@ struct DiagnosticsView: View {
                         group("Battery runtime") { runtime(d.runtime) }
                         group("Awake time") { awake(d.awake) }
                         group("Memory") { memory(d.memory) }
+                        group("MicroSD card") { sdCard(model.status) }
                     } else {
                         Text("No diagnostics yet. Press the refresh button.").font(.caption).foregroundStyle(.secondary)
                     }
@@ -285,6 +286,20 @@ struct DiagnosticsView: View {
             }
         } else { Text("no sync attempt yet or no Wi-Fi credentials").foregroundStyle(.secondary) }
     }
+
+    @ViewBuilder private func sdCard(_ s: StatusReply?) -> some View {
+        if let s, let mb = s.sdFreeMb {
+            HStack {
+                if mb < Self.sdLowMb {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                }
+                Text("SD free \(mb) MB")
+            }
+        } else { Text("SD free --").foregroundStyle(.secondary) }
+    }
+
+    /// Free card space below this value shows a warning.
+    static let sdLowMb = 100
 
     @ViewBuilder private func runtime(_ m: RuntimeMetrics?) -> some View {
         if let m {

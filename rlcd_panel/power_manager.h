@@ -99,6 +99,7 @@ struct PersistentState {
   uint16_t sensor_battery_latch = 0; // low battery latch, bits 0..9 are the registry slots (SensorBatteryLatch)
   uint32_t last_chime_ms = 0; // clock value of the last chime or alert rising edge (chime_repeat_h)
   uint8_t alert_mask = ALERT_NONE; // alerts active in the last wake cycle (hysteresis latch)
+  int32_t sd_free_mb = -1;         // free MicroSD space in MB at the last card read; -1 is unknown (STATUS)
   uint16_t stale_slots = 0;        // stale latch, bits 0..9 are the registry slots (recordStaleChanges)
   uint8_t alert_ack = ALERT_NONE;  // acknowledged alert bits (console ACK): no chime reminder while the alert stays on
   NoiseBand noise_band = NoiseBand::QUIET; // band of the last noise window (hysteresis latch)
@@ -391,7 +392,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 67;
+  static constexpr uint8_t STATE_VERSION = 68;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -451,7 +452,9 @@ public:
   static constexpr size_t ALERT_ACK_SIZE = 1;
   // Stale slot latch (uint16, bits 0..9, just before the checksum).
   static constexpr size_t STALE_SIZE = 2;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + 4;
+  // Free MicroSD space (int32, -1 unknown, just before the checksum).
+  static constexpr size_t SD_FREE_SIZE = 4;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -802,6 +805,7 @@ public:
     out[pos++] = state.alert_ack;
     out[pos++] = static_cast<uint8_t>(state.stale_slots & 0xFF);
     out[pos++] = static_cast<uint8_t>((state.stale_slots >> 8) & 0xFF);
+    putU32(out, pos, static_cast<uint32_t>(state.sd_free_mb));
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -1210,6 +1214,10 @@ public:
       if ((s.stale_slots & (1u << i)) != 0 && !s.registry.slot(i).valid) {
         return false; // a stale bit of an empty slot is corrupt
       }
+    }
+    s.sd_free_mb = static_cast<int32_t>(getU32(data, pos));
+    if (s.sd_free_mb < -1) {
+      return false;
     }
     s.registry.setAutoAssign(s.config.slot_auto_assign != 0);
     s.registry.setMinAssignRssi(s.config.auto_assign_min_rssi);

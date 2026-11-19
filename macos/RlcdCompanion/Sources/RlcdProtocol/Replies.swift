@@ -72,6 +72,8 @@ public struct StatusSensor: Equatable {
 public struct StatusReply: Equatable {
     public let sensors: [StatusSensor]
     public let sdStatus: String?
+    /// `free_mb=<N|-->` of the `SD` line: free card space in MB; `nil` for `--` and for older firmware.
+    public let sdFreeMb: Int?
     public let resetReason: String?
     public let powerSource: String?
     public let cellVolts: Double?
@@ -90,6 +92,7 @@ public struct StatusReply: Equatable {
     public static func parse(lines: [String]) throws -> StatusReply {
         var sensors: [StatusSensor] = []
         var sd: String?
+        var sdFree: Int?
         var reset: String?
         var src: String?
         var volts: Double?
@@ -112,7 +115,12 @@ public struct StatusReply: Equatable {
                     humidity: number(f["rh"]), battery: number(f["bat"]), rssi: number(f["rssi"]),
                     ageSeconds: number(f["age"]), state: f["state"] ?? "", format: sourceFormat(f["format"]),
                     mac: sourceFormat(f["mac"])))
-            case "SD": sd = f["status"]
+            case "SD":
+                sd = f["status"]
+                if let v = f["free_mb"], v != "--" {
+                    guard let mb = Int(v) else { throw ParseError.badLine(line) }
+                    sdFree = mb
+                }
             case "RESET":
                 reset = f["reason"]
                 other["RESET"] = line // `DiagnosticsReply` reads the abnormal count
@@ -134,7 +142,7 @@ public struct StatusReply: Equatable {
         guard let mask else { throw ParseError.missingLine("POWER") }
         guard !sensors.isEmpty else { throw ParseError.missingLine("SENSOR") }
         return StatusReply(
-            sensors: sensors, sdStatus: sd, resetReason: reset, powerSource: src, cellVolts: volts,
+            sensors: sensors, sdStatus: sd, sdFreeMb: sdFree, resetReason: reset, powerSource: src, cellVolts: volts,
             cellPercent: pct, alertMask: mask, muted: muted, ackedMask: acked, otherLines: other, sensorLines: sensorLines)
     }
 }
