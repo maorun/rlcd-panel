@@ -69,7 +69,8 @@ object SensorHealthText {
 fun SensorHealthScreen(
     state: SensorHealthState,
     onRead: () -> Unit,
-    onSetMute: (Boolean) -> Unit = {}
+    onSetMute: (Boolean) -> Unit = {},
+    onOpenEvents: () -> Unit = {}
 ) {
     val listState = rememberScalingLazyListState()
     MaterialTheme {
@@ -90,6 +91,14 @@ fun SensorHealthScreen(
                         modifier = Modifier.fillMaxWidth(0.85f),
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text(if (state.isReading) "Lese Panel ..." else "Read sensor health", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                item {
+                    Chip(
+                        onClick = onOpenEvents,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text("Event log", fontSize = 12.sp, maxLines = 1) }
                     )
                 }
                 state.message?.let { message ->

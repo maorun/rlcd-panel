@@ -1874,3 +1874,12 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - The RTC layout and `STATE_VERSION` do not change.
 - The macOS and the Android `EventText` show `Chime muted (<source>)` and `Chime on (<source>)` with the sources `BOOT`, `USB` and `BLE`. An invalid state or source gives the raw text.
 - Tests: the host test asserts detail `0x0101` (USB), `0x0200` (BLE), no event for an equal flag, code 16 accepted and code 17 rejected. `EventTextTests` and `EventTextTest` assert `0x0001`, `0x0101`, `0x0200` and the raw text of `0x0302`.
+
+## Event log over the BLE console in the Wear OS app
+
+- `protocol/EventsReply.kt` and `protocol/EventText.kt` are copies of the phone files and stay equal. `scripts/check-protocol-sync.sh` compares them (the `FILES` list has 12 entries).
+- `SensorHealthScreen` has the chip `Event log`. It opens `EventLogScreen`. The system back gesture returns to the sensor health screen.
+- `EventLogScreen` has the chip `Read events`. A tap sends `EVENTS` through `BleConsoleClient.send` once. The app sends no command without a tap.
+- `EventLogState(isReading, rows, dropped, loaded, message)` keeps the rows oldest first. `visibleRows` gives the newest 8 rows, newest first. The card shows `HH:mm` and `EventText.describe(row)`. An abnormal event has the error color. A `dropped` count above 0 shows one text line.
+- A failed CRC-32, a timeout or an `ERR` reply gives one error text. The app does not retry the command.
+- Tests: `EventTextTest` asserts the texts for `RESET` 4, `SLOT_STALE` 259 and `POWER_SOURCE` 1, and reads `tests/fixtures/events_reply_sample.txt` to assert the newest 8 rows in newest-first order.

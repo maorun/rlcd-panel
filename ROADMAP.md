@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Event log over the BLE console in the Wear OS app
-  - Rank: [Total: 30, Use: 5, Setup: 6, Harmony: 10, Safety: 9, Effort: M]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/EventsReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/EventText.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/EventLogScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/EventTextTest.kt, scripts/check-protocol-sync.sh, tests/fixtures/events_reply_sample.txt
-  - Goal: The watch shows alerts and the sensor health, but not the event ring. After a silence notification the user cannot see a reset, a lost slot or a power change on the wrist. Copy `EventsReply.kt` and `EventText.kt` of the Android app into the Wear OS protocol package. Add both names to `FILES` of `scripts/check-protocol-sync.sh`. Add `EventLogScreen` with a `ScalingLazyColumn` of the newest 8 rows, newest first, with the time as `HH:mm` and the text of `EventText.describe`. Open it from a button of `SensorHealthScreen`. Send `EVENTS` through `BleConsoleClient.send` only on a user tap. Show a failed CRC-32 or a timeout as one error text. Do not retry the command.
-  - Acceptance test: Run `./scripts/check-protocol-sync.sh` and assert exit 0. In the Wear OS `EventTextTest`, read `tests/fixtures/events_reply_sample.txt` and assert the texts of `RESET` 4, `SLOT_STALE` 259 and `POWER_SOURCE` 1. Assert that the screen model keeps the newest 8 rows in the newest-first order. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`.
-
 - [ ] Panel silence notification in the macOS app
   - Rank: [Total: 29, Use: 7, Setup: 4, Harmony: 8, Safety: 10, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/SilenceWatch.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/SilenceWatchTests.swift
