@@ -77,15 +77,18 @@ class PanelConfigTest {
     }
 
     @Test
-    fun unknownMacShowsDefaultTitle() {
+    fun unknownMacFallsBackToSlotNameThenDefaultTitle() {
         val config = PanelConfig.parseText(macIni)
         assertNull(config.nameForMac("B0:E9:FE:00:00:99"))
         assertNull(config.nameForMac(null))
         assertNull(config.nameForMac("00:00:00:00:00:00"))
-        // slot3_name has no slot3_mac, so it never shows
-        assertEquals("Slot 3", config.tileName(3))
-        assertEquals("Slot 1", config.tileName(1, "B0:E9:FE:00:00:99"))
-        assertEquals("Slot 1", config.tileName(1, null))
+        // an unknown MAC falls back to the slotN_name of the index
+        assertEquals("BAD", config.tileName(1, "B0:E9:FE:00:00:99"))
+        assertEquals("BAD", config.tileName(1, null))
+        // slot3_name has no slot3_mac and still shows
+        assertEquals("KINDER", config.tileName(3))
+        // a slot without any name keeps the default title
+        assertEquals("Slot 4", config.tileName(4, "B0:E9:FE:00:00:99"))
     }
 
     @Test
