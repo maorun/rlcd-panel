@@ -104,11 +104,18 @@ struct TelemetryLogTests {
         1,3,,,38.5
 
         """)
-        let events = [EventRow(time: "2026-11-14T10:00:00", event: "RESET", detail: 2), EventRow(time: "", event: "SLOT_RELEASE", detail: 1)]
+        let events = [
+            EventRow(time: "2026-11-14T10:00:00", event: "SLOT_STALE", detail: 259),
+            EventRow(time: "", event: "CONFIG_LOAD", detail: 2),
+            EventRow(time: "", event: "NEW_EVENT", detail: 7),
+            EventRow(time: "", event: "A\"B", detail: 1),
+        ]
         #expect(CsvExport.events(events) == """
-        time,event,detail
-        2026-11-14T10:00:00,RESET,2
-        ,SLOT_RELEASE,1
+        time,event,detail,text
+        2026-11-14T10:00:00,SLOT_STALE,259,Slot 3 back
+        ,CONFIG_LOAD,2,"config loaded, 2 rejected lines"
+        ,NEW_EVENT,7,"NEW_EVENT,7"
+        ,A"B,1,"A""B,1"
 
         """)
     }

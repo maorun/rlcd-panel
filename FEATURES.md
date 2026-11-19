@@ -1913,3 +1913,10 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - The macOS `StatusReply.sdFreeMb` and the shared Kotlin `StatusReply.sdFreeMb` and `sdStatus` (phone and watch) parse the field. `--` and a missing field give `nil` or `null`. A non-numeric value throws `ParseError.badLine` or `ParseException`.
 - `DiagnosticsView` (macOS) and `SensorHealthScreen` (Android) show the free space and a warning below 100 MB.
 - Tests: `tests/test_firmware_logic.cpp` asserts the `SD` line with a value and with `--`, the RTC round trip, the rejection of -2 and the `CRC32` line of `tests/fixtures/status_reply_sample.txt`. `ReplyTests`, and both `StatusReplyTest` classes assert the value, `null` for `--` and an error for `free_mb=x`.
+
+## Readable event texts in the macOS event CSV export
+
+- `CsvExport.events` writes the header `time,event,detail,text`. The fourth column holds `EventText.describe(row)`, for example `Slot 3 back` for `SLOT_STALE,259`. The first three columns stay unchanged.
+- A text with a comma, a quote character or a line break is quoted by the CSV rules, and each inner quote is doubled. An unknown event gives the raw text `<event>,<detail>`, which the export quotes.
+- The export sends no console command.
+- Tests: `TelemetryLogTests.csvOfHistoryAndEvents` asserts the header, `Slot 3 back`, a quoted text with a comma and the quoted raw text of an unknown event.
