@@ -108,6 +108,15 @@ object EventText {
                 if (d !in 0..0xFFFF || state > 1 || name == null) raw
                 else if (state == 1) "Chime muted ($name)" else "Chime on ($name)"
             }
+            "CLOCK_SET" -> {
+                val action = d and 0xFF
+                val transport = d shr 8
+                if (d !in 0..0xFFFF || action > 1 || transport > 1) raw
+                else {
+                    val name = if (transport == 0) "USB" else "BLE"
+                    if (action == 0) "Clock set ($name)" else "RTC trimmed ($name)"
+                }
+            }
             "SD_FAULT" -> SD_STATUSES[d]?.let { if (d == 1) "SD card OK" else "SD card fault: $it" } ?: raw
             else -> raw
         }

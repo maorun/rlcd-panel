@@ -1591,9 +1591,11 @@ public:
   // Writes a parsed local time to the RTC. The write clears the oscillator stop flag. After a successful write the
   // drift baseline is void, as after the seed from the compile stamp, so the next NTP sync measures no false drift.
   // A failed write leaves the baseline untouched. The NTP schedule is not touched.
-  // Returns true when the RTC got the new time.
+  // Returns true when the RTC got the new time. With events, one CLOCK_SET event (detail low byte 0, transport in the
+  // high byte: 0 USB, 1 BLE) records the written time after a successful write only.
   template <typename Rtc>
-  static bool setTime(Sink& sink, Rtc& rtc, RtcDriftState& drift, const RtcTime& t) {
+  static bool setTime(Sink& sink, Rtc& rtc, RtcDriftState& drift, const RtcTime& t, EventRing* events = nullptr,
+                      uint8_t transport = 0) {
     if (!Pcf85063Codec::isTimeInRange(t) || t.year < SerialConsole::MIN_SET_YEAR ||
         t.year > SerialConsole::MAX_SET_YEAR) { // defense in depth: the parser already checks the time
       reject(sink, SerialParseStatus::BAD_ARG);
@@ -1604,6 +1606,9 @@ public:
       return false;
     }
     drift = RtcDriftState{};
+    if (events != nullptr) {
+      events->record(t, EventCode::CLOCK_SET, static_cast<uint16_t>((static_cast<uint16_t>(transport) << 8) | 0u));
+    }
     send(sink, "OK TIME\n");
     return true;
   }
@@ -1612,9 +1617,11 @@ public:
   // else "ERR NO_DRIFT". The register is written, read back and compared; after a match the drift baseline
   // is void and the reply is "OK RTC TRIM <old> <new>". An unreadable register, a failed write or a
   // readback mismatch gives "ERR WRITE_FAILED" and keeps the baseline. The register keeps its value, so
-  // nothing is stored. Returns true after a write.
+  // nothing is stored. Returns true after a write. With events and now, one CLOCK_SET event (detail low byte 1,
+  // transport in the high byte) records the trim after a successful write only.
   template <typename Rtc>
-  static bool trimRtc(Sink& sink, Rtc& rtc, RtcDriftState& drift) {
+  static bool trimRtc(Sink& sink, Rtc& rtc, RtcDriftState& drift, EventRing* events = nullptr,
+                      const RtcTime* now = nullptr, uint8_t transport = 0) {
     if (!RtcTrim::hasFigure(drift)) {
       send(sink, "ERR NO_DRIFT\n");
       return false;
@@ -1631,6 +1638,9 @@ public:
       return false;
     }
     drift = RtcDriftState{};
+    if (events != nullptr && now != nullptr) {
+      events->record(*now, EventCode::CLOCK_SET, static_cast<uint16_t>((static_cast<uint16_t>(transport) << 8) | 1u));
+    }
     char line[48];
     snprintf(line, sizeof(line), "OK RTC TRIM %ld %ld\n", static_cast<long>(active), static_cast<long>(target));
     send(sink, line);

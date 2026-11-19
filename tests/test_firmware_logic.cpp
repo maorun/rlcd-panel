@@ -13136,6 +13136,67 @@ void testRtcTrimNeedsFigureOfOneDay() {
   assert(!TestRunner::trimRtc(edge_sink, rtc, edge) && edge_sink.out == "ERR NO_DRIFT\n");
 }
 
+void testClockSetEvents() {
+  SerialCommand cmd;
+  assert(parseText("TIME SET 2026-11-13T14:05:09", cmd) == SerialParseStatus::OK);
+  // USB TIME SET: one event with the written time and detail 0x0000.
+  {
+    FakeTimeRtc rtc;
+    RtcDriftState drift = syncedDrift();
+    FakeSink sink;
+    EventRing events;
+    assert(TestRunner::setTime(sink, rtc, drift, cmd.time, &events, 0));
+    assert(events.size() == 1 && events.at(0).code == EventCode::CLOCK_SET && events.at(0).detail == 0x0000);
+    assert(events.at(0).year == 2026 && events.at(0).hour == 14 && events.at(0).second == 9);
+  }
+  // A failed RTC write and a bad date record nothing.
+  {
+    FakeTimeRtc rtc;
+    rtc.fail = true;
+    RtcDriftState drift = syncedDrift();
+    FakeSink sink;
+    EventRing events;
+    assert(!TestRunner::setTime(sink, rtc, drift, cmd.time, &events, 0));
+    RtcTime bad = cmd.time;
+    bad.year = 2024;
+    FakeTimeRtc ok_rtc;
+    FakeSink s2;
+    assert(!TestRunner::setTime(s2, ok_rtc, drift, bad, &events, 0));
+    assert(events.size() == 0);
+  }
+  // BLE RTC TRIM: one event with detail 0x0101; a failed trim records nothing.
+  {
+    RtcTime now = cmd.time;
+    FakeTrimRtc rtc;
+    rtc.reg = 3;
+    FakeSink sink;
+    EventRing events;
+    RtcDriftState drift = trimDrift(35, 86400);
+    assert(TestRunner::trimRtc(sink, rtc, drift, &events, &now, 1));
+    assert(events.size() == 1 && events.at(0).code == EventCode::CLOCK_SET && events.at(0).detail == 0x0101);
+    FakeSink again;
+    assert(!TestRunner::trimRtc(again, rtc, drift, &events, &now, 1) && events.size() == 1); // NO_DRIFT
+    // A failed read, a failed write and a readback mismatch record nothing.
+    EventRing failed;
+    FakeTrimRtc read_fail;
+    read_fail.fail_read = true;
+    RtcDriftState d1 = trimDrift(35, 86400);
+    FakeSink s1;
+    assert(!TestRunner::trimRtc(s1, read_fail, d1, &failed, &now, 1));
+    FakeTrimRtc write_fail;
+    write_fail.fail_write = true;
+    RtcDriftState d2 = trimDrift(35, 86400);
+    FakeSink s2;
+    assert(!TestRunner::trimRtc(s2, write_fail, d2, &failed, &now, 1));
+    FakeTrimRtc mismatch;
+    mismatch.corrupt_readback = true;
+    RtcDriftState d3 = trimDrift(35, 86400);
+    FakeSink s3;
+    assert(!TestRunner::trimRtc(s3, mismatch, d3, &failed, &now, 1));
+    assert(failed.size() == 0);
+  }
+}
+
 void testRtcTrimWritesAndClearsBaseline() {
   FakeTrimRtc rtc;
   rtc.reg = 3;
@@ -18463,7 +18524,8 @@ void testEventLog() {
       {EventCode::SLOT_ASSIGN, "SLOT_ASSIGN"},        {EventCode::SLOT_RELEASE, "SLOT_RELEASE"},
       {EventCode::CONFIG_SET, "CONFIG_SET"},          {EventCode::SD_FAULT, "SD_FAULT"},
       {EventCode::ALERT_ACK, "ALERT_ACK"},         {EventCode::SLOT_STALE, "SLOT_STALE"},
-      {EventCode::POWER_SOURCE, "POWER_SOURCE"}, {EventCode::MUTE_CHANGE, "MUTE_CHANGE"}};
+      {EventCode::POWER_SOURCE, "POWER_SOURCE"}, {EventCode::MUTE_CHANGE, "MUTE_CHANGE"},
+      {EventCode::CLOCK_SET, "CLOCK_SET"}};
   for (const auto& c : codes) {
     EventRing r;
     r.record(t1, c.code, 65535);
@@ -18568,7 +18630,7 @@ void testEventLog() {
       {0, 17},                        // count above 16
       {3 + 0, 2},                     // time flag above 1
       {3 + 8, 0},                     // code NONE in a used entry
-      {3 + 8, 17},                    // code above the last
+      {3 + 8, 18},                    // code above the last
       {3 + 3, 13},                    // month 13
       {3 + 4, 32},                    // day 32
       {3 + 5, 24},                    // hour 24
@@ -18708,7 +18770,7 @@ void testResetAndSlotEvents() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.events.at(0).code == EventCode::SLOT_RELEASE);
   const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE;
-  buf[base + 3 + 8] = 17;
+  buf[base + 3 + 8] = 18;
   const uint32_t crc = PowerManager::crc32(buf, PowerManager::SERIALIZED_SIZE - 4);
   for (int i = 0; i < 4; ++i) buf[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState bad;
@@ -18792,13 +18854,15 @@ void testConfigSetEvents() {
   items[0].code = static_cast<EventCode>(16);
   assert(back.restore(1, 0, items) && back.at(0).code == EventCode::MUTE_CHANGE);
   items[0].code = static_cast<EventCode>(17);
+  assert(back.restore(1, 0, items) && back.at(0).code == EventCode::CLOCK_SET);
+  items[0].code = static_cast<EventCode>(18);
   assert(!back.restore(1, 0, items));
 }
 
 void testPowerSourceEvents() {
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 19; t1.hour = 9; t1.minute = 0; t1.second = 0;
-  assert(static_cast<uint8_t>(EventCode::POWER_SOURCE) == 15 && EventRing::MAX_CODE == 16);
+  assert(static_cast<uint8_t>(EventCode::POWER_SOURCE) == 15 && EventRing::MAX_CODE == 17);
   auto reading = [](bool valid, bool usb) {
     BatteryReading r;
     r.valid = valid;
@@ -18822,7 +18886,7 @@ void testPowerSourceEvents() {
 void testSlotStaleEvents() {
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 18; t1.hour = 9; t1.minute = 0; t1.second = 0;
-  assert(static_cast<uint8_t>(EventCode::SLOT_STALE) == 14 && EventRing::MAX_CODE == 16);
+  assert(static_cast<uint8_t>(EventCode::SLOT_STALE) == 14 && EventRing::MAX_CODE == 17);
   auto reading = [](uint8_t last) {
     SwitchBotReading r;
     r.valid = true;
@@ -18894,7 +18958,7 @@ void testSlotStaleEvents() {
 void testSdFaultEvents() {
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 15; t1.hour = 9; t1.minute = 0; t1.second = 0;
-  assert(static_cast<uint8_t>(EventCode::SD_FAULT) == 12 && static_cast<uint8_t>(EventCode::ALERT_ACK) == 13 && EventRing::MAX_CODE == 16);
+  assert(static_cast<uint8_t>(EventCode::SD_FAULT) == 12 && static_cast<uint8_t>(EventCode::ALERT_ACK) == 13 && EventRing::MAX_CODE == 17);
   const int32_t ok = static_cast<int32_t>(SdStatus::OK);
   assert(SdStatusCodec::faultEventDetail(SdStatus::OK, SdStatus::WRITE_FAILED) ==
          static_cast<int32_t>(SdStatus::WRITE_FAILED));
@@ -18928,7 +18992,7 @@ void testSdFaultEvents() {
   items[0].detail = 1;
   EventRing ring;
   assert(ring.restore(1, 0, items) && ring.at(0).code == EventCode::SD_FAULT);
-  items[0].code = static_cast<EventCode>(17);
+  items[0].code = static_cast<EventCode>(18);
   assert(!ring.restore(1, 0, items));
 }
 
@@ -19819,8 +19883,8 @@ void testSerialMuteCommand() {
     FakeSink s5;
     TestRunner::setMute(s5, flag, 1, nullptr, nullptr, 1); // no ring: the flag changes, no event
     assert(flag && mute_events.size() == 2);
-    // EventRing accepts code 16 and rejects code 17
-    assert(EventRing::MAX_CODE == 16);
+    // EventRing accepts code 17 and rejects code 18
+    assert(EventRing::MAX_CODE == 17);
   }
   TestRunner::execute(storage, sink, cmd);
   assert(storage.mounts == 0); // execute() ignores MUTE
@@ -22196,6 +22260,7 @@ testSerialConfigNegativeSmallOffset();
   testRtcTrimRegisterEncoding();
   testRtcTrimNeedsFigureOfOneDay();
   testRtcTrimWritesAndClearsBaseline();
+  testClockSetEvents();
   testRtcTrimFailuresKeepBaseline();
   testRtcTrimParserAndGate();
   testRtcTrimStatusLine();

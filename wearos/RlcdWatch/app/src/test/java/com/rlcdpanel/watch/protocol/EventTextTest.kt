@@ -32,13 +32,20 @@ class EventTextTest {
     }
 
     @Test
+    fun clockSetGivesActionAndTransport() {
+        assertEquals("Clock set (USB)", EventText.describe(row("CLOCK_SET", 0x0000)))
+        assertEquals("RTC trimmed (BLE)", EventText.describe(row("CLOCK_SET", 0x0101)))
+        assertEquals("CLOCK_SET,2", EventText.describe(row("CLOCK_SET", 0x0002)))
+    }
+
+    @Test
     fun screenModelKeepsNewestEightRowsNewestFirst() {
         val log = sampleLog()
         val state = EventLogState(rows = log.rows, dropped = log.dropped, loaded = true)
         assertEquals(8, state.visibleRows.size)
         assertEquals(log.rows.last(), state.visibleRows.first())
         assertEquals(log.rows[log.rows.size - 8], state.visibleRows.last())
-        assertEquals(listOf("FUTURE_EVENT", "POWER_SOURCE", "POWER_SOURCE"), state.visibleRows.take(3).map { it.event })
+        assertEquals(listOf("FUTURE_EVENT", "CLOCK_SET", "CLOCK_SET"), state.visibleRows.take(3).map { it.event })
     }
 
     @Test

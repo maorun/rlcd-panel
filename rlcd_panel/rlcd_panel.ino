@@ -1509,8 +1509,7 @@ void setup() {
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::TIME) {
       // The RTC answers over I2C: no card access, so the console keeps running.
       if (command.time_set) {
-        if (Runner::setTime(sink, g_rtc, g_state.rtc_drift,
-                                                                   command.time)) {
+        if (Runner::setTime(sink, g_rtc, g_state.rtc_drift, command.time, &g_state.events, transport)) {
           RtcTime written;
           if (g_rtc.readTime(written)) {
             g_rtc_time = written; // a failed re-read keeps the old header clock
@@ -1524,7 +1523,11 @@ void setup() {
       }
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::RTC_TRIM) {
       // The RTC answers over I2C: no card access, so the console keeps running.
-      Runner::trimRtc(sink, g_rtc, g_state.rtc_drift);
+      RtcTime trim_now = g_rtc_time;
+      if (!g_rtc.readTime(trim_now)) {
+        trim_now = g_rtc_time;
+      }
+      Runner::trimRtc(sink, g_rtc, g_state.rtc_drift, &g_state.events, &trim_now, transport);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SCAN) {
       // The scan fills a collector only; the registry copy gives the slot column (only a wake cycle scan writes the
       // registry, and none runs while the console is active). No card access. The BLE radio is not the I2S bus.
