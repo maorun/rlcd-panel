@@ -1867,6 +1867,14 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - The app sends the commands only on a tap. It does not retry a failed command.
 - `PanelClockTest` asserts the winter and summer text, null for the year 2100, the `TIME` parse, the `ParseException`, the offset sign and `isTimeSetAllowed`.
 
+## Panel clock offset in the Wear OS app
+
+- `protocol/PanelClock.kt` is a copy of the phone file and stays equal. `scripts/check-protocol-sync.sh` compares it (the `FILES` list has 13 entries).
+- `SensorHealthScreen` has the chip `Read clock`. A tap sends `TIME` through `BleConsoleClient.send` once and shows `Clock offset: +5 s` (panel ahead of the watch) or `Clock offset: -3 s`, plus `valid` and `osf`.
+- `SensorHealthText.isClockWarning` shows the warning symbol for an offset above 120 s in either direction, for `valid=0` and for `osf=1`. An offset of 120 s with `valid=1` and `osf=0` shows no warning.
+- The watch never sends `TIME SET`. The app sends `TIME` only on a tap and does not retry a failed command. A failed CRC-32, a timeout or an `ERR` reply gives one error text.
+- Tests: `PanelClockTest` asserts the `TIME` parse, the offset sign, the offset text and the warning for 121 s, `valid=0` and `osf=1` and no warning for 120 s.
+
 ## Mute change event
 
 - `EventCode::MUTE_CHANGE` 16 records each change of the mute flag. `EventRing::MAX_CODE` is 16. The detail low byte is 1 for muted and 0 for unmuted. The detail high byte is the source: 0 `BOOT` press, 1 USB console, 2 BLE console.

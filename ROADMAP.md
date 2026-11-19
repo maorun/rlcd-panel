@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Panel clock offset in the Wear OS app
-  - Rank: [Total: 29, Use: 4, Setup: 6, Harmony: 9, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/PanelClock.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/PanelClockTest.kt, scripts/check-protocol-sync.sh
-  - Goal: The watch cannot show if the panel clock is wrong. Copy `PanelClock.kt` of the Android app into the Wear OS protocol package and add `PanelClock.kt` to `FILES` of `scripts/check-protocol-sync.sh`. Add one `Read clock` button to `SensorHealthScreen`. A tap sends `TIME` through `BleConsoleClient.send` and shows the offset to the watch time in seconds. Show a warning symbol for an offset above 120 s, for `valid=0` and for `osf=1`. Do not send `TIME SET` from the watch. Do not retry a failed command.
-  - Acceptance test: Run `./scripts/check-protocol-sync.sh` and assert exit 0. In the Wear OS `PanelClockTest`, assert the parse of a `TIME` line, the offset and the warning for 121 s, `valid=0` and `osf=1`, and no warning for 120 s. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`.
-
 - [ ] Free MicroSD space in STATUS
   - Rank: [Total: 28, Use: 4, Setup: 8, Harmony: 8, Safety: 8, Effort: M]
   - Location: rlcd_panel/serial_console.h, rlcd_panel/power_manager.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp, tests/fixtures/status_reply_sample.txt, AGENTS.md, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/StatusReplyTest.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/StatusReplyTest.kt
