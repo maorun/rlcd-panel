@@ -101,6 +101,13 @@ object EventText {
                 0 -> "Battery power"
                 else -> raw
             }
+            "MUTE_CHANGE" -> {
+                val state = d and 0xFF
+                val source = d shr 8
+                val name = listOf("BOOT", "USB", "BLE").getOrNull(source)
+                if (d !in 0..0xFFFF || state > 1 || name == null) raw
+                else if (state == 1) "Chime muted ($name)" else "Chime on ($name)"
+            }
             "SD_FAULT" -> SD_STATUSES[d]?.let { if (d == 1) "SD card OK" else "SD card fault: $it" } ?: raw
             else -> raw
         }

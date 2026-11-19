@@ -1866,3 +1866,11 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `SensorHealthScreen` has a clock card with the buttons `Read clock` and `Sync clock`. `Read clock` sends `TIME` and shows the offset in seconds, `valid` and `osf` (warning symbol for `valid=0` or `osf=1`). `Sync clock` sends `TIME SET <phone time>`, then `TIME`. `ERR READ_ONLY` shows `Set ble_console=2 to apply`.
 - The app sends the commands only on a tap. It does not retry a failed command.
 - `PanelClockTest` asserts the winter and summer text, null for the year 2100, the `TIME` parse, the `ParseException`, the offset sign and `isTimeSetAllowed`.
+
+## Mute change event
+
+- `EventCode::MUTE_CHANGE` 16 records each change of the mute flag. `EventRing::MAX_CODE` is 16. The detail low byte is 1 for muted and 0 for unmuted. The detail high byte is the source: 0 `BOOT` press, 1 USB console, 2 BLE console.
+- `SerialConsoleRunner::setMute(sink, muted, value, events, now, source)` records one event only when the flag changed. `MUTE 1` on a muted panel records nothing. `run_console` reads the RTC time again, as the `ACK` path does. The `BOOT` press records source 0.
+- The RTC layout and `STATE_VERSION` do not change.
+- The macOS and the Android `EventText` show `Chime muted (<source>)` and `Chime on (<source>)` with the sources `BOOT`, `USB` and `BLE`. An invalid state or source gives the raw text.
+- Tests: the host test asserts detail `0x0101` (USB), `0x0200` (BLE), no event for an equal flag, code 16 accepted and code 17 rejected. `EventTextTests` and `EventTextTest` assert `0x0001`, `0x0101`, `0x0200` and the raw text of `0x0302`.

@@ -1544,7 +1544,12 @@ void setup() {
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::MUTE) {
       // The flag goes to the RTC copy; the save of this wake cycle writes it with the audio trailer. No card access.
       const bool was_muted = g_state.muted;
-      Runner::setMute(sink, g_state.muted, command.reference);
+      RtcTime mute_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again
+      if (!g_rtc.readTime(mute_now)) {
+        mute_now = g_rtc_time;
+      }
+      const uint8_t mute_source = transport == 0 ? 1 : 2; // 1 USB, 2 BLE
+      Runner::setMute(sink, g_state.muted, command.reference, &g_state.events, &mute_now, mute_source);
       if (g_state.muted != was_muted) {
         renderDashboard(); // the header mute marker shows the new state
       }
@@ -1618,6 +1623,13 @@ void setup() {
         g_mode_controller.mode() == DisplayMode::SYSTEM_DIAGNOSTICS)) {
       case BootEvent::TOGGLE_MUTE:
         g_state.muted = !g_state.muted;
+        {
+          RtcTime boot_now = g_rtc_time;
+          if (!g_rtc.readTime(boot_now)) {
+            boot_now = g_rtc_time;
+          }
+          g_state.events.record(boot_now, EventCode::MUTE_CHANGE, static_cast<uint16_t>((0u << 8) | (g_state.muted ? 1u : 0u)));
+        }
         if (!g_state.muted) {
           Es8311Hal hal;
           AudioSequencer::playConfirm(hal, config().chime_volume_pct);
