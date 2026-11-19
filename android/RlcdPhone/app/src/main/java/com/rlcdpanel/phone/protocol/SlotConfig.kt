@@ -47,7 +47,7 @@ object SlotConfig {
     /**
      * An empty `SET slotN_mac=` clears the fixed MAC. `SLOT CLEAR <N>` is no choice here: it answers
      * `ERR FIXED_MAC` for a slot with a fixed MAC, which is the slot the user wants to clear. The name stays,
-     * because the firmware accepts no empty `slotN_name`; it shows only for a sensor with the MAC of the slot.
+     * because the firmware accepts no empty `slotN_name`; in the mobile apps it shows as the fallback tile name.
      */
     fun clear(slot: Int): Plan =
         if (slot !in SlotAssignment.SLOTS) Plan.Invalid("Slot $slot gibt es nicht")

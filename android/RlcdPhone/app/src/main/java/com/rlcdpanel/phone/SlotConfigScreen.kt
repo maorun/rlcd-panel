@@ -86,8 +86,7 @@ fun SlotConfigScreen(
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         val storedName = panelConfig.slotName(slot)
-                        val keptName = if (storedName != null && panelConfig.slotMac(slot) == null) " (Name bleibt gespeichert)" else ""
-                        Text("Slot $slot: ${storedName ?: "-"}$keptName", style = MaterialTheme.typography.titleMedium)
+                        Text("Slot $slot: ${storedName ?: "-"}", style = MaterialTheme.typography.titleMedium)
                         Text("MAC: ${panelConfig.slotMac(slot) ?: "nicht fest"}")
                         Text("Format: ${formats[slot] ?: "-"}")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

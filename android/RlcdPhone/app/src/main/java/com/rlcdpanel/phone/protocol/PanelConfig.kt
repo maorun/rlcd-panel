@@ -59,14 +59,14 @@ data class PanelConfig(
     /**
      * Title of tile [index] (0 = onboard, 1..10 = registry slot). A slot tile shows the name of the sensor
      * with [activeMac]; the telemetry frame carries no MAC, so the default is the fixed MAC of the slot.
-     * A slot without a known MAC shows the default title ("Slot N"), never the slotN_name of that index.
+     * A slot without a known MAC shows the slotN_name of that index, then the default title ("Slot N").
      */
     fun tileName(index: Int, activeMac: String? = slotMac(index)): String {
         if (index == 0) {
             return values["onboard_name"]?.takeIf { it.isNotBlank() } ?: TelemetryFrame.DEFAULT_TILE_NAMES[0]
         }
         if (index in 1..slotCount) {
-            return nameForMac(activeMac) ?: TelemetryFrame.DEFAULT_TILE_NAMES[index]
+            return nameForMac(activeMac) ?: slotName(index) ?: TelemetryFrame.DEFAULT_TILE_NAMES[index]
         }
         return "Tile $index"
     }
