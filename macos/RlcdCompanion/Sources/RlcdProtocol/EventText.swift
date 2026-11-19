@@ -61,6 +61,12 @@ public enum EventText {
         case "POWER_SOURCE":
             guard d == 0 || d == 1 else { return raw }
             return d == 1 ? "USB power connected" : "Battery power"
+        case "MUTE_CHANGE":
+            // Low byte is the state (1 muted, 0 unmuted); the high byte is the source (0 BOOT, 1 USB, 2 BLE).
+            let state = d & 0xFF, source = d >> 8
+            let sources = ["BOOT", "USB", "BLE"]
+            guard (0...0xFFFF).contains(d), state <= 1, source < sources.count else { return raw }
+            return state == 1 ? "Chime muted (\(sources[source]))" : "Chime on (\(sources[source]))"
         case "CONFIG_SET":
             let index = d & 0xFF, transport = d >> 8
             guard (0...0xFFFF).contains(d), transport <= 1 else { return raw }

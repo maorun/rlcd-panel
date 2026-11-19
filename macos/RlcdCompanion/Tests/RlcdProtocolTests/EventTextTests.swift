@@ -104,6 +104,13 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("POWER_SOURCE", 2)) == "POWER_SOURCE,2")
     }
 
+    @Test func muteChangeGivesStateAndSource() {
+        #expect(EventText.describe(row("MUTE_CHANGE", 0x0001)) == "Chime muted (BOOT)")
+        #expect(EventText.describe(row("MUTE_CHANGE", 0x0101)) == "Chime muted (USB)")
+        #expect(EventText.describe(row("MUTE_CHANGE", 0x0200)) == "Chime on (BLE)")
+        #expect(EventText.describe(row("MUTE_CHANGE", 0x0302)) == "MUTE_CHANGE,770")
+    }
+
     @Test func slotStaleGivesLostAndBack() {
         #expect(EventText.describe(row("SLOT_STALE", 0x0002)) == "Slot 2 lost")
         #expect(EventText.describe(row("SLOT_STALE", 0x0102)) == "Slot 2 back")

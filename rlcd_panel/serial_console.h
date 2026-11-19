@@ -1662,8 +1662,15 @@ public:
 
   // Sets the mute flag (0 or 1) and replies "OK MUTE <0|1>". No card access. The flag lives in the RTC state; the next
   // save of the wake cycle keeps it. A value above 1 never arrives (the parser limits it); it is treated as 1 here.
-  static void setMute(Sink& sink, bool& muted, uint8_t value) {
+  // With events and now, one MUTE_CHANGE event records the change (detail: source in the high byte, state in the low
+  // byte; source 0 BOOT, 1 USB, 2 BLE) only when the flag changed.
+  static void setMute(Sink& sink, bool& muted, uint8_t value, EventRing* events = nullptr, const RtcTime* now = nullptr,
+                      uint8_t source = 1) {
+    const bool was_muted = muted;
     muted = value != 0;
+    if (events != nullptr && now != nullptr && muted != was_muted) {
+      events->record(*now, EventCode::MUTE_CHANGE, static_cast<uint16_t>((static_cast<uint16_t>(source) << 8) | (muted ? 1u : 0u)));
+    }
     char line[16];
     snprintf(line, sizeof(line), "OK MUTE %u\n", muted ? 1u : 0u);
     send(sink, line);

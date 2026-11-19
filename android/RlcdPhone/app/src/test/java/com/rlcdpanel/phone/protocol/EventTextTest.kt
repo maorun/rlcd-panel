@@ -37,6 +37,14 @@ class EventTextTest {
     }
 
     @Test
+    fun muteChangeGivesStateAndSource() {
+        assertEquals("Chime muted (BOOT)", EventText.describe(row("MUTE_CHANGE", 0x0001)))
+        assertEquals("Chime muted (USB)", EventText.describe(row("MUTE_CHANGE", 0x0101)))
+        assertEquals("Chime on (BLE)", EventText.describe(row("MUTE_CHANGE", 0x0200)))
+        assertEquals("MUTE_CHANGE,770", EventText.describe(row("MUTE_CHANGE", 0x0302)))
+    }
+
+    @Test
     fun sdFaultGivesStatusText() {
         assertEquals("SD card fault: NO_CARD", EventText.describe(row("SD_FAULT", 2)))
         assertEquals("SD card OK", EventText.describe(row("SD_FAULT", 1)))
