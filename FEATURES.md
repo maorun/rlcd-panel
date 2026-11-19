@@ -1883,3 +1883,10 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `EventLogState(isReading, rows, dropped, loaded, message)` keeps the rows oldest first. `visibleRows` gives the newest 8 rows, newest first. The card shows `HH:mm` and `EventText.describe(row)`. An abnormal event has the error color. A `dropped` count above 0 shows one text line.
 - A failed CRC-32, a timeout or an `ERR` reply gives one error text. The app does not retry the command.
 - Tests: `EventTextTest` asserts the texts for `RESET` 4, `SLOT_STALE` 259 and `POWER_SOURCE` 1, and reads `tests/fixtures/events_reply_sample.txt` to assert the newest 8 rows in newest-first order.
+
+## Panel silence notification in the macOS app
+
+- `SilenceWatch` (`RlcdProtocol`) is a pure state machine with an injected clock. It ports `SilenceWatch.kt` of the Wear OS app with the same limit of 35 min (`silenceSeconds`).
+- `check()` returns `.silent` once when the last frame is older than the limit. `onFrame()` returns `.back` once for the first frame after `.silent`. Without a frame nothing is reported. A clock that runs back gives no report and anchors the last frame to the new time.
+- `AppModel` calls `onFrame()` for each frame and `check()` at the 30 s tick. For `.silent` with enabled notifications and an app bundle it posts the notice `Panel silent since <HH:mm>` (identifier `rlcd_panel_silence`). A `.silent` event while notifications are off or without an app bundle posts nothing and is not repeated later. For `.back` it removes the delivered notice.
+- Tests: `SilenceWatchTests` assert `silent` once at 35 min plus 1 s, no second `silent` at 60 min, `back` once at the next frame, `silent` again after `back`, no report without a first frame and no report for a clock that runs back.

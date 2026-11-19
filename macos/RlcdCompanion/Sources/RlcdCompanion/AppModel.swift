@@ -87,6 +87,9 @@ final class AppModel: ConsoleLinkDelegate {
     var message: String?
     /// User notifications for active alerts.
     var notificationsEnabled = false
+    /// Detects a panel that stopped to send frames; checked at the 30 s tick.
+    private var silenceWatch = SilenceWatch()
+    private static let silenceNotificationId = "rlcd_panel_silence"
     /// Login item logic; the state comes from `SMAppService` on each refresh.
     private var loginItem = LoginItem(service: MainAppLoginItemService())
     /// View-only snapshot of the service state, read at each window open and after each toggle.
@@ -138,6 +141,7 @@ final class AppModel: ConsoleLinkDelegate {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
                 self?.now = Date()
+                self?.checkSilence()
                 self?.discovered.prune(olderThan: Self.discoveryKeepSeconds, at: Date())
             }
         }
@@ -168,7 +172,23 @@ final class AppModel: ConsoleLinkDelegate {
             self.rssi = r
             if f.page == 0 && self.logStore.record(f) { self.chartRows = self.logStore.log.downsampled(maxRows: 400) }
             self.checkAlertNotifications(previous: prev, current: f)
+            if self.silenceWatch.onFrame() == .back, Bundle.main.bundleIdentifier != nil {
+                UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [Self.silenceNotificationId])
+            }
         }
+    }
+
+    private func checkSilence() {
+        guard silenceWatch.check() == .silent, notificationsEnabled, Bundle.main.bundleIdentifier != nil else { return }
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        let since = silenceWatch.lastFrameAt.map { formatter.string(from: $0) } ?? "--:--"
+        let content = UNMutableNotificationContent()
+        content.title = "RLCD Panel Alert"
+        content.body = "Panel silent since \(since)"
+        content.sound = .default
+        let req = UNNotificationRequest(identifier: Self.silenceNotificationId, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(req)
     }
 
     /// Asks for a target file in a save panel and writes the CSV text there.
