@@ -42,6 +42,7 @@ import com.rlcdpanel.phone.protocol.SaltReply
 import com.rlcdpanel.phone.protocol.SaltText
 import com.rlcdpanel.phone.protocol.TwoPointCalibration
 import com.rlcdpanel.phone.protocol.ConsoleReply
+import com.rlcdpanel.phone.protocol.PanelClock
 import com.rlcdpanel.phone.protocol.ParseException
 import com.rlcdpanel.phone.protocol.SensorHealth
 import com.rlcdpanel.phone.protocol.StatusReply
@@ -107,6 +108,7 @@ class MainActivity : ComponentActivity() {
     private var showChime by mutableStateOf(false)
     private var showSlots by mutableStateOf(false)
     private var showRejects by mutableStateOf(false)
+    private var clockState by mutableStateOf(ClockState())
     private var rejectsState by mutableStateOf(RejectsState())
     private var slotState by mutableStateOf(SlotConfigState())
     private var chimeState by mutableStateOf(ChimeState())
@@ -284,6 +286,9 @@ class MainActivity : ComponentActivity() {
                     onOpenChime = { showHealth = false; showChime = true },
                     onOpenSlots = { showHealth = false; showSlots = true },
                     onOpenRejects = { showHealth = false; showRejects = true },
+                    clockState = clockState,
+                    onReadClock = { ensureConsolePermissionAndRead(CONSOLE_TIME) },
+                    onSyncClock = { ensureConsolePermissionAndRead(CONSOLE_TIME_SET) },
                     onBack = { closeSensorHealth() }
                 )
                 BackHandler { closeSensorHealth() }
@@ -422,6 +427,7 @@ class MainActivity : ComponentActivity() {
         if (weekState.isReading) weekState = WeekState(message = "Abgebrochen. Erneut lesen.")
         if (eventState.isReading) eventState = EventLogState(message = "Abgebrochen. Erneut lesen.")
         if (rejectsState.isReading) rejectsState = RejectsState(message = "Abgebrochen. Erneut lesen.")
+        if (clockState.isBusy) clockState = ClockState(message = "Abgebrochen. Zustand der Panel-Uhr unbekannt, Read clock tippen")
         if (chimeState.isBusy) chimeState = chimeState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, STATUS lesen")
         if (calibState.isBusy) {
             calibState = calibState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, CONFIG lesen")
@@ -451,6 +457,8 @@ class MainActivity : ComponentActivity() {
         val command = pendingConsoleCommand
         if (grants.values.all { it }) {
             runConsoleCommand(command)
+        } else if (command == CONSOLE_TIME || command == CONSOLE_TIME_SET) {
+            clockState = ClockState(message = "Bluetooth-Berechtigung fehlt")
         } else if (command == CONSOLE_CONFIG) {
             configState = configState.copy(isReading = false, message = "Bluetooth-Berechtigung fehlt")
         } else {
@@ -824,6 +832,7 @@ class MainActivity : ComponentActivity() {
     private fun closeSensorHealth() {
         consoleClient.cancel()
         healthState = SensorHealthState()
+        clockState = ClockState()
         configState = configState.copy(isReading = false, message = null)
         showHealth = false
         if (!scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
@@ -831,7 +840,7 @@ class MainActivity : ComponentActivity() {
 
     /** Sends [command] (`STATUS` or `CONFIG`) only after a tap on a button. */
     private fun ensureConsolePermissionAndRead(command: String) {
-        if (healthState.isReading || configState.isReading) return
+        if (healthState.isReading || configState.isReading || clockState.isBusy || consoleClient.isRunning) return
         pendingConsoleCommand = command
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
@@ -847,7 +856,9 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun markConsoleReading(command: String) {
-        if (command == CONSOLE_CONFIG) {
+        if (command == CONSOLE_TIME || command == CONSOLE_TIME_SET) {
+            clockState = ClockState(isBusy = true)
+        } else if (command == CONSOLE_CONFIG) {
             configState = configState.copy(isReading = true, message = null)
         } else {
             healthState = SensorHealthState(isReading = true)
@@ -855,8 +866,57 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun runConsoleCommand(command: String) {
-        if (command == CONSOLE_CONFIG) readPanelConfig() else readSensorHealth()
+        when (command) {
+            CONSOLE_CONFIG -> readPanelConfig()
+            CONSOLE_TIME -> readClock()
+            CONSOLE_TIME_SET -> syncClock()
+            else -> readSensorHealth()
+        }
     }
+
+    /** Sends `TIME` after a tap. A failed command is not repeated. */
+    private fun readClock() {
+        stopBleScan()
+        clockState = ClockState(isBusy = true)
+        consoleClient.send("TIME") { reply -> clockState = clockResult(reply) }
+    }
+
+    /** Sends `TIME SET <phone time>` after a tap, then `TIME`. A failed command is not repeated. */
+    private fun syncClock() {
+        val text = PanelClock.format(System.currentTimeMillis())
+        if (text == null) {
+            clockState = ClockState(message = "Handy-Zeit außerhalb 2025 bis 2099")
+            return
+        }
+        stopBleScan()
+        clockState = ClockState(isBusy = true)
+        consoleClient.send("TIME SET $text") { setReply ->
+            if (setReply is ConsoleReply.Status && setReply.line.startsWith("OK")) {
+                consoleClient.send("TIME") { reply ->
+                    val result = clockResult(reply)
+                    clockState = if (result.reply == null) {
+                        result.copy(message = "Uhr gesetzt, Rücklesen fehlgeschlagen: ${result.message}")
+                    } else result
+                }
+            } else {
+                clockState = ClockState(message = clockError(setReply))
+            }
+        }
+    }
+
+    private fun clockResult(reply: ConsoleReply): ClockState = when (reply) {
+        is ConsoleReply.Frame -> try {
+            val r = PanelClock.parseTimeReply(reply.lines)
+            ClockState(reply = r, offsetSeconds = r.epochMillis?.let { PanelClock.offsetSeconds(it, System.currentTimeMillis()) })
+        } catch (e: ParseException) {
+            ClockState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
+        }
+        else -> ClockState(message = clockError(reply))
+    }
+
+    private fun clockError(reply: ConsoleReply): String =
+        if (reply is ConsoleReply.Status && reply.line.startsWith("ERR READ_ONLY")) "Set ble_console=2 to apply"
+        else BleConsoleClient.errorText(reply).ifEmpty { "Panel meldet: Antwort unerwartet" }
 
     /** Reads `CONFIG`. A good reply replaces the cache; every other reply keeps the old cache. */
     private fun readPanelConfig() {
@@ -1098,4 +1158,6 @@ class MainActivity : ComponentActivity() {
 
 /** Console commands that a tap on a button sends. */
 private const val CONSOLE_STATUS = "STATUS"
+private const val CONSOLE_TIME = "TIME"
+private const val CONSOLE_TIME_SET = "TIME SET"
 private const val CONSOLE_CONFIG = "CONFIG"
