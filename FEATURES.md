@@ -1859,3 +1859,10 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `EventText.describe` of the Android app has the case `POWER_SOURCE` (`EventCode` 15). Detail 1 gives `USB power connected`, detail 0 gives `Battery power`, the same texts as the macOS `EventText`. Each other detail gives the raw text `POWER_SOURCE,<detail>`.
 - `tests/fixtures/events_reply_sample.txt` holds two `POWER_SOURCE` rows (detail 1 and detail 0) before the `FUTURE_EVENT` row and a new `CRC32` line.
 - `EventTextTest` asserts the three texts. `EventsReplyTest` asserts 14 rows and the valid fixture CRC-32. The macOS `EventTextTests.sharedEventsFixtureGivesTheTexts` asserts the two texts.
+
+## Panel clock in the Android app
+
+- `PanelClock` (`protocol/PanelClock.kt`) is a port of `PanelClock.swift`. The time zone is `Europe/Berlin`. `format(epochMillis)` gives `YYYY-MM-DDTHH:MM:SS` or null for a year outside 2025 to 2099. `parse(text)` gives epoch milliseconds or null. `parseTimeReply(lines)` reads `TIME <time> valid=<0|1> osf=<0|1>` into `TimeReply` and throws `ParseException` for a bad line. `offsetSeconds(panel, phone)` is positive when the panel is ahead. `isTimeSetAllowed(level)` is true from `ble_console` 2.
+- `SensorHealthScreen` has a clock card with the buttons `Read clock` and `Sync clock`. `Read clock` sends `TIME` and shows the offset in seconds, `valid` and `osf` (warning symbol for `valid=0` or `osf=1`). `Sync clock` sends `TIME SET <phone time>`, then `TIME`. `ERR READ_ONLY` shows `Set ble_console=2 to apply`.
+- The app sends the commands only on a tap. It does not retry a failed command.
+- `PanelClockTest` asserts the winter and summer text, null for the year 2100, the `TIME` parse, the `ParseException`, the offset sign and `isTimeSetAllowed`.

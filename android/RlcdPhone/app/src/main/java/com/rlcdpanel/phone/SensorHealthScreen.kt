@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.ConfigCache
 import com.rlcdpanel.phone.protocol.ConfigCacheInfo
 import com.rlcdpanel.phone.protocol.NtpState
+import com.rlcdpanel.phone.protocol.TimeReply
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.SensorHealth
 
@@ -37,6 +38,14 @@ data class SensorHealthState(
 data class ConfigReadState(
     val isReading: Boolean = false,
     val info: ConfigCacheInfo? = null,
+    val message: String? = null
+)
+
+/** Result of one `TIME` read: [reply] and [offsetSeconds] (panel minus phone), or a [message] that tells why there is none. */
+data class ClockState(
+    val isBusy: Boolean = false,
+    val reply: TimeReply? = null,
+    val offsetSeconds: Long? = null,
     val message: String? = null
 )
 
@@ -66,6 +75,9 @@ fun SensorHealthScreen(
     onOpenChime: () -> Unit = {},
     onOpenSlots: () -> Unit = {},
     onOpenRejects: () -> Unit = {},
+    clockState: ClockState = ClockState(),
+    onReadClock: () -> Unit = {},
+    onSyncClock: () -> Unit = {},
     onBack: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -101,6 +113,25 @@ fun SensorHealthScreen(
             }
             item {
                 OutlinedButton(onClick = onOpenRejects) { Text("Rejected packets") }
+            }
+            item {
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Panel clock", style = MaterialTheme.typography.titleMedium)
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = onReadClock, enabled = !clockState.isBusy) { Text("Read clock") }
+                            OutlinedButton(onClick = onSyncClock, enabled = !clockState.isBusy) { Text("Sync clock") }
+                        }
+                        clockState.reply?.let { r ->
+                            val warn = !r.valid || r.osf
+                            Text(
+                                (if (warn) "⚠ " else "") + "${r.timeString}, Abweichung ${clockState.offsetSeconds?.let { "$it s" } ?: "--"}, valid=${if (r.valid) 1 else 0}, osf=${if (r.osf) 1 else 0}",
+                                color = if (warn) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+                        clockState.message?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                    }
+                }
             }
             item {
                 Text(

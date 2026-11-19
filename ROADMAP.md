@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Panel clock read and sync in the Android app
-  - Rank: [Total: 31, Use: 6, Setup: 8, Harmony: 9, Safety: 8, Effort: M]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/PanelClock.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/PanelClockTest.kt
-  - Goal: Only the macOS app reads and sets the panel clock (`TIME`, `TIME SET`). A user without a Mac cannot see or correct a wrong panel time, for example after a battery change without Wi-Fi. A wrong time moves the hourly CSV rows, the daily file and the event times. Add `PanelClock` in the Android protocol package as a port of `PanelClock.swift`: time zone `Europe/Berlin`, `format(epochMillis)` gives `YYYY-MM-DDTHH:MM:SS` or null for a year outside 2025 to 2099, `parseTimeReply(lines)` reads `TIME <YYYY-MM-DDTHH:MM:SS> valid=<0|1> osf=<0|1>` and throws `ParseException` for a bad line, `offsetSeconds(panel, phone)` gives the difference. Add a clock row to `SensorHealthScreen` with the buttons `Read clock` and `Sync clock`. `Read clock` sends `TIME` through `BleConsoleClient.send` and shows the offset, `valid` and `osf`. `Sync clock` sends `TIME SET <phone time>`, then `TIME`. Show `ERR READ_ONLY` as `Set ble_console=2 to apply`. Send the commands only on a user tap. Do not retry a failed command.
-  - Acceptance test: In `PanelClockTest`, assert the text of a winter time and a summer time instant, null for the year 2100, the parse of `TIME 2026-11-19T10:00:00 valid=1 osf=0`, `ParseException` for `TIME x valid=1 osf=0` and the offset sign. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`.
-
 - [ ] Event code for a change of the mute flag
   - Rank: [Total: 30, Use: 5, Setup: 7, Harmony: 9, Safety: 9, Effort: S]
   - Location: rlcd_panel/sd_logger.h, rlcd_panel/serial_console.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp, AGENTS.md, macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/EventTextTests.swift, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/EventText.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/EventTextTest.kt
