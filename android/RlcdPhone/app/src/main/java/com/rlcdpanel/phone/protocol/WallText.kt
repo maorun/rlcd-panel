@@ -18,10 +18,10 @@ object WallText {
     }
 
     /**
-     * Text `Wall <N>%` and warning flag for tile [index], or `null`. [outdoor] must be a fresh tile of
-     * `outdoor_slot` (`null` when missing or stale). The caller hides stale cards.
+     * Calculates the wall humidity as `Double?` with the rules of [format].
+     * Returns null for missing/zero `wall_frsi_pct`, outdoor tile index, missing indoor/outdoor temp or humidity.
      */
-    fun format(tile: TelemetryTile, index: Int, outdoor: TelemetryTile?, config: PanelConfig): Result? {
+    fun value(tile: TelemetryTile, index: Int, outdoor: TelemetryTile?, config: PanelConfig): Double? {
         val pct = config.values["wall_frsi_pct"]?.trim()?.toIntOrNull() ?: return null
         if (pct == 0) return null
         val outSlot = config.values["outdoor_slot"]?.trim()?.toIntOrNull() ?: return null
@@ -29,7 +29,15 @@ object WallText {
         val tIn = tile.temperatureC ?: return null
         val rhIn = tile.humidityPct ?: return null
         val tOut = outdoor?.temperatureC ?: return null
-        val wall = ClimateMath.wallSurfaceRh(tIn, rhIn, tOut, pct / 100.0) ?: return null
+        return ClimateMath.wallSurfaceRh(tIn, rhIn, tOut, pct / 100.0)
+    }
+
+    /**
+     * Text `Wall <N>%` and warning flag for tile [index], or `null`. [outdoor] must be a fresh tile of
+     * `outdoor_slot` (`null` when missing or stale). The caller hides stale cards.
+     */
+    fun format(tile: TelemetryTile, index: Int, outdoor: TelemetryTile?, config: PanelConfig): Result? {
+        val wall = value(tile, index, outdoor, config) ?: return null
         return Result(String.format(Locale.US, "Wall %.0f%%", wall), isWarning(wall))
     }
 }

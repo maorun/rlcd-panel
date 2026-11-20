@@ -2087,3 +2087,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - An alert state (`isAbnormal`, `isAlert`, `isLow`) prefixes the text with `⚠ ` and displays warning color.
 - Tests in `SensorHealthTextTest` (watch and phone) assert the fixture texts, missing line fallbacks and warning conditions.
 
+## Wall humidity notification in the Android app
+
+- Pure state machine `WallWatch` (`com.rlcdpanel.phone.ventilation`) with an injected clock detects mold risk for tiles 0 to 5.
+- A tile rises at 80.0 %RH or more and releases below 77.0 %RH. It emits at most one notification every 6 hours; a null or non-finite reading releases the tile without a result.
+- `WallText.value(tile, index, outdoor, config)` returns the calculated wall humidity as `Double?`, and `WallText.format` uses it.
+- `MainActivity` feeds `WallWatch` on each new telemetry frame in foreground and posts `<name>: Wand <N> %` through `rlcd_ventilation_channel` with notification ID `2000 + tile`.
+- Tests: `WallWatchTest` asserts thresholds, suppression within 6 hours, re-trigger after 6 hours, null release, and per-tile isolation. `WallTextTest` asserts value range and format output.
+
+

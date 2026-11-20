@@ -23,6 +23,16 @@ class WallTextTest {
     }
 
     @Test
+    fun calculatesWallValue() {
+        val v = WallText.value(indoor, 1, outdoor, config(70))
+        assertNotNull(v)
+        assertTrue("Expected 72.5 to 74.0 but got $v", v!! in 72.5..74.0)
+        assertNull(WallText.value(indoor, 1, outdoor, config(0)))
+        val formatted = WallText.format(indoor, 1, outdoor, config(70))
+        assertEquals("Wall 73%", formatted!!.text)
+    }
+
+    @Test
     fun warnsAtEightyPercent() {
         val result = WallText.format(TelemetryTile(21.0, 55.0), 1, TelemetryTile(5.0, 50.0), config(60))
         assertEquals("Wall 82%", result!!.text)

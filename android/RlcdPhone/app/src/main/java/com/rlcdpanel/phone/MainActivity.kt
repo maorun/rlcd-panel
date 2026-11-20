@@ -50,6 +50,7 @@ import com.rlcdpanel.phone.protocol.ConfigCache
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryHistory
+import com.rlcdpanel.phone.protocol.WallText
 import com.rlcdpanel.phone.protocol.EventCsv
 import com.rlcdpanel.phone.protocol.EventRow
 import com.rlcdpanel.phone.protocol.EventsReply
@@ -66,6 +67,7 @@ import com.rlcdpanel.phone.ventilation.OutdoorSource
 import com.rlcdpanel.phone.ventilation.OutdoorWeatherService
 import com.rlcdpanel.phone.ventilation.VentilationAction
 import com.rlcdpanel.phone.ventilation.VentilationGuide
+import com.rlcdpanel.phone.ventilation.WallWatch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -92,6 +94,7 @@ class MainActivity : ComponentActivity() {
 
     private var roomStates by mutableStateOf<Map<Int, RoomVentilationState>>(emptyMap())
     private val lastObservedAktionen = mutableMapOf<Int, VentilationAction>()
+    private val wallWatch = WallWatch()
     private var panelConfig by mutableStateOf(PanelConfig())
 
     private var pendingConsoleCommand = CONSOLE_STATUS
@@ -365,6 +368,12 @@ class MainActivity : ComponentActivity() {
                     // A gap in the advice (stale frame, no weather) must not compare against an old action.
                     lastObservedAktionen.remove(focusedRoomIndex)
                 }
+            }
+
+            // Check for wall humidity notifications on each new telemetry frame
+            LaunchedEffect(snapshot) {
+                val frame = snapshot?.frame ?: return@LaunchedEffect
+                checkWallNotifications(frame)
             }
 
             PhoneDashboardScreen(
@@ -1138,6 +1147,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun checkWallNotifications(frame: TelemetryFrame) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        val outdoorTile = WallText.outdoorTile(frame.tiles, panelConfig)
+        for (tileIndex in 0 until WallWatch.TILE_COUNT) {
+            val tile = frame.tiles.getOrNull(tileIndex)
+            val rh = tile?.let { WallText.value(it, tileIndex, outdoorTile, panelConfig) }
+            val result = wallWatch.update(tileIndex, rh)
+            if (result is WallWatch.Result.Notify) {
+                val name = panelConfig.tileName(tileIndex)
+                val rounded = Math.round(result.rh).toInt()
+                postVentilationNotification(
+                    title = "$name: Wand $rounded %",
+                    message = "$name: Wand $rounded %",
+                    notificationId = NOTIFICATION_ID_WALL_BASE + tileIndex
+                )
+            }
+        }
+    }
+
     private fun postVentilationNotification(title: String, message: String, notificationId: Int) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
@@ -1165,6 +1197,7 @@ class MainActivity : ComponentActivity() {
     companion object {
         const val CHANNEL_ID = "rlcd_ventilation_channel"
         const val MAX_RESTORED_VENTILATION_MS = 6 * 60 * 60 * 1000L
+        const val NOTIFICATION_ID_WALL_BASE = 2000
     }
 }
 
