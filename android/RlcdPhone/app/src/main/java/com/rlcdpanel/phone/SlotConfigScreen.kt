@@ -146,7 +146,7 @@ private fun SlotEditorDialog(
         confirmButton = {
             Button(
                 onClick = { (plan as? SlotConfig.Plan.Commands)?.let { onApply(it.commands) } },
-                enabled = plan is SlotConfig.Plan.Commands && panelConfig.canWrite
+                enabled = plan is SlotConfig.Plan.Commands && plan.commands.isNotEmpty() && panelConfig.canWrite
             ) { Text("Anwenden") }
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } }

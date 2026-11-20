@@ -38,8 +38,8 @@ class SlotConfigTest {
     fun duplicateMacIsAConflict() {
         val config = PanelConfig(mapOf("slot2_mac" to "A4:C1:38:11:22:33"))
         assertTrue(reason(SlotConfig.define(1, mac, "A", config)).contains("Slot 2"))
-        // The slot that holds the MAC may keep it.
-        assertEquals(2, commands(SlotConfig.define(2, mac, "A", config)).size)
+        // The slot that holds the MAC may keep it; only the name is sent.
+        assertEquals(listOf("SET slot2_name=A"), commands(SlotConfig.define(2, mac, "A", config)))
     }
 
     @Test
@@ -116,5 +116,40 @@ class SlotConfigTest {
         assertEquals(false, PanelConfig(mapOf("ble_console" to "1")).canWrite)
         assertEquals(true, PanelConfig(mapOf("ble_console" to " 2 ")).canWrite)
         assertEquals(false, PanelConfig(mapOf("ble_console" to "x")).canWrite)
+    }
+
+    private val stored = PanelConfig(mapOf("slot1_mac" to "A4:C1:38:11:22:33", "slot1_name" to "KITCHEN"))
+
+    @Test
+    fun onlyNameChangedSendsNameOnly() {
+        assertEquals(listOf("SET slot1_name=BATH"), commands(SlotConfig.define(1, mac, "bath", stored)))
+    }
+
+    @Test
+    fun onlyMacChangedSendsMacOnly() {
+        assertEquals(
+            listOf("SET slot1_mac=A4:C1:38:99:99:99"),
+            commands(SlotConfig.define(1, "a4:c1:38:99:99:99", "kitchen", stored))
+        )
+    }
+
+    @Test
+    fun macAndNameChangedSendBoth() {
+        assertEquals(
+            listOf("SET slot1_mac=A4:C1:38:99:99:99", "SET slot1_name=BATH"),
+            commands(SlotConfig.define(1, "a4:c1:38:99:99:99", "bath", stored))
+        )
+    }
+
+    @Test
+    fun nothingChangedSendsNothing() {
+        assertEquals(emptyList<String>(), commands(SlotConfig.define(1, mac, "Kitchen", stored)))
+        assertEquals(emptyList<String>(), commands(SlotConfig.define(1, mac, "", stored)))
+    }
+
+    @Test
+    fun unchangedNameWithoutMacSendsNothing() {
+        val named = PanelConfig(mapOf("slot1_name" to "KITCHEN"))
+        assertEquals(emptyList<String>(), commands(SlotConfig.define(1, "", "kitchen", named)))
     }
 }
