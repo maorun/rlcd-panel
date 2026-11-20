@@ -24,7 +24,7 @@ class WeekReplyTest {
         }
     }
 
-    private val h = WeekReply.HEADER
+    private val h = WeekReply.LEGACY_HEADER // 7-column rows; the 8-column tests use WeekReply.HEADER
 
     @Test
     fun sharedFixtureGivesTheSwiftValues() {
@@ -61,7 +61,7 @@ class WeekReplyTest {
 
     @Test
     fun eightColumnsGiveMoldHours() {
-        val rows = WeekReply.parse(listOf("BEGIN WEEK", h, "0,0,2026-11-14,19.5,22.0,40.5,55.0,6", "0,1,2026-11-13,,,,,", "1,0,,10.0,20.0,40.0,60.0,"))
+        val rows = WeekReply.parse(listOf("BEGIN WEEK", WeekReply.HEADER, "0,0,2026-11-14,19.5,22.0,40.5,55.0,6", "0,1,2026-11-13,,,,,", "1,0,,10.0,20.0,40.0,60.0,"))
         assertEquals(6, rows[0].moldHours)
         assertNull(rows[1].moldHours)
         assertNull(rows[2].moldHours)
@@ -76,11 +76,11 @@ class WeekReplyTest {
 
     @Test
     fun badMoldHoursThrow() {
-        bad("BEGIN WEEK", h, "0,0,,1,2,3,4,25")
-        bad("BEGIN WEEK", h, "0,0,,1,2,3,4,-1")
-        bad("BEGIN WEEK", h, "0,0,,1,2,3,4,x")
-        bad("BEGIN WEEK", h, "0,0,,1,2,3,4,+5")
-        bad("BEGIN WEEK", h, "0,0,,1,2,3,4")
+        bad("BEGIN WEEK", WeekReply.HEADER, "0,0,,1,2,3,4,25")
+        bad("BEGIN WEEK", WeekReply.HEADER, "0,0,,1,2,3,4,-1")
+        bad("BEGIN WEEK", WeekReply.HEADER, "0,0,,1,2,3,4,x")
+        bad("BEGIN WEEK", WeekReply.HEADER, "0,0,,1,2,3,4,+5")
+        bad("BEGIN WEEK", WeekReply.HEADER, "0,0,,1,2,3,4")
         bad("BEGIN WEEK", WeekReply.LEGACY_HEADER, "0,0,,1,2,3,4,5")
     }
 
