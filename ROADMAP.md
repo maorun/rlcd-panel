@@ -53,12 +53,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Rejected packet list in the Wear OS app
-  - Rank: [Total: 27, Use: 2, Setup: 8, Harmony: 7, Safety: 10, Effort: M]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/RejectsReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/RejectsReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/RejectsScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/RejectsReplyTest.kt, scripts/check-protocol-sync.sh, tests/fixtures/rejects_reply_sample.txt
-  - Goal: The console command `REJECTS` runs on BLE at each `ble_console` level. The macOS and Android apps show the rejected packets, but the watch does not. The user cannot see near the panel why a new sensor gets no slot. Copy `RejectsReply.kt` of the phone into the watch package `com.rlcdpanel.watch.protocol` and add it to `FILES` in `scripts/check-protocol-sync.sh`. Add `RejectsScreen` with one row for each entry: the last 5 characters of the MAC, the format, the reason and the count. Show `DROPPED <N>` when MACs were lost, and `No rejected packets` for an empty list. Send `REJECTS` through `BleConsoleClient` only on a user action from `SensorHealthScreen`. Do not send `SET` or `SLOT CLEAR` from the watch.
-  - Acceptance test: In `RejectsReplyTest` (watch), parse `tests/fixtures/rejects_reply_sample.txt` and assert the rows, the reasons and the `DROPPED` count. Assert an empty list for a reply with the header only and `ParseException` for the reason `LOST`. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`, `gradle testDebugUnitTest` in `android/RlcdPhone`, `./scripts/check-protocol-sync.sh` and `./scripts/check-protocol-sync.sh --self-test`.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.
