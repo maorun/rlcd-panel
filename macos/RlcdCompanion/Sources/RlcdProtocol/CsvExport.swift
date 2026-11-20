@@ -31,6 +31,13 @@ public enum CsvExport {
         }.joined()
     }
 
+    public static func week(_ rows: [WeekRow]) -> String {
+        WeekReply.header + "\n" + rows.map {
+            [String($0.sensor), String($0.day), $0.date, number($0.temperatureMinC, 1), number($0.temperatureMaxC, 1),
+             number($0.humidityMinPct, 1), number($0.humidityMaxPct, 1)].joined(separator: ",") + "\n"
+        }.joined()
+    }
+
     /// Quotes a field with a comma, a quote or a line break and doubles each inner quote.
     private static func field(_ s: String) -> String {
         guard s.contains(where: { $0 == "," || $0 == "\"" || $0 == "\n" || $0 == "\r" }) else { return s }
