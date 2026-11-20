@@ -1975,3 +1975,10 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `SensorHealthScreen` shows an `Alert: <name>` chip and a `Test chime` chip below the mute chip. The first chip steps through the 8 names of `ChimeCommand.ALERT_NAMES` (bits 0 to 7). The second chip sends `BEEP <bit>` through `BleConsoleClient.send` (`MainActivity.testChime`).
 - The watch shows `ChimeCommand.okText` for `OK BEEP` and `ChimeCommand.failureText` for an `ERR` reply (`ERR MUTED`, `ERR READ_ONLY`, `ERR PLAY_FAILED`). The command runs only on a tap and is not retried. `ChimeTestState.isTesting` blocks a second tap and the other console chips while a command runs. `onStop` clears the flag.
 - Tests: `ChimeCommandTest` asserts `BEEP 0` and `BEEP 7`, the exception for bit 8, the text of `OK BEEP 7 420` and the texts of `ERR MUTED` and `ERR READ_ONLY`. The UI wiring has no host test.
+
+## Wear OS week chart
+
+- `SensorHealthScreen` shows a `Week chart` chip below the `Event log` chip. It opens `WeekScreen` (`ScalingLazyColumn`). The `Read week` chip sends `WEEK` through `BleConsoleClient.send` (`MainActivity.readWeek`). The command runs only on a tap and is not retried.
+- `WeekScreen` shows one card for each day of the focused room (`WeekText.daysOf`, day 0 first): weekday and date (`Mo 17.11.`), the temperature range and the humidity range. A gap day shows `--` for both ranges. A failed reply shows `BleConsoleClient.errorText` (for example `Panel meldet: ERR READ_ONLY`). `onStop` and the back action cancel the client and clear the state.
+- `protocol/WeekReply.kt` of the watch is a copy of the Android file and differs only in the `package` line. `scripts/check-protocol-sync.sh` compares it (the `FILES` list has 15 entries). `BleScanService` stays unchanged.
+- Tests: `WeekReplyTest` parses `tests/fixtures/week_reply_sample.txt` (42 rows, date of day 0, null values for the gap day of sensor 2, `ParseException` for a wrong column count and a bad header). `WeekTextTest` covers the texts, the gap day and the seven weekday labels. The UI wiring has no host test.
