@@ -225,6 +225,23 @@ struct PersistentState {
     }
   }
 
+  // Records one SENSOR_BATTERY event for each changed bit between two sensor_battery_latch values: slot number 1 to 10
+  // in the low byte, high byte 1 for a low battery, 0 for a battery that is OK again. A limit of 0 records nothing.
+  void recordBatteryChanges(uint16_t previous, uint16_t current, uint8_t limit_pct, const RtcTime& now) {
+    if (limit_pct == 0) {
+      return;
+    }
+    const uint16_t changed = static_cast<uint16_t>((previous ^ current) & SensorBatteryLatch::ALL_MASK);
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      const uint16_t bit = static_cast<uint16_t>(1u << i);
+      if ((changed & bit) == 0) {
+        continue;
+      }
+      events.record(now, EventCode::SENSOR_BATTERY,
+                    static_cast<uint16_t>(((current & bit) != 0 ? 0x0100u : 0u) | (i + 1)));
+    }
+  }
+
   // Compares the usb_powered flag of the previous wake cycle (RTC copy, read before the overwrite) with the new
   // reading. One POWER_SOURCE event when both readings are valid and the flag changed: detail 1 USB power, 0 battery
   // power. A power-on has no valid previous reading and records nothing.

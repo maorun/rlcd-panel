@@ -957,9 +957,12 @@ void refreshSensors() {
       g_state.dry_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
       config().dry_alert_limit_rh, config().climate_alert_tiles, config().staleTimeoutMs());
   // The sensor battery latch updates before the first render. The chime follows in chimeOnSensorBattery().
+  const uint16_t previous_battery_latch = g_state.sensor_battery_latch;
   g_state.sensor_battery_latch = SensorBatteryLatch::update(
       g_state.sensor_battery_latch, tiles, MAX_SWITCHBOT_SENSORS, nowMs(), config().sensor_battery_limit_pct,
       config().staleTimeoutMs());
+  g_state.recordBatteryChanges(previous_battery_latch, g_state.sensor_battery_latch,
+                               config().sensor_battery_limit_pct, g_rtc_time);
 }
 
 // Advertises the climate tiles as non-connectable frames (Page 0 and Page 1) and stops

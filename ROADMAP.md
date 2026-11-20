@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Event code for a low sensor battery
-  - Rank: [Total: 31, Use: 6, Setup: 7, Harmony: 9, Safety: 9, Effort: S]
-  - Location: rlcd_panel/sd_logger.h, rlcd_panel/power_manager.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp, AGENTS.md
-  - Goal: `ALERT_SENSOR_BATTERY` records one `ALERT_RISE` event for all slots together. The event log does not show which sensor needs a new battery, and it does not show when the battery was changed. Add `EventCode::SENSOR_BATTERY = 19` and set `EventRing::MAX_CODE` to 19. Add `PersistentState::recordBatteryChanges(previous, current, limit_pct, now)` and call it in `refreshSensors()` directly after `SensorBatteryLatch::update`. Record one event for each changed bit of `sensor_battery_latch`: the detail low byte is the slot number 1 to 10, the high byte is 1 for a low battery and 0 for a battery that is OK again. Record nothing when `sensor_battery_limit_pct` is 0. `resetSlot` clears the bit without an event. Add the name `SENSOR_BATTERY` to `SdLogCodec`. Do not change the RTC layout or `STATE_VERSION`.
-  - Acceptance test: In `tests/test_firmware_logic.cpp`, assert detail `0x0104` for a latch change from `0x000` to `0x008`, detail `0x0004` for the change back, two events for a change from `0x000` to `0x201`, no event for an equal latch, no event for limit 0, and the row `SENSOR_BATTERY` from `SdLogCodec::formatEventRow`. Change each `EventRing::MAX_CODE == 18` assert to 19 (find them with `rg -n 'MAX_CODE == 18' tests/test_firmware_logic.cpp`). Change each rejection test `static_cast<EventCode>(19)` to 20 and add a restore test that accepts code 19 (find them with `rg -n 'EventCode>\(19\)' tests/test_firmware_logic.cpp`). Run `c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner && rm -f test_runner` and `arduino-cli compile rlcd_panel`.
-
 - [ ] Lost sensor notification in the macOS app
   - Rank: [Total: 31, Use: 8, Setup: 5, Harmony: 8, Safety: 10, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/StaleWatch.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/StaleWatchTests.swift

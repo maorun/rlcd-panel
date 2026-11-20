@@ -2112,3 +2112,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `BleScanService` creates one `StaleWatch` when the scan starts. It feeds each decoded frame through `StaleWatch.updateFrame` (page 0: tiles 0 to 5, page 1: tiles 6 to 10; a tile is valid when it holds a temperature). The BLE scan does not change.
 - `Lost` posts the notification `<tile name>: keine Daten seit 35 min` (id 910 plus the tile index, `STALE_NOTIFICATION_BASE_ID`) on the alert channel `rlcd_ventilation_channel` without vibration. The name comes from `PanelConfig.tileName`. `Back`, a stop of the scan and a new scan start cancel it.
 - `StaleWatchTest` covers the page mapping of `updateFrame`, a tile that was never valid, no result at 34 min, `Lost(2)` at 35 min, no second `Lost(2)`, `Back(2)`, independent tiles, a tile outside 0 to 10 and a clock that runs back.
+
+
+## Sensor battery event
+
+- `EventCode::SENSOR_BATTERY` 19 records the low battery state of each registry slot. `EventRing::MAX_CODE` is 19.
+- `PersistentState::recordBatteryChanges(previous, current, limit_pct, now)` runs in `refreshSensors()` directly after `SensorBatteryLatch::update`. It records one event for each changed bit of `sensor_battery_latch`.
+- The detail low byte is the slot number 1 to 10. The high byte is 1 for a low battery and 0 for a battery that is OK again.
+- A limit of 0 (`sensor_battery_limit_pct`) and an equal latch record nothing. `resetSlot` clears the bit without an event.
+- `SdLogCodec` names the event `SENSOR_BATTERY`. The RTC layout and `STATE_VERSION` do not change.
+- Tests: the host test asserts detail `0x0104` (0x000 to 0x008), `0x0004` (back), two events for 0x000 to 0x201, no event for an equal latch and for limit 0, the row `SENSOR_BATTERY` and the restore of code 19 and the rejection of code 20.

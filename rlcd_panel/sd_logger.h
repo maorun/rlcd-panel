@@ -130,6 +130,7 @@ enum class EventCode : uint8_t {
   MUTE_CHANGE = 16,     // the mute flag changed; detail low byte 1 muted, 0 unmuted; high byte source (0 BOOT, 1 USB, 2 BLE)
   CLOCK_SET = 17,       // the panel clock changed by a console command; detail low byte 0 TIME SET, 1 RTC TRIM; high byte transport (0 USB, 1 BLE)
   SHTC3_FAULT = 18,     // the onboard SHTC3 failed 3 reads in a row or recovered; detail low byte 1 fault, 0 back; high byte the Shtc3Result of the third failed read, 0 for back
+  SENSOR_BATTERY = 19,  // the low battery latch of a slot changed; detail low byte is the slot number 1 to 10, high byte 1 low, 0 OK again
 };
 
 struct LogEvent {
@@ -150,7 +151,7 @@ struct LogEvent {
 class EventRing {
 public:
   static constexpr size_t CAPACITY = 16;
-  static constexpr uint8_t MAX_CODE = static_cast<uint8_t>(EventCode::SHTC3_FAULT);
+  static constexpr uint8_t MAX_CODE = static_cast<uint8_t>(EventCode::SENSOR_BATTERY);
 
   size_t size() const { return count_; }
   uint16_t dropped() const { return dropped_; }
@@ -564,6 +565,7 @@ public:
       case EventCode::MUTE_CHANGE: return "MUTE_CHANGE";
       case EventCode::CLOCK_SET: return "CLOCK_SET";
       case EventCode::SHTC3_FAULT: return "SHTC3_FAULT";
+      case EventCode::SENSOR_BATTERY: return "SENSOR_BATTERY";
       case EventCode::NONE: break;
     }
     return nullptr;
