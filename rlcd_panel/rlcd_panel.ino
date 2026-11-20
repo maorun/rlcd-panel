@@ -1497,6 +1497,7 @@ void setup() {
       snap.min_free_heap = ESP.getMinFreeHeap();
       snap.largest_heap = ESP.getMaxAllocHeap();
       snap.free_psram = ESP.getFreePsram();
+      snap.frame = g_state.frame;
       snap.reception = &g_state.reception;
       snap.reset_reason = ResetReasonCodec::text(g_reset_reason);
       snap.rtc_trim_valid = g_rtc.readOffset(snap.rtc_trim);

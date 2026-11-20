@@ -34,6 +34,7 @@ struct DiagnosticsView: View {
                         group("Battery runtime") { runtime(d.runtime) }
                         group("Awake time") { awake(d.awake) }
                         group("Memory") { memory(d.memory) }
+                        group("Display refresh") { frame(d.frame) }
                         group("MicroSD card") { sdCard(model.status) }
                     } else {
                         Text("No diagnostics yet. Press the refresh button.").font(.caption).foregroundStyle(.secondary)
@@ -321,6 +322,12 @@ struct DiagnosticsView: View {
                 Label("Largest block below \(MemoryMetrics.lowLargestBytes) B", systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
             }
+        } else { unknown }
+    }
+
+    @ViewBuilder private func frame(_ m: FrameMetrics?) -> some View {
+        if let m {
+            Text("frame CRC \(String(format: "%08x", m.crc))  skipped flushes \(m.skips)")
         } else { unknown }
     }
 

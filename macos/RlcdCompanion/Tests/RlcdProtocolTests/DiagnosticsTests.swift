@@ -7,6 +7,7 @@ private let fullStatus = statusText.replacingOccurrences(
     .replacingOccurrences(of: "SHTC3 nack=0 short=0 crc=0 run=0", with: "SHTC3 nack=4 short=1 crc=2 run=3")
     + "AWAKE last_ms=850 avg_ms=900 max_ms=1200 samples=24\n"
     + "MEMORY free=212345 min=150000 largest=110592 psram=8300000\n"
+    + "FRAME crc=1a2b3c4d skips=12\n"
 
 private func lines(_ text: String) -> [String] { text.split(separator: "\n").map(String.init) }
 
@@ -40,6 +41,27 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         #expect(throws: ParseError.self) { try MemoryMetrics.parse(line: "MEMORY free=x min=1 largest=1 psram=1") }
         #expect(throws: ParseError.self) { try DiagnosticsReply.parse(otherLines: ["MEMORY": "free=x"]) }
         #expect(throws: ParseError.self) { try MemoryMetrics.parse(line: "MEMORY free=1 min=1 largest=1") }
+    }
+
+    @Test func parsesFrameLine() throws {
+        let s = try StatusReply.parse(lines: lines(fullStatus))
+        let d = try DiagnosticsReply.parse(status: s)
+        #expect(d.frame == FrameMetrics(crc: 0x1a2b3c4d, skips: 12))
+        #expect(try FrameMetrics.parse(line: "FRAME crc=0000abcd skips=0") == FrameMetrics(crc: 0xabcd, skips: 0))
+    }
+
+    @Test func missingOrDashFrameLineGivesNil() throws {
+        #expect(try DiagnosticsReply.parse(otherLines: [:]).frame == nil)
+        #expect(try FrameMetrics.parse(line: "FRAME crc=-- skips=0") == nil)
+        #expect(try DiagnosticsReply.parse(otherLines: ["FRAME": "FRAME crc=-- skips=0"]).frame == nil)
+    }
+
+    @Test func badFrameFieldThrows() {
+        #expect(throws: ParseError.self) { try FrameMetrics.parse(line: "FRAME crc=1a2b3c4d skips=x") }
+        #expect(throws: ParseError.self) { try FrameMetrics.parse(line: "FRAME crc=1a2b3c skips=1") }
+        #expect(throws: ParseError.self) { try FrameMetrics.parse(line: "FRAME crc=zzzzzzzz skips=1") }
+        #expect(throws: ParseError.self) { try FrameMetrics.parse(line: "FRAME crc=1a2b3c4d") }
+        #expect(throws: ParseError.self) { try DiagnosticsReply.parse(otherLines: ["FRAME": "FRAME crc=1a2b3c4d skips=x"]) }
     }
 
     @Test func dashFieldsGiveNil() throws {
