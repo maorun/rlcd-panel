@@ -2122,3 +2122,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - A limit of 0 (`sensor_battery_limit_pct`) and an equal latch record nothing. `resetSlot` clears the bit without an event.
 - `SdLogCodec` names the event `SENSOR_BATTERY`. The RTC layout and `STATE_VERSION` do not change.
 - Tests: the host test asserts detail `0x0104` (0x000 to 0x008), `0x0004` (back), two events for 0x000 to 0x201, no event for an equal latch and for limit 0, the row `SENSOR_BATTERY` and the restore of code 19 and the rejection of code 20.
+
+## Lost sensor notification in the Wear OS app
+
+- `BleScanService` of the watch uses the shared `protocol/StaleWatch.kt` (same code as the phone, compared by `scripts/check-protocol-sync.sh`). It creates one `StaleWatch` when the scan starts and feeds each decoded frame through `StaleWatch.updateFrame`. The BLE scan mode and the tile refresh do not change.
+- `Lost` posts the notification `<tile name>: no data for 35 min` (id 940 plus the tile index, `STALE_NOTIFICATION_BASE_ID`) on the channel `rlcd_silence_channel` and vibrates once for 120 ms (`vibrateNotice`). The name comes from `PanelConfig.load(context).tileName`. Without the notification permission, no notification and no vibration occur.
+- `Back`, a stop of the scan and a new scan start remove the notification.
+- `StaleWatchTest` of the watch is a copy of the phone test (package line only) and covers the same cases.
