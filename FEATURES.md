@@ -2147,3 +2147,9 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - For each `Notify`, it posts the notification `<name>: Wand <N> %` (id 2000 plus the tile index) and vibrates once with `vibrateNotice`.
 - Tests: `WallWatchTest` of the phone moved into the package `protocol` without a change. The watch test is a copy with another package line.
 - Limit: the check runs in the `MainActivity` while the app shows a frame, like the phone. The state lives in the activity, so a restart of the activity clears the repeat window.
+
+## Firmware version in the Android sensor health screen
+
+- `protocol/VersionReply.kt` (phone and watch, same code, compared by `scripts/check-protocol-sync.sh`; `VersionReply.kt` is in `FILES`) parses the `VERSION` line into `firmware`, `git`, `core`, `state` and `built` (`built=unknown` is valid). A missing `VERSION` line, a missing field or an empty field throws `ParseException`.
+- `SensorHealthScreen` of the phone has the button `Firmware-Version lesen`. A tap sends `VERSION` through the BLE console (`MainActivity.readVersion`, same permission and busy rules as `TIME`). The row shows `Firmware <fw> (<git>), Zustand <state>, gebaut <built>`; an error shows the console error text. Closing the screen clears the result.
+- Tests: `VersionReplyTest` asserts the fields of `VERSION fw=1.0.0 git=abc1234-dirty core=3.3.12 state=68 built=2026-11-03T04:05:06`, `built=unknown`, and `ParseException` without the line, without `git=` and for an empty `git=`.
