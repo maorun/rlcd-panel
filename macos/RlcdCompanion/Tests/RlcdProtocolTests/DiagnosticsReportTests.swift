@@ -64,6 +64,18 @@ private func sections(
         #expect(lines(none).contains("Panel badges: none"))
     }
 
+    @Test func noiseSummaryIsInTheReport() {
+        func report(_ line: String) -> [String] {
+            lines(DiagnosticsReport.build(appVersion: "1.2", link: .usb, includeNames: false,
+                                          sections: [.init(command: "STATUS", result: .success([line]))]))
+        }
+        #expect(report("NOISE db=48 band=MODERATE peak_db=71 peak_hour=19 events_sum=12")
+            .contains("Noise: 48 dB MODERATE, peak 71 dB at 19:00"))
+        #expect(report("NOISE db=-- band=QUIET peak_db=-- peak_hour=-- events_sum=0")
+            .contains("Noise: -- dB QUIET, peak --"))
+        #expect(!report("NOISE db=141 band=QUIET peak_db=-- peak_hour=-- events_sum=0").contains { $0.hasPrefix("Noise:") })
+    }
+
     @Test func malformedLatchLineStaysRawWithoutSummary() {
         let text = DiagnosticsReport.build(
             appVersion: "1.2", link: .usb, includeNames: false,

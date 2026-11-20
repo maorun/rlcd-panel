@@ -44,6 +44,9 @@ public enum DiagnosticsReport {
                     if s.command == ConsoleCommand.status.line, line.hasPrefix("LATCH "), let m = try? LatchMetrics.parse(line: line) {
                         out.append(badgeSummary(m))
                     }
+                    if s.command == ConsoleCommand.status.line, line.hasPrefix("NOISE "), let m = try? NoiseMetrics.parse(line: line) {
+                        out.append("Noise: \(m.levelText), \(m.peakText)")
+                    }
                 }
             }
         }

@@ -263,6 +263,30 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         #expect(try LatchMetrics.parse(lines: ["WAKE cause=TIMER boots=1 battery_interval_s=600"]) == nil)
     }
 
+    @Test func parsesNoiseLine() throws {
+        let m = try NoiseMetrics.parse(line: "NOISE db=48 band=MODERATE peak_db=71 peak_hour=19 events_sum=12")
+        #expect(m == NoiseMetrics(db: 48, band: "MODERATE", peakDb: 71, peakHour: 19, eventsSum: 12))
+        let empty = try NoiseMetrics.parse(line: "NOISE db=-- band=QUIET peak_db=-- peak_hour=-- events_sum=0")
+        #expect(empty.db == nil)
+        #expect(empty.peakDb == nil)
+        #expect(empty.peakHour == nil)
+        let d = try DiagnosticsReply.parse(otherLines: ["NOISE": "NOISE db=48 band=LOUD peak_db=71 peak_hour=0 events_sum=1"])
+        #expect(d.noise?.band == "LOUD")
+        #expect(try DiagnosticsReply.parse(otherLines: [:]).noise == nil)
+    }
+
+    @Test func noiseRejectsBadFields() {
+        for bad in ["NOISE db=48 band=LOUDER peak_db=71 peak_hour=19 events_sum=12",
+                    "NOISE db=141 band=LOUD peak_db=71 peak_hour=19 events_sum=12",
+                    "NOISE db=48 band=LOUD peak_db=141 peak_hour=19 events_sum=12",
+                    "NOISE db=48 band=LOUD peak_db=71 peak_hour=24 events_sum=12",
+                    "NOISE db=4x band=LOUD peak_db=71 peak_hour=19 events_sum=12",
+                    "NOISE db=48 band=LOUD peak_db=71 peak_hour=19 events_sum=--",
+                    "NOISE db=48 band=LOUD peak_db=71 peak_hour=19"] {
+            #expect(throws: ParseError.badLine(bad)) { try NoiseMetrics.parse(line: bad) }
+        }
+    }
+
     @Test func latchRejectsBadFields() {
         for bad in ["LATCH vent=80x dry=000 batlow=000 stale=000", "LATCH vent=000 dry=800 batlow=000 stale=000",
                     "LATCH vent=000 dry=000 batlow=400 stale=000", "LATCH vent=000 dry=000 batlow=000 stale=400",

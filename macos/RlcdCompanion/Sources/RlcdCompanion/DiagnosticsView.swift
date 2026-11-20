@@ -37,6 +37,7 @@ struct DiagnosticsView: View {
                         group("Display refresh") { frame(d.frame) }
                         group("Wake cycle") { wake(d.wake) }
                         group("Panel badges") { latch(d.latch) }
+                        group("Noise") { noise(d.noise) }
                         group("MicroSD card") { sdCard(model.status) }
                     } else {
                         Text("No diagnostics yet. Press the refresh button.").font(.caption).foregroundStyle(.secondary)
@@ -360,6 +361,13 @@ struct DiagnosticsView: View {
                     Text("\(names[row.0] ?? "sensor \(row.0)"): \(row.1.joined(separator: ", "))")
                 }
             }
+        } else { unknown }
+    }
+
+    @ViewBuilder private func noise(_ m: NoiseMetrics?) -> some View {
+        if let m {
+            Text("level \(m.db.map { "\($0) dB" } ?? "--")  band \(m.band)")
+            Text("today's \(m.peakText)  events \(m.eventsSum)")
         } else { unknown }
     }
 
