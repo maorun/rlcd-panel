@@ -40,6 +40,19 @@ enum class WakeupCause : uint8_t {
   OTHER = 3,
 };
 
+// Text of a wakeup cause for the console command STATUS.
+class WakeupCauseCodec {
+ public:
+  static const char* text(WakeupCause cause) {
+    switch (cause) {
+      case WakeupCause::POWER_ON: return "POWER_ON";
+      case WakeupCause::TIMER: return "TIMER";
+      case WakeupCause::KEY_BUTTON: return "KEY";
+      default: return "OTHER";
+    }
+  }
+};
+
 // One wake cycle runs these phases in order. A KEY wakeup skips SCAN.
 enum class PowerPhase : uint8_t {
   BOOT = 0,

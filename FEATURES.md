@@ -1996,3 +1996,12 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `RejectsScreen` shows one card for each entry: the last 5 characters of the MAC (`RejectsText.shortMac`), and the format, the reason and the count (`RejectsText.detail`, for example `METER FULL x2`). It shows `DROPPED <N>` when MACs were lost and `No rejected packets` for an empty list. A failed reply shows `BleConsoleClient.errorText`. `onStop` and the back action cancel the client and clear the state.
 - `protocol/RejectsReply.kt` of the watch is a copy of the Android file and differs only in the `package` line. `scripts/check-protocol-sync.sh` compares it (the `FILES` list has 16 entries).
 - Tests: `RejectsReplyTest` parses `tests/fixtures/rejects_reply_sample.txt` (rows, reasons, `DROPPED` count), an empty list for the header only and `ParseException` for the reason `LOST`. `RejectsTextTest` covers the row and dropped texts. The UI wiring has no host test.
+
+## Wake cycle line in STATUS
+
+The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHER> boots=<N> battery_interval_s=<N>` after `FRAME` and before `CRC32`.
+
+- `cause` is the wakeup cause of this wake cycle (`WakeupCauseCodec::text`). A failed RTC restore shows `POWER_ON`.
+- `boots` is the RTC copy of `PersistentState::boot_count`.
+- `battery_interval_s` is the interval that `PowerManager::powerConfig` gives on battery power at the current RTC time. It shows `night_wake_interval_s` in the quiet hours and `wake_interval_s` at other times and for an invalid RTC time. The line shows it also on USB power.
+- The RTC layout and `STATE_VERSION` do not change.
