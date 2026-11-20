@@ -65,12 +65,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: The watch parses `mold_h` of the `SENSOR` lines into `SensorHealth.moldHours`, but the sensor health screen does not show it. The phone shows `Schimmel <N> h`. Add `SensorHealthText.mold(row)`: `Schimmel <N> h`, with the `WARNING` mark above 0 hours, and `Schimmel --` for `null`. Show the text in each sensor row below the reception rate.
   - Acceptance test: In `SensorHealthTextTest`, assert `Schimmel 0 h` for 0, the warning mark and `Schimmel 5 h` for 5, and `Schimmel --` for `null`. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`.
 
-- [ ] Event filter in the Wear OS event log
-  - Rank: [Total: 27, Use: 5, Setup: 4, Harmony: 8, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/EventFilter.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/EventFilter.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/EventLogScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/EventFilterTest.kt, scripts/check-protocol-sync.sh
-  - Goal: The macOS app and the phone filter the event log by category. On the small watch screen, the user must scroll through all 16 events. Copy `EventFilter.kt` of the phone into the watch package and add it to `FILES` in `scripts/check-protocol-sync.sh`. Add one chip at the top of the watch `EventLogScreen`. Each tap selects the next category: all, alerts, sensors, power, config, other. Show the visible row count in the chip text. Keep the order of the rows.
-  - Acceptance test: Copy the fixture tests of the phone `EventFilterTest` into the watch tests and assert that they pass. Assert the chip order with a pure helper `EventFilterChip.next(category)`. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`, `./scripts/check-protocol-sync.sh` and `./scripts/check-protocol-sync.sh --self-test`.
-
 - [ ] Firmware version in the Wear OS sensor health screen
   - Rank: [Total: 26, Use: 2, Setup: 6, Harmony: 8, Safety: 10, Effort: S]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt
