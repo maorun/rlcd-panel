@@ -77,6 +77,10 @@ class EventTextTest {
         assertEquals("SHTC3_FAULT,1", EventText.describe(row("SHTC3_FAULT", 0x0001)))
         assertEquals("SHTC3_FAULT,256", EventText.describe(row("SHTC3_FAULT", 0x0100)))
         assertEquals("SHTC3_FAULT,2", EventText.describe(row("SHTC3_FAULT", 0x0002)))
+        assertEquals("Slot 4 battery low", EventText.describe(row("SENSOR_BATTERY", 260)))
+        assertEquals("Slot 4 battery OK", EventText.describe(row("SENSOR_BATTERY", 4)))
+        assertEquals("SENSOR_BATTERY,11", EventText.describe(row("SENSOR_BATTERY", 11)))
+        assertEquals("SENSOR_BATTERY,516", EventText.describe(row("SENSOR_BATTERY", 516)))
     }
 
     @Test

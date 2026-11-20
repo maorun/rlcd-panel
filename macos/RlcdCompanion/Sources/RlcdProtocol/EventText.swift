@@ -80,6 +80,11 @@ public enum EventText {
             if state == 0, cause == 0 { return "Onboard sensor back" }
             guard state == 1, (1...3).contains(cause) else { return raw }
             return "Onboard sensor fault (\(["NACK", "SHORT", "CRC"][cause - 1]))"
+        case "SENSOR_BATTERY":
+            // Low byte is the slot; the high byte 1 marks a low battery, 0 an OK battery.
+            let slot = d & 0xFF, low = d >> 8
+            guard (0...0xFFFF).contains(d), (1...10).contains(slot), low <= 1 else { return raw }
+            return low == 1 ? "Slot \(slot) battery low" : "Slot \(slot) battery OK"
         case "CONFIG_SET":
             let index = d & 0xFF, transport = d >> 8
             guard (0...0xFFFF).contains(d), transport <= 1 else { return raw }

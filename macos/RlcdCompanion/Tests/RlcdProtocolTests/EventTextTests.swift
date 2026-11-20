@@ -120,6 +120,10 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("SHTC3_FAULT", 0x0001)) == "SHTC3_FAULT,1")
         #expect(EventText.describe(row("SHTC3_FAULT", 0x0100)) == "SHTC3_FAULT,256")
         #expect(EventText.describe(row("SHTC3_FAULT", 0x0002)) == "SHTC3_FAULT,2")
+        #expect(EventText.describe(row("SENSOR_BATTERY", 260)) == "Slot 4 battery low")
+        #expect(EventText.describe(row("SENSOR_BATTERY", 4)) == "Slot 4 battery OK")
+        #expect(EventText.describe(row("SENSOR_BATTERY", 11)) == "SENSOR_BATTERY,11")
+        #expect(EventText.describe(row("SENSOR_BATTERY", 516)) == "SENSOR_BATTERY,516")
     }
 
     @Test func slotStaleGivesLostAndBack() {
@@ -219,7 +223,7 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
             .filter { !$0.hasPrefix("CRC32") }
         let rows = try EventsReply.parse(lines: lines)
-        #expect(rows.count == 19)
+        #expect(rows.count == 21)
         #expect(rows[0] == EventRow(time: "2026-11-18 09:00:00", event: "EVENTS_DROPPED", detail: 0))
         let texts = rows.dropFirst().map(EventText.describe)
         #expect(texts[0] == "reset PANIC (abnormal)")
@@ -232,6 +236,8 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(texts[14] == "RTC trimmed (BLE)")
         #expect(texts[15] == "Onboard sensor fault (NACK)")
         #expect(texts[16] == "Onboard sensor back")
-        #expect(texts[17] == "FUTURE_EVENT,7")
+        #expect(texts[17] == "Slot 4 battery low")
+        #expect(texts[18] == "Slot 4 battery OK")
+        #expect(texts[19] == "FUTURE_EVENT,7")
     }
 }

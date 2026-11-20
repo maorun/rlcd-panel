@@ -116,6 +116,12 @@ object EventText {
                 else if (state == 1 && cause in 1..3) "Onboard sensor fault (${listOf("NACK", "SHORT", "CRC")[cause - 1]})"
                 else raw
             }
+            "SENSOR_BATTERY" -> {
+                val slot = d and 0xFF
+                val low = d shr 8
+                if (d !in 0..0xFFFF || slot !in 1..10 || low > 1) raw
+                else if (low == 1) "Slot $slot battery low" else "Slot $slot battery OK"
+            }
             "CLOCK_SET" -> {
                 val action = d and 0xFF
                 val transport = d shr 8
