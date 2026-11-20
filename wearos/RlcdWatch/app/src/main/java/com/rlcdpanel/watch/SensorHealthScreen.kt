@@ -122,6 +122,7 @@ fun SensorHealthScreen(
     onSetMute: (Boolean) -> Unit = {},
     onOpenEvents: () -> Unit = {},
     onOpenWeek: () -> Unit = {},
+    onOpenRejects: () -> Unit = {},
     clockState: ClockReadState = ClockReadState(),
     onReadClock: () -> Unit = {},
     chimeState: ChimeTestState = ChimeTestState(),
@@ -163,6 +164,14 @@ fun SensorHealthScreen(
                         modifier = Modifier.fillMaxWidth(0.85f),
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text("Week chart", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                item {
+                    Chip(
+                        onClick = onOpenRejects,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text("Rejected packets", fontSize = 12.sp, maxLines = 1) }
                     )
                 }
                 item {

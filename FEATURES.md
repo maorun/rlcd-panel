@@ -1989,3 +1989,10 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `VentilationAdvice.wallText(tile:index:outdoor:config:)` returns `Wall <N>%` or `nil`. It reads `wall_frsi_pct` (divided by 100) and `outdoor_slot` from the `CONFIG` reply. It gives `nil` for key value 0, a missing config, a missing outdoor tile, the outdoor tile and an invalid tile.
 - `AppModel.wallText(forTile:)` adds the freshness rules of `VentilationAdvice.outdoorTile`. `Views.swift` shows the text below the heat index of each fresh indoor tile. The panel shows `WALL --` for a bad result; the app hides the line.
 - Tests: `tests/fixtures/wall_rh_vectors.txt` holds the shared vectors. `testWallRhFixtureVectors` (C++) and `WallRhTests` (Swift) assert them within 0.1 %RH. `WallRhTests` also asserts `Wall 73%` for 20 C, 50 %RH, 0 C and `wall_frsi_pct=70` and the `nil` cases. The UI wiring and `AppModel.wallText` have no host test.
+
+## Wear OS rejected packet list
+
+- `SensorHealthScreen` shows a `Rejected packets` chip below the `Week chart` chip. It opens `RejectsScreen` (`ScalingLazyColumn`). The `Read rejects` chip sends `REJECTS` through `BleConsoleClient.send` (`MainActivity.readRejects`). Only a tap sends it. The watch sends no `SET` and no `SLOT CLEAR`.
+- `RejectsScreen` shows one card for each entry: the last 5 characters of the MAC (`RejectsText.shortMac`), and the format, the reason and the count (`RejectsText.detail`, for example `METER FULL x2`). It shows `DROPPED <N>` when MACs were lost and `No rejected packets` for an empty list. A failed reply shows `BleConsoleClient.errorText`. `onStop` and the back action cancel the client and clear the state.
+- `protocol/RejectsReply.kt` of the watch is a copy of the Android file and differs only in the `package` line. `scripts/check-protocol-sync.sh` compares it (the `FILES` list has 16 entries).
+- Tests: `RejectsReplyTest` parses `tests/fixtures/rejects_reply_sample.txt` (rows, reasons, `DROPPED` count), an empty list for the header only and `ParseException` for the reason `LOST`. `RejectsTextTest` covers the row and dropped texts. The UI wiring has no host test.
