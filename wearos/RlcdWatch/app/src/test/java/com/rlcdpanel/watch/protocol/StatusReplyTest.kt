@@ -178,4 +178,55 @@ class StatusReplyTest {
         val good = com.rlcdpanel.watch.SensorHealthText.rateOf(status, status.sensors[1])
         assertTrue(!com.rlcdpanel.watch.SensorHealthText.isRateWeak(good))
     }
+
+    @Test
+    fun resetShtc3MemoryFromFixture() {
+        val status = StatusReply.parse(fixtureLines())
+        assertEquals("POWERON", status.reset!!.reason)
+        assertEquals(0, status.reset!!.abnormalCount)
+        assertEquals(false, status.reset!!.isAbnormal)
+        assertEquals(0, status.shtc3!!.run)
+        assertEquals(false, status.shtc3!!.isAlert)
+        assertEquals(110592L, status.memory!!.largest)
+        assertEquals(false, status.memory!!.isLow)
+    }
+
+    private fun replace(prefix: String, line: String) =
+        StatusReply.parse(fixtureLines().map { if (it.startsWith(prefix)) line else it })
+
+    @Test
+    fun abnormalResetAndAlertStates() {
+        val wdt = replace("RESET ", "RESET reason=TASK_WDT abnormal=2").reset!!
+        assertTrue(wdt.isAbnormal)
+        assertEquals(2, wdt.abnormalCount)
+        val panic = replace("RESET ", "RESET reason=PANIC abnormal=--").reset!!
+        assertEquals("PANIC", panic.reason)
+        assertNull(panic.abnormalCount)
+        assertTrue(replace("SHTC3 ", "SHTC3 nack=1 short=0 crc=0 run=3 retried=2").shtc3!!.isAlert)
+        assertTrue(replace("MEMORY ", "MEMORY free=1 min=1 largest=16383 psram=0").memory!!.isLow)
+    }
+
+    @Test
+    fun missingLinesGiveNull() {
+        val lines = fixtureLines().filter { !it.startsWith("RESET ") && !it.startsWith("SHTC3 ") && !it.startsWith("MEMORY ") }
+        val status = StatusReply.parse(lines)
+        assertNull(status.reset)
+        assertNull(status.shtc3)
+        assertNull(status.memory)
+    }
+
+    @Test
+    fun badDiagnosticsNumberThrows() {
+        for ((prefix, line) in listOf(
+            "SHTC3 " to "SHTC3 nack=x short=0 crc=0 run=0 retried=0",
+            "RESET " to "RESET reason=PANIC abnormal=x",
+            "MEMORY " to "MEMORY free=1 min=1 largest=x psram=0"
+        )) {
+            try {
+                replace(prefix, line)
+                fail("expected ParseException for $line")
+            } catch (e: ParseException) {
+            }
+        }
+    }
 }
