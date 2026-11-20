@@ -35,6 +35,7 @@ struct DiagnosticsView: View {
                         group("Awake time") { awake(d.awake) }
                         group("Memory") { memory(d.memory) }
                         group("Display refresh") { frame(d.frame) }
+                        group("Wake cycle") { wake(d.wake) }
                         group("MicroSD card") { sdCard(model.status) }
                     } else {
                         Text("No diagnostics yet. Press the refresh button.").font(.caption).foregroundStyle(.secondary)
@@ -328,6 +329,19 @@ struct DiagnosticsView: View {
     @ViewBuilder private func frame(_ m: FrameMetrics?) -> some View {
         if let m {
             Text("frame CRC \(String(format: "%08x", m.crc))  skipped flushes \(m.skips)")
+        } else { unknown }
+    }
+
+    @ViewBuilder private func wake(_ m: WakeMetrics?) -> some View {
+        if let m {
+            HStack {
+                Text("cause \(m.cause)  boots \(m.boots)  battery interval \(m.batteryIntervalS) s")
+                // `lastConfig` comes from the last config read, so it can lag behind a later config change.
+                if m.isNightInterval(config: model.lastConfig) {
+                    Text("Night interval").font(.caption.bold()).foregroundStyle(.white)
+                        .padding(.horizontal, 6).background(Color.indigo, in: Capsule())
+                }
+            }
         } else { unknown }
     }
 

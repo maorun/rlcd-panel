@@ -37,6 +37,10 @@ public enum DiagnosticsReport {
                     if includeNames { out.append(line) }
                     else if s.command == ConsoleCommand.rejects.line { out.append(redactReject(line)) }
                     else { out.append(redact(line)) }
+                    // A malformed WAKE line stays in the report as raw text; only the summary line is skipped.
+                    if s.command == ConsoleCommand.status.line, let m = try? WakeMetrics.parse(line: line), line.hasPrefix("WAKE ") {
+                        out.append("Wake cycle: \(m.cause), boots \(m.boots), battery interval \(m.batteryIntervalS) s")
+                    }
                 }
             }
         }

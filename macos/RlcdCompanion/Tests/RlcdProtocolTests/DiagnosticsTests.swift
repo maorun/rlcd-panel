@@ -8,6 +8,7 @@ private let fullStatus = statusText.replacingOccurrences(
     + "AWAKE last_ms=850 avg_ms=900 max_ms=1200 samples=24\n"
     + "MEMORY free=212345 min=150000 largest=110592 psram=8300000\n"
     + "FRAME crc=1a2b3c4d skips=12\n"
+    + "WAKE cause=TIMER boots=1234 battery_interval_s=600\n"
 
 private func lines(_ text: String) -> [String] { text.split(separator: "\n").map(String.init) }
 
@@ -218,5 +219,40 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         #expect(!Shtc3Stats(nack: 0, short: 0, crc: 0, run: 2).isAlert)
         #expect(Shtc3Stats(nack: 0, short: 0, crc: 0, run: 3).isAlert)
         #expect(Shtc3Stats(nack: 0, short: 0, crc: 0, run: 255).isAlert)
+    }
+
+    @Test func parsesWakeLine() throws {
+        let d = try DiagnosticsReply.parse(status: try StatusReply.parse(lines: lines(fullStatus)))
+        #expect(d.wake == WakeMetrics(cause: "TIMER", boots: 1234, batteryIntervalS: 600))
+    }
+
+    @Test func wakeIsNilWithoutTheLine() throws {
+        let d = try DiagnosticsReply.parse(status: try StatusReply.parse(lines: lines(statusText)))
+        #expect(d.wake == nil)
+        #expect(try WakeMetrics.parse(lines: lines(statusText)) == nil)
+    }
+
+    @Test func wakeRejectsBadFields() {
+        #expect(throws: ParseError.self) { try WakeMetrics.parse(line: "WAKE cause=SLEEP boots=1 battery_interval_s=600") }
+        #expect(throws: ParseError.self) { try WakeMetrics.parse(line: "WAKE cause=TIMER boots=x battery_interval_s=600") }
+        #expect(throws: ParseError.self) { try WakeMetrics.parse(line: "WAKE cause=TIMER boots=1") }
+        #expect(throws: ParseError.self) { try WakeMetrics.parse(line: "WAKE cause=TIMER boots=-1 battery_interval_s=600") }
+        #expect(throws: ParseError.self) { try WakeMetrics.parse(line: "WAKE boots=1 battery_interval_s=600") }
+        #expect(throws: ParseError.self) { try DiagnosticsReply.parse(otherLines: ["WAKE": "WAKE cause=SLEEP boots=1 battery_interval_s=6"]) }
+    }
+
+    @Test func wakeNightInterval() throws {
+        let config = ConfigReply(values: ["night_wake_interval_s": "1200", "wake_interval_s": "600"])
+        let night = try WakeMetrics.parse(line: "WAKE cause=TIMER boots=1 battery_interval_s=1200")
+        let day = try WakeMetrics.parse(line: "WAKE cause=TIMER boots=1 battery_interval_s=600")
+        #expect(night.isNightInterval(config: config))
+        #expect(!day.isNightInterval(config: config))
+        #expect(!night.isNightInterval(config: nil))
+        let off = ConfigReply(values: ["night_wake_interval_s": "0", "wake_interval_s": "600"])
+        #expect(!night.isNightInterval(config: off))
+        let noWake = ConfigReply(values: ["night_wake_interval_s": "1200"])
+        #expect(!night.isNightInterval(config: noWake))
+        let same = ConfigReply(values: ["night_wake_interval_s": "600", "wake_interval_s": "600"])
+        #expect(!day.isNightInterval(config: same))
     }
 }
