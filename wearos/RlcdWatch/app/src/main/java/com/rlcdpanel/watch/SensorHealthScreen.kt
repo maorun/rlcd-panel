@@ -30,12 +30,15 @@ import androidx.wear.compose.material.TimeText
 import com.rlcdpanel.watch.console.BleConsoleClient
 import com.rlcdpanel.watch.protocol.ChimeCommand
 import com.rlcdpanel.watch.protocol.ConsoleReply
+import com.rlcdpanel.watch.protocol.MemoryState
 import com.rlcdpanel.watch.protocol.NtpState
-import com.rlcdpanel.watch.protocol.TimeReply
 import com.rlcdpanel.watch.protocol.ReceptionRate
 import com.rlcdpanel.watch.protocol.ReplyError
+import com.rlcdpanel.watch.protocol.ResetState
+import com.rlcdpanel.watch.protocol.Shtc3State
 import com.rlcdpanel.watch.protocol.StatusReply
 import com.rlcdpanel.watch.protocol.StatusSensor
+import com.rlcdpanel.watch.protocol.TimeReply
 
 /**
  * Result of the last `STATUS` read. A failed read sets [message] and keeps [status] of the last good reply.
@@ -94,6 +97,12 @@ object SensorHealthText {
 
     /** True for a known free space below [SD_LOW_MB]. */
     fun isSdLow(mb: Int?): Boolean = mb != null && mb < SD_LOW_MB
+
+    fun reset(r: ResetState?): String = r?.let { "Reset ${it.reason}, abnormal ${it.abnormalCount ?: "--"}" } ?: "Reset --"
+    fun shtc3(s: Shtc3State?): String =
+        s?.let { "SHTC3 nack ${it.nack}, short ${it.shortReads}, crc ${it.crc}, run ${it.run}, retried ${it.retried}" } ?: "SHTC3 --"
+    fun memory(m: MemoryState?): String =
+        m?.let { "Heap frei ${it.free} B, min ${it.min} B, größter Block ${it.largest} B, PSRAM ${it.psram} B" } ?: "Heap --"
 
     /** Text of a failed `MUTE` or `STATUS` reply that `ChimeCommand.failureText` does not word itself. */
     fun muteFallback(reply: ConsoleReply): String =
@@ -296,6 +305,36 @@ fun SensorHealthScreen(
                             fontSize = 10.sp,
                             color = if (low) Color(0xFFFFB74D) else Color(0xFFB0BEC5),
                             textAlign = TextAlign.Center
+                        )
+                    }
+                    item {
+                        val warn = status.reset?.isAbnormal == true
+                        Text(
+                            text = (if (warn) "${SensorHealthText.WARNING} " else "") + SensorHealthText.reset(status.reset),
+                            fontSize = 10.sp,
+                            color = if (warn) Color(0xFFFFB74D) else Color(0xFFB0BEC5),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    }
+                    item {
+                        val warn = status.shtc3?.isAlert == true
+                        Text(
+                            text = (if (warn) "${SensorHealthText.WARNING} " else "") + SensorHealthText.shtc3(status.shtc3),
+                            fontSize = 10.sp,
+                            color = if (warn) Color(0xFFFFB74D) else Color(0xFFB0BEC5),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    }
+                    item {
+                        val warn = status.memory?.isLow == true
+                        Text(
+                            text = (if (warn) "${SensorHealthText.WARNING} " else "") + SensorHealthText.memory(status.memory),
+                            fontSize = 10.sp,
+                            color = if (warn) Color(0xFFFFB74D) else Color(0xFFB0BEC5),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
                         )
                     }
                     items(status.sensors) { sensor ->
