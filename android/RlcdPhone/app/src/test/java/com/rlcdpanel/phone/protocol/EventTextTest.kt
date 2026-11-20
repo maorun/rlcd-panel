@@ -71,6 +71,12 @@ class EventTextTest {
         assertEquals("Clock set (USB)", EventText.describe(row("CLOCK_SET", 0x0000)))
         assertEquals("RTC trimmed (BLE)", EventText.describe(row("CLOCK_SET", 0x0101)))
         assertEquals("CLOCK_SET,2", EventText.describe(row("CLOCK_SET", 0x0002)))
+        assertEquals("Onboard sensor fault (NACK)", EventText.describe(row("SHTC3_FAULT", 0x0101)))
+        assertEquals("Onboard sensor back", EventText.describe(row("SHTC3_FAULT", 0x0000)))
+        assertEquals("SHTC3_FAULT,1025", EventText.describe(row("SHTC3_FAULT", 0x0401)))
+        assertEquals("SHTC3_FAULT,1", EventText.describe(row("SHTC3_FAULT", 0x0001)))
+        assertEquals("SHTC3_FAULT,256", EventText.describe(row("SHTC3_FAULT", 0x0100)))
+        assertEquals("SHTC3_FAULT,2", EventText.describe(row("SHTC3_FAULT", 0x0002)))
     }
 
     @Test

@@ -112,6 +112,14 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("CLOCK_SET", 0x0000)) == "Clock set (USB)")
         #expect(EventText.describe(row("CLOCK_SET", 0x0101)) == "RTC trimmed (BLE)")
         #expect(EventText.describe(row("CLOCK_SET", 0x0002)) == "CLOCK_SET,2")
+        #expect(EventText.describe(row("SHTC3_FAULT", 0x0101)) == "Onboard sensor fault (NACK)")
+        #expect(EventText.describe(row("SHTC3_FAULT", 0x0201)) == "Onboard sensor fault (SHORT)")
+        #expect(EventText.describe(row("SHTC3_FAULT", 0x0301)) == "Onboard sensor fault (CRC)")
+        #expect(EventText.describe(row("SHTC3_FAULT", 0x0000)) == "Onboard sensor back")
+        #expect(EventText.describe(row("SHTC3_FAULT", 0x0401)) == "SHTC3_FAULT,1025")
+        #expect(EventText.describe(row("SHTC3_FAULT", 0x0001)) == "SHTC3_FAULT,1")
+        #expect(EventText.describe(row("SHTC3_FAULT", 0x0100)) == "SHTC3_FAULT,256")
+        #expect(EventText.describe(row("SHTC3_FAULT", 0x0002)) == "SHTC3_FAULT,2")
     }
 
     @Test func slotStaleGivesLostAndBack() {
@@ -211,7 +219,7 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
             .filter { !$0.hasPrefix("CRC32") }
         let rows = try EventsReply.parse(lines: lines)
-        #expect(rows.count == 17)
+        #expect(rows.count == 19)
         #expect(rows[0] == EventRow(time: "2026-11-18 09:00:00", event: "EVENTS_DROPPED", detail: 0))
         let texts = rows.dropFirst().map(EventText.describe)
         #expect(texts[0] == "reset PANIC (abnormal)")
@@ -222,6 +230,8 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(texts[12] == "Battery power")
         #expect(texts[13] == "Clock set (USB)")
         #expect(texts[14] == "RTC trimmed (BLE)")
-        #expect(texts[15] == "FUTURE_EVENT,7")
+        #expect(texts[15] == "Onboard sensor fault (NACK)")
+        #expect(texts[16] == "Onboard sensor back")
+        #expect(texts[17] == "FUTURE_EVENT,7")
     }
 }

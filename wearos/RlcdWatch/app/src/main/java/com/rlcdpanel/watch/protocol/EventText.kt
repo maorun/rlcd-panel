@@ -108,6 +108,14 @@ object EventText {
                 if (d !in 0..0xFFFF || state > 1 || name == null) raw
                 else if (state == 1) "Chime muted ($name)" else "Chime on ($name)"
             }
+            "SHTC3_FAULT" -> {
+                val state = d and 0xFF
+                val cause = d shr 8
+                if (d !in 0..0xFFFF) raw
+                else if (state == 0 && cause == 0) "Onboard sensor back"
+                else if (state == 1 && cause in 1..3) "Onboard sensor fault (${listOf("NACK", "SHORT", "CRC")[cause - 1]})"
+                else raw
+            }
             "CLOCK_SET" -> {
                 val action = d and 0xFF
                 val transport = d shr 8

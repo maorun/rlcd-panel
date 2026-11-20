@@ -1923,13 +1923,24 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 
 ## Clock set event
 
-- `EventCode::CLOCK_SET` 17 records a change of the panel clock. `EventRing::MAX_CODE` is 17. The detail low byte is 0 for `TIME SET` and 1 for `RTC TRIM`. The detail high byte is the transport: 0 USB console, 1 BLE console.
+- `EventCode::CLOCK_SET` 17 records a change of the panel clock. `EventRing::MAX_CODE` was 17 then. The detail low byte is 0 for `TIME SET` and 1 for `RTC TRIM`. The detail high byte is the transport: 0 USB console, 1 BLE console.
 - `SerialConsoleRunner::setTime(sink, rtc, drift, t, events, transport)` records one event with the written time after a successful RTC write. A bad date and a failed RTC write record nothing.
 - `SerialConsoleRunner::trimRtc(sink, rtc, drift, events, now, transport)` records one event after a successful register write and readback. `ERR NO_DRIFT` and `ERR WRITE_FAILED` record nothing. `run_console` reads the RTC time again for the trim event.
 - The RTC layout and `STATE_VERSION` do not change.
 - The macOS, Android and Wear OS `EventText` show `Clock set (<transport>)` and `RTC trimmed (<transport>)` with the transports `USB` and `BLE`. A transport or action above 1 gives the raw text. The Android and Wear OS sources stay equal.
 - `tests/fixtures/events_reply_sample.txt` holds two `CLOCK_SET` rows (detail 0 and 257) before the `FUTURE_EVENT` row and a new `CRC32` line.
 - Tests: the host test asserts detail `0x0000` (USB `TIME SET`), `0x0101` (BLE `RTC TRIM`), no event for a bad date, a failed write and a failed trim, code 17 accepted and code 18 rejected. `EventTextTests` and both `EventTextTest` classes assert `0x0000`, `0x0101` and the raw text of `0x0002`.
+
+## Onboard sensor fault event
+
+- `EventCode::SHTC3_FAULT` 18 records the start and the end of an onboard `SHTC3` fault. `EventRing::MAX_CODE` is 18.
+- `Shtc3Health::faultEdge(previous_run, result)` gives the detail of an edge, or -1 for none. A fault edge is `run` going from 2 to 3: low byte 1, high byte the `Shtc3Result` of the third failed read (1 `NACK`, 2 `SHORT`, 3 `CRC`). A recovery edge is `run` going from 3 or more to 0: detail 0.
+- A run of 1 or 2, a fourth failure in a row and a power-on record nothing.
+- `refreshSensors()` reads `run` before the `SHTC3` read and records one event for each edge after the RTC time is known.
+- The RTC layout and `STATE_VERSION` do not change.
+- The macOS, Android and Wear OS `EventText` show `Onboard sensor fault (<NACK|SHORT|CRC>)` and `Onboard sensor back`. Another detail gives the raw text `<event>,<detail>`. The Android and Wear OS sources stay equal. `EventFilter` sorts `SHTC3_FAULT` into `sensors`.
+- `tests/fixtures/events_reply_sample.txt` holds two `SHTC3_FAULT` rows (detail 257 and 0) before the `FUTURE_EVENT` row and a new `CRC32` line.
+- Tests: the host test asserts detail `0x0101` for three `NACK` reads, `0x0000` for the next `OK` read, no edge for two failures and an `OK` read, no second fault edge for a fourth failure, code 18 accepted and code 19 rejected. The three `EventText` tests assert both texts and the raw text for `0x0401`; `EventFilterTests` asserts the `sensors` category.
 
 ## Panel silence notification in the Android app
 
@@ -1953,7 +1964,7 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 
 ## Event filter in the macOS event list
 
-- `EventFilter` (`EventFilter.swift`) sorts each event name into one `Category`: `alerts` (`ALERT_RISE`, `ALERT_FALL`, `ALERT_ACK`, `BATTERY_LOW_SET`, `BATTERY_LOW_CLEAR`, `EMPTY_PROTECTION`), `sensors` (`SLOT_ASSIGN`, `SLOT_RELEASE`, `SLOT_STALE`), `power` (`RESET`, `POWER_SOURCE`, `SD_FAULT`), `config` (`CONFIG_LOAD`, `CONFIG_SET`, `NTP_SYNC`, `MUTE_CHANGE`) and `other` (each other name, for example `EVENTS_DROPPED`, `CLOCK_SET` and an unknown name).
+- `EventFilter` (`EventFilter.swift`) sorts each event name into one `Category`: `alerts` (`ALERT_RISE`, `ALERT_FALL`, `ALERT_ACK`, `BATTERY_LOW_SET`, `BATTERY_LOW_CLEAR`, `EMPTY_PROTECTION`), `sensors` (`SLOT_ASSIGN`, `SLOT_RELEASE`, `SLOT_STALE`, `SHTC3_FAULT`), `power` (`RESET`, `POWER_SOURCE`, `SD_FAULT`), `config` (`CONFIG_LOAD`, `CONFIG_SET`, `NTP_SYNC`, `MUTE_CHANGE`) and `other` (each other name, for example `EVENTS_DROPPED`, `CLOCK_SET` and an unknown name).
 - `EventFilter.apply(rows, categories)` keeps the row order. An empty set returns all rows.
 - `AppModel.eventCategory` holds the selection (`nil` shows all events). `AppModel.filteredEvents` applies it. The `Events` box shows a segmented `Picker` above the list. The `Export EVENTS (CSV)` button writes the filtered rows.
 - Tests: `EventFilterTests` read `tests/fixtures/events_reply_sample.txt` and assert 3 alerts, 4 sensors, 4 power, 2 config and 4 other rows, `FUTURE_EVENT` in `other`, all rows in unchanged order for an empty set, and the order for a mixed set.

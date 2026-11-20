@@ -899,9 +899,15 @@ void refreshSensors() {
   g_state.battery.low_battery = BatteryMonitor::updateLowBattery(g_state.battery, was_low);
   g_state.battery_history.record(nowMs(), g_state.battery);
   // The SHTC3 read follows the battery read: the USB state selects the offset of the reading.
-  readOnboardShtc3(g_onboard_reading, g_state.battery.valid && g_state.battery.usb_powered, g_state.shtc3);
+  const uint8_t previous_shtc3_run = g_state.shtc3.run;
+  const Shtc3Result shtc3_result =
+      readOnboardShtc3(g_onboard_reading, g_state.battery.valid && g_state.battery.usb_powered, g_state.shtc3);
   updateCycles();
   updateRtc();
+  const int32_t shtc3_edge = Shtc3Health::faultEdge(previous_shtc3_run, shtc3_result);
+  if (shtc3_edge >= 0) {
+    g_state.events.record(g_rtc_time, EventCode::SHTC3_FAULT, static_cast<uint16_t>(shtc3_edge));
+  }
   g_state.recordPowerChange(previous_battery, g_state.battery, g_rtc_time);
   if (g_reset_event_pending) {
     g_state.events.record(g_rtc_time, EventCode::RESET, g_reset_event_detail);

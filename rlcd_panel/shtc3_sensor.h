@@ -135,6 +135,16 @@ struct Shtc3Health {
     }
   }
 
+  // Event detail of a fault edge or a recovery edge, -1 for none. `previous_run` is `run` before `record(result)`.
+  // A fault edge is run 2 to 3: low byte 1, high byte the Shtc3Result of that read. A recovery edge is run 3 or
+  // more to 0: detail 0. A run of 1 or 2, a longer fault and a power-on (run 0) give none.
+  static int32_t faultEdge(uint8_t previous_run, Shtc3Result result) {
+    if (result != Shtc3Result::OK) {
+      return previous_run == RUN_ALERT - 1 ? static_cast<int32_t>((static_cast<uint32_t>(result) << 8) | 1u) : -1;
+    }
+    return previous_run >= RUN_ALERT ? 0 : -1;
+  }
+
   uint32_t total() const {
     return static_cast<uint32_t>(nack) + short_reads + crc;
   }
