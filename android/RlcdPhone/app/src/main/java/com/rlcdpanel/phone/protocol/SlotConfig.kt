@@ -21,7 +21,8 @@ object SlotConfig {
     }
 
     /**
-     * `SET slotN_mac=<MAC>` then `SET slotN_name=<NAME>`. The name is upper-cased. An empty MAC with a name sends the
+     * `SET slotN_mac=<MAC>` then `SET slotN_name=<NAME>`. The name is upper-cased. A key whose value equals the cached
+     * [config] is not sent; nothing changed gives an empty command list. An empty MAC with a name sends the
      * name only (`slotN_name` needs no fixed MAC) and first clears a stored fixed MAC. An empty MAC and an empty name
      * clear the fixed MAC. An empty name with a MAC leaves the stored name as it is, because the firmware rejects an
      * empty name (`ERR BAD_VALUE`).
@@ -32,16 +33,22 @@ object SlotConfig {
         if (mac.isEmpty()) {
             if (name.isEmpty()) return clear(slot)
             nameError(name)?.let { return Plan.Invalid(it) }
-            val nameCommand = "SET slot${slot}_name=${name.uppercase()}"
+            val nameCommands =
+                if (name.equals(config.slotName(slot), ignoreCase = true)) emptyList()
+                else listOf("SET slot${slot}_name=${name.uppercase()}")
             // An erased MAC field clears the fixed MAC that the slot holds.
             return Plan.Commands(
-                if (config.slotMac(slot) != null) listOf("SET slot${slot}_mac=", nameCommand) else listOf(nameCommand)
+                if (config.slotMac(slot) != null) listOf("SET slot${slot}_mac=") + nameCommands else nameCommands
             )
         }
         if (!SlotAssignment.isValidMac(mac)) return Plan.Invalid("MAC: Format AA:BB:CC:DD:EE:FF")
         nameError(name)?.let { return Plan.Invalid(it) }
         SlotAssignment.warning(slot, mac, config)?.let { return Plan.Invalid(it) }
-        return SlotAssignment.batch(slot, mac, name)?.let { Plan.Commands(it) } ?: Plan.Invalid("Befehl zu lang")
+        val batch = SlotAssignment.batch(slot, mac, name) ?: return Plan.Invalid("Befehl zu lang")
+        // Send only the keys that differ from the cached config, so a rename leaves the fixed MAC alone.
+        val macChanged = config.slotMac(slot) != mac.uppercase()
+        val nameChanged = name.isNotEmpty() && !name.equals(config.slotName(slot), ignoreCase = true)
+        return Plan.Commands(batch.filter { if (it.startsWith("SET slot${slot}_mac=")) macChanged else nameChanged })
     }
 
     /**
