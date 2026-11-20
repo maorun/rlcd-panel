@@ -53,6 +53,23 @@ public enum ClimateMath {
         return 216.7 * vaporHpa / (tempC + 273.15)
     }
 
+    public static let minFrsi = 0.50
+    public static let maxFrsi = 0.95
+
+    /// Humidity of the room air at the temperature of a cold outer wall (same vapor pressure as the room air).
+    /// Same rules as `ClimateMath::wallSurfaceRh`: wall temperature `tOut + frsi * (tIn - tOut)`, clamp to 100 %RH,
+    /// `nil` for bad input, `frsi` outside 0.50 to 0.95 or `tOut` above `tIn`.
+    public static func wallSurfaceRh(tInC: Double, rhInPct: Double, tOutC: Double, frsi: Double) -> Double? {
+        guard tInC.isFinite, rhInPct.isFinite, tOutC.isFinite, frsi.isFinite,
+              tInC >= minTempC, tInC <= maxTempC, tOutC >= minTempC, tOutC <= maxTempC,
+              rhInPct >= 0.0, rhInPct <= 100.0, frsi >= minFrsi, frsi <= maxFrsi,
+              tOutC <= tInC else { return nil }
+        let wallC = tOutC + frsi * (tInC - tOutC)
+        let rh = rhInPct * saturationPressureKpa(tInC) / saturationPressureKpa(wallC)
+        guard rh.isFinite else { return nil }
+        return min(rh, 100.0)
+    }
+
     /// Dew point in Celsius. Returns `nil` for invalid, out-of-range or non-positive relative humidity.
     public static func dewPointC(tempC: Double, humidityPct: Double) -> Double? {
         guard tempC.isFinite, humidityPct.isFinite,

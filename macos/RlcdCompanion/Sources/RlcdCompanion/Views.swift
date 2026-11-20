@@ -64,6 +64,9 @@ struct MainView: View {
                                     Spacer()
                                     Text(cz.label).font(.caption2.bold()).foregroundStyle(cz == .ok ? .green : .secondary)
                                 }
+                                if let wall = model.wallText(forTile: i) {
+                                    Text(wall).font(.caption2).foregroundStyle(.secondary)
+                                }
                                 if let advice = model.ventilationAdvice(forTile: i) {
                                     Text(advice.title).font(.caption2.bold()).foregroundStyle(ventilationColor(advice.action))
                                         .lineLimit(1)

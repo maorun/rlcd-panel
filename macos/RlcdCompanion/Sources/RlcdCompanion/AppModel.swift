@@ -272,6 +272,13 @@ final class AppModel: ConsoleLinkDelegate {
         VentilationAdvice.advice(forTile: index, frame: frame, frameDate: frameDate, config: lastConfig, now: now)
     }
 
+    /// `Wall <N>%` for the indoor tile `index`; `nil` without `wall_frsi_pct`, without a fresh outdoor tile or for a stale frame.
+    func wallText(forTile index: Int) -> String? {
+        guard let frame, frame.tiles.indices.contains(index),
+              let outdoor = VentilationAdvice.outdoorTile(frame: frame, frameDate: frameDate, config: lastConfig, now: now) else { return nil }
+        return VentilationAdvice.wallText(tile: frame.tiles[index], index: index, outdoor: outdoor, config: lastConfig)
+    }
+
     /// Count of hours above mold_alert_limit_rh in the last 24 hours for a given sensor (0..5).
     func moldHours(forSensor sensor: Int) -> Int? {
         guard let limitStr = config?.values["mold_alert_limit_rh"], let limit = Double(limitStr) else { return nil }
