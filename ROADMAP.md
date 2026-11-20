@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Wall humidity notification in the Android app
-  - Rank: [Total: 29, Use: 8, Setup: 3, Harmony: 8, Safety: 10, Effort: M]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/ventilation/WallWatch.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/PhoneDashboardScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/ventilation/WallWatchTest.kt
-  - Goal: The Android cards show `Wall <N>%` with a warning color, but the phone does not notify the user. Add the pure class `WallWatch` with an injected clock and the rules of the macOS entry "Wall humidity notification in the macOS app": one state for each tile index 0 to 5, rise at 80.0 %RH or more, release below 77.0 %RH, at most one notification for each tile in 6 hours, release without a result for null. Add `WallText.value(tile, index, outdoor, config)` that returns the wall humidity as `Double?` with the rules of `WallText.format`, and let `format` use it. In `MainActivity`, feed `WallWatch` with each new telemetry frame while the app is in the foreground, and post the notification `<name>: Wand <N> %` through the existing notification channel with one notification ID for each tile. Post nothing without `POST_NOTIFICATIONS`. Keep the scan stop in `onStop`.
-  - Acceptance test: In `WallWatchTest`, assert one result for 79.9 then 80.0 %RH, no second result at 81 %RH, a release at 76.9 %RH, no result for a rise 5 hours after the first notification, one result for a rise 6 hours after it, a release for null and separate states for two tiles. In `WallTextTest`, assert that `WallText.value` gives 72.5 to 74.0 for `t_in` 20 C, 50 %RH, `t_out` 0 C and `wall_frsi_pct=70`, null for `wall_frsi_pct=0`, and that `format` keeps `Wall 73%`. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` and `./scripts/check-protocol-sync.sh`.
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Event filter in the Android event log
