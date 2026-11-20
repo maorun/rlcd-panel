@@ -2,6 +2,7 @@ package com.rlcdpanel.phone
 
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryTile
+import com.rlcdpanel.phone.protocol.WallText
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
