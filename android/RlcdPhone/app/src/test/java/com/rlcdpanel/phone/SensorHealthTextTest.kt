@@ -5,6 +5,7 @@ import com.rlcdpanel.phone.protocol.Fixtures
 import com.rlcdpanel.phone.protocol.MemoryState
 import com.rlcdpanel.phone.protocol.ReplyAssembler
 import com.rlcdpanel.phone.protocol.ResetState
+import com.rlcdpanel.phone.protocol.RtcState
 import com.rlcdpanel.phone.protocol.SensorHealth
 import com.rlcdpanel.phone.protocol.Shtc3State
 import com.rlcdpanel.phone.protocol.StatusReply
@@ -50,5 +51,27 @@ class SensorHealthTextTest {
         assertEquals("Reset --", SensorHealthText.reset(null))
         assertEquals("SHTC3 --", SensorHealthText.shtc3(null))
         assertEquals("Heap --", SensorHealthText.memory(null))
+    }
+
+    @Test
+    fun rtcTextAndTrimButtonRule() {
+        assertEquals("RTC Trim 0, Drift 5 ppm", SensorHealthText.rtc(StatusReply.parse(fixtureLines()).rtc))
+        assertEquals("RTC Trim --, Drift -- ppm", SensorHealthText.rtc(RtcState(null, null)))
+        assertEquals("RTC Trim --, Drift -- ppm", SensorHealthText.rtc(null))
+        assertFalse(SensorHealthText.canTrim(RtcState(0, 2), true))
+        assertTrue(SensorHealthText.canTrim(RtcState(0, 3), true))
+        assertTrue(SensorHealthText.canTrim(RtcState(0, -3), true))
+        assertFalse(SensorHealthText.canTrim(RtcState(0, -2), true))
+        assertFalse(SensorHealthText.canTrim(RtcState(0, null), true))
+        assertFalse(SensorHealthText.canTrim(null, true))
+        assertFalse(SensorHealthText.canTrim(RtcState(0, 5), false))
+    }
+
+    @Test
+    fun trimResultTexts() {
+        assertEquals("RTC getrimmt: -8 → -9", SensorHealthText.trimResult("OK RTC TRIM -8 -9"))
+        assertEquals("Kein Drift-Wert von 24 h oder mehr", SensorHealthText.trimResult("ERR NO_DRIFT"))
+        assertEquals("Set ble_console=2 to apply", SensorHealthText.trimResult("ERR READ_ONLY"))
+        assertEquals("Panel meldet: ERR WRITE_FAILED", SensorHealthText.trimResult("ERR WRITE_FAILED"))
     }
 }

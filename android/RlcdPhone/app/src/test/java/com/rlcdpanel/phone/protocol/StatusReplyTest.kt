@@ -203,4 +203,27 @@ class StatusReplyTest {
         } catch (e: ParseException) {
         }
     }
+
+    @Test
+    fun parsesRtcLine() {
+        assertEquals(RtcState(0, 5), StatusReply.parse(fixtureLines()).rtc)
+        assertEquals(RtcState(null, null), replace("RTC ", "RTC trim=-- drift_ppm=--").rtc)
+        assertEquals(RtcState(-64, -12), replace("RTC ", "RTC trim=-64 drift_ppm=-12").rtc)
+        assertEquals(RtcState(63, null), replace("RTC ", "RTC trim=63 drift_ppm=--").rtc)
+        assertNull(StatusReply.parse(fixtureLines().filter { !it.startsWith("RTC ") }).rtc)
+    }
+
+    @Test
+    fun badRtcLineThrows() {
+        for (line in listOf(
+            "RTC trim=64 drift_ppm=5", "RTC trim=-65 drift_ppm=5", "RTC trim=0 drift_ppm=x",
+            "RTC trim=x drift_ppm=--", "RTC trim=+1 drift_ppm=--", "RTC trim=0", "RTC trim=0 drift", "RTC trim=- drift_ppm=--"
+        )) {
+            try {
+                replace("RTC ", line)
+                fail("expected ParseException for $line")
+            } catch (e: ParseException) {
+            }
+        }
+    }
 }

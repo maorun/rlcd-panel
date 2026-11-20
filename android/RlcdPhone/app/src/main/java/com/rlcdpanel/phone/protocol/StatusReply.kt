@@ -58,6 +58,18 @@ data class Shtc3State(val nack: Int, val shortReads: Int, val crc: Int, val run:
     }
 }
 
+/** `RTC trim=<N|--> drift_ppm=<N|-->`: PCF85063A offset register (-64 to 63) and drift rate in ppm (positive is a fast clock). */
+data class RtcState(val trim: Int?, val driftPpm: Int?) {
+    /** The panel can trim only with a drift of 3 ppm or more: a smaller rate rounds to 0 steps. */
+    val canTrim: Boolean get() = driftPpm != null && kotlin.math.abs(driftPpm) >= MIN_TRIM_PPM
+
+    companion object {
+        const val MIN_TRIM_PPM = 3
+        const val MIN_TRIM = -64
+        const val MAX_TRIM = 63
+    }
+}
+
 /** `MEMORY free=<N> min=<N> largest=<N> psram=<N>` (bytes). */
 data class MemoryState(val free: Long, val min: Long, val largest: Long, val psram: Long) {
     val isLow: Boolean get() = largest < LOW_LARGEST_BYTES
@@ -88,7 +100,9 @@ data class StatusReply(
     /** Null without an `SHTC3` line. */
     val shtc3: Shtc3State? = null,
     /** Null without a `MEMORY` line. */
-    val memory: MemoryState? = null
+    val memory: MemoryState? = null,
+    /** Null without an `RTC` line. */
+    val rtc: RtcState? = null
 ) {
     val isUsbPower: Boolean get() = powerSource == "USB"
 
@@ -125,6 +139,7 @@ data class StatusReply(
             var reset: ResetState? = null
             var shtc3: Shtc3State? = null
             var memory: MemoryState? = null
+            var rtc: RtcState? = null
             for (line in lines) {
                 val words = line.split(' ').filter { it.isNotEmpty() }
                 val head = words.firstOrNull() ?: continue
@@ -162,10 +177,11 @@ data class StatusReply(
                     "RESET" -> reset = parseReset(line)
                     "SHTC3" -> shtc3 = parseShtc3(line)
                     "MEMORY" -> memory = parseMemory(line)
+                    "RTC" -> rtc = parseRtc(line)
                 }
             }
             if (sensors.isEmpty()) throw ParseException("SENSOR")
-            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory)
+            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory, rtc)
         }
 
         private fun digits(s: String?): Long? =
@@ -189,6 +205,21 @@ data class StatusReply(
                 counter(f, "nack", line).toInt(), counter(f, "short", line).toInt(), counter(f, "crc", line).toInt(),
                 counter(f, "run", line).toInt(), counter(f, "retried", line).toInt()
             )
+        }
+
+        /** `RTC trim=<N|--> drift_ppm=<N|-->`; `--` gives a null field, a bad number or a trim outside -64 to 63 throws. */
+        private fun parseRtc(line: String): RtcState {
+            val f = fields(line)
+            fun signed(key: String): Int? {
+                val v = f[key] ?: throw ParseException(line)
+                if (v == "--") return null
+                val body = if (v.startsWith("-")) v.substring(1) else v
+                if (body.isEmpty() || body.length > 9 || !body.all { it in '0'..'9' }) throw ParseException(line)
+                return v.toInt()
+            }
+            val trim = signed("trim")
+            if (trim != null && (trim < RtcState.MIN_TRIM || trim > RtcState.MAX_TRIM)) throw ParseException(line)
+            return RtcState(trim, signed("drift_ppm"))
         }
 
         private fun parseMemory(line: String): MemoryState {

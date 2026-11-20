@@ -2107,7 +2107,7 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The line count, the RTC layout and `STATE_VERSION` do not change.
 - `StatusSensor.moldHours` (`Int?`) in the macOS, phone and watch parsers is `nil` or `null` for `--` and a missing field. A bad number gives `ParseError.badLine` or `ParseException`.
 - The phone `SensorHealthScreen` shows `Schimmel <N> h` on each sensor row, with a warning symbol and the error colour above 0.
-- Tests: `testSerialStatusMoldHours`, `ReplyTests`, and both `StatusReplyTest` classes. `tests/fixtures/status_reply_sample.txt` holds the field; the CRC literal is `b42a8075`.
+- Tests: `testSerialStatusMoldHours`, `ReplyTests`, and both `StatusReplyTest` classes. `tests/fixtures/status_reply_sample.txt` holds the field; the CRC literal is `7936259f`.
 
 ## Panel diagnostics lines in the Wear OS sensor health screen
 
@@ -2217,10 +2217,16 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The console command `STATUS` shows `CHIME repeat_h=<N> bits=<2 hex digits> last_s=<N|--> next_s=<N|-->` after `NOISE` and before `CRC32`.
 - `repeat_h` is `chime_repeat_h`. `bits` is `AlertEvaluator::repeatableBits(alert_mask)` without the `alert_ack` bits. `last_s` is the time since `PersistentState::last_chime_ms`; `--` for stamp 0. `next_s` is `repeat_h * 3600 - last_s`, at least 0; `--` for `repeat_h` 0 and for `bits` 00. `next_s` is the nominal due time: mute, quiet hours and `chime_alert_mask` still skip the sound and restart the timer. Stamp 0 counts from clock zero. A stamp ahead of the clock wraps like `AlertEvaluator::repeat`.
 - `SerialStatusSnapshot` has the new field `last_chime_ms`. The sketch fills it from the RTC copy. The RTC layout and `STATE_VERSION` do not change. The Kotlin parsers ignore the line.
-- Tests: `testStatusChimeLine` asserts the filled line, an acknowledged alert, `ALERT_CHARGE_FULL`, an overdue reminder, stamp 0 and the order `NOISE`, `CHIME`, `CRC32`. Each full `STATUS` assert counts one more line. `tests/fixtures/status_reply_sample.txt` holds the line; the CRC literal is `b42a8075`.
+- Tests: `testStatusChimeLine` asserts the filled line, an acknowledged alert, `ALERT_CHARGE_FULL`, an overdue reminder, stamp 0 and the order `NOISE`, `CHIME`, `CRC32`. Each full `STATUS` assert counts one more line. `tests/fixtures/status_reply_sample.txt` holds the line; the CRC literal is `7936259f`.
 
 ## Panel 24-hour history over the BLE console in the Android app
 
 - `HistoryReply.parse(lines)` (`protocol/HistoryReply.kt`) is a port of `HistoryReply.parse` of `Replies.swift`. It reads `BEGIN HISTORY`, the header `sensor,age_h,temp_c,rh_pct,noise_db` and the rows as `PanelHistoryRow(sensor, ageHours, temperatureC, humidityPct, noiseDb)`. An empty field and `--` give `null`. A wrong first line, a wrong header, a wrong column count, a sensor outside 0 to 10, an age outside 0 to 23 and a non-decimal value throw `ParseException`.
 - `HistoryScreen` has the button `Panel-Verlauf lesen`. `MainActivity.readPanelHistory` sends `HISTORY` through `BleConsoleClient` only after a tap (Bluetooth permission check, background scan stops, `closePanelHistory` restarts it). After a good reply the screen shows the panel curves of each sensor with a temperature value in place of the local curves, with age 0 at the read time (`PanelHistoryChart`, line break above 90 min). The button `Lokal` returns to the local curves. A failed read shows one message and keeps the local curves. The command runs at each `ble_console` level.
 - `tests/fixtures/history_reply_sample.txt` holds a valid `CRC32` line. `HistoryReplyTest` reads it through `ReplyAssembler` and asserts the 6 rows, the first row, `null` for an empty `noise_db` field, and `ParseException` for a wrong header, 4 columns, sensor 11 and age 24.
+
+## RTC trim in the Android sensor health screen
+
+- The shared `StatusReply.kt` of the phone and the watch parses the `STATUS` line `RTC trim=<N|--> drift_ppm=<N|-->` into `RtcState(trim, driftPpm)` (`StatusReply.rtc`). `--` gives a `null` field and a missing line gives `null`. A bad number and a trim outside -64 to 63 throw `ParseException`. `RtcState.canTrim` is true for a drift of 3 ppm or more in either direction.
+- `SensorHealthScreen` shows the row `RTC Trim <N>, Drift <N> ppm` and the button `RTC trimmen` only when `panelConfig.canWrite` is true and `canTrim` is true (`SensorHealthText.canTrim`). `MainActivity.trimRtc` sends `RTC TRIM` after a tap, then `STATUS` after an `OK`. `SensorHealthText.trimResult` shows `OK RTC TRIM <old> <new>`, `ERR NO_DRIFT` and `ERR READ_ONLY` as short texts.
+- Tests: `StatusReplyTest` (phone and watch) and `SensorHealthTextTest`. `tests/fixtures/status_reply_sample.txt` holds the line `RTC trim=0 drift_ppm=5` after `RESET` with a new `CRC32` (`7936259f`).

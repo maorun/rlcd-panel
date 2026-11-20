@@ -148,7 +148,7 @@ class StatusReplyTest {
 
     @Test
     fun badCrcThrowsParseException() {
-        val text = Fixtures.file("status_reply_sample.txt").readText().replace("CRC32 b42a8075", "CRC32 00000000")
+        val text = Fixtures.file("status_reply_sample.txt").readText().replace("CRC32 7936259f", "CRC32 00000000")
         val reply = ReplyAssembler().append(text.toByteArray())!!
         assertTrue(reply is ConsoleReply.Corrupt)
         try {
@@ -245,6 +245,22 @@ class StatusReplyTest {
             StatusReply.parse(bad)
             fail("expected ParseException")
         } catch (e: ParseException) {
+        }
+    }
+
+    @Test
+    fun parsesRtcLine() {
+        assertEquals(RtcState(0, 5), StatusReply.parse(fixtureLines()).rtc)
+        assertEquals(RtcState(null, null), replace("RTC ", "RTC trim=-- drift_ppm=--").rtc)
+        assertNull(StatusReply.parse(fixtureLines().filter { !it.startsWith("RTC ") }).rtc)
+        assertEquals(RtcState(-64, -12), replace("RTC ", "RTC trim=-64 drift_ppm=-12").rtc)
+        assertEquals(RtcState(63, null), replace("RTC ", "RTC trim=63 drift_ppm=--").rtc)
+        for (line in listOf("RTC trim=64 drift_ppm=5", "RTC trim=-65 drift_ppm=5", "RTC trim=+1 drift_ppm=--", "RTC trim=0 drift_ppm=x", "RTC trim=0")) {
+            try {
+                replace("RTC ", line)
+                fail("expected ParseException for $line")
+            } catch (e: ParseException) {
+            }
         }
     }
 }
