@@ -53,12 +53,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Show the `CHIME` line of the entry "Chime reminder line in STATUS" beside the alert acknowledge buttons. Add `ChimeMetrics.parse(line:)` with `repeatHours`, `bits`, `lastS` and `nextS`, and add `DiagnosticsReply.chime`. Return `nil` for a missing line and `nil` fields for `--`. Throw `ParseError.badLine` for `repeat_h` above 24, `bits` that are not 2 hex digits and a bad number. Show `Next reminder in <H> h <M> min` when `nextS` exists, `Reminder off` for `repeatHours` 0 and `No reminder due` for `bits` 0.
   - Acceptance test: In `DiagnosticsTests`, assert the values of `CHIME repeat_h=2 bits=02 last_s=3600 next_s=3600`, `nil` for `next_s=--` and `last_s=--`, `nil` without the line, and `ParseError.badLine` for `repeat_h=25` and `bits=2`. Assert the three texts of the view helper. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
 
-- [ ] Mold hours in the Wear OS sensor health screen
-  - Rank: [Total: 27, Use: 6, Setup: 3, Harmony: 8, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt
-  - Goal: The watch parses `mold_h` of the `SENSOR` lines into `SensorHealth.moldHours`, but the sensor health screen does not show it. The phone shows `Schimmel <N> h`. Add `SensorHealthText.mold(row)`: `Schimmel <N> h`, with the `WARNING` mark above 0 hours, and `Schimmel --` for `null`. Show the text in each sensor row below the reception rate.
-  - Acceptance test: In `SensorHealthTextTest`, assert `Schimmel 0 h` for 0, the warning mark and `Schimmel 5 h` for 5, and `Schimmel --` for `null`. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`.
-
 - [ ] Firmware version in the Wear OS sensor health screen
   - Rank: [Total: 26, Use: 2, Setup: 6, Harmony: 8, Safety: 10, Effort: S]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt

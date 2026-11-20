@@ -304,6 +304,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The alert mask uses 3 bits in RTC memory (bits 1 to 3 of the audio byte). The noise band moves to bits 4 and 5 (see "Sensor dropout chime" for the later layout). The limit adds one byte to the config trailer. The state version is 11. The old format gives a clean start.
 - Host tests cover the edges (`40`, `100`, `39`, `101`), the release at `-5 dB`, the default `0`, an invalid reading, mute and quiet hours suppression, the `config.ini` key, and the RTC round trip with corrupt records.
 
+## Mold hours in the Wear OS sensor health screen
+
+- The watch parsed `mold_h` of the `SENSOR` lines into `StatusSensor.moldHours`, but the sensor health screen did not show it.
+- `SensorHealthText.mold(sensor)` gives `Schimmel <N> h`, with the `WARNING` mark before it above 0 hours, and `Schimmel --` for `null`. `SensorHealthText.isMold(sensor)` is true above 0 hours.
+- Each sensor card of `SensorHealthScreen.kt` shows the text below the reception rate. Above 0 hours, the text uses the warning color.
+- The text matches `SensorHealthText.mold` of the phone. The shared protocol sources do not change.
+- Tests: `SensorHealthTextTest.moldText` asserts `Schimmel 0 h`, `⚠ Schimmel 5 h` and `Schimmel --`.
+- Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
+
 ## Sensor dropout chime
 
 - `ALERT_SENSOR_LOST` (`rlcd_panel/audio_alert.h`, value 8) is the fourth alert bit. It joins `ALERT_CLIMATE_MASK`, so `AlertEvaluator::withClimate()` keeps the noise bit of the last window. `AlertEvaluator::evaluate` sets it when one valid sensor slot is stale, that is, no packet arrived for more than 30 min (`SENSOR_STALE_TIMEOUT_MS`). `SwitchBotRegistry::anyStale` makes the check with wrap-safe 32-bit maths.
