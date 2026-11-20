@@ -25,7 +25,9 @@ import com.rlcdpanel.watch.protocol.AlertMask
 import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.tile.ClimateTileService
 import com.rlcdpanel.watch.protocol.AlertTransitions
+import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.SilenceWatch
+import com.rlcdpanel.watch.protocol.StaleWatch
 import com.rlcdpanel.watch.protocol.TelemetryFrame
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -51,6 +53,7 @@ class BleScanService : Service() {
     private var bleScanner: BleTelemetryScanner? = null
     private var lastNotificationText: String? = null
     private var silenceWatch = SilenceWatch()
+    private var staleWatch = StaleWatch()
     private val silenceHandler = Handler(Looper.getMainLooper())
     private val silenceCheck = object : Runnable {
         override fun run() {
@@ -157,12 +160,15 @@ class BleScanService : Service() {
         silenceHandler.removeCallbacks(silenceCheck)
         cancelSilenceNotification()
         silenceWatch = SilenceWatch()
+        cancelStaleNotifications()
+        staleWatch = StaleWatch()
         silenceHandler.postDelayed(silenceCheck, SILENCE_CHECK_MS)
     }
 
     private fun stopSilenceWatch() {
         silenceHandler.removeCallbacks(silenceCheck)
         cancelSilenceNotification()
+        cancelStaleNotifications()
     }
 
     fun stopScanning() {
@@ -201,6 +207,7 @@ class BleScanService : Service() {
         _snapshot.value = transition.snapshot
         _statusMessage.value = transition.statusMessage
         cacheForTile(incoming)
+        feedStaleWatch(incoming.frame)
 
         if (!transition.risingAlerts.isEmpty) {
             vibrateAlert()
@@ -372,6 +379,57 @@ class BleScanService : Service() {
         manager.notify(SILENCE_NOTIFICATION_ID, notification)
     }
 
+    /** Feeds one frame into the stale watch and posts or cancels the notifications. */
+    private fun feedStaleWatch(frame: TelemetryFrame) {
+        var config: PanelConfig? = null
+        for (result in staleWatch.updateFrame(frame)) {
+            when (result) {
+                is StaleWatch.Result.Lost -> {
+                    val loaded = config ?: PanelConfig.load(this).also { config = it }
+                    if (postStaleNotification(result.tile, loaded.tileName(result.tile))) {
+                        vibrateNotice()
+                    }
+                }
+                is StaleWatch.Result.Back -> cancelStaleNotification(result.tile)
+            }
+        }
+    }
+
+    private fun postStaleNotification(tile: Int, name: String): Boolean {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return false
+        }
+        val openApp = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(this, SILENCE_CHANNEL_ID)
+            .setSmallIcon(R.mipmap.ic_launcher)
+            .setContentTitle("RLCD Sensor")
+            .setContentText("$name: no data for 35 min")
+            .setContentIntent(openApp)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setVibrate(null)
+            .setOnlyAlertOnce(true)
+            .setAutoCancel(true)
+            .build()
+        manager.notify(STALE_NOTIFICATION_BASE_ID + tile, notification)
+        return true
+    }
+
+    private fun cancelStaleNotification(tile: Int) {
+        (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)?.cancel(STALE_NOTIFICATION_BASE_ID + tile)
+    }
+
+    private fun cancelStaleNotifications() {
+        for (tile in 0 until StaleWatch.TILE_COUNT) cancelStaleNotification(tile)
+    }
+
     private fun cancelSilenceNotification() {
         (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)?.cancel(SILENCE_NOTIFICATION_ID)
     }
@@ -390,6 +448,10 @@ class BleScanService : Service() {
         getVibrator()?.vibrate(
             VibrationEffect.createWaveform(longArrayOf(0L, 250L, 120L, 250L, 120L, 250L), -1)
         )
+    }
+
+    private fun vibrateNotice() {
+        getVibrator()?.vibrate(VibrationEffect.createOneShot(120L, VibrationEffect.DEFAULT_AMPLITUDE))
     }
 
     override fun onDestroy() {
@@ -425,6 +487,7 @@ class BleScanService : Service() {
         const val SILENCE_CHANNEL_ID = "rlcd_silence_channel"
         private const val ACK_REQUEST_BASE = 100
         private const val ACK_NOTIFICATION_BASE = 910
+        const val STALE_NOTIFICATION_BASE_ID = 940
 
         /** Notification id of the alert with [bit]; the ACK result replaces it. */
         fun ackNotificationId(bit: Int): Int = ACK_NOTIFICATION_BASE + bit

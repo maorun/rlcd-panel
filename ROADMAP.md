@@ -57,12 +57,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: The watch shows `Wall <N>%`, but it does not notify the user at a mold risk. The phone and the macOS app notify. Move `WallWatch.kt` of the phone from the package `ventilation` into the shared package `protocol`, copy it into the watch package and add it to `FILES` in `scripts/check-protocol-sync.sh`. Keep the rules: rise at 80 %RH, release below 77 %RH, a repeat window of 6 hours for each tile. In the watch `MainActivity`, feed `WallText.value` of each tile on each new frame, like `checkWallNotifications` of the phone. For each `Notify`, post one notification `<name>: Wand <N> %` and vibrate once with `vibrateNotice`. Without the notification permission, do not feed `WallWatch`.
   - Acceptance test: Move `WallWatchTest` of the phone into the package `protocol` and assert that it passes unchanged. Copy it into the watch tests. Run `./scripts/check-protocol-sync.sh` and assert exit 0 with the new `FILES` entry. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` and `android/RlcdPhone`, and `./scripts/check-protocol-sync.sh --self-test`.
 
-- [ ] Lost sensor notification in the Wear OS app
-  - Rank: [Total: 29, Use: 7, Setup: 5, Harmony: 7, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/BleScanService.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StaleWatch.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/StaleWatchTest.kt
-  - Goal: Use the shared `StaleWatch.kt` of the entry "Lost sensor notification in the Android app" in the watch. In `BleScanService`, feed each new frame and post one notification `<name>: no data for 35 min` for `Lost`, with one short vibration. Remove the notification for `Back`. Use `PanelConfig.load(context).tileName` for the name. Keep the BLE scan mode and the tile refresh unchanged.
-  - Acceptance test: Copy `StaleWatchTest` of the phone into the watch tests and assert that it passes. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` and `./scripts/check-protocol-sync.sh`.
-
 - [ ] Chime reminder line in STATUS
   - Rank: [Total: 29, Use: 5, Setup: 7, Harmony: 7, Safety: 10, Effort: S]
   - Location: rlcd_panel/serial_console.h, rlcd_panel/rlcd_panel.ino, rlcd_panel/audio_alert.h, tests/test_firmware_logic.cpp, tests/fixtures/status_reply_sample.txt, AGENTS.md
