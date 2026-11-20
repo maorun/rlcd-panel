@@ -421,7 +421,7 @@ final class AppModel: ConsoleLinkDelegate {
 
     var canCopyReport: Bool { consoleConnected && isIdle && !reportRunning }
 
-    /// Sends `VERSION`, `STATUS`, `CONFIG` and `EVENTS` one after the other and puts the report on the
+    /// Sends `VERSION`, `STATUS`, `CONFIG`, `EVENTS` and `REJECTS` one after the other and puts the report on the
     /// pasteboard. Runs only on the user's button press.
     func copyReport() {
         guard canCopyReport else { message = "Wait for the running command"; return }
