@@ -1969,3 +1969,9 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - The console command `STATUS` shows the line `FRAME crc=<8 hex digits|--> skips=<N>` after `MEMORY` and before `CRC32`. It comes from the RTC copy of `FrameRefresh` (`SerialStatusSnapshot::frame`, set from `g_state.frame` in `rlcd_panel.ino`). `--` means CRC 0 (unknown); else 8 lowercase hex digits. The user can now see if the firmware skipped the panel flush. The RTC layout and `STATE_VERSION` do not change.
 - macOS: `FrameMetrics.parse` (`Diagnostics.swift`) gives `nil` for a missing line or `crc=--` and `ParseError.badLine` for a bad field. `DiagnosticsView` shows the group `Display refresh`.
 - Tests: `testStatusFrameLine` asserts `FRAME crc=-- skips=0`, `FRAME crc=1a2b3c4d skips=12` and the position before `CRC32`. `DiagnosticsTests` cover the parser. The fixture `status_reply_sample.txt` holds the line with a new `CRC32`.
+
+## Wear OS chime test
+
+- `SensorHealthScreen` shows an `Alert: <name>` chip and a `Test chime` chip below the mute chip. The first chip steps through the 8 names of `ChimeCommand.ALERT_NAMES` (bits 0 to 7). The second chip sends `BEEP <bit>` through `BleConsoleClient.send` (`MainActivity.testChime`).
+- The watch shows `ChimeCommand.okText` for `OK BEEP` and `ChimeCommand.failureText` for an `ERR` reply (`ERR MUTED`, `ERR READ_ONLY`, `ERR PLAY_FAILED`). The command runs only on a tap and is not retried. `ChimeTestState.isTesting` blocks a second tap and the other console chips while a command runs. `onStop` clears the flag.
+- Tests: `ChimeCommandTest` asserts `BEEP 0` and `BEEP 7`, the exception for bit 8, the text of `OK BEEP 7 420` and the texts of `ERR MUTED` and `ERR READ_ONLY`. The UI wiring has no host test.
