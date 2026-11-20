@@ -51,7 +51,7 @@ class EventTextTest {
         assertEquals(8, state.visibleRows.size)
         assertEquals(log.rows.last(), state.visibleRows.first())
         assertEquals(log.rows[log.rows.size - 8], state.visibleRows.last())
-        assertEquals(listOf("FUTURE_EVENT", "CLOCK_SET", "CLOCK_SET"), state.visibleRows.take(3).map { it.event })
+        assertEquals(listOf("FUTURE_EVENT", "SHTC3_FAULT", "SHTC3_FAULT"), state.visibleRows.take(3).map { it.event })
     }
 
     @Test
