@@ -1972,7 +1972,7 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 
 ## Event filter in the macOS event list
 
-- `EventFilter` (`EventFilter.swift`) sorts each event name into one `Category`: `alerts` (`ALERT_RISE`, `ALERT_FALL`, `ALERT_ACK`, `BATTERY_LOW_SET`, `BATTERY_LOW_CLEAR`, `EMPTY_PROTECTION`), `sensors` (`SLOT_ASSIGN`, `SLOT_RELEASE`, `SLOT_STALE`, `SHTC3_FAULT`), `power` (`RESET`, `POWER_SOURCE`, `SD_FAULT`), `config` (`CONFIG_LOAD`, `CONFIG_SET`, `NTP_SYNC`, `MUTE_CHANGE`) and `other` (each other name, for example `EVENTS_DROPPED`, `CLOCK_SET` and an unknown name).
+- `EventFilter` (`EventFilter.swift`) sorts each event name into one `Category`: `alerts` (`ALERT_RISE`, `ALERT_FALL`, `ALERT_ACK`, `BATTERY_LOW_SET`, `BATTERY_LOW_CLEAR`, `EMPTY_PROTECTION`), `sensors` (`SLOT_ASSIGN`, `SLOT_RELEASE`, `SLOT_STALE`, `SHTC3_FAULT`, `SENSOR_BATTERY`), `power` (`RESET`, `POWER_SOURCE`, `SD_FAULT`), `config` (`CONFIG_LOAD`, `CONFIG_SET`, `NTP_SYNC`, `MUTE_CHANGE`) and `other` (each other name, for example `EVENTS_DROPPED`, `CLOCK_SET` and an unknown name).
 - `EventFilter.apply(rows, categories)` keeps the row order. An empty set returns all rows.
 - `AppModel.eventCategory` holds the selection (`nil` shows all events). `AppModel.filteredEvents` applies it. The `Events` box shows a segmented `Picker` above the list. The `Export EVENTS (CSV)` button writes the filtered rows.
 - Tests: `EventFilterTests` read `tests/fixtures/events_reply_sample.txt` and assert 3 alerts, 4 sensors, 4 power, 2 config and 4 other rows, `FUTURE_EVENT` in `other`, all rows in unchanged order for an empty set, and the order for a mixed set.
@@ -2121,6 +2121,9 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The detail low byte is the slot number 1 to 10. The high byte is 1 for a low battery and 0 for a battery that is OK again.
 - A limit of 0 (`sensor_battery_limit_pct`) and an equal latch record nothing. `resetSlot` clears the bit without an event.
 - `SdLogCodec` names the event `SENSOR_BATTERY`. The RTC layout and `STATE_VERSION` do not change.
+- The macOS, Android and Wear OS `EventText` show `Slot <N> battery low` for the high byte 1 and `Slot <N> battery OK` for the high byte 0. A slot outside 1 to 10 or a high byte above 1 gives the raw text `<event>,<detail>`. The Android and Wear OS sources stay equal. `EventFilter` (Swift and Kotlin) sorts `SENSOR_BATTERY` into `sensors`.
+- `tests/fixtures/events_reply_sample.txt` holds the rows `SENSOR_BATTERY,260` and `SENSOR_BATTERY,4` before the `FUTURE_EVENT` row and a new `CRC32` line (21 rows with `EVENTS_DROPPED` in the macOS reply, 20 in the Kotlin parsers, 8 `sensors` rows).
+- Tests: `EventTextTests` and both `EventTextTest` classes assert `Slot 4 battery low` (260), `Slot 4 battery OK` (4) and the raw text of detail 11 and 516.
 - Tests: the host test asserts detail `0x0104` (0x000 to 0x008), `0x0004` (back), two events for 0x000 to 0x201, no event for an equal latch and for limit 0, the row `SENSOR_BATTERY` and the restore of code 19 and the rejection of code 20.
 
 ## Lost sensor notification in the Wear OS app

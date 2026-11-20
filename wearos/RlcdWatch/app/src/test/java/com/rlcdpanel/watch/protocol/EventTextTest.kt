@@ -42,6 +42,10 @@ class EventTextTest {
         assertEquals("SHTC3_FAULT,1", EventText.describe(row("SHTC3_FAULT", 0x0001)))
         assertEquals("SHTC3_FAULT,256", EventText.describe(row("SHTC3_FAULT", 0x0100)))
         assertEquals("SHTC3_FAULT,2", EventText.describe(row("SHTC3_FAULT", 0x0002)))
+        assertEquals("Slot 4 battery low", EventText.describe(row("SENSOR_BATTERY", 260)))
+        assertEquals("Slot 4 battery OK", EventText.describe(row("SENSOR_BATTERY", 4)))
+        assertEquals("SENSOR_BATTERY,11", EventText.describe(row("SENSOR_BATTERY", 11)))
+        assertEquals("SENSOR_BATTERY,516", EventText.describe(row("SENSOR_BATTERY", 516)))
     }
 
     @Test
@@ -51,7 +55,7 @@ class EventTextTest {
         assertEquals(8, state.visibleRows.size)
         assertEquals(log.rows.last(), state.visibleRows.first())
         assertEquals(log.rows[log.rows.size - 8], state.visibleRows.last())
-        assertEquals(listOf("FUTURE_EVENT", "SHTC3_FAULT", "SHTC3_FAULT"), state.visibleRows.take(3).map { it.event })
+        assertEquals(listOf("FUTURE_EVENT", "SENSOR_BATTERY", "SENSOR_BATTERY"), state.visibleRows.take(3).map { it.event })
     }
 
     @Test
