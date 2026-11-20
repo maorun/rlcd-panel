@@ -105,6 +105,28 @@ object ClimateMath {
         return (rothfuszF(tempF = tempF, rhPct = humidityPct) - 32.0) * 5.0 / 9.0
     }
 
+    const val WALL_FRSI_MIN = 0.50
+    const val WALL_FRSI_MAX = 0.95
+
+    /**
+     * Humidity of the room air at the wall temperature `tOutC + frsi * (tInC - tOutC)`, same vapor pressure,
+     * clamped to 100 %RH. Matches `ClimateMath::wallSurfaceRh`. Returns `null` for invalid input,
+     * `frsi` outside 0.50 to 0.95 and `tOutC` above `tInC`.
+     */
+    fun wallSurfaceRh(tInC: Double, rhInPct: Double, tOutC: Double, frsi: Double): Double? {
+        if (!tInC.isFinite() || !rhInPct.isFinite() || !tOutC.isFinite() || !frsi.isFinite() ||
+            tInC < MIN_TEMP_C || tInC > MAX_TEMP_C || tOutC < MIN_TEMP_C || tOutC > MAX_TEMP_C ||
+            rhInPct < 0.0 || rhInPct > 100.0 ||
+            frsi < WALL_FRSI_MIN || frsi > WALL_FRSI_MAX ||
+            tOutC > tInC
+        ) {
+            return null
+        }
+        val wallC = tOutC + frsi * (tInC - tOutC)
+        val rh = rhInPct * saturationPressureKpa(tInC) / saturationPressureKpa(wallC)
+        return if (rh.isFinite()) rh.coerceIn(0.0, 100.0) else null
+    }
+
     /**
      * Comfort zone classification.
      */

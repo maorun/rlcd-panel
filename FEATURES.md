@@ -2005,3 +2005,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `boots` is the RTC copy of `PersistentState::boot_count`.
 - `battery_interval_s` is the interval that `PowerManager::powerConfig` gives on battery power at the current RTC time. It shows `night_wake_interval_s` in the quiet hours and `wake_interval_s` at other times and for an invalid RTC time. The line shows it also on USB power.
 - The RTC layout and `STATE_VERSION` do not change.
+
+## Wall surface humidity in the Android app
+
+- `ClimateMath.wallSurfaceRh(tInC, rhInPct, tOutC, frsi)` follows `ClimateMath::wallSurfaceRh` in `climate_math.h`. It gives `null` for bad input, `frsi` outside 0.50 to 0.95 and `tOutC` above `tInC`. The result clamps to 100 %RH. The phone and the watch `ClimateMath.kt` are equal, so `scripts/check-protocol-sync.sh` passes.
+- `WallText` (`PhoneDashboardScreen.kt`) reads `wall_frsi_pct` (divided by 100) and `outdoor_slot` from `PanelConfig.values`. `WallText.outdoorTile` takes the outdoor reading only from the panel tile of `outdoor_slot` (slots 1 to 5), not from Open-Meteo. `WallText.format(tile, index, outdoor, config)` returns `Wall <N>%` and a warning flag, or `null` for key value 0, a missing key, the outdoor card, an invalid tile and a missing outdoor tile.
+- `WallText.isWarning(rhPct)` is true from 80.0 %RH. The flag uses the unrounded value. `PhoneDashboardScreen` shows the text below the detail line of each fresh indoor card and hides it on a stale frame. The warning shows in bold orange.
+- Tests: both `ClimateMathTest` classes read `tests/fixtures/wall_rh_vectors.txt` and assert each row within 0.1 %RH, and assert `null` for `frsi` 0.49, `t_out` above `t_in` and NaN input. `WallTextTest` (phone) asserts `Wall 73%` for 20 C, 50 %RH, 0 C and `wall_frsi_pct=70`, the `null` cases and the warning limit. Gradle tests run only in CI (no Android SDK on the dev host).
