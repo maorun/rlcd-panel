@@ -24,12 +24,12 @@ class HistoryReplyTest {
     @Test
     fun sharedFixtureGivesTheSwiftValues() {
         val rows = HistoryReply.parse(fixtureLines())
-        assertEquals(7, rows.size)
+        assertEquals(6, rows.size)
         assertEquals(PanelHistoryRow(0, 0, 21.4, 45.0, 38.0), rows[0])
         assertNull(rows[1].noiseDb)
         assertEquals(46.5, rows[1].humidityPct!!, 0.0)
-        assertNull(rows[6].temperatureC)
-        assertEquals(70.0, rows[6].humidityPct!!, 0.0)
+        assertNull(rows[5].temperatureC)
+        assertEquals(70.0, rows[5].humidityPct!!, 0.0)
     }
 
     @Test
