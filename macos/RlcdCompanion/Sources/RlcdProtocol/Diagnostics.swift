@@ -235,6 +235,42 @@ public struct AwakeMetrics: Equatable {
     }
 }
 
+/// `NOISE db=<N|--> band=<QUIET|MODERATE|LOUD> peak_db=<N|--> peak_hour=<N|--> events_sum=<N>`: the newest noise level,
+/// its band and the peak of the day.
+public struct NoiseMetrics: Equatable {
+    public static let bands: Set<String> = ["QUIET", "MODERATE", "LOUD"]
+    public static let maxDb = 140
+    public static let maxHour = 23
+
+    public let db: Int?
+    public let band: String
+    public let peakDb: Int?
+    public let peakHour: Int?
+    public let eventsSum: Int
+
+    public static func parse(line: String) throws -> NoiseMetrics {
+        let f = fieldMap(line)
+        guard let band = f["band"], bands.contains(band) else { throw ParseError.badLine(line) }
+        let db = try counter(f, "db", line: line)
+        let peakDb = try counter(f, "peak_db", line: line)
+        let peakHour = try counter(f, "peak_hour", line: line)
+        guard let eventsSum = try counter(f, "events_sum", line: line) else { throw ParseError.badLine(line) }
+        if let db, db > maxDb { throw ParseError.badLine(line) }
+        if let peakDb, peakDb > maxDb { throw ParseError.badLine(line) }
+        if let peakHour, peakHour > maxHour { throw ParseError.badLine(line) }
+        return NoiseMetrics(db: db, band: band, peakDb: peakDb, peakHour: peakHour, eventsSum: eventsSum)
+    }
+
+    /// `<db> dB <band>` for the newest sample, `-- dB <band>` without one.
+    public var levelText: String { "\(db.map(String.init) ?? "--") dB \(band)" }
+
+    /// `peak <N> dB at <H>:00`, or `peak --` without a peak.
+    public var peakText: String {
+        guard let peakDb, let peakHour else { return "peak --" }
+        return "peak \(peakDb) dB at \(peakHour):00"
+    }
+}
+
 /// `MEMORY free=<N> min=<N> largest=<N> psram=<N>` (bytes).
 public struct MemoryMetrics: Equatable {
     /// `largest` below this value shows a warning.
@@ -376,11 +412,13 @@ public struct DiagnosticsReply: Equatable {
     public let frame: FrameMetrics?
     public let wake: WakeMetrics?
     public let latch: LatchMetrics?
+    public let noise: NoiseMetrics?
 
     public init(shtc3: Shtc3Stats?, ble: BleRejectMetrics?, reset: ResetMetrics?, runtime: RuntimeMetrics?,
                 awake: AwakeMetrics?, reception: ReceptionMetrics?, rtcTrim: RtcTrimMetrics? = nil,
                 ntp: NtpMetrics? = nil, memory: MemoryMetrics? = nil, frame: FrameMetrics? = nil,
-                wake: WakeMetrics? = nil, latch: LatchMetrics? = nil) {
+                wake: WakeMetrics? = nil, latch: LatchMetrics? = nil,
+                noise: NoiseMetrics? = nil) {
         self.shtc3 = shtc3
         self.ble = ble
         self.reset = reset
@@ -393,6 +431,7 @@ public struct DiagnosticsReply: Equatable {
         self.frame = frame
         self.wake = wake
         self.latch = latch
+        self.noise = noise
     }
 
     /// `otherLines` of `StatusReply`. A present line with a bad counter throws `ParseError.badLine`.
@@ -409,7 +448,8 @@ public struct DiagnosticsReply: Equatable {
             memory: try otherLines["MEMORY"].map(MemoryMetrics.parse(line:)),
             frame: try otherLines["FRAME"].flatMap(FrameMetrics.parse(line:)),
             wake: try otherLines["WAKE"].map(WakeMetrics.parse(line:)),
-            latch: try otherLines["LATCH"].map(LatchMetrics.parse(line:)))
+            latch: try otherLines["LATCH"].map(LatchMetrics.parse(line:)),
+            noise: try otherLines["NOISE"].map(NoiseMetrics.parse(line:)))
     }
 
     public static func parse(status: StatusReply) throws -> DiagnosticsReply {

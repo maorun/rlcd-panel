@@ -2084,6 +2084,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `DiagnosticsReport` adds the line `Panel badges: <sensor> <badges>; ...` (or `Panel badges: none`) after the raw `LATCH` line.
 - Tests: `DiagnosticsTests` (values, badges, `nil`, bad fields) and `DiagnosticsReportTests` (report line).
 
+## Noise metrics in the macOS diagnostics view
+
+- `NoiseMetrics.parse(line:)` (`Diagnostics.swift`) reads the `STATUS` line `NOISE` into `db`, `band`, `peakDb`, `peakHour` and `eventsSum`. `DiagnosticsReply.noise` holds it; a missing line gives `nil`, `--` gives `nil` fields.
+- A `band` other than `QUIET`, `MODERATE` and `LOUD`, a `db` or `peak_db` above 140, a `peak_hour` above 23 and a bad number throw `ParseError.badLine`.
+- `DiagnosticsView` shows the group `Noise`: level, band, the peak of the day with its hour, and the event sum.
+- `DiagnosticsReport` adds the line `Noise: <db> dB <band>, peak <N> dB at <H>:00` after the raw `NOISE` line (`peak --` without a peak).
+- Tests: `DiagnosticsTests` (values, `nil` fields, missing line, bad fields) and `DiagnosticsReportTests` (report line).
+
 ## Mold hours in the STATUS sensor lines
 
 - Each `SENSOR` line of the console command `STATUS` ends with ` mold_h=<N|-->`: the count of hourly samples above `mold_alert_limit_rh` in the 24-hour humidity history. The rules equal `DashboardView::formatMold`: `--` for fewer than 2 samples and for an empty, disabled or stale slot.
