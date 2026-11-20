@@ -71,12 +71,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Use the shared `VersionReply.kt` of the entry "Firmware version in the Android sensor health screen" in the watch. Add the chip `Firmware version` to `SensorHealthScreen`. It sends `VERSION` once after a tap. Show `FW <fw> (<git>)` in one line. Show `Panel not in range` for a timeout.
   - Acceptance test: In `SensorHealthTextTest`, assert `FW 1.0.0 (abc1234)` for a parsed reply and the timeout text. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` and `./scripts/check-protocol-sync.sh`.
 
-- [ ] Seven-day CSV export in the macOS app
-  - Rank: [Total: 26, Use: 5, Setup: 3, Harmony: 8, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/CsvExport.swift, macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/CsvExportTests.swift
-  - Goal: The macOS app exports the telemetry, the 24-hour history and the events as CSV, but not the seven-day minimum and maximum of the `WEEK` reply. Add `CsvExport.week(_ rows: [WeekRow])` with the header `WeekReply.header` and one line for each row, one decimal place and empty fields for `nil`. Add the button `Export week CSV` beside the other export buttons in `Views.swift`. It calls `model.exportCsv(name: "week.csv", ...)` and is disabled while `model.week` is empty.
-  - Acceptance test: In `CsvExportTests`, parse `tests/fixtures/week_reply_sample.txt` with `WeekReply.parse`, export it with `CsvExport.week`, and assert that the result equals the header and the rows of the fixture. Assert an empty field for a gap day. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
-
 - [ ] Daily mold hours in the seven-day history
   - Rank: [Total: 25, Use: 6, Setup: 3, Harmony: 8, Safety: 8, Effort: M]
   - Location: rlcd_panel/sparkline.h, rlcd_panel/power_manager.h, rlcd_panel/serial_console.h, tests/test_firmware_logic.cpp, tests/fixtures/week_reply_sample.txt, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/WeekReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/WeekReply.kt, AGENTS.md

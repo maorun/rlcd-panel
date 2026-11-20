@@ -2173,3 +2173,9 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `EventLogScreen` has one filter chip above the `Read events` chip. Each tap selects the next category: all, alerts, sensors, power, config, other, then all again (`EventFilterChip.next`, pure helper in `EventFilterChip.kt`). The chip text shows the title and the visible row count (`EventFilterChip.label`, for example `Alerts (3)`).
 - `EventLogState.visibleRows(category)` filters with `EventFilter.apply` and keeps the newest 8 rows, newest first. The order of the rows does not change. The chip selection is UI state and resets when the screen closes. A filter without a match shows `Keine Ereignisse in dieser Kategorie.`.
 - Tests: `EventFilterTest` (copy of the phone test: fixture counts, `OTHER` for unlisted names, order, Swift name sync), `EventFilterChipTest` (chip order, label, filtered visible rows).
+
+## Seven-day CSV export in the macOS app
+
+- `CsvExport.week(_ rows: [WeekRow])` (`CsvExport.swift`) returns `WeekReply.header` and one line for each row: `sensor,day,date`, then the four values with one decimal place. A gap day has empty fields for `nil`; an empty date stays empty.
+- The button `Export week CSV` in `Views.swift` sits beside the other export buttons. It calls `model.exportCsv(name: "week.csv", ...)` and is disabled while `model.week` is empty.
+- Tests: `CsvExportTests` parse `tests/fixtures/week_reply_sample.txt` with `WeekReply.parse`, export it with `CsvExport.week` and compare the result with the header and the rows of the fixture, including the empty fields of the gap day.

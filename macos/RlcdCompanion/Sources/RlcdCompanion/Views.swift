@@ -162,6 +162,9 @@ struct MainView: View {
             Button("Export EVENTS (CSV)") {
                 model.exportCsv(name: "events.csv", text: CsvExport.events(model.filteredEvents))
             }.disabled(model.filteredEvents.isEmpty)
+            Button("Export week CSV") {
+                model.exportCsv(name: "week.csv", text: CsvExport.week(model.week))
+            }.disabled(model.week.isEmpty)
         }
     }
 
