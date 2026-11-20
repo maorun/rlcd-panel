@@ -16,6 +16,7 @@ import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
+import android.os.SystemClock
 import com.rlcdpanel.phone.protocol.ConsoleReply
 import com.rlcdpanel.phone.protocol.ConsoleWire
 import com.rlcdpanel.phone.protocol.ReplyAssembler
@@ -50,6 +51,10 @@ class BleConsoleClient(private val context: Context) {
     private var command: String = ""
 
     private val timeoutTask = Runnable { finish(assembler.timeout()) }
+    private var lastFinishUptimeMillis: Long? = null
+    /** True once the scan of the running command has started. A cancel during the cooldown leaves the stamp as it is. */
+    private var scanStarted = false
+    private val startTask = Runnable { startScan() }
 
     val isRunning: Boolean get() = running
 
@@ -73,6 +78,14 @@ class BleConsoleClient(private val context: Context) {
         onResult = callback
         assembler = ReplyAssembler()
         scanner = leScanner
+        val wait = cooldownRemaining(SystemClock.uptimeMillis(), lastFinishUptimeMillis)
+        if (wait > 0) main.postDelayed(startTask, wait) else startScan()
+    }
+
+    /** Starts the scan and the timeout. The timeout starts here, so the cooldown does not use up its time. */
+    private fun startScan() {
+        val leScanner = scanner ?: return
+        scanStarted = true
         main.postDelayed(timeoutTask, TIMEOUT_MS)
         val filter = ScanFilter.Builder().setServiceUuid(ParcelUuid(ConsoleUuids.SERVICE)).build()
         val settings = ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build()
@@ -214,6 +227,9 @@ class BleConsoleClient(private val context: Context) {
     private fun finish(reply: ConsoleReply?) {
         if (!running) return
         running = false
+        if (scanStarted) lastFinishUptimeMillis = SystemClock.uptimeMillis()
+        scanStarted = false
+        main.removeCallbacks(startTask)
         main.removeCallbacks(timeoutTask)
         runCatching { scanner?.stopScan(scanCallback) }
         gatt?.let { runCatching { it.disconnect(); it.close() } }
@@ -226,6 +242,15 @@ class BleConsoleClient(private val context: Context) {
     companion object {
         const val MTU = 185
         const val TIMEOUT_MS = 10_000L
+        /** The panel needs time to restart advertising and Android to close the old GATT connection. */
+        const val COOLDOWN_MS = 500L
+
+        /** Milliseconds left of the cooldown after the last command, 0 without a previous command or when it has passed. */
+        fun cooldownRemaining(nowMillis: Long, lastFinishMillis: Long?): Long {
+            if (lastFinishMillis == null) return 0L
+            return (COOLDOWN_MS - (nowMillis - lastFinishMillis)).coerceIn(0L, COOLDOWN_MS)
+        }
+
         /** Text for a reply that is not a [ConsoleReply.Frame]. */
         fun errorText(reply: ConsoleReply): String = when (reply) {
             is ConsoleReply.Frame -> ""
