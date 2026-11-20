@@ -33,6 +33,10 @@ data class PanelConfig(
     fun slotName(slot: Int): String? =
         if (slot in 1..slotCount) values["slot${slot}_name"]?.takeIf { it.isNotBlank() } else null
 
+    /** `slotN_enabled` of slot [slot] (1..10): true unless the value is `0`; false for a slot outside 1..10. */
+    fun slotEnabled(slot: Int): Boolean =
+        slot in 1..slotCount && values["slot${slot}_enabled"]?.trim() != "0"
+
     /** `slot_auto_assign`: a new MAC takes a free slot (default on). */
     val slotAutoAssign: Boolean get() = values["slot_auto_assign"]?.trim() != "0"
 

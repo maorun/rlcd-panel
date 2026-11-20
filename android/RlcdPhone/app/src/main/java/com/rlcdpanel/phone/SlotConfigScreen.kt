@@ -86,11 +86,24 @@ fun SlotConfigScreen(
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         val storedName = panelConfig.slotName(slot)
-                        Text("Slot $slot: ${storedName ?: "-"}", style = MaterialTheme.typography.titleMedium)
+                        val slotOn = panelConfig.slotEnabled(slot)
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                "Slot $slot: ${storedName ?: "-"}",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Switch(
+                                checked = slotOn,
+                                onCheckedChange = { onApply(SlotConfig.setEnabled(slot, it)) },
+                                enabled = !state.isBusy && panelConfig.canWrite
+                            )
+                        }
+                        if (!slotOn) Text("Deaktiviert", color = MaterialTheme.colorScheme.error)
                         Text("MAC: ${panelConfig.slotMac(slot) ?: "nicht fest"}")
                         Text("Format: ${formats[slot] ?: "-"}")
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = { editing = slot }, enabled = !state.isBusy && panelConfig.canWrite) { Text("Bearbeiten") }
+                            OutlinedButton(onClick = { editing = slot }, enabled = !state.isBusy && panelConfig.canWrite && slotOn) { Text("Bearbeiten") }
                             OutlinedButton(
                                 onClick = { (SlotConfig.clear(slot) as? SlotConfig.Plan.Commands)?.let { onApply(it.commands) } },
                                 enabled = !state.isBusy && panelConfig.canWrite
