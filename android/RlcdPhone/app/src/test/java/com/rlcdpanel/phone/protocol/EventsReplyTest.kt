@@ -11,7 +11,7 @@ class EventsReplyTest {
     @Test
     fun sharedFixtureParses() {
         val log = EventsReply.parse(fixtureLines())
-        assertEquals(16, log.rows.size)
+        assertEquals(18, log.rows.size)
         assertEquals(EventRow("2026-11-18 09:01:00", "RESET", 4), log.rows[0])
         assertEquals(0, log.dropped)
     }

@@ -36,6 +36,12 @@ class EventTextTest {
         assertEquals("Clock set (USB)", EventText.describe(row("CLOCK_SET", 0x0000)))
         assertEquals("RTC trimmed (BLE)", EventText.describe(row("CLOCK_SET", 0x0101)))
         assertEquals("CLOCK_SET,2", EventText.describe(row("CLOCK_SET", 0x0002)))
+        assertEquals("Onboard sensor fault (NACK)", EventText.describe(row("SHTC3_FAULT", 0x0101)))
+        assertEquals("Onboard sensor back", EventText.describe(row("SHTC3_FAULT", 0x0000)))
+        assertEquals("SHTC3_FAULT,1025", EventText.describe(row("SHTC3_FAULT", 0x0401)))
+        assertEquals("SHTC3_FAULT,1", EventText.describe(row("SHTC3_FAULT", 0x0001)))
+        assertEquals("SHTC3_FAULT,256", EventText.describe(row("SHTC3_FAULT", 0x0100)))
+        assertEquals("SHTC3_FAULT,2", EventText.describe(row("SHTC3_FAULT", 0x0002)))
     }
 
     @Test
@@ -45,7 +51,7 @@ class EventTextTest {
         assertEquals(8, state.visibleRows.size)
         assertEquals(log.rows.last(), state.visibleRows.first())
         assertEquals(log.rows[log.rows.size - 8], state.visibleRows.last())
-        assertEquals(listOf("FUTURE_EVENT", "CLOCK_SET", "CLOCK_SET"), state.visibleRows.take(3).map { it.event })
+        assertEquals(listOf("FUTURE_EVENT", "SHTC3_FAULT", "SHTC3_FAULT"), state.visibleRows.take(3).map { it.event })
     }
 
     @Test

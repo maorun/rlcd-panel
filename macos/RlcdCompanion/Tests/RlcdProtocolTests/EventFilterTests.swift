@@ -18,13 +18,19 @@ import Foundation
 
     @Test func rowCountOfEachCategory() throws {
         let rows = try sampleRows()
-        #expect(rows.count == 17)
+        #expect(rows.count == 19)
         #expect(EventFilter.apply(rows, [.alerts]).count == 3)
-        #expect(EventFilter.apply(rows, [.sensors]).count == 4)
+        #expect(EventFilter.apply(rows, [.sensors]).count == 6)
         #expect(EventFilter.apply(rows, [.power]).count == 4)
         #expect(EventFilter.apply(rows, [.config]).count == 2)
         #expect(EventFilter.apply(rows, [.other]).count == 4)
         #expect(EventFilter.apply(rows, [.alerts, .power]).count == 7)
+    }
+
+    @Test func shtc3FaultIsSensor() throws {
+        let rows = try sampleRows()
+        #expect(EventFilter.category(of: "SHTC3_FAULT") == .sensors)
+        #expect(EventFilter.apply(rows, [.sensors]).map(\.event).contains("SHTC3_FAULT"))
     }
 
     @Test func futureEventIsOther() throws {

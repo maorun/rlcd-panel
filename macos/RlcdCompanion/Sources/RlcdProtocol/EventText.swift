@@ -73,6 +73,13 @@ public enum EventText {
             guard (0...0xFFFF).contains(d), action <= 1, transport <= 1 else { return raw }
             let name = transport == 0 ? "USB" : "BLE"
             return action == 0 ? "Clock set (\(name))" : "RTC trimmed (\(name))"
+        case "SHTC3_FAULT":
+            // Low byte 1 is a fault, 0 is back; the high byte is the Shtc3Result of the third failed read (1 NACK, 2 SHORT, 3 CRC), 0 for back.
+            let state = d & 0xFF, cause = d >> 8
+            guard (0...0xFFFF).contains(d) else { return raw }
+            if state == 0, cause == 0 { return "Onboard sensor back" }
+            guard state == 1, (1...3).contains(cause) else { return raw }
+            return "Onboard sensor fault (\(["NACK", "SHORT", "CRC"][cause - 1]))"
         case "CONFIG_SET":
             let index = d & 0xFF, transport = d >> 8
             guard (0...0xFFFF).contains(d), transport <= 1 else { return raw }
