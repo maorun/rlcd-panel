@@ -704,6 +704,9 @@ struct SerialStatusSnapshot {
   uint16_t ventilate_tiles = 0;      // VentilateLatch bits, bit 0 onboard, bits 1..10 slots
   uint16_t dry_tiles = 0;            // DryLatch bits, bit 0 onboard, bits 1..10 slots
   uint16_t stale_slots = 0;          // PersistentState::stale_slots, bits 0..9 are the registry slots
+  NoiseHistory noise_history;        // RTC copy of the hourly noise levels
+  NoiseBand noise_band = NoiseBand::QUIET; // RTC copy of the noise band latch
+  DailyNoiseStats daily_noise;       // RTC copy of the noise summary of the current day
   bool muted = false;
   uint8_t alert_ack = 0; // acknowledged alert bits (ACK)
   uint32_t now_ms = 0; // RTC-backed clock
@@ -749,7 +752,7 @@ struct SerialStatusSnapshot {
 //   so execute() ignores CONFIG.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW> format=<...> mac=<...> mold_h=<N|-->" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 5 (slots, calibrated readings), a missing value gives "--";
-//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|--> free_mb=<N|-->" (age since the last card result; free card space of the last card read), then "RESET reason=<TEXT> abnormal=<N|-->", then "RTC trim=<N|--> drift_ppm=<N|-->" (offset register of the PCF85063A; the drift rate only for a figure of 24 h or more), then "NTP ok=<0|1|--> failures=<N> age_s=<N|--> next_s=<N|-->" (RTC copy of the NTP state; "--" without an attempt or without Wi-Fi credentials; next_s is the time to the next due attempt; age_s and next_s use the 32-bit clock difference of NtpSchedule::due and wrap like it), then "SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>[ usb_offset=<x>]" (the offset only on USB power), then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N> thermopro=<N> unassigned=<N> jumps=<N>" (packets of the current scan that no slot took; unassigned counts the packets blocked by slot_auto_assign=0; jumps counts the pending packets of a large reading jump that JumpGuard dropped), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1> acked=<hex mask>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "MEMORY free=<N> min=<N> largest=<N> psram=<N>" (heap and PSRAM bytes of the current wake cycle; no RTC state), then "FRAME crc=<8 hex digits|--> skips=<N>" (RTC copy of FrameRefresh: CRC-32 of the last flushed frame, "--" for 0, and the skip counter), then "WAKE cause=<POWER_ON|TIMER|KEY|OTHER> boots=<N> battery_interval_s=<N>" (cause of this wake cycle, RTC copy of boot_count, and the sleep interval that PowerManager::powerConfig gives on battery power at the current RTC time), then "LATCH vent=<3 hex digits> dry=<3 hex digits> batlow=<3 hex digits> stale=<3 hex digits>" (RTC copy of the badge latches; vent and dry: bit 0 onboard, bits 1 to 10 slots; batlow and stale: bits 0 to 9 slots), then "CRC32 <8 hex digits>" over all lines
+//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|--> free_mb=<N|-->" (age since the last card result; free card space of the last card read), then "RESET reason=<TEXT> abnormal=<N|-->", then "RTC trim=<N|--> drift_ppm=<N|-->" (offset register of the PCF85063A; the drift rate only for a figure of 24 h or more), then "NTP ok=<0|1|--> failures=<N> age_s=<N|--> next_s=<N|-->" (RTC copy of the NTP state; "--" without an attempt or without Wi-Fi credentials; next_s is the time to the next due attempt; age_s and next_s use the 32-bit clock difference of NtpSchedule::due and wrap like it), then "SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>[ usb_offset=<x>]" (the offset only on USB power), then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N> thermopro=<N> unassigned=<N> jumps=<N>" (packets of the current scan that no slot took; unassigned counts the packets blocked by slot_auto_assign=0; jumps counts the pending packets of a large reading jump that JumpGuard dropped), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1> acked=<hex mask>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "MEMORY free=<N> min=<N> largest=<N> psram=<N>" (heap and PSRAM bytes of the current wake cycle; no RTC state), then "FRAME crc=<8 hex digits|--> skips=<N>" (RTC copy of FrameRefresh: CRC-32 of the last flushed frame, "--" for 0, and the skip counter), then "WAKE cause=<POWER_ON|TIMER|KEY|OTHER> boots=<N> battery_interval_s=<N>" (cause of this wake cycle, RTC copy of boot_count, and the sleep interval that PowerManager::powerConfig gives on battery power at the current RTC time), then "LATCH vent=<3 hex digits> dry=<3 hex digits> batlow=<3 hex digits> stale=<3 hex digits>" (RTC copy of the badge latches; vent and dry: bit 0 onboard, bits 1 to 10 slots; batlow and stale: bits 0 to 9 slots), then "NOISE db=<N|--> band=<QUIET|MODERATE|LOUD> peak_db=<N|--> peak_hour=<N|--> events_sum=<N>" (RTC copy: newest hourly noise level, noise band latch, peak of the current day; no microphone access), then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 7), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
@@ -1576,6 +1579,28 @@ public:
                                         static_cast<unsigned>(snap.dry_tiles & 0x7FFu),
                                         static_cast<unsigned>(snap.sensor_battery_latch & 0x3FFu),
                                         static_cast<unsigned>(snap.stale_slots & 0x3FFu)));
+    if (len >= sizeof(text)) {
+      return;
+    }
+    {
+      char db[12] = "--";
+      const size_t n = snap.noise_history.size();
+      if (n > 0 && NoiseHistory::isValid(snap.noise_history.at(n - 1))) {
+        snprintf(db, sizeof(db), "%u", static_cast<unsigned>(snap.noise_history.at(n - 1)));
+      }
+      const char* band = snap.noise_band == NoiseBand::LOUD       ? "LOUD"
+                         : snap.noise_band == NoiseBand::MODERATE ? "MODERATE"
+                                                                  : "QUIET";
+      char peak[12] = "--";
+      char hour[12] = "--";
+      if (snap.daily_noise.hasReading()) {
+        snprintf(peak, sizeof(peak), "%u", static_cast<unsigned>(snap.daily_noise.peak_db));
+        snprintf(hour, sizeof(hour), "%u", static_cast<unsigned>(snap.daily_noise.peak_hour));
+      }
+      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len,
+                                          "NOISE db=%s band=%s peak_db=%s peak_hour=%s events_sum=%lu\n", db, band, peak,
+                                          hour, static_cast<unsigned long>(snap.daily_noise.events_sum)));
+    }
     if (len >= sizeof(text)) {
       return;
     }

@@ -1496,6 +1496,9 @@ void setup() {
       snap.ventilate_tiles = g_state.ventilate_tiles;
       snap.dry_tiles = g_state.dry_tiles;
       snap.stale_slots = g_state.stale_slots;
+      snap.noise_history = g_state.noise_history;
+      snap.noise_band = g_state.noise_band;
+      snap.daily_noise = g_state.daily.noise;
       snap.muted = g_state.muted;
       snap.alert_ack = g_state.alert_ack;
       snap.now_ms = nowMs();
