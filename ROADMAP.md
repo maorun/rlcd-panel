@@ -53,12 +53,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Show the `CHIME` line of the entry "Chime reminder line in STATUS" beside the alert acknowledge buttons. Add `ChimeMetrics.parse(line:)` with `repeatHours`, `bits`, `lastS` and `nextS`, and add `DiagnosticsReply.chime`. Return `nil` for a missing line and `nil` fields for `--`. Throw `ParseError.badLine` for `repeat_h` above 24, `bits` that are not 2 hex digits and a bad number. Show `Next reminder in <H> h <M> min` when `nextS` exists, `Reminder off` for `repeatHours` 0 and `No reminder due` for `bits` 0.
   - Acceptance test: In `DiagnosticsTests`, assert the values of `CHIME repeat_h=2 bits=02 last_s=3600 next_s=3600`, `nil` for `next_s=--` and `last_s=--`, `nil` without the line, and `ParseError.badLine` for `repeat_h=25` and `bits=2`. Assert the three texts of the view helper. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
 
-- [ ] Firmware version in the Wear OS sensor health screen
-  - Rank: [Total: 26, Use: 2, Setup: 6, Harmony: 8, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt
-  - Goal: Use the shared `VersionReply.kt` of the entry "Firmware version in the Android sensor health screen" in the watch. Add the chip `Firmware version` to `SensorHealthScreen`. It sends `VERSION` once after a tap. Show `FW <fw> (<git>)` in one line. Show `Panel not in range` for a timeout.
-  - Acceptance test: In `SensorHealthTextTest`, assert `FW 1.0.0 (abc1234)` for a parsed reply and the timeout text. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` and `./scripts/check-protocol-sync.sh`.
-
 - [ ] Daily mold hours in the seven-day history
   - Rank: [Total: 25, Use: 6, Setup: 3, Harmony: 8, Safety: 8, Effort: M]
   - Location: rlcd_panel/sparkline.h, rlcd_panel/power_manager.h, rlcd_panel/serial_console.h, tests/test_firmware_logic.cpp, tests/fixtures/week_reply_sample.txt, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/WeekReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/WeekReply.kt, AGENTS.md

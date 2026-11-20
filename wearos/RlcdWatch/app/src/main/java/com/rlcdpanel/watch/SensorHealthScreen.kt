@@ -39,6 +39,7 @@ import com.rlcdpanel.watch.protocol.Shtc3State
 import com.rlcdpanel.watch.protocol.StatusReply
 import com.rlcdpanel.watch.protocol.StatusSensor
 import com.rlcdpanel.watch.protocol.TimeReply
+import com.rlcdpanel.watch.protocol.VersionReply
 
 /**
  * Result of the last `STATUS` read. A failed read sets [message] and keeps [status] of the last good reply.
@@ -59,6 +60,13 @@ data class ClockReadState(
     val clockReply: TimeReply? = null,
     val clockOffsetSeconds: Long? = null,
     val clockMessage: String? = null
+)
+
+/** Result of the last `VERSION` read. A failed read sets [message] and clears [reply]. */
+data class VersionReadState(
+    val isReading: Boolean = false,
+    val reply: VersionReply? = null,
+    val message: String? = null
 )
 
 /**
@@ -114,6 +122,12 @@ object SensorHealthText {
         if (reply is ConsoleReply.Corrupt && reply.error == ReplyError.Timeout) "Panel not in range"
         else BleConsoleClient.errorText(reply)
 
+    /** One line of a parsed `VERSION` reply. */
+    fun firmware(v: VersionReply): String = "FW ${v.firmware} (${v.git})"
+
+    /** Text of a failed `VERSION` read: a timeout says the panel is not in range. */
+    fun versionFailure(reply: ConsoleReply): String = muteFallback(reply)
+
     /** Next alert bit of the selector; wraps from the last name to bit 0. */
     fun nextChimeBit(bit: Int): Int = (bit + 1) % ChimeCommand.ALERT_NAMES.size
 
@@ -141,7 +155,9 @@ fun SensorHealthScreen(
     onReadClock: () -> Unit = {},
     chimeState: ChimeTestState = ChimeTestState(),
     onSelectChime: (Int) -> Unit = {},
-    onTestChime: () -> Unit = {}
+    onTestChime: () -> Unit = {},
+    versionState: VersionReadState = VersionReadState(),
+    onReadVersion: () -> Unit = {}
 ) {
     val listState = rememberScalingLazyListState()
     MaterialTheme {
@@ -190,8 +206,39 @@ fun SensorHealthScreen(
                 }
                 item {
                     Chip(
+                        onClick = onReadVersion,
+                        enabled = !versionState.isReading && !state.isReading && !state.isMuting && !clockState.isReadingClock,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text(if (versionState.isReading) "Lese Version ..." else "Firmware version", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                versionState.reply?.let { reply ->
+                    item {
+                        Text(
+                            text = SensorHealthText.firmware(reply),
+                            fontSize = 10.sp,
+                            color = Color(0xFFB0BEC5),
+                            textAlign = TextAlign.Center,
+                            maxLines = 1
+                        )
+                    }
+                }
+                versionState.message?.let { message ->
+                    item {
+                        Text(
+                            text = message,
+                            fontSize = 10.sp,
+                            color = Color(0xFFFF8A80),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    }
+                }
+                item {
+                    Chip(
                         onClick = onReadClock,
-                        enabled = !clockState.isReadingClock && !state.isReading && !state.isMuting,
+                        enabled = !clockState.isReadingClock && !versionState.isReading && !state.isReading && !state.isMuting,
                         modifier = Modifier.fillMaxWidth(0.85f),
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text(if (clockState.isReadingClock) "Lese Uhr ..." else "Read clock", fontSize = 12.sp, maxLines = 1) }
@@ -274,7 +321,7 @@ fun SensorHealthScreen(
                 item {
                     Chip(
                         onClick = onTestChime,
-                        enabled = !chimeState.isTesting && !state.isReading && !state.isMuting && !clockState.isReadingClock,
+                        enabled = !chimeState.isTesting && !state.isReading && !state.isMuting && !clockState.isReadingClock && !versionState.isReading,
                         modifier = Modifier.fillMaxWidth(0.85f),
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text(if (chimeState.isTesting) "Sende ..." else "Test chime", fontSize = 12.sp, maxLines = 1) }

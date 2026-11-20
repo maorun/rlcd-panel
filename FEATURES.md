@@ -2177,6 +2177,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SensorHealthScreen` of the phone has the button `Firmware-Version lesen`. A tap sends `VERSION` through the BLE console (`MainActivity.readVersion`, same permission and busy rules as `TIME`). The row shows `Firmware <fw> (<git>), Zustand <state>, gebaut <built>`; an error shows the console error text. Closing the screen clears the result.
 - Tests: `VersionReplyTest` asserts the fields of `VERSION fw=1.0.0 git=abc1234-dirty core=3.3.12 state=68 built=2026-11-03T04:05:06`, `built=unknown`, and `ParseException` without the line, without `git=` and for an empty `git=`.
 
+## Firmware version in the Wear OS sensor health screen
+
+- `SensorHealthScreen` of the watch has the chip `Firmware version`. A tap sends `VERSION` once through the BLE console (`MainActivity.readVersion`, same permission and busy rules as `TIME`). It uses the shared `protocol/VersionReply.kt`.
+- The screen shows `FW <fw> (<git>)` in one line (`SensorHealthText.firmware`). A timeout shows `Panel not in range`; other failures show the console error text, an unreadable reply shows `Antwort nicht lesbar`. Stopping the activity clears the result.
+- Tests: `SensorHealthTextTest.firmwareLineAndTimeoutText` asserts `FW 1.0.0 (abc1234)` and the timeout text.
+
 ## Noise line in STATUS
 
 - The console command `STATUS` shows `NOISE db=<N|--> band=<QUIET|MODERATE|LOUD> peak_db=<N|--> peak_hour=<N|--> events_sum=<N>` after `LATCH` and before `CRC32`.
