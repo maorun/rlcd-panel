@@ -18850,7 +18850,7 @@ void testEventLog() {
       {0, 17},                        // count above 16
       {3 + 0, 2},                     // time flag above 1
       {3 + 8, 0},                     // code NONE in a used entry
-      {3 + 8, 20},                    // code above the last
+      {3 + 8, 21},                    // code above the last
       {3 + 3, 13},                    // month 13
       {3 + 4, 32},                    // day 32
       {3 + 5, 24},                    // hour 24
@@ -18990,7 +18990,7 @@ void testResetAndSlotEvents() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.events.at(0).code == EventCode::SLOT_RELEASE);
   const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE;
-  buf[base + 3 + 8] = 20;
+  buf[base + 3 + 8] = 21;
   const uint32_t crc = PowerManager::crc32(buf, PowerManager::SERIALIZED_SIZE - 4);
   for (int i = 0; i < 4; ++i) buf[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState bad;
@@ -19079,12 +19079,12 @@ void testConfigSetEvents() {
   assert(back.restore(1, 0, items) && back.at(0).code == EventCode::SHTC3_FAULT);
   items[0].code = static_cast<EventCode>(19);
   assert(back.restore(1, 0, items) && back.at(0).code == EventCode::SENSOR_BATTERY);
-  items[0].code = static_cast<EventCode>(20);
+  items[0].code = static_cast<EventCode>(21);
   assert(!back.restore(1, 0, items));
 }
 
 void testSensorBatteryEvents() {
-  assert(static_cast<uint8_t>(EventCode::SENSOR_BATTERY) == 19 && EventRing::MAX_CODE == 19);
+  assert(static_cast<uint8_t>(EventCode::SENSOR_BATTERY) == 19 && EventRing::MAX_CODE == 20);
   RtcTime t;
   t.valid = true;
   t.year = 2026;
@@ -19110,8 +19110,92 @@ void testSensorBatteryEvents() {
   assert(n > 0 && strstr(row, ",SENSOR_BATTERY,260") != nullptr);
 }
 
+void testJumpDropEvents() {
+  assert(static_cast<uint8_t>(EventCode::JUMP_DROP) == 20 && EventRing::MAX_CODE == 20);
+  RtcTime t;
+  t.valid = true;
+  t.year = 2026;
+  t.month = 11;
+  t.day = 20;
+  auto fill = [](PersistentState& s) { // slots 1 to 3 hold ids 1 to 3
+    for (uint8_t id = 1; id <= 3; ++id) {
+      assert(s.registry.upsert(jumpReading(20.0f, 50, 1000, id), BleFormat::WOIO));
+    }
+  };
+  // a jump dropped at endScan in slot 3 gives one event with detail 3
+  PersistentState end;
+  fill(end);
+  assert(!end.registry.upsert(jumpReading(29.0f, 50, 2000, 3), BleFormat::WOIO));
+  end.registry.endScan();
+  end.recordSlotEvents(t, 0);
+  assert(end.events.size() == 4); // three SLOT_ASSIGN events and one JUMP_DROP
+  size_t jumps = 0;
+  for (size_t i = 0; i < end.events.size(); ++i) {
+    if (end.events.at(i).code == EventCode::JUMP_DROP) {
+      ++jumps;
+      assert(end.events.at(i).detail == 3);
+    }
+  }
+  assert(jumps == 1);
+  end.recordSlotEvents(t, 0); // the flag is cleared: no second event
+  assert(end.events.size() == 4);
+  // a jump dropped by a near packet gives one event with detail 3
+  PersistentState near;
+  fill(near);
+  near.recordSlotEvents(t, 0);
+  const size_t base = near.events.size();
+  assert(!near.registry.upsert(jumpReading(29.0f, 50, 2000, 3), BleFormat::WOIO));
+  assert(near.registry.upsert(jumpReading(20.5f, 50, 3000, 3), BleFormat::WOIO));
+  near.recordSlotEvents(t, 0);
+  assert(near.events.size() == base + 1 && near.events.at(base).code == EventCode::JUMP_DROP && near.events.at(base).detail == 3);
+  // two drops of one slot in one scan give one event
+  PersistentState twice;
+  fill(twice);
+  twice.recordSlotEvents(t, 0);
+  const size_t base2 = twice.events.size();
+  assert(!twice.registry.upsert(jumpReading(29.0f, 50, 2000, 3), BleFormat::WOIO));
+  assert(twice.registry.upsert(jumpReading(20.5f, 50, 3000, 3), BleFormat::WOIO));
+  assert(!twice.registry.upsert(jumpReading(35.0f, 50, 4000, 3), BleFormat::WOIO));
+  twice.registry.endScan();
+  assert(twice.registry.rejects().jumps == 2);
+  twice.recordSlotEvents(t, 0);
+  assert(twice.events.size() == base2 + 1 && twice.events.at(base2).detail == 3);
+  // a jump that a second packet confirms gives no event
+  PersistentState ok;
+  fill(ok);
+  ok.recordSlotEvents(t, 0);
+  const size_t base3 = ok.events.size();
+  assert(!ok.registry.upsert(jumpReading(29.0f, 50, 2000, 3), BleFormat::WOIO));
+  assert(ok.registry.upsert(jumpReading(29.5f, 50, 3000, 3), BleFormat::WOIO));
+  ok.registry.endScan();
+  ok.recordSlotEvents(t, 0);
+  assert(ok.events.size() == base3);
+  // clearSlot drops a flag
+  PersistentState cleared;
+  fill(cleared);
+  cleared.recordSlotEvents(t, 0);
+  const size_t base4 = cleared.events.size();
+  cleared.registry.upsert(jumpReading(29.0f, 50, 2000, 3), BleFormat::WOIO);
+  cleared.registry.endScan();
+  assert(cleared.registry.rejects().jumps == 1); // the drop happened, so the flag was set
+  cleared.registry.clearSlot(2);
+  cleared.recordSlotEvents(t, 0);
+  assert(cleared.events.size() == base4);
+  // the row text
+  char row[96];
+  LogEvent e = near.events.at(base);
+  const size_t n = SdLogCodec::formatEventRow(e, row, sizeof(row));
+  assert(n > 0 && strstr(row, ",JUMP_DROP,3") != nullptr);
+  // ring check: code 20 passes
+  LogEvent items[EventRing::CAPACITY] = {};
+  items[0].code = EventCode::JUMP_DROP;
+  items[0].detail = 3;
+  EventRing back;
+  assert(back.restore(1, 0, items) && back.at(0).code == EventCode::JUMP_DROP);
+}
+
 void testShtc3FaultEvents() {
-  assert(static_cast<uint8_t>(EventCode::SHTC3_FAULT) == 18 && EventRing::MAX_CODE == 19);
+  assert(static_cast<uint8_t>(EventCode::SHTC3_FAULT) == 18 && EventRing::MAX_CODE == 20);
   auto step = [](Shtc3Health& h, Shtc3Result r) {
     const uint8_t previous = h.run;
     h.record(r);
@@ -19135,7 +19219,7 @@ void testShtc3FaultEvents() {
 void testPowerSourceEvents() {
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 19; t1.hour = 9; t1.minute = 0; t1.second = 0;
-  assert(static_cast<uint8_t>(EventCode::POWER_SOURCE) == 15 && EventRing::MAX_CODE == 19);
+  assert(static_cast<uint8_t>(EventCode::POWER_SOURCE) == 15 && EventRing::MAX_CODE == 20);
   auto reading = [](bool valid, bool usb) {
     BatteryReading r;
     r.valid = valid;
@@ -19159,7 +19243,7 @@ void testPowerSourceEvents() {
 void testSlotStaleEvents() {
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 18; t1.hour = 9; t1.minute = 0; t1.second = 0;
-  assert(static_cast<uint8_t>(EventCode::SLOT_STALE) == 14 && EventRing::MAX_CODE == 19);
+  assert(static_cast<uint8_t>(EventCode::SLOT_STALE) == 14 && EventRing::MAX_CODE == 20);
   auto reading = [](uint8_t last) {
     SwitchBotReading r;
     r.valid = true;
@@ -19231,7 +19315,7 @@ void testSlotStaleEvents() {
 void testSdFaultEvents() {
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 15; t1.hour = 9; t1.minute = 0; t1.second = 0;
-  assert(static_cast<uint8_t>(EventCode::SD_FAULT) == 12 && static_cast<uint8_t>(EventCode::ALERT_ACK) == 13 && EventRing::MAX_CODE == 19);
+  assert(static_cast<uint8_t>(EventCode::SD_FAULT) == 12 && static_cast<uint8_t>(EventCode::ALERT_ACK) == 13 && EventRing::MAX_CODE == 20);
   const int32_t ok = static_cast<int32_t>(SdStatus::OK);
   assert(SdStatusCodec::faultEventDetail(SdStatus::OK, SdStatus::WRITE_FAILED) ==
          static_cast<int32_t>(SdStatus::WRITE_FAILED));
@@ -19265,7 +19349,7 @@ void testSdFaultEvents() {
   items[0].detail = 1;
   EventRing ring;
   assert(ring.restore(1, 0, items) && ring.at(0).code == EventCode::SD_FAULT);
-  items[0].code = static_cast<EventCode>(20);
+  items[0].code = static_cast<EventCode>(21);
   assert(!ring.restore(1, 0, items));
 }
 
@@ -20190,7 +20274,7 @@ void testSerialMuteCommand() {
     TestRunner::setMute(s5, flag, 1, nullptr, nullptr, 1); // no ring: the flag changes, no event
     assert(flag && mute_events.size() == 2);
     // EventRing accepts code 17 and rejects code 18
-    assert(EventRing::MAX_CODE == 19);
+    assert(EventRing::MAX_CODE == 20);
   }
   TestRunner::execute(storage, sink, cmd);
   assert(storage.mounts == 0); // execute() ignores MUTE
@@ -22153,6 +22237,7 @@ int main() {
   testPowerSourceEvents();
   testShtc3FaultEvents();
   testSensorBatteryEvents();
+  testJumpDropEvents();
   testSlotStaleEvents();
   testChimeRepeat();
   testNightWakeInterval();

@@ -2155,6 +2155,15 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - Tests: `EventTextTests` and both `EventTextTest` classes assert `Slot 4 battery low` (260), `Slot 4 battery OK` (4) and the raw text of detail 11 and 516.
 - Tests: the host test asserts detail `0x0104` (0x000 to 0x008), `0x0004` (back), two events for 0x000 to 0x201, no event for an equal latch and for limit 0, the row `SENSOR_BATTERY` and the restore of code 19 and the rejection of code 20.
 
+## Dropped jump event
+
+- `EventCode::JUMP_DROP` 20 records each slot for which `JumpGuard` dropped a packet. `EventRing::MAX_CODE` is 20.
+- `SwitchBotRegistry::countJump` sets a flag for the slot. `SwitchBotRegistry::takeJumped(index)` returns and clears the flag, like `takeAssigned`. `clearSlot` and a disabled slot clear the flag.
+- `PersistentState::recordSlotEvents` records one `JUMP_DROP` event for each flagged slot after the `SLOT_ASSIGN` events. The detail is the slot number 1 to 10.
+- Two drops of one slot in one scan give one event. A jump that a second packet confirms gives no event.
+- `SdLogCodec` names the event `JUMP_DROP`. The RTC layout and `STATE_VERSION` do not change. The apps show the raw text `<event>,<detail>` until an `EventText` entry exists.
+- Tests: the host test asserts one event with detail 3 for a jump dropped at `endScan`, one for a jump dropped by a near packet, one event for two drops in one scan, no event for a confirmed jump and after `clearSlot`, the row `JUMP_DROP` and the restore of code 20 and the rejection of code 21.
+
 ## Lost sensor notification in the Wear OS app
 
 - `BleScanService` of the watch uses the shared `protocol/StaleWatch.kt` (same code as the phone, compared by `scripts/check-protocol-sync.sh`). It creates one `StaleWatch` when the scan starts and feeds each decoded frame through `StaleWatch.updateFrame`. The BLE scan mode and the tile refresh do not change.

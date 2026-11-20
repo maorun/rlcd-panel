@@ -415,6 +415,7 @@ public:
       enabled_mask_ = static_cast<uint16_t>(enabled_mask_ & ~(1u << index));
       slots_[index] = SwitchBotReading{};
       assigned_[index] = false;
+      jumped_[index] = false;
     }
   }
 
@@ -437,10 +438,22 @@ public:
     return true;
   }
 
+  // Reports and clears the dropped jump of slot `index` since the last call: true when JumpGuard dropped
+  // at least one packet of the slot (one flag for each slot, so two drops give one report). clearSlot and a
+  // disabled slot also clear the flag. No persistent state.
+  bool takeJumped(size_t index) {
+    if (index >= MAX_SWITCHBOT_SENSORS || !jumped_[index]) {
+      return false;
+    }
+    jumped_[index] = false;
+    return true;
+  }
+
   void clearSlot(size_t index) {
     if (index < MAX_SWITCHBOT_SENSORS) {
       slots_[index] = SwitchBotReading{};
       assigned_[index] = false;
+      jumped_[index] = false;
       pending_valid_[index] = false;
     }
   }
@@ -677,6 +690,7 @@ private:
       ++rejects_.jumps;
     }
     reject_log_.record(pending_[index].mac, slots_[index].format, RejectReason::JUMP);
+    jumped_[index] = true;
   }
 
   void markAssigned(size_t index, BleFormat format) {
@@ -686,6 +700,7 @@ private:
 
   SwitchBotReading slots_[MAX_SWITCHBOT_SENSORS];
   bool assigned_[MAX_SWITCHBOT_SENSORS] = {};
+  bool jumped_[MAX_SWITCHBOT_SENSORS] = {};
   SwitchBotReading pending_[MAX_SWITCHBOT_SENSORS];
   bool pending_valid_[MAX_SWITCHBOT_SENSORS] = {};
   BleFormat assigned_format_[MAX_SWITCHBOT_SENSORS] = {BleFormat::WOIO, BleFormat::WOIO, BleFormat::WOIO, BleFormat::WOIO, BleFormat::WOIO};

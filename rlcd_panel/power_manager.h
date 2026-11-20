@@ -203,6 +203,12 @@ struct PersistentState {
                       static_cast<uint16_t>(((i + 1) << 8) | static_cast<uint8_t>(format)));
       }
     }
+    // One JUMP_DROP event for each slot with a dropped jump since the last call, detail is the slot number 1 to 10.
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (registry.takeJumped(i)) {
+        events.record(now, EventCode::JUMP_DROP, static_cast<uint16_t>(i + 1));
+      }
+    }
   }
 
   // Compares isStale of each valid slot with its bit in stale_slots after a BLE scan. One SLOT_STALE event for
