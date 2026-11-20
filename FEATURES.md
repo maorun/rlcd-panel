@@ -2012,3 +2012,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `WallText` (`PhoneDashboardScreen.kt`) reads `wall_frsi_pct` (divided by 100) and `outdoor_slot` from `PanelConfig.values`. `WallText.outdoorTile` takes the outdoor reading only from the panel tile of `outdoor_slot` (slots 1 to 5), not from Open-Meteo. `WallText.format(tile, index, outdoor, config)` returns `Wall <N>%` and a warning flag, or `null` for key value 0, a missing key, the outdoor card, an invalid tile and a missing outdoor tile.
 - `WallText.isWarning(rhPct)` is true from 80.0 %RH. The flag uses the unrounded value. `PhoneDashboardScreen` shows the text below the detail line of each fresh indoor card and hides it on a stale frame. The warning shows in bold orange.
 - Tests: both `ClimateMathTest` classes read `tests/fixtures/wall_rh_vectors.txt` and assert each row within 0.1 %RH, and assert `null` for `frsi` 0.49, `t_out` above `t_in` and NaN input. `WallTextTest` (phone) asserts `Wall 73%` for 20 C, 50 %RH, 0 C and `wall_frsi_pct=70`, the `null` cases and the warning limit. Gradle tests run only in CI (no Android SDK on the dev host).
+
+## Wake cycle metrics in the macOS diagnostics view
+
+- `WakeMetrics.parse(line:)` (`Diagnostics.swift`) reads the `STATUS` line `WAKE cause=<POWER_ON|TIMER|KEY|OTHER> boots=<N> battery_interval_s=<N>`. An unknown cause, a missing field or a bad number throws `ParseError.badLine`. `WakeMetrics.parse(lines:)` and `DiagnosticsReply.wake` give `nil` for a missing line.
+- `WakeMetrics.isNightInterval(config:)` is true when `night_wake_interval_s` is not 0 and `battery_interval_s` differs from `wake_interval_s`. A missing config or a missing key gives false.
+- `DiagnosticsView` shows the group `Wake cycle` with the cause, the wake count and the battery interval in seconds. The `Night interval` badge appears while `isNightInterval` is true. The badge uses the last config read of the app.
+- `DiagnosticsReport` keeps the raw `WAKE` line and adds the line `Wake cycle: <cause>, boots <N>, battery interval <N> s` after it. The line holds no name and no MAC.
+- `DiagnosticsTests` and `DiagnosticsReportTests` cover the parser, the night interval and the report line.

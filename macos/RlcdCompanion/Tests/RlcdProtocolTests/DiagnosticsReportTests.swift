@@ -45,6 +45,14 @@ private func sections(
         #expect(lines(text).contains("Link: USB"))
     }
 
+    @Test func wakeCycleLineIsInTheReport() {
+        let text = DiagnosticsReport.build(
+            appVersion: "1.2", link: .usb, includeNames: false,
+            sections: [.init(command: "STATUS", result: .success(["WAKE cause=TIMER boots=1234 battery_interval_s=600"]))])
+        #expect(lines(text).contains("WAKE cause=TIMER boots=1234 battery_interval_s=600"))
+        #expect(lines(text).contains("Wake cycle: TIMER, boots 1234, battery interval 600 s"))
+    }
+
     @Test func noCrcLines() {
         let text = DiagnosticsReport.build(appVersion: "1.2", link: .ble, includeNames: false, sections: sections())
         #expect(!text.contains("CRC32"))

@@ -276,6 +276,43 @@ public struct FrameMetrics: Equatable {
     }
 }
 
+/// `WAKE cause=<POWER_ON|TIMER|KEY|OTHER> boots=<N> battery_interval_s=<N>`: the last wake cycle of the panel.
+public struct WakeMetrics: Equatable {
+    public static let causes: Set<String> = ["POWER_ON", "TIMER", "KEY", "OTHER"]
+    public let cause: String
+    public let boots: Int
+    /// Sleep interval on battery power at the current RTC time, in seconds.
+    public let batteryIntervalS: Int
+
+    public init(cause: String, boots: Int, batteryIntervalS: Int) {
+        self.cause = cause
+        self.boots = boots
+        self.batteryIntervalS = batteryIntervalS
+    }
+
+    /// True when the night interval is on and differs from `wake_interval_s`. False without a usable config.
+    public func isNightInterval(config: ConfigReply?) -> Bool {
+        guard let values = config?.values,
+              let night = values["night_wake_interval_s"].flatMap({ Int($0) }), night != 0,
+              let wake = values["wake_interval_s"].flatMap({ Int($0) }) else { return false }
+        return batteryIntervalS != wake
+    }
+
+    /// A missing line is no error; `parse(lines:)` gives `nil` for it.
+    public static func parse(lines: [String]) throws -> WakeMetrics? {
+        guard let line = lines.first(where: { $0.hasPrefix("WAKE ") }) else { return nil }
+        return try parse(line: line)
+    }
+
+    public static func parse(line: String) throws -> WakeMetrics {
+        let f = fieldMap(line)
+        guard let cause = f["cause"], causes.contains(cause),
+              let boots = try counter(f, "boots", line: line),
+              let interval = try counter(f, "battery_interval_s", line: line) else { throw ParseError.badLine(line) }
+        return WakeMetrics(cause: cause, boots: boots, batteryIntervalS: interval)
+    }
+}
+
 /// The commands that the refresh button of the diagnostics view sends, in this order.
 public let diagnosticsRefreshCommands: [ConsoleCommand] = [.status, .version]
 
@@ -291,10 +328,12 @@ public struct DiagnosticsReply: Equatable {
     public let ntp: NtpMetrics?
     public let memory: MemoryMetrics?
     public let frame: FrameMetrics?
+    public let wake: WakeMetrics?
 
     public init(shtc3: Shtc3Stats?, ble: BleRejectMetrics?, reset: ResetMetrics?, runtime: RuntimeMetrics?,
                 awake: AwakeMetrics?, reception: ReceptionMetrics?, rtcTrim: RtcTrimMetrics? = nil,
-                ntp: NtpMetrics? = nil, memory: MemoryMetrics? = nil, frame: FrameMetrics? = nil) {
+                ntp: NtpMetrics? = nil, memory: MemoryMetrics? = nil, frame: FrameMetrics? = nil,
+                wake: WakeMetrics? = nil) {
         self.shtc3 = shtc3
         self.ble = ble
         self.reset = reset
@@ -305,6 +344,7 @@ public struct DiagnosticsReply: Equatable {
         self.ntp = ntp
         self.memory = memory
         self.frame = frame
+        self.wake = wake
     }
 
     /// `otherLines` of `StatusReply`. A present line with a bad counter throws `ParseError.badLine`.
@@ -319,7 +359,8 @@ public struct DiagnosticsReply: Equatable {
             rtcTrim: try otherLines["RTC"].map(RtcTrimMetrics.parse(line:)),
             ntp: try otherLines["NTP"].flatMap(NtpMetrics.parse(line:)),
             memory: try otherLines["MEMORY"].map(MemoryMetrics.parse(line:)),
-            frame: try otherLines["FRAME"].flatMap(FrameMetrics.parse(line:)))
+            frame: try otherLines["FRAME"].flatMap(FrameMetrics.parse(line:)),
+            wake: try otherLines["WAKE"].map(WakeMetrics.parse(line:)))
     }
 
     public static func parse(status: StatusReply) throws -> DiagnosticsReply {
