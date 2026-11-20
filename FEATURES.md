@@ -2084,7 +2084,7 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The line count, the RTC layout and `STATE_VERSION` do not change.
 - `StatusSensor.moldHours` (`Int?`) in the macOS, phone and watch parsers is `nil` or `null` for `--` and a missing field. A bad number gives `ParseError.badLine` or `ParseException`.
 - The phone `SensorHealthScreen` shows `Schimmel <N> h` on each sensor row, with a warning symbol and the error colour above 0.
-- Tests: `testSerialStatusMoldHours`, `ReplyTests`, and both `StatusReplyTest` classes. `tests/fixtures/status_reply_sample.txt` holds the field; the CRC literal is `18c23d06`.
+- Tests: `testSerialStatusMoldHours`, `ReplyTests`, and both `StatusReplyTest` classes. `tests/fixtures/status_reply_sample.txt` holds the field; the CRC literal is `a3874ebe`.
 
 ## Panel diagnostics lines in the Wear OS sensor health screen
 
@@ -2153,3 +2153,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `protocol/VersionReply.kt` (phone and watch, same code, compared by `scripts/check-protocol-sync.sh`; `VersionReply.kt` is in `FILES`) parses the `VERSION` line into `firmware`, `git`, `core`, `state` and `built` (`built=unknown` is valid). A missing `VERSION` line, a missing field or an empty field throws `ParseException`.
 - `SensorHealthScreen` of the phone has the button `Firmware-Version lesen`. A tap sends `VERSION` through the BLE console (`MainActivity.readVersion`, same permission and busy rules as `TIME`). The row shows `Firmware <fw> (<git>), Zustand <state>, gebaut <built>`; an error shows the console error text. Closing the screen clears the result.
 - Tests: `VersionReplyTest` asserts the fields of `VERSION fw=1.0.0 git=abc1234-dirty core=3.3.12 state=68 built=2026-11-03T04:05:06`, `built=unknown`, and `ParseException` without the line, without `git=` and for an empty `git=`.
+
+## Noise line in STATUS
+
+- The console command `STATUS` shows `NOISE db=<N|--> band=<QUIET|MODERATE|LOUD> peak_db=<N|--> peak_hour=<N|--> events_sum=<N>` after `LATCH` and before `CRC32`.
+- `db` is the newest sample of `PersistentState::noise_history`; `--` for an empty history and for `NoiseHistory::INVALID`. `band` is `PersistentState::noise_band`. `peak_db`, `peak_hour` and `events_sum` come from `PersistentState::daily.noise`; `peak_db` and `peak_hour` are `--` for `DailyNoiseStats::NO_PEAK`.
+- `SerialStatusSnapshot` has the new fields `noise_history`, `noise_band` and `daily_noise`. The sketch fills them from the RTC copy. The command does not start the microphones. The RTC layout and `STATE_VERSION` do not change. The Kotlin parsers ignore the line.
+- Tests: the host test asserts the filled line, the empty line, the order `LATCH`, `NOISE`, `CRC32` and the `--` level for an invalid newest sample. Each full `STATUS` assert counts one more line. `tests/fixtures/status_reply_sample.txt` holds the line with a new `CRC32`.
