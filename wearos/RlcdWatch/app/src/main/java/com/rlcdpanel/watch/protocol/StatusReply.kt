@@ -2,7 +2,7 @@ package com.rlcdpanel.watch.protocol
 
 class ParseException(val line: String) : Exception("Bad console line: $line")
 
-/** `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...> format=<...>`; `--` gives null. */
+/** `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...> format=<...> mac=<...> mold_h=<N|-->`; `--` gives null. */
 data class StatusSensor(
     val index: Int,
     val name: String,
@@ -13,7 +13,9 @@ data class StatusSensor(
     val ageSeconds: Double?,
     val state: String?,
     /** `format=` of the `SENSOR` line (`SHTC3`, `WOIO`, ...); null for a missing field or `--`. */
-    val format: String? = null
+    val format: String? = null,
+    /** `mold_h=` of the `SENSOR` line: hourly samples above `mold_alert_limit_rh`; null for `--` and a missing field. */
+    val moldHours: Int? = null
 ) {
     /** The protocol source badge of [format]; null without a known format. */
     val badge: String? get() = SensorHealth.badgeFor(format)
@@ -132,10 +134,13 @@ data class StatusReply(
                         sensorLines.add(line)
                         val idx = words.getOrNull(1)?.toIntOrNull()
                         if (words.size < 3 || idx == null) throw ParseException(line)
+                        val moldField = f["mold_h"]
+                        val moldHours = if (moldField == null || moldField == "--") null
+                        else moldField.toIntOrNull()?.takeIf { it >= 0 } ?: throw ParseException(line)
                         sensors.add(
                             StatusSensor(
                                 idx, words[2], number(f["temp"]), number(f["rh"]), number(f["bat"]),
-                                number(f["rssi"]), number(f["age"]), f["state"], format(f["format"])
+                                number(f["rssi"]), number(f["age"]), f["state"], format(f["format"]), moldHours
                             )
                         )
                     }

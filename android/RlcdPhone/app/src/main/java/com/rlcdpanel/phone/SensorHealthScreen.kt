@@ -75,6 +75,9 @@ object SensorHealthText {
         s?.let { "SHTC3 nack ${it.nack}, short ${it.shortReads}, crc ${it.crc}, run ${it.run}, retried ${it.retried}" } ?: "SHTC3 --"
     fun memory(m: MemoryState?): String =
         m?.let { "Heap frei ${it.free} B, min ${it.min} B, größter Block ${it.largest} B, PSRAM ${it.psram} B" } ?: "Heap --"
+    fun mold(row: SensorHealth): String =
+        row.moldHours?.let { (if (it > 0) "⚠ " else "") + "Schimmel $it h" } ?: "Schimmel --"
+    fun isMold(row: SensorHealth): Boolean = (row.moldHours ?: 0) > 0
     fun battery(row: SensorHealth): String = row.battery?.let { "Batterie ${it.toInt()} %" } ?: "Batterie --"
 }
 
@@ -220,6 +223,11 @@ fun SensorHealthScreen(
                         Text(SensorHealthText.rssi(row))
                         Text(SensorHealthText.rate(row))
                         Text(SensorHealthText.battery(row))
+                        Text(
+                            SensorHealthText.mold(row),
+                            color = if (SensorHealthText.isMold(row)) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onBackground
+                        )
                         Text("${row.verdict.name}: ${row.verdict.advice}", style = MaterialTheme.typography.bodyMedium)
                     }
                 }

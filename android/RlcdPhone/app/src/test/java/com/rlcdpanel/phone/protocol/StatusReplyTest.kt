@@ -185,4 +185,22 @@ class StatusReplyTest {
             }
         }
     }
+
+    @Test
+    fun moldHoursOfFixtureAndBadFields() {
+        val sensors = StatusReply.parse(fixtureLines()).sensors
+        assertEquals(24, sensors[0].moldHours)
+        assertEquals(3, sensors[1].moldHours)
+        assertNull(sensors[2].moldHours)
+        assertNull(sensors[3].moldHours)
+        assertEquals(5, sensors[4].moldHours)
+        val without = fixtureLines().map { it.replace(Regex(" mold_h=\\S+"), "") }
+        assertNull(StatusReply.parse(without).sensors[1].moldHours)
+        val bad = fixtureLines().map { if (it.startsWith("SENSOR 1 ")) it.replace("mold_h=3", "mold_h=x") else it }
+        try {
+            StatusReply.parse(bad)
+            fail("expected ParseException")
+        } catch (e: ParseException) {
+        }
+    }
 }

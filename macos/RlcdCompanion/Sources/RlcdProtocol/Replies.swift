@@ -25,7 +25,7 @@ func sourceFormat(_ s: String?) -> String? {
     return s
 }
 
-/// `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...> format=<...> mac=<...>`.
+/// `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...> format=<...> mac=<...> mold_h=<N|-->`.
 public struct StatusSensor: Equatable {
     public let index: Int
     public let name: String
@@ -39,6 +39,8 @@ public struct StatusSensor: Equatable {
     public let format: String?
     /// `mac=` of the `SENSOR` line; `nil` for a missing field, `--` or an empty text.
     public let mac: String?
+    /// `mold_h=` of the `SENSOR` line: hourly samples above `mold_alert_limit_rh`; `nil` for `--` and a missing field.
+    public let moldHours: Int?
 
     public init(
         index: Int,
@@ -50,7 +52,8 @@ public struct StatusSensor: Equatable {
         ageSeconds: Double?,
         state: String,
         format: String? = nil,
-        mac: String? = nil
+        mac: String? = nil,
+        moldHours: Int? = nil
     ) {
         self.index = index
         self.name = name
@@ -62,6 +65,7 @@ public struct StatusSensor: Equatable {
         self.state = state
         self.format = format
         self.mac = mac
+        self.moldHours = moldHours
     }
 
     /// The protocol source badge of `format`, `nil` without a known format.
@@ -110,11 +114,16 @@ public struct StatusReply: Equatable {
             case "SENSOR":
                 sensorLines.append(line)
                 guard words.count >= 3, let idx = Int(words[1]) else { throw ParseError.badLine(line) }
+                var moldHours: Int?
+                if let v = f["mold_h"], v != "--" {
+                    guard let n = Int(v), n >= 0 else { throw ParseError.badLine(line) }
+                    moldHours = n
+                }
                 sensors.append(StatusSensor(
                     index: idx, name: String(words[2]), temperature: number(f["temp"]),
                     humidity: number(f["rh"]), battery: number(f["bat"]), rssi: number(f["rssi"]),
                     ageSeconds: number(f["age"]), state: f["state"] ?? "", format: sourceFormat(f["format"]),
-                    mac: sourceFormat(f["mac"])))
+                    mac: sourceFormat(f["mac"]), moldHours: moldHours))
             case "SD":
                 sd = f["status"]
                 if let v = f["free_mb"], v != "--" {

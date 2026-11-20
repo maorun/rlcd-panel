@@ -143,6 +143,20 @@ struct ReplyAssemblerTests {
         #expect(try StatusReply.parse(lines: lines).ackedMask == 0)
     }
 
+    @Test func moldHoursOfSharedFixtureAndBadFields() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let data = try Data(contentsOf: url.appendingPathComponent("tests/fixtures/status_reply_sample.txt"))
+        var a = ReplyAssembler()
+        guard case .frame(let lines)? = a.append(data).first else { Issue.record("fixture is not a frame"); return }
+        let s = try StatusReply.parse(lines: lines)
+        #expect(s.sensors.map(\.moldHours) == [24, 3, nil, nil, 5, nil])
+        let without = lines.map { $0.replacingOccurrences(of: " mold_h=3", with: "") }
+        #expect(try StatusReply.parse(lines: without).sensors[1].moldHours == nil)
+        let bad = lines.map { $0.hasPrefix("SENSOR 1 ") ? $0.replacingOccurrences(of: "mold_h=3", with: "mold_h=x") : $0 }
+        #expect(throws: ParseError.badLine(bad[1])) { try StatusReply.parse(lines: bad) }
+    }
+
     @Test func ackedMaskParsing() throws {
         let acked = try StatusReply.parse(lines: statusLines(power: "POWER src=USB v=4.05 pct=88 alerts=0A muted=0 acked=02"))
         #expect(acked.ackedMask == 2)
