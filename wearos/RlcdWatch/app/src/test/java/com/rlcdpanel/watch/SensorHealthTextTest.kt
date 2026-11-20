@@ -6,8 +6,10 @@ import com.rlcdpanel.watch.protocol.MemoryState
 import com.rlcdpanel.watch.protocol.ReplyAssembler
 import com.rlcdpanel.watch.protocol.ResetState
 import com.rlcdpanel.watch.protocol.Shtc3State
+import com.rlcdpanel.watch.protocol.ReplyError
 import com.rlcdpanel.watch.protocol.StatusReply
 import com.rlcdpanel.watch.protocol.StatusSensor
+import com.rlcdpanel.watch.protocol.VersionReply
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -30,6 +32,13 @@ class SensorHealthTextTest {
         assertFalse(SensorHealthText.isMold(sensor(0)))
         assertTrue(SensorHealthText.isMold(sensor(5)))
         assertFalse(SensorHealthText.isMold(sensor(null)))
+    }
+
+    @Test
+    fun firmwareLineAndTimeoutText() {
+        val v = VersionReply.parse(listOf("VERSION fw=1.0.0 git=abc1234 core=3.3.12 state=68 built=unknown"))
+        assertEquals("FW 1.0.0 (abc1234)", SensorHealthText.firmware(v))
+        assertEquals("Panel not in range", SensorHealthText.versionFailure(ConsoleReply.Corrupt(ReplyError.Timeout)))
     }
 
     @Test
