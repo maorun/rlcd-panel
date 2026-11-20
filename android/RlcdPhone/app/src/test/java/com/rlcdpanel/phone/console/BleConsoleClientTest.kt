@@ -47,4 +47,23 @@ class BleConsoleClientTest {
         val chunks = ConsoleWire.chunks(ConsoleWire.frame("A".repeat(44)), ConsoleWire.DEFAULT_MTU)
         assertEquals(listOf(20, 20, 5), chunks.map { it.size })
     }
+
+    @Test
+    fun cooldownWaitsTheRemainingTimeAfterTheLastCommand() {
+        assertEquals(BleConsoleClient.COOLDOWN_MS, BleConsoleClient.cooldownRemaining(1000, 1000))
+        assertEquals(200L, BleConsoleClient.cooldownRemaining(1300, 1000))
+        assertEquals(0L, BleConsoleClient.cooldownRemaining(1500, 1000))
+        assertEquals(0L, BleConsoleClient.cooldownRemaining(9000, 1000))
+    }
+
+    @Test
+    fun noCooldownBeforeTheFirstCommand() {
+        assertEquals(0L, BleConsoleClient.cooldownRemaining(10, null))
+    }
+
+    @Test
+    fun cooldownIsClampedWhenTheClockRunsBack() {
+        assertEquals(BleConsoleClient.COOLDOWN_MS, BleConsoleClient.cooldownRemaining(500, 1000))
+        assertEquals(1L, BleConsoleClient.cooldownRemaining(1499, 1000))
+    }
 }
