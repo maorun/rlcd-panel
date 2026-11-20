@@ -1,4 +1,4 @@
-package com.rlcdpanel.phone.ventilation
+package com.rlcdpanel.watch.protocol
 
 /**
  * Pure state machine that reports a rising wall humidity (mold risk) once for each tile.

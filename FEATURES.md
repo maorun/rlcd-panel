@@ -2132,3 +2132,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `Lost` posts the notification `<tile name>: no data for 35 min` (id 940 plus the tile index, `STALE_NOTIFICATION_BASE_ID`) on the channel `rlcd_silence_channel` and vibrates once for 120 ms (`vibrateNotice`). The name comes from `PanelConfig.load(context).tileName`. Without the notification permission, no notification and no vibration occur.
 - `Back`, a stop of the scan and a new scan start remove the notification.
 - `StaleWatchTest` of the watch is a copy of the phone test (package line only) and covers the same cases.
+
+## Wall humidity notification in the Wear OS app
+
+- `WallWatch.kt` moved from the phone package `ventilation` into the shared package `protocol`. The watch holds a copy (package line only), and `scripts/check-protocol-sync.sh` compares both files (entry in `FILES`).
+- The rules stay: a tile rises at 80.0 %RH, releases below 77.0 %RH, and gives one `Notify` for each tile within a repeat window of 6 hours. A `null` value releases the tile without a result.
+- The watch `MainActivity` feeds `WallText.value` of each tile (index 0 to 5) on each new frame, like `checkWallNotifications` of the phone. Without the notification permission (Android 13 and later), it does not feed `WallWatch`.
+- For each `Notify`, it posts the notification `<name>: Wand <N> %` (id 2000 plus the tile index) and vibrates once with `vibrateNotice`.
+- Tests: `WallWatchTest` of the phone moved into the package `protocol` without a change. The watch test is a copy with another package line.
+- Limit: the check runs in the `MainActivity` while the app shows a frame, like the phone. The state lives in the activity, so a restart of the activity clears the repeat window.

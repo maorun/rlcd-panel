@@ -40,6 +40,8 @@ import com.rlcdpanel.watch.protocol.WeekReply
 import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.protocol.TelemetryFrame
+import com.rlcdpanel.watch.protocol.WallText
+import com.rlcdpanel.watch.protocol.WallWatch
 import com.rlcdpanel.watch.tile.ClimateTileService
 import com.rlcdpanel.watch.ventilation.OutdoorClimate
 import com.rlcdpanel.watch.ventilation.OutdoorSource
@@ -67,6 +69,7 @@ class MainActivity : ComponentActivity() {
     private var roomStates by mutableStateOf<Map<Int, RoomVentilationState>>(emptyMap())
     private val lastObservedAktionen = mutableMapOf<Int, VentilationAction>()
     private var panelConfig by mutableStateOf(PanelConfig())
+    private val wallWatch = WallWatch()
 
     private var configStatus by mutableStateOf<String?>(null)
     private var isReadingConfig by mutableStateOf(false)
@@ -177,6 +180,12 @@ class MainActivity : ComponentActivity() {
             val snapshot by BleScanService.snapshot.collectAsState()
             val isScanning by BleScanService.isScanning.collectAsState()
             val statusMessage by BleScanService.statusMessage.collectAsState()
+
+            // Feed the wall humidity watch on each new frame
+            LaunchedEffect(snapshot) {
+                val snap = snapshot ?: return@LaunchedEffect
+                checkWallNotifications(snap.frame)
+            }
 
             LaunchedEffect(Unit) {
                 while (true) {
@@ -809,6 +818,29 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun checkWallNotifications(frame: TelemetryFrame) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        val outdoorTile = WallText.outdoorTile(frame.tiles, panelConfig)
+        for (tileIndex in 0 until WallWatch.TILE_COUNT) {
+            val tile = frame.tiles.getOrNull(tileIndex)
+            val rh = tile?.let { WallText.value(it, tileIndex, outdoorTile, panelConfig) }
+            val result = wallWatch.update(tileIndex, rh)
+            if (result is WallWatch.Result.Notify) {
+                val rounded = Math.round(result.rh).toInt()
+                postVentilationNotification(
+                    title = "RLCD Alarm",
+                    message = "${panelConfig.tileName(tileIndex)}: Wand $rounded %",
+                    notificationId = NOTIFICATION_ID_WALL_BASE + tileIndex
+                )
+                vibrateNotice()
+            }
+        }
+    }
+
     private fun postVentilationNotification(title: String, message: String, notificationId: Int) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -823,5 +855,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val CHANNEL_ID = "rlcd_ventilation_channel"
+        const val NOTIFICATION_ID_WALL_BASE = 2000
     }
 }

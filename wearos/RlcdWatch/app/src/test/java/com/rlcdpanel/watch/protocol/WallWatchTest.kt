@@ -1,4 +1,4 @@
-package com.rlcdpanel.phone.ventilation
+package com.rlcdpanel.watch.protocol
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
