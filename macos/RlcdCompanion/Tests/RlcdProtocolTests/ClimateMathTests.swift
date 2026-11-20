@@ -92,3 +92,50 @@ struct ClimateMathTests {
         #expect(risingNilPrev.rawValue == 0)
     }
 }
+
+struct WallRhTests {
+    private func tile(_ t: Double?, _ h: Double?) -> TelemetryTile { TelemetryTile(temperatureC: t, humidityPct: h) }
+    private func cfg(_ frsi: String, outdoor: String = "2") -> ConfigReply {
+        ConfigReply(values: ["wall_frsi_pct": frsi, "outdoor_slot": outdoor])
+    }
+
+    @Test func fixtureVectorsMatch() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let text = try String(contentsOf: url.appendingPathComponent("tests/fixtures/wall_rh_vectors.txt"), encoding: .utf8)
+        var count = 0
+        for line in text.split(separator: "\n") where !line.hasPrefix("#") && !line.isEmpty {
+            let f = line.split(separator: "|").map { $0.trimmingCharacters(in: .whitespaces) }
+            #expect(f.count == 5)
+            let wall = ClimateMath.wallSurfaceRh(tInC: Double(f[0])!, rhInPct: Double(f[1])!,
+                                                 tOutC: Double(f[2])!, frsi: Double(f[3])!)
+            if f[4] == "-" {
+                #expect(wall == nil, "expected nil for \(line)")
+            } else {
+                #expect(wall != nil, "nil for \(line)")
+                if let wall { #expect(abs(wall - Double(f[4])!) <= 0.1, "wall for \(line): \(wall)") }
+            }
+            count += 1
+        }
+        #expect(count >= 10)
+    }
+
+    @Test func nanInputGivesNil() {
+        #expect(ClimateMath.wallSurfaceRh(tInC: .nan, rhInPct: 50, tOutC: 0, frsi: 0.7) == nil)
+    }
+
+    @Test func wallTextValue() {
+        #expect(VentilationAdvice.wallText(tile: tile(20, 50), index: 1, outdoor: tile(0, 80), config: cfg("70")) == "Wall 73%")
+    }
+
+    @Test func wallTextEdgeCases() {
+        let indoor = tile(20, 50)
+        let outdoor = tile(0, 80)
+        #expect(VentilationAdvice.wallText(tile: indoor, index: 1, outdoor: outdoor, config: cfg("0")) == nil)
+        #expect(VentilationAdvice.wallText(tile: indoor, index: 2, outdoor: outdoor, config: cfg("70", outdoor: "2")) == nil)
+        #expect(VentilationAdvice.wallText(tile: indoor, index: 1, outdoor: nil, config: cfg("70")) == nil)
+        #expect(VentilationAdvice.wallText(tile: indoor, index: 1, outdoor: outdoor, config: nil) == nil)
+        #expect(VentilationAdvice.wallText(tile: tile(nil, nil), index: 1, outdoor: outdoor, config: cfg("70")) == nil)
+        #expect(VentilationAdvice.wallText(tile: indoor, index: 1, outdoor: tile(25, 50), config: cfg("70")) == nil)
+    }
+}

@@ -19542,6 +19542,39 @@ void testClimateMathFixtureVectors() {
   assert(vectors >= 15);
 }
 
+void testWallRhFixtureVectors() {
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  std::ifstream in(root + "tests/fixtures/wall_rh_vectors.txt");
+  assert(in.good());
+  std::string line;
+  int vectors = 0;
+  int invalid = 0;
+  while (std::getline(in, line)) {
+    if (line.empty() || line[0] == '#') continue;
+    std::vector<std::string> f;
+    size_t start = 0;
+    while (true) {
+      const size_t bar = line.find(" | ", start);
+      f.push_back(line.substr(start, bar == std::string::npos ? std::string::npos : bar - start));
+      if (bar == std::string::npos) break;
+      start = bar + 3;
+    }
+    assert(f.size() == 5);
+    const float wall = ClimateMath::wallSurfaceRh(strtof(f[0].c_str(), nullptr), strtof(f[1].c_str(), nullptr),
+                                                  strtof(f[2].c_str(), nullptr), strtof(f[3].c_str(), nullptr));
+    if (f[4] == "-") {
+      assert(isnan(wall));
+      ++invalid;
+    } else {
+      assert(fabsf(wall - strtof(f[4].c_str(), nullptr)) <= 0.1f);
+    }
+    ++vectors;
+  }
+  assert(vectors >= 10 && invalid >= 4);
+}
+
 void testBleBroadcastConfig() {
   DeviceConfig d;
   assert(d.ble_broadcast_enabled == 1 && parseText("").ble_broadcast_enabled == 1);
@@ -22338,6 +22371,7 @@ testSerialConfigNegativeSmallOffset();
   testConfigCheckTool();
   testSdCardStatus();
   testClimateMathFixtureVectors();
+  testWallRhFixtureVectors();
   testSensorAdvertisementFixtureVectors();
   testStaleAgeBadge();
   testParseClimateRow();
