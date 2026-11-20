@@ -2166,3 +2166,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `db` is the newest sample of `PersistentState::noise_history`; `--` for an empty history and for `NoiseHistory::INVALID`. `band` is `PersistentState::noise_band`. `peak_db`, `peak_hour` and `events_sum` come from `PersistentState::daily.noise`; `peak_db` and `peak_hour` are `--` for `DailyNoiseStats::NO_PEAK`.
 - `SerialStatusSnapshot` has the new fields `noise_history`, `noise_band` and `daily_noise`. The sketch fills them from the RTC copy. The command does not start the microphones. The RTC layout and `STATE_VERSION` do not change. The Kotlin parsers ignore the line.
 - Tests: the host test asserts the filled line, the empty line, the order `LATCH`, `NOISE`, `CRC32` and the `--` level for an invalid newest sample. Each full `STATUS` assert counts one more line. `tests/fixtures/status_reply_sample.txt` holds the line with a new `CRC32`.
+
+## Event filter in the Wear OS event log
+
+- `protocol/EventFilter.kt` is a copy of the phone file and stays equal. `scripts/check-protocol-sync.sh` compares it (`EventFilter.kt` is in `FILES`).
+- `EventLogScreen` has one filter chip above the `Read events` chip. Each tap selects the next category: all, alerts, sensors, power, config, other, then all again (`EventFilterChip.next`, pure helper in `EventFilterChip.kt`). The chip text shows the title and the visible row count (`EventFilterChip.label`, for example `Alerts (3)`).
+- `EventLogState.visibleRows(category)` filters with `EventFilter.apply` and keeps the newest 8 rows, newest first. The order of the rows does not change. The chip selection is UI state and resets when the screen closes. A filter without a match shows `Keine Ereignisse in dieser Kategorie.`.
+- Tests: `EventFilterTest` (copy of the phone test: fixture counts, `OTHER` for unlisted names, order, Swift name sync), `EventFilterChipTest` (chip order, label, filtered visible rows).

@@ -7,6 +7,10 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -24,6 +28,7 @@ import androidx.wear.compose.material.PositionIndicator
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
+import com.rlcdpanel.watch.protocol.EventFilter
 import com.rlcdpanel.watch.protocol.EventRow
 import com.rlcdpanel.watch.protocol.EventText
 
@@ -37,7 +42,11 @@ data class EventLogState(
     val message: String? = null
 ) {
     /** The newest [MAX_ROWS] rows for the small screen, newest first. */
-    val visibleRows: List<EventRow> get() = rows.takeLast(MAX_ROWS).asReversed()
+    val visibleRows: List<EventRow> get() = visibleRows(null)
+
+    /** The newest [MAX_ROWS] rows of [category] (`null` keeps each row), newest first. */
+    fun visibleRows(category: EventFilter.Category?): List<EventRow> =
+        EventFilter.apply(rows, setOfNotNull(category)).takeLast(MAX_ROWS).asReversed()
 
     companion object {
         const val MAX_ROWS = 8
@@ -58,6 +67,8 @@ fun EventLogScreen(
     onRead: () -> Unit
 ) {
     val listState = rememberScalingLazyListState()
+    var category by remember { mutableStateOf<EventFilter.Category?>(null) }
+    val shownRows = state.visibleRows(category)
     MaterialTheme {
         Scaffold(
             timeText = { TimeText() },
@@ -69,6 +80,14 @@ fun EventLogScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                item {
+                    Chip(
+                        onClick = { category = EventFilterChip.next(category) },
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text(EventFilterChip.label(category, shownRows.size), fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
                 item {
                     Chip(
                         onClick = onRead,
@@ -114,7 +133,10 @@ fun EventLogScreen(
                 if (state.loaded && state.rows.isEmpty()) {
                     item { Text("Keine Ereignisse.", fontSize = 10.sp, color = Color(0xFFB0BEC5)) }
                 }
-                items(state.visibleRows) { row ->
+                if (state.loaded && state.rows.isNotEmpty() && shownRows.isEmpty()) {
+                    item { Text("Keine Ereignisse in dieser Kategorie.", fontSize = 10.sp, color = Color(0xFFB0BEC5)) }
+                }
+                items(shownRows) { row ->
                     Card(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth(0.95f)) {
                         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                             Text(EventLogState.formatTime(row.time), fontSize = 10.sp, color = Color(0xFFB0BEC5))
