@@ -16,4 +16,5 @@ FRAME crc=1a2b3c4d skips=12
 WAKE cause=TIMER boots=1234 battery_interval_s=600
 LATCH vent=002 dry=000 batlow=008 stale=004
 NOISE db=48 band=MODERATE peak_db=71 peak_hour=19 events_sum=12
-CRC32 a3874ebe
+CHIME repeat_h=2 bits=02 last_s=3600 next_s=3600
+CRC32 b42a8075

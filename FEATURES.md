@@ -2107,7 +2107,7 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The line count, the RTC layout and `STATE_VERSION` do not change.
 - `StatusSensor.moldHours` (`Int?`) in the macOS, phone and watch parsers is `nil` or `null` for `--` and a missing field. A bad number gives `ParseError.badLine` or `ParseException`.
 - The phone `SensorHealthScreen` shows `Schimmel <N> h` on each sensor row, with a warning symbol and the error colour above 0.
-- Tests: `testSerialStatusMoldHours`, `ReplyTests`, and both `StatusReplyTest` classes. `tests/fixtures/status_reply_sample.txt` holds the field; the CRC literal is `a3874ebe`.
+- Tests: `testSerialStatusMoldHours`, `ReplyTests`, and both `StatusReplyTest` classes. `tests/fixtures/status_reply_sample.txt` holds the field; the CRC literal is `b42a8075`.
 
 ## Panel diagnostics lines in the Wear OS sensor health screen
 
@@ -2196,3 +2196,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `CsvExport.week(_ rows: [WeekRow])` (`CsvExport.swift`) returns `WeekReply.header` and one line for each row: `sensor,day,date`, then the four values with one decimal place. A gap day has empty fields for `nil`; an empty date stays empty.
 - The button `Export week CSV` in `Views.swift` sits beside the other export buttons. It calls `model.exportCsv(name: "week.csv", ...)` and is disabled while `model.week` is empty.
 - Tests: `CsvExportTests` parse `tests/fixtures/week_reply_sample.txt` with `WeekReply.parse`, export it with `CsvExport.week` and compare the result with the header and the rows of the fixture, including the empty fields of the gap day.
+
+## Chime reminder line in STATUS
+
+- The console command `STATUS` shows `CHIME repeat_h=<N> bits=<2 hex digits> last_s=<N|--> next_s=<N|-->` after `NOISE` and before `CRC32`.
+- `repeat_h` is `chime_repeat_h`. `bits` is `AlertEvaluator::repeatableBits(alert_mask)` without the `alert_ack` bits. `last_s` is the time since `PersistentState::last_chime_ms`; `--` for stamp 0. `next_s` is `repeat_h * 3600 - last_s`, at least 0; `--` for `repeat_h` 0 and for `bits` 00. `next_s` is the nominal due time: mute, quiet hours and `chime_alert_mask` still skip the sound and restart the timer. Stamp 0 counts from clock zero. A stamp ahead of the clock wraps like `AlertEvaluator::repeat`.
+- `SerialStatusSnapshot` has the new field `last_chime_ms`. The sketch fills it from the RTC copy. The RTC layout and `STATE_VERSION` do not change. The Kotlin parsers ignore the line.
+- Tests: `testStatusChimeLine` asserts the filled line, an acknowledged alert, `ALERT_CHARGE_FULL`, an overdue reminder, stamp 0 and the order `NOISE`, `CHIME`, `CRC32`. Each full `STATUS` assert counts one more line. `tests/fixtures/status_reply_sample.txt` holds the line; the CRC literal is `b42a8075`.

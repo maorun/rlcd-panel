@@ -1501,6 +1501,7 @@ void setup() {
       snap.daily_noise = g_state.daily.noise;
       snap.muted = g_state.muted;
       snap.alert_ack = g_state.alert_ack;
+      snap.last_chime_ms = g_state.last_chime_ms;
       snap.now_ms = nowMs();
       snap.sd_status = g_state.sd_status;
       snap.sd_status_ms = g_state.sd_status_ms;
