@@ -50,6 +50,8 @@ import com.rlcdpanel.phone.protocol.ConfigCache
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryHistory
+import com.rlcdpanel.phone.protocol.EventCsv
+import com.rlcdpanel.phone.protocol.EventRow
 import com.rlcdpanel.phone.protocol.EventsReply
 import com.rlcdpanel.phone.protocol.RejectsReply
 import com.rlcdpanel.phone.protocol.WeekReply
@@ -196,6 +198,7 @@ class MainActivity : ComponentActivity() {
                 EventLogScreen(
                     state = eventState,
                     onRead = { withConsolePermission { readEvents() } },
+                    onShare = { shareEventsCsv(eventState.rows) },
                     onBack = { closeEvents() }
                 )
                 BackHandler { closeEvents() }
@@ -471,6 +474,15 @@ class MainActivity : ComponentActivity() {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, history.toCsv(HistoryScreenText.SHARE_MAX_ROWS))
+        }
+        startActivity(Intent.createChooser(send, "Share CSV"))
+    }
+
+    /** Sends the event rows as CSV text, oldest first. */
+    private fun shareEventsCsv(rows: List<EventRow>) {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, EventCsv.format(rows))
         }
         startActivity(Intent.createChooser(send, "Share CSV"))
     }
