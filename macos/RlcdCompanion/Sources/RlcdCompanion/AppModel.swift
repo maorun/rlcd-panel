@@ -94,6 +94,7 @@ final class AppModel: ConsoleLinkDelegate {
     var notificationsEnabled = false
     /// Detects a panel that stopped to send frames; checked at the 30 s tick.
     private var silenceWatch = SilenceWatch()
+    private var wallWatch = WallWatch()
     private static let silenceNotificationId = "rlcd_panel_silence"
     /// Login item logic; the state comes from `SMAppService` on each refresh.
     private var loginItem = LoginItem(service: MainAppLoginItemService())
@@ -177,6 +178,7 @@ final class AppModel: ConsoleLinkDelegate {
             self.rssi = r
             if f.page == 0 && self.logStore.record(f) { self.chartRows = self.logStore.log.downsampled(maxRows: 400) }
             self.checkAlertNotifications(previous: prev, current: f)
+            self.checkWallNotifications()
             if self.silenceWatch.onFrame() == .back, Bundle.main.bundleIdentifier != nil {
                 UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [Self.silenceNotificationId])
             }
@@ -247,6 +249,22 @@ final class AppModel: ConsoleLinkDelegate {
         }
     }
 
+    /// Feeds `WallWatch` with the wall humidity of each tile and posts one notification for each rise.
+    /// Without enabled notifications `WallWatch` stays untouched, so a rise does not use the 6 hour window.
+    private func checkWallNotifications() {
+        guard notificationsEnabled, Bundle.main.bundleIdentifier != nil else { return }
+        for tile in 0..<WallWatch.tileCount {
+            guard case .notify(let t, let value)? = wallWatch.update(tile: tile, rh: wallRh(forTile: tile)) else { continue }
+            let name = config?.name(forSlot: t) ?? (t == 0 ? "Onboard" : "Slot \(t)")
+            let content = UNMutableNotificationContent()
+            content.title = "RLCD Panel Alert"
+            content.body = "\(name): wall \(Int(value.rounded()))%"
+            content.sound = .default
+            let req = UNNotificationRequest(identifier: "rlcd_panel_wall_\(t)", content: content, trigger: nil)
+            UNUserNotificationCenter.current().add(req)
+        }
+    }
+
     private func checkAlertNotifications(previous: TelemetryFrame?, current: TelemetryFrame) {
         guard notificationsEnabled, Bundle.main.bundleIdentifier != nil else { return }
         let rising = AlertTransitions.risingAlerts(previous: previous, current: current)
@@ -277,6 +295,13 @@ final class AppModel: ConsoleLinkDelegate {
         guard let frame, frame.tiles.indices.contains(index),
               let outdoor = VentilationAdvice.outdoorTile(frame: frame, frameDate: frameDate, config: lastConfig, now: now) else { return nil }
         return VentilationAdvice.wallText(tile: frame.tiles[index], index: index, outdoor: outdoor, config: lastConfig)
+    }
+
+    /// Wall humidity of the indoor tile `index` with the freshness rules of `wallText`.
+    private func wallRh(forTile index: Int) -> Double? {
+        guard let frame, frame.tiles.indices.contains(index),
+              let outdoor = VentilationAdvice.outdoorTile(frame: frame, frameDate: frameDate, config: lastConfig, now: Date()) else { return nil }
+        return VentilationAdvice.wallRh(tile: frame.tiles[index], index: index, outdoor: outdoor, config: lastConfig)
     }
 
     /// Count of hours above mold_alert_limit_rh in the last 24 hours for a given sensor (0..5).

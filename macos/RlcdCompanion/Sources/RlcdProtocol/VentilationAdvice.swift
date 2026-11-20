@@ -125,18 +125,22 @@ public struct VentilationAdvice: Equatable {
         return make(indoor: frame.tiles[index], outdoor: outdoor)
     }
 
-    /// Text `Wall <N>%` for the indoor tile `index`: the humidity of the room air at the outer wall.
+    /// Humidity of the room air at the outer wall (%RH) for the indoor tile `index`.
     /// `nil` for `wall_frsi_pct` 0 or missing, a missing config, the outdoor tile, an invalid indoor tile,
-    /// an invalid outdoor tile and a bad result. The panel shows `WALL --` for a bad result; the app hides the line.
-    /// The caller passes only fresh tiles.
-    public static func wallText(tile: TelemetryTile, index: Int, outdoor: TelemetryTile?, config: ConfigReply?) -> String? {
+    /// an invalid outdoor tile and a bad result. The caller passes only fresh tiles.
+    public static func wallRh(tile: TelemetryTile, index: Int, outdoor: TelemetryTile?, config: ConfigReply?) -> Double? {
         guard let config, let outdoor,
               let pct = Int(config.values["wall_frsi_pct"] ?? ""), pct != 0,
               Int(config.values["outdoor_slot"] ?? "") != index,
               let tIn = tile.temperatureC, let rhIn = tile.humidityPct,
-              let tOut = outdoor.temperatureC,
-              let rh = ClimateMath.wallSurfaceRh(tInC: tIn, rhInPct: rhIn, tOutC: tOut, frsi: Double(pct) / 100.0)
-        else { return nil }
+              let tOut = outdoor.temperatureC else { return nil }
+        return ClimateMath.wallSurfaceRh(tInC: tIn, rhInPct: rhIn, tOutC: tOut, frsi: Double(pct) / 100.0)
+    }
+
+    /// Text `Wall <N>%` for the indoor tile `index` (see `wallRh`).
+    /// The panel shows `WALL --` for a bad result; the app hides the line.
+    public static func wallText(tile: TelemetryTile, index: Int, outdoor: TelemetryTile?, config: ConfigReply?) -> String? {
+        guard let rh = wallRh(tile: tile, index: index, outdoor: outdoor, config: config) else { return nil }
         return "Wall \(Int(rh.rounded()))%"
     }
 }

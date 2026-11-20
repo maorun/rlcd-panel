@@ -1906,6 +1906,13 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `AppModel` calls `onFrame()` for each frame and `check()` at the 30 s tick. For `.silent` with enabled notifications and an app bundle it posts the notice `Panel silent since <HH:mm>` (identifier `rlcd_panel_silence`). A `.silent` event while notifications are off or without an app bundle posts nothing and is not repeated later. For `.back` it removes the delivered notice.
 - Tests: `SilenceWatchTests` assert `silent` once at 35 min plus 1 s, no second `silent` at 60 min, `back` once at the next frame, `silent` again after `back`, no report without a first frame and no report for a clock that runs back.
 
+## Wall humidity notification in the macOS app
+
+- `VentilationAdvice.wallRh(tile:index:outdoor:config:)` returns the wall humidity as `Double?` with the rules of `wallText` (`nil` for `wall_frsi_pct` 0, the outdoor tile, an invalid tile and a bad result). `wallText` uses it and still shows `Wall <N>%`.
+- `WallWatch` (`RlcdProtocol`) is a pure state machine with an injected clock and one state for each tile index 0 to 5. A tile rises at `riseRh` 80.0 %RH or more and releases below `releaseRh` 77.0 %RH. A rise gives one `.notify(tile:rh:)`. A second rise of the same tile within `repeatInterval` (21600 s) gives no result. A `nil` value releases the tile without a result.
+- `AppModel` feeds `WallWatch` with each new telemetry frame (fresh outdoor tile only). With `notificationsEnabled` and an app bundle it posts one notice `<name>: wall <N>%` with the identifier `rlcd_panel_wall_<tile>`. It sends no console command.
+- Tests: `WallWatchTests` cover the rise at 80.0, no second result at 81, the release at 76.9, no result 5 hours and one result 6 hours after a notice, the release by `nil` and separate tile states. `VentilationAdviceTests` cover `wallRh` (72.5 to 74.0, `nil` for `wall_frsi_pct=0`) and `Wall 73%`.
+
 ## Free MicroSD space in STATUS
 
 - `PersistentState::sd_free_mb` (`int32_t`, -1 is unknown) keeps the free card space in MB across the deep sleep. It uses 4 bytes just before the checksum. `rlcd_panel.ino` sets it after each card access that reads the free space (hourly write and config load). A power-on sets it to -1. A value below -1 is rejected. `STATE_VERSION` is 68.
