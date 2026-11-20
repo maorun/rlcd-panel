@@ -185,6 +185,13 @@ class MainActivity : ComponentActivity() {
             val isScanning by BleScanService.isScanning.collectAsState()
             val statusMessage by BleScanService.statusMessage.collectAsState()
 
+            // Check for wall humidity notifications on each new fresh telemetry frame
+            LaunchedEffect(snapshot) {
+                val snap = snapshot ?: return@LaunchedEffect
+                if (!OutdoorResolver.isFrameFresh(snap.receivedAtMillis, System.currentTimeMillis())) return@LaunchedEffect
+                checkWallNotifications(snap.frame)
+            }
+
             if (showHistory) {
                 val history by BleScanService.history.collectAsState()
                 HistoryScreen(
@@ -368,12 +375,6 @@ class MainActivity : ComponentActivity() {
                     // A gap in the advice (stale frame, no weather) must not compare against an old action.
                     lastObservedAktionen.remove(focusedRoomIndex)
                 }
-            }
-
-            // Check for wall humidity notifications on each new telemetry frame
-            LaunchedEffect(snapshot) {
-                val frame = snapshot?.frame ?: return@LaunchedEffect
-                checkWallNotifications(frame)
             }
 
             PhoneDashboardScreen(
@@ -1162,7 +1163,7 @@ class MainActivity : ComponentActivity() {
                 val name = panelConfig.tileName(tileIndex)
                 val rounded = Math.round(result.rh).toInt()
                 postVentilationNotification(
-                    title = "$name: Wand $rounded %",
+                    title = "RLCD Alarm",
                     message = "$name: Wand $rounded %",
                     notificationId = NOTIFICATION_ID_WALL_BASE + tileIndex
                 )

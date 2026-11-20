@@ -54,7 +54,7 @@ class WallWatchTest {
     }
 
     @Test
-    fun releasesOnNull() {
+    fun releasesOnNullAndNonFinite() {
         watch.update(1, 80.0)
         // Null releases
         assertNull(watch.update(1, null))
@@ -62,6 +62,14 @@ class WallWatchTest {
         nowMs += WallWatch.REPEAT_INTERVAL_MS
         val result = watch.update(1, 80.0)
         assertEquals(WallWatch.Result.Notify(1, 80.0), result)
+
+        // Non-finite (NaN or Infinity) also releases without result
+        assertNull(watch.update(1, Double.NaN))
+        nowMs += WallWatch.REPEAT_INTERVAL_MS
+        val resultAfterNan = watch.update(1, 80.0)
+        assertEquals(WallWatch.Result.Notify(1, 80.0), resultAfterNan)
+
+        assertNull(watch.update(1, Double.POSITIVE_INFINITY))
     }
 
     @Test
