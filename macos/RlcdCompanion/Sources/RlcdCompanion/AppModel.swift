@@ -28,6 +28,11 @@ final class AppModel: ConsoleLinkDelegate {
     private let logStore = TelemetryLogStore()
     var telemetryLog: TelemetryLog { logStore.log }
     var events: [EventRow] = []
+    /// Selected category of the event list; `nil` shows all events.
+    var eventCategory: EventFilter.Category?
+    var filteredEvents: [EventRow] {
+        EventFilter.apply(events, eventCategory.map { [$0] } ?? [])
+    }
     var config: ConfigReply?
     /// The last `CONFIG` reply; a link reset keeps it (a panel change clears it), so the menu bar keeps names and `temp_unit`.
     private(set) var lastConfig: ConfigReply?

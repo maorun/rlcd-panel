@@ -157,8 +157,8 @@ struct MainView: View {
                 model.exportCsv(name: "history.csv", text: CsvExport.history(model.history))
             }.disabled(model.history.isEmpty)
             Button("Export EVENTS (CSV)") {
-                model.exportCsv(name: "events.csv", text: CsvExport.events(model.events))
-            }.disabled(model.events.isEmpty)
+                model.exportCsv(name: "events.csv", text: CsvExport.events(model.filteredEvents))
+            }.disabled(model.filteredEvents.isEmpty)
         }
     }
 
@@ -276,7 +276,12 @@ struct MainView: View {
     private var eventsView: some View {
         GroupBox("Events") {
             VStack(alignment: .leading) {
-                ForEach(Array(model.events.enumerated()), id: \.offset) { _, e in
+                Picker("Category", selection: $model.eventCategory) {
+                    Text("All").tag(EventFilter.Category?.none)
+                    ForEach(EventFilter.Category.allCases) { Text($0.title).tag(Optional($0)) }
+                }
+                .pickerStyle(.segmented)
+                ForEach(Array(model.filteredEvents.enumerated()), id: \.offset) { _, e in
                     Text("\(e.time.isEmpty ? "--" : e.time)  \(EventText.describe(e))")
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(EventText.isAbnormal(e) ? Color.red : Color.primary)
