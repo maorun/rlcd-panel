@@ -232,6 +232,45 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         #expect(try WakeMetrics.parse(lines: lines(statusText)) == nil)
     }
 
+    @Test func parsesLatchLine() throws {
+        let m = try LatchMetrics.parse(line: "LATCH vent=002 dry=401 batlow=208 stale=004")
+        #expect(m.ventilate == 0x002)
+        #expect(m.dry == 0x401)
+        #expect(m.batteryLow == 0x208)
+        #expect(m.stale == 0x004)
+        #expect(m.badges(forSensor: 0) == ["D"])
+        #expect(m.badges(forSensor: 1) == ["V"])
+        #expect(m.badges(forSensor: 3) == ["STALE"])
+        #expect(m.badges(forSensor: 4) == ["BAT LOW"])
+        #expect(m.badges(forSensor: 10) == ["D", "BAT LOW"])
+        #expect(m.badges(forSensor: 11).isEmpty)
+        let d = try DiagnosticsReply.parse(otherLines: ["LATCH": "LATCH vent=000 dry=000 batlow=000 stale=000"])
+        #expect(d.latch?.hasBadges == false)
+    }
+
+    @Test func latchOnboardIgnoresSlotOnlyMasksAndKeepsOrder() throws {
+        let m = try LatchMetrics.parse(line: "LATCH vent=000 dry=000 batlow=001 stale=001")
+        #expect(m.badges(forSensor: 0).isEmpty)
+        #expect(m.badges(forSensor: 1) == ["BAT LOW", "STALE"])
+        let all = try LatchMetrics.parse(line: "LATCH vent=7FF dry=7ff batlow=3ff stale=3FF")
+        #expect(all.badges(forSensor: 10) == ["V", "D", "BAT LOW", "STALE"])
+        #expect(all.badges(forSensor: 0) == ["V", "D"])
+    }
+
+    @Test func latchIsNilWithoutTheLine() throws {
+        let d = try DiagnosticsReply.parse(otherLines: [:])
+        #expect(d.latch == nil)
+        #expect(try LatchMetrics.parse(lines: ["WAKE cause=TIMER boots=1 battery_interval_s=600"]) == nil)
+    }
+
+    @Test func latchRejectsBadFields() {
+        for bad in ["LATCH vent=80x dry=000 batlow=000 stale=000", "LATCH vent=000 dry=800 batlow=000 stale=000",
+                    "LATCH vent=000 dry=000 batlow=400 stale=000", "LATCH vent=000 dry=000 batlow=000 stale=400",
+                    "LATCH vent=00 dry=000 batlow=000 stale=000", "LATCH vent=000 dry=000 batlow=000"] {
+            #expect(throws: ParseError.badLine(bad)) { try LatchMetrics.parse(line: bad) }
+        }
+    }
+
     @Test func wakeRejectsBadFields() {
         #expect(throws: ParseError.self) { try WakeMetrics.parse(line: "WAKE cause=SLEEP boots=1 battery_interval_s=600") }
         #expect(throws: ParseError.self) { try WakeMetrics.parse(line: "WAKE cause=TIMER boots=x battery_interval_s=600") }
