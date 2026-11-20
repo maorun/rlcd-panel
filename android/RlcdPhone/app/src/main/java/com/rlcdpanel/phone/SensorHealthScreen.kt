@@ -26,6 +26,7 @@ import com.rlcdpanel.phone.protocol.NtpState
 import com.rlcdpanel.phone.protocol.ResetState
 import com.rlcdpanel.phone.protocol.Shtc3State
 import com.rlcdpanel.phone.protocol.TimeReply
+import com.rlcdpanel.phone.protocol.VersionReply
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.SensorHealth
 
@@ -56,6 +57,13 @@ data class ClockState(
     val message: String? = null
 )
 
+/** Result of one `VERSION` read: [reply], or a [message] that tells why there is none. */
+data class VersionState(
+    val isBusy: Boolean = false,
+    val reply: VersionReply? = null,
+    val message: String? = null
+)
+
 /** One-line texts of the card fields. */
 object SensorHealthText {
     fun rssi(row: SensorHealth): String = row.rssi?.let { "RSSI ${it.toInt()} dBm" } ?: "RSSI --"
@@ -78,6 +86,7 @@ object SensorHealthText {
     fun mold(row: SensorHealth): String =
         row.moldHours?.let { (if (it > 0) "⚠ " else "") + "Schimmel $it h" } ?: "Schimmel --"
     fun isMold(row: SensorHealth): Boolean = (row.moldHours ?: 0) > 0
+    fun firmware(v: VersionReply): String = "Firmware ${v.firmware} (${v.git}), Zustand ${v.state}, gebaut ${v.built}"
     fun battery(row: SensorHealth): String = row.battery?.let { "Batterie ${it.toInt()} %" } ?: "Batterie --"
 }
 
@@ -95,6 +104,8 @@ fun SensorHealthScreen(
     onOpenSlots: () -> Unit = {},
     onOpenRejects: () -> Unit = {},
     clockState: ClockState = ClockState(),
+    versionState: VersionState = VersionState(),
+    onReadVersion: () -> Unit = {},
     onReadClock: () -> Unit = {},
     onSyncClock: () -> Unit = {},
     onBack: () -> Unit
@@ -152,6 +163,13 @@ fun SensorHealthScreen(
                     }
                 }
             }
+            item {
+                Button(onClick = onReadVersion, enabled = !versionState.isBusy) {
+                    Text(if (versionState.isBusy) "Lese…" else "Firmware-Version lesen")
+                }
+            }
+            versionState.reply?.let { v -> item { Text(SensorHealthText.firmware(v)) } }
+            versionState.message?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
             item {
                 Text(
                     configState.info?.let { "Panel-Config: ${ConfigCache.ageText(it, nowMillis)} gelesen" }
