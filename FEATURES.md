@@ -1930,3 +1930,10 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - The macOS, Android and Wear OS `EventText` show `Clock set (<transport>)` and `RTC trimmed (<transport>)` with the transports `USB` and `BLE`. A transport or action above 1 gives the raw text. The Android and Wear OS sources stay equal.
 - `tests/fixtures/events_reply_sample.txt` holds two `CLOCK_SET` rows (detail 0 and 257) before the `FUTURE_EVENT` row and a new `CRC32` line.
 - Tests: the host test asserts detail `0x0000` (USB `TIME SET`), `0x0101` (BLE `RTC TRIM`), no event for a bad date, a failed write and a failed trim, code 17 accepted and code 18 rejected. `EventTextTests` and both `EventTextTest` classes assert `0x0000`, `0x0101` and the raw text of `0x0002`.
+
+## Panel silence notification in the Android app
+
+- `protocol/SilenceWatch.kt` of the Android app is a copy of the Wear OS file and differs only in the `package` line. `scripts/check-protocol-sync.sh` compares it (the `FILES` list has 14 entries).
+- `BleScanService` creates one `SilenceWatch` when the scan starts. It calls `onFrame()` for each decoded frame and `check()` once each minute on the main looper (`SILENCE_CHECK_MS` 60000). The frame callback and the timer run on the main thread.
+- `SILENT` posts the notification `Panel silent since <HH:mm>` (time of the last frame, id 901 `SILENCE_NOTIFICATION_ID`) on the alert channel `rlcd_ventilation_channel` without vibration. `BACK` cancels it. A stop of the scan, `onDestroy` and a new scan start cancel it too. Nothing posts before the first frame.
+- `BleScanService.isSilenceTimerActive` is true only while the timer is queued. `BleScanServiceTest.stoppedServiceHasNoSilenceTimer` asserts it is false for a stopped service. `SilenceWatchTest` is a copy of the Wear OS test.
