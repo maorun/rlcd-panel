@@ -7,6 +7,7 @@ import com.rlcdpanel.watch.protocol.ReplyAssembler
 import com.rlcdpanel.watch.protocol.ResetState
 import com.rlcdpanel.watch.protocol.Shtc3State
 import com.rlcdpanel.watch.protocol.StatusReply
+import com.rlcdpanel.watch.protocol.StatusSensor
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -18,6 +19,19 @@ class SensorHealthTextTest {
             ?: throw AssertionError("fixture gave no reply")
 
     private fun fixtureLines(): List<String> = (fixtureReply() as ConsoleReply.Frame).lines
+    private fun sensor(moldHours: Int?) =
+        StatusSensor(1, "A", 20.0, 50.0, 80.0, -60.0, 10.0, "OK", "WOIO", moldHours)
+
+    @Test
+    fun moldText() {
+        assertEquals("Schimmel 0 h", SensorHealthText.mold(sensor(0)))
+        assertEquals("⚠ Schimmel 5 h", SensorHealthText.mold(sensor(5)))
+        assertEquals("Schimmel --", SensorHealthText.mold(sensor(null)))
+        assertFalse(SensorHealthText.isMold(sensor(0)))
+        assertTrue(SensorHealthText.isMold(sensor(5)))
+        assertFalse(SensorHealthText.isMold(sensor(null)))
+    }
+
     @Test
     fun sdFreeText() {
         assertEquals("SD frei 14820 MB", SensorHealthText.sdFree(14820))

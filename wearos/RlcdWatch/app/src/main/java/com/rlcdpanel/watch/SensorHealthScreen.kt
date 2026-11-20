@@ -80,6 +80,11 @@ object SensorHealthText {
     fun rssi(sensor: StatusSensor): String = sensor.rssi?.let { "${it.toInt()} dBm" } ?: "-- dBm"
     fun rate(rate: ReceptionRate?): String = rate?.let { "Empfang ${it.received}/${it.scans} (${it.percent} %)" } ?: "Empfang --"
     fun isRateWeak(rate: ReceptionRate?): Boolean = rate?.isWeak == true
+
+    /** Hours above `mold_alert_limit_rh` in the last 24 hours; the warning mark shows above 0 hours. */
+    fun mold(sensor: StatusSensor): String =
+        sensor.moldHours?.let { (if (it > 0) "$WARNING " else "") + "Schimmel $it h" } ?: "Schimmel --"
+    fun isMold(sensor: StatusSensor): Boolean = (sensor.moldHours ?: 0) > 0
     const val CLOCK_WARN_SECONDS = 120L
 
     /** True for an offset above 120 s in either direction, for `valid=0` and for `osf=1`. */
@@ -351,6 +356,11 @@ fun SensorHealthScreen(
                                     (if (SensorHealthText.isRateWeak(rate)) "${SensorHealthText.WARNING} " else "") + SensorHealthText.rate(rate),
                                     fontSize = 10.sp,
                                     color = if (SensorHealthText.isRateWeak(rate)) Color(0xFFFFB74D) else Color.Unspecified
+                                )
+                                Text(
+                                    SensorHealthText.mold(sensor),
+                                    fontSize = 10.sp,
+                                    color = if (SensorHealthText.isMold(sensor)) Color(0xFFFFB74D) else Color.Unspecified
                                 )
                             }
                         }
