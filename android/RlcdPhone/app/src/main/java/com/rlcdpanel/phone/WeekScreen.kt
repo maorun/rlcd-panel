@@ -108,6 +108,7 @@ fun WeekScreen(
     state: WeekState,
     panelConfig: PanelConfig,
     onRead: () -> Unit,
+    onShare: () -> Unit,
     onBack: () -> Unit
 ) {
     val barColor = MaterialTheme.colorScheme.primary
@@ -124,6 +125,7 @@ fun WeekScreen(
                     Button(onClick = onRead, enabled = !state.isReading) {
                         Text(if (state.isReading) "Lese…" else "Read 7-day chart")
                     }
+                    OutlinedButton(onClick = onShare, enabled = state.rows.isNotEmpty()) { Text("CSV teilen") }
                 }
             }
             item {

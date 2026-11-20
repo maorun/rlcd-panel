@@ -17,7 +17,7 @@ object EventCsv {
     }
 
     /** Quotes a field that holds a comma, a quote or a line break, and doubles each inner quote. */
-    private fun quote(field: String): String =
+    internal fun quote(field: String): String =
         if (field.any { it == ',' || it == '"' || it == '\n' || it == '\r' }) {
             "\"" + field.replace("\"", "\"\"") + "\""
         } else field
