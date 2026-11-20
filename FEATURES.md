@@ -2095,4 +2095,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `MainActivity` feeds `WallWatch` on each new telemetry frame in foreground and posts `<name>: Wand <N> %` through `rlcd_ventilation_channel` with notification ID `2000 + tile`.
 - Tests: `WallWatchTest` asserts thresholds, suppression within 6 hours, re-trigger after 6 hours, null release, and per-tile isolation. `WallTextTest` asserts value range and format output.
 
+## Event filter in the Android event log
+
+- Pure object `EventFilter` (`com.rlcdpanel.phone.protocol`) groups events into `ALERTS`, `SENSORS`, `POWER`, `CONFIG` and `OTHER`.
+- Name lists equal `EventFilter.swift`; any unlisted event falls into `OTHER`.
+- `EventFilter.apply(rows, categories)` filters rows while keeping their order; an empty selection keeps all rows.
+- `EventLogScreen` shows scrollable `FilterChip` items for the categories above the event cards and filters the displayed items in screen state.
+- `Share CSV` retains all rows unfiltered; no console command is sent on filter changes.
+- Tests in `EventFilterTest` assert the 18 rows of `events_reply_sample.txt`, exact counts per category, fallback to `OTHER` for unlisted codes, and set equality with `EventFilter.swift`.
+
+
 
