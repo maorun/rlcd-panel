@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Panel silence notification in the Android app
-  - Rank: [Total: 31, Use: 7, Setup: 6, Harmony: 9, Safety: 9, Effort: M]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SilenceWatch.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/SilenceWatchTest.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/BleScanService.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/BleScanServiceTest.kt, scripts/check-protocol-sync.sh
-  - Goal: The macOS app and the Wear OS app tell the user when the panel stops to send telemetry frames for 35 minutes. The Android app shows the last values without a warning, so a dead panel battery or a crashed panel stays hidden. Copy `SilenceWatch.kt` of `wearos/RlcdWatch` into the Android protocol package without a change other than the `package` line. Add `SilenceWatch.kt` to `FILES` of `scripts/check-protocol-sync.sh`. In `BleScanService`, call `onFrame()` for each decoded frame and `check()` on a timer of 60 s. Post one notification `Panel silent since <HH:mm>` on the alert channel for `SILENT`, and cancel it for `BACK`. Post nothing before the first frame. Stop the timer when the scan service stops.
-  - Acceptance test: Run the copied `SilenceWatchTest` with an injected clock: assert `NONE` before the first frame, `NONE` at exactly 35 minutes, `SILENT` once at 35 minutes 1 second, `BACK` once for the next frame and `NONE` for a clock that ran back. In `BleScanServiceTest`, assert that a stopped service has no silence timer. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`, `./scripts/check-protocol-sync.sh` and `./scripts/check-protocol-sync.sh --self-test`.
-
 - [ ] Rejected packet list in the macOS diagnostics report
   - Rank: [Total: 30, Use: 4, Setup: 8, Harmony: 8, Safety: 10, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/DiagnosticsReport.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsReportTests.swift, tests/fixtures/rejects_reply_sample.txt

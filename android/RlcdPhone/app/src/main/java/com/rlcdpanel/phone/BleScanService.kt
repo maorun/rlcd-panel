@@ -11,7 +11,9 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ServiceInfo
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.VibrationEffect
 import android.os.Vibrator
 import android.os.VibratorManager
@@ -19,6 +21,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import com.rlcdpanel.phone.protocol.AlertMask
 import com.rlcdpanel.phone.protocol.AlertTransitions
+import com.rlcdpanel.phone.protocol.SilenceWatch
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryHistory
 import com.rlcdpanel.phone.protocol.TelemetryHistoryStore
@@ -27,6 +30,9 @@ import com.rlcdpanel.phone.widget.ClimateWidgetModel
 import com.rlcdpanel.phone.widget.WidgetSnapshotStore
 import androidx.glance.appwidget.updateAll
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.flow.StateFlow
@@ -48,6 +54,16 @@ class BleScanService : Service() {
 
     private var bleScanner: BleTelemetryScanner? = null
     private var lastNotificationText: String? = null
+    private var silenceWatch = SilenceWatch()
+    private val silenceHandler = Handler(Looper.getMainLooper())
+    private val silenceCheck = object : Runnable {
+        override fun run() {
+            if (silenceWatch.check() == SilenceWatch.Event.SILENT) {
+                postSilenceNotification(silenceWatch.lastFrameAtMillis)
+            }
+            silenceHandler.postDelayed(this, SILENCE_CHECK_MS)
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -144,13 +160,29 @@ class BleScanService : Service() {
         _isScanning.value = started
         if (started) {
             _statusMessage.value = "Suche..."
+            startSilenceWatch()
             updateForegroundNotification(FOREGROUND_NOTIFICATION_TEXT)
         } else {
             stopForegroundAndSelf()
         }
     }
 
+    private fun startSilenceWatch() {
+        silenceHandler.removeCallbacks(silenceCheck)
+        cancelSilenceNotification()
+        silenceWatch = SilenceWatch()
+        silenceTimerActive = true
+        silenceHandler.postDelayed(silenceCheck, SILENCE_CHECK_MS)
+    }
+
+    private fun stopSilenceWatch() {
+        silenceHandler.removeCallbacks(silenceCheck)
+        silenceTimerActive = false
+        cancelSilenceNotification()
+    }
+
     fun stopScanning() {
+        stopSilenceWatch()
         bleScanner?.stop()
         bleScanner = null
         _isScanning.value = false
@@ -173,6 +205,9 @@ class BleScanService : Service() {
     private fun handleIncomingSnapshot(incoming: TelemetrySnapshot) {
         if (!_isScanning.value || bleScanner == null) {
             return
+        }
+        if (silenceWatch.onFrame() == SilenceWatch.Event.BACK) {
+            cancelSilenceNotification()
         }
         val transition = computeTransition(_snapshot.value, incoming)
         _snapshot.value = transition.snapshot
@@ -307,6 +342,36 @@ class BleScanService : Service() {
         manager.notify(ALERT_NOTIFICATION_ID, notification)
     }
 
+    private fun postSilenceNotification(lastFrameMillis: Long?) {
+        val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        val since = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(lastFrameMillis ?: System.currentTimeMillis()))
+        val openApp = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .setContentTitle("RLCD Panel")
+            .setContentText("Panel silent since $since")
+            .setContentIntent(openApp)
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT)
+            .setOnlyAlertOnce(true)
+            .setAutoCancel(true)
+            .build()
+        manager.notify(SILENCE_NOTIFICATION_ID, notification)
+    }
+
+    private fun cancelSilenceNotification() {
+        (getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager)?.cancel(SILENCE_NOTIFICATION_ID)
+    }
+
     private fun getVibrator(): Vibrator? {
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val manager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as? VibratorManager
@@ -327,6 +392,7 @@ class BleScanService : Service() {
     }
 
     override fun onDestroy() {
+        stopSilenceWatch()
         historyStore?.let { store ->
             historyWriter.execute { saveLatest(store, _history, System.currentTimeMillis(), throttled = false) }
         }
@@ -347,6 +413,11 @@ class BleScanService : Service() {
         // One thread writes the file, so the main thread never waits for the disk and writes stay in order.
         private val historyWriter = java.util.concurrent.Executors.newSingleThreadExecutor()
         private val widgetWriter = java.util.concurrent.Executors.newSingleThreadExecutor()
+        @Volatile private var silenceTimerActive = false
+
+        /** True while the 60 s silence check timer of a running service is queued. */
+        val isSilenceTimerActive: Boolean get() = silenceTimerActive
+
         @Volatile private var lastWidgetSequence: Int? = null // written on widgetWriter only
 
         private val _history = MutableStateFlow(TelemetryHistory())
@@ -365,6 +436,8 @@ class BleScanService : Service() {
         const val ACTION_STOP = "com.rlcdpanel.phone.action.STOP_SCAN"
         const val NOTIFICATION_ID = 800
         const val ALERT_NOTIFICATION_ID = 900
+        const val SILENCE_NOTIFICATION_ID = 901
+        const val SILENCE_CHECK_MS = 60_000L
         const val SERVICE_CHANNEL_ID = "rlcd_scan_service_channel"
         const val ALERT_CHANNEL_ID = "rlcd_ventilation_channel"
         const val FOREGROUND_NOTIFICATION_TEXT = "Telemetrieempfang aktiv"
@@ -473,6 +546,7 @@ class BleScanService : Service() {
             _statusMessage.value = "Bereit"
             instance = null
             pendingStop = false
+            silenceTimerActive = false
         }
     }
 }

@@ -6,7 +6,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WATCH_DIR="wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol"
 PHONE_DIR="android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol"
-FILES=(AlertTransitions.kt Checksums.kt ChimeCommand.kt ClimateMath.kt ConsoleWire.kt EventsReply.kt EventText.kt PanelClock.kt PanelConfig.kt ReplyAssembler.kt SensorHealth.kt StatusReply.kt TelemetryFrame.kt)
+FILES=(AlertTransitions.kt Checksums.kt ChimeCommand.kt ClimateMath.kt ConsoleWire.kt EventsReply.kt EventText.kt PanelClock.kt PanelConfig.kt ReplyAssembler.kt SensorHealth.kt SilenceWatch.kt StatusReply.kt TelemetryFrame.kt)
 
 # compare_dirs <watch dir> <phone dir>: prints each differing file, returns 1 for a difference, 2 for a missing file.
 compare_dirs() {

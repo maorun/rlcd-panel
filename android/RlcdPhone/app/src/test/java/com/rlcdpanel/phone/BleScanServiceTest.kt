@@ -30,6 +30,13 @@ class BleScanServiceTest {
     }
 
     @Test
+    fun stoppedServiceHasNoSilenceTimer() {
+        assertFalse(BleScanService.isSilenceTimerActive)
+        assertEquals(60_000L, BleScanService.SILENCE_CHECK_MS)
+        assertEquals(901, BleScanService.SILENCE_NOTIFICATION_ID)
+    }
+
+    @Test
     fun testStateFlowUpdates() {
         BleScanService.setScanningForTest(true)
         assertTrue(BleScanService.isScanning.value)
