@@ -103,4 +103,17 @@ struct VentilationAdviceTests {
         #expect(VentilationAdvice.advice(forTile: -1, frame: f, frameDate: now, config: c, now: now) == nil)
         #expect(VentilationAdvice.advice(forTile: 0, frame: f, frameDate: now, config: config("0"), now: now) == nil)
     }
+
+    private func wallCfg(_ frsi: String) -> ConfigReply {
+        ConfigReply(values: ["wall_frsi_pct": frsi, "outdoor_slot": "2"])
+    }
+
+    @Test func wallRhValue() throws {
+        let indoor = TelemetryTile(temperatureC: 20, humidityPct: 50)
+        let outdoor = TelemetryTile(temperatureC: 0, humidityPct: 80)
+        let rh = try #require(VentilationAdvice.wallRh(tile: indoor, index: 1, outdoor: outdoor, config: wallCfg("70")))
+        #expect(rh >= 72.5 && rh <= 74.0)
+        #expect(VentilationAdvice.wallRh(tile: indoor, index: 1, outdoor: outdoor, config: wallCfg("0")) == nil)
+        #expect(VentilationAdvice.wallText(tile: indoor, index: 1, outdoor: outdoor, config: wallCfg("70")) == "Wall 73%")
+    }
 }
