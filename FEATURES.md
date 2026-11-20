@@ -2078,3 +2078,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `StatusSensor.moldHours` (`Int?`) in the macOS, phone and watch parsers is `nil` or `null` for `--` and a missing field. A bad number gives `ParseError.badLine` or `ParseException`.
 - The phone `SensorHealthScreen` shows `Schimmel <N> h` on each sensor row, with a warning symbol and the error colour above 0.
 - Tests: `testSerialStatusMoldHours`, `ReplyTests`, and both `StatusReplyTest` classes. `tests/fixtures/status_reply_sample.txt` holds the field; the CRC literal is `18c23d06`.
+
+## Panel diagnostics lines in the Wear OS sensor health screen
+
+- `SensorHealthScreen` of the Wear OS app shows the three lines `reset`, `shtc3` and `memory` after the free card space line.
+- `SensorHealthText.reset`, `shtc3` and `memory` format the texts with the same templates as the phone app: `Reset <reason>, abnormal <N|-->`, `SHTC3 nack <N>, short <N>, crc <N>, run <N>, retried <N>` and `Heap frei <N> B, min <N> B, größter Block <N> B, PSRAM <N> B`.
+- A missing line gives `Reset --`, `SHTC3 --` and `Heap --`.
+- An alert state (`isAbnormal`, `isAlert`, `isLow`) prefixes the text with `⚠ ` and displays warning color.
+- Tests in `SensorHealthTextTest` (watch and phone) assert the fixture texts, missing line fallbacks and warning conditions.
+

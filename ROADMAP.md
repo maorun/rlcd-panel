@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Panel diagnostics lines in the Wear OS sensor health screen
-  - Rank: [Total: 29, Use: 3, Setup: 8, Harmony: 8, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt
-  - Goal: The watch `StatusReply.kt` parses the `STATUS` lines `RESET`, `SHTC3` and `MEMORY` (`ResetState`, `Shtc3State`, `MemoryState`), but the watch `SensorHealthScreen` shows only the NTP state and the free card space. The user cannot see a watchdog reset, a failing onboard sensor or a low heap on the watch. Add `SensorHealthText.reset`, `shtc3` and `memory` to the watch `SensorHealthScreen.kt` with the same texts as the phone `SensorHealthText`: `Reset <reason>, abnormal <N|-->`, `SHTC3 nack <N>, short <N>, crc <N>, run <N>, retried <N>` and `Heap frei <N> B, min <N> B, größter Block <N> B, PSRAM <N> B`. Give `Reset --`, `SHTC3 --` and `Heap --` for a missing line. Show the three lines after the free card space line, with the `WARNING` prefix for `isAbnormal`, `isAlert` and `isLow`. Do not change `StatusReply.kt`.
-  - Acceptance test: In the watch `SensorHealthTextTest`, assert `Reset POWERON, abnormal 0` and the `SHTC3` text for the states of `tests/fixtures/status_reply_sample.txt`, `Reset PANIC, abnormal --` for a null `abnormalCount`, `Reset --`, `SHTC3 --` and `Heap --` for null. Assert the warning flags for `RESET reason=TASK_WDT abnormal=2`, `run=3` and `largest=16383`, and no warning for the fixture. Assert that the phone and the watch give the same three texts for the fixture. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` and `./scripts/check-protocol-sync.sh`.
-
 - [ ] Wall humidity notification in the Android app
   - Rank: [Total: 29, Use: 8, Setup: 3, Harmony: 8, Safety: 10, Effort: M]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/ventilation/WallWatch.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/PhoneDashboardScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/ventilation/WallWatchTest.kt
