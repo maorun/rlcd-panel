@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Free MicroSD space in the Wear OS sensor health screen
-  - Rank: [Total: 30, Use: 4, Setup: 7, Harmony: 9, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt
-  - Goal: The Wear OS `StatusReply` parses `sdFreeMb`, but `SensorHealthScreen` does not show it. The Android app and the macOS app show the free space and a warning below 100 MB. A full card stops the hourly log, and the watch user does not see it. Add `SensorHealthText.sdFree(mb)` with the text `SD frei <N> MB` or `SD frei --`, and `SensorHealthText.isSdLow(mb)` with the limit `SD_LOW_MB` 100, the same values as the Android `SensorHealthText`. Show the line below the NTP line, with the prefix `⚠ ` below the limit.
-  - Acceptance test: In the new `SensorHealthTextTest`, assert `SD frei 14820 MB`, `SD frei --` for null, `isSdLow(99)` true, `isSdLow(100)` false and `isSdLow(null)` false. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`.
-
 - [ ] Event filter in the macOS event list
   - Rank: [Total: 29, Use: 6, Setup: 6, Harmony: 7, Safety: 10, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/EventFilter.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/EventFilterTests.swift, macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift

@@ -1944,3 +1944,9 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - With `includeNames` false, `DiagnosticsReport` replaces the MAC of each `REJECTS` row with `<hidden>`. The header, the format, the reason, the count and the `DROPPED,<N>` row stay. With `includeNames` true, the rows stay unchanged.
 - A failed `REJECTS` reply gives the line `ERROR <reason>`. The other sections stay. The report holds no `CRC32` line.
 - Tests: `DiagnosticsReportTests` build a report from `tests/fixtures/rejects_reply_sample.txt`. They assert the command order, the section order, the hidden and the kept MACs, the missing `CRC32` line and the `ERROR` line.
+
+## Free MicroSD space in the Wear OS sensor health screen
+
+- `SensorHealthText.sdFree(mb)` returns `SD frei <N> MB`, or `SD frei --` for null. `SensorHealthText.isSdLow(mb)` is true for a known value below `SD_LOW_MB` (100). The values equal the Android `SensorHealthText`.
+- `SensorHealthScreen` shows the line below the NTP line when a `STATUS` reply exists. Below the limit, the line has the prefix `⚠ ` and the warning color.
+- Tests: `SensorHealthTextTest` asserts `SD frei 14820 MB`, `SD frei --`, `isSdLow(99)` true, and `isSdLow(100)` and `isSdLow(null)` false.

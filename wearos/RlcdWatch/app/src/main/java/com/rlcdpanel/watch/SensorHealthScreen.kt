@@ -76,6 +76,13 @@ object SensorHealthText {
 
     fun ntp(ntp: NtpState?): String? = ntp?.let { "Uhr-Sync ${if (it.ok) "ok" else "Fehler"}, ${it.failures} Fehlversuche" }
 
+    const val SD_LOW_MB = 100
+
+    fun sdFree(mb: Int?): String = if (mb != null) "SD frei $mb MB" else "SD frei --"
+
+    /** True for a known free space below [SD_LOW_MB]. */
+    fun isSdLow(mb: Int?): Boolean = mb != null && mb < SD_LOW_MB
+
     /** Text of a failed `MUTE` or `STATUS` reply that `ChimeCommand.failureText` does not word itself. */
     fun muteFallback(reply: ConsoleReply): String =
         if (reply is ConsoleReply.Corrupt && reply.error == ReplyError.Timeout) "Panel not in range"
@@ -209,6 +216,15 @@ fun SensorHealthScreen(
                                 textAlign = TextAlign.Center
                             )
                         }
+                    }
+                    item {
+                        val low = SensorHealthText.isSdLow(status.sdFreeMb)
+                        Text(
+                            text = (if (low) "${SensorHealthText.WARNING} " else "") + SensorHealthText.sdFree(status.sdFreeMb),
+                            fontSize = 10.sp,
+                            color = if (low) Color(0xFFFFB74D) else Color(0xFFB0BEC5),
+                            textAlign = TextAlign.Center
+                        )
                     }
                     items(status.sensors) { sensor ->
                         val rate = SensorHealthText.rateOf(status, sensor)
