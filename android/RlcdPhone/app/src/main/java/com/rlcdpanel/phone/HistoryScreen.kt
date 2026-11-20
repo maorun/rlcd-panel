@@ -26,10 +26,37 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.HistoryMetric
 import com.rlcdpanel.phone.protocol.HistoryPoint
+import com.rlcdpanel.phone.protocol.PanelHistoryRow
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryHistory
 import java.util.Locale
+
+/** State of the panel history read. `rows` hold the `HISTORY` reply; `readAtMillis` is the time of age 0. */
+data class PanelHistoryState(
+    val isReading: Boolean = false,
+    val rows: List<PanelHistoryRow> = emptyList(),
+    val readAtMillis: Long = 0L,
+    val loaded: Boolean = false,
+    val message: String? = null
+)
+
+object PanelHistoryChart {
+    /** The panel samples hourly, so a gap above 90 minutes breaks the line. */
+    const val MAX_GAP_MILLIS = 90L * 60 * 1000
+
+    private const val HOUR_MILLIS = 60L * 60 * 1000
+
+    /** Sensors with at least one temperature or humidity value, ascending. */
+    fun sensors(rows: List<PanelHistoryRow>): List<Int> =
+        rows.filter { it.temperatureC != null || it.humidityPct != null }.map { it.sensor }.distinct().sorted()
+
+    /** Points of one sensor, oldest first. Age 0 sits at [readAtMillis], the read time; the newest hourly sample is up to 1 h older. */
+    fun points(rows: List<PanelHistoryRow>, sensor: Int, readAtMillis: Long, humidity: Boolean): List<HistoryPoint> =
+        rows.filter { it.sensor == sensor }.sortedByDescending { it.ageHours }.map {
+            HistoryPoint(readAtMillis - it.ageHours * HOUR_MILLIS, if (humidity) it.humidityPct else it.temperatureC)
+        }
+}
 
 object HistoryScreenText {
     /** Newest rows in the shared text. A longer text risks a `TransactionTooLargeException`. */
@@ -88,6 +115,10 @@ fun HistoryScreen(
     history: TelemetryHistory,
     panelConfig: PanelConfig,
     nowMillis: Long,
+    panel: PanelHistoryState,
+    showPanel: Boolean,
+    onReadPanel: () -> Unit,
+    onLocal: () -> Unit,
     onShare: () -> Unit,
     onBack: () -> Unit
 ) {
@@ -103,7 +134,17 @@ fun HistoryScreen(
                         history.windowPoints(windowNow, i, HistoryMetric.HUMIDITY)
                 }.filterValues { (temp, _) -> temp.any { it.value != null } }
             }
-            val tiles = series.keys.toList()
+            val panelView = showPanel && panel.loaded
+            val panelSeries = remember(panel) {
+                PanelHistoryChart.sensors(panel.rows).associateWith { i ->
+                    PanelHistoryChart.points(panel.rows, i, panel.readAtMillis, false) to
+                        PanelHistoryChart.points(panel.rows, i, panel.readAtMillis, true)
+                }
+            }
+            val shown = if (panelView) panelSeries else series
+            val shownNow = if (panelView) panel.readAtMillis else windowNow
+            val maxGap = if (panelView) PanelHistoryChart.MAX_GAP_MILLIS else HistoryChartGeometry.MAX_GAP_MILLIS
+            val tiles = shown.keys.toList()
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -112,11 +153,29 @@ fun HistoryScreen(
                 item {
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(onClick = onBack) { Text("Zurück") }
-                        Button(onClick = onShare, enabled = history.rows.isNotEmpty()) { Text("Share CSV") }
+                        Button(onClick = onShare, enabled = history.rows.isNotEmpty() && !panelView) { Text("Share CSV") }
+                    }
+                }
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Button(onClick = onReadPanel, enabled = !panel.isReading) {
+                            Text(if (panel.isReading) "Lese Panel…" else "Panel-Verlauf lesen")
+                        }
+                        if (panelView) OutlinedButton(onClick = onLocal) { Text("Lokal") }
                     }
                 }
                 item {
                     Text(
+                        when {
+                            panel.message != null -> panel.message
+                            panelView -> "Panel-Verlauf: 24 Stundenwerte aus dem Speicher des Panels."
+                            else -> "Lokaler Verlauf der empfangenen Frames."
+                        },
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                item {
+                    if (!panelView) Text(
                         "Verlauf der letzten 24 Stunden. Der Verlauf wächst nur, solange die App scannt. Share CSV sendet die letzten ${HistoryScreenText.SHARE_MAX_ROWS} Zeilen.",
                         style = MaterialTheme.typography.bodySmall
                     )
@@ -128,9 +187,9 @@ fun HistoryScreen(
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(panelConfig.tileName(index), style = MaterialTheme.typography.titleMedium)
-                            val (temp, rh) = series.getValue(index)
-                            MetricChart(temp, windowNow, "Temperatur", "°C", Color(0xFFFF8A65))
-                            MetricChart(rh, windowNow, "Feuchte", "%RH", Color(0xFF4FC3F7))
+                            val (temp, rh) = shown.getValue(index)
+                            MetricChart(temp, shownNow, "Temperatur", "°C", Color(0xFFFF8A65), maxGap)
+                            MetricChart(rh, shownNow, "Feuchte", "%RH", Color(0xFF4FC3F7), maxGap)
                         }
                     }
                 }
@@ -141,12 +200,12 @@ fun HistoryScreen(
 }
 
 @Composable
-private fun MetricChart(points: List<HistoryPoint>, nowMillis: Long, label: String, unit: String, color: Color) {
+private fun MetricChart(points: List<HistoryPoint>, nowMillis: Long, label: String, unit: String, color: Color, maxGapMillis: Long = HistoryChartGeometry.MAX_GAP_MILLIS) {
     val values = points.mapNotNull { it.value }
     val lo = values.minOrNull() ?: 0.0
     val hi = values.maxOrNull() ?: 1.0
     val from = nowMillis - TelemetryHistory.WINDOW_MILLIS
-    val segments = HistoryChartGeometry.segments(points, from, nowMillis, lo, hi)
+    val segments = HistoryChartGeometry.segments(points, from, nowMillis, lo, hi, maxGapMillis)
     Text("$label ${HistoryScreenText.range(points, unit)}", style = MaterialTheme.typography.bodySmall)
     Canvas(modifier = Modifier.fillMaxWidth().height(80.dp)) {
         drawLine(Color.Gray, Offset(0f, size.height), Offset(size.width, size.height), strokeWidth = 1f)

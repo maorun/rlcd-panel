@@ -1,5 +1,4 @@
 package com.rlcdpanel.phone
-
 import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -59,6 +58,7 @@ import com.rlcdpanel.phone.protocol.VersionReply
 import com.rlcdpanel.phone.protocol.WeekCsv
 import com.rlcdpanel.phone.protocol.WeekReply
 import com.rlcdpanel.phone.protocol.WeekRow
+import com.rlcdpanel.phone.protocol.HistoryReply
 import com.rlcdpanel.phone.ventilation.OutdoorClimate
 import com.rlcdpanel.phone.ventilation.LocationInput
 import com.rlcdpanel.phone.ventilation.OutdoorLocation
@@ -110,6 +110,8 @@ class MainActivity : ComponentActivity() {
     private var showHistory by mutableStateOf(false)
     private var showCalib by mutableStateOf(false)
     private var showWeek by mutableStateOf(false)
+    private var panelHistory by mutableStateOf(PanelHistoryState())
+    private var showPanelHistory by mutableStateOf(false)
     private var showEvents by mutableStateOf(false)
     private var eventState by mutableStateOf(EventLogState())
     private var showFinder by mutableStateOf(false)
@@ -202,10 +204,14 @@ class MainActivity : ComponentActivity() {
                     history = history,
                     panelConfig = panelConfig,
                     nowMillis = nowMillis,
+                    panel = panelHistory,
+                    showPanel = showPanelHistory,
+                    onReadPanel = { withConsolePermission { readPanelHistory() } },
+                    onLocal = { showPanelHistory = false },
                     onShare = { shareHistoryCsv(history) },
-                    onBack = { showHistory = false }
+                    onBack = { closePanelHistory() }
                 )
-                BackHandler { showHistory = false }
+                BackHandler { closePanelHistory() }
                 return@setContent
             }
             if (showEvents) {
@@ -445,6 +451,7 @@ class MainActivity : ComponentActivity() {
         healthState = healthState.copy(isReading = false)
         configState = configState.copy(isReading = false)
         if (weekState.isReading) weekState = WeekState(message = "Abgebrochen. Erneut lesen.")
+        if (panelHistory.isReading) panelHistory = PanelHistoryState(message = "Abgebrochen. Erneut lesen.")
         if (eventState.isReading) eventState = EventLogState(message = "Abgebrochen. Erneut lesen.")
         if (rejectsState.isReading) rejectsState = RejectsState(message = "Abgebrochen. Erneut lesen.")
         if (versionState.isBusy) versionState = VersionState(message = "Abgebrochen. Erneut lesen.")
@@ -467,6 +474,7 @@ class MainActivity : ComponentActivity() {
             if (grants.isNotEmpty() && grants.values.all { it }) action()
             else if (showEvents) eventState = EventLogState(message = "Bluetooth-Berechtigung fehlt")
             else if (showRejects) rejectsState = RejectsState(message = "Bluetooth-Berechtigung fehlt")
+            else if (showHistory) panelHistory = PanelHistoryState(message = "Bluetooth-Berechtigung fehlt")
             else if (showWeek) weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
             else if (showFinder) finderState = finderState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else if (showSlots) slotState = slotState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
@@ -537,6 +545,34 @@ class MainActivity : ComponentActivity() {
                     EventLogState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
                 }
                 else -> EventLogState(message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
+    private fun closePanelHistory() {
+        consoleClient.cancel()
+        pendingConsoleAction = null
+        panelHistory = PanelHistoryState()
+        showPanelHistory = false
+        showHistory = false
+        if (!scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
+    }
+
+    /** Sends `HISTORY` after a tap. A failed read keeps the local curves. */
+    private fun readPanelHistory() {
+        stopBleScan()
+        panelHistory = PanelHistoryState(isReading = true)
+        showPanelHistory = false
+        consoleClient.send("HISTORY") { reply ->
+            val readAt = System.currentTimeMillis()
+            when (reply) {
+                is ConsoleReply.Frame -> try {
+                    panelHistory = PanelHistoryState(rows = HistoryReply.parse(reply.lines), readAtMillis = readAt, loaded = true)
+                    showPanelHistory = true
+                } catch (e: ParseException) {
+                    panelHistory = PanelHistoryState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
+                }
+                else -> panelHistory = PanelHistoryState(message = BleConsoleClient.errorText(reply))
             }
         }
     }
@@ -756,7 +792,7 @@ class MainActivity : ComponentActivity() {
 
     /** Runs [action] after the Bluetooth permissions; the action sends console commands. */
     private fun withConsolePermission(action: () -> Unit) {
-        if (calibState.isBusy || chimeState.isBusy || weekState.isReading || eventState.isReading || rejectsState.isReading || finderState.isBusy || slotState.isBusy || consoleClient.isRunning) return
+        if (calibState.isBusy || chimeState.isBusy || weekState.isReading || panelHistory.isReading || eventState.isReading || rejectsState.isReading || finderState.isBusy || slotState.isBusy || consoleClient.isRunning) return
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
@@ -766,6 +802,7 @@ class MainActivity : ComponentActivity() {
             pendingConsoleAction = action
             if (showEvents) eventState = EventLogState(isReading = true)
             else if (showRejects) rejectsState = RejectsState(isReading = true)
+            else if (showHistory) panelHistory = PanelHistoryState(isReading = true)
             else if (showWeek) weekState = WeekState(isReading = true)
             else if (showFinder) finderState = finderState.copy(isBusy = true, message = null)
             else if (showSlots) slotState = slotState.copy(isBusy = true, message = null)
