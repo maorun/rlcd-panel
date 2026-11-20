@@ -275,6 +275,38 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         #expect(try DiagnosticsReply.parse(otherLines: [:]).noise == nil)
     }
 
+    @Test func parsesChimeLine() throws {
+        let m = try ChimeMetrics.parse(line: "CHIME repeat_h=2 bits=02 last_s=3600 next_s=3600")
+        #expect(m == ChimeMetrics(repeatHours: 2, bits: 2, lastS: 3600, nextS: 3600))
+        let noNext = try ChimeMetrics.parse(line: "CHIME repeat_h=2 bits=02 last_s=3600 next_s=--")
+        #expect(noNext.nextS == nil)
+        let noLast = try ChimeMetrics.parse(line: "CHIME repeat_h=0 bits=00 last_s=-- next_s=--")
+        #expect(noLast.lastS == nil)
+        let d = try DiagnosticsReply.parse(otherLines: ["CHIME": "CHIME repeat_h=2 bits=02 last_s=3600 next_s=3600"])
+        #expect(d.chime?.nextS == 3600)
+        #expect(try DiagnosticsReply.parse(otherLines: [:]).chime == nil)
+    }
+
+    @Test func chimeRejectsBadFields() {
+        for bad in ["CHIME repeat_h=25 bits=02 last_s=1 next_s=1", "CHIME repeat_h=2 bits=2 last_s=1 next_s=1",
+                    "CHIME repeat_h=2 bits=0g last_s=1 next_s=1", "CHIME repeat_h=2 bits=02 last_s=x next_s=1",
+                    "CHIME repeat_h=2 bits=02 last_s=1 next_s=-1", "CHIME repeat_h=2 bits=02 last_s=1",
+                    "CHIME repeat_h=-- bits=02 last_s=1 next_s=1", "CHIME repeat_h=2 last_s=1 next_s=1"] {
+            #expect(throws: ParseError.badLine(bad)) { try ChimeMetrics.parse(line: bad) }
+        }
+    }
+
+    @Test func chimeReminderTexts() throws {
+        #expect(try ChimeMetrics.parse(line: "CHIME repeat_h=2 bits=02 last_s=100 next_s=5400").reminderText == "Next reminder in 1 h 30 min")
+        #expect(try ChimeMetrics.parse(line: "CHIME repeat_h=0 bits=02 last_s=-- next_s=--").reminderText == "Reminder off")
+        #expect(try ChimeMetrics.parse(line: "CHIME repeat_h=2 bits=00 last_s=-- next_s=--").reminderText == "No reminder due")
+        #expect(try ChimeMetrics.parse(line: "CHIME repeat_h=2 bits=00 last_s=60 next_s=60").reminderText == "No reminder due")
+        #expect(try ChimeMetrics.parse(line: "CHIME repeat_h=2 bits=02 last_s=-- next_s=--").reminderText == "No reminder due")
+        // An overdue reminder has next_s 0: the nominal due time is now.
+        #expect(try ChimeMetrics.parse(line: "CHIME repeat_h=2 bits=02 last_s=7200 next_s=0").reminderText == "Next reminder in 0 h 0 min")
+        #expect(try ChimeMetrics.parse(line: "CHIME repeat_h=24 bits=FF last_s=0 next_s=86400").reminderText == "Next reminder in 24 h 0 min")
+    }
+
     @Test func noiseRejectsBadFields() {
         for bad in ["NOISE db=48 band=LOUDER peak_db=71 peak_hour=19 events_sum=12",
                     "NOISE db=141 band=LOUD peak_db=71 peak_hour=19 events_sum=12",
