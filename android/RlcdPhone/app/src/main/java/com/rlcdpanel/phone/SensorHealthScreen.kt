@@ -23,6 +23,7 @@ import com.rlcdpanel.phone.protocol.ConfigCache
 import com.rlcdpanel.phone.protocol.ConfigCacheInfo
 import com.rlcdpanel.phone.protocol.MemoryState
 import com.rlcdpanel.phone.protocol.NtpState
+import com.rlcdpanel.phone.protocol.RtcState
 import com.rlcdpanel.phone.protocol.ResetState
 import com.rlcdpanel.phone.protocol.Shtc3State
 import com.rlcdpanel.phone.protocol.TimeReply
@@ -39,7 +40,8 @@ data class SensorHealthState(
     val sdFreeMb: Int? = null,
     val reset: ResetState? = null,
     val shtc3: Shtc3State? = null,
-    val memory: MemoryState? = null
+    val memory: MemoryState? = null,
+    val rtc: RtcState? = null
 )
 
 /** Cache of the last `CONFIG` read: [info] is null without a cache; [message] tells a failed read. */
@@ -56,6 +58,9 @@ data class ClockState(
     val offsetSeconds: Long? = null,
     val message: String? = null
 )
+
+/** State of one `RTC TRIM` command: [isBusy] while it runs, [message] is the short result text. */
+data class RtcTrimState(val isBusy: Boolean = false, val message: String? = null)
 
 /** Result of one `VERSION` read: [reply], or a [message] that tells why there is none. */
 data class VersionState(
@@ -83,6 +88,20 @@ object SensorHealthText {
         s?.let { "SHTC3 nack ${it.nack}, short ${it.shortReads}, crc ${it.crc}, run ${it.run}, retried ${it.retried}" } ?: "SHTC3 --"
     fun memory(m: MemoryState?): String =
         m?.let { "Heap frei ${it.free} B, min ${it.min} B, größter Block ${it.largest} B, PSRAM ${it.psram} B" } ?: "Heap --"
+    fun rtc(r: RtcState?): String =
+        r?.let { "RTC Trim ${it.trim ?: "--"}, Drift ${it.driftPpm ?: "--"} ppm" } ?: "RTC Trim --, Drift -- ppm"
+    /** The trim button needs a writable console and a drift of 3 ppm or more in either direction. */
+    fun canTrim(r: RtcState?, canWrite: Boolean): Boolean = canWrite && r?.canTrim == true
+    /** Short text of the `RTC TRIM` reply line. */
+    fun trimResult(line: String): String {
+        val words = line.trim().split(' ').filter { it.isNotEmpty() }
+        return when {
+            words.size == 5 && words[0] == "OK" && words[1] == "RTC" && words[2] == "TRIM" -> "RTC getrimmt: ${words[3]} → ${words[4]}"
+            line.startsWith("ERR NO_DRIFT") -> "Kein Drift-Wert von 24 h oder mehr"
+            line.startsWith("ERR READ_ONLY") -> "Set ble_console=2 to apply"
+            else -> "Panel meldet: ${line.take(80)}"
+        }
+    }
     fun mold(row: SensorHealth): String =
         row.moldHours?.let { (if (it > 0) "⚠ " else "") + "Schimmel $it h" } ?: "Schimmel --"
     fun isMold(row: SensorHealth): Boolean = (row.moldHours ?: 0) > 0
@@ -108,6 +127,8 @@ fun SensorHealthScreen(
     onReadVersion: () -> Unit = {},
     onReadClock: () -> Unit = {},
     onSyncClock: () -> Unit = {},
+    rtcTrimState: RtcTrimState = RtcTrimState(),
+    onTrimRtc: () -> Unit = {},
     onBack: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -202,6 +223,17 @@ fun SensorHealthScreen(
                     )
                 }
             }
+            if (state.rows.isNotEmpty()) {
+                item {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(SensorHealthText.rtc(state.rtc))
+                        if (SensorHealthText.canTrim(state.rtc, panelConfig.canWrite)) {
+                            OutlinedButton(onClick = onTrimRtc, enabled = !rtcTrimState.isBusy) { Text("RTC trimmen") }
+                        }
+                    }
+                }
+            }
+            rtcTrimState.message?.let { item { Text(it) } }
             if (state.rows.isNotEmpty()) {
                 item {
                     val low = SensorHealthText.isSdLow(state.sdFreeMb)

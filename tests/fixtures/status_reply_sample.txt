@@ -6,6 +6,7 @@ SENSOR 4 Bad temp=19.5 rh=62.0 bat=9 rssi=-60 age=10 state=BATLOW mold_h=5
 SENSOR 5 Garage temp=12.0 rh=55.0 bat=80 rssi=-90 age=10 state=OK mold_h=--
 SD status=OK age=30 free_mb=14820
 RESET reason=POWERON abnormal=0
+RTC trim=0 drift_ppm=5
 NTP ok=1 failures=0 age_s=3600 next_s=82800
 SHTC3 nack=0 short=0 crc=0 run=0 retried=0
 BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0 thermopro=0
@@ -17,4 +18,4 @@ WAKE cause=TIMER boots=1234 battery_interval_s=600
 LATCH vent=002 dry=000 batlow=008 stale=004
 NOISE db=48 band=MODERATE peak_db=71 peak_hour=19 events_sum=12
 CHIME repeat_h=2 bits=02 last_s=3600 next_s=3600
-CRC32 b42a8075
+CRC32 7936259f

@@ -119,6 +119,7 @@ class MainActivity : ComponentActivity() {
     private var showSlots by mutableStateOf(false)
     private var showRejects by mutableStateOf(false)
     private var clockState by mutableStateOf(ClockState())
+    private var rtcTrimState by mutableStateOf(RtcTrimState())
     private var versionState by mutableStateOf(VersionState())
     private var rejectsState by mutableStateOf(RejectsState())
     private var slotState by mutableStateOf(SlotConfigState())
@@ -315,6 +316,8 @@ class MainActivity : ComponentActivity() {
                     onReadVersion = { ensureConsolePermissionAndRead(CONSOLE_VERSION) },
                     onReadClock = { ensureConsolePermissionAndRead(CONSOLE_TIME) },
                     onSyncClock = { ensureConsolePermissionAndRead(CONSOLE_TIME_SET) },
+                    rtcTrimState = rtcTrimState,
+                    onTrimRtc = { ensureConsolePermissionAndRead(CONSOLE_RTC_TRIM) },
                     onBack = { closeSensorHealth() }
                 )
                 BackHandler { closeSensorHealth() }
@@ -488,6 +491,8 @@ class MainActivity : ComponentActivity() {
             runConsoleCommand(command)
         } else if (command == CONSOLE_VERSION) {
             versionState = VersionState(message = "Bluetooth-Berechtigung fehlt")
+        } else if (command == CONSOLE_RTC_TRIM) {
+            rtcTrimState = RtcTrimState(message = "Bluetooth-Berechtigung fehlt")
         } else if (command == CONSOLE_TIME || command == CONSOLE_TIME_SET) {
             clockState = ClockState(message = "Bluetooth-Berechtigung fehlt")
         } else if (command == CONSOLE_CONFIG) {
@@ -911,6 +916,7 @@ class MainActivity : ComponentActivity() {
         consoleClient.cancel()
         healthState = SensorHealthState()
         clockState = ClockState()
+        rtcTrimState = RtcTrimState()
         versionState = VersionState()
         configState = configState.copy(isReading = false, message = null)
         showHealth = false
@@ -919,8 +925,9 @@ class MainActivity : ComponentActivity() {
 
     /** Sends [command] (`STATUS` or `CONFIG`) only after a tap on a button. */
     private fun ensureConsolePermissionAndRead(command: String) {
-        if (healthState.isReading || configState.isReading || clockState.isBusy || versionState.isBusy || consoleClient.isRunning) return
+        if (healthState.isReading || configState.isReading || clockState.isBusy || rtcTrimState.isBusy || versionState.isBusy || consoleClient.isRunning) return
         pendingConsoleCommand = command
+        if (command == CONSOLE_STATUS) rtcTrimState = RtcTrimState()
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
@@ -937,6 +944,8 @@ class MainActivity : ComponentActivity() {
     private fun markConsoleReading(command: String) {
         if (command == CONSOLE_VERSION) {
             versionState = VersionState(isBusy = true)
+        } else if (command == CONSOLE_RTC_TRIM) {
+            rtcTrimState = RtcTrimState(isBusy = true)
         } else if (command == CONSOLE_TIME || command == CONSOLE_TIME_SET) {
             clockState = ClockState(isBusy = true)
         } else if (command == CONSOLE_CONFIG) {
@@ -950,6 +959,7 @@ class MainActivity : ComponentActivity() {
         when (command) {
             CONSOLE_CONFIG -> readPanelConfig()
             CONSOLE_VERSION -> readVersion()
+            CONSOLE_RTC_TRIM -> trimRtc()
             CONSOLE_TIME -> readClock()
             CONSOLE_TIME_SET -> syncClock()
             else -> readSensorHealth()
@@ -968,6 +978,20 @@ class MainActivity : ComponentActivity() {
                     VersionState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
                 }
                 else -> VersionState(message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
+    /** Sends `RTC TRIM` after a tap, then `STATUS` after an `OK`. A failed command is not repeated. */
+    private fun trimRtc() {
+        stopBleScan()
+        rtcTrimState = RtcTrimState(isBusy = true)
+        consoleClient.send(CONSOLE_RTC_TRIM) { reply ->
+            if (reply is ConsoleReply.Status) {
+                rtcTrimState = RtcTrimState(message = SensorHealthText.trimResult(reply.line))
+                if (reply.line.startsWith("OK")) readSensorHealth()
+            } else {
+                rtcTrimState = RtcTrimState(message = BleConsoleClient.errorText(reply))
             }
         }
     }
@@ -1044,7 +1068,7 @@ class MainActivity : ComponentActivity() {
                 is ConsoleReply.Frame -> try {
                     val status = StatusReply.parse(reply.lines)
                     val limit = panelConfig.values["sensor_battery_limit_pct"]?.toDoubleOrNull()
-                    SensorHealthState(rows = SensorHealth.rows(status, limit), ntp = status.ntp, sdFreeMb = status.sdFreeMb, reset = status.reset, shtc3 = status.shtc3, memory = status.memory).also { s ->
+                    SensorHealthState(rows = SensorHealth.rows(status, limit), ntp = status.ntp, sdFreeMb = status.sdFreeMb, reset = status.reset, shtc3 = status.shtc3, memory = status.memory, rtc = status.rtc).also { s ->
                         sourceBadges = s.rows.mapNotNull { r -> r.badge?.let { r.slot to it } }.toMap()
                     }
                 } catch (e: ParseException) {
@@ -1282,5 +1306,6 @@ class MainActivity : ComponentActivity() {
 private const val CONSOLE_STATUS = "STATUS"
 private const val CONSOLE_VERSION = "VERSION"
 private const val CONSOLE_TIME = "TIME"
+private const val CONSOLE_RTC_TRIM = "RTC TRIM"
 private const val CONSOLE_TIME_SET = "TIME SET"
 private const val CONSOLE_CONFIG = "CONFIG"
