@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Event log CSV share in the Android app
-  - Rank: [Total: 28, Use: 5, Setup: 6, Harmony: 8, Safety: 9, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/EventCsv.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/EventCsvTest.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/EventLogScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt
-  - Goal: The Android event log screen shows the event ring, but the user cannot save it or send it with a fault report. The macOS app exports the events as CSV with a readable text column. Add `EventCsv.format(rows)` with the header `time,event,detail,text` and one row for each `EventRow`, oldest first. The `text` column holds `EventText.describe(row)`. Quote a field with a comma, a quote or a line break, and double each inner quote, the same rules as `CsvExport.swift`. Add a `Share CSV` button to `EventLogScreen` while rows exist. Send the text with `Intent.ACTION_SEND` and `text/plain`, the same way as `shareHistoryCsv`.
-  - Acceptance test: In `EventCsvTest`, read `tests/fixtures/events_reply_sample.txt` and assert the header, the row count, the text of one `SLOT_STALE` row, a quoted field for a text with a comma and only a header for an empty list. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`.
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Display refresh skip state in STATUS

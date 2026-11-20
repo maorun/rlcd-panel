@@ -39,6 +39,7 @@ data class EventLogState(
 fun EventLogScreen(
     state: EventLogState,
     onRead: () -> Unit,
+    onShare: () -> Unit,
     onBack: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -52,6 +53,9 @@ fun EventLogScreen(
                     OutlinedButton(onClick = onBack) { Text("Zurück") }
                     Button(onClick = onRead, enabled = !state.isReading) {
                         Text(if (state.isReading) "Lese…" else "Ereignisse lesen")
+                    }
+                    if (state.rows.isNotEmpty()) {
+                        OutlinedButton(onClick = onShare) { Text("Share CSV") }
                     }
                 }
             }

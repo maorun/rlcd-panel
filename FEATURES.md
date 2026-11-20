@@ -1957,3 +1957,9 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `EventFilter.apply(rows, categories)` keeps the row order. An empty set returns all rows.
 - `AppModel.eventCategory` holds the selection (`nil` shows all events). `AppModel.filteredEvents` applies it. The `Events` box shows a segmented `Picker` above the list. The `Export EVENTS (CSV)` button writes the filtered rows.
 - Tests: `EventFilterTests` read `tests/fixtures/events_reply_sample.txt` and assert 3 alerts, 4 sensors, 4 power, 2 config and 4 other rows, `FUTURE_EVENT` in `other`, all rows in unchanged order for an empty set, and the order for a mixed set.
+
+## Android event log CSV share
+
+- `EventCsv.format(rows)` (`protocol/EventCsv.kt`) returns the header `time,event,detail,text` and one line for each `EventRow`, oldest first. The `text` column holds `EventText.describe(row)`. A field with a comma, a quote or a line break gets quotes, and each inner quote is doubled. An empty list gives only the header.
+- `EventLogScreen` shows a `Share CSV` button while `state.rows` is not empty. `MainActivity.shareEventsCsv` sends the text with `Intent.ACTION_SEND`, `text/plain` and `Intent.createChooser`. The app sends no console command for it.
+- Tests: `EventCsvTest` reads `tests/fixtures/events_reply_sample.txt` and asserts the header, 17 lines for 16 rows, the text `Slot 3 lost` of one `SLOT_STALE` row, a quoted field with a comma, a quote and a newline, and only the header for an empty list.
