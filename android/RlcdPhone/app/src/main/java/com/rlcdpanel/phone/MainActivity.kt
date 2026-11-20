@@ -56,7 +56,9 @@ import com.rlcdpanel.phone.protocol.EventRow
 import com.rlcdpanel.phone.protocol.EventsReply
 import com.rlcdpanel.phone.protocol.RejectsReply
 import com.rlcdpanel.phone.protocol.VersionReply
+import com.rlcdpanel.phone.protocol.WeekCsv
 import com.rlcdpanel.phone.protocol.WeekReply
+import com.rlcdpanel.phone.protocol.WeekRow
 import com.rlcdpanel.phone.ventilation.OutdoorClimate
 import com.rlcdpanel.phone.ventilation.LocationInput
 import com.rlcdpanel.phone.ventilation.OutdoorLocation
@@ -221,6 +223,7 @@ class MainActivity : ComponentActivity() {
                     state = weekState,
                     panelConfig = panelConfig,
                     onRead = { withConsolePermission { readWeek() } },
+                    onShare = { shareWeekCsv(weekState.rows) },
                     onBack = { closeWeek() }
                 )
                 BackHandler { closeWeek() }
@@ -500,6 +503,15 @@ class MainActivity : ComponentActivity() {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, EventCsv.format(rows))
+        }
+        startActivity(Intent.createChooser(send, "Share CSV"))
+    }
+
+    /** Sends the seven-day rows as CSV text. */
+    private fun shareWeekCsv(rows: List<WeekRow>) {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/csv"
+            putExtra(Intent.EXTRA_TEXT, WeekCsv.format(rows, panelConfig))
         }
         startActivity(Intent.createChooser(send, "Share CSV"))
     }

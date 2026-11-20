@@ -1989,6 +1989,12 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `EventLogScreen` shows a `Share CSV` button while `state.rows` is not empty. `MainActivity.shareEventsCsv` sends the text with `Intent.ACTION_SEND`, `text/plain` and `Intent.createChooser`. The app sends no console command for it.
 - Tests: `EventCsvTest` reads `tests/fixtures/events_reply_sample.txt` and asserts the header, 17 lines for 16 rows, the text `Slot 3 lost` of one `SLOT_STALE` row, a quoted field with a comma, a quote and a newline, and only the header for an empty list.
 
+## Android seven-day CSV share
+
+- `WeekCsv.format(rows, panelConfig)` (`protocol/WeekCsv.kt`) returns the header `WeekReply.HEADER` plus `,name` and one line for each `WeekRow` in the order of the reply. The temperature and humidity values have one decimal place; a `null` value gives an empty field. The `name` column holds `PanelConfig.tileName(sensor)`. A field with a comma, a quote or a line break gets quotes (`EventCsv.quote`, now `internal`). An empty list gives only the header.
+- `WeekScreen` shows a `CSV teilen` button beside the read button. It is disabled while `state.rows` is empty. `MainActivity.shareWeekCsv` sends the text with `Intent.ACTION_SEND`, `text/csv` and `Intent.createChooser`. The app sends no console command for it.
+- Tests: `WeekCsvTest` reads `tests/fixtures/week_reply_sample.txt` and asserts the header, the first row `0,0,2026-11-17,15.0,19.5,40.0,55.0,Office`, the empty fields of the gap day with the quoted name `"Keller, unten"`, one line for each row, and only the header for an empty list.
+
 ## Display refresh skip state in STATUS
 
 - The console command `STATUS` shows the line `FRAME crc=<8 hex digits|--> skips=<N>` after `MEMORY` and before `CRC32`. It comes from the RTC copy of `FrameRefresh` (`SerialStatusSnapshot::frame`, set from `g_state.frame` in `rlcd_panel.ino`). `--` means CRC 0 (unknown); else 8 lowercase hex digits. The user can now see if the firmware skipped the panel flush. The RTC layout and `STATE_VERSION` do not change.
