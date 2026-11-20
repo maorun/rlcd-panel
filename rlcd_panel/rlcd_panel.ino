@@ -54,6 +54,7 @@ St7305Panel g_panel;
 bool g_frame_rendered = false;  // flushFramebuffer() ran and PATTERN did not overwrite it: g_framebuffer holds a render (console SCREEN)
 bool g_panel_started = false;   // g_panel.begin() ran in this wake cycle
 bool g_timer_wakeup = false;    // this wake cycle is a timer wakeup
+WakeupCause g_wake_cause = WakeupCause::POWER_ON; // cause of this wake cycle; a failed RTC restore sets POWER_ON, also after a KEY wakeup
 bool g_skip_counted = false;    // a skip of this wake cycle already counted in g_state.frame
 // Cycle counter tracking state; separate from g_state so a rejected state restore keeps it.
 RTC_DATA_ATTR CycleTracker::RtcState g_cycle_rtc;
@@ -1292,6 +1293,7 @@ void setup() {
     cause = WakeupCause::POWER_ON;
     cycle.begin(cause);
   }
+  g_wake_cause = cause;
   // Each start that is no deep sleep wakeup gets a RESET event, also a failed restore (see eventDetail).
   const int32_t reset_detail = ResetReasonCodec::eventDetail(g_reset_reason, cause == WakeupCause::POWER_ON &&
                                                                               g_reset_reason == ResetReason::DEEPSLEEP);
@@ -1498,6 +1500,13 @@ void setup() {
       snap.largest_heap = ESP.getMaxAllocHeap();
       snap.free_psram = ESP.getFreePsram();
       snap.frame = g_state.frame;
+      snap.wake_cause = g_wake_cause;
+      snap.boot_count = g_state.boot_count;
+      {
+        BatteryReading on_battery = g_state.battery;
+        on_battery.usb_powered = false;
+        snap.battery_interval_s = PowerManager::powerConfig(config(), on_battery, quietHours(), g_rtc_time).sleep_interval_s;
+      }
       snap.reception = &g_state.reception;
       snap.reset_reason = ResetReasonCodec::text(g_reset_reason);
       snap.rtc_trim_valid = g_rtc.readOffset(snap.rtc_trim);
