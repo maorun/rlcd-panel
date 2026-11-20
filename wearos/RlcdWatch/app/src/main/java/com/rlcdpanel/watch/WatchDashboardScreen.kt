@@ -36,8 +36,10 @@ import androidx.wear.compose.material.TimeText
 import com.rlcdpanel.watch.protocol.ClimateMath
 import com.rlcdpanel.watch.protocol.ComfortZone
 import com.rlcdpanel.watch.protocol.PanelConfig
+import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.protocol.TelemetryFrame
 import com.rlcdpanel.watch.protocol.TelemetryTile
+import com.rlcdpanel.watch.protocol.WallText
 import com.rlcdpanel.watch.ventilation.OutdoorClimate
 import com.rlcdpanel.watch.ventilation.OutdoorSource
 import com.rlcdpanel.watch.ventilation.VentilationAction
@@ -146,6 +148,8 @@ fun WatchDashboardScreen(
                     val visibleIndices = tiles.indices.filter { i ->
                         i == 0 || tiles[i].isValid
                     }
+                    val stale = nowMillis - snapshot.receivedAtMillis > TelemetryCache.MAX_AGE_MILLIS
+                    val outdoorTile = WallText.outdoorTile(tiles, panelConfig)
                     itemsIndexed(visibleIndices) { _, tileIndex ->
                         val name = panelConfig.tileName(tileIndex)
                         val isFocused = tileIndex == focusedRoomIndex
@@ -153,6 +157,7 @@ fun WatchDashboardScreen(
                             name = name,
                             tile = tiles[tileIndex],
                             isFocused = isFocused,
+                            wall = if (stale) null else WallText.format(tiles[tileIndex], tileIndex, outdoorTile, panelConfig),
                             onClick = { onSelectRoomIndex(tileIndex) }
                         )
                     }
@@ -451,6 +456,7 @@ private fun ClimateTileCard(
     name: String,
     tile: TelemetryTile,
     isFocused: Boolean,
+    wall: WallText.Result? = null,
     onClick: () -> Unit
 ) {
     val cardModifier = if (isFocused) {
@@ -527,6 +533,14 @@ private fun ClimateTileCard(
                         text = details.joinToString(" • "),
                         fontSize = 10.sp,
                         color = Color(0xFF90A4AE)
+                    )
+                }
+                if (wall != null) {
+                    Text(
+                        text = wall.text,
+                        fontSize = 10.sp,
+                        fontWeight = if (wall.warning) FontWeight.Bold else FontWeight.Normal,
+                        color = if (wall.warning) Color(0xFFFF8A65) else Color(0xFF90A4AE)
                     )
                 }
             } else {

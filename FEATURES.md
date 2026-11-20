@@ -2020,9 +2020,16 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 ## Wall surface humidity in the Android app
 
 - `ClimateMath.wallSurfaceRh(tInC, rhInPct, tOutC, frsi)` follows `ClimateMath::wallSurfaceRh` in `climate_math.h`. It gives `null` for bad input, `frsi` outside 0.50 to 0.95 and `tOutC` above `tInC`. The result clamps to 100 %RH. The phone and the watch `ClimateMath.kt` are equal, so `scripts/check-protocol-sync.sh` passes.
-- `WallText` (`PhoneDashboardScreen.kt`) reads `wall_frsi_pct` (divided by 100) and `outdoor_slot` from `PanelConfig.values`. `WallText.outdoorTile` takes the outdoor reading only from the panel tile of `outdoor_slot` (slots 1 to 5), not from Open-Meteo. `WallText.format(tile, index, outdoor, config)` returns `Wall <N>%` and a warning flag, or `null` for key value 0, a missing key, the outdoor card, an invalid tile and a missing outdoor tile.
+- `WallText` (`protocol/WallText.kt`) reads `wall_frsi_pct` (divided by 100) and `outdoor_slot` from `PanelConfig.values`. `WallText.outdoorTile` takes the outdoor reading only from the panel tile of `outdoor_slot` (slots 1 to 5), not from Open-Meteo. `WallText.format(tile, index, outdoor, config)` returns `Wall <N>%` and a warning flag, or `null` for key value 0, a missing key, the outdoor card, an invalid tile and a missing outdoor tile.
 - `WallText.isWarning(rhPct)` is true from 80.0 %RH. The flag uses the unrounded value. `PhoneDashboardScreen` shows the text below the detail line of each fresh indoor card and hides it on a stale frame. The warning shows in bold orange.
 - Tests: both `ClimateMathTest` classes read `tests/fixtures/wall_rh_vectors.txt` and assert each row within 0.1 %RH, and assert `null` for `frsi` 0.49, `t_out` above `t_in` and NaN input. `WallTextTest` (phone) asserts `Wall 73%` for 20 C, 50 %RH, 0 C and `wall_frsi_pct=70`, the `null` cases and the warning limit. Gradle tests run only in CI (no Android SDK on the dev host).
+
+## Wall surface humidity in the Wear OS app
+
+- `WallText` moved from `PhoneDashboardScreen.kt` into `protocol/WallText.kt` of the phone. The watch holds a copy in the package `com.rlcdpanel.watch.protocol`. `scripts/check-protocol-sync.sh` lists `WallText.kt` in `FILES` (alphabetical order), so the two copies stay equal.
+- The rules do not change: `Wall <N>%`, a warning from 80.0 %RH (`WARNING_RH_PCT`), `null` for `wall_frsi_pct=0`, the outdoor tile, a stale tile and a missing outdoor tile. The outdoor tile comes only from `WallText.outdoorTile` of the panel frame, not from Open-Meteo.
+- `WatchDashboardScreen` shows the text on each fresh indoor tile below the detail line with the absolute humidity. The warning shows in bold orange. The line is hidden for a stale frame (`TelemetryCache.MAX_AGE_MILLIS`) and without a panel config. The BLE scan and the tile service do not change.
+- Tests: `WallTextTest` (watch) asserts `Wall 73%` for 20 C, 50 %RH, 0 C and `wall_frsi_pct=70`, the `null` cases, `isWarning(79.9)` false and `isWarning(80.0)` true. The phone `WallTextTest` only gets the new import. Gradle tests run only in CI (no Android SDK on the dev host).
 
 ## Wake cycle metrics in the macOS diagnostics view
 
