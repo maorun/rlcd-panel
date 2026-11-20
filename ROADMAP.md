@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Event filter in the macOS event list
-  - Rank: [Total: 29, Use: 6, Setup: 6, Harmony: 7, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/EventFilter.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/EventFilterTests.swift, macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift
-  - Goal: The event list of the macOS app shows all events of the ring and of the `events_v1_YYYY.csv` files in one list. With 16 events in the ring and many events in a year file, the user cannot find the slot or power events quickly. Add `EventFilter` with the categories `alerts` (`ALERT_RISE`, `ALERT_FALL`, `ALERT_ACK`, `BATTERY_LOW_SET`, `BATTERY_LOW_CLEAR`, `EMPTY_PROTECTION`), `sensors` (`SLOT_ASSIGN`, `SLOT_RELEASE`, `SLOT_STALE`), `power` (`RESET`, `POWER_SOURCE`, `SD_FAULT`), `config` (`CONFIG_LOAD`, `CONFIG_SET`, `NTP_SYNC`, `MUTE_CHANGE`) and `other` for each other event name. `EventFilter.apply(rows, categories)` keeps the order. An empty set gives all rows. Add a `Picker` above the event list in `Views.swift`. Keep `CsvExport.events` on the filtered rows.
-  - Acceptance test: In `EventFilterTests`, read `tests/fixtures/events_reply_sample.txt` and assert the row count of each category, `other` for `FUTURE_EVENT`, all rows for an empty set and the unchanged order. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
-
 - [ ] Event log CSV share in the Android app
   - Rank: [Total: 28, Use: 5, Setup: 6, Harmony: 8, Safety: 9, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/EventCsv.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/EventCsvTest.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/EventLogScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt

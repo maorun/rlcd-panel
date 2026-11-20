@@ -1950,3 +1950,10 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `SensorHealthText.sdFree(mb)` returns `SD frei <N> MB`, or `SD frei --` for null. `SensorHealthText.isSdLow(mb)` is true for a known value below `SD_LOW_MB` (100). The values equal the Android `SensorHealthText`.
 - `SensorHealthScreen` shows the line below the NTP line when a `STATUS` reply exists. Below the limit, the line has the prefix `⚠ ` and the warning color.
 - Tests: `SensorHealthTextTest` asserts `SD frei 14820 MB`, `SD frei --`, `isSdLow(99)` true, and `isSdLow(100)` and `isSdLow(null)` false.
+
+## Event filter in the macOS event list
+
+- `EventFilter` (`EventFilter.swift`) sorts each event name into one `Category`: `alerts` (`ALERT_RISE`, `ALERT_FALL`, `ALERT_ACK`, `BATTERY_LOW_SET`, `BATTERY_LOW_CLEAR`, `EMPTY_PROTECTION`), `sensors` (`SLOT_ASSIGN`, `SLOT_RELEASE`, `SLOT_STALE`), `power` (`RESET`, `POWER_SOURCE`, `SD_FAULT`), `config` (`CONFIG_LOAD`, `CONFIG_SET`, `NTP_SYNC`, `MUTE_CHANGE`) and `other` (each other name, for example `EVENTS_DROPPED`, `CLOCK_SET` and an unknown name).
+- `EventFilter.apply(rows, categories)` keeps the row order. An empty set returns all rows.
+- `AppModel.eventCategory` holds the selection (`nil` shows all events). `AppModel.filteredEvents` applies it. The `Events` box shows a segmented `Picker` above the list. The `Export EVENTS (CSV)` button writes the filtered rows.
+- Tests: `EventFilterTests` read `tests/fixtures/events_reply_sample.txt` and assert 3 alerts, 4 sensors, 4 power, 2 config and 4 other rows, `FUTURE_EVENT` in `other`, all rows in unchanged order for an empty set, and the order for a mixed set.
