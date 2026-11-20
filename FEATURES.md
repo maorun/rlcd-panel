@@ -2230,3 +2230,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The shared `StatusReply.kt` of the phone and the watch parses the `STATUS` line `RTC trim=<N|--> drift_ppm=<N|-->` into `RtcState(trim, driftPpm)` (`StatusReply.rtc`). `--` gives a `null` field and a missing line gives `null`. A bad number and a trim outside -64 to 63 throw `ParseException`. `RtcState.canTrim` is true for a drift of 3 ppm or more in either direction.
 - `SensorHealthScreen` shows the row `RTC Trim <N>, Drift <N> ppm` and the button `RTC trimmen` only when `panelConfig.canWrite` is true and `canTrim` is true (`SensorHealthText.canTrim`). `MainActivity.trimRtc` sends `RTC TRIM` after a tap, then `STATUS` after an `OK`. `SensorHealthText.trimResult` shows `OK RTC TRIM <old> <new>`, `ERR NO_DRIFT` and `ERR READ_ONLY` as short texts.
 - Tests: `StatusReplyTest` (phone and watch) and `SensorHealthTextTest`. `tests/fixtures/status_reply_sample.txt` holds the line `RTC trim=0 drift_ppm=5` after `RESET` with a new `CRC32` (`7936259f`).
+
+## Chime reminder time in the macOS diagnostics view
+
+- `ChimeMetrics.parse(line:)` (`Diagnostics.swift`) parses `CHIME repeat_h=<N> bits=<2 hex digits> last_s=<N|--> next_s=<N|-->` into `repeatHours`, `bits`, `lastS` and `nextS`. `--` gives `nil`. `repeat_h` above 24, `bits` that are not 2 hex digits, a bad number and a missing field throw `ParseError.badLine`. `DiagnosticsReply.chime` is `nil` for a missing line.
+- `ChimeMetrics.reminderText` gives `Reminder off` for `repeatHours` 0, `No reminder due` for `bits` 0 or without `nextS`, else `Next reminder in <H> h <M> min`.
+- `DiagnosticsView` shows the text below the alert acknowledge rows.
+- Tests: `DiagnosticsTests` (`parsesChimeLine`, `chimeRejectsBadFields`, `chimeReminderTexts`).

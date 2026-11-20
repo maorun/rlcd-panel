@@ -271,6 +271,33 @@ public struct NoiseMetrics: Equatable {
     }
 }
 
+/// `CHIME repeat_h=<N> bits=<2 hex digits> last_s=<N|--> next_s=<N|-->`: the reminder timer of the panel chime.
+public struct ChimeMetrics: Equatable {
+    public static let maxRepeatHours = 24
+    public let repeatHours: Int
+    /// Alert bits that a reminder repeats.
+    public let bits: Int
+    public let lastS: Int?
+    public let nextS: Int?
+
+    public static func parse(line: String) throws -> ChimeMetrics {
+        let f = fieldMap(line)
+        guard let repeatHours = try counter(f, "repeat_h", line: line), repeatHours <= maxRepeatHours,
+              let bitsText = f["bits"], bitsText.utf8.count == 2,
+              bitsText.utf8.allSatisfy({ ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) || ($0 >= 0x41 && $0 <= 0x46) }),
+              let bits = Int(bitsText, radix: 16) else { throw ParseError.badLine(line) }
+        return ChimeMetrics(repeatHours: repeatHours, bits: bits,
+                            lastS: try counter(f, "last_s", line: line), nextS: try counter(f, "next_s", line: line))
+    }
+
+    /// `Reminder off`, `No reminder due` or `Next reminder in <H> h <M> min` (minutes rounded down).
+    public var reminderText: String {
+        if repeatHours == 0 { return "Reminder off" }
+        guard bits != 0, let nextS else { return "No reminder due" }
+        return "Next reminder in \(nextS / 3600) h \(nextS % 3600 / 60) min"
+    }
+}
+
 /// `MEMORY free=<N> min=<N> largest=<N> psram=<N>` (bytes).
 public struct MemoryMetrics: Equatable {
     /// `largest` below this value shows a warning.
@@ -413,12 +440,13 @@ public struct DiagnosticsReply: Equatable {
     public let wake: WakeMetrics?
     public let latch: LatchMetrics?
     public let noise: NoiseMetrics?
+    public let chime: ChimeMetrics?
 
     public init(shtc3: Shtc3Stats?, ble: BleRejectMetrics?, reset: ResetMetrics?, runtime: RuntimeMetrics?,
                 awake: AwakeMetrics?, reception: ReceptionMetrics?, rtcTrim: RtcTrimMetrics? = nil,
                 ntp: NtpMetrics? = nil, memory: MemoryMetrics? = nil, frame: FrameMetrics? = nil,
                 wake: WakeMetrics? = nil, latch: LatchMetrics? = nil,
-                noise: NoiseMetrics? = nil) {
+                noise: NoiseMetrics? = nil, chime: ChimeMetrics? = nil) {
         self.shtc3 = shtc3
         self.ble = ble
         self.reset = reset
@@ -432,6 +460,7 @@ public struct DiagnosticsReply: Equatable {
         self.wake = wake
         self.latch = latch
         self.noise = noise
+        self.chime = chime
     }
 
     /// `otherLines` of `StatusReply`. A present line with a bad counter throws `ParseError.badLine`.
@@ -449,7 +478,8 @@ public struct DiagnosticsReply: Equatable {
             frame: try otherLines["FRAME"].flatMap(FrameMetrics.parse(line:)),
             wake: try otherLines["WAKE"].map(WakeMetrics.parse(line:)),
             latch: try otherLines["LATCH"].map(LatchMetrics.parse(line:)),
-            noise: try otherLines["NOISE"].map(NoiseMetrics.parse(line:)))
+            noise: try otherLines["NOISE"].map(NoiseMetrics.parse(line:)),
+            chime: try otherLines["CHIME"].map(ChimeMetrics.parse(line:)))
     }
 
     public static func parse(status: StatusReply) throws -> DiagnosticsReply {

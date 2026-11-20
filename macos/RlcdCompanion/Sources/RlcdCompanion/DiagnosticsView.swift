@@ -105,6 +105,9 @@ struct DiagnosticsView: View {
                     if let s = model.status {
                         alertRows(s)
                     }
+                    if let c = model.diagnostics?.chime {
+                        Text(c.reminderText).font(.caption).foregroundStyle(.secondary)
+                    }
 
                     if let r = model.lastChimeResult {
                         Text("Chime reply: \(r)").font(.caption.monospaced())

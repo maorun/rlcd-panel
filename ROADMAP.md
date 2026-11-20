@@ -25,12 +25,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Chime reminder time in the macOS diagnostics view
-  - Rank: [Total: 27, Use: 4, Setup: 6, Harmony: 7, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsTests.swift
-  - Goal: Show the `CHIME` line of the entry "Chime reminder line in STATUS" beside the alert acknowledge buttons. Add `ChimeMetrics.parse(line:)` with `repeatHours`, `bits`, `lastS` and `nextS`, and add `DiagnosticsReply.chime`. Return `nil` for a missing line and `nil` fields for `--`. Throw `ParseError.badLine` for `repeat_h` above 24, `bits` that are not 2 hex digits and a bad number. Show `Next reminder in <H> h <M> min` when `nextS` exists, `Reminder off` for `repeatHours` 0 and `No reminder due` for `bits` 0.
-  - Acceptance test: In `DiagnosticsTests`, assert the values of `CHIME repeat_h=2 bits=02 last_s=3600 next_s=3600`, `nil` for `next_s=--` and `last_s=--`, `nil` without the line, and `ParseError.badLine` for `repeat_h=25` and `bits=2`. Assert the three texts of the view helper. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
-
 - [ ] Daily mold hours in the seven-day history
   - Rank: [Total: 25, Use: 6, Setup: 3, Harmony: 8, Safety: 8, Effort: M]
   - Location: rlcd_panel/sparkline.h, rlcd_panel/power_manager.h, rlcd_panel/serial_console.h, tests/test_firmware_logic.cpp, tests/fixtures/week_reply_sample.txt, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/WeekReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/WeekReply.kt, AGENTS.md
