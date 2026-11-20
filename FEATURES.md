@@ -2063,3 +2063,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `DiagnosticsView` shows the group `Panel badges` with one row for each sensor that has a badge (name from `StatusReply.sensors`) and `No badges` when each mask is 0.
 - `DiagnosticsReport` adds the line `Panel badges: <sensor> <badges>; ...` (or `Panel badges: none`) after the raw `LATCH` line.
 - Tests: `DiagnosticsTests` (values, badges, `nil`, bad fields) and `DiagnosticsReportTests` (report line).
+
+## Mold hours in the STATUS sensor lines
+
+- Each `SENSOR` line of the console command `STATUS` ends with ` mold_h=<N|-->`: the count of hourly samples above `mold_alert_limit_rh` in the 24-hour humidity history. The rules equal `DashboardView::formatMold`: `--` for fewer than 2 samples and for an empty, disabled or stale slot.
+- The line count, the RTC layout and `STATE_VERSION` do not change.
+- `StatusSensor.moldHours` (`Int?`) in the macOS, phone and watch parsers is `nil` or `null` for `--` and a missing field. A bad number gives `ParseError.badLine` or `ParseException`.
+- The phone `SensorHealthScreen` shows `Schimmel <N> h` on each sensor row, with a warning symbol and the error colour above 0.
+- Tests: `testSerialStatusMoldHours`, `ReplyTests`, and both `StatusReplyTest` classes. `tests/fixtures/status_reply_sample.txt` holds the field; the CRC literal is `18c23d06`.

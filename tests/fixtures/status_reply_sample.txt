@@ -1,9 +1,9 @@
-SENSOR 0 Onboard temp=21.4 rh=45.0 bat=-- rssi=-- age=120 state=OK
-SENSOR 1 Wohnzimmer temp=22.1 rh=48.5 bat=87 rssi=-61 age=14 state=OK
-SENSOR 2 Keller temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY
-SENSOR 3 Balkon temp=15.0 rh=70.0 bat=80 rssi=-60 age=2000 state=STALE
-SENSOR 4 Bad temp=19.5 rh=62.0 bat=9 rssi=-60 age=10 state=BATLOW
-SENSOR 5 Garage temp=12.0 rh=55.0 bat=80 rssi=-90 age=10 state=OK
+SENSOR 0 Onboard temp=21.4 rh=45.0 bat=-- rssi=-- age=120 state=OK mold_h=24
+SENSOR 1 Wohnzimmer temp=22.1 rh=48.5 bat=87 rssi=-61 age=14 state=OK mold_h=3
+SENSOR 2 Keller temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY mold_h=--
+SENSOR 3 Balkon temp=15.0 rh=70.0 bat=80 rssi=-60 age=2000 state=STALE mold_h=--
+SENSOR 4 Bad temp=19.5 rh=62.0 bat=9 rssi=-60 age=10 state=BATLOW mold_h=5
+SENSOR 5 Garage temp=12.0 rh=55.0 bat=80 rssi=-90 age=10 state=OK mold_h=--
 SD status=OK age=30 free_mb=14820
 RESET reason=POWERON abnormal=0
 NTP ok=1 failures=0 age_s=3600 next_s=82800
@@ -15,4 +15,4 @@ MEMORY free=212345 min=150000 largest=110592 psram=8300000
 FRAME crc=1a2b3c4d skips=12
 WAKE cause=TIMER boots=1234 battery_interval_s=600
 LATCH vent=002 dry=000 batlow=008 stale=004
-CRC32 f1855001
+CRC32 18c23d06

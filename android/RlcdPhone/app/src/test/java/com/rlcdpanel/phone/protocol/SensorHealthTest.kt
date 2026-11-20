@@ -181,4 +181,13 @@ class SensorHealthTest {
         assertEquals(null, reply.sensors[1].format)
         assertEquals(null, reply.sensors[1].badge)
     }
+
+    @Test
+    fun moldHoursFollowTheSlot() {
+        val frame = ReplyAssembler().append(Fixtures.file("status_reply_sample.txt").readBytes()) as ConsoleReply.Frame
+        val rows = SensorHealth.rows(StatusReply.parse(frame.lines), null)
+        assertEquals(listOf<Int?>(3, null, null, 5, null), rows.map { it.moldHours })
+        val none = SensorHealth.rows(status(listOf("SENSOR 1 A temp=1 rh=1 bat=1 rssi=-60 age=9 state=OK")), null)
+        assertEquals(null, none[0].moldHours)
+    }
 }
