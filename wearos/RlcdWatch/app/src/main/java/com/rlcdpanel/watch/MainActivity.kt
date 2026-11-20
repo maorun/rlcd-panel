@@ -74,6 +74,7 @@ class MainActivity : ComponentActivity() {
     private var pendingHealthRead = false
     private var clockState by mutableStateOf(ClockReadState())
     private var pendingClockRead = false
+    private var chimeState by mutableStateOf(ChimeTestState())
     private var showEvents by mutableStateOf(false)
     private var eventState by mutableStateOf(EventLogState())
     private var pendingEventsRead = false
@@ -250,7 +251,10 @@ class MainActivity : ComponentActivity() {
                     onSetMute = { setMute(it) },
                     onOpenEvents = { showEvents = true },
                     clockState = clockState,
-                    onReadClock = { readClock() }
+                    onReadClock = { readClock() },
+                    chimeState = chimeState,
+                    onSelectChime = { if (!chimeState.isTesting) chimeState = chimeState.copy(bit = it, message = null) },
+                    onTestChime = { testChime() }
                 )
                 return@setContent
             }
@@ -311,6 +315,7 @@ class MainActivity : ComponentActivity() {
         pendingEventsRead = false
         // An open permission dialog keeps pendingClockRead, so its result still starts the tapped TIME read.
         clockState = ClockReadState()
+        chimeState = chimeState.copy(isTesting = false)
         // Background scanning continues in BleScanService.
         super.onStop()
     }
@@ -498,6 +503,7 @@ class MainActivity : ComponentActivity() {
     /** Asks for the console permissions, then sends `STATUS` once. Only a tap in the sensor health screen calls it. */
     private fun readSensorHealth() {
         if (healthState.isReading || pendingHealthRead || pendingClockRead || isReadingConfig || consoleClient.isRunning) return
+        chimeState = chimeState.copy(message = null)
         healthState = healthState.copy(isReading = true, message = null)
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
@@ -541,6 +547,7 @@ class MainActivity : ComponentActivity() {
             healthState = healthState.copy(message = "Bluetooth-Berechtigung fehlt")
             return
         }
+        chimeState = chimeState.copy(message = null)
         healthState = healthState.copy(isMuting = true, message = null)
         consoleClient.send(ChimeCommand.mute(on)) { reply ->
             val failure = ChimeCommand.failureText(reply) { SensorHealthText.muteFallback(it) }
@@ -556,6 +563,27 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Sends `BEEP <bit>` once. Only a tap on the `Test chime` chip calls it. A failed command is not retried.
+     */
+    private fun testChime() {
+        if (chimeState.isTesting || healthState.isReading || healthState.isMuting || pendingClockRead || pendingHealthRead ||
+            pendingEventsRead || clockState.isReadingClock || isReadingConfig || consoleClient.isRunning
+        ) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
+        ) {
+            chimeState = chimeState.copy(message = "Bluetooth-Berechtigung fehlt", isError = true)
+            return
+        }
+        chimeState = chimeState.copy(isTesting = true, message = null, isError = false)
+        consoleClient.send(ChimeCommand.beep(chimeState.bit)) { reply ->
+            val failure = ChimeCommand.failureText(reply) { SensorHealthText.muteFallback(it) }
+            chimeState = SensorHealthText.chimeResult(chimeState, reply, failure)
         }
     }
 

@@ -28,6 +28,7 @@ import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
 import com.rlcdpanel.watch.console.BleConsoleClient
+import com.rlcdpanel.watch.protocol.ChimeCommand
 import com.rlcdpanel.watch.protocol.ConsoleReply
 import com.rlcdpanel.watch.protocol.NtpState
 import com.rlcdpanel.watch.protocol.TimeReply
@@ -55,6 +56,17 @@ data class ClockReadState(
     val clockReply: TimeReply? = null,
     val clockOffsetSeconds: Long? = null,
     val clockMessage: String? = null
+)
+
+/**
+ * State of the chime test. [bit] is the selected alert (0 to 7). [message] holds the last result text;
+ * [isError] marks a failed command.
+ */
+data class ChimeTestState(
+    val isTesting: Boolean = false,
+    val bit: Int = 0,
+    val message: String? = null,
+    val isError: Boolean = false
 )
 
 /** One-line texts of the rows. */
@@ -88,6 +100,16 @@ object SensorHealthText {
         if (reply is ConsoleReply.Corrupt && reply.error == ReplyError.Timeout) "Panel not in range"
         else BleConsoleClient.errorText(reply)
 
+    /** Next alert bit of the selector; wraps from the last name to bit 0. */
+    fun nextChimeBit(bit: Int): Int = (bit + 1) % ChimeCommand.ALERT_NAMES.size
+
+    /** State after a `BEEP` reply. [failure] is the text of `ChimeCommand.failureText`; a blank failure of an unreadable reply gets a fixed text. */
+    fun chimeResult(state: ChimeTestState, reply: ConsoleReply, failure: String?): ChimeTestState = when {
+        failure != null -> state.copy(isTesting = false, message = failure.ifBlank { "Antwort nicht lesbar" }, isError = true)
+        reply is ConsoleReply.Status -> state.copy(isTesting = false, message = ChimeCommand.okText(reply.line), isError = false)
+        else -> state.copy(isTesting = false, message = "Antwort nicht lesbar", isError = true)
+    }
+
     /** Reception rate of the slot of a `SENSOR` line; slot 0 is the onboard sensor and has none; slots 1 to 10 are possible. */
     fun rateOf(status: StatusReply, sensor: StatusSensor): ReceptionRate? =
         if (sensor.index in 1..10) status.reception?.getOrNull(sensor.index - 1) else null
@@ -100,7 +122,10 @@ fun SensorHealthScreen(
     onSetMute: (Boolean) -> Unit = {},
     onOpenEvents: () -> Unit = {},
     clockState: ClockReadState = ClockReadState(),
-    onReadClock: () -> Unit = {}
+    onReadClock: () -> Unit = {},
+    chimeState: ChimeTestState = ChimeTestState(),
+    onSelectChime: (Int) -> Unit = {},
+    onTestChime: () -> Unit = {}
 ) {
     val listState = rememberScalingLazyListState()
     MaterialTheme {
@@ -202,6 +227,35 @@ fun SensorHealthScreen(
                                     contentDescription = if (muted) "an" else "aus"
                                 )
                             }
+                        )
+                    }
+                }
+                item {
+                    Chip(
+                        onClick = { onSelectChime(SensorHealthText.nextChimeBit(chimeState.bit)) },
+                        enabled = !chimeState.isTesting,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text("Alert: ${ChimeCommand.alertName(chimeState.bit)}", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                item {
+                    Chip(
+                        onClick = onTestChime,
+                        enabled = !chimeState.isTesting && !state.isReading && !state.isMuting && !clockState.isReadingClock,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text(if (chimeState.isTesting) "Sende ..." else "Test chime", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                chimeState.message?.let { message ->
+                    item {
+                        Text(
+                            text = message,
+                            fontSize = 10.sp,
+                            color = if (chimeState.isError) Color(0xFFFF8A80) else Color(0xFFB0BEC5),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
                         )
                     }
                 }

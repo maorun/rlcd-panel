@@ -23,12 +23,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Chime test in the Wear OS sensor health screen
-  - Rank: [Total: 26, Use: 4, Setup: 6, Harmony: 8, Safety: 8, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ChimeCommand.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ChimeCommandTest.kt
-  - Goal: The Wear OS `ChimeCommand` has `beep(bit)` and the reply texts, but no screen sends `BEEP`. The user cannot test the panel speaker from the watch, for example after a change of `chime_volume`. Add a `Test chime` chip below the mute chip of `SensorHealthScreen`. Add a selector with the 8 names of `ChimeCommand.ALERT_NAMES`. A tap sends `BEEP <bit>` through `BleConsoleClient.send`. Show `ChimeCommand.okText` for `OK BEEP` and `ChimeCommand.failureText` for an `ERR` reply. Send the command only on a user tap. Do not retry a failed command. Block a second tap while a command runs.
-  - Acceptance test: In `ChimeCommandTest`, assert `BEEP 0` and `BEEP 7`, an exception for bit 8, the text of `OK BEEP 7 420` and the texts of `ERR MUTED` and `ERR READ_ONLY`. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` and `./scripts/check-protocol-sync.sh`.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.
