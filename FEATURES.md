@@ -2105,5 +2105,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `Share CSV` retains all rows unfiltered; no console command is sent on filter changes.
 - Tests in `EventFilterTest` assert the 18 rows of `events_reply_sample.txt`, exact counts per category, fallback to `OTHER` for unlisted codes, and set equality with `EventFilter.swift`.
 
+## Lost sensor notification in the Android app
 
-
+- `StaleWatch` (`protocol/StaleWatch.kt`) is a pure state machine with an injected clock. `update(tile, valid)` takes the tile index 0 to 10 and the valid bit of the frame. A tile that was valid once and stays invalid for 35 min (`LOST_AFTER_MS`) gives `Result.Lost(tile)` once. The next valid frame gives `Result.Back(tile)`. A tile that was never valid and a tile outside 0 to 10 give no result. A clock that runs back gives no `Lost` and moves the last valid time to the new time.
+- `protocol/StaleWatch.kt` of the Wear OS app is a copy and differs only in the `package` line. `scripts/check-protocol-sync.sh` compares it (the `FILES` list has 18 entries).
+- `BleScanService` creates one `StaleWatch` when the scan starts. It feeds each decoded frame through `StaleWatch.updateFrame` (page 0: tiles 0 to 5, page 1: tiles 6 to 10; a tile is valid when it holds a temperature). The BLE scan does not change.
+- `Lost` posts the notification `<tile name>: keine Daten seit 35 min` (id 910 plus the tile index, `STALE_NOTIFICATION_BASE_ID`) on the alert channel `rlcd_ventilation_channel` without vibration. The name comes from `PanelConfig.tileName`. `Back`, a stop of the scan and a new scan start cancel it.
+- `StaleWatchTest` covers the page mapping of `updateFrame`, a tile that was never valid, no result at 34 min, `Lost(2)` at 35 min, no second `Lost(2)`, `Back(2)`, independent tiles, a tile outside 0 to 10 and a clock that runs back.

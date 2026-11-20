@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Lost sensor notification in the Android app
-  - Rank: [Total: 32, Use: 8, Setup: 6, Harmony: 8, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StaleWatch.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/BleScanService.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/StaleWatchTest.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StaleWatch.kt, scripts/check-protocol-sync.sh
-  - Goal: The panel shows a `STALE` badge when a sensor sends no more packets. The phone shows the `STALE` badge only while the app is open. `SilenceWatch` reports a silent panel, but no class reports one lost sensor while the panel still sends frames. Add the pure state machine `StaleWatch` with an injected clock to the shared package `protocol`. `update(tile: Int, valid: Boolean): Result?` takes the tile index 0 to 10 (page 0 gives tiles 0 to 5, page 1 gives tiles 6 to 10) and the valid bit of the frame. A tile becomes lost when it was valid once and then stays invalid for `LOST_AFTER_MS` (35 minutes). Give `Result.Lost(tile)` once for each loss and `Result.Back(tile)` for the first valid frame after a loss. A tile that was never valid gives no result. Copy the file into the watch package and add `StaleWatch.kt` to `FILES` in `scripts/check-protocol-sync.sh`. In `BleScanService`, feed each new frame and post one notification `<tile name>: keine Daten seit 35 min` for `Lost`. Remove the notification for `Back`. Use `PanelConfig.tileName` for the name. Do not change the BLE scan.
-  - Acceptance test: In `StaleWatchTest`, assert no result for a tile that was never valid, no result 34 minutes after the last valid frame, `Lost(2)` 35 minutes after the last valid frame of tile 2, no second `Lost(2)` for later invalid frames, `Back(2)` for the next valid frame, and no result for a tile outside 0 to 10. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` and in `wearos/RlcdWatch`, `./scripts/check-protocol-sync.sh` and `./scripts/check-protocol-sync.sh --self-test`.
-
 - [ ] Event code for a low sensor battery
   - Rank: [Total: 31, Use: 6, Setup: 7, Harmony: 9, Safety: 9, Effort: S]
   - Location: rlcd_panel/sd_logger.h, rlcd_panel/power_manager.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp, AGENTS.md
