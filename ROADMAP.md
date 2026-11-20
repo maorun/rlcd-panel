@@ -23,12 +23,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Display refresh skip state in STATUS
-  - Rank: [Total: 27, Use: 3, Setup: 7, Harmony: 7, Safety: 10, Effort: S]
-  - Location: rlcd_panel/serial_console.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp, tests/fixtures/status_reply_sample.txt, macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsTests.swift, AGENTS.md
-  - Goal: `FrameRefresh` skips the panel flush for an unchanged frame, but no console reply shows the skip state. When the panel shows an old image, the user cannot see if the firmware skipped the flush or if the panel failed. Add the `STATUS` line `FRAME crc=<8 hex digits|--> skips=<N>` after the `MEMORY` line and before `CRC32` (`SerialStatusSnapshot::frame`, RTC copy of `PersistentState::frame`; `--` for CRC 0). Do not change the RTC layout or `STATE_VERSION`. Add `FrameMetrics.parse` to `Diagnostics.swift` (`nil` for a missing line or `--`, `ParseError.badLine` for a bad field). Show the line in `DiagnosticsView`.
-  - Acceptance test: In `tests/test_firmware_logic.cpp`, assert `FRAME crc=-- skips=0` for a new state and `FRAME crc=1a2b3c4d skips=12` for a set state, and that the line comes before `CRC32`. Add the line to `tests/fixtures/status_reply_sample.txt` and calculate the `CRC32` line again. In `DiagnosticsTests`, assert the parsed values, `nil` for a missing line and `ParseError.badLine` for `skips=x`. In the Android and Wear OS `StatusReplyTest`, assert that the fixture still parses. Run the host unit tests, `arduino-cli compile rlcd_panel`, `swift test` in `macos/RlcdCompanion` and `gradle testDebugUnitTest` in `android/RlcdPhone` and `wearos/RlcdWatch`.
-
 - [ ] Chime test in the Wear OS sensor health screen
   - Rank: [Total: 26, Use: 4, Setup: 6, Harmony: 8, Safety: 8, Effort: S]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ChimeCommand.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ChimeCommandTest.kt

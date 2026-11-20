@@ -258,6 +258,24 @@ public struct MemoryMetrics: Equatable {
     }
 }
 
+/// `FRAME crc=<8 hex digits|--> skips=<N>`: CRC-32 of the last flushed frame and the skipped cycles in a row.
+public struct FrameMetrics: Equatable {
+    public let crc: UInt32
+    public let skips: Int
+
+    /// `nil` for `crc=--`; a missing or bad field throws `ParseError.badLine`.
+    public static func parse(line: String) throws -> FrameMetrics? {
+        let f = fieldMap(line)
+        guard let crcText = f["crc"] else { throw ParseError.badLine(line) }
+        guard let skips = try counter(f, "skips", line: line) else { throw ParseError.badLine(line) }
+        if crcText == "--" { return nil }
+        guard crcText.utf8.count == 8,
+              crcText.utf8.allSatisfy({ ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) }),
+              let crc = UInt32(crcText, radix: 16) else { throw ParseError.badLine(line) }
+        return FrameMetrics(crc: crc, skips: skips)
+    }
+}
+
 /// The commands that the refresh button of the diagnostics view sends, in this order.
 public let diagnosticsRefreshCommands: [ConsoleCommand] = [.status, .version]
 
@@ -272,10 +290,11 @@ public struct DiagnosticsReply: Equatable {
     public let rtcTrim: RtcTrimMetrics?
     public let ntp: NtpMetrics?
     public let memory: MemoryMetrics?
+    public let frame: FrameMetrics?
 
     public init(shtc3: Shtc3Stats?, ble: BleRejectMetrics?, reset: ResetMetrics?, runtime: RuntimeMetrics?,
                 awake: AwakeMetrics?, reception: ReceptionMetrics?, rtcTrim: RtcTrimMetrics? = nil,
-                ntp: NtpMetrics? = nil, memory: MemoryMetrics? = nil) {
+                ntp: NtpMetrics? = nil, memory: MemoryMetrics? = nil, frame: FrameMetrics? = nil) {
         self.shtc3 = shtc3
         self.ble = ble
         self.reset = reset
@@ -285,6 +304,7 @@ public struct DiagnosticsReply: Equatable {
         self.rtcTrim = rtcTrim
         self.ntp = ntp
         self.memory = memory
+        self.frame = frame
     }
 
     /// `otherLines` of `StatusReply`. A present line with a bad counter throws `ParseError.badLine`.
@@ -298,7 +318,8 @@ public struct DiagnosticsReply: Equatable {
             reception: try otherLines["RECEPTION"].map(ReceptionMetrics.parse(line:)),
             rtcTrim: try otherLines["RTC"].map(RtcTrimMetrics.parse(line:)),
             ntp: try otherLines["NTP"].flatMap(NtpMetrics.parse(line:)),
-            memory: try otherLines["MEMORY"].map(MemoryMetrics.parse(line:)))
+            memory: try otherLines["MEMORY"].map(MemoryMetrics.parse(line:)),
+            frame: try otherLines["FRAME"].flatMap(FrameMetrics.parse(line:)))
     }
 
     public static func parse(status: StatusReply) throws -> DiagnosticsReply {
