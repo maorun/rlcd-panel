@@ -41,10 +41,22 @@ public enum DiagnosticsReport {
                     if s.command == ConsoleCommand.status.line, let m = try? WakeMetrics.parse(line: line), line.hasPrefix("WAKE ") {
                         out.append("Wake cycle: \(m.cause), boots \(m.boots), battery interval \(m.batteryIntervalS) s")
                     }
+                    if s.command == ConsoleCommand.status.line, line.hasPrefix("LATCH "), let m = try? LatchMetrics.parse(line: line) {
+                        out.append(badgeSummary(m))
+                    }
                 }
             }
         }
         return out.joined(separator: "\n") + "\n"
+    }
+
+    /// `Panel badges: 1 V; 10 D, BAT LOW` (sensor number, then its badges) or `Panel badges: none`.
+    private static func badgeSummary(_ m: LatchMetrics) -> String {
+        let parts = (0..<LatchMetrics.sensorCount).compactMap { i -> String? in
+            let b = m.badges(forSensor: i)
+            return b.isEmpty ? nil : "\(i) " + b.joined(separator: ", ")
+        }
+        return "Panel badges: " + (parts.isEmpty ? "none" : parts.joined(separator: "; "))
     }
 
     /// `REJECTS` rows are `<MAC>,<format>,<reason>,<count>`. The first field is a foreign MAC.

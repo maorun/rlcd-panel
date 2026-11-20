@@ -36,6 +36,7 @@ struct DiagnosticsView: View {
                         group("Memory") { memory(d.memory) }
                         group("Display refresh") { frame(d.frame) }
                         group("Wake cycle") { wake(d.wake) }
+                        group("Panel badges") { latch(d.latch) }
                         group("MicroSD card") { sdCard(model.status) }
                     } else {
                         Text("No diagnostics yet. Press the refresh button.").font(.caption).foregroundStyle(.secondary)
@@ -340,6 +341,23 @@ struct DiagnosticsView: View {
                 if m.isNightInterval(config: model.lastConfig) {
                     Text("Night interval").font(.caption.bold()).foregroundStyle(.white)
                         .padding(.horizontal, 6).background(Color.indigo, in: Capsule())
+                }
+            }
+        } else { unknown }
+    }
+
+    @ViewBuilder private func latch(_ m: LatchMetrics?) -> some View {
+        if let m {
+            let names = Dictionary(model.status?.sensors.map { ($0.index, $0.name) } ?? [], uniquingKeysWith: { a, _ in a })
+            let rows = (0..<LatchMetrics.sensorCount).compactMap { i -> (Int, [String])? in
+                let b = m.badges(forSensor: i)
+                return b.isEmpty ? nil : (i, b)
+            }
+            if rows.isEmpty {
+                Text("No badges").foregroundStyle(.secondary)
+            } else {
+                ForEach(rows, id: \.0) { row in
+                    Text("\(names[row.0] ?? "sensor \(row.0)"): \(row.1.joined(separator: ", "))")
                 }
             }
         } else { unknown }

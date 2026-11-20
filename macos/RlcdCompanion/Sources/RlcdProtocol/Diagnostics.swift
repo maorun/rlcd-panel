@@ -313,6 +313,52 @@ public struct WakeMetrics: Equatable {
     }
 }
 
+/// `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex>`: the badge latches of the panel.
+/// `vent` and `dry` use bit 0 for the onboard tile and bits 1 to 10 for the slots; `batlow` and `stale`
+/// use bits 0 to 9 for the slots 1 to 10.
+public struct LatchMetrics: Equatable {
+    public static let sensorCount = 11
+    public let ventilate: Int
+    public let dry: Int
+    public let batteryLow: Int
+    public let stale: Int
+
+    public var hasBadges: Bool { ventilate != 0 || dry != 0 || batteryLow != 0 || stale != 0 }
+
+    /// A missing line is no error; `parse(lines:)` gives `nil` for it.
+    public static func parse(lines: [String]) throws -> LatchMetrics? {
+        guard let line = lines.first(where: { $0.hasPrefix("LATCH ") }) else { return nil }
+        return try parse(line: line)
+    }
+
+    public static func parse(line: String) throws -> LatchMetrics {
+        let f = fieldMap(line)
+        func mask(_ key: String, max: Int) throws -> Int {
+            guard let s = f[key], s.utf8.count == 3,
+                  s.utf8.allSatisfy({ ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) || ($0 >= 0x41 && $0 <= 0x46) }),
+                  let v = Int(s, radix: 16), v <= max else { throw ParseError.badLine(line) }
+            return v
+        }
+        return LatchMetrics(
+            ventilate: try mask("vent", max: 0x7ff), dry: try mask("dry", max: 0x7ff),
+            batteryLow: try mask("batlow", max: 0x3ff), stale: try mask("stale", max: 0x3ff))
+    }
+
+    /// Badge texts of sensor 0 (onboard) or 1 to 10 (slot), in the order `V`, `D`, `BAT LOW`, `STALE`.
+    /// The onboard sensor never gets `BAT LOW` or `STALE`; an unknown sensor has no badge.
+    public func badges(forSensor sensor: Int) -> [String] {
+        guard (0..<Self.sensorCount).contains(sensor) else { return [] }
+        var out: [String] = []
+        if ventilate >> sensor & 1 == 1 { out.append("V") }
+        if dry >> sensor & 1 == 1 { out.append("D") }
+        if sensor >= 1 {
+            if batteryLow >> (sensor - 1) & 1 == 1 { out.append("BAT LOW") }
+            if stale >> (sensor - 1) & 1 == 1 { out.append("STALE") }
+        }
+        return out
+    }
+}
+
 /// The commands that the refresh button of the diagnostics view sends, in this order.
 public let diagnosticsRefreshCommands: [ConsoleCommand] = [.status, .version]
 
@@ -329,11 +375,12 @@ public struct DiagnosticsReply: Equatable {
     public let memory: MemoryMetrics?
     public let frame: FrameMetrics?
     public let wake: WakeMetrics?
+    public let latch: LatchMetrics?
 
     public init(shtc3: Shtc3Stats?, ble: BleRejectMetrics?, reset: ResetMetrics?, runtime: RuntimeMetrics?,
                 awake: AwakeMetrics?, reception: ReceptionMetrics?, rtcTrim: RtcTrimMetrics? = nil,
                 ntp: NtpMetrics? = nil, memory: MemoryMetrics? = nil, frame: FrameMetrics? = nil,
-                wake: WakeMetrics? = nil) {
+                wake: WakeMetrics? = nil, latch: LatchMetrics? = nil) {
         self.shtc3 = shtc3
         self.ble = ble
         self.reset = reset
@@ -345,6 +392,7 @@ public struct DiagnosticsReply: Equatable {
         self.memory = memory
         self.frame = frame
         self.wake = wake
+        self.latch = latch
     }
 
     /// `otherLines` of `StatusReply`. A present line with a bad counter throws `ParseError.badLine`.
@@ -360,7 +408,8 @@ public struct DiagnosticsReply: Equatable {
             ntp: try otherLines["NTP"].flatMap(NtpMetrics.parse(line:)),
             memory: try otherLines["MEMORY"].map(MemoryMetrics.parse(line:)),
             frame: try otherLines["FRAME"].flatMap(FrameMetrics.parse(line:)),
-            wake: try otherLines["WAKE"].map(WakeMetrics.parse(line:)))
+            wake: try otherLines["WAKE"].map(WakeMetrics.parse(line:)),
+            latch: try otherLines["LATCH"].map(LatchMetrics.parse(line:)))
     }
 
     public static func parse(status: StatusReply) throws -> DiagnosticsReply {

@@ -53,6 +53,25 @@ private func sections(
         #expect(lines(text).contains("Wake cycle: TIMER, boots 1234, battery interval 600 s"))
     }
 
+    @Test func panelBadgesLineIsInTheReport() {
+        let text = DiagnosticsReport.build(
+            appVersion: "1.2", link: .usb, includeNames: false,
+            sections: [.init(command: "STATUS", result: .success(["LATCH vent=002 dry=401 batlow=208 stale=004"]))])
+        #expect(lines(text).contains("Panel badges: 0 D; 1 V; 3 STALE; 4 BAT LOW; 10 D, BAT LOW"))
+        let none = DiagnosticsReport.build(
+            appVersion: "1.2", link: .usb, includeNames: false,
+            sections: [.init(command: "STATUS", result: .success(["LATCH vent=000 dry=000 batlow=000 stale=000"]))])
+        #expect(lines(none).contains("Panel badges: none"))
+    }
+
+    @Test func malformedLatchLineStaysRawWithoutSummary() {
+        let text = DiagnosticsReport.build(
+            appVersion: "1.2", link: .usb, includeNames: false,
+            sections: [.init(command: "STATUS", result: .success(["LATCH vent=zzz dry=000 batlow=000 stale=000"]))])
+        #expect(lines(text).contains("LATCH vent=zzz dry=000 batlow=000 stale=000"))
+        #expect(!text.contains("Panel badges"))
+    }
+
     @Test func noCrcLines() {
         let text = DiagnosticsReport.build(appVersion: "1.2", link: .ble, includeNames: false, sections: sections())
         #expect(!text.contains("CRC32"))

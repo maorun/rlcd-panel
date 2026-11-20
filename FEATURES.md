@@ -2054,3 +2054,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SerialStatusSnapshot` has the new fields `ventilate_tiles`, `dry_tiles` and `stale_slots` (`uint16_t`). `sensor_battery_latch` is now `uint16_t`, so slots 9 and 10 keep their `BATLOW` state in the `SENSOR` line.
 - The sketch fills the fields from the RTC copy of `g_state`. The RTC layout and `STATE_VERSION` do not change. The Kotlin parsers ignore the line.
 - Tests: `testStatusLatchLine` covers the values, the empty line, the `SENSOR 10` state `BATLOW` and the line order. `tests/fixtures/status_reply_sample.txt` holds the line.
+
+## Badge latch states in the macOS diagnostics view
+
+- `LatchMetrics.parse(line:)` (`Diagnostics.swift`) reads the `STATUS` line `LATCH` into the `Int` masks `ventilate`, `dry`, `batteryLow` and `stale`. `DiagnosticsReply.latch` holds it; a missing line gives `nil`.
+- A field that is not 3 hex digits, a `vent` or `dry` value above `0x7ff` and a `batlow` or `stale` value above `0x3ff` throw `ParseError.badLine`.
+- `LatchMetrics.badges(forSensor:)`: sensor 0 is the onboard tile, sensors 1 to 10 are the slots. The result holds `V`, `D`, `BAT LOW` and `STALE` in this order. The onboard sensor never gets `BAT LOW` or `STALE`.
+- `DiagnosticsView` shows the group `Panel badges` with one row for each sensor that has a badge (name from `StatusReply.sensors`) and `No badges` when each mask is 0.
+- `DiagnosticsReport` adds the line `Panel badges: <sensor> <badges>; ...` (or `Panel badges: none`) after the raw `LATCH` line.
+- Tests: `DiagnosticsTests` (values, badges, `nil`, bad fields) and `DiagnosticsReportTests` (report line).
