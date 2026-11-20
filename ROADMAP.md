@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Rejected packet list in the macOS diagnostics report
-  - Rank: [Total: 30, Use: 4, Setup: 8, Harmony: 8, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/DiagnosticsReport.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsReportTests.swift, tests/fixtures/rejects_reply_sample.txt
-  - Goal: The diagnostics report on the clipboard holds `VERSION`, `STATUS`, `CONFIG` and `EVENTS`. It does not hold the `REJECTS` list, so a fault report about a missing sensor has no reason for the rejected packets. Add `.rejects` to `DiagnosticsReport.commands` after `.events`. In the `REJECTS` section, replace the MAC of each row with `<hidden>` unless `includeNames` is true. Keep the format, the reason, the count and the `DROPPED,<N>` row. A failed `REJECTS` reply gives the `ERROR <reason>` line and the other sections stay.
-  - Acceptance test: In `DiagnosticsReportTests`, build a report from `tests/fixtures/rejects_reply_sample.txt`. Assert the `## REJECTS` header after `## EVENTS`, no MAC text with `includeNames` false, the MAC text with `includeNames` true, no `CRC32` line, and an `ERROR` line for a failed section. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
-
 - [ ] Free MicroSD space in the Wear OS sensor health screen
   - Rank: [Total: 30, Use: 4, Setup: 7, Harmony: 9, Safety: 10, Effort: S]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt

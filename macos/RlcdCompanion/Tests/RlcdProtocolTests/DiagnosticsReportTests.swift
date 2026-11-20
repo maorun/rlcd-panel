@@ -15,12 +15,24 @@ REJECTED line=7
 
 """
 
-private func sections(events: Result<[String], DiagnosticsReport.Failure>? = nil) -> [DiagnosticsReport.Section] {
+private func rejectsFixture() -> [String] {
+    let url = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+        .deletingLastPathComponent().deletingLastPathComponent()
+        .appendingPathComponent("tests/fixtures/rejects_reply_sample.txt")
+    return ((try? String(contentsOf: url, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+}
+
+private func sections(
+    events: Result<[String], DiagnosticsReport.Failure>? = nil,
+    rejects: Result<[String], DiagnosticsReport.Failure>? = nil
+) -> [DiagnosticsReport.Section] {
     [
         .init(command: "VERSION", result: .success(["VERSION fw=1.0.0 git=abc core=3.3.12 state=49 built=today"])),
         .init(command: "STATUS", result: .success(lines(statusText) + ["CRC32 8e7ee74b"])),
         .init(command: "CONFIG", result: .success(lines(reportConfigText))),
         .init(command: "EVENTS", result: events ?? .success(lines(eventsText))),
+        .init(command: "REJECTS", result: rejects ?? .success(rejectsFixture())),
     ]
 }
 
@@ -28,7 +40,7 @@ private func sections(events: Result<[String], DiagnosticsReport.Failure>? = nil
     @Test func sectionsFollowTheCommandOrder() {
         let text = DiagnosticsReport.build(appVersion: "1.2", link: .usb, includeNames: false, sections: sections())
         let headings = lines(text).filter { $0.hasPrefix("## ") }
-        #expect(headings == ["## VERSION", "## STATUS", "## CONFIG", "## EVENTS"])
+        #expect(headings == ["## VERSION", "## STATUS", "## CONFIG", "## EVENTS", "## REJECTS"])
         #expect(lines(text).first?.contains("1.2") == true)
         #expect(lines(text).contains("Link: USB"))
     }
@@ -105,6 +117,45 @@ private func sections(events: Result<[String], DiagnosticsReport.Failure>? = nil
         #expect(all[(i ?? 0) + 1] == "ERROR no reply")
         #expect(all.contains("## VERSION"))
         #expect(all.contains("## STATUS"))
+        #expect(all.contains("## CONFIG"))
+        #expect(text.contains("slot1_mac=<hidden>"))
+    }
+
+    @Test func commandsEndWithRejects() {
+        #expect(DiagnosticsReport.commands.map(\.line) == ["VERSION", "STATUS", "CONFIG", "EVENTS", "REJECTS"])
+        #expect(!rejectsFixture().isEmpty)
+    }
+
+    @Test func rejectsFollowEventsAndHideMacs() {
+        let text = DiagnosticsReport.build(appVersion: "1.2", link: .usb, includeNames: false, sections: sections())
+        let all = lines(text)
+        let e = all.firstIndex(of: "## EVENTS")
+        let r = all.firstIndex(of: "## REJECTS")
+        #expect(e != nil && r != nil && (e ?? 0) < (r ?? 0))
+        #expect(!text.contains("AA:00:00:00:00"))
+        #expect(all.contains("<hidden>,METER,FULL,2"))
+        #expect(all.contains("<hidden>,THERMOPRO,DISABLED,255"))
+        #expect(all.contains("mac,format,reason,count"))
+        #expect(all.contains("DROPPED,1"))
+        #expect(!text.contains("33ec9f33"))
+    }
+
+    @Test func rejectsKeepMacsWithIncludeNames() {
+        let text = DiagnosticsReport.build(appVersion: "1.2", link: .usb, includeNames: true, sections: sections())
+        #expect(text.contains("AA:00:00:00:00:13,METER,FULL,2"))
+        #expect(text.contains("AA:00:00:00:00:01,WOIO,JUMP,1"))
+        #expect(!text.contains("CRC32"))
+    }
+
+    @Test func failedRejectsKeepsTheOtherSections() {
+        let text = DiagnosticsReport.build(
+            appVersion: "1.2", link: .usb, includeNames: false,
+            sections: sections(rejects: .failure(.init(reason: "ERR UNKNOWN"))))
+        let all = lines(text)
+        let i = all.firstIndex(of: "## REJECTS")
+        #expect(i != nil)
+        #expect(all[(i ?? 0) + 1] == "ERROR ERR UNKNOWN")
+        #expect(all.contains("## EVENTS"))
         #expect(all.contains("## CONFIG"))
         #expect(text.contains("slot1_mac=<hidden>"))
     }

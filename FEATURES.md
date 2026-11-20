@@ -1937,3 +1937,10 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `BleScanService` creates one `SilenceWatch` when the scan starts. It calls `onFrame()` for each decoded frame and `check()` once each minute on the main looper (`SILENCE_CHECK_MS` 60000). The frame callback and the timer run on the main thread.
 - `SILENT` posts the notification `Panel silent since <HH:mm>` (time of the last frame, id 901 `SILENCE_NOTIFICATION_ID`) on the alert channel `rlcd_ventilation_channel` without vibration. `BACK` cancels it. A stop of the scan, `onDestroy` and a new scan start cancel it too. Nothing posts before the first frame.
 - `BleScanService.isSilenceTimerActive` is true only while the timer is queued. `BleScanServiceTest.stoppedServiceHasNoSilenceTimer` asserts it is false for a stopped service. `SilenceWatchTest` is a copy of the Wear OS test.
+
+## Rejected packet list in the macOS diagnostics report
+
+- `DiagnosticsReport.commands` holds `.rejects` after `.events`. The report ends with the section `## REJECTS`. The `Copy report` button sends `REJECTS` after `EVENTS`.
+- With `includeNames` false, `DiagnosticsReport` replaces the MAC of each `REJECTS` row with `<hidden>`. The header, the format, the reason, the count and the `DROPPED,<N>` row stay. With `includeNames` true, the rows stay unchanged.
+- A failed `REJECTS` reply gives the line `ERROR <reason>`. The other sections stay. The report holds no `CRC32` line.
+- Tests: `DiagnosticsReportTests` build a report from `tests/fixtures/rejects_reply_sample.txt`. They assert the command order, the section order, the hidden and the kept MACs, the missing `CRC32` line and the `ERROR` line.

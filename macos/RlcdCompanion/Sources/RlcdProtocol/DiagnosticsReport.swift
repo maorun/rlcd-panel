@@ -1,6 +1,6 @@
 import Foundation
 
-/// One text report of `VERSION`, `STATUS`, `CONFIG` and `EVENTS` for a fault report.
+/// One text report of `VERSION`, `STATUS`, `CONFIG`, `EVENTS` and `REJECTS` for a fault report.
 public enum DiagnosticsReport {
     public enum Link: String, Equatable, Sendable { case usb = "USB", ble = "BLE" }
 
@@ -19,7 +19,7 @@ public enum DiagnosticsReport {
         }
     }
 
-    public static let commands: [ConsoleCommand] = [.version, .status, .config, .events]
+    public static let commands: [ConsoleCommand] = [.version, .status, .config, .events, .rejects]
     public static let hiddenValue = "<hidden>"
 
     /// Joins the sections in the given order. Removes each `CRC32` line. Replaces the value of each name
@@ -34,11 +34,21 @@ public enum DiagnosticsReport {
                 out.append("ERROR \(f.reason)")
             case let .success(lines):
                 for line in lines where !line.hasPrefix("CRC32") {
-                    out.append(includeNames ? line : redact(line))
+                    if includeNames { out.append(line) }
+                    else if s.command == ConsoleCommand.rejects.line { out.append(redactReject(line)) }
+                    else { out.append(redact(line)) }
                 }
             }
         }
         return out.joined(separator: "\n") + "\n"
+    }
+
+    /// `REJECTS` rows are `<MAC>,<format>,<reason>,<count>`. The first field is a foreign MAC.
+    /// The header, the `DROPPED,<N>` row and lines without a comma stay as they are.
+    private static func redactReject(_ line: String) -> String {
+        if line.hasPrefix("mac,") || line.hasPrefix("DROPPED,") { return line }
+        guard let comma = line.firstIndex(of: ",") else { return line }
+        return hiddenValue + line[comma...]
     }
 
     private static func redact(_ line: String) -> String {
