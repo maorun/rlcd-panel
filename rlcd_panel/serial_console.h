@@ -1163,7 +1163,7 @@ public:
 
   // Sends the 7-day minimum and maximum of each sensor from the RTC copy as CSV: one row per sensor (0 onboard, 1 to 5 a
   // slot) and day (day 0 is the day before the stamp). The date is empty without a stamp, a gap day gives empty value
-  // fields. Values are in 0.5 steps. The card and the state stay untouched. A short write ends the reply, so the host
+  // fields. Values are in 0.5 steps; `mold_h` is the hour count above mold_alert_limit_rh (empty for a gap day). The card and the state stay untouched. A short write ends the reply, so the host
   // sees no CRC32 line.
   static void showWeek(Sink& sink, const WeekHistory& week) {
     SerialCrc32 crc;
@@ -1175,7 +1175,7 @@ public:
       crc.update(reinterpret_cast<const uint8_t*>(text), len);
       return true;
     };
-    if (!emit("BEGIN WEEK\n") || !emit("sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct\n")) {
+    if (!emit("BEGIN WEEK\n") || !emit("sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h\n")) {
       return;
     }
     for (size_t s = 0; s < WeekHistory::SENSORS; ++s) {
@@ -1197,8 +1197,12 @@ public:
           formatTenths(f[2], sizeof(f[2]), week.humidityMin(s, d));
           formatTenths(f[3], sizeof(f[3]), week.humidityMax(s, d));
         }
-        char line[80];
-        snprintf(line, sizeof(line), "%u,%u,%s,%s,%s,%s,%s\n", static_cast<unsigned>(s), static_cast<unsigned>(d), date, f[0], f[1], f[2], f[3]);
+        char mold[4] = "";
+        if (week.hasMoldHours(s, d)) {
+          snprintf(mold, sizeof(mold), "%u", static_cast<unsigned>(week.moldHours(s, d)));
+        }
+        char line[88];
+        snprintf(line, sizeof(line), "%u,%u,%s,%s,%s,%s,%s,%s\n", static_cast<unsigned>(s), static_cast<unsigned>(d), date, f[0], f[1], f[2], f[3], mold);
         if (!emit(line)) {
           return;
         }

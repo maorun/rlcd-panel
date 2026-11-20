@@ -26,10 +26,10 @@ sensor,age_h,temp_c,rh_pct,noise_db
 """
 let weekText = """
 BEGIN WEEK
-sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct
-0,0,2026-11-14,19.5,22.0,40.5,55.0
-0,1,2026-11-13,,,,
-1,0,,10.0,20.0,40.0,60.0
+sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h
+0,0,2026-11-14,19.5,22.0,40.5,55.0,6
+0,1,2026-11-13,,,,,
+1,0,,10.0,20.0,40.0,60.0,
 
 """
 let eventsText = """
@@ -276,15 +276,21 @@ struct ReplyParserTests {
         let rows = try WeekReply.parse(lines: lines(weekText))
         #expect(rows.count == 3)
         #expect(rows[0] == WeekRow(sensor: 0, day: 0, date: "2026-11-14", temperatureMinC: 19.5, temperatureMaxC: 22.0,
-                                   humidityMinPct: 40.5, humidityMaxPct: 55.0))
+                                   humidityMinPct: 40.5, humidityMaxPct: 55.0, moldHours: 6))
+        #expect(rows[0].moldHours == 6 && rows[1].moldHours == nil && rows[2].moldHours == nil) // a gap day and an empty field
         #expect(rows[1].temperatureMinC == nil && rows[1].humidityMaxPct == nil && rows[1].date == "2026-11-13")
         #expect(rows[2].date.isEmpty && rows[2].temperatureMaxC == 20.0)
         #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", "wrong"]) }
-        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,2026-11-14,1,2,3"]) }
-        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,7,,,,,"]) }
-        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,14.11.2026,,,,"]) }
-        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,1,2,3,4", "0,0,,1,2,3,4"]) }
-        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,5,2,3,4"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.legacyHeader, "0,0,2026-11-14,1,2,3"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.legacyHeader, "0,7,,,,,"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.legacyHeader, "0,0,14.11.2026,,,,"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,1,2,3,4,25"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,1,2,3,4,x"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,1,2,3,4,+5"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,1,2,3,4"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.legacyHeader, "0,0,,1,2,3,4,5"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.legacyHeader, "0,0,,1,2,3,4", "0,0,,1,2,3,4"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.legacyHeader, "0,0,,5,2,3,4"]) }
         #expect(ConsoleCommand.week.line == "WEEK")
     }
 
@@ -298,14 +304,22 @@ struct ReplyParserTests {
         let rows = try WeekReply.parse(lines: fixtureLines)
         #expect(rows.count == 42)
         #expect(rows[0] == WeekRow(sensor: 0, day: 0, date: "2026-11-17", temperatureMinC: 15.0, temperatureMaxC: 19.5,
-                                   humidityMinPct: 40.0, humidityMaxPct: 55.0))
+                                   humidityMinPct: 40.0, humidityMaxPct: 55.0, moldHours: 0))
+        #expect(rows[1].moldHours == 7)
         #expect(rows[41] == WeekRow(sensor: 5, day: 6, date: "2026-11-11", temperatureMinC: 23.0, temperatureMaxC: 27.5,
-                                    humidityMinPct: 56.0, humidityMaxPct: 71.0))
+                                    humidityMinPct: 56.0, humidityMaxPct: 71.0, moldHours: 24))
         let gaps = rows.filter { $0.temperatureMinC == nil }
         #expect(gaps.count == 1)
         #expect(gaps[0].sensor == 2 && gaps[0].day == 3 && gaps[0].date == "2026-11-14")
         #expect(gaps[0].temperatureMaxC == nil && gaps[0].humidityMinPct == nil && gaps[0].humidityMaxPct == nil)
-        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,2026-11-14,1,2,3,4,5"]) }
+        #expect(gaps[0].moldHours == nil)
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,2026-11-14,1,2,3,4,5,6"]) }
+    }
+
+    /// A firmware without the `mold_h` column sends 7 columns: `moldHours` is `nil`.
+    @Test func weekSevenColumnsGiveNilMoldHours() throws {
+        let rows = try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.legacyHeader, "0,0,2026-11-14,19.5,22.0,40.5,55.0"])
+        #expect(rows.count == 1 && rows[0].moldHours == nil && rows[0].humidityMaxPct == 55.0)
     }
 
     @Test func events() throws {

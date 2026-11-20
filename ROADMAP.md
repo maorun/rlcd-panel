@@ -25,12 +25,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Daily mold hours in the seven-day history
-  - Rank: [Total: 25, Use: 6, Setup: 3, Harmony: 8, Safety: 8, Effort: M]
-  - Location: rlcd_panel/sparkline.h, rlcd_panel/power_manager.h, rlcd_panel/serial_console.h, tests/test_firmware_logic.cpp, tests/fixtures/week_reply_sample.txt, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/WeekReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/WeekReply.kt, AGENTS.md
-  - Goal: The daily file holds the mold hours of each day, but the `WEEK` reply has no mold value. Without a card, the user cannot see on which days a room was humid for a long time. Add one byte for each day and sensor to `WeekHistory`: the hours above `mold_alert_limit_rh` from `HumidityHistory::countAbove`, 0 to 24, `0xFF` for a gap day. `WeekHistory::advance` stores it with the minimum and maximum. Add the bytes to `PersistentState::week` and raise `STATE_VERSION` by 1. Reject a value from 25 to 254 and a value beside a gap pair. `WeekHistory::restore` sets the hours from the `mold_h_<N>` columns of the daily file, or `0xFF` for an empty field. Add the column `mold_h` to the `WEEK` reply (empty for a gap day). The macOS and Kotlin `WeekReply` parsers accept 7 or 8 columns and give `moldHours` as `nil` or `null` for 7 columns and for an empty field.
-  - Acceptance test: In `tests/test_firmware_logic.cpp`, assert the stored hours after `advance`, the gap marker for a sensor without samples, the rejection of a stored 25, the `restore` value from a daily row, the `WEEK` header with `mold_h`, and the RTC round trip with the new `STATE_VERSION`. Add the column to `tests/fixtures/week_reply_sample.txt` and calculate the `CRC32` line again. In the macOS and Kotlin `WeekReply` tests, assert `moldHours` for 8 columns and `nil` or `null` for 7 columns. Run `c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner && rm -f test_runner`, `arduino-cli compile rlcd_panel`, `swift test` in `macos/RlcdCompanion`, `gradle testDebugUnitTest` in `android/RlcdPhone` and `wearos/RlcdWatch`, and `./scripts/check-protocol-sync.sh`.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.
