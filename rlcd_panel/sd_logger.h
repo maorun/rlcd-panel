@@ -1069,6 +1069,26 @@ public:
         row.rh_mask = static_cast<uint16_t>(row.rh_mask | (1u << s));
       }
     }
+    // The mold_h_<N> columns follow the five noise columns; an empty field is a gap.
+    const size_t mold_col = 1 + 6 * LOG_SOURCE_COUNT + 5;
+    for (size_t s = 0; s < LOG_SOURCE_COUNT; ++s) {
+      const size_t col = mold_col + s;
+      if (lens[col] == 0) {
+        continue;
+      }
+      uint32_t hours = 0;
+      for (size_t d = 0; d < lens[col]; ++d) {
+        const char c = fields[col][d];
+        if (c < '0' || c > '9' || d >= 2) {
+          return false;
+        }
+        hours = hours * 10 + static_cast<uint32_t>(c - '0');
+      }
+      if (hours > WeekHistory::MAX_MOLD_HOURS) {
+        return false;
+      }
+      row.mold_h[s] = static_cast<uint8_t>(hours);
+    }
     out = row;
     return true;
   }

@@ -26,13 +26,14 @@ class WeekReplyTest {
     fun sharedFixtureGivesFortyTwoRows() {
         val rows = WeekReply.parse(fixtureLines())
         assertEquals(42, rows.size)
-        assertEquals(WeekRow(0, 0, "2026-11-17", 15.0, 19.5, 40.0, 55.0), rows[0])
+        assertEquals(WeekRow(0, 0, "2026-11-17", 15.0, 19.5, 40.0, 55.0, 0), rows[0])
         val gap = rows.single { it.sensor == 2 && it.day == 3 }
         assertEquals("2026-11-14", gap.date)
         assertNull(gap.temperatureMinC)
         assertNull(gap.temperatureMaxC)
         assertNull(gap.humidityMinPct)
         assertNull(gap.humidityMaxPct)
+        assertNull(gap.moldHours)
         assertTrue(gap.isGap)
         assertEquals(1, rows.count { it.isGap })
     }
@@ -40,7 +41,7 @@ class WeekReplyTest {
     @Test
     fun wrongColumnCountThrows() {
         bad("BEGIN WEEK", h, "0,0,2026-11-14,1,2,3")
-        bad("BEGIN WEEK", h, "0,0,2026-11-14,1,2,3,4,5")
+        bad("BEGIN WEEK", h, "0,0,2026-11-14,1,2,3,4,5,6")
     }
 
     @Test

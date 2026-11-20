@@ -34,7 +34,7 @@ public enum CsvExport {
     public static func week(_ rows: [WeekRow]) -> String {
         WeekReply.header + "\n" + rows.map {
             [String($0.sensor), String($0.day), $0.date, number($0.temperatureMinC, 1), number($0.temperatureMaxC, 1),
-             number($0.humidityMinPct, 1), number($0.humidityMaxPct, 1)].joined(separator: ",") + "\n"
+             number($0.humidityMinPct, 1), number($0.humidityMaxPct, 1), $0.moldHours.map(String.init) ?? ""].joined(separator: ",") + "\n"
         }.joined()
     }
 

@@ -2237,3 +2237,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `ChimeMetrics.reminderText` gives `Reminder off` for `repeatHours` 0, `No reminder due` for `bits` 0 or without `nextS`, else `Next reminder in <H> h <M> min`.
 - `DiagnosticsView` shows the text below the alert acknowledge rows.
 - Tests: `DiagnosticsTests` (`parsesChimeLine`, `chimeRejectsBadFields`, `chimeReminderTexts`).
+
+- Tests: `testStatusChimeLine` asserts the filled line, an acknowledged alert, `ALERT_CHARGE_FULL`, an overdue reminder, stamp 0 and the order `NOISE`, `CHIME`, `CRC32`. Each full `STATUS` assert counts one more line. `tests/fixtures/status_reply_sample.txt` holds the line; the CRC literal is `b42a8075`.
+
+## Daily mold hours in the seven-day history
+
+- `WeekHistory` (`sparkline.h`) stores one more byte for each day and sensor: the hours above `mold_alert_limit_rh` from `HumidityHistory::countAbove`, 0 to 24. The value `0xFF` marks a gap day. `WeekHistory::advance` stores it with the minimum and maximum, and the midnight shift moves it with the day. A sensor without samples stores `0xFF`.
+- The block in `PersistentState::week` grows from 173 to 390 bytes (77 mold bytes before the stamp). `STATE_VERSION` is 69. A stored value from 25 to 254 and a value beside a gap humidity pair are corrupt, so the RTC copy is rejected.
+- `WeekHistory::restore` takes the hours from the `mold_h_<N>` columns of the daily file (`SdLogCodec::parseDailyRow`, `WeekHistory::RestoreRow::mold_h`). An empty field gives `0xFF`. A count above 24 rejects the row.
+- The `WEEK` reply has the new last column `mold_h`: header `sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h`, empty for a gap day. Without a card the user sees on which days a room was humid for a long time.
+- Companion apps: the macOS `WeekReply.parse` and the Kotlin `WeekReply.parse` (phone and watch) accept 7 or 8 columns. `WeekRow.moldHours` is `nil` or `null` for 7 columns and for an empty field. A value outside 0 to 24 or a non-numeric value is a bad line. The Android `WeekCsv` writes the column `mold_h` before `name`.
+- Tests: the host tests assert the stored hours, the gap marker, the rejection of 25, 254 and a count beside a gap pair, the restore value from a daily row, the `WEEK` header and the RTC round trip with version 69. `tests/fixtures/week_reply_sample.txt` holds the column and a new `CRC32` line.
