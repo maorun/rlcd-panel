@@ -95,6 +95,7 @@ final class AppModel: ConsoleLinkDelegate {
     /// Detects a panel that stopped to send frames; checked at the 30 s tick.
     private var silenceWatch = SilenceWatch()
     private var wallWatch = WallWatch()
+    private var staleWatch = StaleWatch()
     private static let silenceNotificationId = "rlcd_panel_silence"
     /// Login item logic; the state comes from `SMAppService` on each refresh.
     private var loginItem = LoginItem(service: MainAppLoginItemService())
@@ -179,6 +180,7 @@ final class AppModel: ConsoleLinkDelegate {
             if f.page == 0 && self.logStore.record(f) { self.chartRows = self.logStore.log.downsampled(maxRows: 400) }
             self.checkAlertNotifications(previous: prev, current: f)
             self.checkWallNotifications()
+            self.checkStaleNotifications(incoming: f)
             if self.silenceWatch.onFrame() == .back, Bundle.main.bundleIdentifier != nil {
                 UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: [Self.silenceNotificationId])
             }
@@ -246,6 +248,8 @@ final class AppModel: ConsoleLinkDelegate {
             }
         } else {
             notificationsEnabled = false
+            // A loss that began while notifications were off must not stay latched.
+            staleWatch = StaleWatch()
         }
     }
 
@@ -262,6 +266,33 @@ final class AppModel: ConsoleLinkDelegate {
             content.sound = .default
             let req = UNNotificationRequest(identifier: "rlcd_panel_wall_\(t)", content: content, trigger: nil)
             UNUserNotificationCenter.current().add(req)
+        }
+    }
+
+    /// Feeds `StaleWatch` with the valid bit of each tile of the incoming frame and posts one notification for each loss.
+    /// Only the tiles of the incoming page count: the merged frame keeps the tiles of the other page.
+    /// Without enabled notifications `StaleWatch` stays untouched.
+    private func checkStaleNotifications(incoming: TelemetryFrame) {
+        guard notificationsEnabled, Bundle.main.bundleIdentifier != nil else { return }
+        for (i, incomingTile) in incoming.tiles.enumerated() {
+            let tile = incoming.page * TelemetryFrame.tileCount + i
+            guard tile < StaleWatch.tileCount else { continue }
+            let valid = incomingTile.temperatureC != nil
+            let identifier: String
+            switch staleWatch.update(tile: tile, valid: valid) {
+            case .lost(let t)?:
+                identifier = "rlcd_panel_stale_\(t)"
+                let name = config?.name(forSlot: t) ?? (t == 0 ? "Onboard" : "Slot \(t)")
+                let content = UNMutableNotificationContent()
+                content.title = "RLCD Panel Alert"
+                content.body = "\(name): no data for \(Int(StaleWatch.lostAfter / 60)) min"
+                content.sound = .default
+                UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
+            case .back(let t)?:
+                UNUserNotificationCenter.current().removeDeliveredNotifications(withIdentifiers: ["rlcd_panel_stale_\(t)"])
+            case nil:
+                continue
+            }
         }
     }
 

@@ -1914,6 +1914,12 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `AppModel` feeds `WallWatch` with each new telemetry frame (fresh outdoor tile only). With `notificationsEnabled` and an app bundle it posts one notice `<name>: wall <N>%` with the identifier `rlcd_panel_wall_<tile>`. It sends no console command.
 - Tests: `WallWatchTests` cover the rise at 80.0, no second result at 81, the release at 76.9, no result 5 hours and one result 6 hours after a notice, the release by `nil` and separate tile states. `VentilationAdviceTests` cover `wallRh` (72.5 to 74.0, `nil` for `wall_frsi_pct=0`) and `Wall 73%`.
 
+## Lost sensor notification in the macOS app
+
+- `StaleWatch` (`RlcdProtocol`) is a pure state machine with an injected clock and one state for each tile index 0 to 10. It has the same rules as `StaleWatch.kt` of the Android and Wear OS apps. A tile that was valid once and stays invalid for `lostAfter` (35 min) gives `.lost(tile)` once. The next valid frame gives `.back(tile)`. A tile that was never valid, a tile outside 0 to 10 and a clock that ran back give no result.
+- `AppModel` feeds `StaleWatch` with the tiles of each incoming frame page (page 0 gives tiles 0 to 5, page 1 gives tiles 6 to 10), because the merged frame keeps the tiles of the other page. With `notificationsEnabled` and an app bundle it posts one notice `<name>: no data for 35 min` with the identifier `rlcd_panel_stale_<tile>` for `.lost`. The name comes from `ConfigReply.name(forSlot:)`. For `.back` it removes the delivered notice. Without enabled notifications `StaleWatch` stays untouched.
+- Tests: `StaleWatchTests` assert no result for a tile that was never valid, no result after 34 min, `.lost(2)` after 35 min, no second `.lost(2)`, `.back(2)` for the next valid frame, no result for tile 11 and for a clock that ran back.
+
 ## Free MicroSD space in STATUS
 
 - `PersistentState::sd_free_mb` (`int32_t`, -1 is unknown) keeps the free card space in MB across the deep sleep. It uses 4 bytes just before the checksum. `rlcd_panel.ino` sets it after each card access that reads the free space (hourly write and config load). A power-on sets it to -1. A value below -1 is rejected. `STATE_VERSION` is 68.

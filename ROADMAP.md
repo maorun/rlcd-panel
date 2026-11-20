@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Lost sensor notification in the macOS app
-  - Rank: [Total: 31, Use: 8, Setup: 5, Harmony: 8, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/StaleWatch.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/StaleWatchTests.swift
-  - Goal: The macOS app notifies for a silent panel (`SilenceWatch`) and for a wall humidity rise (`WallWatch`), but not for one lost sensor. Add `StaleWatch` with an injected clock to `RlcdProtocol`, with the same rules as the Android `StaleWatch` of the entry "Lost sensor notification in the Android app": tile index 0 to 10, `lostAfter` 35 minutes, `.lost(tile)` once for each loss and `.back(tile)` for the first valid frame after a loss. A tile that was never valid gives no result. In `AppModel`, feed each new frame and post one notification `<name>: no data for 35 min` with the identifier `rlcd_panel_stale_<tile>`. Remove the delivered notification for `.back`. Use `ConfigReply.name(forSlot:)` for the name. Without enabled notifications, do not feed `StaleWatch`.
-  - Acceptance test: In `StaleWatchTests`, assert no result for a tile that was never valid, no result after 34 minutes, `.lost(2)` after 35 minutes, no second `.lost(2)`, `.back(2)` for the next valid frame, and no result for tile 11. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
-
 - [ ] Panel 24-hour history over the BLE console in the Android app
   - Rank: [Total: 31, Use: 8, Setup: 4, Harmony: 9, Safety: 10, Effort: M]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/HistoryReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/HistoryScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/HistoryReplyTest.kt, tests/fixtures/history_reply_sample.txt
