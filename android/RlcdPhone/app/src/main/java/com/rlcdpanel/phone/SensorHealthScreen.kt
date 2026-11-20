@@ -21,7 +21,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.ConfigCache
 import com.rlcdpanel.phone.protocol.ConfigCacheInfo
+import com.rlcdpanel.phone.protocol.MemoryState
 import com.rlcdpanel.phone.protocol.NtpState
+import com.rlcdpanel.phone.protocol.ResetState
+import com.rlcdpanel.phone.protocol.Shtc3State
 import com.rlcdpanel.phone.protocol.TimeReply
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.SensorHealth
@@ -32,7 +35,10 @@ data class SensorHealthState(
     val rows: List<SensorHealth> = emptyList(),
     val message: String? = null,
     val ntp: NtpState? = null,
-    val sdFreeMb: Int? = null
+    val sdFreeMb: Int? = null,
+    val reset: ResetState? = null,
+    val shtc3: Shtc3State? = null,
+    val memory: MemoryState? = null
 )
 
 /** Cache of the last `CONFIG` read: [info] is null without a cache; [message] tells a failed read. */
@@ -64,6 +70,11 @@ object SensorHealthText {
     const val SD_LOW_MB = 100
     fun sdFree(mb: Int?): String = mb?.let { "SD frei $it MB" } ?: "SD frei --"
     fun isSdLow(mb: Int?): Boolean = mb != null && mb < SD_LOW_MB
+    fun reset(r: ResetState?): String = r?.let { "Reset ${it.reason}, abnormal ${it.abnormalCount ?: "--"}" } ?: "Reset --"
+    fun shtc3(s: Shtc3State?): String =
+        s?.let { "SHTC3 nack ${it.nack}, short ${it.shortReads}, crc ${it.crc}, run ${it.run}, retried ${it.retried}" } ?: "SHTC3 --"
+    fun memory(m: MemoryState?): String =
+        m?.let { "Heap frei ${it.free} B, min ${it.min} B, größter Block ${it.largest} B, PSRAM ${it.psram} B" } ?: "Heap --"
     fun battery(row: SensorHealth): String = row.battery?.let { "Batterie ${it.toInt()} %" } ?: "Batterie --"
 }
 
@@ -177,6 +188,26 @@ fun SensorHealthScreen(
                         (if (low) "⚠ " else "") + SensorHealthText.sdFree(state.sdFreeMb),
                         color = if (low) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground
                     )
+                }
+            }
+            if (state.rows.isNotEmpty()) {
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Panel diagnostics", style = MaterialTheme.typography.titleMedium)
+                            val lines = listOf(
+                                (state.reset?.isAbnormal == true) to SensorHealthText.reset(state.reset),
+                                (state.shtc3?.isAlert == true) to SensorHealthText.shtc3(state.shtc3),
+                                (state.memory?.isLow == true) to SensorHealthText.memory(state.memory)
+                            )
+                            for ((warn, text) in lines) {
+                                Text(
+                                    (if (warn) "⚠ " else "") + text,
+                                    color = if (warn) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground
+                                )
+                            }
+                        }
+                    }
                 }
             }
             items(state.rows, key = { it.slot }) { row ->

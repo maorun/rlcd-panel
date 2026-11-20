@@ -2020,3 +2020,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `DiagnosticsView` shows the group `Wake cycle` with the cause, the wake count and the battery interval in seconds. The `Night interval` badge appears while `isNightInterval` is true. The badge uses the last config read of the app.
 - `DiagnosticsReport` keeps the raw `WAKE` line and adds the line `Wake cycle: <cause>, boots <N>, battery interval <N> s` after it. The line holds no name and no MAC.
 - `DiagnosticsTests` and `DiagnosticsReportTests` cover the parser, the night interval and the report line.
+
+## Panel diagnostics lines in the Android sensor health screen
+
+- The shared Kotlin `StatusReply` (phone and watch, equal except the `package` line) parses the `STATUS` lines `RESET`, `SHTC3` and `MEMORY` into `StatusReply.reset` (`ResetState(reason, abnormalCount)`), `StatusReply.shtc3` (`Shtc3State(nack, shortReads, crc, run, retried)`) and `StatusReply.memory` (`MemoryState(free, min, largest, psram)`). A missing line gives `null`.
+- `ResetState.isAbnormal` is true for `PANIC`, `INT_WDT`, `TASK_WDT`, `WDT` and `BROWNOUT`. `abnormal=--` gives a `null` count and keeps the reason. `Shtc3State.isAlert` is true from `run` 3. `MemoryState.isLow` is true when `largest` is below 16384 bytes. The limits equal `ResetMetrics`, `Shtc3Stats` and `MemoryMetrics` in `Diagnostics.swift`.
+- A bad number throws `ParseException`.
+- `SensorHealthScreen` (phone) shows the card `Panel diagnostics` with one line for each group and a warning symbol for each alert state.
+- Tests: both `StatusReplyTest` classes assert the fixture values, the abnormal reset, the `null` count, the alert and low states, `null` for missing lines and `ParseException` for `SHTC3 nack=x`.

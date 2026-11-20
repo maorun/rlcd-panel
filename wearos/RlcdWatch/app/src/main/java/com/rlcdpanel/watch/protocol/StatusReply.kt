@@ -38,6 +38,33 @@ data class NtpState(val ok: Boolean, val failures: Int, val ageSeconds: Long?, v
     }
 }
 
+/** `RESET reason=<TEXT> abnormal=<N|-->`: last reset reason and count of abnormal resets (null for `--`). */
+data class ResetState(val reason: String, val abnormalCount: Int?) {
+    val isAbnormal: Boolean get() = reason in ABNORMAL_REASONS
+
+    companion object {
+        val ABNORMAL_REASONS = setOf("PANIC", "INT_WDT", "TASK_WDT", "WDT", "BROWNOUT")
+    }
+}
+
+/** `SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>`: failed reads of the onboard sensor by cause. */
+data class Shtc3State(val nack: Int, val shortReads: Int, val crc: Int, val run: Int, val retried: Int) {
+    val isAlert: Boolean get() = run >= ALERT_RUN
+
+    companion object {
+        const val ALERT_RUN = 3
+    }
+}
+
+/** `MEMORY free=<N> min=<N> largest=<N> psram=<N>` (bytes). */
+data class MemoryState(val free: Long, val min: Long, val largest: Long, val psram: Long) {
+    val isLow: Boolean get() = largest < LOW_LARGEST_BYTES
+
+    companion object {
+        const val LOW_LARGEST_BYTES = 16384
+    }
+}
+
 /** Parsed `STATUS` reply. Unknown lines are ignored, so a newer firmware does not break the parser. */
 data class StatusReply(
     val sensors: List<StatusSensor>,
@@ -53,7 +80,13 @@ data class StatusReply(
     /** `status=` of the `SD` line; null for a missing field. */
     val sdStatus: String? = null,
     /** `free_mb=` of the `SD` line: free card space in MB; null for `--`, a missing field and older firmware. */
-    val sdFreeMb: Int? = null
+    val sdFreeMb: Int? = null,
+    /** Null without a `RESET` line. */
+    val reset: ResetState? = null,
+    /** Null without an `SHTC3` line. */
+    val shtc3: Shtc3State? = null,
+    /** Null without a `MEMORY` line. */
+    val memory: MemoryState? = null
 ) {
     val isUsbPower: Boolean get() = powerSource == "USB"
 
@@ -87,6 +120,9 @@ data class StatusReply(
             var muted: Boolean? = null
             var sdStatus: String? = null
             var sdFreeMb: Int? = null
+            var reset: ResetState? = null
+            var shtc3: Shtc3State? = null
+            var memory: MemoryState? = null
             for (line in lines) {
                 val words = line.split(' ').filter { it.isNotEmpty() }
                 val head = words.firstOrNull() ?: continue
@@ -118,14 +154,44 @@ data class StatusReply(
                     }
                     "RECEPTION" -> reception = parseReception(line)
                     "NTP" -> ntp = parseNtp(line)
+                    "RESET" -> reset = parseReset(line)
+                    "SHTC3" -> shtc3 = parseShtc3(line)
+                    "MEMORY" -> memory = parseMemory(line)
                 }
             }
             if (sensors.isEmpty()) throw ParseException("SENSOR")
-            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb)
+            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory)
         }
 
         private fun digits(s: String?): Long? =
             if (s != null && s.isNotEmpty() && s.length <= 12 && s.all { it in '0'..'9' }) s.toLongOrNull() else null
+
+        private fun counter(f: Map<String, String>, key: String, line: String, max: Long = Int.MAX_VALUE.toLong()): Long =
+            digits(f[key])?.takeIf { it <= max } ?: throw ParseException(line)
+
+        /** `RESET reason=<TEXT> abnormal=<N|-->`; `abnormal=--` gives a null count, a bad field throws. */
+        private fun parseReset(line: String): ResetState {
+            val f = fields(line)
+            val reason = f["reason"]
+            if (reason.isNullOrEmpty()) throw ParseException(line)
+            val count = if (f["abnormal"] == "--") null else counter(f, "abnormal", line).toInt()
+            return ResetState(reason, count)
+        }
+
+        private fun parseShtc3(line: String): Shtc3State {
+            val f = fields(line)
+            return Shtc3State(
+                counter(f, "nack", line).toInt(), counter(f, "short", line).toInt(), counter(f, "crc", line).toInt(),
+                counter(f, "run", line).toInt(), counter(f, "retried", line).toInt()
+            )
+        }
+
+        private fun parseMemory(line: String): MemoryState {
+            val f = fields(line)
+            return MemoryState(
+                counter(f, "free", line), counter(f, "min", line), counter(f, "largest", line), counter(f, "psram", line)
+            )
+        }
 
         /** `NTP ok=<0|1|--> failures=<N> age_s=<N|--> next_s=<N|-->`; `ok=--` gives null, a bad field throws. */
         private fun parseNtp(line: String): NtpState? {
