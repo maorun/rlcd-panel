@@ -14,4 +14,5 @@ POWER src=USB v=4.05 pct=88 alerts=00 muted=0 acked=00
 MEMORY free=212345 min=150000 largest=110592 psram=8300000
 FRAME crc=1a2b3c4d skips=12
 WAKE cause=TIMER boots=1234 battery_interval_s=600
-CRC32 26020623
+LATCH vent=002 dry=000 batlow=008 stale=004
+CRC32 f1855001

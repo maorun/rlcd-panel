@@ -2039,3 +2039,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - A bad number throws `ParseException`.
 - `SensorHealthScreen` (phone) shows the card `Panel diagnostics` with one line for each group and a warning symbol for each alert state.
 - Tests: both `StatusReplyTest` classes assert the fixture values, the abnormal reset, the `null` count, the alert and low states, `null` for missing lines and `ParseException` for `SHTC3 nack=x`.
+
+## Badge latch line in STATUS
+
+- The console command `STATUS` shows `LATCH vent=<3 hex digits> dry=<3 hex digits> batlow=<3 hex digits> stale=<3 hex digits>` after `WAKE` and before `CRC32`. Each mask has 3 lowercase hex digits.
+- `vent` (`VentilateLatch`) and `dry` (`DryLatch`): bit 0 is the onboard tile, bits 1 to 10 are the registry slots. `batlow` (`SensorBatteryLatch`) and `stale` (`PersistentState::stale_slots`): bits 0 to 9 are the registry slots.
+- `SerialStatusSnapshot` has the new fields `ventilate_tiles`, `dry_tiles` and `stale_slots` (`uint16_t`). `sensor_battery_latch` is now `uint16_t`, so slots 9 and 10 keep their `BATLOW` state in the `SENSOR` line.
+- The sketch fills the fields from the RTC copy of `g_state`. The RTC layout and `STATE_VERSION` do not change. The Kotlin parsers ignore the line.
+- Tests: `testStatusLatchLine` covers the values, the empty line, the `SENSOR 10` state `BATLOW` and the line order. `tests/fixtures/status_reply_sample.txt` holds the line.

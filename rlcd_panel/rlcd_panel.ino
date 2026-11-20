@@ -1490,6 +1490,9 @@ void setup() {
       snap.battery = g_state.battery;
       snap.alert_mask = g_state.alert_mask;
       snap.sensor_battery_latch = g_state.sensor_battery_latch;
+      snap.ventilate_tiles = g_state.ventilate_tiles;
+      snap.dry_tiles = g_state.dry_tiles;
+      snap.stale_slots = g_state.stale_slots;
       snap.muted = g_state.muted;
       snap.alert_ack = g_state.alert_ack;
       snap.now_ms = nowMs();
