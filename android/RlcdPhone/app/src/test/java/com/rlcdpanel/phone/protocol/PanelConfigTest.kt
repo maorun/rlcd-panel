@@ -226,6 +226,17 @@ class PanelConfigTest {
     }
 
     @Test
+    fun slotEnabledDefaultsToTrueAndReadsZero() {
+        val config = PanelConfig(mapOf("slot1_enabled" to "0", "slot2_enabled" to "1"))
+        assertFalse(config.slotEnabled(1))
+        assertTrue(config.slotEnabled(2))
+        assertTrue(config.slotEnabled(3))
+        assertTrue(PanelConfig().slotEnabled(10))
+        assertFalse(config.slotEnabled(0))
+        assertFalse(config.slotEnabled(11))
+    }
+
+    @Test
     fun fixedMacOfTheSlotIsTheDefaultActiveMac() {
         val config = PanelConfig.parseText(macIni)
         assertEquals("BAD", config.tileName(1))

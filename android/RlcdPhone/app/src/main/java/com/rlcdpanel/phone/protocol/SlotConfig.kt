@@ -60,5 +60,10 @@ object SlotConfig {
         if (slot !in SlotAssignment.SLOTS) Plan.Invalid("Slot $slot gibt es nicht")
         else Plan.Commands(listOf("SET slot${slot}_mac="))
 
+    /** `SET slotN_enabled=<0|1>` enables or disables (hides) slot [slot]; empty list for a slot that does not exist. */
+    fun setEnabled(slot: Int, enabled: Boolean): List<String> =
+        if (slot !in SlotAssignment.SLOTS) emptyList()
+        else listOf("SET slot${slot}_enabled=${if (enabled) 1 else 0}")
+
     fun autoAssign(on: Boolean): List<String> = listOf("SET slot_auto_assign=${if (on) 1 else 0}")
 }

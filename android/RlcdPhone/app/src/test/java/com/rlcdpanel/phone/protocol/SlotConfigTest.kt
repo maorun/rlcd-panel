@@ -13,6 +13,13 @@ class SlotConfigTest {
     private fun reason(plan: SlotConfig.Plan) = (plan as SlotConfig.Plan.Invalid).reason
 
     @Test
+    fun setEnabledSendsZeroOrOne() {
+        assertEquals(listOf("SET slot3_enabled=0"), SlotConfig.setEnabled(3, false))
+        assertEquals(listOf("SET slot3_enabled=1"), SlotConfig.setEnabled(3, true))
+        assertTrue(SlotConfig.setEnabled(11, true).isEmpty())
+    }
+
+    @Test
     fun defineSetsMacThenUpperCasedName() {
         assertEquals(
             listOf("SET slot4_mac=A4:C1:38:11:22:33", "SET slot4_name=KUECHE-1"),

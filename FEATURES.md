@@ -1719,6 +1719,7 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 ### Android slot rename fix
 
 - `PanelConfig.tileName(index, activeMac)` of the phone app and the Wear OS app falls back in this order: `nameForMac(activeMac)`, `slotName(index)`, then `TelemetryFrame.DEFAULT_TILE_NAMES`. A `slotN_name` without a fixed MAC now shows in the tile title at once. Before, the tile showed `Slot N` until the user set a fixed MAC.
+- `SlotConfigScreen` has one `Switch` for each slot. It sends `SET slotN_enabled=<0|1>` (`SlotConfig.setEnabled`) and reads the state with `PanelConfig.slotEnabled` (true unless `slotN_enabled=0`; the Wear OS copy stays equal). A disabled slot shows `Deaktiviert` and its `Bearbeiten` button is off. The switch needs `canWrite` and an idle screen. `PanelConfigTest` and `SlotConfigTest` assert the state and the commands.
 - `SlotConfigScreen` no longer shows the text `(Name bleibt gespeichert)` after the name of a slot without a fixed MAC.
 - `PanelConfigTest` of both apps asserts the slot name fallback for an unknown MAC and for a slot without a fixed MAC. Both `PanelConfig.kt` files stay equal except the `package` line.
 - Validation: `./scripts/check-protocol-sync.sh` passes. The local machine has no Android SDK, so `gradle testDebugUnitTest assembleDebug` did not run locally. CI runs it.
