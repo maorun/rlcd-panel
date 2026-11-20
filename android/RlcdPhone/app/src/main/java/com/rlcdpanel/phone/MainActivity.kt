@@ -67,7 +67,7 @@ import com.rlcdpanel.phone.ventilation.OutdoorSource
 import com.rlcdpanel.phone.ventilation.OutdoorWeatherService
 import com.rlcdpanel.phone.ventilation.VentilationAction
 import com.rlcdpanel.phone.ventilation.VentilationGuide
-import com.rlcdpanel.phone.ventilation.WallWatch
+import com.rlcdpanel.phone.protocol.WallWatch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
