@@ -21,11 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Panel 24-hour history over the BLE console in the Android app
-  - Rank: [Total: 31, Use: 8, Setup: 4, Harmony: 9, Safety: 10, Effort: M]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/HistoryReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/HistoryScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/HistoryReplyTest.kt, tests/fixtures/history_reply_sample.txt
-  - Goal: The phone history screen shows only the frames that the phone received itself. After a night without the phone, the chart has gaps. The panel keeps 24 hourly samples of each sensor in RTC memory, and the console command `HISTORY` runs over BLE at each `ble_console` level. Add `HistoryReply.parse(lines)` with `HistoryRow(sensor, ageHours, temperatureC, humidityPct, noiseDb)`. Return `null` for an empty field. Throw `ParseException` for a wrong header, a wrong column count, a sensor outside 0 to 10 and an age outside 0 to 23. Add the button `Panel-Verlauf lesen` to `HistoryScreen`. The button sends `HISTORY` through `BleConsoleClient` only after a tap. Show the panel curves of the selected sensor in place of the local curves, and show the `Lokal` button to go back. Add the fixture `tests/fixtures/history_reply_sample.txt` with a valid `CRC32` line.
-  - Acceptance test: In `HistoryReplyTest`, read `tests/fixtures/history_reply_sample.txt` through `ReplyAssembler` and assert the row count, the first row, `null` for an empty `noise_db` field, and `ParseException` for a wrong header, for 4 columns, for sensor 11 and for age 24. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`.
 
 - [ ] RTC trim in the Android sensor health screen
   - Rank: [Total: 29, Use: 4, Setup: 8, Harmony: 8, Safety: 9, Effort: S]
