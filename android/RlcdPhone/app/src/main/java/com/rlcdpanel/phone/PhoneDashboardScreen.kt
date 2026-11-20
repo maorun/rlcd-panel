@@ -62,6 +62,38 @@ import java.util.Locale
 /** A tile counts as stale when no packet arrived for this long. */
 const val STALE_AFTER_MILLIS: Long = OutdoorResolver.MAX_FRAME_AGE_MS
 
+/** Wall surface humidity text of a climate card, from the panel tile of `outdoor_slot` (same value as the panel). */
+object WallText {
+    /** Wall humidity at or above this value is a warning (mold risk). */
+    const val WARNING_RH_PCT = 80.0
+
+    data class Result(val text: String, val warning: Boolean)
+
+    fun isWarning(rhPct: Double): Boolean = rhPct >= WARNING_RH_PCT
+
+    /** The panel tile of `outdoor_slot`, `null` without the key, for an invalid slot or an invalid tile. */
+    fun outdoorTile(tiles: List<TelemetryTile>, config: PanelConfig): TelemetryTile? {
+        val slot = config.values["outdoor_slot"]?.trim()?.toIntOrNull() ?: return null
+        return tiles.getOrNull(slot)?.takeIf { slot in 1..5 && it.isValid }
+    }
+
+    /**
+     * Text `Wall <N>%` and warning flag for tile [index], or `null`. [outdoor] must be a fresh tile of
+     * `outdoor_slot` (`null` when missing or stale). The caller hides stale cards.
+     */
+    fun format(tile: TelemetryTile, index: Int, outdoor: TelemetryTile?, config: PanelConfig): Result? {
+        val pct = config.values["wall_frsi_pct"]?.trim()?.toIntOrNull() ?: return null
+        if (pct == 0) return null
+        val outSlot = config.values["outdoor_slot"]?.trim()?.toIntOrNull() ?: return null
+        if (index == outSlot) return null
+        val tIn = tile.temperatureC ?: return null
+        val rhIn = tile.humidityPct ?: return null
+        val tOut = outdoor?.temperatureC ?: return null
+        val wall = ClimateMath.wallSurfaceRh(tIn, rhIn, tOut, pct / 100.0) ?: return null
+        return Result(String.format(Locale.US, "Wall %.0f%%", wall), isWarning(wall))
+    }
+}
+
 internal val PhoneColors = darkColorScheme(
     primary = Color(0xFF90CAF9),
     background = Color(0xFF000000),
@@ -168,8 +200,10 @@ fun PhoneDashboardScreen(
                     val visible = tiles.indices.filter { i -> i == 0 || tiles[i].isValid }
                     val stale = nowMillis - snapshot.receivedAtMillis > STALE_AFTER_MILLIS
                     val batteryAlert = snapshot.frame.alerts.contains(AlertMask.SENSOR_BATTERY)
+                    val outdoorTile = WallText.outdoorTile(tiles, panelConfig)
                     items(visible) { index ->
                         ClimateCard(
+                            wall = if (stale) null else WallText.format(tiles[index], index, outdoorTile, panelConfig),
                             name = panelConfig.tileName(index),
                             badge = if (index == 0) SensorHealth.badgeFor("SHTC3") else sourceBadges[index],
                             tile = tiles[index],
@@ -494,6 +528,7 @@ private fun VentilationCard(
 
 @Composable
 private fun ClimateCard(
+    wall: WallText.Result? = null,
     name: String,
     badge: String? = null,
     tile: TelemetryTile,
@@ -563,6 +598,14 @@ private fun ClimateCard(
                 }
                 if (details.isNotEmpty()) {
                     Text(text = details.joinToString(" • "), fontSize = 12.sp, color = Color(0xFF90A4AE))
+                }
+                if (wall != null) {
+                    Text(
+                        text = wall.text,
+                        fontSize = 12.sp,
+                        fontWeight = if (wall.warning) FontWeight.Bold else FontWeight.Normal,
+                        color = if (wall.warning) Color(0xFFFF8A65) else Color(0xFF90A4AE)
+                    )
                 }
             } else {
                 Text(text = "-- °C   -- %RH", fontSize = 20.sp, color = Color.Gray)

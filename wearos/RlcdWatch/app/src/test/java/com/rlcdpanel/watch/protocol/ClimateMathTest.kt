@@ -107,4 +107,41 @@ class ClimateMathTest {
         assertEquals(ComfortZone.HUMID, ClimateMath.comfort(21.0, 70.0))
         assertEquals(ComfortZone.INVALID, ClimateMath.comfort(Double.NaN, 50.0))
     }
+
+    private data class WallVector(val tIn: Double, val rhIn: Double, val tOut: Double, val frsi: Double, val wall: Double?)
+
+    private fun wallVectors(): List<WallVector> {
+        var dir: File? = File(".").canonicalFile
+        var file: File? = null
+        while (dir != null && file == null) {
+            val candidate = File(dir, "tests/fixtures/wall_rh_vectors.txt")
+            if (candidate.isFile) file = candidate
+            dir = dir.parentFile
+        }
+        checkNotNull(file) { "Could not locate tests/fixtures/wall_rh_vectors.txt" }
+        return file.readLines().map { it.trim() }.filter { it.isNotEmpty() && !it.startsWith("#") }.map { line ->
+            val c = line.split("|").map { it.trim() }
+            check(c.size == 5) { "Bad wall vector line: $line" }
+            WallVector(parse(c[0]), parse(c[1]), parse(c[2]), parse(c[3]), number(c[4]))
+        }
+    }
+
+    @Test
+    fun wallSurfaceRhMatchesSharedVectors() {
+        val all = wallVectors()
+        assertTrue(all.size >= 16)
+        for (v in all) {
+            assertNear("wall $v", v.wall, ClimateMath.wallSurfaceRh(v.tIn, v.rhIn, v.tOut, v.frsi), 0.1)
+        }
+    }
+
+    @Test
+    fun wallSurfaceRhRejectsBadInput() {
+        assertNull(ClimateMath.wallSurfaceRh(20.0, 50.0, 0.0, 0.49))
+        assertNull(ClimateMath.wallSurfaceRh(10.0, 50.0, 15.0, 0.70))
+        assertNull(ClimateMath.wallSurfaceRh(Double.NaN, 50.0, 0.0, 0.70))
+        assertNull(ClimateMath.wallSurfaceRh(20.0, Double.NaN, 0.0, 0.70))
+        assertNull(ClimateMath.wallSurfaceRh(20.0, 50.0, Double.NaN, 0.70))
+        assertNull(ClimateMath.wallSurfaceRh(20.0, 50.0, 0.0, Double.NaN))
+    }
 }
