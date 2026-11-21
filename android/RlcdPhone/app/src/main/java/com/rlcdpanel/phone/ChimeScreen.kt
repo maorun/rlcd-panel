@@ -25,6 +25,8 @@ import com.rlcdpanel.phone.protocol.ChimeCommand
 data class ChimeState(
     val isBusy: Boolean = false,
     val muted: Boolean? = null,
+    /** Text of the `CHIME` line of the last `STATUS` read; null without the line. */
+    val reminder: String? = null,
     val message: String? = null,
     val isError: Boolean = false
 )
@@ -71,6 +73,9 @@ fun ChimeScreen(
                         enabled = !state.isBusy
                     )
                 }
+            }
+            state.reminder?.let {
+                item { Text(it, style = MaterialTheme.typography.bodyMedium) }
             }
             state.message?.let {
                 item {

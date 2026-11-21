@@ -252,4 +252,29 @@ class StatusReplyTest {
             }
         }
     }
+
+    @Test
+    fun parsesChimeLine() {
+        assertEquals(ChimeReminder(2, 2, 3600, 3600), StatusReply.parse(fixtureLines()).chime)
+        assertEquals(ChimeReminder(2, 2, 3600, null), replace("CHIME ", "CHIME repeat_h=2 bits=02 last_s=3600 next_s=--").chime)
+        assertEquals(ChimeReminder(2, 2, null, 3600), replace("CHIME ", "CHIME repeat_h=2 bits=02 last_s=-- next_s=3600").chime)
+        assertEquals(ChimeReminder(24, 255, null, null), replace("CHIME ", "CHIME repeat_h=24 bits=FF last_s=-- next_s=--").chime)
+        assertNull(StatusReply.parse(fixtureLines().filter { !it.startsWith("CHIME ") }).chime)
+    }
+
+    @Test
+    fun badChimeLineThrows() {
+        for (line in listOf(
+            "CHIME repeat_h=25 bits=02 last_s=1 next_s=1", "CHIME repeat_h=2 bits=2 last_s=1 next_s=1",
+            "CHIME repeat_h=2 bits=0g last_s=1 next_s=1", "CHIME repeat_h=2 bits=002 last_s=1 next_s=1",
+            "CHIME repeat_h=x bits=02 last_s=1 next_s=1", "CHIME repeat_h=2 bits=02 last_s=x next_s=1",
+            "CHIME repeat_h=2 bits=02 last_s=1", "CHIME repeat_h=2 bits=02 last_s=1 next_s=-1"
+        )) {
+            try {
+                replace("CHIME ", line)
+                fail("expected ParseException for $line")
+            } catch (e: ParseException) {
+            }
+        }
+    }
 }

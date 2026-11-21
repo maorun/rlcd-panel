@@ -88,6 +88,13 @@ data class NoiseState(val db: Int?, val band: String, val peakDb: Int?, val peak
     }
 }
 
+/** `CHIME repeat_h=<N> bits=<2 hex digits> last_s=<N|--> next_s=<N|-->`: chime reminder state; `--` gives a null field. */
+data class ChimeReminder(val repeatHours: Int, val bits: Int, val lastS: Long?, val nextS: Long?) {
+    companion object {
+        const val MAX_REPEAT_HOURS = 24
+    }
+}
+
 /** Parsed `STATUS` reply. Unknown lines are ignored, so a newer firmware does not break the parser. */
 data class StatusReply(
     val sensors: List<StatusSensor>,
@@ -113,7 +120,9 @@ data class StatusReply(
     /** Null without an `RTC` line. */
     val rtc: RtcState? = null,
     /** Null without a `NOISE` line. */
-    val noise: NoiseState? = null
+    val noise: NoiseState? = null,
+    /** Null without a `CHIME` line. */
+    val chime: ChimeReminder? = null
 ) {
     val isUsbPower: Boolean get() = powerSource == "USB"
 
@@ -152,6 +161,7 @@ data class StatusReply(
             var memory: MemoryState? = null
             var rtc: RtcState? = null
             var noise: NoiseState? = null
+            var chime: ChimeReminder? = null
             for (line in lines) {
                 val words = line.split(' ').filter { it.isNotEmpty() }
                 val head = words.firstOrNull() ?: continue
@@ -191,10 +201,11 @@ data class StatusReply(
                     "MEMORY" -> memory = parseMemory(line)
                     "RTC" -> rtc = parseRtc(line)
                     "NOISE" -> noise = parseNoise(line)
+                    "CHIME" -> chime = parseChime(line)
                 }
             }
             if (sensors.isEmpty()) throw ParseException("SENSOR")
-            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory, rtc, noise)
+            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory, rtc, noise, chime)
         }
 
         private fun digits(s: String?): Long? =
@@ -248,6 +259,18 @@ data class StatusReply(
                 optional("db", NoiseState.MAX_DB), band, optional("peak_db", NoiseState.MAX_DB),
                 optional("peak_hour", NoiseState.MAX_HOUR), counter(f, "events_sum", line).toInt()
             )
+        }
+
+        /** `CHIME repeat_h=<N> bits=<2 hex digits> last_s=<N|--> next_s=<N|-->`; `repeat_h` above 24, bad bits or a bad number throws. */
+        private fun parseChime(line: String): ChimeReminder {
+            val f = fields(line)
+            val repeat = counter(f, "repeat_h", line, ChimeReminder.MAX_REPEAT_HOURS.toLong()).toInt()
+            val bitsText = f["bits"]
+            if (bitsText == null || bitsText.length != 2 || !bitsText.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) {
+                throw ParseException(line)
+            }
+            fun optional(key: String): Long? = if (f[key] == "--") null else counter(f, key, line)
+            return ChimeReminder(repeat, bitsText.toInt(16), optional("last_s"), optional("next_s"))
         }
 
         private fun parseMemory(line: String): MemoryState {

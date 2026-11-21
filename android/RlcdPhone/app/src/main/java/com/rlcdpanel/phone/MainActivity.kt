@@ -34,6 +34,7 @@ import com.rlcdpanel.phone.finder.SensorFinderScanner
 import com.rlcdpanel.phone.finder.SlotAssignment
 import com.rlcdpanel.phone.protocol.CalibrationBatch
 import com.rlcdpanel.phone.protocol.ChimeCommand
+import com.rlcdpanel.phone.protocol.ChimeText
 import com.rlcdpanel.phone.protocol.CalibrationProposal
 import com.rlcdpanel.phone.protocol.CalibrationReply
 import com.rlcdpanel.phone.protocol.SaltCommand
@@ -761,16 +762,17 @@ class MainActivity : ComponentActivity() {
 
     private fun chimeStateAfterStatus(reply: ConsoleReply, expected: Boolean?): ChimeState {
         if (reply !is ConsoleReply.Frame) {
-            return chimeState.copy(isBusy = false, isError = true, message = BleConsoleClient.errorText(reply))
+            return chimeState.copy(isBusy = false, isError = true, reminder = null, message = BleConsoleClient.errorText(reply))
         }
         return try {
-            val muted = StatusReply.parse(reply.lines).muted
+            val status = StatusReply.parse(reply.lines)
             chimeState.copy(
-                isBusy = false, isError = false, muted = muted ?: expected,
+                isBusy = false, isError = false, muted = status.muted ?: expected,
+                reminder = status.chime?.let { ChimeText.reminder(it) },
                 message = if (expected != null) "Stumm ${if (expected) "an" else "aus"}" else null
             )
         } catch (e: ParseException) {
-            chimeState.copy(isBusy = false, isError = true, message = "Antwort nicht lesbar: ${e.line.take(80)}")
+            chimeState.copy(isBusy = false, isError = true, reminder = null, message = "Antwort nicht lesbar: ${e.line.take(80)}")
         }
     }
 
