@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+#include <utility>
 
 namespace rlcd_panel {
 
@@ -458,6 +459,21 @@ public:
     }
   }
 
+  // Swaps the readings of slots `a` and `b` with their jump and JumpGuard state (console SLOT SWAP). The assign
+  // flags of both slots drop: the caller records SLOT_ASSIGN itself. The caller refuses a fixed MAC slot and a
+  // disabled slot first. False for an equal or out-of-range index.
+  bool swapSlots(size_t a, size_t b) {
+    if (a >= MAX_SWITCHBOT_SENSORS || b >= MAX_SWITCHBOT_SENSORS || a == b) {
+      return false;
+    }
+    std::swap(slots_[a], slots_[b]);
+    assigned_[a] = assigned_[b] = false;
+    std::swap(jumped_[a], jumped_[b]);
+    std::swap(pending_[a], pending_[b]);
+    std::swap(pending_valid_[a], pending_valid_[b]);
+    return true;
+  }
+
   // Call at the end of each BLE scan: drops each pending packet of JumpGuard and counts it in
   // BleRejectStats::jumps.
   void endScan() {
@@ -744,6 +760,14 @@ public:
     if (index < MAX_SWITCHBOT_SENSORS) {
       masks_[index] = 0;
       scans_[index] = 0;
+    }
+  }
+
+  // Swaps the mask and the scan count of two slots (console SLOT SWAP). An equal or bad index changes nothing.
+  void swap(size_t a, size_t b) {
+    if (a < MAX_SWITCHBOT_SENSORS && b < MAX_SWITCHBOT_SENSORS) {
+      std::swap(masks_[a], masks_[b]);
+      std::swap(scans_[a], scans_[b]);
     }
   }
 

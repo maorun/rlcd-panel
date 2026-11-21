@@ -736,6 +736,21 @@ public:
     }
   }
 
+  // Swaps all days and mold hours of two sensors (console SLOT SWAP). An equal or bad index changes nothing.
+  void swapSensors(size_t a, size_t b) {
+    if (a >= SENSORS || b >= SENSORS || a == b) {
+      return;
+    }
+    uint8_t day[sizeof(days_[0])];
+    memcpy(day, days_[a], sizeof(day));
+    memcpy(days_[a], days_[b], sizeof(day));
+    memcpy(days_[b], day, sizeof(day));
+    uint8_t mold[sizeof(mold_[0])];
+    memcpy(mold, mold_[a], sizeof(mold));
+    memcpy(mold_[a], mold_[b], sizeof(mold));
+    memcpy(mold_[b], mold, sizeof(mold));
+  }
+
   static constexpr uint16_t ALL_SENSORS = static_cast<uint16_t>((1u << SENSORS) - 1u);
 
   // Bit mask of the sensors that took part in the last 24 hours: bit 0 is the onboard sensor with a valid

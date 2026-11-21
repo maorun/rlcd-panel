@@ -5,6 +5,8 @@
 #include <stdint.h>
 #include <string.h>
 
+#include <utility>
+
 #include "audio_alert.h"
 #include "es7210_mic.h"
 #include "frame_refresh.h"
@@ -285,6 +287,44 @@ struct PersistentState {
     return true;
   }
 
+  // Result of swapSlotsByUser.
+  enum class SlotSwap : uint8_t { OK, FIXED_MAC, SLOT_OFF, BAD_ARG };
+
+  // Console SLOT SWAP: swaps the reading, both 24-hour histories, the week days, the reception history and the
+  // badge latch bits (battery, ventilation, dry air, stale) of slots `a` and `b` (indexes 0 to 9). FIXED_MAC when a
+  // slot has a fixed MAC and SLOT_OFF when a slot is disabled: no change. BAD_ARG for an equal or bad index. One
+  // SLOT_ASSIGN event for each occupied slot after the swap (slot number in the high byte, BleFormat in the low
+  // byte). Call it inside the registry lock. No card access; the next save writes the state.
+  SlotSwap swapSlotsByUser(size_t a, size_t b, const RtcTime& now) {
+    if (a >= MAX_SWITCHBOT_SENSORS || b >= MAX_SWITCHBOT_SENSORS || a == b) {
+      return SlotSwap::BAD_ARG;
+    }
+    if (config.hasSlotMac(a) || config.hasSlotMac(b) || registry.isFixed(a) || registry.isFixed(b)) {
+      return SlotSwap::FIXED_MAC;
+    }
+    if (!registry.isSlotEnabled(a) || !registry.isSlotEnabled(b)) {
+      return SlotSwap::SLOT_OFF;
+    }
+    registry.swapSlots(a, b);
+    swapBit(sensor_battery_latch, a, b, 0);
+    swapBit(ventilate_tiles, a, b, 1);
+    swapBit(dry_tiles, a, b, 1);
+    swapBit(stale_slots, a, b, 0);
+    std::swap(history.slots[1 + a], history.slots[1 + b]);
+    std::swap(history.temperatures[1 + a], history.temperatures[1 + b]);
+    reception.swap(a, b);
+    week.swapSensors(1 + a, 1 + b);
+    const size_t order[2] = {a < b ? a : b, a < b ? b : a};
+    for (size_t index : order) {
+      const SwitchBotReading& r = registry.slot(index);
+      if (r.valid) {
+        events.record(now, EventCode::SLOT_ASSIGN,
+                      static_cast<uint16_t>(((index + 1) << 8) | static_cast<uint8_t>(r.format)));
+      }
+    }
+    return SlotSwap::OK;
+  }
+
   // Console ACK: stops the chime reminder of the active alert bit `bit` (0 to 7). False for an alert that is off.
   bool acknowledgeAlert(uint8_t bit, const RtcTime& now) {
     const uint8_t flag = static_cast<uint8_t>(1u << (bit & 7));
@@ -328,6 +368,21 @@ struct PersistentState {
   }
 
 private:
+  // Swaps bit `a + shift` and bit `b + shift` of a latch mask.
+  static void swapBit(uint16_t& mask, size_t a, size_t b, unsigned shift) {
+    const uint16_t bit_a = static_cast<uint16_t>(1u << (a + shift));
+    const uint16_t bit_b = static_cast<uint16_t>(1u << (b + shift));
+    const bool set_a = (mask & bit_a) != 0;
+    const bool set_b = (mask & bit_b) != 0;
+    mask = static_cast<uint16_t>(mask & ~(bit_a | bit_b));
+    if (set_a) {
+      mask = static_cast<uint16_t>(mask | bit_b);
+    }
+    if (set_b) {
+      mask = static_cast<uint16_t>(mask | bit_a);
+    }
+  }
+
   // True when the reading of slot `index` breaks a fixed MAC.
   bool breaksFixedMac(size_t index) const {
     SwitchBotRegistry probe = registry;

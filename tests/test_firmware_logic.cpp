@@ -20940,6 +20940,175 @@ void testSerialSlotClearCommand() {
   assert(storage.mounts == 0);
 }
 
+void testSerialSlotSwapCommand() {
+  SerialCommand cmd;
+  assert(parseText("SLOT SWAP 1 3", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SLOT_SWAP &&
+         cmd.reference == 1 && cmd.reference_b == 3);
+  assert(parseText("SLOT SWAP 10 9\r\n", cmd) == SerialParseStatus::OK && cmd.reference == 10 && cmd.reference_b == 9);
+  assert(parseText("SLOT SWAP 2 10", cmd) == SerialParseStatus::OK && cmd.reference == 2 && cmd.reference_b == 10);
+  const char* bad[] = {"SLOT SWAP", "SLOT SWAP ", "SLOT SWAP 2", "SLOT SWAP 2 2", "SLOT SWAP 10 10", "SLOT SWAP 0 2",
+                       "SLOT SWAP 2 11", "SLOT SWAP 2 3 4", "SLOT SWAP 2  3", "SLOT SWAP 23", "SLOT SWAP X 2", "SLOT SWAP 2 X"};
+  for (const char* line : bad) {
+    assert(parseText(line, cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  }
+  assert(parseText("SLOT SWAPX 1 2", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("slot swap 1 2", cmd) == SerialParseStatus::UNKNOWN);
+
+  auto mk = [](uint8_t last) {
+    SwitchBotReading r;
+    r.valid = true;
+    memset(r.mac, 0, 6);
+    r.mac[5] = last;
+    r.temperature_c = 21.0f;
+    r.humidity_pct = 50;
+    r.battery_pct = 80;
+    return r;
+  };
+  const RtcTime now = localTime(2026, 11, 21, 9);
+  PersistentState st;
+  assert(st.week.advance(now, st.history, true)); // the first valid call stamps the date, so the days restore
+  assert(st.registry.upsert(mk(1), BleFormat::WOIO));
+  assert(st.registry.upsert(mk(2), BleFormat::WOIO));
+  assert(st.registry.upsert(mk(3), BleFormat::ATC));
+  BleFormat taken = BleFormat::WOIO;
+  for (size_t i = 0; i < 3; ++i) {
+    assert(st.registry.takeAssigned(i, taken));
+  }
+  for (size_t sensor = 1; sensor <= 3; ++sensor) {
+    st.history.slots[sensor].push(static_cast<uint16_t>(300 + 100 * sensor));
+    st.history.temperatures[sensor].push(static_cast<int16_t>(180 + 10 * sensor));
+    st.week.setDay(sensor, 0, true, static_cast<int16_t>(100 * sensor), static_cast<int16_t>(100 * sensor + 50), true,
+                   static_cast<int16_t>(300 + 10 * sensor), static_cast<int16_t>(500 + 10 * sensor), static_cast<uint8_t>(sensor));
+  }
+  uint32_t before[MAX_SWITCHBOT_SENSORS] = {};
+  st.reception.recordScan(st.registry, before);
+  st.reception.recordScan(st.registry, nullptr);
+  st.stale_slots = 0b0000000001;         // slot 1
+  st.sensor_battery_latch = 0b0000000100; // slot 3
+  st.ventilate_tiles = 0b0000000010;      // slot 1 (bit 0 is the onboard tile)
+  st.dry_tiles = 0b0000001000;            // slot 3
+  const uint32_t mask_one = st.reception.mask(0);
+  const uint8_t scans_one = st.reception.scans(0);
+  const int16_t week_one = st.week.temperatureMin(1, 0);
+  const int16_t week_three = st.week.temperatureMin(3, 0);
+
+  uint8_t original[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(st, original, sizeof(original)));
+
+  // swap of slot 1 and slot 3
+  FakeSink sink;
+  const PersistentState::SlotSwap done = st.swapSlotsByUser(0, 2, now);
+  TestRunner::slotSwapReply(sink, done, 1, 3);
+  assert(done == PersistentState::SlotSwap::OK && sink.out == "OK SLOT SWAP 1 3\n");
+  assert(st.registry.slot(0).mac[5] == 3 && st.registry.slot(2).mac[5] == 1 && st.registry.slot(1).mac[5] == 2);
+  assert(st.registry.slot(0).format == BleFormat::ATC && st.registry.slot(2).format == BleFormat::WOIO);
+  assert(st.history.slots[1].size() == 1 && st.history.slots[1].at(0) == 600 && st.history.slots[3].at(0) == 400);
+  assert(st.history.temperatures[1].at(0) == 210 && st.history.temperatures[3].at(0) == 190);
+  assert(st.history.slots[2].at(0) == 500);
+  assert(st.week.temperatureMin(1, 0) == week_three && st.week.temperatureMin(3, 0) == week_one);
+  assert(st.week.moldHours(1, 0) == 3 && st.week.moldHours(3, 0) == 1 && st.week.moldHours(2, 0) == 2);
+  assert(st.reception.mask(0) == mask_one && st.reception.scans(2) == scans_one);
+  assert(st.stale_slots == 0b0000000100);
+  assert(st.sensor_battery_latch == 0b0000000001);
+  assert(st.ventilate_tiles == 0b0000001000 && st.dry_tiles == 0b0000000010);
+  assert(st.events.size() == 2 && st.events.at(0).code == EventCode::SLOT_ASSIGN && st.events.at(0).detail == ((1u << 8) | static_cast<uint8_t>(BleFormat::ATC)));
+  assert(st.events.at(1).detail == ((3u << 8) | static_cast<uint8_t>(BleFormat::WOIO)));
+  uint8_t swapped[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(st, swapped, sizeof(swapped)));
+  PersistentState restored;
+  assert(PowerManager::deserialize(swapped, sizeof(swapped), restored));
+  assert(restored.registry.slot(0).mac[5] == 3 && restored.stale_slots == 0b0000000100);
+
+  // a second swap restores the RTC bytes (the events of both swaps aside)
+  assert(st.swapSlotsByUser(2, 0, now) == PersistentState::SlotSwap::OK);
+  assert(st.events.size() == 4);
+  st.events = EventRing{};
+  PersistentState reference;
+  assert(PowerManager::deserialize(original, sizeof(original), reference));
+  reference.events = EventRing{};
+  uint8_t again[PowerManager::SERIALIZED_SIZE];
+  uint8_t expected[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(st, again, sizeof(again)) && PowerManager::serialize(reference, expected, sizeof(expected)));
+  assert(memcmp(again, expected, sizeof(again)) == 0);
+  PersistentState checked;
+  assert(PowerManager::deserialize(again, sizeof(again), checked)); // checksum valid
+
+  // an empty slot swaps in and records no event for itself
+  PersistentState gap;
+  assert(gap.registry.upsert(mk(9), BleFormat::WOIO));
+  gap.history.slots[1].push(500);
+  assert(gap.swapSlotsByUser(0, 4, now) == PersistentState::SlotSwap::OK);
+  assert(!gap.registry.slot(0).valid && gap.registry.slot(4).mac[5] == 9 && gap.history.slots[1].size() == 0 && gap.history.slots[5].size() == 1);
+  assert(gap.events.size() == 1 && gap.events.at(0).detail >> 8 == 5);
+
+  // a disabled slot: ERR SLOT_OFF, no change
+  PersistentState off;
+  assert(off.registry.upsert(mk(4), BleFormat::WOIO));
+  off.registry.setSlotEnabled(1, false);
+  uint8_t off_before[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(off, off_before, sizeof(off_before)));
+  FakeSink disabled;
+  const PersistentState::SlotSwap off_result = off.swapSlotsByUser(0, 1, now);
+  TestRunner::slotSwapReply(disabled, off_result, 1, 2);
+  uint8_t off_after[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(off, off_after, sizeof(off_after)));
+  assert(off_result == PersistentState::SlotSwap::SLOT_OFF && disabled.out == "ERR SLOT_OFF\n");
+  assert(memcmp(off_before, off_after, sizeof(off_after)) == 0 && off.events.size() == 0);
+
+  // a JumpGuard packet that waits for confirmation moves with its slot
+  PersistentState held;
+  assert(held.registry.upsert(mk(5), BleFormat::WOIO));
+  SwitchBotReading jump = mk(5);
+  jump.temperature_c = 35.0f; // above the 8.0 C jump limit
+  assert(!held.registry.upsert(jump, BleFormat::WOIO) && held.registry.hasPending(0));
+  assert(held.swapSlotsByUser(0, 2, now) == PersistentState::SlotSwap::OK);
+  assert(!held.registry.hasPending(0) && held.registry.hasPending(2) && held.registry.slot(2).mac[5] == 5);
+
+  // fixed MAC: ERR FIXED_MAC, no change
+  PersistentState fixed;
+  const uint8_t mac[6] = {0, 0, 0, 0, 0, 7};
+  memcpy(fixed.config.slot_mac[0], mac, 6);
+  fixed.registry.setFixedMac(0, mac);
+  assert(fixed.registry.upsert(mk(7), BleFormat::WOIO));
+  assert(fixed.registry.upsert(mk(8), BleFormat::WOIO));
+  fixed.history.slots[1].push(500);
+  uint8_t fixed_before[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(fixed, fixed_before, sizeof(fixed_before)));
+  for (int order = 0; order < 2; ++order) {
+    FakeSink refused;
+    const PersistentState::SlotSwap result = order == 0 ? fixed.swapSlotsByUser(0, 1, now) : fixed.swapSlotsByUser(1, 0, now);
+    TestRunner::slotSwapReply(refused, result, order == 0 ? 1 : 2, order == 0 ? 2 : 1);
+    assert(result == PersistentState::SlotSwap::FIXED_MAC && refused.out == "ERR FIXED_MAC\n");
+  }
+  uint8_t fixed_after[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(fixed, fixed_after, sizeof(fixed_after)));
+  assert(memcmp(fixed_before, fixed_after, sizeof(fixed_after)) == 0 && fixed.events.size() == 0);
+
+  // equal or bad number: ERR BAD_ARG, no change
+  FakeSink equal;
+  const PersistentState::SlotSwap same = st.swapSlotsByUser(1, 1, now);
+  TestRunner::slotSwapReply(equal, same, 2, 2);
+  assert(same == PersistentState::SlotSwap::BAD_ARG && equal.out == "ERR BAD_ARG\n");
+  assert(st.swapSlotsByUser(0, MAX_SWITCHBOT_SENSORS, now) == PersistentState::SlotSwap::BAD_ARG && st.events.size() == 0);
+
+  // execute() ignores it and needs no card
+  FakeConsoleStorage storage;
+  FakeSink exec;
+  assert(parseText("SLOT SWAP 1 3", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, exec, cmd);
+  assert(storage.mounts == 0 && exec.out.empty());
+
+  // BLE: read only at level 1, allowed at level 2
+  assert(std::string(BleConsoleBridge::gate(cmd, 1)) == "ERR READ_ONLY\n");
+  assert(std::string(BleConsoleBridge::gate(cmd, 2)).empty());
+  BleConsoleBridge bridge;
+  bridge.setLevel(1);
+  bridge.onConnect();
+  BleNotifier n;
+  assert(bleConsoleRun(bridge, "SLOT SWAP 1 3\n", 185, n, &storage) == "ERR READ_ONLY\n");
+  assert(storage.mounts == 0);
+}
+
 
 void testBleConsoleIngressQueue() {
   using I = BleConsoleIngress;
@@ -22902,6 +23071,7 @@ int main() {
   testBleConsoleSetAndDumpGate();
   testSerialMuteCommand();
   testSerialSlotClearCommand();
+  testSerialSlotSwapCommand();
   testSerialAckCommand();
   testSerialAckAllCommand();
   testBleConsoleIngressQueue();
