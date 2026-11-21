@@ -2340,3 +2340,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `WeekMold.points(rows:sensor:)` (`WeekMold.swift`, `RlcdProtocol`) gives 7 `WeekMoldPoint` values for the days 6 to 0 of one sensor, oldest first, with the axis label of `WeekChartView` (`MM-DD`, or `day <N>` without a stamp) and `moldHours`. A gap day, an empty field, a missing row and a reply with 7 columns give `nil` hours.
 - `WeekChartView` shows a third chart `Mold hours` beside temperature and humidity: one `BarMark` for each day with hours and a fixed scale of 0 to 24 h. The chart stays hidden when each point is `nil`.
 - Tests: `WeekMoldTests` (day order and hours of `tests/fixtures/week_reply_sample.txt`, gap day, 7-column reply).
+
+## Event code for a failed BLE scan start
+
+- `EventCode::SCAN_FAULT` (21, `EventRing::MAX_CODE` 21, `SdLogCodec::eventCodeName` `"SCAN_FAULT"`) records when `g_ble_scan->start` fails or recovers in `scanOnce()`.
+- `PersistentState::scan_fault` (1 byte just before the checksum; a value above 1 is rejected; a power-on sets it to 0) holds the fault latch. `STATE_VERSION` is 70.
+- `PersistentState::recordScanResult(started, now)` records one `SCAN_FAULT` event on an edge: detail 1 when the scan start changes from OK to failed, detail 0 when it changes from failed back to OK, and nothing when the state stays equal. Before `g_rtc_time.valid` is known, `recordScanStart` stores the result in `g_pending_scan_fault` and `refreshSensors()` flushes it once the RTC time is read.
+- Tests: `testScanFaultEvents` covers the rising fault edge, repeated failures without filling the ring, the recovery edge, repeated good starts, `SdLogCodec::formatEventRow`, the rejection of `scan_fault` = 2, and the RTC round trip with `STATE_VERSION` 70.
