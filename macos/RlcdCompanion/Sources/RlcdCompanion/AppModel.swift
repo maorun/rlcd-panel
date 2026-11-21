@@ -687,6 +687,18 @@ final class AppModel: ConsoleLinkDelegate {
         sendNext()
     }
 
+    /// Swaps the data of two registry slots (`SLOT SWAP A B`), then reads `STATUS` again. Runs only on the user's menu.
+    /// The firmware answers `ERR FIXED_MAC`, `ERR SLOT_OFF` and `ERR READ_ONLY` (BLE with `ble_console` 1); the texts come from `slotSwapMessage`.
+    func swapSlots(_ a: Int, _ b: Int) {
+        guard isIdle, canSet else { return }
+        guard a != b, ConsoleCommand.slotSwap(a, b).line != nil else { message = "Slot not valid"; return }
+        message = nil
+        scanResult = nil
+        rejectsResult = nil
+        queue = [.slotSwap(a, b), .status]
+        sendNext()
+    }
+
     /// Trims the RTC frequency from the drift figure, then reads `STATUS` again. Runs only on the user's button.
     /// The firmware answers `ERR NO_DRIFT` without a figure of 24 h or more and `ERR READ_ONLY` on BLE with `ble_console` 1.
     func trimRtc() {
@@ -1252,6 +1264,7 @@ final class AppModel: ConsoleLinkDelegate {
                 message = text
                 if case .ack = cmd { message = ConsoleCommand.ackMessage(text) }
                 if cmd == .ackAll { message = ConsoleCommand.ackMessage(text) }
+                if case .slotSwap = cmd { message = ConsoleCommand.slotSwapMessage(text) }
                 // A file that the card no longer holds (log retention) does not stop the other files.
                 var keepQueue = false
                 if case .dump = cmd {
@@ -1358,7 +1371,7 @@ final class AppModel: ConsoleLinkDelegate {
                 queue.removeAll()
                 finishDownload(cmd, text: "unexpected reply")
             case (.set, .frame): batch?.receive(status: "ERR UNEXPECTED_REPLY")
-            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.ack, .frame), (.ackAll, .frame), (.rtcTrim, .frame), (.slotClear, .frame):
+            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.ack, .frame), (.ackAll, .frame), (.rtcTrim, .frame), (.slotClear, .frame), (.slotSwap, .frame):
                 message = "Unexpected frame reply"
             }
         } catch {

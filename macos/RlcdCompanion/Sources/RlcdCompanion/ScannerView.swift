@@ -25,6 +25,15 @@ struct ScannerView: View {
                         Button("Free slot \(n)") { model.clearSlot(n) }
                             .disabled(!model.canSet || !model.isIdle)
                     }
+                    // Swaps the data of two slots; the menu shows only for an occupied slot without a fixed MAC.
+                    ForEach(model.freeableSlots, id: \.self) { n in
+                        Menu("Swap slot \(n)") {
+                            ForEach(Array(SlotAssignment.slots).filter { $0 != n && (model.config?.values["slot\($0)_mac"] ?? "").isEmpty }, id: \.self) { m in
+                                Button("Swap with slot \(m)") { model.swapSlots(n, m) }
+                            }
+                        }
+                        .disabled(!model.canSet || !model.isIdle)
+                    }
                     if model.transport != .usb {
                         Text("SCAN needs the USB serial link.").font(.caption).foregroundStyle(.secondary)
                     }
