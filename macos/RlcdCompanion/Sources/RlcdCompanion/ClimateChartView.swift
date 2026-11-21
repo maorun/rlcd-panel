@@ -8,6 +8,24 @@ struct ClimateChartView: View {
     let model: AppModel
     var temperatureUnit = "°C"
 
+    private enum Mode: String, CaseIterable, Identifiable {
+        case sensors = "Sensors"
+        case compare = "Compare rooms"
+        var id: String { rawValue }
+    }
+
+    /// View state as a class: `@State` needs the SwiftUI macro plugin, which the command line tools lack.
+    private final class ViewState: ObservableObject {
+        @Published var mode = Mode.sensors
+        @Published var compareMetric = ClimateCompare.Metric.temperature
+        @Published var compareSelection: [Int] = [0, 1]
+    }
+
+    @StateObject private var state = ViewState()
+    private var mode: Mode { state.mode }
+    private var compareMetric: ClimateCompare.Metric { state.compareMetric }
+    private var compareSelection: [Int] { state.compareSelection }
+
     private var data: ClimateFolder { model.climateData ?? ClimateFolder(rows: [], failedFiles: []) }
     private var month: String { model.climateMonth }
 
@@ -75,6 +93,60 @@ struct ClimateChartView: View {
         }
     }
 
+    private func toggleCompare(_ sensor: Int) {
+        if let i = state.compareSelection.firstIndex(of: sensor) {
+            if state.compareSelection.count > ClimateCompare.minSensors { state.compareSelection.remove(at: i) }
+        } else if state.compareSelection.count < ClimateCompare.maxSensors {
+            state.compareSelection.append(sensor)
+        }
+    }
+
+    /// One chart with one colored line for each selected sensor; an empty field ends a line (each run is its own series).
+    @ViewBuilder private var compareView: some View {
+        let available = (0..<ClimateLog.sensorNames.count).filter { sensor in
+            data.rows.contains { sensor < $0.sensors.count && ($0.sensors[sensor].tempC != nil || $0.sensors[sensor].rh != nil) }
+        }
+        HStack {
+            ForEach(available, id: \.self) { sensor in
+                Toggle(ClimateCompare.name(sensor: sensor, config: model.lastConfig), isOn: Binding(
+                    get: { compareSelection.contains(sensor) }, set: { _ in toggleCompare(sensor) }))
+                    .toggleStyle(.button)
+            }
+        }
+        Picker("Value", selection: $state.compareMetric) {
+            Text("Temperature").tag(ClimateCompare.Metric.temperature)
+            Text("Humidity").tag(ClimateCompare.Metric.humidity)
+        }
+        .pickerStyle(.segmented)
+        .frame(maxWidth: 260)
+        // Without two chosen sensors that have data, the first two sensors with data are the default.
+        let chosen = compareSelection.filter(available.contains)
+        let shown = chosen.count >= ClimateCompare.minSensors ? chosen : Array(available.prefix(ClimateCompare.minSensors))
+        if let chart = ClimateCompare.build(rows: data.rows, sensors: shown,
+                                            metric: compareMetric, config: model.lastConfig),
+           let range = chart.axisRange {
+            let title = compareMetric == .temperature ? "Temperature (\(temperatureUnit))" : "Humidity (%RH)"
+            Chart {
+                ForEach(chart.series, id: \.sensor) { series in
+                    ForEach(Array(series.segments.enumerated()), id: \.offset) { index, run in
+                        ForEach(run, id: \.timestamp) { sample in
+                            if let date = Self.parser.date(from: sample.timestamp), let value = sample.value {
+                                LineMark(x: .value("Time", date), y: .value(title, value),
+                                         series: .value("Run", "\(series.sensor)-\(index)"))
+                                    .foregroundStyle(by: .value("Sensor", series.name))
+                            }
+                        }
+                    }
+                }
+            }
+            .chartForegroundStyleScale(domain: chart.series.map(\.name))
+            .chartYScale(domain: range)
+            .frame(height: 220)
+        } else {
+            Text("Select two to six sensors with data").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             if model.climateMonths.isEmpty {
@@ -87,8 +159,15 @@ struct ClimateChartView: View {
                 if data.rows.isEmpty {
                     Text("No hourly rows in \(month)").font(.caption).foregroundStyle(.secondary)
                 }
+                Picker("Mode", selection: $state.mode) {
+                    ForEach(Mode.allCases) { (m: Mode) in Text(m.rawValue).tag(m) }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 320)
+                if mode == .compare { compareView }
                 let limits = ChartLimits.from(config: model.lastConfig)
-                ForEach(0..<ClimateLog.sensorNames.count, id: \.self) { sensor in
+                let sensorIndices: [Int] = mode == .compare ? [] : Array(0..<ClimateLog.sensorNames.count)
+                ForEach(sensorIndices, id: \.self) { sensor in
                     let temp = points("Temperature") { sensor < $0.sensors.count ? $0.sensors[sensor].tempC : nil }
                     let rh = points("Humidity") { sensor < $0.sensors.count ? $0.sensors[sensor].rh : nil }
                     if !temp.isEmpty || !rh.isEmpty { // slots 4 and 5 exist only in climate_v5 rows
@@ -107,7 +186,7 @@ struct ClimateChartView: View {
                 let noise = points("Noise") { $0.noiseDb.map(Double.init) }
                     + points("L10") { $0.noiseL10.map(Double.init) }
                     + points("L90") { $0.noiseL90.map(Double.init) }
-                if !noise.isEmpty {
+                if !noise.isEmpty && mode == .sensors {
                     Text("Noise").font(.headline)
                     chart("Noise level (dB)", noise)
                 }

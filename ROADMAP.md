@@ -24,12 +24,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Room comparison chart in the macOS app
-  - Rank: [Total: 26, Use: 7, Setup: 2, Harmony: 7, Safety: 10, Effort: M]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/ClimateCompare.swift, macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ClimateCompareTests.swift
-  - Goal: Add the mode `Compare rooms` to `ClimateChartView`. Draw the temperature or humidity of two to six selected sensors of one `ClimateLog` month as lines in one chart with one color for each sensor. Break a line at an empty field. Use the sensor names of the active `DeviceConfig`.
-  - Acceptance test: `ClimateCompareTests` load a fixture month and assert one series for each selected sensor, a gap for an empty field, the series order and the axis range over all series. `swift test` and `swift build -c release` pass.
-
 - [ ] Feels-like and absolute humidity curves in the macOS climate chart
   - Rank: [Total: 25, Use: 6, Setup: 2, Harmony: 7, Safety: 10, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/ClimateMath.swift, macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ClimateMathTests.swift
