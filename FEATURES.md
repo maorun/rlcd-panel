@@ -1575,8 +1575,9 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - `ClimateComplicationModel.build` reads the focused room from `TelemetryCache`. It does not scan BLE. An empty cache, a failed decode (length, version or CRC-8), a frame older than 35 minutes and a room without a valid reading give `--` and the ranged value 0.
 - `BleScanService` calls `ClimateComplicationService.requestUpdate` for each new sequence number, next to the tile update.
 - The service is registered in `AndroidManifest.xml` with the types `SHORT_TEXT,RANGED_VALUE`. The dependency is `watchface-complications-data-source-ktx` 1.2.1.
+- `ClimateComplicationModel.hasAlert` is true for a fresh frame with an alert bit in `TelemetryFrame.alerts`. The `SHORT_TEXT` text then shows one decimal with a `!` in front (`!21.4°`, at most 7 characters for -50.0 to 100.0) and `alertNames` lists the active alerts; the content description of both types appends `, Alert <names>`. An empty cache, a stale frame and a room without a reading give no mark.
 - No `config.ini` key and no firmware change.
-- Tests: `ClimateComplicationModelTest` (text of the `two_tiles` vector for two rooms, empty cache, frame of 36 minutes, bad CRC-8, room without reading, ranged value 0 to 100). The local machine has no Android SDK, so CI runs `gradle testDebugUnitTest assembleDebug`.
+- Tests: `ClimateComplicationModelTest` (text of the `two_tiles` vector for two rooms, empty cache, frame of 36 minutes, bad CRC-8, room without reading, ranged value 0 to 100, alert mark `!21.4°` for mask 0x02, no mark for mask 0, a stale frame and an empty cache, text length of 7 or less for `!-10.5°`). The local machine has no Android SDK, so CI runs `gradle testDebugUnitTest assembleDebug`.
 
 ## Restore of the seven-day history from the daily file
 

@@ -1,5 +1,6 @@
 package com.rlcdpanel.watch.complication
 
+import com.rlcdpanel.watch.protocol.Checksums
 import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.protocol.TelemetryCacheStore
@@ -51,16 +52,17 @@ class ClimateComplicationModelTest {
         return cache
     }
 
-    // Vector "two_tiles": tile 0 22.0 C / 40 %RH, tile 1 -3.0 C / 65 %RH.
+    // Vector "two_tiles": alerts=1, tile 0 22.0 C / 40 %RH, tile 1 -3.0 C / 65 %RH.
     @Test
     fun fixtureVectorShowsTextOfFocusedRoom() {
         val first = ClimateComplicationModel.build(cacheWith("two_tiles", 0L, focus = 0), 60_000L)
         assertFalse(first.isEmpty)
-        assertEquals("22°", first.temperatureText)
+        assertTrue(first.hasAlert)
+        assertEquals("!22.0°", first.temperatureText)
         assertEquals("40%", first.humidityText)
 
         val second = ClimateComplicationModel.build(cacheWith("two_tiles", 0L, focus = 1), 60_000L)
-        assertEquals("-3°", second.temperatureText)
+        assertEquals("!-3.0°", second.temperatureText)
         assertEquals("65%", second.humidityText)
     }
 
@@ -118,5 +120,77 @@ class ClimateComplicationModelTest {
         assertEquals(0f, ClimateComplicationModel.MIN_VALUE, 0f)
         assertEquals(100f, ClimateComplicationModel.MAX_VALUE, 0f)
         assertEquals(0f, ClimateComplicationModel.EMPTY.humidityValue, 0f)
+    }
+
+    /** "two_tiles" with tile 0 set to [tempC] and the alert byte set to [alerts]; the CRC-8 is new. */
+    private fun cacheWithAlert(alerts: Int, tempC: Double, receivedAt: Long = 0L): TelemetryCache {
+        val bytes = payload("two_tiles")
+        val raw = Math.round(tempC * 100).toInt()
+        bytes[3] = alerts.toByte()
+        bytes[5] = (raw and 0xFF).toByte()
+        bytes[6] = ((raw shr 8) and 0xFF).toByte()
+        bytes[bytes.size - 1] = Checksums.crc8(bytes, offset = 0, length = bytes.size - 1).toByte()
+        val cache = TelemetryCache(MemoryStore())
+        assertTrue(cache.save(bytes, receivedAt))
+        cache.saveFocusedRoom(0)
+        return cache
+    }
+
+    @Test
+    fun alertMask0x02PutsMarkBeforeTemperature() {
+        val model = ClimateComplicationModel.build(cacheWithAlert(0x02, 21.4), 60_000L)
+        assertTrue(model.hasAlert)
+        assertEquals("!21.4°", model.temperatureText)
+        assertEquals(listOf("HUMIDITY"), model.alertNames)
+    }
+
+    @Test
+    fun alertMask0GivesNoMark() {
+        val model = ClimateComplicationModel.build(cacheWithAlert(0x00, 21.4), 60_000L)
+        assertFalse(model.hasAlert)
+        assertEquals("21°", model.temperatureText)
+        assertTrue(model.alertNames.isEmpty())
+    }
+
+    @Test
+    fun staleFrameWithAlertGivesNoMark() {
+        val model = ClimateComplicationModel.build(cacheWithAlert(0x02, 21.4), 36L * 60_000L)
+        assertTrue(model.isEmpty)
+        assertFalse(model.hasAlert)
+        assertEquals("--", model.temperatureText)
+    }
+
+    @Test
+    fun emptyCacheGivesNoMark() {
+        val model = ClimateComplicationModel.build(TelemetryCache(MemoryStore()), 0L)
+        assertFalse(model.hasAlert)
+        assertTrue(model.alertNames.isEmpty())
+    }
+
+    @Test
+    fun alertTextStaysWithin7Characters() {
+        for (temp in listOf(-10.5, -50.0, 100.0, 0.0)) {
+            val model = ClimateComplicationModel.build(cacheWithAlert(0xFF, temp), 60_000L)
+            assertTrue(model.hasAlert)
+            assertTrue(model.temperatureText, model.temperatureText.length <= 7)
+        }
+        val cold = ClimateComplicationModel.build(cacheWithAlert(0x01, -10.5), 60_000L)
+        assertEquals("!-10.5°", cold.temperatureText)
+    }
+
+    @Test
+    fun contentDescriptionListsAlertNames() {
+        val model = ClimateComplicationModel.build(cacheWithAlert(0x03, 21.4), 60_000L, PanelConfig())
+        assertEquals(
+            "Slot 1 Temperature !21.4°, Alert FREEZER, HUMIDITY",
+            ClimateComplicationModel.describe("Temperature", model.temperatureText, "Slot 1", model.alertNames)
+        )
+        assertEquals("Humidity 45%", ClimateComplicationModel.describe("Humidity", "45%", "", emptyList()))
+    }
+
+    @Test
+    fun smallNegativeReadingShowsNoNegativeZero() {
+        val model = ClimateComplicationModel.build(cacheWithAlert(0x01, -0.04), 60_000L)
+        assertEquals("!0.0°", model.temperatureText)
     }
 }
