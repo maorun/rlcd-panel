@@ -43,8 +43,8 @@ enum class SerialParseStatus : uint8_t {
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN with extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
-  BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '=')
+  BAD_ARG,  // CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN with extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
+  BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '='); CONFIG <key> with an unknown key
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv, daily_v4_YYYY.csv or events_v1_YYYY.csv
 };
@@ -62,7 +62,7 @@ struct SerialCommand {
   bool salt_mgcl2 = false; // SALT: true for "SALT N MGCL2" (magnesium chloride reference, no proposal line)
   bool time_set = false; // TIME: true for "TIME SET <time>"; `time` then holds the parsed local time
   RtcTime time;
-  char set_key[SET_KEY_SIZE] = {0};     // SET: key of DeviceConfigParser::KEYS
+  char set_key[SET_KEY_SIZE] = {0};     // SET and "CONFIG <key>": key of DeviceConfigParser::KEYS
   char set_value[SET_VALUE_SIZE] = {0}; // SET: value, checked with the parser rules
 };
 
@@ -73,7 +73,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SCREEN", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "CONFIG <key>", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SCREEN", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -269,6 +269,28 @@ public:
       }
       out.history_one = true;
       out.reference = static_cast<uint8_t>(sensor);
+      return SerialParseStatus::OK;
+    }
+    if (is_config && cmd_len < len) {
+      // "CONFIG <key>": one key of DeviceConfigParser::KEYS, no further text
+      const char* key = line + cmd_len + 1;
+      const size_t key_len = len - cmd_len - 1;
+      if (key_len == 0) {
+        return SerialParseStatus::UNKNOWN;
+      }
+      if (memchr(key, ' ', key_len) != nullptr) {
+        return SerialParseStatus::BAD_ARG;
+      }
+      bool known = false;
+      for (size_t i = 0; !known && i < DeviceConfigParser::KEY_COUNT; ++i) {
+        known = matches(key, key_len, DeviceConfigParser::KEYS[i]);
+      }
+      if (!known) {
+        return SerialParseStatus::BAD_KEY;
+      }
+      memcpy(out.set_key, key, key_len);
+      out.set_key[key_len] = '\0';
+      out.kind = SerialCommandKind::CONFIG;
       return SerialParseStatus::OK;
     }
     if (is_list || is_info || is_config || is_status) {
@@ -812,6 +834,8 @@ struct SerialStatusSnapshot {
 //   CONFIG -> "key=value" per DeviceConfig setting, "SOURCE <SD|DEFAULT>", "REJECTED line=<n>" for each of the first four rejected lines, then "CRC32 <8 hex
 //   digits>" over all lines before it. showConfig() sends it from the RTC copy: no card access,
 //   so execute() ignores CONFIG.
+//   CONFIG <key> -> the single line "<key>=<value>" of that key (an empty name or MAC gives "<key>=") and "CRC32 <8 hex digits>" over it;
+//   "ERR BAD_KEY" for a key outside DeviceConfigParser::KEYS, "ERR BAD_ARG" for extra text. showConfigKey() works on the RTC copy.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW> format=<...> mac=<...> mold_h=<N|-->" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 5 (slots, calibrated readings), a missing value gives "--";
 //   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|--> free_mb=<N|-->" (age since the last card result; free card space of the last card read), then "RESET reason=<TEXT> abnormal=<N|-->", then "RTC trim=<N|--> drift_ppm=<N|-->" (offset register of the PCF85063A; the drift rate only for a figure of 24 h or more), then "NTP ok=<0|1|--> failures=<N> age_s=<N|--> next_s=<N|-->" (RTC copy of the NTP state; "--" without an attempt or without Wi-Fi credentials; next_s is the time to the next due attempt; age_s and next_s use the 32-bit clock difference of NtpSchedule::due and wrap like it), then "SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>[ usb_offset=<x>]" (the offset only on USB power), then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N> thermopro=<N> unassigned=<N> jumps=<N>" (packets of the current scan that no slot took; unassigned counts the packets blocked by slot_auto_assign=0; jumps counts the pending packets of a large reading jump that JumpGuard dropped), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1> acked=<hex mask>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "MEMORY free=<N> min=<N> largest=<N> psram=<N>" (heap and PSRAM bytes of the current wake cycle; no RTC state), then "FRAME crc=<8 hex digits|--> skips=<N>" (RTC copy of FrameRefresh: CRC-32 of the last flushed frame, "--" for 0, and the skip counter), then "WAKE cause=<POWER_ON|TIMER|KEY|OTHER> boots=<N> battery_interval_s=<N>" (cause of this wake cycle, RTC copy of boot_count, and the sleep interval that PowerManager::powerConfig gives on battery power at the current RTC time), then "LATCH vent=<3 hex digits> dry=<3 hex digits> batlow=<3 hex digits> stale=<3 hex digits>" (RTC copy of the badge latches; vent and dry: bit 0 onboard, bits 1 to 10 slots; batlow and stale: bits 0 to 9 slots), then "NOISE db=<N|--> band=<QUIET|MODERATE|LOUD> peak_db=<N|--> peak_hour=<N|--> events_sum=<N>" (RTC copy: newest hourly noise level, noise band latch, peak of the current day; no microphone access), then "CHIME repeat_h=<N> bits=<2 hex digits> last_s=<N|--> next_s=<N|-->" (chime_repeat_h; bits are the repeatable active alerts without the acknowledged ones; seconds since the last chime stamp, "--" for 0; seconds to the next reminder, at least 0, "--" for repeat_h 0 and for bits 0), then "CRC32 <8 hex digits>" over all lines
@@ -891,6 +915,39 @@ public:
     SerialCrc32 crc;
     crc.update(reinterpret_cast<const uint8_t*>(text), len);
     if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+      return;
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
+  // Sends one "<key>=<value>" line of the active configuration and its CRC32 line. The card stays untouched.
+  // `key` is a key of DeviceConfigParser::KEYS. The text omits an empty name or MAC, so the value is then empty.
+  static void showConfigKey(Sink& sink, const DeviceConfig& config, const char* key) {
+    static char text[DeviceConfigText::MAX_SIZE];
+    const size_t len = DeviceConfigText::format(config, text, sizeof(text));
+    if (len == 0) {
+      return;
+    }
+    const size_t key_len = strlen(key);
+    char reply[96];
+    size_t reply_len = static_cast<size_t>(snprintf(reply, sizeof(reply), "%s=\n", key));
+    for (size_t pos = 0; pos < len;) {
+      const char* nl = static_cast<const char*>(memchr(text + pos, '\n', len - pos));
+      const size_t end = nl == nullptr ? len : static_cast<size_t>(nl - text);
+      if (end - pos > key_len && memcmp(text + pos, key, key_len) == 0 && text[pos + key_len] == '=') {
+        reply_len = static_cast<size_t>(snprintf(reply, sizeof(reply), "%.*s\n", static_cast<int>(end - pos), text + pos));
+        break;
+      }
+      pos = end + 1;
+    }
+    if (reply_len >= sizeof(reply)) {
+      return;
+    }
+    SerialCrc32 crc;
+    crc.update(reinterpret_cast<const uint8_t*>(reply), reply_len);
+    if (!put(sink, reinterpret_cast<const uint8_t*>(reply), reply_len)) {
       return;
     }
     char line[24];

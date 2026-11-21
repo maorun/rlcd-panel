@@ -1457,8 +1457,12 @@ void setup() {
     constexpr uint8_t transport = std::is_same_v<std::decay_t<decltype(sink)>, SerialSink> ? 0 : 1; // 0 USB, 1 BLE
     if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::CONFIG) {
       // The RTC copy answers: no card access, so the console keeps running.
-      Runner::showConfig(sink, g_state.config,
-                                                                g_state.config_from_sd, g_state.config_rejects);
+      if (command.set_key[0] != '\0') {
+        Runner::showConfigKey(sink, g_state.config, command.set_key);
+      } else {
+        Runner::showConfig(sink, g_state.config,
+                                                                  g_state.config_from_sd, g_state.config_rejects);
+      }
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::CALIB) {
       // The RTC histories answer: no card access, so the console keeps running.
       Runner::showCalib(sink, command.reference, g_state.history,

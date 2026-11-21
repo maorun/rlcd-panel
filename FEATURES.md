@@ -429,7 +429,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 ## Serial console command to show the active configuration
 
 - **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/device_config.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`.
-- The new console command `CONFIG` shows the active settings. It takes no argument: `CONFIG now` gives `ERR UNKNOWN`. The command runs on USB power only, like the other console commands (`PowerManager::serialConsoleAllowed`).
+- The new console command `CONFIG` shows the active settings. It takes no argument here; `CONFIG <key>` (section "Console command CONFIG <key>") reads one value. The command runs on USB power only, like the other console commands (`PowerManager::serialConsoleAllowed`).
 - The reply is one `key=value` line for each `DeviceConfig` setting (18 lines, key order of `DeviceConfigParser`), the line `SOURCE SD` or `SOURCE DEFAULT`, and `CRC32 <8 hex digits>`. The CRC-32 covers all bytes before the `CRC32` line. `DeviceConfigText::format` writes the lines. A float has one or two decimals, so `DeviceConfigParser` reads the text back to the same values.
 - The command reads the RTC copy (`g_state.config`, `g_state.config_from_sd`) only. It does not mount the card . `SerialConsoleRunner::execute` ignores `CONFIG`; `SerialConsoleRunner::showConfig` sends the reply. A short serial write ends the reply, and the host sees no CRC line.
 - `DeviceConfig` holds no Wi-Fi setting, so the reply sends no credential.
@@ -2510,3 +2510,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The firmware, the shared `StatusReply.kt`, the RTC layout and `STATE_VERSION` do not change.
 - Tests: `SensorHealthTextTest.runtimeTexts` and `runtimeTextsFromFixtureAndMissingLine`.
 - Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The local machine has no Android SDK, so `gradle testDebugUnitTest assembleDebug` did not run locally. CI runs it.
+
+## Console command CONFIG <key>
+
+- **Code:** `rlcd_panel/serial_console.h` (`SerialConsole::parse`, `SerialConsoleRunner::showConfigKey`), `rlcd_panel/rlcd_panel.ino` (`run_console`), `tests/test_firmware_logic.cpp`.
+- `CONFIG <key>` accepts each key of `DeviceConfigParser::KEYS` (exact match). The reply is the one line `<key>=<value>` and the `CRC32` line over it, for example `mold_alert_limit_rh=70`.
+- The value comes from `DeviceConfigText::format` of the RTC copy (`g_state.config`). A name or MAC that is not set gives `<key>=` with an empty value.
+- `ERR BAD_KEY` for a key outside `KEYS` (also a wrong case or `key=value`). `ERR BAD_ARG` for extra text after the key (`CONFIG mold_alert_limit_rh x`). `CONFIG` without an argument keeps its reply byte for byte; `CONFIG ` with a trailing space still gives `ERR UNKNOWN`.
+- The command needs no card access (`SerialConsoleRunner::execute` ignores `CONFIG`). It is a read command, so it runs on USB and on BLE at each `ble_console` level.
+- The parser stores the key in `SerialCommand::set_key`. RTC layout, `STATE_VERSION` and `KEY_COUNT` do not change.
+- Tests: `testSerialConfigKeyCommand` (parser, each key, no card, BLE gate) and `testSerialConfigKeyReply` (`mold_alert_limit_rh=70` with CRC, float, text and empty keys, each key of `KEYS`, the full reply byte-equal to name lines plus `SOURCE` plus CRC).
+- Validation: host tests, `arduino-cli compile rlcd_panel`, `./scripts/check-protocol-sync.sh` and `--self-test` pass locally.
