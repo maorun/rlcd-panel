@@ -151,8 +151,12 @@ struct DiagnosticsView: View {
         }
     }
 
-    /// One row for each active alert bit with `Acknowledge` or `Acknowledged`.
+    /// One row for each active alert bit with `Acknowledge` or `Acknowledged`, and `Acknowledge all` for two or more open bits.
     @ViewBuilder private func alertRows(_ s: StatusReply) -> some View {
+        if ConsoleCommand.canAcknowledgeAll(alertMask: s.alertMask, ackedMask: s.ackedMask) {
+            Button("Acknowledge all") { model.acknowledgeAll() }
+                .disabled(!model.canSet || !model.isIdle)
+        }
         ForEach((0..<8).filter { s.alertMask & (1 << $0) != 0 }, id: \.self) { bit in
             HStack {
                 Text(AlertMask(rawValue: 1 << UInt8(bit)).names.first ?? "Alert \(bit)")
@@ -167,6 +171,8 @@ struct DiagnosticsView: View {
         }
         if let m = model.message, m == ConsoleCommand.ackMessage("ERR NOT_ACTIVE") || m == ConsoleCommand.ackMessage("ERR READ_ONLY") {
             Text(m).font(.caption).foregroundStyle(.red)
+        } else if let m = model.message, m.hasPrefix("Acknowledged: ") {
+            Text(m).font(.caption).foregroundStyle(.secondary)
         }
     }
 

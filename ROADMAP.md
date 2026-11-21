@@ -23,12 +23,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Acknowledge all button in the macOS diagnostics view
-  - Rank: [Total: 25, Use: 5, Setup: 4, Harmony: 7, Safety: 9, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift
-  - Goal: Put this entry after "Console command ACK ALL". The diagnostics view shows one `Acknowledge` button for each active alert. Add `ConsoleCommand.ackAll` with the line `ACK ALL`. Extend `ConsoleCommand.ackMessage` with `OK ACK ALL <mask>` (`Acknowledged: <names>`) and keep the current texts for `ERR NOT_ACTIVE` and `ERR READ_ONLY`. Add `AppModel.acknowledgeAll()`: it queues `.ackAll` and `.status`, like `acknowledge(bit:)`. Show the button `Acknowledge all` only when two or more active bits are not acknowledged.
-  - Acceptance test: In `ReplyTests`, assert the line `ACK ALL`, `Acknowledged: Humidity, Ventilate` for `OK ACK ALL 22`, the current text for `ERR NOT_ACTIVE`, and the button rule for 1 and 2 open bits with a pure helper. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

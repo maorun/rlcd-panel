@@ -528,6 +528,8 @@ public enum ConsoleCommand: Equatable {
     case mute(Bool)
     /// `ACK N` (N 0 to 7): stops the chime reminder of one active alert. The firmware answers `ERR NOT_ACTIVE` for an alert that is off.
     case ack(Int)
+    /// `ACK ALL`: stops the chime reminder of each active alert at once. The firmware answers `OK ACK ALL <2 hex digits>` or `ERR NOT_ACTIVE`.
+    case ackAll
     case rtcTrim
     /// `SLOT CLEAR N` (N 1 to 10): frees one registry slot at once. The firmware answers `ERR FIXED_MAC` for a slot with a fixed MAC.
     case slotClear(Int)
@@ -540,12 +542,46 @@ public enum ConsoleCommand: Equatable {
     public static func beep(bit: Int) -> ConsoleCommand { .beep(bit) }
     public static func pattern(n: Int) -> ConsoleCommand { .pattern(n) }
 
-    /// Text for the error replies of `ACK`; other text stays as it is.
+    /// Text for the replies of `ACK` and `ACK ALL`; other text stays as it is.
     public static func ackMessage(_ reply: String) -> String {
+        if reply.hasPrefix("OK ACK ALL ") {
+            let hex = String(reply.dropFirst("OK ACK ALL ".count))
+            if hex.utf8.count == 2,
+               hex.utf8.allSatisfy({ ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) || ($0 >= 0x41 && $0 <= 0x46) }),
+               let mask = UInt8(hex, radix: 16), mask != 0 {
+                let names = (0..<8).compactMap { bit -> String? in
+                    guard mask & (1 << UInt8(bit)) != 0 else { return nil }
+                    return ackAlertName(bit)
+                }
+                if !names.isEmpty {
+                    return "Acknowledged: " + names.joined(separator: ", ")
+                }
+            }
+        }
         switch reply {
         case "ERR NOT_ACTIVE": return "The alert is off"
         case "ERR READ_ONLY": return "Set ble_console=2 to apply"
         default: return reply
+        }
+    }
+
+    /// True when two or more repeatable active alert bits (all bits except `CHARGE_FULL`, bit 4) are not acknowledged yet.
+    public static func canAcknowledgeAll(alertMask: UInt8, ackedMask: UInt8) -> Bool {
+        let open = alertMask & ~ackedMask & ~AlertMask.chargeFull.rawValue
+        return open.nonzeroBitCount >= 2
+    }
+
+    private static func ackAlertName(_ bit: Int) -> String? {
+        switch bit {
+        case 0: return "Freezer"
+        case 1: return "Humidity"
+        case 2: return "Noise high"
+        case 3: return "Sensor lost"
+        case 4: return "Charge full"
+        case 5: return "Ventilate"
+        case 6: return "Sensor battery"
+        case 7: return "Heat"
+        default: return nil
         }
     }
 
@@ -581,6 +617,7 @@ public enum ConsoleCommand: Equatable {
         case let .ack(bit):
             guard (0...7).contains(bit) else { return nil }
             return "ACK \(bit)"
+        case .ackAll: return "ACK ALL"
         case .rtcTrim: return "RTC TRIM"
         case let .slotClear(slot):
             guard SlotAssignment.slots.contains(slot) else { return nil }

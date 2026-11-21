@@ -2371,3 +2371,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `DiagnosticsView` shows the group `Quiet hours` (`22:00 to 07:00`, `active now` or `not active` or `--`, and `Night interval <N> s` or `Night interval off`).
 - `DiagnosticsReport` adds the summary line `Quiet hours: 22:00 to 07:00, active` (or `not active` / `--`) after a valid `QUIET` line.
 - Tests: `DiagnosticsTests.parsesQuietLine` and `quietRejectsBadFields`, `DiagnosticsReportTests.quietSummaryIsInTheReport`.
+
+## Acknowledge all button in the macOS diagnostics view
+
+- `ConsoleCommand.ackAll` (`Replies.swift`) sends `ACK ALL`. `ConsoleCommand.ackMessage` formats `OK ACK ALL <2 hex digits>` as `Acknowledged: <names>` (lowest bit first) and keeps the texts for `ERR NOT_ACTIVE` and `ERR READ_ONLY`.
+- `ConsoleCommand.canAcknowledgeAll(alertMask:ackedMask:)` is true when two or more repeatable active alert bits (excluding `CHARGE_FULL`) are not acknowledged yet.
+- `DiagnosticsView` shows the button `Acknowledge all` above the alert rows when `canAcknowledgeAll` is true. `AppModel.acknowledgeAll()` queues `.ackAll` and `.status`.
+- Tests: `ReplyAssemblerTests.ackCommandLines`, `ackErrorTexts` and `canAcknowledgeAllRule`.

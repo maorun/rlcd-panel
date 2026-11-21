@@ -171,12 +171,27 @@ struct ReplyAssemblerTests {
         for bit in 0...7 { #expect(ConsoleCommand.ack(bit).line == "ACK \(bit)") }
         #expect(ConsoleCommand.ack(8).line == nil)
         #expect(ConsoleCommand.ack(-1).line == nil)
+        #expect(ConsoleCommand.ackAll.line == "ACK ALL")
     }
 
     @Test func ackErrorTexts() {
         #expect(ConsoleCommand.ackMessage("ERR NOT_ACTIVE") == "The alert is off")
         #expect(ConsoleCommand.ackMessage("ERR READ_ONLY") == "Set ble_console=2 to apply")
         #expect(ConsoleCommand.ackMessage("OK ACK 1") == "OK ACK 1")
+        #expect(ConsoleCommand.ackMessage("OK ACK ALL 22") == "Acknowledged: Humidity, Ventilate")
+        #expect(ConsoleCommand.ackMessage("OK ACK ALL 81") == "Acknowledged: Freezer, Heat")
+        #expect(ConsoleCommand.ackMessage("OK ACK ALL 00") == "OK ACK ALL 00")
+        #expect(ConsoleCommand.ackMessage("OK ACK ALL zz") == "OK ACK ALL zz")
+    }
+
+    @Test func canAcknowledgeAllRule() {
+        #expect(!ConsoleCommand.canAcknowledgeAll(alertMask: 0x00, ackedMask: 0x00))
+        #expect(!ConsoleCommand.canAcknowledgeAll(alertMask: 0x02, ackedMask: 0x00))
+        #expect(ConsoleCommand.canAcknowledgeAll(alertMask: 0x22, ackedMask: 0x00))
+        #expect(!ConsoleCommand.canAcknowledgeAll(alertMask: 0x22, ackedMask: 0x02))
+        // CHARGE_FULL (0x10) has no chime reminder, so it does not count as an open bit.
+        #expect(!ConsoleCommand.canAcknowledgeAll(alertMask: 0x12, ackedMask: 0x00))
+        #expect(ConsoleCommand.canAcknowledgeAll(alertMask: 0x32, ackedMask: 0x00))
     }
 
     @Test func slotClearReplies() {
