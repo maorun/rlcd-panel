@@ -53,12 +53,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Put this entry after "Console command ACK ALL". The diagnostics view shows one `Acknowledge` button for each active alert. Add `ConsoleCommand.ackAll` with the line `ACK ALL`. Extend `ConsoleCommand.ackMessage` with `OK ACK ALL <mask>` (`Acknowledged: <names>`) and keep the current texts for `ERR NOT_ACTIVE` and `ERR READ_ONLY`. Add `AppModel.acknowledgeAll()`: it queues `.ackAll` and `.status`, like `acknowledge(bit:)`. Show the button `Acknowledge all` only when two or more active bits are not acknowledged.
   - Acceptance test: In `ReplyTests`, assert the line `ACK ALL`, `Acknowledged: Humidity, Ventilate` for `OK ACK ALL 22`, the current text for `ERR NOT_ACTIVE`, and the button rule for 1 and 2 open bits with a pure helper. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
 
-- [ ] Weekly mold sum in the panel week chart
-  - Rank: [Total: 24, Use: 6, Setup: 2, Harmony: 7, Safety: 9, Effort: S]
-  - Location: rlcd_panel/dashboard_view.h, tools/preview_scenes.h, tests/test_firmware_logic.cpp, docs/display_preview_chart_week.png, AGENTS.md
-  - Goal: The `WEEK_CHART` view shows the daily minimum and maximum. The RTC copy holds the mold hours of each day, but the panel does not show them. Add `DashboardView::formatWeekMold(week, sensor, out, capacity)`: the sum of `WeekHistory::moldHours` over the days with `hasMoldHours`, `MOLD <N>H` (0 to 168), and an empty text without such a day. Append it with two spaces to the label line of the humidity box (`HUMIDITY MIN 40.0 MAX 55.0 %  MOLD 12H`). Keep the line within `CHART_W` (60 glyphs). Do not change the boxes, the weekday labels or the footer. Calculate the text on each render; no RTC state.
-  - Acceptance test: In `tests/test_firmware_logic.cpp`, assert `MOLD 12H` for the days 3, 4 and 5 h, `MOLD 0H` for days with 0 h, an empty text for a week of gaps, `MOLD 168H` for seven days of 24 h, and that the label line of the rendered view fits into `CHART_W`. Assert that the climate chart and the other views render the same bytes as before. Run `./scripts/generate-display-preview.sh`, inspect `docs/display_preview_chart_week.png`, run `c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner && rm -f test_runner` and `arduino-cli compile rlcd_panel`.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.
