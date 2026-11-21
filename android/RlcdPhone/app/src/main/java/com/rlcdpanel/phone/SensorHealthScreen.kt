@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.ConfigCache
 import com.rlcdpanel.phone.protocol.ConfigCacheInfo
 import com.rlcdpanel.phone.protocol.MemoryState
+import com.rlcdpanel.phone.protocol.NoiseState
 import com.rlcdpanel.phone.protocol.NtpState
 import com.rlcdpanel.phone.protocol.RtcState
 import com.rlcdpanel.phone.protocol.ResetState
@@ -41,7 +42,8 @@ data class SensorHealthState(
     val reset: ResetState? = null,
     val shtc3: Shtc3State? = null,
     val memory: MemoryState? = null,
-    val rtc: RtcState? = null
+    val rtc: RtcState? = null,
+    val noise: NoiseState? = null
 )
 
 /** Cache of the last `CONFIG` read: [info] is null without a cache; [message] tells a failed read. */
@@ -88,6 +90,11 @@ object SensorHealthText {
         s?.let { "SHTC3 nack ${it.nack}, short ${it.shortReads}, crc ${it.crc}, run ${it.run}, retried ${it.retried}" } ?: "SHTC3 --"
     fun memory(m: MemoryState?): String =
         m?.let { "Heap frei ${it.free} B, min ${it.min} B, größter Block ${it.largest} B, PSRAM ${it.psram} B" } ?: "Heap --"
+    fun noise(n: NoiseState?): String {
+        if (n == null) return "Lärm --"
+        val peak = if (n.peakDb != null && n.peakHour != null) ", Spitze ${n.peakDb} dB um ${n.peakHour} Uhr" else ""
+        return "Lärm ${n.db ?: "--"} dB (${n.band})$peak"
+    }
     fun rtc(r: RtcState?): String =
         r?.let { "RTC Trim ${it.trim ?: "--"}, Drift ${it.driftPpm ?: "--"} ppm" } ?: "RTC Trim --, Drift -- ppm"
     /** The trim button needs a writable console and a drift of 3 ppm or more in either direction. */
@@ -251,7 +258,8 @@ fun SensorHealthScreen(
                             val lines = listOf(
                                 (state.reset?.isAbnormal == true) to SensorHealthText.reset(state.reset),
                                 (state.shtc3?.isAlert == true) to SensorHealthText.shtc3(state.shtc3),
-                                (state.memory?.isLow == true) to SensorHealthText.memory(state.memory)
+                                (state.memory?.isLow == true) to SensorHealthText.memory(state.memory),
+                                false to SensorHealthText.noise(state.noise)
                             )
                             for ((warn, text) in lines) {
                                 Text(

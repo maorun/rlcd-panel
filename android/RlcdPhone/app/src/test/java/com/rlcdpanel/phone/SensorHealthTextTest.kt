@@ -3,6 +3,7 @@ package com.rlcdpanel.phone
 import com.rlcdpanel.phone.protocol.ConsoleReply
 import com.rlcdpanel.phone.protocol.Fixtures
 import com.rlcdpanel.phone.protocol.MemoryState
+import com.rlcdpanel.phone.protocol.NoiseState
 import com.rlcdpanel.phone.protocol.ReplyAssembler
 import com.rlcdpanel.phone.protocol.ResetState
 import com.rlcdpanel.phone.protocol.RtcState
@@ -51,6 +52,14 @@ class SensorHealthTextTest {
         assertEquals("Reset --", SensorHealthText.reset(null))
         assertEquals("SHTC3 --", SensorHealthText.shtc3(null))
         assertEquals("Heap --", SensorHealthText.memory(null))
+    }
+
+    @Test
+    fun noiseText() {
+        assertEquals("Lärm 48 dB (MODERATE), Spitze 71 dB um 19 Uhr", SensorHealthText.noise(StatusReply.parse(fixtureLines()).noise))
+        assertEquals("Lärm 40 dB (QUIET)", SensorHealthText.noise(NoiseState(40, "QUIET", null, null, 0)))
+        assertEquals("Lärm -- dB (QUIET)", SensorHealthText.noise(NoiseState(null, "QUIET", null, null, 0)))
+        assertEquals("Lärm --", SensorHealthText.noise(null))
     }
 
     @Test
