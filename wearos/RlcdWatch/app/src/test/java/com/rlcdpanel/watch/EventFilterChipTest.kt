@@ -7,12 +7,12 @@ import org.junit.Test
 
 class EventFilterChipTest {
     @Test
-    fun chipOrderIsAllAlertsSensorsPowerConfigOther() {
+    fun chipOrderIsAllAlertsSensorsClimatePowerConfigOther() {
         val seen = mutableListOf<Category?>()
         var current: Category? = null
-        repeat(6) { seen += current; current = EventFilterChip.next(current) }
+        repeat(7) { seen += current; current = EventFilterChip.next(current) }
         assertEquals(
-            listOf(null, Category.ALERTS, Category.SENSORS, Category.POWER, Category.CONFIG, Category.OTHER),
+            listOf(null, Category.ALERTS, Category.SENSORS, Category.CLIMATE, Category.POWER, Category.CONFIG, Category.OTHER),
             seen
         )
         assertEquals(null, current)
