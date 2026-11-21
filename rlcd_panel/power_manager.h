@@ -19,6 +19,7 @@
 #include "shtc3_sensor.h"
 #include "sparkline.h"
 #include "dry_latch.h"
+#include "wall_latch.h"
 #include "window_latch.h"
 #include "ventilate_latch.h"
 #include "switchbot_ble.h"
@@ -113,6 +114,7 @@ struct PersistentState {
   uint16_t ventilate_tiles = 0; // ventilation badge latch, bit 0 onboard, bits 1..10 slots (VentilateLatch)
   uint16_t dry_tiles = 0;       // dry air badge latch, bit 0 onboard, bits 1..10 slots (DryLatch)
   uint16_t window_tiles = 0;    // open window badge latch, bit 0 onboard, bits 1..10 slots (WindowLatch)
+  uint16_t wall_tiles = 0;      // wall humidity badge latch, bit 0 onboard, bits 1..10 slots (WallLatch)
   WindowLatch::Anchors window_anchors; // reference temperature and stamp of each tile (WindowLatch)
   uint16_t sensor_battery_latch = 0; // low battery latch, bits 0..9 are the registry slots (SensorBatteryLatch)
   uint32_t last_chime_ms = 0; // clock value of the last chime or alert rising edge (chime_repeat_h)
@@ -353,6 +355,7 @@ struct PersistentState {
     swapBit(ventilate_tiles, a, b, 1);
     swapBit(dry_tiles, a, b, 1);
     swapBit(window_tiles, a, b, 1);
+    swapBit(wall_tiles, a, b, 1);
     std::swap(window_anchors.ref[1 + a], window_anchors.ref[1 + b]);
     std::swap(window_anchors.prev[1 + a], window_anchors.prev[1 + b]);
     std::swap(window_anchors.stamp_ms[1 + a], window_anchors.stamp_ms[1 + b]);
@@ -408,6 +411,7 @@ struct PersistentState {
     ventilate_tiles = static_cast<uint16_t>(ventilate_tiles & ~(2u << index));
     dry_tiles = static_cast<uint16_t>(dry_tiles & ~(2u << index));
     window_tiles = static_cast<uint16_t>(window_tiles & ~(2u << index));
+    wall_tiles = static_cast<uint16_t>(wall_tiles & ~(2u << index));
     window_anchors.clearTile(1 + index);
     stale_slots = static_cast<uint16_t>(stale_slots & ~(1u << index));
     history.slots[1 + index].clear();
@@ -556,7 +560,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 71;
+  static constexpr uint8_t STATE_VERSION = 72;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -623,7 +627,8 @@ public:
   // Open window latch (just before the checksum): the key window_drop_c in 0.1 C steps (uint8), the bits (uint16,
   // bits 0..10), then for each tile the reference temperature and the previous peak (both int16, 0.01 C, INT16_MIN none) and the clock stamp (uint32).
   static constexpr size_t WINDOW_SIZE = 1 + 2 + WindowLatch::TILE_COUNT * (2 + 2 + 4);
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + WINDOW_SIZE + 4;
+  static constexpr size_t WALL_SIZE = 2;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + WINDOW_SIZE + WALL_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -992,6 +997,8 @@ public:
       out[pos++] = static_cast<uint8_t>(prev >> 8);
       putU32(out, pos, state.window_anchors.stamp_ms[i]);
     }
+    out[pos++] = static_cast<uint8_t>(state.wall_tiles & 0xFF);
+    out[pos++] = static_cast<uint8_t>((state.wall_tiles >> 8) & 0xFF);
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -1428,6 +1435,11 @@ public:
                                     s.window_anchors.prev[i], s.window_anchors.stamp_ms[i])) {
         return false; // an open tile without a reference, or a reference out of range, is corrupt
       }
+    }
+    s.wall_tiles = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    pos += 2;
+    if ((s.wall_tiles & ~WallLatch::ALL_MASK) != 0) {
+      return false; // a bit above bit 10 is corrupt
     }
     s.registry.setAutoAssign(s.config.slot_auto_assign != 0);
     s.registry.setMinAssignRssi(s.config.auto_assign_min_rssi);

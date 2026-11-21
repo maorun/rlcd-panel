@@ -5,7 +5,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 ## Overview
 
 - **Sensors & BLE:** Onboard `SHTC3` plus 5 BLE slots (`SwitchBot`, `BTHome v2`, `ATC/pvvx`), early scan stop, dead-slot release, reception rate, per-slot calibration offsets & gain slopes (`rh_gain`), USB temperature offset with battery/USB separation.
-- **Display & Views:** 400×300 `ST7305` dashboard (1–6 dynamic tiles), 2-page stats view (comfort, dew point, VPD, mold, feels-like, AH, RSSI, records), 24 h climate & noise charts, 7-day min/max chart (`WEEK_CHART`), dry air badge (`D`), open window badge (`W`), stale data age badge (`STALE <N>H`), audio spectrum, diagnostics, `KEY` button navigation, frame-skip refresh, display invert.
+- **Display & Views:** 400×300 `ST7305` dashboard (1–6 dynamic tiles), 2-page stats view (comfort, dew point, VPD, mold, feels-like, AH, RSSI, records), 24 h climate & noise charts, 7-day min/max chart (`WEEK_CHART`), dry air badge (`D`), open window badge (`W`), wall humidity badge (`C`), stale data age badge (`STALE <N>H`), audio spectrum, diagnostics, `KEY` button navigation, frame-skip refresh, display invert.
 - **Power & Battery:** Deep sleep with CRC-checked RTC state, wake & night intervals, USB detection, low-battery banner, empty-battery protection, runtime & cycle tracking, awake-time stats.
 - **Audio & Alerts:** `ES8311` chimes (freezer, mold, heat, noise, dropout, charge full) with repeat & quiet hours, `BOOT` mute, `ES7210` noise & transient monitor (L10/L90), mic self-test & speaker loopback.
 - **Logging & Time:** MicroSD hourly CSV (`climate_v5`), daily summaries (`daily_v4` with mold hours), event log (`events_v1`), retention & free-space check, Wi-Fi NTP sync, `PCF85063A` RTC drift tracking & frequency trim (`RTC TRIM`).
@@ -1408,6 +1408,16 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - **Preview:** `docs/display_preview_window.png` shows the badge on the onboard tile, slot 1 and slot 2.
 - Host tests `testWindowLatchConfig`, `testWindowLatchLogic`, `testWindowLatchEvents`, `testWindowLatchRtcRoundTrip` and `testWindowBadgeAndPreviewScene` assert the set for a drop of 2.0 C in 10 minutes with limit 1.5, no set for the same drop in 20 minutes, the release by a rise and after 2 hours, no change with limit 0, the rejected bit 11, one event for each edge (also the close events when the limit changes to 0), a step-wise drop, the widened window and the round trip.
 - Validation: host tests (231 suites), `scripts/check-protocol-sync.sh` with `--self-test` and `swift test` in `macos/RlcdCompanion` (543 tests) pass.
+
+## Wall humidity badge
+
+- `WallLatch` (`wall_latch.h`) keeps one bit for each tile in `PersistentState::wall_tiles` (bit 0 onboard, bits 1 to 10 the slots). The bit sets when `ClimateMath::wallSurfaceRh` of the tile (room air at the temperature of the outer wall, factor `wall_frsi_pct`, outdoor reading of `outdoor_slot`) is at or above `mold_alert_limit_rh`. It releases when the value is more than 3 %RH below the limit; between both limits the bit keeps its state.
+- An empty or stale tile, the outdoor tile itself, a stale or empty outdoor slot, an invalid result (for example an outdoor reading above the indoor one) and `wall_frsi_pct` 0 clear the bit. The latch needs no new key, has no chime and does not touch the telemetry frame. Unlike `DryLatch` and `WindowLatch`, it ignores `climate_alert_tiles`; like `VentilateLatch` it covers each tile.
+- A set bit draws the inverted badge `C` in the STANDARD, LARGE and COMPACT tiles, beside the `V`, `D` and `W` badges (same 10 px steps and order). The `WALL <N>%` text of the stats view stays.
+- The console command `STATUS` appends ` wall=<3 hex digits>` to the `LATCH` line (bit 0 onboard, bits 1 to 10 slots). The apps read fields by name and ignore it.
+- `STATE_VERSION` is 72. `PowerManager::WALL_SIZE` (2 bytes) sits just before the checksum. A bit above bit 10 is rejected. `resetSlot` clears the bit of a slot; `swapSlotsByUser` swaps it.
+- **Preview:** `docs/display_preview_wall.png` shows the badge on the onboard tile and slot 1 (slot 2 is the outdoor tile).
+- Host tests `testWallLatchLogic` and `testWallTilesRtcAndPreview` assert the set at the limit, the hold and the release (hysteresis), the clear for a stale outdoor slot, a stale indoor slot, an empty outdoor slot, frsi 0 and no outdoor slot, the rejected bit 11, the RTC round trip and the preview scene. `testStatusLatchLine` asserts the `wall=` field.
 
 ## Daily mold hours in the daily file
 

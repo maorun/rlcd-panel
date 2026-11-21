@@ -777,6 +777,7 @@ struct SerialStatusSnapshot {
   uint16_t sensor_battery_latch = 0; // SensorBatteryLatch bits, one per registry slot
   uint16_t ventilate_tiles = 0;      // VentilateLatch bits, bit 0 onboard, bits 1..10 slots
   uint16_t dry_tiles = 0;            // DryLatch bits, bit 0 onboard, bits 1..10 slots
+  uint16_t wall_tiles = 0;           // WallLatch bits, bit 0 onboard, bits 1..10 slots
   uint16_t stale_slots = 0;          // PersistentState::stale_slots, bits 0..9 are the registry slots
   NoiseHistory noise_history;        // RTC copy of the hourly noise levels
   NoiseBand noise_band = NoiseBand::QUIET; // RTC copy of the noise band latch
@@ -1705,11 +1706,12 @@ public:
     if (len >= sizeof(text)) {
       return;
     }
-    len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "LATCH vent=%03x dry=%03x batlow=%03x stale=%03x\n",
+    len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "LATCH vent=%03x dry=%03x batlow=%03x stale=%03x wall=%03x\n",
                                         static_cast<unsigned>(snap.ventilate_tiles & 0x7FFu),
                                         static_cast<unsigned>(snap.dry_tiles & 0x7FFu),
                                         static_cast<unsigned>(snap.sensor_battery_latch & 0x3FFu),
-                                        static_cast<unsigned>(snap.stale_slots & 0x3FFu)));
+                                        static_cast<unsigned>(snap.stale_slots & 0x3FFu),
+                                        static_cast<unsigned>(snap.wall_tiles & 0x7FFu)));
     if (len >= sizeof(text)) {
       return;
     }
