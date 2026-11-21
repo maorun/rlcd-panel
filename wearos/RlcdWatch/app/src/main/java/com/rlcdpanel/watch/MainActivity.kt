@@ -37,6 +37,7 @@ import com.rlcdpanel.watch.protocol.StatusReply
 import com.rlcdpanel.watch.protocol.ConsoleReply
 import com.rlcdpanel.watch.protocol.EventsReply
 import com.rlcdpanel.watch.protocol.RejectsReply
+import com.rlcdpanel.watch.protocol.HistoryReply
 import com.rlcdpanel.watch.protocol.WeekReply
 import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryCache
@@ -89,6 +90,11 @@ class MainActivity : ComponentActivity() {
     private var showWeek by mutableStateOf(false)
     private var weekState by mutableStateOf(WeekState())
     private var pendingWeekRead = false
+    private var showHistory by mutableStateOf(false)
+    private var historyState by mutableStateOf(HistoryState())
+    private var pendingHistoryRead = false
+    /** Room of the open history screen; set by the tap on the chip, so a read and its title use the same room. */
+    private var historyRoom by mutableIntStateOf(0)
     private var showRejects by mutableStateOf(false)
     private var rejectsState by mutableStateOf(RejectsState())
     private var pendingRejectsRead = false
@@ -120,12 +126,14 @@ class MainActivity : ComponentActivity() {
         val events = pendingEventsRead
         val week = pendingWeekRead
         val rejects = pendingRejectsRead
+        val history = pendingHistoryRead
         val clock = pendingClockRead
         val version = pendingVersionRead
         pendingHealthRead = false
         pendingEventsRead = false
         pendingWeekRead = false
         pendingRejectsRead = false
+        pendingHistoryRead = false
         pendingClockRead = false
         pendingVersionRead = false
         if (grants.isNotEmpty() && grants.values.all { it }) {
@@ -133,6 +141,8 @@ class MainActivity : ComponentActivity() {
                 startVersionRead()
             } else if (clock) {
                 startClockRead()
+            } else if (history) {
+                startHistoryRead()
             } else if (week) {
                 startWeekRead()
             } else if (rejects) {
@@ -149,6 +159,8 @@ class MainActivity : ComponentActivity() {
             versionState = VersionReadState(message = "Bluetooth-Berechtigung fehlt")
         } else if (clock) {
             clockState = ClockReadState(clockMessage = "Bluetooth-Berechtigung fehlt")
+        } else if (history) {
+            historyState = HistoryState(message = "Bluetooth-Berechtigung fehlt")
         } else if (week) {
             weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
         } else if (rejects) {
@@ -275,6 +287,17 @@ class MainActivity : ComponentActivity() {
                 }
             }
 
+            if (showHistory) {
+                BackHandler { closeHistory() }
+                HistoryScreen(
+                    state = historyState,
+                    roomName = panelConfig.tileName(historyRoom),
+                    sensor = historyRoom,
+                    onRead = { readHistory() }
+                )
+                return@setContent
+            }
+
             if (showSensorHealth && showWeek) {
                 BackHandler { closeWeek() }
                 WeekScreen(
@@ -335,6 +358,10 @@ class MainActivity : ComponentActivity() {
                 isReadingConfig = isReadingConfig,
                 onReadConfig = { readPanelConfig() },
                 onOpenSensorHealth = { showSensorHealth = true },
+                onOpenHistory = {
+                    historyRoom = focusedRoomIndex
+                    showHistory = true
+                },
                 onToggleScan = {
                     if (isScanning) {
                         stopBleScan()
@@ -374,6 +401,8 @@ class MainActivity : ComponentActivity() {
         pendingEventsRead = false
         weekState = WeekState()
         pendingWeekRead = false
+        // An open permission dialog keeps pendingHistoryRead, so its result still starts the tapped HISTORY read.
+        historyState = HistoryState()
         rejectsState = RejectsState()
         pendingRejectsRead = false
         // An open permission dialog keeps pendingClockRead, so its result still starts the tapped TIME read.
@@ -466,7 +495,7 @@ class MainActivity : ComponentActivity() {
 
     /** Asks for BLUETOOTH_CONNECT and BLUETOOTH_SCAN (SDK 31 and later), then sends `CONFIG` once. */
     private fun readPanelConfig() {
-        if (isReadingConfig || healthState.isReading || pendingClockRead || pendingVersionRead || versionState.isReading || pendingWeekRead || pendingRejectsRead || consoleClient.isRunning) return
+        if (isReadingConfig || healthState.isReading || pendingClockRead || pendingVersionRead || versionState.isReading || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || consoleClient.isRunning) return
         isReadingConfig = true
         configStatus = null
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -483,7 +512,7 @@ class MainActivity : ComponentActivity() {
 
     /** Asks for the console permissions, then sends `TIME` once. Only a tap in the sensor health screen calls it. The watch never sends `TIME SET`. */
     private fun readClock() {
-        if (clockState.isReadingClock || pendingClockRead || pendingVersionRead || versionState.isReading || pendingHealthRead || pendingEventsRead || pendingWeekRead || pendingRejectsRead || healthState.isReading || healthState.isMuting || isReadingConfig || consoleClient.isRunning) return
+        if (clockState.isReadingClock || pendingClockRead || pendingVersionRead || versionState.isReading || pendingHealthRead || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || healthState.isReading || healthState.isMuting || isReadingConfig || consoleClient.isRunning) return
         clockState = ClockReadState(isReadingClock = true)
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
@@ -523,7 +552,7 @@ class MainActivity : ComponentActivity() {
 
     /** Asks for the console permissions, then sends `VERSION` once. Only a tap in the sensor health screen calls it. */
     private fun readVersion() {
-        if (versionState.isReading || pendingVersionRead || pendingClockRead || pendingHealthRead || pendingEventsRead || pendingWeekRead || pendingRejectsRead || healthState.isReading || healthState.isMuting || clockState.isReadingClock || isReadingConfig || consoleClient.isRunning) return
+        if (versionState.isReading || pendingVersionRead || pendingClockRead || pendingHealthRead || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || healthState.isReading || healthState.isMuting || clockState.isReadingClock || isReadingConfig || consoleClient.isRunning) return
         versionState = VersionReadState(isReading = true)
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
@@ -557,6 +586,56 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun closeHistory() {
+        consoleClient.cancel()
+        pendingHistoryRead = false
+        historyState = HistoryState()
+        showHistory = false
+    }
+
+    /** Asks for the console permissions, then sends `HISTORY <N>` once. Only a tap in the history screen calls it. */
+    private fun readHistory() {
+        if (historyState.isReading || healthState.isMuting || clockState.isReadingClock || pendingHistoryRead || pendingWeekRead || pendingRejectsRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || isReadingConfig || consoleClient.isRunning) return
+        historyState = HistoryState(isReading = true)
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            emptyList()
+        }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isNotEmpty()) {
+            pendingHistoryRead = true
+            consolePermissionLauncher.launch(needed.toTypedArray())
+            return
+        }
+        startHistoryRead()
+    }
+
+    /** Sends `HISTORY <N>`. An older firmware answers with `ERR`; then one `HISTORY` follows and the rows of the room stay. */
+    private fun startHistoryRead() {
+        if (consoleClient.isRunning) {
+            historyState = HistoryState(message = "Panel-Verbindung ist belegt")
+            return
+        }
+        historyState = HistoryState(isReading = true)
+        val sensor = historyRoom
+        consoleClient.send("HISTORY $sensor") { first ->
+            if (HistoryText.needsFallback(first)) {
+                consoleClient.send("HISTORY") { full -> historyState = historyResult(full) }
+            } else {
+                historyState = historyResult(first)
+            }
+        }
+    }
+
+    private fun historyResult(reply: ConsoleReply): HistoryState = when (reply) {
+        is ConsoleReply.Frame -> try {
+            HistoryState(rows = HistoryReply.parse(reply.lines), loaded = true)
+        } catch (e: ParseException) {
+            HistoryState(message = "Antwort nicht lesbar")
+        }
+        else -> HistoryState(message = HistoryText.failure(reply))
+    }
+
     private fun closeWeek() {
         consoleClient.cancel()
         pendingWeekRead = false
@@ -566,7 +645,7 @@ class MainActivity : ComponentActivity() {
 
     /** Asks for the console permissions, then sends `WEEK` once. Only a tap in the week screen calls it. */
     private fun readWeek() {
-        if (weekState.isReading || pendingWeekRead || pendingRejectsRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || isReadingConfig || consoleClient.isRunning) return
+        if (weekState.isReading || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || isReadingConfig || consoleClient.isRunning) return
         weekState = WeekState(isReading = true)
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
@@ -608,7 +687,7 @@ class MainActivity : ComponentActivity() {
 
     /** Asks for the console permissions, then sends `REJECTS` once. Only a tap in the rejects screen calls it. */
     private fun readRejects() {
-        if (rejectsState.isReading || pendingRejectsRead || pendingWeekRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || isReadingConfig || consoleClient.isRunning) return
+        if (rejectsState.isReading || pendingRejectsRead || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || isReadingConfig || consoleClient.isRunning) return
         rejectsState = RejectsState(isReading = true)
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
@@ -651,7 +730,7 @@ class MainActivity : ComponentActivity() {
 
     /** Asks for the console permissions, then sends `EVENTS` once. Only a tap in the event log screen calls it. */
     private fun readEvents() {
-        if (eventState.isReading || pendingEventsRead || pendingWeekRead || pendingRejectsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || isReadingConfig || consoleClient.isRunning) return
+        if (eventState.isReading || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || isReadingConfig || consoleClient.isRunning) return
         eventState = EventLogState(isReading = true)
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
@@ -687,7 +766,7 @@ class MainActivity : ComponentActivity() {
 
     /** Asks for the console permissions, then sends `STATUS` once. Only a tap in the sensor health screen calls it. */
     private fun readSensorHealth() {
-        if (healthState.isReading || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || pendingWeekRead || pendingRejectsRead || isReadingConfig || consoleClient.isRunning) return
+        if (healthState.isReading || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || isReadingConfig || consoleClient.isRunning) return
         chimeState = chimeState.copy(message = null)
         healthState = healthState.copy(isReading = true, message = null)
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -724,7 +803,7 @@ class MainActivity : ComponentActivity() {
      * keeps the old state and is not retried.
      */
     private fun setMute(on: Boolean) {
-        if (healthState.isReading || healthState.isMuting || pendingClockRead || pendingVersionRead || versionState.isReading || pendingWeekRead || pendingRejectsRead || clockState.isReadingClock || isReadingConfig || consoleClient.isRunning) return
+        if (healthState.isReading || healthState.isMuting || pendingClockRead || pendingVersionRead || versionState.isReading || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || clockState.isReadingClock || isReadingConfig || consoleClient.isRunning) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
                 ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
@@ -756,7 +835,7 @@ class MainActivity : ComponentActivity() {
      */
     private fun testChime() {
         if (chimeState.isTesting || healthState.isReading || healthState.isMuting || pendingClockRead || pendingVersionRead || versionState.isReading || pendingHealthRead ||
-            pendingEventsRead || pendingWeekRead || pendingRejectsRead || clockState.isReadingClock || isReadingConfig || consoleClient.isRunning
+            pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || clockState.isReadingClock || isReadingConfig || consoleClient.isRunning
         ) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
