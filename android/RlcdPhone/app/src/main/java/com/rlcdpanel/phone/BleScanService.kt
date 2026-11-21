@@ -19,6 +19,7 @@ import android.os.Vibrator
 import android.os.VibratorManager
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
+import com.rlcdpanel.phone.protocol.AckCommand
 import com.rlcdpanel.phone.protocol.AlertMask
 import com.rlcdpanel.phone.protocol.AlertTransitions
 import com.rlcdpanel.phone.protocol.PanelConfig
@@ -224,7 +225,7 @@ class BleScanService : Service() {
 
         if (!transition.risingAlerts.isEmpty) {
             vibrateAlert()
-            postAlertNotification(transition.risingAlerts.names.joinToString(", "))
+            postAlertNotification(transition.risingAlerts)
         }
     }
 
@@ -325,7 +326,12 @@ class BleScanService : Service() {
         manager.notify(NOTIFICATION_ID, buildForegroundNotification(text))
     }
 
-    private fun postAlertNotification(alertText: String) {
+    private fun postAlertNotification(rising: AlertMask) {
+        // The Acknowledge action needs the BLE console write level, so read the config only for an acknowledgeable bit.
+        val candidateBits = AckCommand.actionBits(rising)
+        val ackBits = if (candidateBits.isNotEmpty() && PanelConfig.load(this).canWrite) candidateBits else emptyList()
+        val ackMask = ackBits.fold(0) { mask, bit -> mask or (1 shl bit) }
+        val otherText = AlertMask(rising.rawValue and ackMask.inv()).names.joinToString(", ")
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -338,10 +344,33 @@ class BleScanService : Service() {
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        // One notification for each acknowledgeable bit, so that an ACK result and a later alert keep the other actions.
+        for (bit in ackBits) {
+            val ack = PendingIntent.getBroadcast(
+                this,
+                ACK_REQUEST_BASE + bit,
+                Intent(this, AckReceiver::class.java).apply {
+                    action = AckReceiver.ACTION_ACK
+                    putExtra(AckReceiver.EXTRA_BIT, bit)
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+            val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
+                .setSmallIcon(android.R.drawable.ic_dialog_info)
+                .setContentTitle("RLCD Alarm")
+                .setContentText(AlertMask(1 shl bit).names.joinToString(", "))
+                .setContentIntent(openApp)
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .addAction(android.R.drawable.ic_menu_agenda, "Acknowledge", ack)
+                .build()
+            manager.notify(ackNotificationId(bit), notification)
+        }
+        if (otherText.isEmpty()) return
         val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("RLCD Alarm")
-            .setContentText(alertText)
+            .setContentText(otherText)
             .setContentIntent(openApp)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
@@ -493,6 +522,11 @@ class BleScanService : Service() {
         const val SILENCE_NOTIFICATION_ID = 901
         /** Ids 910 to 920 for the tiles 0 to 10. */
         const val STALE_NOTIFICATION_BASE_ID = 910
+        /** Ids 930 to 937 for the acknowledgeable alert bits 0 to 7; 910 to 920 belong to the stale notifications. */
+        private const val ACK_NOTIFICATION_BASE = 930
+        private const val ACK_REQUEST_BASE = 100
+
+        fun ackNotificationId(bit: Int): Int = ACK_NOTIFICATION_BASE + bit
         const val SILENCE_CHECK_MS = 60_000L
         const val SERVICE_CHANNEL_ID = "rlcd_scan_service_channel"
         const val ALERT_CHANNEL_ID = "rlcd_ventilation_channel"

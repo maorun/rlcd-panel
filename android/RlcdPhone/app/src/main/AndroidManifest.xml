@@ -45,6 +45,10 @@
             android:foregroundServiceType="connectedDevice" />
 
         <receiver
+            android:name=".AckReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".widget.ClimateWidgetReceiver"
             android:exported="true">
             <intent-filter>
