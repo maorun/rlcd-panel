@@ -2255,3 +2255,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `EventFilter` (`EventFilter.swift` and both `EventFilter.kt`) puts `JUMP_DROP` into the category `sensors`. `EventFilterTest.kotlinNamesMatchSwiftNames` compares both lists.
 - `tests/fixtures/events_reply_sample.txt` has the new row `JUMP_DROP,3` before `FUTURE_EVENT` (22 lines with `EVENTS_DROPPED`, 21 rows in the Kotlin tests) and the new CRC-32 `97608910`.
 - Tests: `EventTextTests` and both `EventTextTest` classes assert `Slot 3 reading jump dropped`, `Slot 10 reading jump dropped` and the raw text for the details 0, 11 and 259. The filter and reply tests count one more row and one more `sensors` row.
+
+## Noise line in the Android sensor health screen
+
+- The `STATUS` line `NOISE db=<N|--> band=<QUIET|MODERATE|LOUD> peak_db=<N|--> peak_hour=<N|--> events_sum=<N>` gives the room noise without a card. Only the macOS app showed it.
+- The shared `StatusReply.kt` (phone and watch, same source) holds `NoiseState(db, band, peakDb, peakHour, eventsSum)` and `StatusReply.noise`. A missing line gives `null`; `--` gives a `null` field. A band other than `QUIET`, `MODERATE` and `LOUD`, a `db` or `peak_db` above 140, a `peak_hour` above 23 and a bad number throw `ParseException`, like `NoiseMetrics` of `Diagnostics.swift`.
+- `SensorHealthText.noise(state)` (phone) gives `Lärm <db> dB (<band>), Spitze <N> dB um <H> Uhr` and `Lärm --` for `null`. The peak part is left out when `peak_db` or `peak_hour` is `--`. `SensorHealthScreen` shows the row below the memory row in the card `Panel diagnostics`. `SensorHealthState.noise` carries it from `MainActivity`.
+- Tests: `StatusReplyTest.noiseFromFixtureAndMissingValues` and `badNoiseLineThrows`, `SensorHealthTextTest.noiseText`.
+- Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.

@@ -79,6 +79,15 @@ data class MemoryState(val free: Long, val min: Long, val largest: Long, val psr
     }
 }
 
+/** `NOISE db=<N|--> band=<QUIET|MODERATE|LOUD> peak_db=<N|--> peak_hour=<N|--> events_sum=<N>`; `--` gives a null field. */
+data class NoiseState(val db: Int?, val band: String, val peakDb: Int?, val peakHour: Int?, val eventsSum: Int) {
+    companion object {
+        const val MAX_DB = 140
+        const val MAX_HOUR = 23
+        val BANDS = setOf("QUIET", "MODERATE", "LOUD")
+    }
+}
+
 /** Parsed `STATUS` reply. Unknown lines are ignored, so a newer firmware does not break the parser. */
 data class StatusReply(
     val sensors: List<StatusSensor>,
@@ -102,7 +111,9 @@ data class StatusReply(
     /** Null without a `MEMORY` line. */
     val memory: MemoryState? = null,
     /** Null without an `RTC` line. */
-    val rtc: RtcState? = null
+    val rtc: RtcState? = null,
+    /** Null without a `NOISE` line. */
+    val noise: NoiseState? = null
 ) {
     val isUsbPower: Boolean get() = powerSource == "USB"
 
@@ -140,6 +151,7 @@ data class StatusReply(
             var shtc3: Shtc3State? = null
             var memory: MemoryState? = null
             var rtc: RtcState? = null
+            var noise: NoiseState? = null
             for (line in lines) {
                 val words = line.split(' ').filter { it.isNotEmpty() }
                 val head = words.firstOrNull() ?: continue
@@ -178,10 +190,11 @@ data class StatusReply(
                     "SHTC3" -> shtc3 = parseShtc3(line)
                     "MEMORY" -> memory = parseMemory(line)
                     "RTC" -> rtc = parseRtc(line)
+                    "NOISE" -> noise = parseNoise(line)
                 }
             }
             if (sensors.isEmpty()) throw ParseException("SENSOR")
-            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory, rtc)
+            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory, rtc, noise)
         }
 
         private fun digits(s: String?): Long? =
@@ -220,6 +233,21 @@ data class StatusReply(
             val trim = signed("trim")
             if (trim != null && (trim < RtcState.MIN_TRIM || trim > RtcState.MAX_TRIM)) throw ParseException(line)
             return RtcState(trim, signed("drift_ppm"))
+        }
+
+        /** `NOISE db=<N|--> band=... peak_db=<N|--> peak_hour=<N|--> events_sum=<N>`; a bad band, number or range throws. */
+        private fun parseNoise(line: String): NoiseState {
+            val f = fields(line)
+            fun optional(key: String, max: Int): Int? {
+                if (f[key] == "--") return null
+                return digits(f[key])?.takeIf { it <= max }?.toInt() ?: throw ParseException(line)
+            }
+            val band = f["band"]
+            if (band == null || band !in NoiseState.BANDS) throw ParseException(line)
+            return NoiseState(
+                optional("db", NoiseState.MAX_DB), band, optional("peak_db", NoiseState.MAX_DB),
+                optional("peak_hour", NoiseState.MAX_HOUR), counter(f, "events_sum", line).toInt()
+            )
         }
 
         private fun parseMemory(line: String): MemoryState {

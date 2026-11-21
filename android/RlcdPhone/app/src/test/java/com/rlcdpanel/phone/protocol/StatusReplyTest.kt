@@ -187,6 +187,32 @@ class StatusReplyTest {
     }
 
     @Test
+    fun noiseFromFixtureAndMissingValues() {
+        assertEquals(NoiseState(48, "MODERATE", 71, 19, 12), StatusReply.parse(fixtureLines()).noise)
+        assertEquals(NoiseState(null, "QUIET", 71, 19, 0), replace("NOISE ", "NOISE db=-- band=QUIET peak_db=71 peak_hour=19 events_sum=0").noise)
+        assertEquals(NoiseState(48, "LOUD", null, null, 3), replace("NOISE ", "NOISE db=48 band=LOUD peak_db=-- peak_hour=-- events_sum=3").noise)
+        assertNull(StatusReply.parse(fixtureLines().filter { !it.startsWith("NOISE ") }).noise)
+    }
+
+    @Test
+    fun badNoiseLineThrows() {
+        for (line in listOf(
+            "NOISE db=48 band=LOUDER peak_db=71 peak_hour=19 events_sum=12",
+            "NOISE db=141 band=LOUD peak_db=71 peak_hour=19 events_sum=12",
+            "NOISE db=48 band=LOUD peak_db=141 peak_hour=19 events_sum=12",
+            "NOISE db=48 band=LOUD peak_db=71 peak_hour=24 events_sum=12",
+            "NOISE db=x band=LOUD peak_db=71 peak_hour=19 events_sum=12",
+            "NOISE db=48 band=LOUD peak_db=71 peak_hour=19 events_sum=x"
+        )) {
+            try {
+                replace("NOISE ", line)
+                fail("expected ParseException for $line")
+            } catch (e: ParseException) {
+            }
+        }
+    }
+
+    @Test
     fun moldHoursOfFixtureAndBadFields() {
         val sensors = StatusReply.parse(fixtureLines()).sensors
         assertEquals(24, sensors[0].moldHours)
