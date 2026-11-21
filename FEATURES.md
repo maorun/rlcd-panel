@@ -2540,3 +2540,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `Chart.axisRange` is the smallest to the largest value over all series, `nil` without a value; a flat range widens by 0.5 on each side.
 - `ClimateCompare.name(sensor:config:)` uses `ConfigReply.name(forSlot:)` of the active config (`onboard_name`, `slotN_name` of the fixed MAC) and falls back to `ClimateLog.sensorNames`.
 - `ClimateCompareTests` cover the series order, the gap, the axis range, the empty case, the flat range, the bad selections and the config names.
+
+## Feels-like and absolute humidity curves in the macOS climate chart
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/ClimateMath.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/ClimateCompare.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ClimateMathTests.swift`.
+- The value picker of the `Compare rooms` mode has two new values: `Feels like` (heat index in the unit of the chart) and `Absolute humidity` (g/m³).
+- `ClimateMath.feelsLikePoint(tempC:humidityPct:)` and `ClimateMath.absoluteHumidityPoint(tempC:humidityPct:)` call `heatIndexC` and `absoluteHumidityGm3` for one `ClimateLog` reading. They return `nil` when the temperature or the humidity is empty or out of range, so the line breaks at that point.
+- `ClimateCompare.Metric` has the cases `feelsLike` and `absoluteHumidity`. `ClimateCompare.value(of:_:)` selects the value of a reading. The view reads local files only and sends no console command.
+- Tests: `curvePointsMatchFixtureRow` (row `32.0 | 70.0` of `tests/fixtures/climate_math_vectors.txt`: heat index 40.41, absolute humidity 23.57) and `curvePointsSkipMissingValues` (no point for an empty humidity or temperature field).
+- Validation: `swift test` (560 tests), `swift build -c release`, `./scripts/check-protocol-sync.sh` and `--self-test` pass locally.

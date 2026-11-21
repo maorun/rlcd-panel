@@ -28,6 +28,26 @@ func loadClimateVectors() throws -> [ClimateVector] {
 }
 
 struct ClimateMathTests {
+    @Test func curvePointsMatchFixtureRow() throws {
+        let v = try #require(loadClimateVectors().first { $0.tempC == 32.0 && $0.rhPct == 70.0 })
+        let hi = try #require(ClimateMath.feelsLikePoint(tempC: v.tempC, humidityPct: v.rhPct))
+        let ah = try #require(ClimateMath.absoluteHumidityPoint(tempC: v.tempC, humidityPct: v.rhPct))
+        #expect(abs(hi - 40.41) < 0.01)
+        #expect(abs(ah - 23.57) < 0.01)
+        #expect(abs(hi - (v.heatIndexC ?? .nan)) < 0.01)
+        #expect(abs(ah - (v.absHumidityGm3 ?? .nan)) < 0.01)
+    }
+
+    @Test func curvePointsSkipMissingValues() {
+        #expect(ClimateMath.feelsLikePoint(tempC: 32.0, humidityPct: nil) == nil)
+        #expect(ClimateMath.absoluteHumidityPoint(tempC: 32.0, humidityPct: nil) == nil)
+        #expect(ClimateMath.feelsLikePoint(tempC: nil, humidityPct: 70.0) == nil)
+        let row = ClimateSensorReading(tempC: 32.0, rh: nil, batteryPct: nil)
+        #expect(ClimateCompare.value(of: .feelsLike, row) == nil)
+        #expect(ClimateCompare.value(of: .absoluteHumidity, row) == nil)
+        #expect(ClimateCompare.value(of: .temperature, row) == 32.0)
+    }
+
     @Test func allFixtureVectorsMatch() throws {
         let vectors = try loadClimateVectors()
         #expect(vectors.count >= 15)

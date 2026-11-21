@@ -122,4 +122,16 @@ public enum ClimateMath {
         if humidityPct > comfortMaxRh { return .humid }
         return .ok
     }
+
+    /// Heat index of one log reading. `nil` unless both temperature and humidity exist and are valid.
+    public static func feelsLikePoint(tempC: Double?, humidityPct: Double?) -> Double? {
+        guard let tempC, let humidityPct else { return nil }
+        return heatIndexC(tempC: tempC, humidityPct: humidityPct)
+    }
+
+    /// Absolute humidity of one log reading in g/m3. `nil` unless both values exist and are valid.
+    public static func absoluteHumidityPoint(tempC: Double?, humidityPct: Double?) -> Double? {
+        guard let tempC, let humidityPct else { return nil }
+        return absoluteHumidityGm3(tempC: tempC, humidityPct: humidityPct)
+    }
 }

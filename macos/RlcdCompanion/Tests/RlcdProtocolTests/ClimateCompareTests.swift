@@ -25,6 +25,27 @@ struct ClimateCompareTests {
         #expect(chart.series[1].samples.map(\.value) == [21.0, 22.0, 20.0])
     }
 
+    @Test func derivedMetricsUseBothValuesAndGapOnEmptyField() throws {
+        let feels = try #require(ClimateCompare.build(rows: Self.rows, sensors: [0, 1], metric: .feelsLike))
+        #expect(feels.series[0].samples.map(\.value) == [21.0, 22.0, 20.0])
+        #expect(feels.series[1].samples.map(\.value) == [19.0, nil, 18.0])
+        let ah = try #require(ClimateCompare.build(rows: Self.rows, sensors: [0, 1], metric: .absoluteHumidity))
+        let first = try #require(ah.series[0].samples[0].value)
+        #expect(abs(first - 8.22) < 0.01)
+        #expect(ah.series[1].samples[1].value == nil)
+        #expect(ah.series[1].segments.count == 2)
+    }
+
+    @Test func logRowWithEmptyHumidityGivesNoDerivedPoint() throws {
+        let line = "2026-11-14 10:00:00,85,4.05,1,32.0,,19.0,50,87,,,80,,,\(",1000,45,QUIET,2,50,38")"
+        let rows = try ClimateLog.parse(text: ([Self.header, line]).joined(separator: "\n")).rows
+        let chart = try #require(ClimateCompare.build(rows: rows, sensors: [0, 1], metric: .feelsLike))
+        #expect(chart.series[0].samples.map(\.value) == [nil])
+        #expect(chart.series[1].samples.map(\.value) == [19.0])
+        let ah = try #require(ClimateCompare.build(rows: rows, sensors: [0, 1], metric: .absoluteHumidity))
+        #expect(ah.series[0].samples.map(\.value) == [nil])
+    }
+
     @Test func emptyFieldGivesGapAndBreaksLine() throws {
         let chart = try #require(ClimateCompare.build(rows: Self.rows, sensors: [0, 1], metric: .temperature))
         let s1 = chart.series[1]

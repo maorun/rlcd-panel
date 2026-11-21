@@ -3,7 +3,7 @@ import Foundation
 /// Lines of two to six sensors of one `ClimateLog` month for the `Compare rooms` chart. Pure data: no console command.
 public enum ClimateCompare {
     public enum Metric: Equatable {
-        case temperature, humidity
+        case temperature, humidity, feelsLike, absoluteHumidity
     }
 
     public static let minSensors = 2
@@ -52,6 +52,16 @@ public enum ClimateCompare {
         return config?.name(forSlot: sensor) ?? ClimateLog.sensorNames[sensor]
     }
 
+    /// One point of a metric; `nil` for a gap. The derived metrics need both values of the reading.
+    static func value(of metric: Metric, _ reading: ClimateSensorReading?) -> Double? {
+        switch metric {
+        case .temperature: return reading?.tempC
+        case .humidity: return reading?.rh
+        case .feelsLike: return ClimateMath.feelsLikePoint(tempC: reading?.tempC, humidityPct: reading?.rh)
+        case .absoluteHumidity: return ClimateMath.absoluteHumidityPoint(tempC: reading?.tempC, humidityPct: reading?.rh)
+        }
+    }
+
     /// `nil` for fewer than 2 or more than 6 sensors, a repeated sensor or an index outside `ClimateLog.sensorNames`.
     /// A row without the sensor (an older format) gives an empty field.
     public static func build(rows: [ClimateRow], sensors: [Int], metric: Metric, config: ConfigReply? = nil) -> Chart? {
@@ -63,7 +73,7 @@ public enum ClimateCompare {
             let unique = names.filter { $0 == names[index] }.count == 1
             return Series(sensor: sensor, name: unique ? names[index] : "\(names[index]) (\(ClimateLog.sensorNames[sensor]))", samples: rows.map { row in
                 let reading = sensor < row.sensors.count ? row.sensors[sensor] : nil
-                return Sample(timestamp: row.timestamp, value: metric == .temperature ? reading?.tempC : reading?.rh)
+                return Sample(timestamp: row.timestamp, value: value(of: metric, reading))
             })
         }
         let values = series.flatMap { $0.samples.compactMap(\.value) }
