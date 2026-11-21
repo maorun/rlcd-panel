@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Console commands CALIB and SALT for slots 6 to 10
-  - Rank: [Total: 35, Use: 6, Setup: 10, Harmony: 9, Safety: 10, Effort: M]
-  - Location: rlcd_panel/serial_console.h, rlcd_panel/sparkline.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp
-  - Goal: Extend the argument range of `CALIB N` and `SALT N` (and `SALT N MGCL2`) from 0 to 5 to 0 to 10, because the registry has 10 slots (`MAX_SWITCHBOT_SENSORS`). Use the 24-hour histories of slots 6 to 10 and the keys `slot6_temp_offset_c` to `slot10_rh_offset_pct` for the proposal lines. Keep the reply format, the RTC layout and `STATE_VERSION`.
-  - Acceptance test: Host tests assert that `CALIB 10` and `SALT 10` give a valid reply with the key `slot10_rh_offset_pct`, that `SALT 11` and `CALIB 11` give `ERR BAD_ARG`, that `SALT 7` with 5 samples gives `SKIP`, and that the replies for 0 to 5 are byte-equal to the current replies. `c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner` and `arduino-cli compile rlcd_panel` pass.
-
 - [ ] Calibration of slots 6 to 10 in the macOS app
   - Rank: [Total: 34, Use: 6, Setup: 10, Harmony: 8, Safety: 10, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift
