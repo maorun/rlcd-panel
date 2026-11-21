@@ -2531,3 +2531,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The parser stores the key in `SerialCommand::set_key`. RTC layout, `STATE_VERSION` and `KEY_COUNT` do not change.
 - Tests: `testSerialConfigKeyCommand` (parser, each key, no card, BLE gate) and `testSerialConfigKeyReply` (`mold_alert_limit_rh=70` with CRC, float, text and empty keys, each key of `KEYS`, the full reply byte-equal to name lines plus `SOURCE` plus CRC).
 - Validation: host tests, `arduino-cli compile rlcd_panel`, `./scripts/check-protocol-sync.sh` and `--self-test` pass locally.
+
+## Room comparison chart in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/ClimateCompare.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ClimateCompareTests.swift`.
+- `ClimateChartView` has the modes `Sensors` (the old view) and `Compare rooms`. The mode `Compare rooms` draws the temperature or the humidity of 2 to 6 selected sensors of the selected `ClimateLog` month as lines in one chart, one color for each sensor. The user selects the sensors with toggle buttons (default onboard and slot 1) and the value with a segmented picker. The view reads local files only and sends no console command.
+- `ClimateCompare.build(rows:sensors:metric:config:)` gives one `Series` for each selected sensor in the selection order, with one sample for each row. An empty field (or a row without the sensor) is a gap: `Series.segments` ends a run there, so the line breaks. It returns `nil` for fewer than 2 or more than 6 sensors, a repeated sensor and an index outside `ClimateLog.sensorNames`.
+- `Chart.axisRange` is the smallest to the largest value over all series, `nil` without a value; a flat range widens by 0.5 on each side.
+- `ClimateCompare.name(sensor:config:)` uses `ConfigReply.name(forSlot:)` of the active config (`onboard_name`, `slotN_name` of the fixed MAC) and falls back to `ClimateLog.sensorNames`.
+- `ClimateCompareTests` cover the series order, the gap, the axis range, the empty case, the flat range, the bad selections and the config names.
