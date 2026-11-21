@@ -287,6 +287,18 @@ struct PersistentState {
     return true;
   }
 
+  // Console ACK ALL: acknowledges each active repeatable alert bit that is not acknowledged yet, lowest bit first, one
+  // ALERT_ACK event for each new bit. Returns the mask of the new bits (0: nothing to do).
+  uint8_t acknowledgeAll(const RtcTime& now) {
+    const uint8_t fresh = static_cast<uint8_t>(AlertEvaluator::repeatableBits(alert_mask) & ~alert_ack);
+    for (uint8_t bit = 0; bit < 8; ++bit) {
+      if ((fresh & (1u << bit)) != 0) {
+        acknowledgeAlert(bit, now);
+      }
+    }
+    return fresh;
+  }
+
   // Clears the reading, both 24-hour histories and the battery, ventilation and dry air latches of slot `index`.
   void resetSlot(size_t index) {
     if (index >= MAX_SWITCHBOT_SENSORS) {

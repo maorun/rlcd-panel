@@ -57,6 +57,7 @@ struct SerialCommand {
   char file[SdLogCodec::LOG_NAME_SIZE] = {0};
   uint8_t reference = 0; // CALIB and SALT: 0 onboard, 1 to 5 a slot; BEEP and ACK: alert bit number 0 to 7; PATTERN: pattern number 0 to 2; MUTE: 0 or 1; SLOT CLEAR: slot number 1 to 5
   bool history_one = false; // HISTORY: true for "HISTORY <N>"; `reference` then holds the sensor 0 to 10
+  bool ack_all = false; // ACK: true for "ACK ALL" (every active repeatable alert bit that is not acknowledged)
   bool salt_mgcl2 = false; // SALT: true for "SALT N MGCL2" (magnesium chloride reference, no proposal line)
   bool time_set = false; // TIME: true for "TIME SET <time>"; `time` then holds the parsed local time
   RtcTime time;
@@ -325,6 +326,14 @@ public:
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "ACK")) {
+      if (len > cmd_len + 1 && line[cmd_len + 1] == 'A') {
+        if (len != cmd_len + 4 || memcmp(line + cmd_len + 1, "ALL", 3) != 0) {
+          return SerialParseStatus::BAD_ARG; // only "ACK ALL" exists
+        }
+        out.kind = SerialCommandKind::ACK;
+        out.ack_all = true;
+        return SerialParseStatus::OK;
+      }
       // exactly one digit 0 to 7 (the bit number of ALERT_FREEZER to ALERT_HEAT)
       if (len != cmd_len + 2 || line[cmd_len + 1] < '0' || line[cmd_len + 1] > '7') {
         return SerialParseStatus::BAD_ARG;
@@ -1829,6 +1838,17 @@ public:
     }
     char line[16];
     snprintf(line, sizeof(line), "OK ACK %u\n", static_cast<unsigned>(bit));
+    send(sink, line);
+  }
+
+  // Reply of ACK ALL: "OK ACK ALL <2 hex digits>" with the mask of the new bits, else "ERR NOT_ACTIVE" (no bit is new).
+  static void ackAllReply(Sink& sink, uint8_t new_bits) {
+    if (new_bits == 0) {
+      send(sink, "ERR NOT_ACTIVE\n");
+      return;
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "OK ACK ALL %02x\n", static_cast<unsigned>(new_bits));
     send(sink, line);
   }
 
