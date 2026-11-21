@@ -30,6 +30,7 @@ import androidx.wear.compose.material.TimeText
 import com.rlcdpanel.watch.console.BleConsoleClient
 import com.rlcdpanel.watch.protocol.ChimeCommand
 import com.rlcdpanel.watch.protocol.ConsoleReply
+import com.rlcdpanel.watch.protocol.LatchState
 import com.rlcdpanel.watch.protocol.MemoryState
 import com.rlcdpanel.watch.protocol.NoiseState
 import com.rlcdpanel.watch.protocol.NtpState
@@ -94,6 +95,11 @@ object SensorHealthText {
     fun mold(sensor: StatusSensor): String =
         sensor.moldHours?.let { (if (it > 0) "$WARNING " else "") + "Schimmel $it h" } ?: "Schimmel --"
     fun isMold(sensor: StatusSensor): Boolean = (sensor.moldHours ?: 0) > 0
+
+    /** Panel badges of one sensor row, for example `V · STALE`; null without a `LATCH` line or without a badge. */
+    fun badges(latch: LatchState?, sensor: StatusSensor): String? =
+        latch?.badges(sensor.index)?.takeIf { it.isNotEmpty() }?.joinToString(" · ")
+
     const val CLOCK_WARN_SECONDS = 120L
 
     /** True for an offset above 120 s in either direction, for `valid=0` and for `osf=1`. */
@@ -422,6 +428,9 @@ fun SensorHealthScreen(
                                     fontSize = 10.sp,
                                     color = if (SensorHealthText.isMold(sensor)) Color(0xFFFFB74D) else Color.Unspecified
                                 )
+                                SensorHealthText.badges(status.latch, sensor)?.let { badges ->
+                                    Text("Badges $badges", fontSize = 10.sp, color = Color(0xFFFFB74D))
+                                }
                             }
                         }
                     }

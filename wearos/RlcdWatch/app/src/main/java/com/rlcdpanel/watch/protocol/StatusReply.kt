@@ -95,6 +95,35 @@ data class ChimeReminder(val repeatHours: Int, val bits: Int, val lastS: Long?, 
     }
 }
 
+/**
+ * `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex>`: the badge latches of the panel.
+ * `vent` and `dry` use bit 0 for the onboard tile and bits 1 to 10 for the slots; `batlow` and `stale`
+ * use bits 0 to 9 for the slots 1 to 10.
+ */
+data class LatchState(val ventilate: Int, val dry: Int, val batteryLow: Int, val stale: Int) {
+    /**
+     * Badge texts of sensor 0 (onboard) or 1 to 10 (slot), in the order `V`, `D`, `BAT LOW`, `STALE`.
+     * The onboard sensor never gets `BAT LOW` or `STALE`; an unknown sensor has no badge.
+     */
+    fun badges(sensor: Int): List<String> {
+        if (sensor !in 0 until SENSOR_COUNT) return emptyList()
+        val out = mutableListOf<String>()
+        if (ventilate shr sensor and 1 == 1) out.add("V")
+        if (dry shr sensor and 1 == 1) out.add("D")
+        if (sensor >= 1) {
+            if (batteryLow shr (sensor - 1) and 1 == 1) out.add("BAT LOW")
+            if (stale shr (sensor - 1) and 1 == 1) out.add("STALE")
+        }
+        return out
+    }
+
+    companion object {
+        const val SENSOR_COUNT = 11
+        const val MAX_TILE_MASK = 0x7ff
+        const val MAX_SLOT_MASK = 0x3ff
+    }
+}
+
 /** Parsed `STATUS` reply. Unknown lines are ignored, so a newer firmware does not break the parser. */
 data class StatusReply(
     val sensors: List<StatusSensor>,
@@ -122,7 +151,9 @@ data class StatusReply(
     /** Null without a `NOISE` line. */
     val noise: NoiseState? = null,
     /** Null without a `CHIME` line. */
-    val chime: ChimeReminder? = null
+    val chime: ChimeReminder? = null,
+    /** Null without a `LATCH` line. */
+    val latch: LatchState? = null
 ) {
     val isUsbPower: Boolean get() = powerSource == "USB"
 
@@ -162,6 +193,7 @@ data class StatusReply(
             var rtc: RtcState? = null
             var noise: NoiseState? = null
             var chime: ChimeReminder? = null
+            var latch: LatchState? = null
             for (line in lines) {
                 val words = line.split(' ').filter { it.isNotEmpty() }
                 val head = words.firstOrNull() ?: continue
@@ -202,10 +234,11 @@ data class StatusReply(
                     "RTC" -> rtc = parseRtc(line)
                     "NOISE" -> noise = parseNoise(line)
                     "CHIME" -> chime = parseChime(line)
+                    "LATCH" -> latch = parseLatch(line)
                 }
             }
             if (sensors.isEmpty()) throw ParseException("SENSOR")
-            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory, rtc, noise, chime)
+            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory, rtc, noise, chime, latch)
         }
 
         private fun digits(s: String?): Long? =
@@ -271,6 +304,20 @@ data class StatusReply(
             }
             fun optional(key: String): Long? = if (f[key] == "--") null else counter(f, key, line)
             return ChimeReminder(repeat, bitsText.toInt(16), optional("last_s"), optional("next_s"))
+        }
+
+        /** `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex>`; a value that is not 3 hex digits or above its limit throws. */
+        private fun parseLatch(line: String): LatchState {
+            val f = fields(line)
+            fun mask(key: String, max: Int): Int {
+                val s = f[key]
+                if (s == null || s.length != 3 || !s.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) throw ParseException(line)
+                return s.toInt(16).takeIf { it <= max } ?: throw ParseException(line)
+            }
+            return LatchState(
+                mask("vent", LatchState.MAX_TILE_MASK), mask("dry", LatchState.MAX_TILE_MASK),
+                mask("batlow", LatchState.MAX_SLOT_MASK), mask("stale", LatchState.MAX_SLOT_MASK)
+            )
         }
 
         private fun parseMemory(line: String): MemoryState {
