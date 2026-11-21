@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Battery runtime preview for the wake interval in the macOS config editor
-  - Rank: [Total: 31, Use: 6, Setup: 8, Harmony: 7, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/RuntimePreview.swift, macos/RlcdCompanion/Sources/RlcdCompanion/ConfigEditorView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/RuntimePreviewTests.swift
-  - Goal: Calculate the expected battery hours for an edited `wake_interval_s` and `night_wake_interval_s` from the `AWAKE avg_ms` value and the `RUNTIME` line of the last `STATUS`, with the same model as `BatteryHistory::estimate`. Show `About <N> h on battery` below the two fields. Show `--` without `AWAKE` samples.
-  - Acceptance test: `RuntimePreviewTests` assert that a doubled interval gives a longer runtime, that `avg_ms=--` gives `nil`, that quiet hours from 22 to 7 weigh the night interval with 9 of 24 hours, and that the value for the current interval equals the `RUNTIME h` value within 10 %. `swift test` passes.
-
 - [ ] Acknowledge all button in the Android chime screen
   - Rank: [Total: 30, Use: 7, Setup: 5, Harmony: 8, Safety: 10, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AckCommand.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AckCommand.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/ChimeScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AckCommandTest.kt

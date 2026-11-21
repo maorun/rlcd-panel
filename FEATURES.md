@@ -2433,3 +2433,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The screen shows the proposal only. The watch sends no `SET`. The user applies the value in the phone app or the macOS app.
 - No firmware change, no RTC layout change. Tests: `SaltCommandTest` and `SaltTextTest` (phone test data), `SaltScreenTextTest`.
 - Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The local machine has no Android SDK, so `gradle testDebugUnitTest assembleDebug` did not run locally. CI runs it.
+
+## Battery runtime preview in the macOS config editor
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/RuntimePreview.swift`, `Sources/RlcdCompanion/ConfigEditorView.swift`, `Tests/RlcdProtocolTests/RuntimePreviewTests.swift`
+- `RuntimePreview.hours(...)` scales the `RUNTIME h` value of the last `STATUS` with the ratio of the drain rates of the current and the edited schedule. The drain rate is the wake cycles per hour weighted by the awake time: `(day_h / (wake_interval_s + awake) + night_h / (night_wake_interval_s + awake)) / 24`. The sleep current is not modelled, so the value is an estimate.
+- The awake time follows `BatteryHistory::estimate`: the `AWAKE avg_ms` mean counts from 8 samples and above 2000 ms, else the constant 10 s applies. A `RUNTIME h` value at the cap of 2388 h gives no preview; a result stops at 2388 h. A quiet hour outside 0 to 23 gives `--`.
+- `RuntimePreview.nightHours` gives the hours of the quiet window (22 to 7 is 9 of 24 hours; equal start and end is 0). A `night_wake_interval_s` of 0 uses `wake_interval_s` for all 24 hours. The quiet window comes from the draft or the `CONFIG` values, else from the `QUIET` line.
+- `RuntimePreview.hours(config:draft:runtime:awake:quiet:)` builds the current schedule from the `CONFIG` values and the edited schedule from the draft. A draft value that is no integer, or an interval outside the key range (`wake_interval_s` 30 to 900, `night_wake_interval_s` 0 or 60 to 1800), gives `--`.
+- `ConfigEditorView` shows `About <N> h on battery` below the `night_wake_interval_s` field. It shows `--` without an `AWAKE` mean or a `RUNTIME h` value. It shows nothing before the first diagnostics read. It sends no console command.
+- The firmware does not change; the RTC layout and `STATE_VERSION` do not change.
+- Validation: `swift test` (543 tests), `swift build -c release`, `./scripts/check-protocol-sync.sh` and `--self-test` pass locally.
