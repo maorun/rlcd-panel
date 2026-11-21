@@ -21,8 +21,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.ConfigCache
 import com.rlcdpanel.phone.protocol.ConfigCacheInfo
+import com.rlcdpanel.phone.protocol.AwakeState
 import com.rlcdpanel.phone.protocol.MemoryState
 import com.rlcdpanel.phone.protocol.NoiseState
+import com.rlcdpanel.phone.protocol.RuntimeState
 import com.rlcdpanel.phone.protocol.NtpState
 import com.rlcdpanel.phone.protocol.RtcState
 import com.rlcdpanel.phone.protocol.StatusReply
@@ -45,6 +47,8 @@ data class SensorHealthState(
     val memory: MemoryState? = null,
     val rtc: RtcState? = null,
     val noise: NoiseState? = null,
+    val runtime: RuntimeState? = null,
+    val awake: AwakeState? = null,
     /** The last good `STATUS` reply, for the shared diagnostics report. */
     val status: StatusReply? = null
 )
@@ -93,6 +97,9 @@ object SensorHealthText {
         s?.let { "SHTC3 nack ${it.nack}, short ${it.shortReads}, crc ${it.crc}, run ${it.run}, retried ${it.retried}" } ?: "SHTC3 --"
     fun memory(m: MemoryState?): String =
         m?.let { "Heap frei ${it.free} B, min ${it.min} B, größter Block ${it.largest} B, PSRAM ${it.psram} B" } ?: "Heap --"
+    fun runtimeHours(r: RuntimeState?): String = r?.hours?.let { "Restlaufzeit $it h" } ?: "Restlaufzeit --"
+    fun cycles(r: RuntimeState?): String = r?.cycles?.let { "Ladezyklen ${"%.1f".format(java.util.Locale.ROOT, it)}" } ?: "Ladezyklen --"
+    fun awake(a: AwakeState?): String = a?.avgMs?.let { "Wachzeit Ø $it ms" } ?: "Wachzeit Ø --"
     fun noise(n: NoiseState?): String {
         if (n == null) return "Lärm --"
         val peak = if (n.peakDb != null && n.peakHour != null) ", Spitze ${n.peakDb} dB um ${n.peakHour} Uhr" else ""
@@ -270,6 +277,9 @@ fun SensorHealthScreen(
                                 (state.reset?.isAbnormal == true) to SensorHealthText.reset(state.reset),
                                 (state.shtc3?.isAlert == true) to SensorHealthText.shtc3(state.shtc3),
                                 (state.memory?.isLow == true) to SensorHealthText.memory(state.memory),
+                                false to SensorHealthText.runtimeHours(state.runtime),
+                                false to SensorHealthText.cycles(state.runtime),
+                                false to SensorHealthText.awake(state.awake),
                                 false to SensorHealthText.noise(state.noise)
                             )
                             for ((warn, text) in lines) {

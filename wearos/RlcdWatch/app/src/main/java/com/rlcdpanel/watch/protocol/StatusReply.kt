@@ -79,6 +79,12 @@ data class MemoryState(val free: Long, val min: Long, val largest: Long, val psr
     }
 }
 
+/** `RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>`: battery runtime estimate and charge cycles; `--` gives a null field. */
+data class RuntimeState(val hours: Int?, val samples: Int, val cycles: Double?, val scanSavedMs: Long)
+
+/** `AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>`: measured awake time per wake cycle; `--` gives a null field. */
+data class AwakeState(val lastMs: Int?, val avgMs: Int?, val maxMs: Int?, val samples: Int)
+
 /** `NOISE db=<N|--> band=<QUIET|MODERATE|LOUD> peak_db=<N|--> peak_hour=<N|--> events_sum=<N>`; `--` gives a null field. */
 data class NoiseState(val db: Int?, val band: String, val peakDb: Int?, val peakHour: Int?, val eventsSum: Int) {
     companion object {
@@ -148,6 +154,10 @@ data class StatusReply(
     val memory: MemoryState? = null,
     /** Null without an `RTC` line. */
     val rtc: RtcState? = null,
+    /** Null without a `RUNTIME` line. */
+    val runtime: RuntimeState? = null,
+    /** Null without an `AWAKE` line. */
+    val awake: AwakeState? = null,
     /** Null without a `NOISE` line. */
     val noise: NoiseState? = null,
     /** Null without a `CHIME` line. */
@@ -197,6 +207,8 @@ data class StatusReply(
             var shtc3: Shtc3State? = null
             var memory: MemoryState? = null
             var rtc: RtcState? = null
+            var runtime: RuntimeState? = null
+            var awake: AwakeState? = null
             var noise: NoiseState? = null
             var chime: ChimeReminder? = null
             var latch: LatchState? = null
@@ -240,13 +252,15 @@ data class StatusReply(
                     "SHTC3" -> shtc3 = parseShtc3(line)
                     "MEMORY" -> memory = parseMemory(line)
                     "RTC" -> rtc = parseRtc(line)
+                    "RUNTIME" -> runtime = parseRuntime(line)
+                    "AWAKE" -> awake = parseAwake(line)
                     "NOISE" -> noise = parseNoise(line)
                     "CHIME" -> chime = parseChime(line)
                     "LATCH" -> latch = parseLatch(line)
                 }
             }
             if (sensors.isEmpty()) throw ParseException("SENSOR")
-            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory, rtc, noise, chime, latch, alertMask, ackedMask)
+            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory, rtc, runtime, awake, noise, chime, latch, alertMask, ackedMask)
         }
 
         private fun hexByte(s: String?): Int? =
@@ -288,6 +302,25 @@ data class StatusReply(
             val trim = signed("trim")
             if (trim != null && (trim < RtcState.MIN_TRIM || trim > RtcState.MAX_TRIM)) throw ParseException(line)
             return RtcState(trim, signed("drift_ppm"))
+        }
+
+        /** `RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>`; `--` gives a null field, a bad number throws. */
+        private fun parseRuntime(line: String): RuntimeState {
+            val f = fields(line)
+            val hours = if (f["h"] == "--") null else counter(f, "h", line).toInt()
+            val cyclesText = f["cycles"]
+            val cycles = if (cyclesText == "--") null else {
+                if (cyclesText == null || !Regex("[0-9]{1,9}(\\.[0-9])?").matches(cyclesText)) throw ParseException(line)
+                cyclesText.toDouble()
+            }
+            return RuntimeState(hours, counter(f, "samples", line).toInt(), cycles, counter(f, "scan_saved_ms", line))
+        }
+
+        /** `AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>`; `--` gives a null field, a bad number throws. */
+        private fun parseAwake(line: String): AwakeState {
+            val f = fields(line)
+            fun optional(key: String): Int? = if (f[key] == "--") null else counter(f, key, line).toInt()
+            return AwakeState(optional("last_ms"), optional("avg_ms"), optional("max_ms"), counter(f, "samples", line).toInt())
         }
 
         /** `NOISE db=<N|--> band=... peak_db=<N|--> peak_hour=<N|--> events_sum=<N>`; a bad band, number or range throws. */

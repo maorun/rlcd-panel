@@ -12,6 +12,8 @@ SHTC3 nack=0 short=0 crc=0 run=0 retried=0
 BLE rejected=0 last=-- woio=0 meter=0 bthome=0 atc=0 thermopro=0
 RECEPTION s1=24/24 s2=-- s3=0/12 s4=10/24 s5=11/24
 POWER src=USB v=4.05 pct=88 alerts=00 muted=0 acked=00
+RUNTIME h=412 samples=18 cycles=3.5 scan_saved_ms=1200
+AWAKE last_ms=2100 avg_ms=2350 max_ms=4100 samples=24
 MEMORY free=212345 min=150000 largest=110592 psram=8300000
 FRAME crc=1a2b3c4d skips=12
 WAKE cause=TIMER boots=1234 battery_interval_s=600
@@ -19,4 +21,4 @@ LATCH vent=002 dry=000 batlow=008 stale=004
 NOISE db=48 band=MODERATE peak_db=71 peak_hour=19 events_sum=12
 CHIME repeat_h=2 bits=02 last_s=3600 next_s=3600
 QUIET start_h=22 end_h=7 active=1 night_interval_s=900
-CRC32 7108cbc2
+CRC32 62a64947

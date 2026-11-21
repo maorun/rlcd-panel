@@ -2464,3 +2464,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The firmware does not change; the RTC layout and `STATE_VERSION` do not change. The button needs one `STATUS` read first (`Read mute state`).
 - Tests: `AckCommandTest` (rule for mask `0x32`, `CHARGE_FULL`, `OK ACK ALL 22`, `ERR NOT_ACTIVE`) `StatusReplyTest.parsesAlertAndAckedMasks` and `ChimeStateTest` (button rule with null masks).
 - Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The local machine has no Android SDK, so `gradle testDebugUnitTest assembleDebug` did not run locally. CI runs it.
+
+## Runtime and awake time lines in the Android sensor health screen
+
+- **Code:** `android/RlcdPhone/.../protocol/StatusReply.kt`, `wearos/RlcdWatch/.../protocol/StatusReply.kt`, `android/RlcdPhone/.../SensorHealthScreen.kt`, `MainActivity.kt`, `StatusReplyTest.kt` (phone and watch), `SensorHealthTextTest.kt`.
+- The shared `StatusReply.kt` parses the `STATUS` line `RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>` into `RuntimeState(hours, samples, cycles, scanSavedMs)` (`StatusReply.runtime`) and the line `AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>` into `AwakeState(lastMs, avgMs, maxMs, samples)` (`StatusReply.awake`). `--` gives a `null` field. A missing line gives `null`. A bad number (`h=x`, a negative value, `cycles` without one decimal digit or a missing field) throws `ParseException`. The phone and watch copies stay equal except for the `package` line.
+- `SensorHealthScreen` shows `Restlaufzeit <N> h`, `Ladezyklen <N.N>` and `Wachzeit Ø <N> ms` (`avg_ms`) in the card `Panel diagnostics`; `--` replaces a missing value (`SensorHealthText.runtimeHours`, `cycles`, `awake`). The lines never show a warning. `h` is `--` on USB power, because the estimate is invalid there.
+- The firmware does not change; the RTC layout and `STATE_VERSION` do not change.
+- Tests: `StatusReplyTest.parsesRuntimeAndAwakeLines` and `badRuntimeAndAwakeLinesThrow` (phone and watch) and `SensorHealthTextTest.runtimeAndAwakeTexts`. `tests/fixtures/status_reply_sample.txt` holds the two lines after `POWER`; the CRC literal is `62a64947`.
+- Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The local machine has no Android SDK, so `gradle testDebugUnitTest assembleDebug` did not run locally. CI runs it.
