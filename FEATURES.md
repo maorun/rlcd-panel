@@ -676,6 +676,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - No card access, no state change, no RTC layout change. The command runs on USB and on BLE at each `ble_console` level.
 - Host tests cover the parser, the rows of sensors 3, 10 and 0, an empty sensor, the full reply, the fixture, the CRC-32 line of the one-sensor replies, the BLE gate at each `ble_console` level and no card mount.
 
+## Room history on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/.../protocol/HistoryReply.kt`, `HistoryScreen.kt`, `MainActivity.kt`, `WatchDashboardScreen.kt`, `scripts/check-protocol-sync.sh`
+- `HistoryReply.kt` is a copy of the phone file with another package line. `check-protocol-sync.sh` lists it in `FILES`.
+- The watch dashboard has the chip `Room history`. A tap in the history screen sends `HISTORY <N>` once for the focused room (`TelemetryCache.focusedRoom`). The app sends no command on its own.
+- An older firmware replies with an `ERR` line. The watch then sends `HISTORY` once and keeps only the rows of the room (`HistoryText.rowsOf`). `ERR BLUETOOTH_OFF` and `ERR PERMISSION` give no fallback.
+- `HistoryText` shows the minimum and the maximum of the last 24 hours and one row for each of the 6 newest hours (`-<age> h <T> °C <RH> %`). It shows `Keine Daten` for no rows and `Panel not in range` for a timeout.
+- Tests: `HistoryReplyTest` (shared fixture `tests/fixtures/history_reply_sample.txt`) and `HistoryTextTest`.
+
 ## Serial console command EVENTS to read the event ring without a card
 
 - **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
