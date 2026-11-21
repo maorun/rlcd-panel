@@ -190,4 +190,41 @@ class TelemetryHistoryTest {
         BleScanService.saveLatest(store, flow, t0 + 3000, throttled = true)
         assertEquals(listOf(1, 2, 3), store.load().rows.map { it.sequence })
     }
+
+    @Test
+    fun comparePointsListsTilesWithValuesAndSharesTheRange() {
+        fun two(t0v: Double?, t1v: Double?) = List(TelemetryFrame.TILE_COUNT) { i ->
+            when (i) {
+                0 -> TelemetryTile(t0v, 40.0)
+                1 -> TelemetryTile(t1v, 60.0)
+                else -> TelemetryTile(null, null)
+            }
+        }
+        val h = TelemetryHistory()
+            .add(HistoryRow(t0, 1, 80, 0, two(20.0, 25.5)))
+            .add(HistoryRow(t0 + 60_000, 2, 80, 0, two(22.0, null)))
+        val temp = h.comparePoints(t0 + 120_000, HistoryMetric.TEMPERATURE)
+        assertEquals(listOf(0, 1), temp.series.keys.toList())
+        assertEquals(listOf(20.0, 22.0), temp.series.getValue(0).map { it.value })
+        assertEquals(listOf(25.5, null), temp.series.getValue(1).map { it.value })
+        assertEquals(20.0, temp.min!!, 1e-9)
+        assertEquals(25.5, temp.max!!, 1e-9)
+        val rh = h.comparePoints(t0 + 120_000, HistoryMetric.HUMIDITY)
+        assertEquals(40.0, rh.min!!, 1e-9)
+        assertEquals(60.0, rh.max!!, 1e-9)
+    }
+
+    @Test
+    fun comparePointsGivesNoEntryForEmptyTilesAndNoRangeWithoutValues() {
+        val empty = TelemetryHistory().comparePoints(t0, HistoryMetric.HUMIDITY)
+        assertTrue(empty.series.isEmpty())
+        assertEquals(null, empty.min)
+        assertEquals(null, empty.max)
+        val h = TelemetryHistory().add(row(1, t0, temp = 21.0, rh = null))
+        assertEquals(listOf(0), h.comparePoints(t0, HistoryMetric.TEMPERATURE).series.keys.toList())
+        assertTrue(h.comparePoints(t0, HistoryMetric.HUMIDITY).series.isEmpty())
+        // A row older than 24 hours leaves the window.
+        val old = h.comparePoints(t0 + TelemetryHistory.WINDOW_MILLIS + 1, HistoryMetric.TEMPERATURE)
+        assertTrue(old.series.isEmpty())
+    }
 }

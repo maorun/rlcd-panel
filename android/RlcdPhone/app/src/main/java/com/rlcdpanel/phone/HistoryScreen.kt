@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
@@ -18,12 +19,17 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
+import com.rlcdpanel.phone.protocol.ComparePoints
 import com.rlcdpanel.phone.protocol.HistoryMetric
 import com.rlcdpanel.phone.protocol.HistoryPoint
 import com.rlcdpanel.phone.protocol.PanelHistoryRow
@@ -184,6 +190,9 @@ fun HistoryScreen(
                 if (tiles.isEmpty()) {
                     item { Text("Noch keine Daten") }
                 }
+                if (!panelView && series.isNotEmpty()) {
+                    item(key = "compare") { CompareCard(history, panelConfig, windowNow, minute) }
+                }
                 items(tiles, key = { it }) { index ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -222,6 +231,70 @@ private fun MetricChart(points: List<HistoryPoint>, nowMillis: Long, label: Stri
                 if (i == 0) path.moveTo(x * size.width, y * size.height) else path.lineTo(x * size.width, y * size.height)
             }
             drawPath(path, color, style = Stroke(width = 3f))
+        }
+    }
+}
+
+/** One color for each tile index, shared by the curves and the legend of the room comparison. */
+private val COMPARE_COLORS = listOf(
+    Color(0xFFFF8A65), Color(0xFF4FC3F7), Color(0xFF81C784), Color(0xFFFFD54F), Color(0xFFBA68C8), Color(0xFFF06292)
+)
+
+@Composable
+private fun CompareCard(history: TelemetryHistory, panelConfig: PanelConfig, windowNow: Long, minute: Long) {
+    var humidity by remember { mutableStateOf(false) }
+    val metric = if (humidity) HistoryMetric.HUMIDITY else HistoryMetric.TEMPERATURE
+    val compare: ComparePoints = remember(history, minute, metric) { history.comparePoints(windowNow, metric) }
+    val unit = if (humidity) "%RH" else "°C"
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Text("Räume vergleichen", style = MaterialTheme.typography.titleMedium)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (humidity) {
+                    OutlinedButton(onClick = { humidity = false }) { Text("Temperatur") }
+                    Button(onClick = {}) { Text("Feuchte") }
+                } else {
+                    Button(onClick = {}) { Text("Temperatur") }
+                    OutlinedButton(onClick = { humidity = true }) { Text("Feuchte") }
+                }
+            }
+            val lo = compare.min
+            val hi = compare.max
+            if (lo == null || hi == null) {
+                Text("Noch keine Daten", style = MaterialTheme.typography.bodySmall)
+            } else {
+                Text(String.format(Locale.ROOT, "Achse %.1f–%.1f %s", lo, hi, unit), style = MaterialTheme.typography.bodySmall)
+                val from = windowNow - TelemetryHistory.WINDOW_MILLIS
+                val lines = compare.series.map { (index, points) ->
+                    index to HistoryChartGeometry.segments(points, from, windowNow, lo, hi)
+                }
+                Canvas(modifier = Modifier.fillMaxWidth().height(120.dp)) {
+                    drawLine(Color.Gray, Offset(0f, size.height), Offset(size.width, size.height), strokeWidth = 1f)
+                    for ((index, segments) in lines) {
+                        val color = COMPARE_COLORS[index % COMPARE_COLORS.size]
+                        for (segment in segments) {
+                            if (segment.size == 1) {
+                                val (x, y) = segment[0]
+                                drawCircle(color, radius = 3f, center = Offset(x * size.width, y * size.height))
+                                continue
+                            }
+                            val path = androidx.compose.ui.graphics.Path()
+                            segment.forEachIndexed { i, (x, y) ->
+                                if (i == 0) path.moveTo(x * size.width, y * size.height) else path.lineTo(x * size.width, y * size.height)
+                            }
+                            drawPath(path, color, style = Stroke(width = 3f))
+                        }
+                    }
+                }
+                for (index in compare.series.keys) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                        Canvas(modifier = Modifier.height(12.dp).width(12.dp)) {
+                            drawRect(COMPARE_COLORS[index % COMPARE_COLORS.size])
+                        }
+                        Text(panelConfig.tileName(index), style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
         }
     }
 }

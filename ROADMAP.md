@@ -24,12 +24,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Room comparison chart in the Android history screen
-  - Rank: [Total: 25, Use: 6, Setup: 2, Harmony: 7, Safety: 10, Effort: M]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/HistoryScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TelemetryHistory.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/TelemetryHistoryTest.kt
-  - Goal: Add the card `Räume vergleichen` to `HistoryScreen`. Draw the humidity or temperature of each active tile of `TelemetryHistory.windowPoints` in one `Canvas` with one color and one legend entry for each room. Use the shared axis range of all rooms.
-  - Acceptance test: `TelemetryHistoryTest` asserts a new function `comparePoints(nowMillis, metric)` that gives one list for each tile with points, no list for an empty tile, and the shared minimum and maximum. `gradle testDebugUnitTest` passes in CI.
-
 - [ ] Vibration pattern for each alert on the Wear OS watch
   - Rank: [Total: 24, Use: 6, Setup: 1, Harmony: 7, Safety: 10, Effort: S]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AlertVibration.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/BleScanService.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/AlertVibrationTest.kt
