@@ -124,7 +124,20 @@ struct ClimateChartView: View {
 struct WeekChartView: View {
     let rows: [WeekRow]
 
-    private func label(_ r: WeekRow) -> String { r.date.isEmpty ? "day \(r.day)" : String(r.date.suffix(5)) }
+    private func label(_ r: WeekRow) -> String { WeekMold.label(day: r.day, date: r.date) }
+
+    private func moldChart(_ sensor: Int) -> some View {
+        let points = WeekMold.points(rows: rows, sensor: sensor)
+        return VStack(alignment: .leading, spacing: 2) {
+            Text("Mold hours").font(.caption).foregroundStyle(.secondary)
+            Chart(points.filter { $0.hours != nil }, id: \.self) { p in
+                BarMark(x: .value("Day", p.label), y: .value("Hours", p.hours ?? 0))
+            }
+            .chartXScale(domain: points.map(\.label))
+            .chartYScale(domain: 0...24)
+            .frame(height: 110)
+        }
+    }
 
     private func chart(_ title: String, _ sensor: Int, _ low: KeyPath<WeekRow, Double?>, _ high: KeyPath<WeekRow, Double?>) -> some View {
         let days = rows.filter { $0.sensor == sensor && $0[keyPath: low] != nil && $0[keyPath: high] != nil }
@@ -152,6 +165,9 @@ struct WeekChartView: View {
                     HStack(alignment: .top) {
                         chart("Temperature (°C)", sensor, \.temperatureMinC, \.temperatureMaxC)
                         chart("Humidity (%RH)", sensor, \.humidityMinPct, \.humidityMaxPct)
+                        if WeekMold.points(rows: rows, sensor: sensor).contains(where: { $0.hours != nil }) {
+                            moldChart(sensor)
+                        }
                     }
                 }
             }

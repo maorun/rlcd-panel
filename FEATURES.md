@@ -2333,3 +2333,9 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - A one-sensor read with no usable values for the sensor shows `Keine Werte für diesen Raum` and keeps the local curves.
 - Tests: `HistoryCommandTest` (command lines, the exception for 11 and -1, the fallback rule, the filter on `tests/fixtures/history_reply_sample.txt`).
 - Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
+
+## Mold hours in the macOS week chart
+
+- `WeekMold.points(rows:sensor:)` (`WeekMold.swift`, `RlcdProtocol`) gives 7 `WeekMoldPoint` values for the days 6 to 0 of one sensor, oldest first, with the axis label of `WeekChartView` (`MM-DD`, or `day <N>` without a stamp) and `moldHours`. A gap day, an empty field, a missing row and a reply with 7 columns give `nil` hours.
+- `WeekChartView` shows a third chart `Mold hours` beside temperature and humidity: one `BarMark` for each day with hours and a fixed scale of 0 to 24 h. The chart stays hidden when each point is `nil`.
+- Tests: `WeekMoldTests` (day order and hours of `tests/fixtures/week_reply_sample.txt`, gap day, 7-column reply).
