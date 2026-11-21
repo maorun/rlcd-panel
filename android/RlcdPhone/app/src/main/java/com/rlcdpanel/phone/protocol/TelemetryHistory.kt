@@ -23,6 +23,9 @@ data class HistoryPoint(val timeMillis: Long, val value: Double?)
 
 enum class HistoryMetric { TEMPERATURE, HUMIDITY }
 
+/** Curves of several tiles with one axis range. `min` and `max` are `null` without a value. */
+data class ComparePoints(val series: Map<Int, List<HistoryPoint>>, val min: Double?, val max: Double?)
+
 /**
  * Rows of the received telemetry frames, oldest first. The history is immutable: `add` returns a new one.
  */
@@ -62,6 +65,17 @@ class TelemetryHistory(val rows: List<HistoryRow> = emptyList()) {
                 }
             )
         }
+    }
+
+    /**
+     * `windowPoints` of each tile with at least one value in the window, ascending by tile index. A tile without a
+     * value has no entry. `min` and `max` span the values of all listed tiles, so the curves share one axis.
+     */
+    fun comparePoints(nowMillis: Long, metric: HistoryMetric): ComparePoints {
+        val series = (0 until TelemetryFrame.TILE_COUNT).associateWith { windowPoints(nowMillis, it, metric) }
+            .filterValues { points -> points.any { it.value != null } }
+        val values = series.values.flatMap { points -> points.mapNotNull { it.value } }
+        return ComparePoints(series, values.minOrNull(), values.maxOrNull())
     }
 
     /**

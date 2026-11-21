@@ -2549,3 +2549,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `ClimateCompare.Metric` has the cases `feelsLike` and `absoluteHumidity`. `ClimateCompare.value(of:_:)` selects the value of a reading. The view reads local files only and sends no console command.
 - Tests: `curvePointsMatchFixtureRow` (row `32.0 | 70.0` of `tests/fixtures/climate_math_vectors.txt`: heat index 40.41, absolute humidity 23.57) and `curvePointsSkipMissingValues` (no point for an empty humidity or temperature field).
 - Validation: `swift test` (560 tests), `swift build -c release`, `./scripts/check-protocol-sync.sh` and `--self-test` pass locally.
+
+## Room comparison chart in the Android history screen
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/HistoryScreen.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TelemetryHistory.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/TelemetryHistoryTest.kt`.
+- `HistoryScreen` shows the card `Räume vergleichen` in the local view (not in the panel history view) when at least one tile has a value. One `Canvas` draws the temperature or the humidity of each active tile of the last 24 hours, one color and one legend entry (room name from `PanelConfig.tileName`) for each tile. Two buttons select the value. All curves use one axis range, shown as `Achse <min>–<max> <unit>`.
+- `TelemetryHistory.comparePoints(nowMillis, metric)` returns `ComparePoints`: `series` has the `windowPoints` of each tile with at least one value in the window (ascending by tile index, no entry for an empty tile), `min` and `max` span the values of all listed tiles (`null` without a value). A missing value in a list stays a gap.
+- Tests: `comparePointsListsTilesWithValuesAndSharesTheRange` and `comparePointsGivesNoEntryForEmptyTilesAndNoRangeWithoutValues`.
+- Validation: `gradle testDebugUnitTest assembleDebug` runs in CI only (no local Android SDK).
