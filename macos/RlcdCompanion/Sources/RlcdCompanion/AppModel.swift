@@ -633,6 +633,15 @@ final class AppModel: ConsoleLinkDelegate {
         sendNext()
     }
 
+    /// Stops the chime reminder of each active alert (`ACK ALL`), then reads `STATUS` again so the rows follow the panel.
+    /// Runs only on the user's button.
+    func acknowledgeAll() {
+        guard isIdle else { return }
+        message = nil
+        queue = [.ackAll, .status]
+        sendNext()
+    }
+
     /// Slots with a reading (`STATUS` state other than `EMPTY`) and without a fixed MAC (`CONFIG`): `SLOT CLEAR` accepts them.
     var freeableSlots: [Int] {
         guard let sensors = status?.sensors, let config else { return [] } // without CONFIG a fixed MAC is unknown
@@ -1218,6 +1227,7 @@ final class AppModel: ConsoleLinkDelegate {
             case (_, let .status(text)):
                 message = text
                 if case .ack = cmd { message = ConsoleCommand.ackMessage(text) }
+                if cmd == .ackAll { message = ConsoleCommand.ackMessage(text) }
                 // A file that the card no longer holds (log retention) does not stop the other files.
                 var keepQueue = false
                 if case .dump = cmd {
@@ -1238,6 +1248,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if text.hasPrefix("ERR"), !keepQueue { queue.removeAll() }
                 // A failed ACK still reads STATUS, so the row follows the panel (the alert may have cleared).
                 if case .ack = cmd, text.hasPrefix("ERR") { queue = [.status] }
+                if cmd == .ackAll, text.hasPrefix("ERR") { queue = [.status] }
                 if cmd == .time || text.hasPrefix("TIME ") || text == "TIME" {
                     if let t = try? TimeReply.parse(text) {
                         panelTime = t
@@ -1319,7 +1330,7 @@ final class AppModel: ConsoleLinkDelegate {
                 queue.removeAll()
                 finishDownload(cmd, text: "unexpected reply")
             case (.set, .frame): batch?.receive(status: "ERR UNEXPECTED_REPLY")
-            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.ack, .frame), (.rtcTrim, .frame), (.slotClear, .frame):
+            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.ack, .frame), (.ackAll, .frame), (.rtcTrim, .frame), (.slotClear, .frame):
                 message = "Unexpected frame reply"
             }
         } catch {
