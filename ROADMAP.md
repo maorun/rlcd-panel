@@ -72,12 +72,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: `WeekReply.parse` gives `WeekRow.moldHours` for each day, but `WeekChartView` shows only the temperature and humidity bars. Add `WeekMold.points(rows:sensor:)` to `RlcdProtocol`: one point for each day 0 to 6 of the sensor, oldest first, with the label of `WeekChartView` and the hours, `nil` for a gap day. Add a third chart `Mold hours` to `WeekChartView` with one `BarMark` for each day with hours and a fixed scale of 0 to 24 h. Hide the chart when each point is `nil`, for example for a reply with 7 columns.
   - Acceptance test: In `WeekMoldTests`, parse `tests/fixtures/week_reply_sample.txt` with `WeekReply.parse` and assert 7 points for sensor 0 in day order, the hours of the fixture, `nil` for a gap day, and an all-`nil` result for a reply with the 7-column header. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
 
-- [ ] Mold hours in the Android week chart
-  - Rank: [Total: 26, Use: 6, Setup: 2, Harmony: 8, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/WeekScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/WeekChartModelTest.kt
-  - Goal: The phone parses `WeekRow.moldHours` and shares it as CSV, but `WeekScreen` shows only the temperature and humidity bars. Add `WeekChartModel.mold(rows, sensor)`: seven values, oldest first, `null` for a gap day. Add a third `Canvas` `Schimmelstunden` below the humidity chart with one bar for each day with hours, a fixed scale of 0 to 24 h, and the label of the highest value. Hide the chart when each value is `null`.
-  - Acceptance test: In `WeekChartModelTest`, parse `tests/fixtures/week_reply_sample.txt` with `WeekReply.parse` and assert the seven values of sensor 0, `null` for a gap day, and seven `null` values for a reply with the 7-column header. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`.
-
 - [ ] Panel history of one sensor in the Android app
   - Rank: [Total: 26, Use: 5, Setup: 3, Harmony: 8, Safety: 10, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/HistoryScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/HistoryCommand.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/HistoryCommandTest.kt
