@@ -98,6 +98,7 @@ final class AppModel: ConsoleLinkDelegate {
     private var silenceWatch = SilenceWatch()
     private var wallWatch = WallWatch()
     private var staleWatch = StaleWatch()
+    private var windowWatch = WindowWatch()
     private static let silenceNotificationId = "rlcd_panel_silence"
     /// Login item logic; the state comes from `SMAppService` on each refresh.
     private var loginItem = LoginItem(service: MainAppLoginItemService())
@@ -300,6 +301,20 @@ final class AppModel: ConsoleLinkDelegate {
         }
     }
 
+    /// Posts one notification for each new open window event of the event list. `WindowWatch` runs on each list,
+    /// so a list read while notifications are off does not repeat later.
+    private func checkWindowNotifications(_ rows: [EventRow]) {
+        let tiles = windowWatch.newOpenTiles(rows)
+        guard notificationsEnabled, Bundle.main.bundleIdentifier != nil else { return }
+        for tile in tiles {
+            let content = UNMutableNotificationContent()
+            content.title = "RLCD Panel Alert"
+            content.body = "Window open in \(EventText.roomName(tile: tile, config: lastConfig))"
+            content.sound = .default
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "rlcd_panel_window_\(tile)", content: content, trigger: nil))
+        }
+    }
+
     private func checkAlertNotifications(previous: TelemetryFrame?, current: TelemetryFrame) {
         guard notificationsEnabled, Bundle.main.bundleIdentifier != nil else { return }
         let rising = AlertTransitions.risingAlerts(previous: previous, current: current)
@@ -407,6 +422,7 @@ final class AppModel: ConsoleLinkDelegate {
         history = []
         week = []
         events = []
+        windowWatch = WindowWatch() // the next list of a panel is a new baseline
         config = nil
         lastConfig = nil // names and unit belong to the old panel
         diagnostics = nil
@@ -1283,7 +1299,9 @@ final class AppModel: ConsoleLinkDelegate {
             case let (.week, .frame(lines)):
                 week = [] // a reply that fails to parse must not leave the old rows
                 week = try WeekReply.parse(lines: lines)
-            case let (.events, .frame(lines)): events = try EventsReply.parse(lines: lines)
+            case let (.events, .frame(lines)):
+                events = try EventsReply.parse(lines: lines)
+                checkWindowNotifications(events)
             case let (.config, .frame(lines)):
                 batch?.receiveFrame()
                 config = try ConfigReply.parse(lines: lines)

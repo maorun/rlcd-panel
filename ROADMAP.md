@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Open window event texts and notification in the macOS app
-  - Rank: [Total: 28, Use: 7, Setup: 4, Harmony: 7, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift, macos/RlcdCompanion/Sources/RlcdProtocol/EventFilter.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/EventTextTests.swift
-  - Goal: Show `WINDOW_OPEN` events as `Window open in <room>` and `Window closed in <room>`. Put the code in the `EventFilter` category `climate`. Post one macOS notification for each new open event of the event list. Do this after the firmware item "Open window detection with a tile badge and an event code".
-  - Acceptance test: `EventTextTests` assert both texts with the room name from `DeviceConfig` names, the raw text for an unknown high byte, and the filter category. `swift test` passes.
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Acknowledge all action in the Wear OS alert notification

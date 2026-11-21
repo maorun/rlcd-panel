@@ -2487,3 +2487,15 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The firmware does not change; the RTC layout and `STATE_VERSION` do not change.
 - Tests: `StatusReplyTest.parsesRuntimeAndAwakeLines` and `badRuntimeAndAwakeLinesThrow` (phone and watch) and `SensorHealthTextTest.runtimeAndAwakeTexts`. `tests/fixtures/status_reply_sample.txt` holds the two lines after `POWER`; the CRC literal is `62a64947`.
 - Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The local machine has no Android SDK, so `gradle testDebugUnitTest assembleDebug` did not run locally. CI runs it.
+
+## Open window event texts and notification in the macOS app
+
+- `EventText.describe(_:config:)` shows `WINDOW_OPEN` (code 22) as `Window open in <room>` (high byte 1) and `Window closed in <room>` (high byte 0). The low byte is the tile 0 to 10.
+- `EventText.roomName(tile:config:)` takes the name from the `ConfigReply` (`onboard_name`, `slotN_name` by fixed MAC). Without a name it shows `Onboard` or `Slot <N>`.
+- A high byte above 1, a tile above 10 or a detail outside 0 to 65535 gives the raw text `WINDOW_OPEN,<detail>`. `describe(_:)` without `config` keeps the old signature.
+- `EventFilter.Category.climate` is new (title `Climate`); it holds `WINDOW_OPEN`. The event list picker shows it. `EventTextTests.windowOpenIsClimate` covers it.
+- `WindowWatch` (`EventText.swift`) keeps the rows of earlier event lists. The first list only sets the baseline. A later list gives the tile of each new open row, oldest first. A row counts by time, detail and its place among equal rows, so an open row that a later row of the same list closed gives nothing. Rows with an empty time (invalid RTC) can match after the ring dropped its oldest row; the limit stays.
+- `AppModel.checkWindowNotifications` posts one notification `Window open in <room>` (`rlcd_panel_window_<tile>`) for each new open row, when notifications are on and the app runs as a bundle. A closed row posts nothing. Without a `CONFIG` read the notification shows `Slot <N>`; `clearPanelData` resets the watch for a new panel. The watch also runs while notifications are off, so a later switch-on does not replay old rows.
+- The event list view uses `model.lastConfig` for the room names.
+- The firmware does not change; the RTC layout and `STATE_VERSION` do not change.
+- Tests: `EventTextTests.windowOpenAndClosedUseTheRoomName`, `windowOpenWithUnknownHighByteOrTileGivesRawText`, `windowOpenIsClimate`, `windowWatchReportsOnlyNewOpenEvents`, `windowWatchSkipsAnOpenRowThatALaterRowClosed`, `windowWatchCountsEqualRowsWithEmptyTimeOnce`, `openedWindowTileRejectsTileAboveTenAndOtherRows`.

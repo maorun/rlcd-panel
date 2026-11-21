@@ -18,7 +18,10 @@ public enum EventText {
     /// `SdStatus` values 1 to 5 (`SdStatusCodec::name`); 0 is `UNKNOWN`, which the firmware never records.
     static let sdStatuses = [1: "OK", 2: "NO_CARD", 3: "MOUNT_FAILED", 4: "WRITE_FAILED", 5: "FULL"]
 
-    public static func describe(_ row: EventRow) -> String {
+    public static func describe(_ row: EventRow) -> String { describe(row, config: nil) }
+
+    /// Same text; `config` supplies the room names of `WINDOW_OPEN` rows.
+    public static func describe(_ row: EventRow, config: ConfigReply?) -> String {
         let d = row.detail
         let raw = "\(row.event),\(d)"
         switch row.event {
@@ -88,6 +91,11 @@ public enum EventText {
             let slot = d & 0xFF, low = d >> 8
             guard (0...0xFFFF).contains(d), (1...10).contains(slot), low <= 1 else { return raw }
             return low == 1 ? "Slot \(slot) battery low" : "Slot \(slot) battery OK"
+        case "WINDOW_OPEN":
+            // Low byte is the tile (0 onboard, 1 to 10 slots); the high byte 1 marks an open window, 0 a closed one.
+            let tile = d & 0xFF, open = d >> 8
+            guard (0...0xFFFF).contains(d), tile <= 10, open <= 1 else { return raw }
+            return "Window \(open == 1 ? "open" : "closed") in \(roomName(tile: tile, config: config))"
         case "CONFIG_SET":
             let index = d & 0xFF, transport = d >> 8
             guard (0...0xFFFF).contains(d), transport <= 1 else { return raw }
@@ -99,6 +107,18 @@ public enum EventText {
         default:
             return raw
         }
+    }
+
+    /// Room name of a tile: the `DeviceConfig` name, else `Onboard` or `Slot <N>`.
+    public static func roomName(tile: Int, config: ConfigReply?) -> String {
+        config?.name(forSlot: tile) ?? (tile == 0 ? "Onboard" : "Slot \(tile)")
+    }
+
+    /// Tile of a valid `WINDOW_OPEN` row that reports an open window; `nil` for any other row.
+    public static func openedWindowTile(_ row: EventRow) -> Int? {
+        let d = row.detail
+        guard row.event == "WINDOW_OPEN", (0...0xFFFF).contains(d), d & 0xFF <= 10, d >> 8 == 1 else { return nil }
+        return d & 0xFF
     }
 
     /// True for a `RESET` row with an abnormal reason (`ResetMetrics.isAbnormal`).
@@ -114,5 +134,34 @@ extension EventsReply {
         let lines = text.split(whereSeparator: \.isNewline).map(String.init)
         guard lines.first == header else { throw ParseError.missingLine(header) }
         return try parse(lines: ["BEGIN EVENTS"] + lines)
+    }
+}
+
+/// Finds the open window events of an event list that no earlier list held. The first list only sets the baseline,
+/// so the history of the panel gives no notification. A row counts by time, detail and its place among equal rows.
+/// An open row whose tile a later row of the same list closed gives no notification.
+public struct WindowWatch {
+    private var seen: Set<String> = []
+    private var primed = false
+
+    public init() {}
+
+    /// The tiles of each new open event of `rows`, oldest first.
+    public mutating func newOpenTiles(_ rows: [EventRow]) -> [Int] {
+        var counts: [String: Int] = [:]
+        let keys = rows.map { row -> String in
+            let base = "\(row.time)|\(row.event)|\(row.detail)"
+            counts[base, default: 0] += 1
+            return "\(base)|\(counts[base]!)"
+        }
+        defer { seen.formUnion(keys); primed = true }
+        guard primed else { return [] }
+        var tiles: [Int] = []
+        for (i, row) in rows.enumerated() where !seen.contains(keys[i]) {
+            guard let tile = EventText.openedWindowTile(row) else { continue }
+            let closedLater = rows[(i + 1)...].contains { $0.event == "WINDOW_OPEN" && $0.detail == tile }
+            if !closedLater { tiles.append(tile) }
+        }
+        return tiles
     }
 }

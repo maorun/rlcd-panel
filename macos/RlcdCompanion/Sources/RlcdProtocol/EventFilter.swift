@@ -3,7 +3,7 @@ import Foundation
 /// Groups the event names of the panel into categories for the event list.
 public enum EventFilter {
     public enum Category: String, CaseIterable, Identifiable {
-        case alerts, sensors, power, config, other
+        case alerts, sensors, climate, power, config, other
 
         public var id: String { rawValue }
 
@@ -14,6 +14,7 @@ public enum EventFilter {
     private static let names: [Category: Set<String>] = [
         .alerts: ["ALERT_RISE", "ALERT_FALL", "ALERT_ACK", "BATTERY_LOW_SET", "BATTERY_LOW_CLEAR", "EMPTY_PROTECTION"],
         .sensors: ["SLOT_ASSIGN", "SLOT_RELEASE", "SLOT_STALE", "SHTC3_FAULT", "SENSOR_BATTERY", "JUMP_DROP"],
+        .climate: ["WINDOW_OPEN"],
         .power: ["RESET", "POWER_SOURCE", "SD_FAULT"],
         .config: ["CONFIG_LOAD", "CONFIG_SET", "NTP_SYNC", "MUTE_CHANGE"],
     ]

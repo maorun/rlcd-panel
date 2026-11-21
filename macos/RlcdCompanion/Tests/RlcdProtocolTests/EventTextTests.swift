@@ -7,6 +7,59 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
 }
 
 @Suite struct EventTextTests {
+    private let named = ConfigReply(values: ["onboard_name": "Office", "slot1_mac": "AA:BB:CC:DD:EE:01", "slot1_name": "Kitchen"])
+
+    @Test func windowOpenAndClosedUseTheRoomName() {
+        #expect(EventText.describe(row("WINDOW_OPEN", 0x100), config: named) == "Window open in Office")
+        #expect(EventText.describe(row("WINDOW_OPEN", 0x001), config: named) == "Window closed in Kitchen")
+        #expect(EventText.describe(row("WINDOW_OPEN", 0x103)) == "Window open in Slot 3")
+        #expect(EventText.describe(row("WINDOW_OPEN", 0x000)) == "Window closed in Onboard")
+    }
+
+    @Test func windowOpenWithUnknownHighByteOrTileGivesRawText() {
+        #expect(EventText.describe(row("WINDOW_OPEN", 0x200), config: named) == "WINDOW_OPEN,512")
+        #expect(EventText.describe(row("WINDOW_OPEN", 0x10B), config: named) == "WINDOW_OPEN,267")
+        #expect(EventText.describe(row("WINDOW_OPEN", -1), config: named) == "WINDOW_OPEN,-1")
+    }
+
+    @Test func windowOpenIsClimate() {
+        #expect(EventFilter.category(of: "WINDOW_OPEN") == .climate)
+    }
+
+    @Test func windowWatchReportsOnlyNewOpenEvents() {
+        var watch = WindowWatch()
+        let old = row("WINDOW_OPEN", 0x101)
+        #expect(watch.newOpenTiles([old]).isEmpty)
+        let opened = EventRow(time: "2026-11-14 10:05:00", event: "WINDOW_OPEN", detail: 0x102)
+        let closed = EventRow(time: "2026-11-14 10:06:00", event: "WINDOW_OPEN", detail: 0x003)
+        #expect(watch.newOpenTiles([old, opened, closed]) == [2])
+        #expect(watch.newOpenTiles([old, opened, closed]).isEmpty)
+    }
+
+    @Test func windowWatchSkipsAnOpenRowThatALaterRowClosed() {
+        var watch = WindowWatch()
+        _ = watch.newOpenTiles([])
+        let open1 = EventRow(time: "2026-11-14 10:05:00", event: "WINDOW_OPEN", detail: 0x101)
+        let close1 = EventRow(time: "2026-11-14 10:09:00", event: "WINDOW_OPEN", detail: 0x001)
+        let open2 = EventRow(time: "2026-11-14 10:10:00", event: "WINDOW_OPEN", detail: 0x102)
+        #expect(watch.newOpenTiles([open1, close1, open2]) == [2])
+    }
+
+    @Test func windowWatchCountsEqualRowsWithEmptyTimeOnce() {
+        var watch = WindowWatch()
+        let open = EventRow(time: "", event: "WINDOW_OPEN", detail: 0x101)
+        _ = watch.newOpenTiles([open])
+        #expect(watch.newOpenTiles([open]).isEmpty)
+        #expect(watch.newOpenTiles([open, open]) == [1])
+    }
+
+    @Test func openedWindowTileRejectsTileAboveTenAndOtherRows() {
+        #expect(EventText.openedWindowTile(row("WINDOW_OPEN", 0x10A)) == 10)
+        #expect(EventText.openedWindowTile(row("WINDOW_OPEN", 0x10B)) == nil)
+        #expect(EventText.openedWindowTile(row("WINDOW_OPEN", 0x000)) == nil)
+        #expect(EventText.openedWindowTile(row("SLOT_STALE", 0x101)) == nil)
+    }
+
     @Test func alertRiseAndFallUseTheBitMask() {
         #expect(EventText.describe(row("ALERT_RISE", 128)) == "HEAT alert on")
         #expect(EventText.describe(row("ALERT_RISE", 1)) == "FREEZER alert on")

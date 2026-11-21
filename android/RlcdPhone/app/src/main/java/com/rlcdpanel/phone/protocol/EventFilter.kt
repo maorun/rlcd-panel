@@ -6,6 +6,7 @@ object EventFilter {
     enum class Category(val title: String) {
         ALERTS("Alerts"),
         SENSORS("Sensors"),
+        CLIMATE("Climate"),
         POWER("Power"),
         CONFIG("Config"),
         OTHER("Other")
@@ -15,6 +16,7 @@ object EventFilter {
     val NAMES: Map<Category, Set<String>> = mapOf(
         Category.ALERTS to setOf("ALERT_RISE", "ALERT_FALL", "ALERT_ACK", "BATTERY_LOW_SET", "BATTERY_LOW_CLEAR", "EMPTY_PROTECTION"),
         Category.SENSORS to setOf("SLOT_ASSIGN", "SLOT_RELEASE", "SLOT_STALE", "SHTC3_FAULT", "SENSOR_BATTERY", "JUMP_DROP"),
+        Category.CLIMATE to setOf("WINDOW_OPEN"),
         Category.POWER to setOf("RESET", "POWER_SOURCE", "SD_FAULT"),
         Category.CONFIG to setOf("CONFIG_LOAD", "CONFIG_SET", "NTP_SYNC", "MUTE_CHANGE")
     )
