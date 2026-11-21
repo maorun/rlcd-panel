@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Salt check screen in the Wear OS app
-  - Rank: [Total: 32, Use: 5, Setup: 9, Harmony: 8, Safety: 10, Effort: M]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/SaltCommand.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SaltScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/SaltCommandTest.kt, scripts/check-protocol-sync.sh
-  - Goal: Copy `SaltCommand.kt` and `SaltText.kt` from the phone into the watch package `protocol` and add both to `FILES` of `scripts/check-protocol-sync.sh`. Add a `SaltScreen` that sends `SALT <N>` for the selected room and shows the result text (`SKIP`, `UNSTABLE`, the reference and the proposal). The screen shows the proposal only. It sends no `SET`.
-  - Acceptance test: `SaltCommandTest` and `SaltTextTest` on the watch pass with the phone test data. `./scripts/check-protocol-sync.sh` and `./scripts/check-protocol-sync.sh --self-test` exit 0. The CI job `Wear OS companion tests and APK` passes.
-
 - [ ] Battery runtime preview for the wake interval in the macOS config editor
   - Rank: [Total: 31, Use: 6, Setup: 8, Harmony: 7, Safety: 10, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/RuntimePreview.swift, macos/RlcdCompanion/Sources/RlcdCompanion/ConfigEditorView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/RuntimePreviewTests.swift
