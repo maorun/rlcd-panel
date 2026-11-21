@@ -28,7 +28,9 @@ import androidx.lifecycle.lifecycleScope
 import com.rlcdpanel.watch.complication.ClimateComplicationService
 import com.rlcdpanel.watch.console.BleConsoleClient
 import com.rlcdpanel.watch.protocol.ChimeCommand
+import com.rlcdpanel.watch.protocol.AlertMask
 import com.rlcdpanel.watch.protocol.AlertTransitions
+import com.rlcdpanel.watch.protocol.AlertVibration
 import com.rlcdpanel.watch.protocol.ConfigCache
 import com.rlcdpanel.watch.protocol.PanelClock
 import com.rlcdpanel.watch.protocol.VersionReply
@@ -286,7 +288,8 @@ class MainActivity : ComponentActivity() {
                             VentilationAction.LUEFTUNG_BEENDEN,
                             VentilationAction.LUEFTUNG_ABBRECHEN -> {
                                 if (isVentilating) {
-                                    vibrateAlert()
+                                    // The ventilation advice uses the pattern of the VENTILATE alert bit.
+                                    vibrateAlert(AlertMask.VENTILATE)
                                     postVentilationNotification(
                                         title = advice.titel,
                                         message = advice.nachricht,
@@ -995,10 +998,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun vibrateAlert() {
-        getVibrator()?.vibrate(
-            VibrationEffect.createWaveform(longArrayOf(0L, 250L, 120L, 250L, 120L, 250L), -1)
-        )
+    private fun vibrateAlert(alerts: AlertMask) {
+        val timings = AlertVibration.pattern(alerts)
+        if (timings.isEmpty()) return
+        getVibrator()?.vibrate(VibrationEffect.createWaveform(timings, -1))
     }
 
     private fun vibrateNotice() {
