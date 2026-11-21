@@ -15372,6 +15372,99 @@ void testRhGainConfigKeys() {
          approxEqual(parsed.slot_rh_gain[4], 1.062f));
 }
 
+void testSerialCalibSalt6To10() {
+  // CALIB and SALT accept 0 to 10 and reject 11
+  SerialCommand cmd;
+  assert(parseText("CALIB 10", cmd) == SerialParseStatus::OK && cmd.reference == 10);
+  assert(parseText("SALT 10", cmd) == SerialParseStatus::OK && cmd.reference == 10);
+  assert(parseText("SALT 10 MGCL2", cmd) == SerialParseStatus::OK && cmd.reference == 10 && cmd.salt_mgcl2);
+  assert(parseText("CALIB 11", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("SALT 11", cmd) == SerialParseStatus::BAD_ARG);
+  // CALIB 10: slot 10 is the reference, slot 6 is a target with its own active offset
+  ClimateHistory h;
+  fillCalib(h, 10, 10, 21.0f, 50.0f);
+  fillCalib(h, 6, 10, 21.4f, 52.1f);
+  DeviceConfig cfg;
+  cfg.slot_temp_offset_c[5] = 0.5f;
+  std::string out = calibOutput(10, h, cfg);
+  assert(out.find("REFERENCE slot10\n") == 0 && calibCrcOk(out));
+  assert(out.find("SENSOR slot6 hours=10 temp_offset=0.5 rh_offset=0.0 temp_diff=0.4 rh_diff=2.1\n") != std::string::npos);
+  assert(out.find("slot6_temp_offset_c=0.1\nslot6_rh_offset_pct=-2.1\n") != std::string::npos);
+  // CALIB 0: slot 10 is a target and uses slot10_* keys
+  fillCalib(h, 0, 10, 21.0f, 50.0f);
+  out = calibOutput(0, h, DeviceConfig{});
+  assert(out.find("SENSOR slot10 hours=10 temp_offset=0.0 rh_offset=0.0 temp_diff=0.0 rh_diff=0.0\n") != std::string::npos);
+  assert(out.find("slot10_temp_offset_c=0.0\nslot10_rh_offset_pct=0.0\n") != std::string::npos);
+  // SALT 10 gives a valid reply with the key slot10_rh_offset_pct
+  ClimateHistory salt;
+  fillCalib(salt, 10, 6, 25.0f, 73.0f);
+  out = saltOutput(10, salt, DeviceConfig{});
+  assert(out == "SALT slot10 hours=6 rh_mean=73.0 rh_span=0.0 temp_mean=25.0 reference=75.3\n"
+                "slot10_rh_offset_pct=2.3\n" + out.substr(out.rfind("CRC32 ")));
+  assert(calibCrcOk(out));
+  DeviceConfig active;
+  active.slot_rh_offset_pct[9] = 1.0f;
+  assert(saltOutput(10, salt, active).find("slot10_rh_offset_pct=3.3\n") != std::string::npos);
+  FakeSink mg;
+  TestRunner::showSalt(mg, 10, salt, DeviceConfig{}, true);
+  assert(mg.out.find("SALT slot10 hours=6 ") == 0 && mg.out.find("rh_offset_pct") == std::string::npos && calibCrcOk(mg.out));
+  // SALT 7 with 5 samples gives SKIP
+  ClimateHistory few;
+  fillCalib(few, 7, 5, 25.0f, 73.0f);
+  out = saltOutput(7, few, DeviceConfig{});
+  assert(out.find("SKIP slot7 hours=5\n") == 0 && calibCrcOk(out));
+  // Out of range references give no reply
+  assert(saltOutput(11, salt, DeviceConfig{}).empty() && calibOutput(11, h, DeviceConfig{}).empty());
+}
+
+void testSerialCalibSaltRepliesUnchangedFor0To5() {
+  // Golden replies: byte-equal to the replies before the slot 6 to 10 tests
+  ClimateHistory h;
+  fillCalib(h, 0, 10, 21.0f, 50.0f);
+  fillCalib(h, 2, 10, 21.4f, 52.1f);
+  std::string out = calibOutput(0, h, DeviceConfig{});
+  const std::string calib_body =
+      "REFERENCE onboard\n"
+      "SKIP slot1 hours=0\n"
+      "SENSOR slot2 hours=10 temp_offset=0.0 rh_offset=0.0 temp_diff=0.4 rh_diff=2.1\n"
+      "SKIP slot3 hours=0\nSKIP slot4 hours=0\nSKIP slot5 hours=0\nSKIP slot6 hours=0\n"
+      "SKIP slot7 hours=0\nSKIP slot8 hours=0\nSKIP slot9 hours=0\nSKIP slot10 hours=0\n"
+      "slot2_temp_offset_c=-0.4\nslot2_rh_offset_pct=-2.1\n";
+  assert(out.size() > calib_body.size() && out.compare(0, calib_body.size(), calib_body) == 0);
+  assert(out.substr(calib_body.size(), 6) == "CRC32 " && calibCrcOk(out));
+  ClimateHistory salt;
+  fillCalib(salt, 3, 6, 25.0f, 73.0f);
+  out = saltOutput(3, salt, DeviceConfig{});
+  const std::string salt_body = "SALT slot3 hours=6 rh_mean=73.0 rh_span=0.0 temp_mean=25.0 reference=75.3\n"
+                                "slot3_rh_offset_pct=2.3\n";
+  assert(out.compare(0, salt_body.size(), salt_body) == 0 && out.substr(salt_body.size(), 6) == "CRC32 " && calibCrcOk(out));
+  // Each reference 0 to 5 keeps its name, its key prefix and its reply for both commands
+  static const char* const names[6] = {"onboard", "slot1", "slot2", "slot3", "slot4", "slot5"};
+  static const char* const prefixes[6] = {"", "slot1_", "slot2_", "slot3_", "slot4_", "slot5_"};
+  for (size_t n = 0; n < 6; ++n) {
+    ClimateHistory each;
+    fillCalib(each, n, 6, 25.0f, 73.0f);
+    const std::string expect = std::string("SALT ") + names[n] +
+                               " hours=6 rh_mean=73.0 rh_span=0.0 temp_mean=25.0 reference=75.3\n" + prefixes[n] +
+                               "rh_offset_pct=2.3\n";
+    out = saltOutput(static_cast<uint8_t>(n), each, DeviceConfig{});
+    assert(out.compare(0, expect.size(), expect) == 0 && out.substr(expect.size(), 6) == "CRC32 " && calibCrcOk(out));
+    // The target is always a slot (1 to 5), never the onboard sensor with its own default offsets
+    const size_t target = n % 5 + 1;
+    ClimateHistory pair;
+    fillCalib(pair, n, 10, 21.0f, 50.0f);
+    fillCalib(pair, target, 10, 21.4f, 52.1f);
+    const std::string head = std::string("REFERENCE ") + names[n] + "\n";
+    const std::string line = std::string("SENSOR ") + names[target] +
+                             " hours=10 temp_offset=0.0 rh_offset=0.0 temp_diff=0.4 rh_diff=2.1\n";
+    const std::string keys = std::string(prefixes[target]) + "temp_offset_c=-0.4\n" + prefixes[target] +
+                             "rh_offset_pct=-2.1\n";
+    out = calibOutput(static_cast<uint8_t>(n), pair, DeviceConfig{});
+    assert(out.compare(0, head.size(), head) == 0 && out.find(line) != std::string::npos &&
+           out.find(keys) != std::string::npos && calibCrcOk(out));
+  }
+}
+
 void testSerialSaltMagnesium() {
   SerialCommand cmd;
   assert(parseText("SALT 1 MGCL2", cmd) == SerialParseStatus::OK);
@@ -23099,6 +23192,8 @@ testSerialConfigNegativeSmallOffset();
   testRhGainConfigKeys();
   testSerialSaltMagnesium();
   testSerialSaltParser();
+  testSerialCalibSalt6To10();
+  testSerialCalibSaltRepliesUnchangedFor0To5();
   testSerialSaltReply();
   testSerialSaltSkipUnstableAndBadTemp();
   testSerialSaltShortWriteNoCardAndUsbGate();

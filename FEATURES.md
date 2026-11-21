@@ -530,7 +530,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 ## Serial console command CALIB with suggested offsets
 
 - **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`.
-- The console command `CALIB N` (`N` is `0` for the onboard sensor or `1` to `5` for a slot) compares each other sensor with the reference. A missing argument, `CALIB 6` and extra text give `ERR BAD_ARG`.
+- The console command `CALIB N` (`N` is `0` for the onboard sensor or `1` to `5` for a slot) compares each other sensor with the reference. A missing argument, `CALIB 11` and extra text give `ERR BAD_ARG` (range 0 to 10 since the slot 6 to 10 item).
 - The command pairs the hourly samples of `ClimateHistory` by age. Only hours with a temperature and a humidity sample in both histories count.
 - A sensor with at least 6 common hours gets one line `SENSOR <name> hours=<n> temp_offset=<x> rh_offset=<x> temp_diff=<x> rh_diff=<x>`. The offsets are the active `config.ini` values. The differences are the mean values (sensor minus reference). A sensor with fewer hours gets `SKIP <name> hours=<n>`.
 - The suggested lines follow, for example `slot2_temp_offset_c=-0.4` and `slot2_rh_offset_pct=2.1`. Each value is the active offset minus the mean difference, clamped to the key range. The onboard sensor uses the keys `temp_offset_c` and `rh_offset_pct`.
@@ -2378,3 +2378,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `ConsoleCommand.canAcknowledgeAll(alertMask:ackedMask:)` is true when two or more repeatable active alert bits (excluding `CHARGE_FULL`) are not acknowledged yet.
 - `DiagnosticsView` shows the button `Acknowledge all` above the alert rows when `canAcknowledgeAll` is true. `AppModel.acknowledgeAll()` queues `.ackAll` and `.status`.
 - Tests: `ReplyAssemblerTests.ackCommandLines`, `ackErrorTexts` and `canAcknowledgeAllRule`.
+
+## Console commands CALIB and SALT for slots 6 to 10
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`.
+- `CALIB N`, `SALT N` and `SALT N MGCL2` accept `N` from 0 to 10 (0 is the onboard sensor, 1 to 10 are the registry slots, `MAX_SWITCHBOT_SENSORS`). `CALIB 11`, `SALT 11` and `SALT 11 MGCL2` give `ERR BAD_ARG`. This replaces the older range 0 to 5 in the sections above.
+- The commands read the 24-hour histories of `ClimateHistory` (6 to 10 included). The proposal lines use the keys `slot6_temp_offset_c` to `slot10_temp_offset_c` and `slot6_rh_offset_pct` to `slot10_rh_offset_pct` with the active offsets and the key limits of the slot keys.
+- `CALIB N` lists `SKIP slot6 hours=<n>` to `SKIP slot10 hours=<n>` for a slot without 6 common hours. `SALT 7` with fewer than 6 samples gives `SKIP slot7 hours=<n>`.
+- The reply format, the RTC layout and `STATE_VERSION` do not change. The replies for 0 to 5 stay byte-equal.
+- Host tests (`testSerialCalibSalt6To10`, `testSerialCalibSaltRepliesUnchangedFor0To5`) cover `CALIB 10` and `SALT 10` with the key `slot10_rh_offset_pct`, `SALT 10 MGCL2`, the `SKIP` reply of `SALT 7`, the `ERR BAD_ARG` of reference 11 and golden replies of `CALIB 0`, `SALT 3` and each reference 0 to 5 for both commands.
