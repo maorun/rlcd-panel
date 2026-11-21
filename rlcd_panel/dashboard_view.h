@@ -1807,6 +1807,25 @@ public:
     drawCenteredLabel(fb, RLCD_WIDTH / 2, 230, EMPTY_BATTERY_TEXT);
   }
 
+  // Identify screen of the console command IDENTIFY: inverted (white on black) "RLCD <XXXX>" at scale 6
+  // (318 px), the firmware version and the transport ("USB" or "BLE") at scale 3. No state, no clock.
+  static void renderIdentify(St7305Framebuffer& fb, uint16_t mac_tail, const char* version, const char* transport) {
+    fb.clear(true);
+    char title[16];
+    snprintf(title, sizeof(title), "RLCD %04X", static_cast<unsigned>(mac_tail));
+    drawCenteredText(fb, 70, title, 6);
+    char info[32];
+    snprintf(info, sizeof(info), "FW %s", version);
+    drawCenteredText(fb, 150, info, 3);
+    drawCenteredText(fb, 190, transport, 3);
+  }
+
+  static void drawCenteredText(St7305Framebuffer& fb, uint16_t y, const char* text, uint8_t scale) {
+    const int width = static_cast<int>(strlen(text)) * 6 * scale - scale;
+    const int x = (RLCD_WIDTH - width) / 2;
+    fb.drawText(static_cast<uint16_t>(x < 0 ? 0 : x), y, text, scale, false);
+  }
+
   static void drawCenteredLabel4(St7305Framebuffer& fb, uint16_t y, const char* text) {
     const int width = static_cast<int>(strlen(text)) * 24 - 4;
     fb.drawText(static_cast<uint16_t>((RLCD_WIDTH - width) / 2), y, text, 4, true);

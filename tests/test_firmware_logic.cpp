@@ -3703,7 +3703,7 @@ void testPreviewScenesCoverAllDisplayModes() {
         frames[i], PREVIEW_SCENES[i].mode, PREVIEW_SCENES[i].low_battery, PREVIEW_SCENES[i].quiet_hours,
         PREVIEW_SCENES[i].long_runtime, PREVIEW_SCENES[i].battery_empty, PREVIEW_SCENES[i].ventilate,
         PREVIEW_SCENES[i].invert, PREVIEW_SCENES[i].tiles, PREVIEW_SCENES[i].stats_page, PREVIEW_SCENES[i].dry,
-        PREVIEW_SCENES[i].muted, PREVIEW_SCENES[i].window, PREVIEW_SCENES[i].wall);
+        PREVIEW_SCENES[i].muted, PREVIEW_SCENES[i].window, PREVIEW_SCENES[i].wall, PREVIEW_SCENES[i].identify);
     size_t ink = 0;
     for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
       for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
@@ -3732,7 +3732,7 @@ void testPreviewScenesCoverAllDisplayModes() {
   for (uint8_t i = 0; i < PREVIEW_SCENE_COUNT; ++i) {
     if (PREVIEW_SCENES[i].mode == DisplayMode::DASHBOARD && !PREVIEW_SCENES[i].quiet_hours &&
         !PREVIEW_SCENES[i].battery_empty && !PREVIEW_SCENES[i].ventilate && !PREVIEW_SCENES[i].invert && !PREVIEW_SCENES[i].dry &&
-        !PREVIEW_SCENES[i].muted && !PREVIEW_SCENES[i].window && !PREVIEW_SCENES[i].wall) {
+        !PREVIEW_SCENES[i].muted && !PREVIEW_SCENES[i].window && !PREVIEW_SCENES[i].wall && !PREVIEW_SCENES[i].identify) {
       (PREVIEW_SCENES[i].low_battery ? low_index : dash_index) = i;
     }
   }
@@ -14682,6 +14682,84 @@ void testSerialScanDroppedRowAndUnchangedRegistry() {
   assert(shortSink.out.size() == 20 && shortSink.out.find("CRC32") == std::string::npos);
 }
 
+constexpr uint32_t IDENTIFY_USB_CRC = 0x85352C9CU;
+constexpr uint32_t IDENTIFY_BLE_CRC = 0x00FB96A3U;
+
+void testSerialIdentifyParserGateAndReply() {
+  SerialCommand cmd;
+  assert(parseText("IDENTIFY", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::IDENTIFY);
+  assert(parseText("IDENTIFY\r\n", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::IDENTIFY);
+  assert(parseText("IDENTIFY X", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("IDENTIFY ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("IDENTIFY 1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("IDENTIFYX", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("identify", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("IDENTIFY", cmd) == SerialParseStatus::OK);
+  for (uint8_t level = 0; level <= 2; ++level) {
+    assert(std::string(BleConsoleBridge::gate(cmd, level)).empty()); // allowed on BLE at each level
+  }
+  // execute() ignores IDENTIFY: no mount, no output
+  FakeConsoleStorage storage;
+  FakeSink quiet;
+  TestRunner::execute(storage, quiet, cmd);
+  assert(storage.mounts == 0 && storage.unmounts == 0 && quiet.out.empty());
+
+  // BLE bridge with ble_console 1: "IDENTIFY" runs, "IDENTIFY X" gives ERR BAD_ARG
+  BleConsoleBridge bridge;
+  bridge.setLevel(1);
+  assert(bridge.onConnect());
+  const std::string text = "IDENTIFY\n";
+  SerialCommand ble_cmd;
+  const char* reply = "";
+  BleConsoleBridge::Action action = BleConsoleBridge::Action::NONE;
+  for (char ch : text) action = bridge.feed(static_cast<uint8_t>(ch), ble_cmd, reply);
+  assert(action == BleConsoleBridge::Action::RUN && ble_cmd.kind == SerialCommandKind::IDENTIFY);
+  const std::string bad = "IDENTIFY X\n";
+  for (char ch : bad) action = bridge.feed(static_cast<uint8_t>(ch), ble_cmd, reply);
+  assert(action == BleConsoleBridge::Action::REPLY && std::string(reply) == "ERR BAD_ARG\n");
+
+  // reply, flush, invalidate and the render bytes
+  St7305Framebuffer fb;
+  FakePatternPanel panel;
+  FakeSink sink;
+  FakeBeepHal hal;
+  FrameRefresh frame;
+  frame.recordFlush(0x1234U);
+  frame.recordSkip();
+  TestRunner::identify(sink, fb, panel, hal, 0x3F2A,
+                       [](St7305Framebuffer& f) { DashboardView::renderIdentify(f, 0x3F2A, "1.0.0", "USB"); },
+                       false, false, 30, &frame);
+  assert(sink.out == "OK IDENTIFY 3F2A\n" && panel.flushes == 1);
+  assert(frame.crc == 0 && frame.skips == 0); // the next wake cycle flushes the normal view
+  assert(memcmp(panel.last.data(), fb.data(), panel.last.size()) == 0);
+  assert(fb.crc32() == IDENTIFY_USB_CRC);
+  assert(hal.samples == ChimeSynth::totalSamples(ChimeSynth::confirmPattern())); // one short note
+  St7305Framebuffer ble_fb;
+  DashboardView::renderIdentify(ble_fb, 0x3F2A, "1.0.0", "BLE");
+  assert(ble_fb.crc32() != fb.crc32()); // the transport shows
+  assert(ble_fb.crc32() == IDENTIFY_BLE_CRC);
+  St7305Framebuffer other;
+  DashboardView::renderIdentify(other, 0x0001, "1.0.0", "USB");
+  assert(other.crc32() != fb.crc32()); // the MAC tail shows
+  assert(fb.getPixel(0, 0)); // black background
+}
+
+void testSerialIdentifyMutedPathsStaySilent() {
+  struct Case { bool muted, quiet; uint8_t volume; };
+  const Case cases[] = {{true, false, 30}, {false, true, 30}, {false, false, 0}};
+  for (const Case& c : cases) {
+    St7305Framebuffer fb;
+    FakePatternPanel panel;
+    FakeSink sink;
+    FakeBeepHal hal;
+    TestRunner::identify(sink, fb, panel, hal, 0x00AB,
+                         [](St7305Framebuffer& f) { DashboardView::renderIdentify(f, 0x00AB, "1.0.0", "BLE"); },
+                         c.muted, c.quiet, c.volume);
+    assert(sink.out == "OK IDENTIFY 00AB\n" && panel.flushes == 1); // the screen shows, the speaker stays off
+    assert(hal.calls.empty() && hal.samples == 0);
+  }
+}
+
 void testSerialWeekParserAndGate() {
   SerialCommand cmd;
   assert(parseText("WEEK", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::WEEK);
@@ -23939,6 +24017,8 @@ testSerialEventsCrcShortWriteAndGate();
 testSerialPatternParser();
 testFramebufferFillPatternBitExact();
 testSerialPatternShowFlushesWithoutInvertAndGate();
+testSerialIdentifyParserGateAndReply();
+testSerialIdentifyMutedPathsStaySilent();
   testSerialScanParser();
   testSerialScanEmptyAndCrc();
   testSerialScanOneRowForEachFormat();

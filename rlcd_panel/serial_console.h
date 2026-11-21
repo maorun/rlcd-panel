@@ -36,14 +36,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK, IDENTIFY };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN with extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
+  BAD_ARG,  // CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '='); CONFIG <key> with an unknown key
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv, daily_v4_YYYY.csv or events_v1_YYYY.csv
@@ -73,7 +73,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "CONFIG <key>", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SCREEN", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "CONFIG <key>", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -153,6 +153,13 @@ public:
       }
       out.kind = SerialCommandKind::PATTERN;
       out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "IDENTIFY")) {
+      if (len != cmd_len) {
+        return SerialParseStatus::BAD_ARG; // no argument exists
+      }
+      out.kind = SerialCommandKind::IDENTIFY;
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "MUTE")) {
@@ -851,6 +858,8 @@ struct SerialStatusSnapshot {
 //   event for each occupied slot. A slot with a fixed MAC gives "ERR FIXED_MAC", a disabled slot "ERR SLOT_OFF", an equal or bad number
 //   "ERR BAD_ARG"; no change in these cases. No card access; ERR READ_ONLY on BLE with ble_console 1. RTC layout and STATE_VERSION do not change.
 //   MUTE N -> "OK MUTE <N>" after the mute flag of the RTC state is set (0 or 1); setMute() needs no card: execute() ignores MUTE.
+//   IDENTIFY -> "OK IDENTIFY <4 hex digits>" after the identify screen (RLCD plus the last 4 hex digits of the BLE MAC, version,
+//   transport) is flushed and one short note played under the BEEP rules; identify() needs no card: execute() ignores IDENTIFY.
 //   PATTERN N -> "OK PATTERN <N>" after the framebuffer shows test pattern N (0 black, 1 checkerboard, 2 border with cross) and the
 //   panel got it without display_invert; the next wake cycle renders the normal view. showPattern() needs no card: execute() ignores PATTERN.
 //   SCAN -> one 4 s BLE scan, then "BEGIN SCAN", the header "mac,format,rssi,slot,temp_c,rh_pct,battery_pct", one row for each MAC (format WOIO|METER|BTHOME|ATC|THERMOPRO,
@@ -1903,6 +1912,26 @@ public:
     send(sink, line);
   }
 
+  // Shows the identify screen and replies "OK IDENTIFY <4 hex digits>" (`mac_tail`, upper case). `render(fb)` draws the
+  // screen; it is flushed as it is, like PATTERN (display_invert is not applied). One short note plays under the rules
+  // of BEEP (mute, quiet hours and volume 0 keep it silent and the reply stays OK, no ERR MUTED; a failed playback does not change the reply). `frame` (when
+  // given) is invalidated, so the next wake cycle flushes the normal view. No card access.
+  template <typename Framebuffer, typename Panel, typename Hal, typename Render>
+  static void identify(Sink& sink, Framebuffer& fb, Panel& panel, Hal& hal, uint16_t mac_tail, Render render, bool muted,
+                       bool quiet_hours, uint8_t volume_pct, FrameRefresh* frame = nullptr) {
+    render(fb);
+    panel.flush(fb);
+    if (frame != nullptr) {
+      frame->invalidate();
+    }
+    if (!muted && !quiet_hours && volume_pct != 0) {
+      AudioSequencer::playConfirm(hal, volume_pct);
+    }
+    char line[32];
+    snprintf(line, sizeof(line), "OK IDENTIFY %04X\n", static_cast<unsigned>(mac_tail));
+    send(sink, line);
+  }
+
   // Sets the mute flag (0 or 1) and replies "OK MUTE <0|1>". No card access. The flag lives in the RTC state; the next
   // save of the wake cycle keeps it. A value above 1 never arrives (the parser limits it); it is treated as 1 here.
   // With events and now, one MUTE_CHANGE event records the change (detail: source in the high byte, state in the low
@@ -2096,7 +2125,8 @@ public:
         command.kind == SerialCommandKind::SCREEN || command.kind == SerialCommandKind::SET ||
         command.kind == SerialCommandKind::RTC_TRIM || command.kind == SerialCommandKind::WEEK ||
         command.kind == SerialCommandKind::SLOT_CLEAR || command.kind == SerialCommandKind::SLOT_SWAP ||
-        command.kind == SerialCommandKind::REJECTS || command.kind == SerialCommandKind::ACK) {
+        command.kind == SerialCommandKind::REJECTS || command.kind == SerialCommandKind::ACK ||
+        command.kind == SerialCommandKind::IDENTIFY) {
       return;
     }
     if (!storage.mount()) {
@@ -2126,6 +2156,7 @@ public:
       case SerialCommandKind::SLOT_SWAP:
       case SerialCommandKind::REJECTS:
       case SerialCommandKind::ACK:
+      case SerialCommandKind::IDENTIFY:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;

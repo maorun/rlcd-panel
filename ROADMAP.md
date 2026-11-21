@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Console command IDENTIFY to find the connected panel
-  - Rank: [Total: 35, Use: 6, Setup: 10, Harmony: 9, Safety: 10, Effort: M]
-  - Location: rlcd_panel/serial_console.h, rlcd_panel/dashboard_view.h, rlcd_panel/frame_refresh.h, rlcd_panel/rlcd_panel.ino, tools/preview_scenes.h, tests/test_firmware_logic.cpp
-  - Goal: Add the console command `IDENTIFY` (`SerialCommandKind::IDENTIFY`). Render an identify screen: the inverted large text `RLCD <last 4 hex digits of the BLE MAC>`, the firmware version and the transport (`USB` or `BLE`). Flush it with `g_panel.flush` and play one short note through the same audio path and rules as `BEEP`. Call `FrameRefresh::invalidate()`, so the next wake cycle flushes the normal view. Reply `OK IDENTIFY <4 hex digits>`. Give `ERR BAD_ARG` for extra text. Run the command on USB and on BLE at each `ble_console` level. Do not mount the card. Do not change the RTC layout or `STATE_VERSION`.
-  - Acceptance test: Host tests assert the reply `OK IDENTIFY 3F2A` for a fixed MAC, `ERR BAD_ARG` for `IDENTIFY X`, the parse on the BLE bridge with `ble_console` 1, and the identify render bytes against a fixed CRC-32 from `St7305Framebuffer::crc32()`. `./scripts/generate-display-preview.sh` writes `docs/display_preview_identify.png`. `c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner` and `arduino-cli compile rlcd_panel` pass.
-
 - [ ] Slot swap in the macOS scanner view
   - Rank: [Total: 34, Use: 6, Setup: 10, Harmony: 9, Safety: 9, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Sources/RlcdCompanion/ScannerView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift
