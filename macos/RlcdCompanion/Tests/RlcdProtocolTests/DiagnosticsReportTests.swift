@@ -76,6 +76,20 @@ private func sections(
         #expect(!report("NOISE db=141 band=QUIET peak_db=-- peak_hour=-- events_sum=0").contains { $0.hasPrefix("Noise:") })
     }
 
+    @Test func quietSummaryIsInTheReport() {
+        func report(_ line: String) -> [String] {
+            lines(DiagnosticsReport.build(appVersion: "1.2", link: .usb, includeNames: false,
+                                          sections: [.init(command: "STATUS", result: .success([line]))]))
+        }
+        #expect(report("QUIET start_h=22 end_h=7 active=1 night_interval_s=900")
+            .contains("Quiet hours: 22:00 to 07:00, active"))
+        #expect(report("QUIET start_h=22 end_h=7 active=0 night_interval_s=0")
+            .contains("Quiet hours: 22:00 to 07:00, not active"))
+        #expect(report("QUIET start_h=22 end_h=7 active=-- night_interval_s=900")
+            .contains("Quiet hours: 22:00 to 07:00, --"))
+        #expect(!report("QUIET start_h=24 end_h=7 active=1 night_interval_s=900").contains { $0.hasPrefix("Quiet hours:") })
+    }
+
     @Test func malformedLatchLineStaysRawWithoutSummary() {
         let text = DiagnosticsReport.build(
             appVersion: "1.2", link: .usb, includeNames: false,

@@ -23,12 +23,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Quiet hours in the macOS diagnostics view
-  - Rank: [Total: 27, Use: 4, Setup: 6, Harmony: 7, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift, macos/RlcdCompanion/Sources/RlcdProtocol/DiagnosticsReport.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsTests.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsReportTests.swift
-  - Goal: Show the `QUIET` line of the entry "Quiet hours line in STATUS" in the macOS app. Add `QuietMetrics.parse(line:)` with `startHour`, `endHour`, `active` (`Bool?`) and `nightIntervalS`, and add `DiagnosticsReply.quiet`. Return `nil` for a missing line and `active` `nil` for `--`. Throw `ParseError.badLine` for an hour above 23, an `active` value other than `0`, `1` and `--`, and a bad number. Show the group `Quiet hours` in `DiagnosticsView`: `22:00 to 07:00`, `active now` or `not active`, and `Night interval <N> s` or `Night interval off`. Add the summary line `Quiet hours: 22:00 to 07:00, active` to `DiagnosticsReport`.
-  - Acceptance test: In `DiagnosticsTests`, assert the values of `QUIET start_h=22 end_h=7 active=1 night_interval_s=900`, `active` `nil` for `active=--`, `nil` without the line, and `ParseError.badLine` for `start_h=24`, `active=2` and `night_interval_s=x`. In `DiagnosticsReportTests`, assert the summary line. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
-
 - [ ] Acknowledge all button in the macOS diagnostics view
   - Rank: [Total: 25, Use: 5, Setup: 4, Harmony: 7, Safety: 9, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift

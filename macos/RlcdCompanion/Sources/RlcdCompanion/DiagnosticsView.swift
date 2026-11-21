@@ -38,6 +38,7 @@ struct DiagnosticsView: View {
                         group("Wake cycle") { wake(d.wake) }
                         group("Panel badges") { latch(d.latch) }
                         group("Noise") { noise(d.noise) }
+                        group("Quiet hours") { quiet(d.quiet) }
                         group("MicroSD card") { sdCard(model.status) }
                     } else {
                         Text("No diagnostics yet. Press the refresh button.").font(.caption).foregroundStyle(.secondary)
@@ -371,6 +372,12 @@ struct DiagnosticsView: View {
         if let m {
             Text("level \(m.db.map { "\($0) dB" } ?? "--")  band \(m.band)")
             Text("today's \(m.peakText)  events \(m.eventsSum)")
+        } else { unknown }
+    }
+
+    @ViewBuilder private func quiet(_ m: QuietMetrics?) -> some View {
+        if let m {
+            Text("\(m.windowText)  \(m.activeText)  \(m.nightIntervalText)")
         } else { unknown }
     }
 

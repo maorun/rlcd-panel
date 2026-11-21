@@ -2364,3 +2364,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SensorHealthText.badges(latch, sensor)` gives the text `V · STALE`; the `SensorHealthScreen` row of each sensor shows it as `Badges <text>` and shows no line for a sensor without a badge.
 - Tests: `StatusReplyTest.parsesLatchLine`, `latchBadgeOrderAndOnboardRules` and `badLatchLineThrows`, `SensorHealthTextTest.badgeText`.
 - Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
+
+## Quiet hours in the macOS diagnostics view
+
+- `QuietMetrics.parse(line:)` (`Diagnostics.swift`) parses `QUIET start_h=<H> end_h=<H> active=<0|1|--> night_interval_s=<N>` into `startHour`, `endHour`, `active` (`Bool?`, `nil` for `--`) and `nightIntervalS`. An hour above 23, an `active` value other than `0`, `1` and `--`, a missing field and a bad number throw `ParseError.badLine`. `DiagnosticsReply.quiet` is `nil` for a missing line.
+- `DiagnosticsView` shows the group `Quiet hours` (`22:00 to 07:00`, `active now` or `not active` or `--`, and `Night interval <N> s` or `Night interval off`).
+- `DiagnosticsReport` adds the summary line `Quiet hours: 22:00 to 07:00, active` (or `not active` / `--`) after a valid `QUIET` line.
+- Tests: `DiagnosticsTests.parsesQuietLine` and `quietRejectsBadFields`, `DiagnosticsReportTests.quietSummaryIsInTheReport`.
