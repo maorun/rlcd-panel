@@ -2413,3 +2413,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `CalibrationSensors.selectable(rows, keep)` lists the sensors of the picker in `CalibrationScreen`: 0 to 5 always, and each slot 6 to 10 only when its `STATUS` state is `OK`, `STALE` or `BATLOW`. Without a `STATUS` read (`healthState.rows` empty) only 0 to 5 and the picked reference (`keep`) show. `CalibrationScreen` shows a hint while no slot 6 to 10 is listed. `MainActivity.readCalibration` and `readSalt` skip a reference outside 0 to 10.
 - `CalibrationReply.parse` and `SaltReply.parse` keep the proposal keys `slot6_*` to `slot10_*` (`CalibrationKeys` already accepted them).
 - No firmware change, no RTC layout change. Tests: `SaltCommandTest` (`SALT 10`, exception for 11 and -1), `CalibrationSensorsTest` (picker filter, kept reference), `CalibrationReplyTest.regressionGuardProposalKeysOfSlots6To10` (`slot9_temp_offset_c`; a guard, the parser already accepted the keys).
+
+## Diagnostics report share in the Android app
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/DiagnosticsReport.kt`, `SensorHealthScreen.kt`, `MainActivity.kt`, `DiagnosticsReportTest.kt`
+- `DiagnosticsReport.build(version, status, rejects, includeNames)` builds one plain text report from the last `VERSION`, `STATUS` and `REJECTS` replies. It has the line `Firmware: <fw> (<git>), state <N>, built <time>`, one `Sensor <N> <name>:` line for each `SENSOR` line, the line `SD: status <S>, free <N> MB`, the `Reset`, `SHTC3`, `Panel badges` (from the `LATCH` line) and `Noise` lines, and the `## REJECTS` section with the header, the rows and `DROPPED,<N>`.
+- The `Wake cycle` and `Quiet hours` lines of the macOS report need parsers that the Android `StatusReply` does not have yet. The Android report leaves them out.
+- A missing `VERSION` reply gives `Firmware: --`. A missing `STATUS` or `REJECTS` reply gives `--` lines.
+- The report hides the sensor names and the foreign MACs as `<hidden>`. It has no `NTP` line and no Wi-Fi data.
+- The button `Bericht teilen` in `SensorHealthScreen` sends the text with an `ACTION_SEND` intent (`MainActivity.shareDiagnosticsReport`). It sends no console command. It uses the replies that the app read before. The button is off while a read runs. Closing the health screen clears the stored `REJECTS` log.
+- `DiagnosticsReportTest` reads `tests/fixtures/status_reply_sample.txt` and `tests/fixtures/rejects_reply_sample.txt`.

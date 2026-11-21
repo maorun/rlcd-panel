@@ -25,6 +25,7 @@ import com.rlcdpanel.phone.protocol.MemoryState
 import com.rlcdpanel.phone.protocol.NoiseState
 import com.rlcdpanel.phone.protocol.NtpState
 import com.rlcdpanel.phone.protocol.RtcState
+import com.rlcdpanel.phone.protocol.StatusReply
 import com.rlcdpanel.phone.protocol.ResetState
 import com.rlcdpanel.phone.protocol.Shtc3State
 import com.rlcdpanel.phone.protocol.TimeReply
@@ -43,7 +44,9 @@ data class SensorHealthState(
     val shtc3: Shtc3State? = null,
     val memory: MemoryState? = null,
     val rtc: RtcState? = null,
-    val noise: NoiseState? = null
+    val noise: NoiseState? = null,
+    /** The last good `STATUS` reply, for the shared diagnostics report. */
+    val status: StatusReply? = null
 )
 
 /** Cache of the last `CONFIG` read: [info] is null without a cache; [message] tells a failed read. */
@@ -137,6 +140,7 @@ fun SensorHealthScreen(
     onSyncClock: () -> Unit = {},
     rtcTrimState: RtcTrimState = RtcTrimState(),
     onTrimRtc: () -> Unit = {},
+    onShareReport: () -> Unit = {},
     onBack: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -199,6 +203,9 @@ fun SensorHealthScreen(
                 Button(onClick = onReadVersion, enabled = !versionState.isBusy) {
                     Text(if (versionState.isBusy) "Lese…" else "Firmware-Version lesen")
                 }
+            }
+            item {
+                OutlinedButton(onClick = onShareReport, enabled = !state.isReading && !versionState.isBusy) { Text("Bericht teilen") }
             }
             versionState.reply?.let { v -> item { Text(SensorHealthText.firmware(v)) } }
             versionState.message?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
