@@ -133,6 +133,7 @@ final class AppModel: ConsoleLinkDelegate {
     private let pin = PanelPin(store: UserDefaults.standard)
     let scanner = BluetoothScanner()
     private let serial = SerialLink()
+    private let notificationDelegate = NotificationActionDelegate()
 
     /// Level of `ble_console` from the last `CONFIG` reply (0 until read).
     var consoleLevel: Int { config?.bleConsoleLevel ?? 0 }
@@ -144,6 +145,7 @@ final class AppModel: ConsoleLinkDelegate {
     /// A discovered peripheral leaves the list after this time without a packet.
     static let discoveryKeepSeconds: TimeInterval = 120
     init() {
+        registerNotificationActions()
         Task { [weak self] in
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(30))
@@ -300,14 +302,43 @@ final class AppModel: ConsoleLinkDelegate {
         guard notificationsEnabled, Bundle.main.bundleIdentifier != nil else { return }
         let rising = AlertTransitions.risingAlerts(previous: previous, current: current)
         guard rising.rawValue != 0 else { return }
-        for name in rising.names {
+        let actionBits = AlertNotificationPlan.actionBits(rising: rising)
+        for bit in 0..<8 {
+            let mask = AlertMask(rawValue: UInt8(1 << bit))
+            guard rising.contains(mask), let name = mask.names.first else { continue }
             let content = UNMutableNotificationContent()
             content.title = "RLCD Panel Alert"
             content.body = "Alert raised: \(name)"
             content.sound = .default
-            let req = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
-            UNUserNotificationCenter.current().add(req)
+            let hasAction = actionBits.contains(bit)
+            if hasAction { content.categoryIdentifier = AlertNotificationPlan.categoryIdentifier }
+            // A fixed identifier lets a new rising edge of the same bit replace the older banner.
+            let identifier = hasAction ? AlertNotificationPlan.identifier(bit: bit) : UUID().uuidString
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: identifier, content: content, trigger: nil))
         }
+    }
+
+    /// Registers the category `rlcd_alert` with the action `Acknowledge` and takes the notification responses.
+    func registerNotificationActions() {
+        guard Bundle.main.bundleIdentifier != nil else { return }
+        let action = UNNotificationAction(identifier: AlertNotificationPlan.acknowledgeActionIdentifier, title: "Acknowledge", options: [])
+        let category = UNNotificationCategory(identifier: AlertNotificationPlan.categoryIdentifier, actions: [action], intentIdentifiers: [], options: [])
+        let center = UNUserNotificationCenter.current()
+        center.setNotificationCategories([category])
+        center.delegate = notificationDelegate
+        notificationDelegate.onAcknowledge = { [weak self] bit in self?.acknowledgeFromNotification(bit: bit) }
+    }
+
+    /// Sends `ACK <bit>` when the link is up and the model is idle; else posts `Panel not connected`.
+    private func acknowledgeFromNotification(bit: Int) {
+        if isIdle {
+            acknowledge(bit: bit)
+            return
+        }
+        let content = UNMutableNotificationContent()
+        content.title = "RLCD Panel Alert"
+        content.body = "Panel not connected"
+        UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil))
     }
 
     /// Outdoor tile of the ventilation advice from `outdoor_slot` of the cached `CONFIG` reply; `nil` for a stale frame,
