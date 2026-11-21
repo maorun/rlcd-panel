@@ -871,6 +871,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The view reads only the RTC copy. It needs no sensor read, no microphone and no card.
 - `STATE_VERSION` was 56 here. A record of version 55 gives a clean start.
 - `tools/preview_scenes.h` adds the scene `display_preview_chart_week` (sensor 1 with one day without samples). `./scripts/generate-display-preview.sh` writes `docs/display_preview_chart_week.png`.
+- The label line of the humidity box ends with `MOLD <N>H` after two spaces (`DashboardView::formatWeekMold`): the sum of `WeekHistory::moldHours` over the days with `hasMoldHours`, 0 to 168. A week without such a day shows no mold text. The line stays within `CHART_W`. The text is calculated on each render and needs no RTC state. The boxes, the weekday labels and the footer do not change.
 - Thus the user sees the course of one room over a week.
 
 ## Serial console command SET to change one config.ini key

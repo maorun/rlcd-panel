@@ -9300,6 +9300,104 @@ void testWeekChartKeyHandling() {
   assert(order.mode() == DisplayMode::DASHBOARD);
 }
 
+void testWeekChartMoldSum() {
+  char out[16];
+  WeekHistory w;
+  // A week of gaps gives an empty text
+  DashboardView::formatWeekMold(w, 1, out, sizeof(out));
+  assert(out[0] == '\0');
+  // Days of 3, 4 and 5 h give 12 h; a gap day adds nothing
+  w.setDay(1, 0, true, 100, 200, true, 400, 600, 3);
+  w.setDay(1, 1, true, 100, 200, true, 400, 600, 4);
+  w.setDay(1, 2, true, 100, 200, true, 400, 600, 5);
+  DashboardView::formatWeekMold(w, 1, out, sizeof(out));
+  assert(strcmp(out, "MOLD 12H") == 0);
+  // Days with 0 h give MOLD 0H
+  WeekHistory zero;
+  zero.setDay(2, 0, true, 100, 200, true, 400, 600, 0);
+  zero.setDay(2, 3, true, 100, 200, true, 400, 600, 0);
+  DashboardView::formatWeekMold(zero, 2, out, sizeof(out));
+  assert(strcmp(out, "MOLD 0H") == 0);
+  // Seven days of 24 h give 168 h
+  WeekHistory full;
+  for (size_t d = 0; d < WeekHistory::DAYS; ++d) {
+    full.setDay(1, d, true, 100, 200, true, 400, 600, 24);
+  }
+  DashboardView::formatWeekMold(full, 1, out, sizeof(out));
+  assert(strcmp(out, "MOLD 168H") == 0);
+  // Another sensor and an index out of range stay empty
+  DashboardView::formatWeekMold(full, 0, out, sizeof(out));
+  assert(out[0] == '\0');
+  DashboardView::formatWeekMold(full, 99, out, sizeof(out));
+  assert(out[0] == '\0');
+
+  // Rendered view: the label line of the humidity box differs from a week without mold hours
+  // and stays inside CHART_W
+  Shtc3Reading onboard;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  BatteryReading battery;
+  SystemInfo info;
+  info.chart_sensor = 1;
+  WeekHistory with_mold;
+  WeekHistory without_mold;
+  for (size_t d = 0; d < WeekHistory::DAYS; ++d) {
+    with_mold.setDay(1, d, true, 100, 200, true, 400, 550, 24);
+    without_mold.setDay(1, d, true, 100, 200, true, 400, 550);
+  }
+  St7305Framebuffer a;
+  St7305Framebuffer b;
+  a.clear(false);
+  b.clear(false);
+  DashboardView::renderMode(a, DisplayMode::WEEK_CHART, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info,
+                            "12:00", 0, nullptr, nullptr, nullptr, &with_mold);
+  DashboardView::renderMode(b, DisplayMode::WEEK_CHART, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info,
+                            "12:00", 0, nullptr, nullptr, nullptr, &without_mold);
+  assert(memcmp(a.data(), b.data(), St7305Framebuffer::BYTE_COUNT) != 0);
+  size_t right_ink = 0;
+  size_t label_ink_diff = 0;
+  for (uint16_t y = DashboardView::CHART_HUMIDITY_LABEL_Y; y < DashboardView::CHART_HUMIDITY_LABEL_Y + 7; ++y) {
+    for (uint16_t x = DashboardView::CHART_X + DashboardView::CHART_W; x < RLCD_WIDTH; ++x) {
+      right_ink += a.getPixel(x, y) ? 1 : 0;
+    }
+    for (uint16_t x = DashboardView::CHART_X; x < DashboardView::CHART_X + DashboardView::CHART_W; ++x) {
+      label_ink_diff += a.getPixel(x, y) != b.getPixel(x, y) ? 1 : 0;
+    }
+  }
+  assert(right_ink == 0 && label_ink_diff > 0);
+  // The label text is exactly the range, two spaces and the mold sum
+  St7305Framebuffer expected;
+  expected.clear(false);
+  expected.drawText(DashboardView::CHART_X, DashboardView::CHART_HUMIDITY_LABEL_Y,
+                    "HUMIDITY MIN 40.0 MAX 55.0 %  MOLD 168H", 1, true);
+  for (uint16_t y = DashboardView::CHART_HUMIDITY_LABEL_Y; y < DashboardView::CHART_HUMIDITY_LABEL_Y + 7; ++y) {
+    for (uint16_t x = DashboardView::CHART_X; x < DashboardView::CHART_X + DashboardView::CHART_W; ++x) {
+      assert(a.getPixel(x, y) == expected.getPixel(x, y));
+    }
+  }
+  // Outside the label line the two renders are equal (boxes, weekday labels and footer stay)
+  for (uint16_t y = DashboardView::CHART_HUMIDITY_Y - 1; y < RLCD_HEIGHT; ++y) {
+    for (uint16_t x = 0; x < RLCD_WIDTH; ++x) {
+      assert(a.getPixel(x, y) == b.getPixel(x, y));
+    }
+  }
+
+  // The climate chart and the other views ignore the week: same bytes with and without it
+  const DisplayMode other_modes[] = {
+      DisplayMode::DASHBOARD, DisplayMode::SENSOR_STATS, DisplayMode::SYSTEM_DIAGNOSTICS,
+      DisplayMode::AUDIO_SPECTRUM, DisplayMode::CLIMATE_CHART};
+  for (DisplayMode mode : other_modes) {
+    St7305Framebuffer c1;
+    St7305Framebuffer c2;
+    c1.clear(false);
+    c2.clear(false);
+    DashboardView::renderMode(c1, mode, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info,
+                              "12:00", 0, nullptr, nullptr, nullptr, &with_mold);
+    DashboardView::renderMode(c2, mode, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info,
+                              "12:00", 0, nullptr, nullptr, nullptr, &without_mold);
+    assert(memcmp(c1.data(), c2.data(), St7305Framebuffer::BYTE_COUNT) == 0);
+  }
+}
+
 void testWeekChartRendering() {
   Shtc3Reading onboard;
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
@@ -22567,6 +22665,7 @@ int main() {
   testWeekChartRtcRoundTrip();
   testWeekChartKeyHandling();
   testWeekChartRendering();
+  testWeekChartMoldSum();
   testWeekHistoryResetSlotClearsSensor();
   testParseDailyRow();
   testWeekRestoreFromDailyRows();
