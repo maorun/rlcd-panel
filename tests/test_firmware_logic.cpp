@@ -13829,8 +13829,29 @@ void testSerialHistoryParser() {
   SerialCommand cmd;
   assert(parseText("HISTORY", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::HISTORY);
   assert(parseText("HISTORY\r\n", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::HISTORY);
-  assert(parseText("HISTORY 1", cmd) == SerialParseStatus::UNKNOWN && cmd.kind == SerialCommandKind::NONE);
-  assert(parseText("HISTORY ", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("HISTORY", cmd) == SerialParseStatus::OK && !cmd.history_one);
+  assert(parseText("HISTORY 1", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::HISTORY &&
+         cmd.history_one && cmd.reference == 1);
+  assert(parseText("HISTORY 0", cmd) == SerialParseStatus::OK && cmd.history_one && cmd.reference == 0);
+  assert(parseText("HISTORY 10", cmd) == SerialParseStatus::OK && cmd.history_one && cmd.reference == 10);
+  assert(parseText("HISTORY ", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("HISTORY 11", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("HISTORY 1x", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("HISTORY x", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("HISTORY 1 2", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("HISTORY  1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("HISTORY 010", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("HISTORY -1", cmd) == SerialParseStatus::BAD_ARG);
+  // HISTORY <N> is a read command: it runs at each ble_console level and mounts no card
+  assert(parseText("HISTORY 3", cmd) == SerialParseStatus::OK);
+  for (uint8_t level = 0; level <= 2; ++level) {
+    assert(std::string(BleConsoleBridge::gate(cmd, level)).empty());
+  }
+  FakeConsoleStorage storage;
+  FakeSink quiet;
+  TestRunner::execute(storage, quiet, cmd);
+  assert(storage.mounts == 0 && storage.unmounts == 0 && quiet.out.empty());
+  assert(std::string(SerialConsole::errorLine(SerialParseStatus::BAD_ARG)) == "ERR BAD_ARG\n");
   assert(parseText("history", cmd) == SerialParseStatus::UNKNOWN);
   assert(parseText("HISTORYX", cmd) == SerialParseStatus::UNKNOWN);
 }
@@ -13921,6 +13942,76 @@ void testSerialHistoryMissingAndInvalidNoise() {
   assert(lines[2] == "0,0,-0.5,55.5,");   // invalid noise: empty field
   assert(lines[3] == "0,1,0.0,,42");      // missing humidity: empty field
   assert(lines[4] == "2,0,,61.0,");
+}
+
+void testSerialHistoryOneSensor() {
+  ClimateHistory h;
+  NoiseHistory n;
+  for (int i = 0; i < 5; ++i) {
+    for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
+      if (s == 5) {
+        continue; // sensor 5 stays empty
+      }
+      h.temperatures[s].pushCelsius(20.0f + static_cast<float>(s));
+      h.slots[s].pushPercent(40.0f + static_cast<float>(s));
+    }
+    n.push(static_cast<uint8_t>(30 + i));
+  }
+  FakeSink all;
+  TestRunner::showHistory(all, h, n);
+  FakeSink none;
+  TestRunner::showHistory(none, h, n, -1);
+  assert(all.out == none.out);
+  for (int sensor : {3, 10, 0}) {
+    FakeSink sink;
+    TestRunner::showHistory(sink, h, n, sensor);
+    const std::vector<std::string> lines = splitLines(sink.out);
+    assert(lines.size() == 2 + 5 + 1);
+    assert(lines[0] == "BEGIN HISTORY" && lines[1] == "sensor,age_h,temp_c,rh_pct,noise_db");
+    for (size_t k = 2; k < 7; ++k) {
+      assert(lines[k].rfind(std::to_string(sensor) + ",", 0) == 0);
+    }
+    const size_t pos = sink.out.rfind("CRC32 ");
+    assert(lines.back() == historyCrcLine(sink.out.substr(0, pos)));
+  }
+  FakeSink three;
+  TestRunner::showHistory(three, h, n, 3);
+  assert(splitLines(three.out)[2] == "3,0,23.0,43.0,");
+  FakeSink ten;
+  TestRunner::showHistory(ten, h, n, 10);
+  assert(splitLines(ten.out)[6] == "10,4,30.0,50.0,");
+  FakeSink empty;
+  TestRunner::showHistory(empty, h, n, 5);
+  const std::string body = "BEGIN HISTORY\nsensor,age_h,temp_c,rh_pct,noise_db\n";
+  assert(empty.out == body + historyCrcLine(body) + "\n");
+}
+
+void testSerialHistoryFixtureMatchesFullReply() {
+  ClimateHistory h;
+  NoiseHistory n;
+  const float t0[] = {20.5f, 21.0f, 21.4f};
+  const float r0[] = {47.0f, 46.5f, 45.0f};
+  for (int i = 0; i < 3; ++i) {
+    h.temperatures[0].pushCelsius(t0[i]);
+    h.slots[0].pushPercent(r0[i]);
+  }
+  n.push(35);
+  n.pushInvalid();
+  n.push(38);
+  h.temperatures[1].pushCelsius(22.0f);
+  h.temperatures[1].pushCelsius(22.1f);
+  h.slots[1].pushPercent(49.0f);
+  h.slots[1].pushPercent(48.5f);
+  h.slots[3].pushPercent(70.0f);
+  FakeSink sink;
+  TestRunner::showHistory(sink, h, n);
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  std::ifstream in(root + "tests/fixtures/history_reply_sample.txt");
+  assert(in.good());
+  const std::string fixture((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  assert(sink.out == fixture);
 }
 
 void testSerialHistoryNoiseOnly() {
@@ -22700,6 +22791,8 @@ testSerialHistoryParser();
 testSerialHistoryEmpty();
 testSerialHistoryFullOrderAndNegative();
 testSerialHistoryMissingAndInvalidNoise();
+testSerialHistoryOneSensor();
+testSerialHistoryFixtureMatchesFullReply();
 testSerialHistoryNoiseOnly();
 testSerialHistoryShortWriteAndNoCard();
 testSerialEventsParser();

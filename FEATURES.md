@@ -659,13 +659,22 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 ## Serial console command HISTORY to export the 24-hour histories
 
 - **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`
-- The console command `HISTORY` (no argument) sends the 24-hour histories from the RTC copy (`ClimateHistory`, `NoiseHistory`). `HISTORY` with an argument gives `ERR UNKNOWN`.
+- The console command `HISTORY` (no argument) sends the 24-hour histories from the RTC copy (`ClimateHistory`, `NoiseHistory`). `HISTORY <N>` (N 0 to 10) sends only the rows of sensor `N`; see the section on `HISTORY <N>` below.
 - The reply starts with `BEGIN HISTORY` and the header `sensor,age_h,temp_c,rh_pct,noise_db`. Each stored hour of each sensor gives one row: sensor `0` is the onboard sensor, `1` to `3` are the slots. `age_h` `0` is the newest sample.
 - The noise field holds a value in the rows of sensor `0` only. A missing sample or an invalid noise hour gives an empty field. Temperatures show one decimal and can be negative.
 - The reply ends with `CRC32 <8 hex digits>` over all bytes before this line. A short write stops the reply, so the host sees no `CRC32` line.
 - The command does not mount the card, so the console keeps running. It runs on USB power only (`PowerManager::serialConsoleAllowed`).
 - `./scripts/dump-logs.sh --history [port]` sends `HISTORY`, checks the CRC-32 and writes `sd_logs/history_<host time>.csv`. Thus the user gets the last 24 hours also without a card.
 - Host tests cover the parser, the rejection of arguments, the header, a full and an empty history, an invalid noise hour, negative temperatures, the row order, the CRC-32 line, each short write, no card access, the USB power gate and the script option.
+
+## Serial console command HISTORY <N> for one sensor
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- The console command `HISTORY <N>` (N 0 to 10, one digit or `10`) sends only the rows of sensor `N` (0 onboard, 1 to 10 slots). The reply has the same `BEGIN HISTORY` line, header and `CRC32` line as `HISTORY`. Thus a watch or a phone reads one room in a few BLE notifications.
+- `HISTORY` without an argument keeps the full reply (`tests/fixtures/history_reply_sample.txt`). `SerialCommand::history_one` and `SerialCommand::reference` carry the sensor; `SerialConsoleRunner::showHistory(sink, history, noise, only_sensor)` takes `-1` for all sensors.
+- A sensor without samples gives the header and no rows. `HISTORY 11`, `HISTORY 1x`, `HISTORY `, `HISTORY 010` and extra text give `ERR BAD_ARG`.
+- No card access, no state change, no RTC layout change. The command runs on USB and on BLE at each `ble_console` level.
+- Host tests cover the parser, the rows of sensors 3, 10 and 0, an empty sensor, the full reply, the fixture, the CRC-32 line of the one-sensor replies, the BLE gate at each `ble_console` level and no card mount.
 
 ## Serial console command EVENTS to read the event ring without a card
 
