@@ -207,6 +207,7 @@ class TelemetryHistoryTest {
         assertEquals(listOf(0, 1), temp.series.keys.toList())
         assertEquals(listOf(20.0, 22.0), temp.series.getValue(0).map { it.value })
         assertEquals(listOf(25.5, null), temp.series.getValue(1).map { it.value })
+        // The minimum comes from tile 0 and the maximum from tile 1.
         assertEquals(20.0, temp.min!!, 1e-9)
         assertEquals(25.5, temp.max!!, 1e-9)
         val rh = h.comparePoints(t0 + 120_000, HistoryMetric.HUMIDITY)

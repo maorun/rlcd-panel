@@ -263,7 +263,11 @@ private fun CompareCard(history: TelemetryHistory, panelConfig: PanelConfig, win
             if (lo == null || hi == null) {
                 Text("Noch keine Daten", style = MaterialTheme.typography.bodySmall)
             } else {
-                Text(String.format(Locale.ROOT, "Achse %.1f–%.1f %s", lo, hi, unit), style = MaterialTheme.typography.bodySmall)
+                Text(
+                    if (lo == hi) String.format(Locale.ROOT, "Achse %.1f %s", lo, unit)
+                    else String.format(Locale.ROOT, "Achse %.1f–%.1f %s", lo, hi, unit),
+                    style = MaterialTheme.typography.bodySmall
+                )
                 val from = windowNow - TelemetryHistory.WINDOW_MILLIS
                 val lines = compare.series.map { (index, points) ->
                     index to HistoryChartGeometry.segments(points, from, windowNow, lo, hi)
