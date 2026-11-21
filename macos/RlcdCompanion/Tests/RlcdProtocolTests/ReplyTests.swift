@@ -194,6 +194,19 @@ struct ReplyAssemblerTests {
         #expect(ConsoleCommand.canAcknowledgeAll(alertMask: 0x32, ackedMask: 0x00))
     }
 
+    @Test func identifyCommandAndReply() throws {
+        #expect(ConsoleCommand.identify.line == "IDENTIFY")
+        #expect(try IdentifyReply.parse("OK IDENTIFY 3F2A").code == "3F2A")
+        #expect(try IdentifyReply.parse("OK IDENTIFY 3f2a").code == "3F2A")
+        #expect(throws: ParseError.badLine("OK IDENTIFY 3F2")) { try IdentifyReply.parse("OK IDENTIFY 3F2") }
+        #expect(throws: ParseError.badLine("OK IDENTIFY XYZW")) { try IdentifyReply.parse("OK IDENTIFY XYZW") }
+        #expect(throws: ParseError.badLine("OK IDENTIFY 3F2A1")) { try IdentifyReply.parse("OK IDENTIFY 3F2A1") }
+        #expect(ConsoleCommand.identifyMessage("OK IDENTIFY 3F2A") == "Panel shows RLCD 3F2A")
+        #expect(ConsoleCommand.identifyMessage("ERR BAD_ARG") == "The panel rejected the command")
+        #expect(ConsoleCommand.identifyMessage("OK IDENTIFY 3F2") == "OK IDENTIFY 3F2")
+        #expect(ConsoleCommand.identifyMessage("ERR READ_ONLY") == "ERR READ_ONLY")
+    }
+
     @Test func slotClearReplies() {
         var a = ReplyAssembler()
         #expect(a.append(Data("OK SLOT CLEAR 2\nERR FIXED_MAC\nERR BAD_ARG\n".utf8))

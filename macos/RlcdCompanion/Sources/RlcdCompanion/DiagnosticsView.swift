@@ -113,6 +113,11 @@ struct DiagnosticsView: View {
                     if let r = model.lastChimeResult {
                         Text("Chime reply: \(r)").font(.caption.monospaced())
                     }
+                    HStack {
+                        Button("Identify panel") { model.identifyPanel() }
+                            .disabled(!model.consoleConnected || !model.isIdle)
+                        if let r = model.identifyResult { Text(r).font(.caption.monospaced()) }
+                    }
                     if let r = model.lastPatternResult {
                         Text("Display pattern reply: \(r)").font(.caption.monospaced())
                     }
