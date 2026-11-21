@@ -24,12 +24,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Console command CONFIG <key> to read one value
-  - Rank: [Total: 27, Use: 3, Setup: 8, Harmony: 6, Safety: 10, Effort: S]
-  - Location: rlcd_panel/serial_console.h, tests/test_firmware_logic.cpp
-  - Goal: Accept `CONFIG <key>` for each key of `DeviceConfigParser::KEYS`. Reply one line `<key>=<value>` from the RTC copy and the `CRC32` line. Give `ERR BAD_KEY` for an unknown key. `CONFIG` without an argument stays unchanged. The command needs no card and runs on USB and BLE at each `ble_console` level.
-  - Acceptance test: Host tests assert `CONFIG mold_alert_limit_rh` gives `mold_alert_limit_rh=70` and a correct CRC line, `CONFIG nokey` gives `ERR BAD_KEY`, `CONFIG mold_alert_limit_rh x` gives `ERR BAD_ARG`, and the full `CONFIG` reply is byte-equal to the current reply. `arduino-cli compile rlcd_panel` passes.
-
 - [ ] Wall humidity badge on the climate tiles
   - Rank: [Total: 27, Use: 7, Setup: 3, Harmony: 8, Safety: 9, Effort: M]
   - Location: rlcd_panel/dashboard_view.h, rlcd_panel/climate_math.h, rlcd_panel/power_manager.h, rlcd_panel/serial_console.h, tools/preview_scenes.h, tests/test_firmware_logic.cpp

@@ -10618,11 +10618,85 @@ void testSerialConfigParser() {
   SerialCommand cmd;
   assert(parseText("CONFIG", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::CONFIG);
   assert(parseText("CONFIG\r\n", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::CONFIG);
-  assert(parseText("CONFIG now", cmd) == SerialParseStatus::UNKNOWN && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("CONFIG now", cmd) == SerialParseStatus::BAD_KEY && cmd.kind == SerialCommandKind::NONE);
   assert(parseText("CONFIG ", cmd) == SerialParseStatus::UNKNOWN);
   assert(parseText("CONFIGX", cmd) == SerialParseStatus::UNKNOWN);
   assert(parseText("config", cmd) == SerialParseStatus::UNKNOWN);
-  assert(parseText("CONFIG climate_v2_202611.csv", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("CONFIG climate_v2_202611.csv", cmd) == SerialParseStatus::BAD_KEY);
+}
+
+void testSerialConfigKeyCommand() {
+  SerialCommand cmd;
+  assert(parseText("CONFIG mold_alert_limit_rh", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::CONFIG &&
+         std::string(cmd.set_key) == "mold_alert_limit_rh");
+  assert(parseText("CONFIG nokey", cmd) == SerialParseStatus::BAD_KEY && cmd.kind == SerialCommandKind::NONE);
+  assert(std::string(SerialConsole::errorLine(SerialParseStatus::BAD_KEY)) == "ERR BAD_KEY\n");
+  assert(parseText("CONFIG mold_alert_limit_rh x", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  assert(std::string(SerialConsole::errorLine(SerialParseStatus::BAD_ARG)) == "ERR BAD_ARG\n");
+  assert(parseText("CONFIG mold_alert_limit_rh ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("CONFIG MOLD_ALERT_LIMIT_RH", cmd) == SerialParseStatus::BAD_KEY);
+  assert(parseText("CONFIG mold_alert_limit_rh=70", cmd) == SerialParseStatus::BAD_KEY);
+  // each key of the parser is accepted
+  for (size_t i = 0; i < DeviceConfigParser::KEY_COUNT; ++i) {
+    const std::string line = std::string("CONFIG ") + DeviceConfigParser::KEYS[i];
+    assert(parseText(line.c_str(), cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::CONFIG);
+    assert(std::string(cmd.set_key) == DeviceConfigParser::KEYS[i]);
+  }
+  // no card access; BLE passes the command at each level
+  FakeConsoleStorage storage;
+  FakeSink none;
+  assert(parseText("CONFIG mold_alert_limit_rh", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, none, cmd);
+  assert(storage.mounts == 0 && none.out.empty());
+  for (uint8_t level = 1; level <= 2; ++level) {
+    assert(std::string(BleConsoleBridge::gate(cmd, level)).empty());
+  }
+}
+
+static std::string crcLineOf(const std::string& body) {
+  SerialCrc32 crc;
+  crc.update(reinterpret_cast<const uint8_t*>(body.data()), body.size());
+  char line[24];
+  snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+  return line;
+}
+
+void testSerialConfigKeyReply() {
+  DeviceConfig cfg; // default mold_alert_limit_rh is 70
+  FakeSink sink;
+  TestRunner::showConfigKey(sink, cfg, "mold_alert_limit_rh");
+  assert(sink.out == "mold_alert_limit_rh=70\n" + crcLineOf("mold_alert_limit_rh=70\n"));
+  // a float key, a text key and an empty name
+  FakeSink temp;
+  cfg.temp_offset_c = 2.25f;
+  TestRunner::showConfigKey(temp, cfg, "temp_offset_c");
+  assert(temp.out.rfind("temp_offset_c=2.25\n", 0) == 0);
+  FakeSink unit;
+  TestRunner::showConfigKey(unit, cfg, "temp_unit");
+  assert(unit.out == "temp_unit=C\n" + crcLineOf("temp_unit=C\n"));
+  FakeSink name;
+  TestRunner::showConfigKey(name, cfg, "slot1_name");
+  assert(name.out == "slot1_name=\n" + crcLineOf("slot1_name=\n"));
+  // a key name that is the prefix of another key must not match it
+  FakeSink slot;
+  TestRunner::showConfigKey(slot, cfg, "slot1_enabled");
+  assert(slot.out == "slot1_enabled=1\n" + crcLineOf("slot1_enabled=1\n"));
+  // every key of the parser answers one line with its own name
+  for (size_t i = 0; i < DeviceConfigParser::KEY_COUNT; ++i) {
+    FakeSink each;
+    TestRunner::showConfigKey(each, cfg, DeviceConfigParser::KEYS[i]);
+    const std::string prefix = std::string(DeviceConfigParser::KEYS[i]) + "=";
+    assert(each.out.rfind(prefix, 0) == 0);
+    const size_t nl = each.out.find('\n');
+    assert(nl != std::string::npos && each.out.substr(nl + 1) == crcLineOf(each.out.substr(0, nl + 1)));
+  }
+  // the argument-less reply stays the name lines, the SOURCE line and the CRC32 line over both
+  FakeSink full;
+  TestRunner::showConfig(full, cfg, true);
+  char text[DeviceConfigText::MAX_SIZE];
+  const size_t len = DeviceConfigText::format(cfg, text, sizeof(text));
+  const std::string body = std::string(text, len) + "SOURCE SD\n";
+  assert(full.out == body + crcLineOf(body));
 }
 
 void testSerialConfigLineFormat() {
@@ -23631,6 +23705,8 @@ int main() {
   testSerialDumpFailures();
   testSerialDumpStopsOnShortWrite();
 testSerialConfigParser();
+testSerialConfigKeyCommand();
+testSerialConfigKeyReply();
 testSerialConfigLineFormat();
 testSerialConfigFrameAndCrc();
 testSerialConfigRunsWithoutMountingCard();
