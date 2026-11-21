@@ -2294,3 +2294,9 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `start_h` and `end_h` are `quiet_hours_start_hour` and `quiet_hours_end_hour`. `active` is `QuietHoursWindow::isActive` at the RTC time of the command; `--` for an invalid, unreadable or stopped RTC time. `night_interval_s` is `night_wake_interval_s` (0 is off). An equal start and end hour gives `active=0`.
 - `SerialStatusSnapshot::quiet_active` is `int8_t` (-1 unknown); `SerialStatusSnapshot::quietFlag` derives it. The sketch reads the RTC for each `STATUS`. The RTC layout and `STATE_VERSION` do not change. The Kotlin parsers ignore the line.
 - Tests: `testStatusQuietLine` asserts 23:30 (`active=1`), 12:00 (`active=0`), a stopped oscillator (`active=--`), an equal start and end hour and the order `CHIME`, `QUIET`, `CRC32`. Each full `STATUS` assert counts 29 lines now. `tests/fixtures/status_reply_sample.txt` holds the line; the CRC literal is `7108cbc2`.
+
+## Mold hours in the Wear OS week screen
+
+- `WeekText.mold(row)` gives `Schimmel <N> h` from `WeekRow.moldHours`, with the `SensorHealthText.WARNING` mark above 0 hours, and an empty text for `null` (7-column reply, gap day).
+- `WeekScreen` shows the text below the humidity of each day row in a small grey line. An empty text draws no line, so a reply with 7 columns keeps the current rows.
+- Tests: `WeekTextTest.moldText`.

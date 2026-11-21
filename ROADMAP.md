@@ -78,12 +78,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: `readPanelHistory` sends `HISTORY` and reads the rows of all 11 sensors over BLE. When the user looks at one room, most of the reply is not used. Put this entry after "Console command HISTORY for one sensor". Add `HistoryCommand.line(sensor)`: `HISTORY <N>` for 0 to 10, `HISTORY` for `null`. Add the button `Nur diesen Raum lesen` to `HistoryScreen` for the selected sensor. For an `ERR` reply of an older firmware, send `HISTORY` once and keep the rows of the sensor (`HistoryCommand.filter`). Keep the button `Panel-Verlauf lesen` for all sensors.
   - Acceptance test: In `HistoryCommandTest`, assert `HISTORY 3`, `HISTORY 10`, `HISTORY` for `null`, an `IllegalArgumentException` for 11, and that `filter` keeps only the rows of sensor 1 of `tests/fixtures/history_reply_sample.txt`. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`.
 
-- [ ] Mold hours in the Wear OS week screen
-  - Rank: [Total: 26, Use: 6, Setup: 2, Harmony: 8, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/WeekScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/WeekTextTest.kt
-  - Goal: The watch parses `WeekRow.moldHours`, but each day row of `WeekScreen` shows only the temperature and the humidity. Add `WeekText.mold(row)`: `Schimmel <N> h` with the `WARNING` mark above 0 hours, and an empty text for `null`, so a reply with 7 columns keeps the current rows. Show the text below the humidity of each day row.
-  - Acceptance test: In `WeekTextTest`, assert `Schimmel 0 h` for 0, the warning mark and `Schimmel 5 h` for 5, and an empty text for `null`. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`.
-
 - [ ] Acknowledge all button in the macOS diagnostics view
   - Rank: [Total: 25, Use: 5, Setup: 4, Harmony: 7, Safety: 9, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift
