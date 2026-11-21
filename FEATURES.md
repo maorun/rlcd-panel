@@ -2315,3 +2315,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - Reply `OK ACK ALL <2 hex digits>` with the new mask, or `ERR NOT_ACTIVE` when no bit is new (`SerialConsoleRunner::ackAllReply`). `ACK ALLX`, `ACK ALL 1` and other extra text give `ERR BAD_ARG`. `ACK <N>` is unchanged (`SerialCommand::ack_all` is false).
 - `ACK ALL` is a write command: `ERR READ_ONLY` on BLE with `ble_console` 1. It needs no card. The RTC layout and `STATE_VERSION` do not change.
 - Tests: the host tests assert `OK ACK ALL 22` with two events for mask 0x32, `OK ACK ALL 20` with one event, `ERR NOT_ACTIVE` for a second command and for mask 0x10, `ERR READ_ONLY`, and the `BAD_ARG` cases.
+
+## Acknowledge action in the Android alert notification
+
+- `AckCommand.kt` is a copy of the watch file in the phone package `protocol` and is in `FILES` of `scripts/check-protocol-sync.sh`.
+- `BleScanService.postAlertNotification(rising)` posts one notification for each bit of `AckCommand.actionBits(rising)` with the action `Acknowledge` (notification id `930` + bit, `ackNotificationId`; the ids 910 to 920 stay with the stale notifications). Other rising bits keep the old notification (id 900). The action exists only when `PanelConfig.canWrite` is true (`ble_console=2`); else the old single notification stays.
+- `AckReceiver` (not exported) runs after a user tap only. It checks `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT`, sends `ACK <N>` once through `BleConsoleClient` (one command in flight, 8 s watchdog) and shows `AckCommand.resultText` in a short notification.
+- Tests: `AckCommandTest` (phone) asserts that `HUMIDITY | CHARGE_FULL` gives `[1]`. `./scripts/check-protocol-sync.sh` and `--self-test` pass. The Gradle tasks did not run on this host (no Android SDK); the CI jobs run them.

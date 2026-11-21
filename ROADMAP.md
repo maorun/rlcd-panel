@@ -21,13 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Acknowledge action in the Android alert notification
-  - Rank: [Total: 29, Use: 8, Setup: 3, Harmony: 9, Safety: 9, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AckCommand.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AckCommand.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/AckReceiver.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/BleScanService.kt, android/RlcdPhone/app/src/main/AndroidManifest.xml, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AckCommandTest.kt, scripts/check-protocol-sync.sh
-  - Goal: The watch alert notification has the action `Acknowledge`, which sends `ACK <N>`. The phone notification has no action, so the chime reminder sounds again until the user walks to the panel. Copy `AckCommand.kt` of the watch into the phone package `protocol` and add it to `FILES` in `scripts/check-protocol-sync.sh`. In `BleScanService.postAlertNotification`, post one notification for each bit of `AckCommand.actionBits(rising)` with the action `Acknowledge`, like the watch. Add `AckReceiver` to the phone: it checks the BLE console permissions, sends `ACK <N>` once through `BleConsoleClient` and shows `AckCommand.resultText` in a short notification. Show the action only when `PanelConfig.canWrite` is true. Do not send a command without a user tap.
-  - Acceptance test: Copy `AckCommandTest` of the watch into the phone tests and assert that it passes. Assert `actionBits` for the mask of `ALERT_HUMIDITY | ALERT_CHARGE_FULL` gives `[1]`. Run `./scripts/check-protocol-sync.sh` and assert exit 0 with the new `FILES` entry. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` and `wearos/RlcdWatch`, and `./scripts/check-protocol-sync.sh --self-test`.
-
-
 - [ ] Badge latches in the Wear OS sensor health screen
   - Rank: [Total: 28, Use: 5, Setup: 5, Harmony: 8, Safety: 10, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/StatusReplyTest.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt
