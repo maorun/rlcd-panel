@@ -2436,11 +2436,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 ## Alert limit editor in the Android app
 
 - **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertLimits.kt`, `AlertLimitScreen.kt`, `MainActivity.kt`, `SensorHealthScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertLimitsTest.kt`.
-- The button `Alert limits` of the sensor health screen opens `AlertLimitScreen`. It edits `mold_alert_limit_rh` (40 to 95), `dry_alert_limit_rh` (0 or 20 to 45), `freeze_alert_limit_c` (-20.0 to 15.0), `heat_alert_limit_c` (0 or 27 to 45), `ventilate_limit_rh` (50 to 80) and `sensor_battery_limit_pct` (0 to 50). The ranges equal the firmware limits in `device_config.h`.
+- The button `Alert limits` of the sensor health screen opens `AlertLimitScreen`. It edits `mold_alert_limit_rh` (40 to 95), `mold_alert_delay_h` (whole hours, 0 to 12, 0 is off; label `Verzögerung Schimmelalarm (h)`, shown below the mold limit; same `SET` batch and stop rules), `dry_alert_limit_rh` (0 or 20 to 45), `freeze_alert_limit_c` (-20.0 to 15.0), `heat_alert_limit_c` (0 or 27 to 45), `ventilate_limit_rh` (50 to 80) and `sensor_battery_limit_pct` (0 to 50). The ranges equal the firmware limits in `device_config.h`.
 - `AlertLimits.error` checks one input against the range and the number form (a comma counts as decimal point; only `freeze_alert_limit_c` takes one decimal). `AlertLimits.plan` gives one `SET <key>=<value>` for each changed key in the fixed order of `AlertLimits.LIMITS`, no command for an unchanged value, and refuses the whole list when one value is invalid.
 - `AlertLimits.run` sends the commands one by one, then `CONFIG` (same batch as `SlotAssignment.run`). The first `ERR` line stops the batch before `CONFIG`; the summary names the failed reply and the count of applied keys.
 - The edit fields and the `Anwenden` button show only when `PanelConfig.canWrite` is true (`ble_console=2`). Otherwise the screen shows the cached values read-only with the `ble_console=2` hint. The button `CONFIG lesen` refreshes the cache.
-- No firmware change, no RTC layout change. Tests: `AlertLimitsTest` (ranges, fixed order, unchanged value, invalid value, stop after `ERR BAD_VALUE`, `CONFIG` last).
+- No firmware change, no RTC layout change. Tests: `AlertLimitsTest` (ranges, mold delay range and wire text, fixed order, unchanged value, invalid value, stop after `ERR BAD_VALUE`, `CONFIG` last).
 
 ## Calibration of slots 6 to 10 in the Android app
 
