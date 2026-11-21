@@ -128,6 +128,7 @@ fun SensorHealthScreen(
     onOpenFinder: () -> Unit = {},
     onOpenChime: () -> Unit = {},
     onOpenSlots: () -> Unit = {},
+    onOpenAlertLimits: () -> Unit = {},
     onOpenRejects: () -> Unit = {},
     clockState: ClockState = ClockState(),
     versionState: VersionState = VersionState(),
@@ -168,6 +169,9 @@ fun SensorHealthScreen(
             }
             item {
                 OutlinedButton(onClick = onOpenSlots) { Text("Slot configuration") }
+            }
+            item {
+                OutlinedButton(onClick = onOpenAlertLimits) { Text("Alert limits") }
             }
             item {
                 OutlinedButton(onClick = onOpenRejects) { Text("Rejected packets") }

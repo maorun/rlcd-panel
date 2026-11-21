@@ -32,6 +32,7 @@ import com.rlcdpanel.phone.console.BleConsoleClient
 import com.rlcdpanel.phone.finder.SensorFinderList
 import com.rlcdpanel.phone.finder.SensorFinderScanner
 import com.rlcdpanel.phone.finder.SlotAssignment
+import com.rlcdpanel.phone.protocol.AlertLimits
 import com.rlcdpanel.phone.protocol.CalibrationBatch
 import com.rlcdpanel.phone.protocol.ChimeCommand
 import com.rlcdpanel.phone.protocol.ChimeText
@@ -119,12 +120,14 @@ class MainActivity : ComponentActivity() {
     private var showFinder by mutableStateOf(false)
     private var showChime by mutableStateOf(false)
     private var showSlots by mutableStateOf(false)
+    private var showAlertLimits by mutableStateOf(false)
     private var showRejects by mutableStateOf(false)
     private var clockState by mutableStateOf(ClockState())
     private var rtcTrimState by mutableStateOf(RtcTrimState())
     private var versionState by mutableStateOf(VersionState())
     private var rejectsState by mutableStateOf(RejectsState())
     private var slotState by mutableStateOf(SlotConfigState())
+    private var alertLimitState by mutableStateOf(AlertLimitState())
     private var chimeState by mutableStateOf(ChimeState())
     private var finderState by mutableStateOf(SensorFinderState())
     private val finderList = SensorFinderList()
@@ -279,6 +282,17 @@ class MainActivity : ComponentActivity() {
                 BackHandler { closeRejects() }
                 return@setContent
             }
+            if (showAlertLimits) {
+                AlertLimitScreen(
+                    state = alertLimitState,
+                    panelConfig = panelConfig,
+                    onRead = { withConsolePermission { applyAlertLimits(emptyList()) } },
+                    onApply = { commands -> withConsolePermission { applyAlertLimits(commands) } },
+                    onBack = { closeAlertLimits() }
+                )
+                BackHandler { closeAlertLimits() }
+                return@setContent
+            }
             if (showSlots) {
                 SlotConfigScreen(
                     state = slotState,
@@ -313,6 +327,7 @@ class MainActivity : ComponentActivity() {
                     onOpenFinder = { showHealth = false; showFinder = true },
                     onOpenChime = { showHealth = false; showChime = true },
                     onOpenSlots = { showHealth = false; showSlots = true },
+                    onOpenAlertLimits = { showHealth = false; showAlertLimits = true },
                     onOpenRejects = { showHealth = false; showRejects = true },
                     clockState = clockState,
                     versionState = versionState,
@@ -463,6 +478,9 @@ class MainActivity : ComponentActivity() {
         if (versionState.isBusy) versionState = VersionState(message = "Abgebrochen. Erneut lesen.")
         if (clockState.isBusy) clockState = ClockState(message = "Abgebrochen. Zustand der Panel-Uhr unbekannt, Read clock tippen")
         if (chimeState.isBusy) chimeState = chimeState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, STATUS lesen")
+        if (alertLimitState.isBusy) {
+            alertLimitState = alertLimitState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, CONFIG lesen")
+        }
         if (calibState.isBusy) {
             calibState = calibState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, CONFIG lesen")
         }
@@ -483,6 +501,7 @@ class MainActivity : ComponentActivity() {
             else if (showHistory) panelHistory = PanelHistoryState(message = "Bluetooth-Berechtigung fehlt")
             else if (showWeek) weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
             else if (showFinder) finderState = finderState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
+            else if (showAlertLimits) alertLimitState = alertLimitState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else if (showSlots) slotState = slotState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else if (showChime) chimeState = chimeState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else calibState = calibState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
@@ -748,6 +767,37 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun closeAlertLimits() {
+        consoleClient.cancel()
+        pendingConsoleAction = null
+        alertLimitState = AlertLimitState()
+        showAlertLimits = false
+        showHealth = true
+    }
+
+    /** Sends the alert limit [commands] one by one, then `CONFIG`; no command only reads `CONFIG`. The first `ERR` stops the batch. */
+    private fun applyAlertLimits(commands: List<String>) {
+        stopBleScan()
+        alertLimitState = alertLimitState.copy(isBusy = true, isError = false, message = null)
+        AlertLimits.run(commands, consoleClient::send) { result ->
+            result.config?.let { frame ->
+                lifecycleScope.launch {
+                    val info = withContext(Dispatchers.IO) { ConfigCache.store(filesDir, frame, System.currentTimeMillis()) }
+                    if (info != null) {
+                        panelConfig = withContext(Dispatchers.IO) { PanelConfig.load(this@MainActivity) }
+                        configState = ConfigReadState(info = info)
+                    } else if (showAlertLimits) {
+                        alertLimitState = alertLimitState.copy(isError = true, message = "Panel liefert keine SD-Einstellungen. Anzeige ist alt, CONFIG lesen")
+                    }
+                }
+            }
+            // A reply that arrives after closeAlertLimits must not mark the reset screen as busy or failed.
+            if (showAlertLimits) {
+                alertLimitState = alertLimitState.copy(isBusy = false, isError = !result.ok, message = result.summary)
+            }
+        }
+    }
+
     private fun closeChime() {
         consoleClient.cancel()
         pendingConsoleAction = null
@@ -816,7 +866,7 @@ class MainActivity : ComponentActivity() {
 
     /** Runs [action] after the Bluetooth permissions; the action sends console commands. */
     private fun withConsolePermission(action: () -> Unit) {
-        if (calibState.isBusy || chimeState.isBusy || weekState.isReading || panelHistory.isReading || eventState.isReading || rejectsState.isReading || finderState.isBusy || slotState.isBusy || consoleClient.isRunning) return
+        if (calibState.isBusy || chimeState.isBusy || weekState.isReading || panelHistory.isReading || eventState.isReading || rejectsState.isReading || finderState.isBusy || slotState.isBusy || alertLimitState.isBusy || consoleClient.isRunning) return
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
@@ -829,6 +879,7 @@ class MainActivity : ComponentActivity() {
             else if (showHistory) panelHistory = PanelHistoryState(isReading = true)
             else if (showWeek) weekState = WeekState(isReading = true)
             else if (showFinder) finderState = finderState.copy(isBusy = true, message = null)
+            else if (showAlertLimits) alertLimitState = alertLimitState.copy(isBusy = true, message = null)
             else if (showSlots) slotState = slotState.copy(isBusy = true, message = null)
             else if (showChime) chimeState = chimeState.copy(isBusy = true, message = null)
             else calibState = calibState.copy(isBusy = true, message = null)
