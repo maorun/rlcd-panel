@@ -36,14 +36,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, REJECTS, ACK };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SLOT CLEAR without a slot number, with a number outside 1 to 5 or with extra text; SCREEN with extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
+  BAD_ARG,  // CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN with extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '=')
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv, daily_v4_YYYY.csv or events_v1_YYYY.csv
@@ -55,7 +55,8 @@ constexpr size_t SET_VALUE_SIZE = 41;
 struct SerialCommand {
   SerialCommandKind kind = SerialCommandKind::NONE;
   char file[SdLogCodec::LOG_NAME_SIZE] = {0};
-  uint8_t reference = 0; // CALIB and SALT: 0 onboard, 1 to 10 a slot; BEEP and ACK: alert bit number 0 to 7; PATTERN: pattern number 0 to 2; MUTE: 0 or 1; SLOT CLEAR: slot number 1 to 5
+  uint8_t reference = 0; // CALIB and SALT: 0 onboard, 1 to 10 a slot; BEEP and ACK: alert bit number 0 to 7; PATTERN: pattern number 0 to 2; MUTE: 0 or 1; SLOT CLEAR: slot number 1 to 10
+  uint8_t reference_b = 0; // SLOT SWAP: second slot number 1 to 10 (`reference` holds the first)
   bool history_one = false; // HISTORY: true for "HISTORY <N>"; `reference` then holds the sensor 0 to 10
   bool ack_all = false; // ACK: true for "ACK ALL" (every active repeatable alert bit that is not acknowledged)
   bool salt_mgcl2 = false; // SALT: true for "SALT N MGCL2" (magnesium chloride reference, no proposal line)
@@ -72,7 +73,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..5", "SCAN", "SCREEN", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SCREEN", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -164,27 +165,53 @@ public:
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "SLOT")) {
-      // exactly "SLOT CLEAR <N>" with N 1 to 10
-      static const char prefix[] = "SLOT CLEAR";
-      const size_t prefix_len = sizeof(prefix) - 1;
-      if (len < prefix_len || memcmp(line, prefix, prefix_len) != 0 || (len > prefix_len && line[prefix_len] != ' ')) {
-        return SerialParseStatus::UNKNOWN; // only "SLOT CLEAR" exists (a bare "SLOT" is no known command, like a bare "RTC")
+      // exactly "SLOT CLEAR <N>" or "SLOT SWAP <A> <B>" with numbers 1 to 10
+      static const char clear_prefix[] = "SLOT CLEAR";
+      static const char swap_prefix[] = "SLOT SWAP";
+      const size_t clear_len = sizeof(clear_prefix) - 1;
+      const size_t swap_len = sizeof(swap_prefix) - 1;
+      const bool is_clear = len >= clear_len && memcmp(line, clear_prefix, clear_len) == 0 &&
+                            (len == clear_len || line[clear_len] == ' ');
+      const bool is_swap = len >= swap_len && memcmp(line, swap_prefix, swap_len) == 0 &&
+                           (len == swap_len || line[swap_len] == ' ');
+      if (!is_clear && !is_swap) {
+        return SerialParseStatus::UNKNOWN; // only "SLOT CLEAR" and "SLOT SWAP" exist (a bare "SLOT" is no known command, like a bare "RTC")
       }
+      const size_t prefix_len = is_clear ? clear_len : swap_len;
       if (len <= prefix_len + 1 || line[prefix_len] != ' ') {
         return SerialParseStatus::BAD_ARG;
       }
       const char* p = line + prefix_len + 1;
-      const size_t arg_len = len - (prefix_len + 1);
-      int slot_num = 0;
-      if (arg_len == 1 && p[0] >= '1' && p[0] <= '9') {
-        slot_num = p[0] - '0';
-      } else if (arg_len == 2 && p[0] == '1' && p[1] == '0') {
-        slot_num = 10;
-      } else {
+      size_t remaining = len - (prefix_len + 1);
+      int numbers[2] = {0, 0};
+      const size_t wanted = is_clear ? 1 : 2;
+      for (size_t n = 0; n < wanted; ++n) {
+        size_t digits = 0;
+        if (remaining >= 2 && p[0] == '1' && p[1] == '0') {
+          numbers[n] = 10;
+          digits = 2;
+        } else if (remaining >= 1 && p[0] >= '1' && p[0] <= '9') {
+          numbers[n] = p[0] - '0';
+          digits = 1;
+        } else {
+          return SerialParseStatus::BAD_ARG;
+        }
+        p += digits;
+        remaining -= digits;
+        if (n + 1 < wanted) {
+          if (remaining < 2 || p[0] != ' ') {
+            return SerialParseStatus::BAD_ARG;
+          }
+          ++p;
+          --remaining;
+        }
+      }
+      if (remaining != 0 || (is_swap && numbers[0] == numbers[1])) {
         return SerialParseStatus::BAD_ARG;
       }
-      out.kind = SerialCommandKind::SLOT_CLEAR;
-      out.reference = static_cast<uint8_t>(slot_num);
+      out.kind = is_clear ? SerialCommandKind::SLOT_CLEAR : SerialCommandKind::SLOT_SWAP;
+      out.reference = static_cast<uint8_t>(numbers[0]);
+      out.reference_b = static_cast<uint8_t>(numbers[1]);
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "SCAN")) {
@@ -609,7 +636,7 @@ public:
     }
     const bool writes = command.kind == SerialCommandKind::SET || command.kind == SerialCommandKind::MUTE ||
                         command.kind == SerialCommandKind::RTC_TRIM || command.kind == SerialCommandKind::SLOT_CLEAR ||
-                        command.kind == SerialCommandKind::ACK ||
+                        command.kind == SerialCommandKind::SLOT_SWAP || command.kind == SerialCommandKind::ACK ||
                         (command.kind == SerialCommandKind::TIME && command.time_set);
     if (writes && level < 2) {
       return "ERR READ_ONLY\n";
@@ -791,9 +818,13 @@ struct SerialStatusSnapshot {
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 7), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
-//   SLOT CLEAR N -> "OK SLOT CLEAR <N>" after PersistentState::clearSlotByUser freed registry slot N (1 to 5): reading, histories,
+//   SLOT CLEAR N -> "OK SLOT CLEAR <N>" after PersistentState::clearSlotByUser freed registry slot N (1 to 10): reading, histories,
 //   reception mask, week days and latches; an occupied slot records SLOT_RELEASE (detail 0x01<N>), an empty one records nothing. A slot
 //   with a fixed MAC gives "ERR FIXED_MAC" and no change. No card access; ERR READ_ONLY on BLE with ble_console 1.
+//   SLOT SWAP A B -> "OK SLOT SWAP <A> <B>" after PersistentState::swapSlotsByUser swapped registry slots A and B (1 to 10, different):
+//   reading, both 24-hour histories, reception mask, week days and the battery, ventilation, dry air and stale latch bits; one SLOT_ASSIGN
+//   event for each occupied slot. A slot with a fixed MAC gives "ERR FIXED_MAC", a disabled slot "ERR SLOT_OFF", an equal or bad number
+//   "ERR BAD_ARG"; no change in these cases. No card access; ERR READ_ONLY on BLE with ble_console 1. RTC layout and STATE_VERSION do not change.
 //   MUTE N -> "OK MUTE <N>" after the mute flag of the RTC state is set (0 or 1); setMute() needs no card: execute() ignores MUTE.
 //   PATTERN N -> "OK PATTERN <N>" after the framebuffer shows test pattern N (0 black, 1 checkerboard, 2 border with cross) and the
 //   panel got it without display_invert; the next wake cycle renders the normal view. showPattern() needs no card: execute() ignores PATTERN.
@@ -1865,6 +1896,24 @@ public:
     send(sink, line);
   }
 
+  // Reply of SLOT SWAP <A> <B>: "OK SLOT SWAP <A> <B>" after PersistentState::swapSlotsByUser returned OK, "ERR FIXED_MAC"
+  // for a slot with a fixed MAC, "ERR SLOT_OFF" for a disabled slot, else "ERR BAD_ARG". No card access. The caller changes
+  // the state under the registry lock and replies after it.
+  static void slotSwapReply(Sink& sink, PersistentState::SlotSwap result, uint8_t a, uint8_t b) {
+    switch (result) {
+      case PersistentState::SlotSwap::OK: {
+        char line[32];
+        snprintf(line, sizeof(line), "OK SLOT SWAP %u %u\n", static_cast<unsigned>(a), static_cast<unsigned>(b));
+        send(sink, line);
+        break;
+      }
+      case PersistentState::SlotSwap::FIXED_MAC: send(sink, "ERR FIXED_MAC\n"); break;
+      case PersistentState::SlotSwap::SLOT_OFF: send(sink, "ERR SLOT_OFF\n"); break;
+      case PersistentState::SlotSwap::BAD_ARG:
+      default: send(sink, "ERR BAD_ARG\n"); break;
+    }
+  }
+
   // Renders test pattern `pattern` (0 to 2) into `fb` and flushes it to `panel` as it is: display_invert is not
   // applied, so the user sees the raw packing. Replies "OK PATTERN <pattern>". No card access. The pattern is no
   // dashboard frame: `frame` (when given) is invalidated, so the next wake cycle flushes the normal view.
@@ -1987,8 +2036,8 @@ public:
         command.kind == SerialCommandKind::SCAN || command.kind == SerialCommandKind::MUTE ||
         command.kind == SerialCommandKind::SCREEN || command.kind == SerialCommandKind::SET ||
         command.kind == SerialCommandKind::RTC_TRIM || command.kind == SerialCommandKind::WEEK ||
-        command.kind == SerialCommandKind::SLOT_CLEAR || command.kind == SerialCommandKind::REJECTS ||
-        command.kind == SerialCommandKind::ACK) {
+        command.kind == SerialCommandKind::SLOT_CLEAR || command.kind == SerialCommandKind::SLOT_SWAP ||
+        command.kind == SerialCommandKind::REJECTS || command.kind == SerialCommandKind::ACK) {
       return;
     }
     if (!storage.mount()) {
@@ -2015,6 +2064,7 @@ public:
       case SerialCommandKind::RTC_TRIM:
       case SerialCommandKind::WEEK:
       case SerialCommandKind::SLOT_CLEAR:
+      case SerialCommandKind::SLOT_SWAP:
       case SerialCommandKind::REJECTS:
       case SerialCommandKind::ACK:
       case SerialCommandKind::VERSION:

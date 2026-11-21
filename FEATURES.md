@@ -9,7 +9,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - **Power & Battery:** Deep sleep with CRC-checked RTC state, wake & night intervals, USB detection, low-battery banner, empty-battery protection, runtime & cycle tracking, awake-time stats.
 - **Audio & Alerts:** `ES8311` chimes (freezer, mold, heat, noise, dropout, charge full) with repeat & quiet hours, `BOOT` mute, `ES7210` noise & transient monitor (L10/L90), mic self-test & speaker loopback.
 - **Logging & Time:** MicroSD hourly CSV (`climate_v5`), daily summaries (`daily_v4` with mold hours), event log (`events_v1`), retention & free-space check, Wi-Fi NTP sync, `PCF85063A` RTC drift tracking & frequency trim (`RTC TRIM`).
-- **Configuration & Console:** MicroSD `config.ini` up to 8 KB with host validator, USB serial & BLE console (`STATUS`, `CONFIG`, `SET`, `LIST`, `DUMP`, `SCAN`, `CALIB`, `SALT`, `RTC TRIM`, `MUTE`, `SLOT CLEAR`, `BEEP`, `PATTERN`, `SCREEN`, `TIME`, `HISTORY`, `WEEK`, `EVENTS`, `VERSION`), `CONFIG_SET` and `SD_FAULT` event recording.
+- **Configuration & Console:** MicroSD `config.ini` up to 8 KB with host validator, USB serial & BLE console (`STATUS`, `CONFIG`, `SET`, `LIST`, `DUMP`, `SCAN`, `CALIB`, `SALT`, `RTC TRIM`, `MUTE`, `SLOT CLEAR`, `SLOT SWAP`, `BEEP`, `PATTERN`, `SCREEN`, `TIME`, `HISTORY`, `WEEK`, `EVENTS`, `VERSION`), `CONFIG_SET` and `SD_FAULT` event recording.
 - **macOS Companion App:** Signed `.app` bundle & menu bar summary, live BLE telemetry, panel pinning, `config.ini` editor & backup, BLE scanner with repeated scan mode, guided sensor setup assistant, sensor health table, calibration assistant with single & two-point salt check, diagnostics & clipboard report, log archive & charts (including 7-day week chart), remote screen, CSV export, open at login.
 
 ## Deep sleep power management with periodic wakeup
@@ -1252,6 +1252,16 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - The command needs no card. The firmware changes the RTC state under the registry lock and replies after the lock. The next save of the wake cycle writes the state. `STATE_VERSION` is unchanged; `EventRing::MAX_CODE` is unchanged.
 - macOS companion: `ConsoleCommand.slotClear(N)` sends `SLOT CLEAR <N>`. `EventText` shows `Slot <N> released by the user` for the high byte 1 and `slot <N> released` for the timer release. `ScannerView` shows a `Free slot <N>` button for each slot with a reading in `STATUS` (state not `EMPTY`) and without a fixed MAC in `CONFIG` (`AppModel.freeableSlots`). `AppModel.clearSlot` sends `SLOT CLEAR`, then `STATUS`.
 - Host tests cover the parser, the cleared state of slot 2 only, the event detail `0x0102`, no event for an empty slot, `ERR FIXED_MAC` with an unchanged state, the `ERR BAD_ARG` cases and `ERR READ_ONLY` on BLE level 1. Swift tests cover the command text, the `OK` and `ERR FIXED_MAC` replies and the `EventText` of `0x0102` and `0x0002`.
+
+## Serial console command SLOT SWAP
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- The console command `SLOT SWAP <A> <B>` (A and B 1 to 10, different, `SerialCommandKind::SLOT_SWAP`, `SerialCommand::reference` and `reference_b`) changes the order of two tiles. `PersistentState::swapSlotsByUser` swaps the reading (`SwitchBotRegistry::swapSlots`, with the jump flag and the JumpGuard packet), both 24-hour histories, the week days and mold hours (`WeekHistory::swapSensors`), the reception history (`ReceptionHistory::swap`) and the battery, ventilation, dry air and stale latch bits of the two slots.
+- The firmware swaps under the registry lock and replies after the lock. The reply is `OK SLOT SWAP <A> <B>`. Both assign flags drop, so the scan records no second `SLOT_ASSIGN` event.
+- Each occupied slot after the swap records one `SLOT_ASSIGN` event (slot number in the high byte, `BleFormat` in the low byte, lower slot number first). An empty slot records nothing.
+- A slot with a fixed MAC (`slotN_mac` or `SwitchBotRegistry::isFixed`) gives `ERR FIXED_MAC`. A disabled slot gives `ERR SLOT_OFF`. Both leave the state unchanged. An equal number, a missing number, a number outside 1 to 10 or extra text gives `ERR BAD_ARG`. With `ble_console` 1 the command gives `ERR READ_ONLY` (`BleConsoleBridge::gate`); with `ble_console` 2 and on USB serial it runs.
+- The command needs no card. The next save of the wake cycle writes the state. The RTC layout, `STATE_VERSION` and `EventRing::MAX_CODE` are unchanged.
+- Host tests cover the parser, the swap of slot 1 and slot 3 (MAC, format, history samples, week days, mold hours, reception, `stale_slots` and the other latches, events), the exact RTC bytes after a second swap with a valid checksum, `ERR FIXED_MAC` for both orders without a change, `ERR BAD_ARG` for `SLOT SWAP 2 2`, and `ERR READ_ONLY` on BLE level 1.
 
 ## Back up and restore `config.ini` in the macOS app
 

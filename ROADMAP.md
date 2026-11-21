@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Console command SLOT SWAP to change the order of two tiles
-  - Rank: [Total: 30, Use: 6, Setup: 9, Harmony: 8, Safety: 7, Effort: M]
-  - Location: rlcd_panel/serial_console.h, rlcd_panel/power_manager.h, rlcd_panel/switchbot_ble.h, rlcd_panel/sparkline.h, tests/test_firmware_logic.cpp
-  - Goal: Add `SLOT SWAP <A> <B>` (A and B 1 to 10, different). Swap the reading, the 24-hour histories, the week days, the reception history and the badge latch bits of the two slots under the registry lock. Reply `OK SLOT SWAP <A> <B>`. Give `ERR FIXED_MAC` when one slot has a fixed MAC, `ERR BAD_ARG` for an equal or bad number and `ERR READ_ONLY` on BLE with `ble_console` 1. Record one `SLOT_ASSIGN` event for each occupied slot. The RTC layout and `STATE_VERSION` do not change.
-  - Acceptance test: Host tests assert that a swap of slot 1 and slot 3 moves the MAC, the history samples, the week days and the `stale_slots` bit, that a second swap restores the RTC bytes exactly, that the state checksum stays valid, that a fixed MAC gives `ERR FIXED_MAC` without a change, and that `SLOT SWAP 2 2` gives `ERR BAD_ARG`. `arduino-cli compile rlcd_panel` passes.
-
 - [ ] Runtime and awake time lines in the Android sensor health screen
   - Rank: [Total: 29, Use: 6, Setup: 6, Harmony: 7, Safety: 10, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/StatusReplyTest.kt

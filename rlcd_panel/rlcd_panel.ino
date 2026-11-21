@@ -1628,6 +1628,17 @@ void setup() {
       const bool slot_cleared = g_state.clearSlotByUser(static_cast<size_t>(command.reference) - 1, clear_now);
       portEXIT_CRITICAL(&g_registry_mux);
       Runner::slotClearReply(sink, slot_cleared, command.reference);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SLOT_SWAP) {
+      // RTC copy only, no card access; the save of this wake cycle writes the state.
+      RtcTime swap_now = g_rtc_time; // read the clock again (I2C, outside the lock), like SLOT CLEAR
+      if (!g_rtc.readTime(swap_now)) {
+        swap_now = g_rtc_time;
+      }
+      portENTER_CRITICAL(&g_registry_mux); // the BLE callback writes the registry
+      const PersistentState::SlotSwap swapped = g_state.swapSlotsByUser(
+          static_cast<size_t>(command.reference) - 1, static_cast<size_t>(command.reference_b) - 1, swap_now);
+      portEXIT_CRITICAL(&g_registry_mux);
+      Runner::slotSwapReply(sink, swapped, command.reference, command.reference_b);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::BEEP) {
       Es8311Hal beep_hal;
       Runner::beep(sink, beep_hal, command.reference,
