@@ -10,9 +10,11 @@ struct CalibrationView: View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack {
                     Picker("Reference", selection: $model.calibrationReference) {
-                        Text("Onboard").tag(0)
-                        ForEach(1...10, id: \.self) { Text("Slot \($0)").tag($0) }
+                        ForEach(model.calibrationSensors, id: \.self) { Text($0 == 0 ? "Onboard" : "Slot \($0)").tag($0) }
                     }.frame(maxWidth: 220)
+                        .onChange(of: model.calibrationSensors) { _, sensors in
+                            if !sensors.contains(model.calibrationReference) { model.calibrationReference = 0 }
+                        }
                     Button("Compare") { model.calibrate(reference: model.calibrationReference) }
                         .disabled(!model.isIdle)
                 }
@@ -52,9 +54,11 @@ struct CalibrationView: View {
                 .font(.caption).foregroundStyle(.secondary)
             HStack {
                 Picker("Sensor", selection: $model.saltSensor) {
-                    Text("Onboard").tag(0)
-                    ForEach(1...10, id: \.self) { Text("Slot \($0)").tag($0) }
+                    ForEach(model.calibrationSensors, id: \.self) { Text($0 == 0 ? "Onboard" : "Slot \($0)").tag($0) }
                 }.frame(maxWidth: 220)
+                    .onChange(of: model.calibrationSensors) { _, sensors in
+                        if !sensors.contains(model.saltSensor) { model.saltSensor = 0 }
+                    }
                 Button("Check NaCl") { model.saltCheck(sensor: model.saltSensor) }
                     .disabled(!model.isIdle)
                 Button("Check MgCl2") { model.saltMagnesiumCheck(sensor: model.saltSensor) }

@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Calibration of slots 6 to 10 in the macOS app
-  - Rank: [Total: 34, Use: 6, Setup: 10, Harmony: 8, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift
-  - Goal: Let `ConsoleCommand.calib` and `ConsoleCommand.salt` accept 0 to 10. Show slots 6 to 10 in the sensor picker of `CalibrationView` when the slot has a reading. Apply the proposals through `ConfigBatch`. Do this after the firmware item "Console commands CALIB and SALT for slots 6 to 10".
-  - Acceptance test: `CalibrationTests` assert the command lines `CALIB 10` and `SALT 6`, a precondition failure for 11, and the parse of a `SALT` reply with the key `slot8_rh_offset_pct`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-
 - [ ] Alert limit editor over the BLE console in the Android app
   - Rank: [Total: 34, Use: 8, Setup: 9, Harmony: 8, Safety: 9, Effort: M]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertLimits.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/AlertLimitScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertLimitsTest.kt

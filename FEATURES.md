@@ -2387,3 +2387,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `CALIB N` lists `SKIP slot6 hours=<n>` to `SKIP slot10 hours=<n>` for a slot without 6 common hours. `SALT 7` with fewer than 6 samples gives `SKIP slot7 hours=<n>`.
 - The reply format, the RTC layout and `STATE_VERSION` do not change. The replies for 0 to 5 stay byte-equal.
 - Host tests (`testSerialCalibSalt6To10`, `testSerialCalibSaltRepliesUnchangedFor0To5`) cover `CALIB 10` and `SALT 10` with the key `slot10_rh_offset_pct`, `SALT 10 MGCL2`, the `SKIP` reply of `SALT 7`, the `ERR BAD_ARG` of reference 11 and golden replies of `CALIB 0`, `SALT 3` and each reference 0 to 5 for both commands.
+
+## Calibration of slots 6 to 10 in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift`.
+- `ConsoleCommand.calib`, `.salt` and `.saltMagnesium` accept 0 to 10 and give `nil` outside this range. The error texts of `AppModel.calibrate`, `saltCheck` and `saltMagnesiumCheck` say "0 to 10".
+- `CalibrationSensors.selectable(status:)` lists the sensors of the pickers in `CalibrationView` (reference and salt sensor): 0 to 5 always, and each slot 6 to 10 only when its `STATUS` state is `OK`, `STALE` or `BATLOW` (`EMPTY` and `DISABLED` show no reading). A selected slot that leaves the list resets the picker to the onboard sensor. Without a `STATUS` reply only 0 to 5 show. `AppModel.calibrationSensors` feeds both pickers.
+- `SaltReply.parse` keeps the proposal key `slotN_rh_offset_pct` of slots 6 to 10 (checked by `ConfigSchema.validate`). Proposals of `CALIB` and `SALT` go through `ConfigBatch` (`SET` commands, then `CONFIG`) as before.
+- Tests (`calibAndSaltLinesForSlots6To10`, `saltReplyWithSlot8Key`, `pickerShowsSlots6To10OnlyWithReading`) cover `CALIB 10`, `SALT 6`, `nil` for 11, a `SALT slot8` reply with `slot8_rh_offset_pct` and the picker filter.
+- Do not record review findings in this file. Name them in the review report and in the pull request description.
