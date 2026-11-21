@@ -9,6 +9,7 @@
 #include "climate_math.h"
 #include "pcf85063_rtc.h"
 #include "shtc3_sensor.h"
+#include "sparkline.h"
 #include "switchbot_ble.h"
 
 #if defined(ARDUINO) || defined(ESP_PLATFORM)
@@ -55,6 +56,12 @@ struct AlertLimits {
 
   float heat_trigger_c = 0.0f; // feels-like limit in C, 0 = off
 
+  // mold_alert_delay_h: ALERT_HUMIDITY rises for a tile only when the newest N hourly samples of its
+  // history are also above the limit. 0 = off. `history` indexes the tiles (0 onboard, 1 to 10 slots);
+  // without it a delay above 0 gives no rise.
+  uint8_t mold_delay_h = 0;
+  const ClimateHistory* history = nullptr;
+
   float heatReleaseC() const { return heat_trigger_c - HEAT_HYSTERESIS_C; }
   float freezerReleaseC() const { return freezer_trigger_c + FREEZER_HYSTERESIS_C; }
   float humidityReleasePct() const { return humidity_trigger_pct - HUMIDITY_HYSTERESIS_PCT; }
@@ -90,12 +97,12 @@ public:
     Tally tally;
     tally.limits = limits;
     if (onboard.valid && (limits.climate_tiles & 1) != 0) {
-      tally.add(onboard.temperature_c, onboard.humidity_pct);
+      tally.add(onboard.temperature_c, onboard.humidity_pct, 0);
     }
     for (size_t i = 0; slots != nullptr && i < slot_count; ++i) {
       const SwitchBotReading& r = slots[i];
       if (i < MAX_SWITCHBOT_SENSORS && (limits.climate_tiles & (2u << i)) != 0 && r.valid && !r.isStale(now_ms, limits.stale_timeout_ms)) {
-        tally.add(r.temperature_c, static_cast<float>(r.humidity_pct));
+        tally.add(r.temperature_c, static_cast<float>(r.humidity_pct), i + 1);
       }
     }
     uint8_t mask = ALERT_NONE;
@@ -268,7 +275,19 @@ private:
     bool have_temperature = false;
     bool have_humidity = false;
 
-    void add(float temperature_c, float humidity_pct) {
+    // True when the delay allows a rise of the tile: delay 0, or the newest N samples are above the limit.
+    bool delayPassed(size_t tile) const {
+      if (limits.mold_delay_h == 0) {
+        return true;
+      }
+      if (limits.history == nullptr || tile >= ClimateHistory::SLOT_COUNT) {
+        return false;
+      }
+      const uint16_t limit_tenths = static_cast<uint16_t>(HumidityHistory::encode(limits.humidity_trigger_pct));
+      return limits.history->slots[tile].newestAbove(limits.mold_delay_h, limit_tenths);
+    }
+
+    void add(float temperature_c, float humidity_pct, size_t tile) {
       have_temperature = have_temperature || !isnan(temperature_c);
       have_humidity = have_humidity || !isnan(humidity_pct);
       if (!isnan(temperature_c)) {
@@ -281,7 +300,7 @@ private:
         heat_hold = heat_hold || feels > limits.heatReleaseC();
       }
       if (!isnan(humidity_pct)) {
-        humid_trigger = humid_trigger || humidity_pct > limits.humidity_trigger_pct;
+        humid_trigger = humid_trigger || (humidity_pct > limits.humidity_trigger_pct && delayPassed(tile));
         humid_hold = humid_hold || humidity_pct > limits.humidityReleasePct();
       }
     }

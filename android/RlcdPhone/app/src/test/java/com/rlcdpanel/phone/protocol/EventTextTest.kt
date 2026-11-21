@@ -73,6 +73,7 @@ class EventTextTest {
         assertEquals("Config set: key #200", EventText.describe(row("CONFIG_SET", 0x0100 or 200)))
         assertEquals("Config set: auto_assign_min_rssi (USB)", EventText.describe(row("CONFIG_SET", 94)))
         assertEquals("Config set: window_drop_c (USB)", EventText.describe(row("CONFIG_SET", 95)))
+        assertEquals("Config set: mold_alert_delay_h (USB)", EventText.describe(row("CONFIG_SET", 96)))
         assertEquals("CONFIG_SET,512", EventText.describe(row("CONFIG_SET", 0x0200)))
     }
 

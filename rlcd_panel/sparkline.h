@@ -114,6 +114,20 @@ public:
     return n;
   }
 
+  // True when the newest `n` samples exist and each one is strictly above the limit (0.1 %RH steps).
+  // Fewer than `n` samples give false. `n` 0 gives true.
+  bool newestAbove(size_t n, uint16_t limit_tenths) const {
+    if (n > count_) {
+      return false;
+    }
+    for (size_t i = 0; i < n; ++i) {
+      if (at(count_ - 1 - i) <= static_cast<int32_t>(limit_tenths)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   void clear() {
     *this = HumidityHistory{};
   }

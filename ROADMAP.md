@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Delay for the humidity alert in config.ini
-  - Rank: [Total: 34, Use: 9, Setup: 8, Harmony: 8, Safety: 9, Effort: M]
-  - Location: rlcd_panel/device_config.h, rlcd_panel/audio_alert.h, rlcd_panel/sparkline.h, rlcd_panel/power_manager.h, docs/config.example.ini, macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ConfigSchemaTests.swift, tests/test_firmware_logic.cpp
-  - Goal: Add the key `mold_alert_delay_h` (0 is off, else 1 to 12 h, default 0; 1 byte at the end of the config trailer). With a value N, `AlertEvaluator` sets `ALERT_HUMIDITY` for a tile only when the live reading is above `mold_alert_limit_rh` and the newest N samples of the `HumidityHistory` of the tile are also above the limit. Fewer than N samples give no rise. The release rule does not change. A short shower then gives no chime. Add the key to `DeviceConfigParser::KEYS` (`KEY_COUNT` 97), to the template, to `ConfigSchema.entries` and to `ConfigSchemaTests.rangesMatchFirmwareConstants`. Raise `STATE_VERSION` by one.
-  - Acceptance test: Host tests assert no rise with delay 3 and two samples above the limit, a rise with three samples above the limit, the current behavior with delay 0, the release below the limit, the rejected values 13 and -1, and the RTC round trip of the trailer byte. `testConfigExampleTemplateInSync` and `ConfigSchemaTests` pass. `c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner` and `arduino-cli compile rlcd_panel` pass.
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 - [ ] Humidity alert delay in the Android alert limit editor

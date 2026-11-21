@@ -87,6 +87,7 @@ public enum ConfigSchema {
             e("display_invert", .climate, .integer(min: 0, max: 1), "0", "", "0 is dark on light. 1 is light on dark."),
             e("freeze_alert_limit_c", .climate, .decimal(min: -20, max: 15), "0.0", "°C", "Start the freezer alert below this temperature."),
             e("mold_alert_limit_rh", .climate, .integer(min: 40, max: 95), "70", "%RH", "Count the hours above this humidity for the mold alert."),
+            e("mold_alert_delay_h", .climate, .integer(min: 1, max: 12, off: 0), "0", "h", "Raise the humidity alert only when the newest hourly samples of the tile are also above the mold limit. 0 is off. A short shower gives no chime."),
             e("heat_alert_limit_c", .climate, .integer(min: 27, max: 45, off: 0), "0", "°C", "Start the heat alert at this feels-like temperature. 0 is off."),
             e("dry_alert_limit_rh", .climate, .integer(min: 20, max: 45, off: 0), "0", "%RH", "Show the dry air badge at or below this humidity. 0 is off."),
             e("window_drop_c", .climate, .decimal(min: 1, max: 5, off: 0), "0", "°C", "Show the W badge on a tile that falls by this temperature within 15 minutes. 0 is off. The badge ends when the tile rises by half the limit or after 2 hours."),
@@ -171,7 +172,7 @@ public enum ConfigSchema {
         "wall_frsi_pct", "slot_auto_assign",
         "slot1_enabled", "slot2_enabled", "slot3_enabled", "slot4_enabled", "slot5_enabled",
         "slot6_enabled", "slot7_enabled", "slot8_enabled", "slot9_enabled", "slot10_enabled",
-        "auto_assign_min_rssi", "window_drop_c",
+        "auto_assign_min_rssi", "window_drop_c", "mold_alert_delay_h",
     ]
     private static let index: [String: Int] = Dictionary(uniqueKeysWithValues: keys.enumerated().map { ($1, $0) })
 

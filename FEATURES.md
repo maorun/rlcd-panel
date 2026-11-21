@@ -2590,3 +2590,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `DiagnosticsView` (maintenance group) and each row of the panel picker in `Views.swift` show the button `Identify panel`. `AppModel.identifyPanel` sends one command for each press and keeps the text in `identifyResult`; a new connection or a forgotten panel clears it. The user matches the code with the `PanelPin` and the physical panel.
 - Tests: `ReplyTests.identifyCommandAndReply`.
 - Validation: `swift test` (564 tests) and `swift build -c release` pass locally. The button is not tested with hardware.
+
+## Delay for the humidity alert in config.ini
+
+- The key `mold_alert_delay_h` (0 is off, else 1 to 12 h, default 0) sits in `DeviceConfig`, `DeviceConfigParser::KEYS` (`KEY_COUNT` 97, index 96), `DeviceConfigText::format` and `docs/config.example.ini`. A value above 12, a negative value and text are rejected lines. `PersistentState` stores it as 1 byte at the end of the config trailer, after `auto_assign_min_rssi`; a value above 12 is rejected. `STATE_VERSION` is 73.
+- `HumidityHistory::newestAbove(n, limit_tenths)` is true when the newest `n` samples exist and each one is strictly above the limit; fewer than `n` samples give false.
+- `AlertLimits::mold_delay_h` and `AlertLimits::history` (the `ClimateHistory`, set in `alertLimits()` of `rlcd_panel.ino`) feed `AlertEvaluator::Tally::add`: a tile raises `ALERT_HUMIDITY` only when the live reading is above `mold_alert_limit_rh` and the newest N samples of its `HumidityHistory` are also above it. With delay 0 the behavior does not change. With a delay and no history there is no rise. The release rule and the hold rule do not change, so a short shower gives no chime.
+- The macOS `ConfigSchema` has the entry `mold_alert_delay_h` (integer 1 to 12, off 0) and `ConfigSchemaTests.rangesMatchFirmwareConstants` checks the range.
+- Tests: `testMoldAlertDelay` (delay 0, two and three samples with delay 3, a sample at the limit, a live reading at the limit, no history, release, slot tile), `testMoldAlertDelayConfig` (parser, rejected 13 and -1, text round trip, `SET` check, RTC round trip and rejected trailer byte). The test without the change fails in `testMoldAlertDelay`.
+- Validation: the host tests (231 suites), `swift test` (564 tests) and `arduino-cli compile rlcd_panel` pass locally. The delay is not tested with hardware.
