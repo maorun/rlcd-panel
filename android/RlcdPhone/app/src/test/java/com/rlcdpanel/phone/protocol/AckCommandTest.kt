@@ -1,7 +1,9 @@
 package com.rlcdpanel.phone.protocol
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertThrows
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AckCommandTest {
@@ -60,5 +62,40 @@ class AckCommandTest {
     @Test
     fun emptyMaskGivesNoAction() {
         assertEquals(emptyList<Int>(), AckCommand.actionBits(AlertMask.NONE))
+    }
+
+    @Test
+    fun allLineIsAckAll() {
+        assertEquals("ACK ALL", AckCommand.ALL)
+    }
+
+    @Test
+    fun canAcknowledgeAllNeedsTwoOpenRepeatableBits() {
+        assertTrue(AckCommand.canAcknowledgeAll(0x32, 0x00))
+        assertFalse(AckCommand.canAcknowledgeAll(0x12, 0x00))
+        assertFalse(AckCommand.canAcknowledgeAll(0x32, 0x02))
+        assertTrue(AckCommand.canAcknowledgeAll(0x32, 0x10))
+        assertFalse(AckCommand.canAcknowledgeAll(0x00, 0x00))
+        assertFalse(AckCommand.canAcknowledgeAll(0x10, 0x00))
+    }
+
+    @Test
+    fun okAckAllNamesTheNewBits() {
+        assertEquals("Acknowledged: Humidity, Ventilate", AckCommand.resultText(ConsoleReply.Status("OK ACK ALL 22")))
+        assertEquals("Acknowledged: Sensor lost", AckCommand.resultText(ConsoleReply.Status("OK ACK ALL 08")))
+        assertEquals("Acknowledged: Freezer, Heat", AckCommand.resultText(ConsoleReply.Status("OK ACK ALL 81")))
+    }
+
+    @Test
+    fun badAckAllReplyFallsBack() {
+        assertEquals("Acknowledged", AckCommand.resultText(ConsoleReply.Status("OK ACK ALL 00")))
+        assertEquals("Acknowledged", AckCommand.resultText(ConsoleReply.Status("OK ACK ALL 2")))
+        assertEquals("Acknowledged", AckCommand.resultText(ConsoleReply.Status("OK ACK ALL zz")))
+    }
+
+    @Test
+    fun ackAllErrorTexts() {
+        assertEquals("The alert is off", AckCommand.resultText(ConsoleReply.Status("ERR NOT_ACTIVE")))
+        assertEquals("Set ble_console=2 to apply", AckCommand.resultText(ConsoleReply.Status("ERR READ_ONLY")))
     }
 }

@@ -136,6 +136,20 @@ class StatusReplyTest {
     }
 
     @Test
+    fun parsesAlertAndAckedMasks() {
+        val base = StatusReply.parse(fixtureLines())
+        assertEquals(0, base.alertMask)
+        assertEquals(0, base.ackedMask)
+        val set = fixtureLines().map { if (it.startsWith("POWER")) it.replace("alerts=00", "alerts=32").replace("acked=00", "acked=02") else it }
+        val status = StatusReply.parse(set)
+        assertEquals(0x32, status.alertMask)
+        assertEquals(0x02, status.ackedMask)
+        val bad = fixtureLines().map { if (it.startsWith("POWER")) it.replace("alerts=00", "alerts=zz").replace(" acked=00", "") else it }
+        assertNull(StatusReply.parse(bad).alertMask)
+        assertNull(StatusReply.parse(bad).ackedMask)
+    }
+
+    @Test
     fun resetShtc3MemoryFromFixture() {
         val status = StatusReply.parse(fixtureLines())
         assertEquals("POWERON", status.reset!!.reason)

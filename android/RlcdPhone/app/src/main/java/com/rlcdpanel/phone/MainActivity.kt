@@ -32,6 +32,7 @@ import com.rlcdpanel.phone.console.BleConsoleClient
 import com.rlcdpanel.phone.finder.SensorFinderList
 import com.rlcdpanel.phone.finder.SensorFinderScanner
 import com.rlcdpanel.phone.finder.SlotAssignment
+import com.rlcdpanel.phone.protocol.AckCommand
 import com.rlcdpanel.phone.protocol.AlertLimits
 import com.rlcdpanel.phone.protocol.CalibrationBatch
 import com.rlcdpanel.phone.protocol.ChimeCommand
@@ -313,9 +314,11 @@ class MainActivity : ComponentActivity() {
             if (showChime) {
                 ChimeScreen(
                     state = chimeState,
+                    panelConfig = panelConfig,
                     onRead = { withConsolePermission { readChimeState() } },
                     onMute = { on -> withConsolePermission { setMute(on) } },
                     onTest = { bit -> withConsolePermission { testChime(bit) } },
+                    onAckAll = { withConsolePermission { acknowledgeAll() } },
                     onBack = { closeChime() }
                 )
                 BackHandler { closeChime() }
@@ -848,17 +851,33 @@ class MainActivity : ComponentActivity() {
 
     private fun chimeStateAfterStatus(reply: ConsoleReply, expected: Boolean?): ChimeState {
         if (reply !is ConsoleReply.Frame) {
-            return chimeState.copy(isBusy = false, isError = true, reminder = null, message = BleConsoleClient.errorText(reply))
+            return chimeState.copy(isBusy = false, isError = true, reminder = null, alertMask = null, ackedMask = null, message = BleConsoleClient.errorText(reply))
         }
         return try {
             val status = StatusReply.parse(reply.lines)
             chimeState.copy(
                 isBusy = false, isError = false, muted = status.muted ?: expected,
                 reminder = status.chime?.let { ChimeText.reminder(it) },
+                alertMask = status.alertMask, ackedMask = status.ackedMask,
                 message = if (expected != null) "Stumm ${if (expected) "an" else "aus"}" else null
             )
         } catch (e: ParseException) {
-            chimeState.copy(isBusy = false, isError = true, reminder = null, message = "Antwort nicht lesbar: ${e.line.take(80)}")
+            chimeState.copy(isBusy = false, isError = true, reminder = null, alertMask = null, ackedMask = null, message = "Antwort nicht lesbar: ${e.line.take(80)}")
+        }
+    }
+
+    /** Sends `ACK ALL` after a tap, then `STATUS`; the result text stays visible after the read. */
+    private fun acknowledgeAll() {
+        stopBleScan()
+        chimeState = chimeState.copy(isBusy = true, isError = false, message = null)
+        consoleClient.send(AckCommand.ALL) { reply ->
+            val text = AckCommand.resultText(reply)
+            val ok = (reply as? ConsoleReply.Status)?.line?.startsWith("OK ACK") == true
+            consoleClient.send(ChimeCommand.STATUS) { status ->
+                val next = chimeStateAfterStatus(status, null)
+                chimeState = if (!next.isError) next.copy(isError = !ok, message = text)
+                else next.copy(message = "$text; ${next.message}")
+            }
         }
     }
 

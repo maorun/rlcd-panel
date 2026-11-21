@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Acknowledge all button in the Android chime screen
-  - Rank: [Total: 30, Use: 7, Setup: 5, Harmony: 8, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AckCommand.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AckCommand.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/ChimeScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AckCommandTest.kt
-  - Goal: Add `AckCommand.ALL` (`ACK ALL`), `AckCommand.canAcknowledgeAll(alertMask, ackedMask)` and the result text for `OK ACK ALL <2 hex digits>` to the shared file. Show the button `Alle bestätigen` in `ChimeScreen` when two or more repeatable active bits are not acknowledged and `PanelConfig.canWrite` is true. Send `ACK ALL`, then `STATUS`.
-  - Acceptance test: `AckCommandTest` asserts that mask `0x32` with acked `0x00` gives true, that `CHARGE_FULL` does not count, that `OK ACK ALL 22` gives the names `Humidity` and `Ventilate`, and that `ERR NOT_ACTIVE` gives its text. `./scripts/check-protocol-sync.sh` exits 0. The CI jobs pass.
-
 - [ ] Console command SLOT SWAP to change the order of two tiles
   - Rank: [Total: 30, Use: 6, Setup: 9, Harmony: 8, Safety: 7, Effort: M]
   - Location: rlcd_panel/serial_console.h, rlcd_panel/power_manager.h, rlcd_panel/switchbot_ble.h, rlcd_panel/sparkline.h, tests/test_firmware_logic.cpp
