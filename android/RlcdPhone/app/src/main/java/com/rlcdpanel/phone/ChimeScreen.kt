@@ -19,7 +19,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.rlcdpanel.phone.protocol.AckCommand
 import com.rlcdpanel.phone.protocol.ChimeCommand
+import com.rlcdpanel.phone.protocol.PanelConfig
 
 /** State of the chime screen: [muted] is null until a `STATUS` read or a `MUTE` command confirms it. */
 data class ChimeState(
@@ -27,16 +29,25 @@ data class ChimeState(
     val muted: Boolean? = null,
     /** Text of the `CHIME` line of the last `STATUS` read; null without the line. */
     val reminder: String? = null,
+    /** `alerts=` and `acked=` of the last `STATUS` read; null before a read or without the fields. */
+    val alertMask: Int? = null,
+    val ackedMask: Int? = null,
     val message: String? = null,
     val isError: Boolean = false
-)
+) {
+    /** True when the button `Alle bestätigen` has a use: two or more open repeatable bits. */
+    val canAcknowledgeAll: Boolean
+        get() = alertMask != null && AckCommand.canAcknowledgeAll(alertMask, ackedMask ?: 0)
+}
 
 @Composable
 fun ChimeScreen(
     state: ChimeState,
+    panelConfig: PanelConfig,
     onRead: () -> Unit,
     onMute: (Boolean) -> Unit,
     onTest: (Int) -> Unit,
+    onAckAll: () -> Unit,
     onBack: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -72,6 +83,11 @@ fun ChimeScreen(
                         onCheckedChange = { onMute(it) },
                         enabled = !state.isBusy
                     )
+                }
+            }
+            if (state.canAcknowledgeAll && panelConfig.canWrite) {
+                item {
+                    Button(onClick = onAckAll, enabled = !state.isBusy) { Text("Alle bestätigen") }
                 }
             }
             state.reminder?.let {

@@ -153,7 +153,11 @@ data class StatusReply(
     /** Null without a `CHIME` line. */
     val chime: ChimeReminder? = null,
     /** Null without a `LATCH` line. */
-    val latch: LatchState? = null
+    val latch: LatchState? = null,
+    /** `alerts=<2 hex digits>` of the `POWER` line; null for a missing or bad field. */
+    val alertMask: Int? = null,
+    /** `acked=<2 hex digits>` of the `POWER` line; null for a missing or bad field. */
+    val ackedMask: Int? = null
 ) {
     val isUsbPower: Boolean get() = powerSource == "USB"
 
@@ -185,6 +189,8 @@ data class StatusReply(
             var src: String? = null
             var ntp: NtpState? = null
             var muted: Boolean? = null
+            var alertMask: Int? = null
+            var ackedMask: Int? = null
             var sdStatus: String? = null
             var sdFreeMb: Int? = null
             var reset: ResetState? = null
@@ -220,6 +226,8 @@ data class StatusReply(
                             "1" -> true
                             else -> null
                         }
+                        alertMask = hexByte(f["alerts"])
+                        ackedMask = hexByte(f["acked"])
                     }
                     "SD" -> {
                         sdStatus = f["status"]
@@ -238,8 +246,11 @@ data class StatusReply(
                 }
             }
             if (sensors.isEmpty()) throw ParseException("SENSOR")
-            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory, rtc, noise, chime, latch)
+            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory, rtc, noise, chime, latch, alertMask, ackedMask)
         }
+
+        private fun hexByte(s: String?): Int? =
+            if (s != null && s.length == 2 && s.all { it in '0'..'9' || it in 'a'..'f' || it in 'A'..'F' }) s.toInt(16) else null
 
         private fun digits(s: String?): Long? =
             if (s != null && s.isNotEmpty() && s.length <= 12 && s.all { it in '0'..'9' }) s.toLongOrNull() else null

@@ -2444,3 +2444,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `ConfigEditorView` shows `About <N> h on battery` below the `night_wake_interval_s` field. It shows `--` without an `AWAKE` mean or a `RUNTIME h` value. It shows nothing before the first diagnostics read. It sends no console command.
 - The firmware does not change; the RTC layout and `STATE_VERSION` do not change.
 - Validation: `swift test` (543 tests), `swift build -c release`, `./scripts/check-protocol-sync.sh` and `--self-test` pass locally.
+
+## Acknowledge all button in the Android chime screen
+
+- **Code:** `android/RlcdPhone/.../protocol/AckCommand.kt`, `StatusReply.kt`, `ChimeScreen.kt`, `MainActivity.kt`, `wearos/RlcdWatch/.../protocol/AckCommand.kt`, `StatusReply.kt`, `AckCommandTest.kt`, `StatusReplyTest.kt`
+- `AckCommand.ALL` is `ACK ALL`. `AckCommand.canAcknowledgeAll(alertMask, ackedMask)` is true when two or more repeatable active bits (without `CHARGE_FULL`) are not acknowledged. `AckCommand.resultText` turns `OK ACK ALL <2 hex digits>` into `Acknowledged: <names>` (lowest bit first, for example `Humidity, Ventilate` for `22`). The other replies keep their texts, and a malformed hex field gives `Acknowledged`.
+- `StatusReply.alertMask` and `StatusReply.ackedMask` parse `alerts=` and `acked=` of the `POWER` line (`null` for a missing or bad field). The phone and watch copies stay equal except for the `package` line (`scripts/check-protocol-sync.sh`).
+- `ChimeScreen` shows the button `Alle bestätigen` when `ChimeState.canAcknowledgeAll` and `PanelConfig.canWrite` are true. `MainActivity.acknowledgeAll` sends `ACK ALL`, then `STATUS`, only after a tap. The result text stays below the buttons. `ERR NOT_ACTIVE` shows `The alert is off`, `ERR READ_ONLY` shows `Set ble_console=2 to apply`.
+- The firmware does not change; the RTC layout and `STATE_VERSION` do not change. The button needs one `STATUS` read first (`Read mute state`).
+- Tests: `AckCommandTest` (rule for mask `0x32`, `CHARGE_FULL`, `OK ACK ALL 22`, `ERR NOT_ACTIVE`) `StatusReplyTest.parsesAlertAndAckedMasks` and `ChimeStateTest` (button rule with null masks).
+- Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The local machine has no Android SDK, so `gradle testDebugUnitTest assembleDebug` did not run locally. CI runs it.
