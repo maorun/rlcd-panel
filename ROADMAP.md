@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Diagnostics report share in the Android app
-  - Rank: [Total: 32, Use: 5, Setup: 9, Harmony: 8, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/DiagnosticsReport.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/DiagnosticsReportTest.kt
-  - Goal: Build one plain text report from the last `STATUS`, `VERSION` and `REJECTS` replies, with the same summary lines as the macOS `DiagnosticsReport`. Add the button `Bericht teilen` to `SensorHealthScreen`. Send the text with an `ACTION_SEND` share intent. Do not include the Wi-Fi state or other secret values.
-  - Acceptance test: `DiagnosticsReportTest` reads `tests/fixtures/status_reply_sample.txt` and `tests/fixtures/rejects_reply_sample.txt` and asserts the firmware line, one line for each sensor, the `SD` free space line and the reject rows. A missing `VERSION` reply gives `Firmware: --`. `gradle testDebugUnitTest` passes in CI.
-
 - [ ] Salt check screen in the Wear OS app
   - Rank: [Total: 32, Use: 5, Setup: 9, Harmony: 8, Safety: 10, Effort: M]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/SaltCommand.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SaltScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/SaltCommandTest.kt, scripts/check-protocol-sync.sh

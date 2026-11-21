@@ -53,7 +53,9 @@ import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryHistory
 import com.rlcdpanel.phone.protocol.WallText
+import com.rlcdpanel.phone.protocol.DiagnosticsReport
 import com.rlcdpanel.phone.protocol.EventCsv
+import com.rlcdpanel.phone.protocol.RejectsLog
 import com.rlcdpanel.phone.protocol.EventRow
 import com.rlcdpanel.phone.protocol.EventsReply
 import com.rlcdpanel.phone.protocol.RejectsReply
@@ -127,6 +129,8 @@ class MainActivity : ComponentActivity() {
     private var rtcTrimState by mutableStateOf(RtcTrimState())
     private var versionState by mutableStateOf(VersionState())
     private var rejectsState by mutableStateOf(RejectsState())
+    /** The last good `REJECTS` reply; stays after the rejects screen closes. */
+    private var lastRejects: RejectsLog? = null
     private var slotState by mutableStateOf(SlotConfigState())
     private var alertLimitState by mutableStateOf(AlertLimitState())
     private var chimeState by mutableStateOf(ChimeState())
@@ -338,6 +342,7 @@ class MainActivity : ComponentActivity() {
                     onSyncClock = { ensureConsolePermissionAndRead(CONSOLE_TIME_SET) },
                     rtcTrimState = rtcTrimState,
                     onTrimRtc = { ensureConsolePermissionAndRead(CONSOLE_RTC_TRIM) },
+                    onShareReport = { shareDiagnosticsReport() },
                     onBack = { closeSensorHealth() }
                 )
                 BackHandler { closeSensorHealth() }
@@ -535,6 +540,16 @@ class MainActivity : ComponentActivity() {
         startActivity(Intent.createChooser(send, "Share CSV"))
     }
 
+    /** Sends the diagnostics report as text. Names and MACs stay hidden; the report holds no Wi-Fi data. */
+    private fun shareDiagnosticsReport() {
+        val text = DiagnosticsReport.build(versionState.reply, healthState.status, lastRejects)
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        startActivity(Intent.createChooser(send, "Bericht teilen"))
+    }
+
     /** Sends the event rows as CSV text, oldest first. */
     private fun shareEventsCsv(rows: List<EventRow>) {
         val send = Intent(Intent.ACTION_SEND).apply {
@@ -724,11 +739,13 @@ class MainActivity : ComponentActivity() {
     /** Sends `REJECTS` after a tap. A failed CRC-32 or a timeout gives one error text; the command is not repeated. */
     private fun readRejects() {
         stopBleScan()
+        lastRejects = null
         rejectsState = RejectsState(isReading = true)
         consoleClient.send("REJECTS") { reply ->
             rejectsState = when (reply) {
                 is ConsoleReply.Frame -> try {
                     val log = RejectsReply.parse(reply.lines)
+                    lastRejects = log
                     RejectsState(rows = log.rows, dropped = log.dropped, loaded = true)
                 } catch (e: ParseException) {
                     RejectsState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
@@ -989,6 +1006,7 @@ class MainActivity : ComponentActivity() {
     private fun closeSensorHealth() {
         consoleClient.cancel()
         healthState = SensorHealthState()
+        lastRejects = null
         clockState = ClockState()
         rtcTrimState = RtcTrimState()
         versionState = VersionState()
@@ -1142,7 +1160,7 @@ class MainActivity : ComponentActivity() {
                 is ConsoleReply.Frame -> try {
                     val status = StatusReply.parse(reply.lines)
                     val limit = panelConfig.values["sensor_battery_limit_pct"]?.toDoubleOrNull()
-                    SensorHealthState(rows = SensorHealth.rows(status, limit), ntp = status.ntp, sdFreeMb = status.sdFreeMb, reset = status.reset, shtc3 = status.shtc3, memory = status.memory, rtc = status.rtc, noise = status.noise).also { s ->
+                    SensorHealthState(rows = SensorHealth.rows(status, limit), ntp = status.ntp, sdFreeMb = status.sdFreeMb, reset = status.reset, shtc3 = status.shtc3, memory = status.memory, rtc = status.rtc, noise = status.noise, status = status).also { s ->
                         sourceBadges = s.rows.mapNotNull { r -> r.badge?.let { r.slot to it } }.toMap()
                     }
                 } catch (e: ParseException) {
