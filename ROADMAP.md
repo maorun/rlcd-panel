@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Console command ACK ALL
-  - Rank: [Total: 29, Use: 6, Setup: 6, Harmony: 8, Safety: 9, Effort: S]
-  - Location: rlcd_panel/serial_console.h, rlcd_panel/power_manager.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp, AGENTS.md
-  - Goal: `ACK <N>` stops the chime reminder of one alert bit. With three active alerts, an app must send three commands, and each command waits for the BLE cooldown. Add `ACK ALL` to `SerialConsole::parse` (`SerialCommand::ack_all`). Add `PersistentState::acknowledgeAll(now)`: it calls `acknowledgeAlert` for each bit of `AlertEvaluator::repeatableBits(alert_mask)` that is not in `alert_ack`, lowest bit first, and returns the mask of the new bits. Each new bit records one `ALERT_ACK` event, as for `ACK <N>`; a bit that is acknowledged already records nothing. Reply `OK ACK ALL <2 hex digits>` with the new mask, or `ERR NOT_ACTIVE` when no bit is new. Keep `ERR READ_ONLY` on BLE with `ble_console` 1, because `ACK` is in the write list. Reply `ERR BAD_ARG` for `ACK ALLX` and for extra text. Do not change the RTC layout or `STATE_VERSION`.
-  - Acceptance test: In `tests/test_firmware_logic.cpp`, assert `OK ACK ALL 22` and two `ALERT_ACK` events for alert mask `0x32` with bit 4 (`ALERT_CHARGE_FULL`) set and no ack, `OK ACK ALL 20` and one event when bit 1 is acknowledged already, `ERR NOT_ACTIVE` and no event for a second `ACK ALL`, `ERR NOT_ACTIVE` for mask `0x10`, `ERR READ_ONLY` on BLE with `ble_console` 1, and `BAD_ARG` for `ACK ALL 1` and `ACK ALLX`. Assert that `ACK 1` still parses with `reference` 1. Run `c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner && rm -f test_runner` and `arduino-cli compile rlcd_panel`.
-
 - [ ] Acknowledge action in the Android alert notification
   - Rank: [Total: 29, Use: 8, Setup: 3, Harmony: 9, Safety: 9, Effort: S]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AckCommand.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AckCommand.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/AckReceiver.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/BleScanService.kt, android/RlcdPhone/app/src/main/AndroidManifest.xml, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AckCommandTest.kt, scripts/check-protocol-sync.sh

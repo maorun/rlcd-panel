@@ -2306,3 +2306,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `WeekText.mold(row)` gives `Schimmel <N> h` from `WeekRow.moldHours`, with the `SensorHealthText.WARNING` mark above 0 hours, and an empty text for `null` (7-column reply, gap day).
 - `WeekScreen` shows the text below the humidity of each day row in a small grey line. An empty text draws no line, so a reply with 7 columns keeps the current rows.
 - Tests: `WeekTextTest.moldText`.
+
+## Console command ACK ALL
+
+- `ACK ALL` stops the chime reminder of each active alert at once. Before, an app sent one `ACK <N>` for each bit and waited for the BLE cooldown each time.
+- `PersistentState::acknowledgeAll(now)` calls `acknowledgeAlert` for each bit of `AlertEvaluator::repeatableBits(alert_mask)` that is not in `alert_ack`, lowest bit first. It returns the mask of the new bits. Each new bit records one `ALERT_ACK` event. A bit that is acknowledged already records nothing. `ALERT_CHARGE_FULL` is not in the mask.
+- Reply `OK ACK ALL <2 hex digits>` with the new mask, or `ERR NOT_ACTIVE` when no bit is new (`SerialConsoleRunner::ackAllReply`). `ACK ALLX`, `ACK ALL 1` and other extra text give `ERR BAD_ARG`. `ACK <N>` is unchanged (`SerialCommand::ack_all` is false).
+- `ACK ALL` is a write command: `ERR READ_ONLY` on BLE with `ble_console` 1. It needs no card. The RTC layout and `STATE_VERSION` do not change.
+- Tests: the host tests assert `OK ACK ALL 22` with two events for mask 0x32, `OK ACK ALL 20` with one event, `ERR NOT_ACTIVE` for a second command and for mask 0x10, `ERR READ_ONLY`, and the `BAD_ARG` cases.

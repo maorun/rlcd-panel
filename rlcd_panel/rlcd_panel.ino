@@ -1596,7 +1596,11 @@ void setup() {
       if (!g_rtc.readTime(ack_now)) {
         ack_now = g_rtc_time;
       }
-      Runner::ackReply(sink, g_state.acknowledgeAlert(command.reference, ack_now), command.reference);
+      if (command.ack_all) {
+        Runner::ackAllReply(sink, g_state.acknowledgeAll(ack_now));
+      } else {
+        Runner::ackReply(sink, g_state.acknowledgeAlert(command.reference, ack_now), command.reference);
+      }
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SLOT_CLEAR) {
       // RTC copy only, no card access; the save of this wake cycle writes the state.
       RtcTime clear_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again (I2C, outside the lock)

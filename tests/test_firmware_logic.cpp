@@ -20553,6 +20553,54 @@ void testSerialAckCommand() {
   assert(storage.mounts == 0);
 }
 
+void testSerialAckAllCommand() {
+  SerialCommand cmd;
+  assert(parseText("ACK ALL", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::ACK && cmd.ack_all);
+  assert(parseText("ACK ALL\r\n", cmd) == SerialParseStatus::OK && cmd.ack_all);
+  for (const char* bad : {"ACK ALL 1", "ACK ALLX", "ACK ALL ", "ACK AL", "ACK A"}) {
+    assert(parseText(bad, cmd) == SerialParseStatus::BAD_ARG);
+  }
+  assert(parseText("ACK 1", cmd) == SerialParseStatus::OK && !cmd.ack_all && cmd.reference == 1);
+
+  const RtcTime now = localTime(2026, 11, 21, 9);
+  PersistentState st;
+  st.alert_mask = 0x32; // bits 1, 4 and 5
+  FakeSink all;
+  const uint8_t fresh = st.acknowledgeAll(now);
+  TestRunner::ackAllReply(all, fresh);
+  assert(fresh == 0x22 && all.out == "OK ACK ALL 22\n" && st.alert_ack == 0x22 && st.events.size() == 2);
+  assert(st.events.at(0).code == EventCode::ALERT_ACK && st.events.at(0).detail == 0x02);
+  assert(st.events.at(1).code == EventCode::ALERT_ACK && st.events.at(1).detail == 0x20);
+
+  FakeSink again;
+  TestRunner::ackAllReply(again, st.acknowledgeAll(now));
+  assert(again.out == "ERR NOT_ACTIVE\n" && st.events.size() == 2);
+
+  PersistentState part;
+  part.alert_mask = 0x32;
+  assert(part.acknowledgeAlert(1, now));
+  FakeSink partial;
+  TestRunner::ackAllReply(partial, part.acknowledgeAll(now));
+  assert(partial.out == "OK ACK ALL 20\n" && part.events.size() == 2);
+
+  PersistentState full;
+  full.alert_mask = 0x10;
+  FakeSink none;
+  TestRunner::ackAllReply(none, full.acknowledgeAll(now));
+  assert(none.out == "ERR NOT_ACTIVE\n" && full.events.size() == 0 && full.alert_ack == 0);
+
+  assert(parseText("ACK ALL", cmd) == SerialParseStatus::OK);
+  assert(std::string(BleConsoleBridge::gate(cmd, 1)) == "ERR READ_ONLY\n");
+  assert(std::string(BleConsoleBridge::gate(cmd, 2)).empty());
+  FakeConsoleStorage storage;
+  BleConsoleBridge bridge;
+  bridge.setLevel(1);
+  bridge.onConnect();
+  BleNotifier n;
+  assert(bleConsoleRun(bridge, "ACK ALL\n", 185, n, &storage) == "ERR READ_ONLY\n");
+  assert(storage.mounts == 0);
+}
+
 void testSerialSlotClearCommand() {
   SerialCommand cmd;
   assert(parseText("SLOT CLEAR 2", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SLOT_CLEAR && cmd.reference == 2);
@@ -22605,6 +22653,7 @@ int main() {
   testSerialMuteCommand();
   testSerialSlotClearCommand();
   testSerialAckCommand();
+  testSerialAckAllCommand();
   testBleConsoleIngressQueue();
   testHeatAlert();
   testHeatAlertRtcRoundTrip();
