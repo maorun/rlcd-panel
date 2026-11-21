@@ -2263,3 +2263,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SensorHealthText.noise(state)` (phone) gives `Lärm <db> dB (<band>), Spitze <N> dB um <H> Uhr` and `Lärm --` for `null`. The peak part is left out when `peak_db` or `peak_hour` is `--`. `SensorHealthScreen` shows the row below the memory row in the card `Panel diagnostics`. `SensorHealthState.noise` carries it from `MainActivity`.
 - Tests: `StatusReplyTest.noiseFromFixtureAndMissingValues` and `badNoiseLineThrows`, `SensorHealthTextTest.noiseText`.
 - Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
+
+## Noise line in the Wear OS sensor health screen
+
+- The watch uses `StatusReply.noise` (shared `StatusReply.kt`, same source as the phone). `SensorHealthText.noise(state)` gives `Lärm <db> dB <band>` in one line, `Lärm -- dB <band>` for a `null` `db` and `Lärm --` for `null`. The peak stays out, because the watch row has room for one short line.
+- `SensorHealthScreen` shows the row below the memory row. The row has no warning mark.
+- Tests: `SensorHealthTextTest.noiseText`.
+- Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
