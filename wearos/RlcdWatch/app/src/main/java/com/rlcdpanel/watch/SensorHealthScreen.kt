@@ -161,6 +161,7 @@ fun SensorHealthScreen(
     onOpenEvents: () -> Unit = {},
     onOpenWeek: () -> Unit = {},
     onOpenRejects: () -> Unit = {},
+    onOpenSalt: () -> Unit = {},
     clockState: ClockReadState = ClockReadState(),
     onReadClock: () -> Unit = {},
     chimeState: ChimeTestState = ChimeTestState(),
@@ -204,6 +205,14 @@ fun SensorHealthScreen(
                         modifier = Modifier.fillMaxWidth(0.85f),
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text("Week chart", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                item {
+                    Chip(
+                        onClick = onOpenSalt,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text("Salt check", fontSize = 12.sp, maxLines = 1) }
                     )
                 }
                 item {

@@ -2423,3 +2423,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The report hides the sensor names and the foreign MACs as `<hidden>`. It has no `NTP` line and no Wi-Fi data.
 - The button `Bericht teilen` in `SensorHealthScreen` sends the text with an `ACTION_SEND` intent (`MainActivity.shareDiagnosticsReport`). It sends no console command. It uses the replies that the app read before. The button is off while a read runs. Closing the health screen clears the stored `REJECTS` log.
 - `DiagnosticsReportTest` reads `tests/fixtures/status_reply_sample.txt` and `tests/fixtures/rejects_reply_sample.txt`.
+
+## Wear OS salt check screen
+
+- **Code:** `wearos/RlcdWatch/.../protocol/SaltCommand.kt`, `SaltText.kt`, `CalibrationReply.kt` (holds `SaltReply`), `CalibrationBatch.kt`, `SaltScreen.kt`, `SensorHealthScreen.kt`, `MainActivity.kt`, `scripts/check-protocol-sync.sh`
+- The four protocol files are copies of the phone files (only the `package` line differs). `SaltText` needs `SaltReply` and `CalibrationBatch.failureText`, so `CalibrationReply.kt` and `CalibrationBatch.kt` come with them. The script lists all four in `FILES`.
+- `SensorHealthScreen` shows a `Salt check` chip below the `Week chart` chip. It opens `SaltScreen` (`ScalingLazyColumn`) for the focused room. The `Run NaCl check` chip sends `SALT <N>` through `BleConsoleClient.send` (`MainActivity.readSalt`). Only a tap sends it. The command is not retried.
+- The screen shows `SaltText.outcome` (`SKIP`, `UNSTABLE`, or the mean and the reference) and, with a proposal, the line `Vorschlag: <key>=<value>`. `ERR BAD_TEMP` and `ERR READ_ONLY` have readable texts.
+- The screen shows the proposal only. The watch sends no `SET`. The user applies the value in the phone app or the macOS app.
+- No firmware change, no RTC layout change. Tests: `SaltCommandTest` and `SaltTextTest` (phone test data), `SaltScreenTextTest`.
+- Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The local machine has no Android SDK, so `gradle testDebugUnitTest assembleDebug` did not run locally. CI runs it.
