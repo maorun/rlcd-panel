@@ -36,4 +36,12 @@ class WeekTextTest {
         // 2026-04-13 is a Monday.
         assertEquals(listOf("Mo 13.04.", "Di 14.04.", "Mi 15.04.", "Do 16.04.", "Fr 17.04.", "Sa 18.04.", "So 19.04."), labels)
     }
+
+    @Test
+    fun moldText() {
+        fun row(hours: Int?) = WeekRow(0, 0, "2026-04-13", 1.0, 2.0, 3.0, 4.0, hours)
+        assertEquals("Schimmel 0 h", WeekText.mold(row(0)))
+        assertEquals("⚠ Schimmel 5 h", WeekText.mold(row(5)))
+        assertEquals("", WeekText.mold(row(null)))
+    }
 }

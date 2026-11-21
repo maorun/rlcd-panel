@@ -79,6 +79,10 @@ object WeekText {
         val hi = row.humidityMaxPct
         return if (lo == null || hi == null) NO_VALUE else "%.0f .. %.0f %%".format(Locale.ROOT, lo, hi)
     }
+
+    /** `Schimmel 5 h` with the warning mark above 0 hours; an empty text for `null` (7-column reply or gap day). */
+    fun mold(row: WeekRow): String =
+        row.moldHours?.let { (if (it > 0) "${SensorHealthText.WARNING} " else "") + "Schimmel $it h" } ?: ""
 }
 
 @Composable
@@ -142,6 +146,8 @@ fun WeekScreen(
                             Text(WeekText.dayLabel(row), fontSize = 10.sp, color = Color(0xFFB0BEC5))
                             Text(WeekText.temperature(row), fontSize = 12.sp)
                             Text(WeekText.humidity(row), fontSize = 12.sp)
+                            val mold = WeekText.mold(row)
+                            if (mold.isNotEmpty()) Text(mold, fontSize = 10.sp, color = Color(0xFFB0BEC5))
                         }
                     }
                 }
