@@ -19,11 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Alert limit editor over the BLE console in the Android app
-  - Rank: [Total: 34, Use: 8, Setup: 9, Harmony: 8, Safety: 9, Effort: M]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertLimits.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/AlertLimitScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertLimitsTest.kt
-  - Goal: Add a screen that reads `CONFIG` and edits the keys `mold_alert_limit_rh`, `dry_alert_limit_rh`, `freeze_alert_limit_c`, `heat_alert_limit_c`, `ventilate_limit_rh` and `sensor_battery_limit_pct`. Check each value against the firmware range before the send. Send one `SET <key>=<value>` for each changed key, then `CONFIG`. Stop at the first `ERR` line. Show the edit controls only when `PanelConfig.canWrite` is true (`ble_console=2`).
-  - Acceptance test: `AlertLimitsTest` asserts the range limits of each key (for example `mold_alert_limit_rh=39` is rejected, 40 and 95 are accepted, `heat_alert_limit_c=0` is accepted), the command list for two changed keys in a fixed order with `CONFIG` last, no command for an unchanged value, and the stop after `ERR BAD_VALUE`. `gradle testDebugUnitTest assembleDebug` passes in the CI job `Android phone companion tests and APK`.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 

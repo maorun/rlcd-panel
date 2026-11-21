@@ -2396,3 +2396,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SaltReply.parse` keeps the proposal key `slotN_rh_offset_pct` of slots 6 to 10 (checked by `ConfigSchema.validate`). Proposals of `CALIB` and `SALT` go through `ConfigBatch` (`SET` commands, then `CONFIG`) as before.
 - Tests (`calibAndSaltLinesForSlots6To10`, `saltReplyWithSlot8Key`, `pickerShowsSlots6To10OnlyWithReading`) cover `CALIB 10`, `SALT 6`, `nil` for 11, a `SALT slot8` reply with `slot8_rh_offset_pct` and the picker filter.
 - Do not record review findings in this file. Name them in the review report and in the pull request description.
+
+## Alert limit editor in the Android app
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertLimits.kt`, `AlertLimitScreen.kt`, `MainActivity.kt`, `SensorHealthScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertLimitsTest.kt`.
+- The button `Alert limits` of the sensor health screen opens `AlertLimitScreen`. It edits `mold_alert_limit_rh` (40 to 95), `dry_alert_limit_rh` (0 or 20 to 45), `freeze_alert_limit_c` (-20.0 to 15.0), `heat_alert_limit_c` (0 or 27 to 45), `ventilate_limit_rh` (50 to 80) and `sensor_battery_limit_pct` (0 to 50). The ranges equal the firmware limits in `device_config.h`.
+- `AlertLimits.error` checks one input against the range and the number form (a comma counts as decimal point; only `freeze_alert_limit_c` takes one decimal). `AlertLimits.plan` gives one `SET <key>=<value>` for each changed key in the fixed order of `AlertLimits.LIMITS`, no command for an unchanged value, and refuses the whole list when one value is invalid.
+- `AlertLimits.run` sends the commands one by one, then `CONFIG` (same batch as `SlotAssignment.run`). The first `ERR` line stops the batch before `CONFIG`; the summary names the failed reply and the count of applied keys.
+- The edit fields and the `Anwenden` button show only when `PanelConfig.canWrite` is true (`ble_console=2`). Otherwise the screen shows the cached values read-only with the `ble_console=2` hint. The button `CONFIG lesen` refreshes the cache.
+- No firmware change, no RTC layout change. Tests: `AlertLimitsTest` (ranges, fixed order, unchanged value, invalid value, stop after `ERR BAD_VALUE`, `CONFIG` last).
