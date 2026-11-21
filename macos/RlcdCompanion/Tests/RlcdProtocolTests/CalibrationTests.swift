@@ -227,6 +227,33 @@ import Testing
         #expect(batch.failure?.reply == "ERR READ_ONLY")
     }
 
+    @Test func calibAndSaltLinesForSlots6To10() {
+        #expect(ConsoleCommand.calib(10).line == "CALIB 10")
+        #expect(ConsoleCommand.salt(6).line == "SALT 6")
+        #expect(ConsoleCommand.calib(11).line == nil)
+        #expect(ConsoleCommand.salt(11).line == nil)
+    }
+
+    @Test func saltReplyWithSlot8Key() throws {
+        let r = try SaltReply.parse(lines: [
+            "SALT slot8 hours=6 rh_mean=73.0 rh_span=0.4 temp_mean=25.0 reference=75.3", "slot8_rh_offset_pct=2.3",
+        ])
+        #expect(r.proposal == CalibrationReply.Proposal(key: "slot8_rh_offset_pct", value: "2.3"))
+        let changes = r.changes(selected: true, current: [:])
+        #expect(ConfigBatch(changes: changes).pending.map(\.line) == ["SET slot8_rh_offset_pct=2.3", "CONFIG"])
+    }
+
+    @Test func pickerShowsSlots6To10OnlyWithReading() {
+        func sensor(_ i: Int, _ state: String) -> StatusSensor {
+            StatusSensor(index: i, name: "s\(i)", temperature: nil, humidity: nil, battery: nil, rssi: nil,
+                         ageSeconds: nil, state: state)
+        }
+        #expect(CalibrationSensors.selectable(status: nil) == [0, 1, 2, 3, 4, 5])
+        let status = [sensor(6, "EMPTY"), sensor(7, "OK"), sensor(9, "STALE"), sensor(10, "EMPTY"),
+                      sensor(8, "DISABLED"), sensor(6, "BATLOW")]
+        #expect(CalibrationSensors.selectable(status: status) == [0, 1, 2, 3, 4, 5, 6, 7, 9])
+    }
+
     @Test func calibCommandLine() {
         for n in 0...10 { #expect(ConsoleCommand.calib(n).line == "CALIB \(n)") }
         #expect(ConsoleCommand.calib(11).line == nil)

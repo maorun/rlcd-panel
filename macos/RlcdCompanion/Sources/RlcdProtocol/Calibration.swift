@@ -302,3 +302,16 @@ public enum TwoPointCalibration {
         return Result(gainKey: k.gain, offsetKey: k.offset, gain: gainText, offset: offsetText, rawNaCl: rawA, rawMgCl2: rawB)
     }
 }
+
+/// The sensors that the calibration pickers offer: the onboard sensor (0), the slots 1 to 5 and each slot 6 to 10
+/// with a reading (`STATUS` state `OK`, `STALE` or `BATLOW`; `EMPTY` and `DISABLED` have none). Without a `STATUS` reply only 0 to 5 show.
+public enum CalibrationSensors {
+    public static let alwaysShown = 0...5
+    public static let extraSlots = 6...10
+    private static let readingStates: Set<String> = ["OK", "STALE", "BATLOW"]
+
+    public static func selectable(status: [StatusSensor]?) -> [Int] {
+        let extra = (status ?? []).filter { extraSlots.contains($0.index) && readingStates.contains($0.state) }.map(\.index)
+        return Array(alwaysShown) + Array(Set(extra)).sorted()
+    }
+}

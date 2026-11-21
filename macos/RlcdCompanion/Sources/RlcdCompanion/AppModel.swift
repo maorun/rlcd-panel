@@ -642,6 +642,9 @@ final class AppModel: ConsoleLinkDelegate {
         sendNext()
     }
 
+    /// Sensors of the calibration pickers: 0 to 5 and each slot 6 to 10 with a reading.
+    var calibrationSensors: [Int] { CalibrationSensors.selectable(status: status?.sensors) }
+
     /// Slots with a reading (`STATUS` state other than `EMPTY`) and without a fixed MAC (`CONFIG`): `SLOT CLEAR` accepts them.
     var freeableSlots: [Int] {
         guard let sensors = status?.sensors, let config else { return [] } // without CONFIG a fixed MAC is unknown
@@ -941,7 +944,7 @@ final class AppModel: ConsoleLinkDelegate {
     /// Reads `SALT N MGCL2`. Runs only on the user's button press; the firmware reads the RTC copy.
     func saltMagnesiumCheck(sensor: Int) {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
-        guard ConsoleCommand.saltMagnesium(sensor).line != nil else { message = "Sensor must be 0 to 5"; return }
+        guard ConsoleCommand.saltMagnesium(sensor).line != nil else { message = "Sensor must be 0 to 10"; return }
         message = nil
         batchSummary = nil
         saltMagnesium = nil
@@ -974,7 +977,7 @@ final class AppModel: ConsoleLinkDelegate {
     /// Reads the salt check of `SALT N`. Runs only on the user's button press; the firmware reads the RTC copy.
     func saltCheck(sensor: Int) {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
-        guard ConsoleCommand.salt(sensor).line != nil else { message = "Sensor must be 0 to 5"; return }
+        guard ConsoleCommand.salt(sensor).line != nil else { message = "Sensor must be 0 to 10"; return }
         message = nil
         batchSummary = nil
         salt = nil
@@ -998,7 +1001,7 @@ final class AppModel: ConsoleLinkDelegate {
     /// Reads the histories comparison of `CALIB N`. Runs only on the user's button press; the firmware reads the RTC copy.
     func calibrate(reference: Int) {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
-        guard ConsoleCommand.calib(reference).line != nil else { message = "Reference must be 0 to 5"; return }
+        guard ConsoleCommand.calib(reference).line != nil else { message = "Reference must be 0 to 10"; return }
         message = nil
         batchSummary = nil // an old batch result must not look like the result of this run
         calibration = nil
