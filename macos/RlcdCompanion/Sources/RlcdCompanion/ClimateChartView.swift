@@ -93,6 +93,15 @@ struct ClimateChartView: View {
         }
     }
 
+    private func compareTitle(_ metric: ClimateCompare.Metric) -> String {
+        switch metric {
+        case .temperature: return "Temperature (\(temperatureUnit))"
+        case .humidity: return "Humidity (%RH)"
+        case .feelsLike: return "Feels like (\(temperatureUnit))"
+        case .absoluteHumidity: return "Absolute humidity (g/m³)"
+        }
+    }
+
     private func toggleCompare(_ sensor: Int) {
         if let i = state.compareSelection.firstIndex(of: sensor) {
             if state.compareSelection.count > ClimateCompare.minSensors { state.compareSelection.remove(at: i) }
@@ -116,16 +125,18 @@ struct ClimateChartView: View {
         Picker("Value", selection: $state.compareMetric) {
             Text("Temperature").tag(ClimateCompare.Metric.temperature)
             Text("Humidity").tag(ClimateCompare.Metric.humidity)
+            Text("Feels like").tag(ClimateCompare.Metric.feelsLike)
+            Text("Absolute humidity").tag(ClimateCompare.Metric.absoluteHumidity)
         }
         .pickerStyle(.segmented)
-        .frame(maxWidth: 260)
+        .frame(maxWidth: 480)
         // Without two chosen sensors that have data, the first two sensors with data are the default.
         let chosen = compareSelection.filter(available.contains)
         let shown = chosen.count >= ClimateCompare.minSensors ? chosen : Array(available.prefix(ClimateCompare.minSensors))
         if let chart = ClimateCompare.build(rows: data.rows, sensors: shown,
                                             metric: compareMetric, config: model.lastConfig),
            let range = chart.axisRange {
-            let title = compareMetric == .temperature ? "Temperature (\(temperatureUnit))" : "Humidity (%RH)"
+            let title = compareTitle(compareMetric)
             Chart {
                 ForEach(chart.series, id: \.sensor) { series in
                     ForEach(Array(series.segments.enumerated()), id: \.offset) { index, run in

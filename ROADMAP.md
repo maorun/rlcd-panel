@@ -24,12 +24,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Feels-like and absolute humidity curves in the macOS climate chart
-  - Rank: [Total: 25, Use: 6, Setup: 2, Harmony: 7, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/ClimateMath.swift, macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ClimateMathTests.swift
-  - Goal: Add the metric picker values `Feels like` and `Absolute humidity` to `ClimateChartView`. Calculate each point from the temperature and humidity of the `ClimateLog` row with `ClimateMath`. Skip a point without both values.
-  - Acceptance test: `ClimateMathTests` read `tests/fixtures/climate_math_vectors.txt` and assert the heat index and absolute humidity points of a fixture row, and no point for a row with an empty humidity field. `swift test` passes.
-
 - [ ] Room comparison chart in the Android history screen
   - Rank: [Total: 25, Use: 6, Setup: 2, Harmony: 7, Safety: 10, Effort: M]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/HistoryScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TelemetryHistory.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/TelemetryHistoryTest.kt
