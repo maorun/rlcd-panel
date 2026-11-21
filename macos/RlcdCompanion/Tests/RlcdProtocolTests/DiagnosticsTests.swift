@@ -307,6 +307,35 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         #expect(try ChimeMetrics.parse(line: "CHIME repeat_h=24 bits=FF last_s=0 next_s=86400").reminderText == "Next reminder in 24 h 0 min")
     }
 
+    @Test func parsesQuietLine() throws {
+        let m = try QuietMetrics.parse(line: "QUIET start_h=22 end_h=7 active=1 night_interval_s=900")
+        #expect(m == QuietMetrics(startHour: 22, endHour: 7, active: true, nightIntervalS: 900))
+        #expect(m.windowText == "22:00 to 07:00")
+        #expect(m.activeText == "active now")
+        #expect(m.nightIntervalText == "Night interval 900 s")
+        let inactive = try QuietMetrics.parse(line: "QUIET start_h=22 end_h=7 active=0 night_interval_s=0")
+        #expect(inactive.active == false)
+        #expect(inactive.activeText == "not active")
+        #expect(inactive.nightIntervalText == "Night interval off")
+        let unknown = try QuietMetrics.parse(line: "QUIET start_h=22 end_h=7 active=-- night_interval_s=900")
+        #expect(unknown.active == nil)
+        #expect(unknown.activeText == "--")
+        let d = try DiagnosticsReply.parse(otherLines: ["QUIET": "QUIET start_h=22 end_h=7 active=1 night_interval_s=900"])
+        #expect(d.quiet == m)
+        #expect(try DiagnosticsReply.parse(otherLines: [:]).quiet == nil)
+    }
+
+    @Test func quietRejectsBadFields() {
+        for bad in ["QUIET start_h=24 end_h=7 active=1 night_interval_s=900",
+                    "QUIET start_h=22 end_h=24 active=1 night_interval_s=900",
+                    "QUIET start_h=22 end_h=7 active=2 night_interval_s=900",
+                    "QUIET start_h=22 end_h=7 active=1 night_interval_s=x",
+                    "QUIET start_h=-- end_h=7 active=1 night_interval_s=900",
+                    "QUIET start_h=22 end_h=7 active=1"] {
+            #expect(throws: ParseError.badLine(bad)) { try QuietMetrics.parse(line: bad) }
+        }
+    }
+
     @Test func noiseRejectsBadFields() {
         for bad in ["NOISE db=48 band=LOUDER peak_db=71 peak_hour=19 events_sum=12",
                     "NOISE db=141 band=LOUD peak_db=71 peak_hour=19 events_sum=12",

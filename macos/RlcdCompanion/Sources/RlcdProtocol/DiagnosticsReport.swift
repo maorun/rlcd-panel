@@ -47,6 +47,9 @@ public enum DiagnosticsReport {
                     if s.command == ConsoleCommand.status.line, line.hasPrefix("NOISE "), let m = try? NoiseMetrics.parse(line: line) {
                         out.append("Noise: \(m.levelText), \(m.peakText)")
                     }
+                    if s.command == ConsoleCommand.status.line, line.hasPrefix("QUIET "), let m = try? QuietMetrics.parse(line: line) {
+                        out.append("Quiet hours: \(m.windowText), \(m.reportActiveText)")
+                    }
                 }
             }
         }

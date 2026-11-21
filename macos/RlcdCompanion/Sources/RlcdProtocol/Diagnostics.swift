@@ -298,6 +298,59 @@ public struct ChimeMetrics: Equatable {
     }
 }
 
+/// `QUIET start_h=<H> end_h=<H> active=<0|1|--> night_interval_s=<N>`: quiet hours window, current state and night wake interval.
+public struct QuietMetrics: Equatable {
+    public static let maxHour = 23
+    public let startHour: Int
+    public let endHour: Int
+    /// `nil` for `active=--` (invalid or stopped RTC time).
+    public let active: Bool?
+    public let nightIntervalS: Int
+
+    public init(startHour: Int, endHour: Int, active: Bool?, nightIntervalS: Int) {
+        self.startHour = startHour
+        self.endHour = endHour
+        self.active = active
+        self.nightIntervalS = nightIntervalS
+    }
+
+    public static func parse(line: String) throws -> QuietMetrics {
+        let f = fieldMap(line)
+        guard let startHour = try counter(f, "start_h", line: line), startHour <= maxHour,
+              let endHour = try counter(f, "end_h", line: line), endHour <= maxHour,
+              let activeText = f["active"],
+              let nightIntervalS = try counter(f, "night_interval_s", line: line) else { throw ParseError.badLine(line) }
+        let active: Bool?
+        switch activeText {
+        case "0": active = false
+        case "1": active = true
+        case "--": active = nil
+        default: throw ParseError.badLine(line)
+        }
+        return QuietMetrics(startHour: startHour, endHour: endHour, active: active, nightIntervalS: nightIntervalS)
+    }
+
+    /// `22:00 to 07:00`.
+    public var windowText: String { String(format: "%02d:00 to %02d:00", startHour, endHour) }
+
+    /// `active now`, `not active` or `--`.
+    public var activeText: String {
+        guard let active else { return "--" }
+        return active ? "active now" : "not active"
+    }
+
+    /// `active`, `not active` or `--` for the report summary line.
+    public var reportActiveText: String {
+        guard let active else { return "--" }
+        return active ? "active" : "not active"
+    }
+
+    /// `Night interval <N> s` or `Night interval off` for 0.
+    public var nightIntervalText: String {
+        nightIntervalS == 0 ? "Night interval off" : "Night interval \(nightIntervalS) s"
+    }
+}
+
 /// `MEMORY free=<N> min=<N> largest=<N> psram=<N>` (bytes).
 public struct MemoryMetrics: Equatable {
     /// `largest` below this value shows a warning.
@@ -441,12 +494,13 @@ public struct DiagnosticsReply: Equatable {
     public let latch: LatchMetrics?
     public let noise: NoiseMetrics?
     public let chime: ChimeMetrics?
+    public let quiet: QuietMetrics?
 
     public init(shtc3: Shtc3Stats?, ble: BleRejectMetrics?, reset: ResetMetrics?, runtime: RuntimeMetrics?,
                 awake: AwakeMetrics?, reception: ReceptionMetrics?, rtcTrim: RtcTrimMetrics? = nil,
                 ntp: NtpMetrics? = nil, memory: MemoryMetrics? = nil, frame: FrameMetrics? = nil,
                 wake: WakeMetrics? = nil, latch: LatchMetrics? = nil,
-                noise: NoiseMetrics? = nil, chime: ChimeMetrics? = nil) {
+                noise: NoiseMetrics? = nil, chime: ChimeMetrics? = nil, quiet: QuietMetrics? = nil) {
         self.shtc3 = shtc3
         self.ble = ble
         self.reset = reset
@@ -461,6 +515,7 @@ public struct DiagnosticsReply: Equatable {
         self.latch = latch
         self.noise = noise
         self.chime = chime
+        self.quiet = quiet
     }
 
     /// `otherLines` of `StatusReply`. A present line with a bad counter throws `ParseError.badLine`.
@@ -479,7 +534,8 @@ public struct DiagnosticsReply: Equatable {
             wake: try otherLines["WAKE"].map(WakeMetrics.parse(line:)),
             latch: try otherLines["LATCH"].map(LatchMetrics.parse(line:)),
             noise: try otherLines["NOISE"].map(NoiseMetrics.parse(line:)),
-            chime: try otherLines["CHIME"].map(ChimeMetrics.parse(line:)))
+            chime: try otherLines["CHIME"].map(ChimeMetrics.parse(line:)),
+            quiet: try otherLines["QUIET"].map(QuietMetrics.parse(line:)))
     }
 
     public static func parse(status: StatusReply) throws -> DiagnosticsReply {
