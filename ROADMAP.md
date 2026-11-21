@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Humidity alert delay in the Android alert limit editor
-  - Rank: [Total: 33, Use: 7, Setup: 9, Harmony: 7, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertLimits.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/AlertLimitScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertLimitsTest.kt
-  - Goal: Add `mold_alert_delay_h` (whole hours, 0 to 12, 0 is off) to the limits of `AlertLimits`. Show the field `Verzögerung Schimmelalarm (h)` below the mold limit in `AlertLimitScreen`. Send the value with the same `SET` batch and stop rules as the other limits. Do this after the firmware item "Delay for the humidity alert in config.ini".
-  - Acceptance test: `AlertLimitsTest` asserts that 0 and 12 are accepted, that 13, -1 and `2.5` are rejected, the wire text `SET mold_alert_delay_h=3`, and no command for an unchanged value. `gradle testDebugUnitTest assembleDebug` passes in the CI job `Android phone companion tests and APK`.
-
 - [ ] Slot swap in the Android slot configuration screen
   - Rank: [Total: 33, Use: 6, Setup: 10, Harmony: 8, Safety: 9, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SlotConfig.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SlotConfigScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/SlotConfigTest.kt

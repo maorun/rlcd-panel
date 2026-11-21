@@ -20,6 +20,25 @@ class AlertLimitsTest {
     }
 
     @Test
+    fun moldDelayRangeIs0To12WholeHours() {
+        assertNull(error("mold_alert_delay_h", "0"))
+        assertNull(error("mold_alert_delay_h", "12"))
+        assertNotNull(error("mold_alert_delay_h", "13"))
+        assertNotNull(error("mold_alert_delay_h", "-1"))
+        assertNotNull(error("mold_alert_delay_h", "2.5"))
+    }
+
+    @Test
+    fun moldDelayWireTextAndUnchangedValue() {
+        assertEquals(
+            listOf("SET mold_alert_delay_h=3"),
+            commands(AlertLimits.plan(mapOf("mold_alert_delay_h" to "3"), PanelConfig()))
+        )
+        val config = PanelConfig(mapOf("mold_alert_delay_h" to "3"))
+        assertTrue(commands(AlertLimits.plan(mapOf("mold_alert_delay_h" to "3"), config)).isEmpty())
+    }
+
+    @Test
     fun heatAcceptsZeroOffAndRange27To45() {
         assertNull(error("heat_alert_limit_c", "0"))
         assertNotNull(error("heat_alert_limit_c", "26"))
@@ -112,7 +131,7 @@ class AlertLimitsTest {
     @Test
     fun shownValueFallsBackToFirmwareDefaults() {
         val expected = mapOf(
-            "mold_alert_limit_rh" to 70.0, "dry_alert_limit_rh" to 0.0, "freeze_alert_limit_c" to 0.0,
+            "mold_alert_limit_rh" to 70.0, "mold_alert_delay_h" to 0.0, "dry_alert_limit_rh" to 0.0, "freeze_alert_limit_c" to 0.0,
             "heat_alert_limit_c" to 0.0, "ventilate_limit_rh" to 60.0, "sensor_battery_limit_pct" to 10.0
         )
         for (limit in AlertLimits.LIMITS) assertEquals(limit.key, expected[limit.key]!!, AlertLimits.shown(limit, PanelConfig()), 0.0)
