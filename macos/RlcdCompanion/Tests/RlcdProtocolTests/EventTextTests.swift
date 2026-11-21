@@ -132,6 +132,11 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("SLOT_STALE", 0x0100)) == "SLOT_STALE,256")
         #expect(EventText.describe(row("SLOT_STALE", 0x010B)) == "SLOT_STALE,267")
         #expect(EventText.describe(row("SLOT_STALE", 0x0202)) == "SLOT_STALE,514")
+        #expect(EventText.describe(row("JUMP_DROP", 3)) == "Slot 3 reading jump dropped")
+        #expect(EventText.describe(row("JUMP_DROP", 10)) == "Slot 10 reading jump dropped")
+        #expect(EventText.describe(row("JUMP_DROP", 0)) == "JUMP_DROP,0")
+        #expect(EventText.describe(row("JUMP_DROP", 11)) == "JUMP_DROP,11")
+        #expect(EventText.describe(row("JUMP_DROP", 259)) == "JUMP_DROP,259")
     }
 
     @Test func configSetGivesKeyAndTransport() {
@@ -223,7 +228,7 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
             .filter { !$0.hasPrefix("CRC32") }
         let rows = try EventsReply.parse(lines: lines)
-        #expect(rows.count == 21)
+        #expect(rows.count == 22)
         #expect(rows[0] == EventRow(time: "2026-11-18 09:00:00", event: "EVENTS_DROPPED", detail: 0))
         let texts = rows.dropFirst().map(EventText.describe)
         #expect(texts[0] == "reset PANIC (abnormal)")
@@ -238,6 +243,7 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(texts[16] == "Onboard sensor back")
         #expect(texts[17] == "Slot 4 battery low")
         #expect(texts[18] == "Slot 4 battery OK")
-        #expect(texts[19] == "FUTURE_EVENT,7")
+        #expect(texts[19] == "Slot 3 reading jump dropped")
+        #expect(texts[20] == "FUTURE_EVENT,7")
     }
 }

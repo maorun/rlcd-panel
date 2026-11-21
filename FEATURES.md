@@ -2248,3 +2248,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The `WEEK` reply has the new last column `mold_h`: header `sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h`, empty for a gap day. Without a card the user sees on which days a room was humid for a long time.
 - Companion apps: the macOS `WeekReply.parse` and the Kotlin `WeekReply.parse` (phone and watch) accept 7 or 8 columns. `WeekRow.moldHours` is `nil` or `null` for 7 columns and for an empty field. A value outside 0 to 24 or a non-numeric value is a bad line. The Android `WeekCsv` writes the column `mold_h` before `name`.
 - Tests: the host tests assert the stored hours, the gap marker, the rejection of 25, 254 and a count beside a gap pair, the restore value from a daily row, the `WEEK` header and the RTC round trip with version 69. `tests/fixtures/week_reply_sample.txt` holds the column and a new `CRC32` line.
+
+## Dropped jump event texts in the companion apps
+
+- `EventCode::JUMP_DROP` (20) has a text in the macOS, Android phone and Wear OS `EventText`: `Slot <N> reading jump dropped` for the detail 1 to 10. Each other detail (0, 11, 259) shows the raw text, for example `JUMP_DROP,3`.
+- `EventFilter` (`EventFilter.swift` and both `EventFilter.kt`) puts `JUMP_DROP` into the category `sensors`. `EventFilterTest.kotlinNamesMatchSwiftNames` compares both lists.
+- `tests/fixtures/events_reply_sample.txt` has the new row `JUMP_DROP,3` before `FUTURE_EVENT` (22 lines with `EVENTS_DROPPED`, 21 rows in the Kotlin tests) and the new CRC-32 `97608910`.
+- Tests: `EventTextTests` and both `EventTextTest` classes assert `Slot 3 reading jump dropped`, `Slot 10 reading jump dropped` and the raw text for the details 0, 11 and 259. The filter and reply tests count one more row and one more `sensors` row.

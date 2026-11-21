@@ -39,14 +39,14 @@ class EventFilterTest {
     @Test
     fun filtersFixtureByCategories() {
         val log = EventsReply.parse(fixtureLines())
-        assertEquals(20, log.rows.size)
+        assertEquals(21, log.rows.size)
         assertEquals(0, log.dropped)
 
         val alerts = EventFilter.apply(log.rows, setOf(EventFilter.Category.ALERTS))
         assertEquals(3, alerts.size)
 
         val sensors = EventFilter.apply(log.rows, setOf(EventFilter.Category.SENSORS))
-        assertEquals(8, sensors.size)
+        assertEquals(9, sensors.size)
 
         val power = EventFilter.apply(log.rows, setOf(EventFilter.Category.POWER))
         assertEquals(4, power.size)
@@ -72,7 +72,7 @@ class EventFilterTest {
     fun emptySetKeepsAllRowsAndPreservesOrder() {
         val log = EventsReply.parse(fixtureLines())
         val filtered = EventFilter.apply(log.rows, emptySet())
-        assertEquals(20, filtered.size)
+        assertEquals(21, filtered.size)
         assertEquals(log.rows, filtered)
     }
 
