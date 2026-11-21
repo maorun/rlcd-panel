@@ -2279,3 +2279,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SensorHealthScreen` shows the row below the memory row. The row has no warning mark.
 - Tests: `SensorHealthTextTest.noiseText`.
 - Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
+
+## Chime reminder time in the Android chime screen
+
+- The `STATUS` line `CHIME repeat_h=<N> bits=<2 hex digits> last_s=<N|--> next_s=<N|-->` tells when the next chime reminder sounds. The phone chime screen ignored it.
+- The shared `StatusReply.kt` (phone and watch, same source) holds `ChimeReminder(repeatHours, bits, lastS, nextS)` and `StatusReply.chime`. A missing line gives `null`; `--` gives a `null` field. `repeat_h` above 24, `bits` that are not 2 hex digits and a bad number throw `ParseException`, like `ChimeMetrics` of `Diagnostics.swift`.
+- `ChimeText.reminder(reminder)` (phone) gives `Erinnerung aus` for `repeatHours` 0, `Keine Erinnerung fällig` for `bits` 0 or without `nextS`, else `Nächste Erinnerung in <H> h <M> min`. `ChimeScreen` shows it below the mute state after each `STATUS` read (`ChimeState.reminder`).
+- Tests: `StatusReplyTest.parsesChimeLine` and `badChimeLineThrows`, `ChimeTextTest`.
+- Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
