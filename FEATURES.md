@@ -2574,3 +2574,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The command runs on USB and on BLE at each `ble_console` level. It does not mount the card. The RTC layout and `STATE_VERSION` do not change.
 - Tests: parser, `execute()` gate, BLE bridge with `ble_console` 1, reply `OK IDENTIFY 3F2A`, `ERR BAD_ARG` for `IDENTIFY X`, the render CRC-32 for `USB` and `BLE`, and the silent paths.
 - Validation: host tests, `./scripts/generate-display-preview.sh` and `arduino-cli compile rlcd_panel` pass locally. Hardware behavior (panel flush, note) is not tested.
+
+## Slot swap in the macOS scanner view
+
+- `ConsoleCommand.slotSwap(a, b)` writes `SLOT SWAP <A> <B>` for two different slots from 1 to 10. Equal slots, slot 0 and slot 11 give no line.
+- `ConsoleCommand.slotSwapMessage` shows readable texts for `ERR FIXED_MAC`, `ERR SLOT_OFF` and `ERR READ_ONLY`; other replies stay as they are.
+- `ScannerView` shows a menu `Slot <N>` with the entries `Swap with slot <M>` for each slot of `AppModel.freeableSlots` (occupied, no fixed MAC). `AppModel.swapSlots` sends the command, then `STATUS`, and clears the old scan and reject results.
+- Tests: `ReplyTests.slotSwapCommandAndMessages`.
+- Validation: `swift test` and `swift build -c release` pass locally. The menu is not tested with hardware.

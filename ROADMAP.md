@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Slot swap in the macOS scanner view
-  - Rank: [Total: 34, Use: 6, Setup: 10, Harmony: 9, Safety: 9, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Sources/RlcdCompanion/ScannerView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift
-  - Goal: Add `ConsoleCommand.slotSwap(Int, Int)`, which writes `SLOT SWAP <A> <B>` for two different slots from 1 to 10. Add the menu `Swap with slot <N>` to each occupied slot row of `ScannerView` that has no fixed MAC. `AppModel.swapSlots` sends the command, then `STATUS`. Show readable texts for `ERR FIXED_MAC`, `ERR SLOT_OFF` and `ERR READ_ONLY`.
-  - Acceptance test: `ReplyTests` assert the line `SLOT SWAP 2 7`, a precondition failure for equal slots and for slot 11, and the texts of `ERR FIXED_MAC` and `ERR SLOT_OFF`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-
 - [ ] Identify button in the macOS app
   - Rank: [Total: 34, Use: 5, Setup: 10, Harmony: 9, Safety: 10, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift

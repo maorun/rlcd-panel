@@ -533,6 +533,8 @@ public enum ConsoleCommand: Equatable {
     case rtcTrim
     /// `SLOT CLEAR N` (N 1 to 10): frees one registry slot at once. The firmware answers `ERR FIXED_MAC` for a slot with a fixed MAC.
     case slotClear(Int)
+    /// `SLOT SWAP A B` (A and B 1 to 10, different): swaps the registry data of two slots. The firmware answers `ERR FIXED_MAC` or `ERR SLOT_OFF` and changes nothing.
+    case slotSwap(Int, Int)
     case set(key: String, value: String)
     case calib(Int)
     case salt(Int)
@@ -560,6 +562,16 @@ public enum ConsoleCommand: Equatable {
         }
         switch reply {
         case "ERR NOT_ACTIVE": return "The alert is off"
+        case "ERR READ_ONLY": return "Set ble_console=2 to apply"
+        default: return reply
+        }
+    }
+
+    /// Text for the replies of `SLOT SWAP`; other text stays as it is.
+    public static func slotSwapMessage(_ reply: String) -> String {
+        switch reply {
+        case "ERR FIXED_MAC": return "A slot with a fixed MAC cannot be swapped"
+        case "ERR SLOT_OFF": return "A disabled slot cannot be swapped"
         case "ERR READ_ONLY": return "Set ble_console=2 to apply"
         default: return reply
         }
@@ -622,6 +634,9 @@ public enum ConsoleCommand: Equatable {
         case let .slotClear(slot):
             guard SlotAssignment.slots.contains(slot) else { return nil }
             return "SLOT CLEAR \(slot)"
+        case let .slotSwap(a, b):
+            guard (1...10).contains(a), (1...10).contains(b), a != b else { return nil }
+            return "SLOT SWAP \(a) \(b)"
         case let .calib(reference):
             guard (0...10).contains(reference) else { return nil }
             return "CALIB \(reference)"

@@ -200,6 +200,17 @@ struct ReplyAssemblerTests {
                 == [.status("OK SLOT CLEAR 2"), .status("ERR FIXED_MAC"), .status("ERR BAD_ARG")])
     }
 
+    @Test func slotSwapCommandAndMessages() {
+        #expect(ConsoleCommand.slotSwap(2, 7).line == "SLOT SWAP 2 7")
+        #expect(ConsoleCommand.slotSwap(3, 3).line == nil)
+        #expect(ConsoleCommand.slotSwap(1, 11).line == nil)
+        #expect(ConsoleCommand.slotSwap(0, 2).line == nil)
+        #expect(ConsoleCommand.slotSwapMessage("ERR FIXED_MAC") == "A slot with a fixed MAC cannot be swapped")
+        #expect(ConsoleCommand.slotSwapMessage("ERR SLOT_OFF") == "A disabled slot cannot be swapped")
+        #expect(ConsoleCommand.slotSwapMessage("ERR READ_ONLY") == "Set ble_console=2 to apply")
+        #expect(ConsoleCommand.slotSwapMessage("OK SLOT SWAP 2 7") == "OK SLOT SWAP 2 7")
+    }
+
     @Test func oversizedInputIsRejectedAndAssemblerRecovers() {
         var a = ReplyAssembler()
         let r = a.append(Data(repeating: 0x41, count: ReplyAssembler.maxLineBytes + 1))
