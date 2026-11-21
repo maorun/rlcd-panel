@@ -113,6 +113,7 @@ struct PersistentState {
   uint32_t last_chime_ms = 0; // clock value of the last chime or alert rising edge (chime_repeat_h)
   uint8_t alert_mask = ALERT_NONE; // alerts active in the last wake cycle (hysteresis latch)
   int32_t sd_free_mb = -1;         // free MicroSD space in MB at the last card read; -1 is unknown (STATUS)
+  uint8_t scan_fault = 0;          // 1: the last BLE scan start failed (recordScanResult); a power-on sets 0
   uint16_t stale_slots = 0;        // stale latch, bits 0..9 are the registry slots (recordStaleChanges)
   uint8_t alert_ack = ALERT_NONE;  // acknowledged alert bits (console ACK): no chime reminder while the alert stays on
   NoiseBand noise_band = NoiseBand::QUIET; // band of the last noise window (hysteresis latch)
@@ -229,6 +230,17 @@ struct PersistentState {
       stale_slots = static_cast<uint16_t>(stale ? (stale_slots | bit) : (stale_slots & ~bit));
       events.record(now, EventCode::SLOT_STALE, static_cast<uint16_t>((stale ? 0u : 0x0100u) | (i + 1)));
     }
+  }
+
+  // One SCAN_FAULT event for each change of the scan start result: detail 1 for the first failed start, 0 for the
+  // next good start. An equal state records nothing, so a radio that fails in each wake cycle does not fill the ring.
+  void recordScanResult(bool started, const RtcTime& now) {
+    const uint8_t fault = started ? 0 : 1;
+    if (fault == scan_fault) {
+      return;
+    }
+    scan_fault = fault;
+    events.record(now, EventCode::SCAN_FAULT, fault);
   }
 
   // Records one SENSOR_BATTERY event for each changed bit between two sensor_battery_latch values: slot number 1 to 10
@@ -440,7 +452,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 69;
+  static constexpr uint8_t STATE_VERSION = 70;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -502,7 +514,9 @@ public:
   static constexpr size_t STALE_SIZE = 2;
   // Free MicroSD space (int32, -1 unknown, just before the checksum).
   static constexpr size_t SD_FREE_SIZE = 4;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + 4;
+  // Scan fault flag (1 byte, just before the checksum).
+  static constexpr size_t SCAN_FAULT_SIZE = 1;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -854,6 +868,7 @@ public:
     out[pos++] = static_cast<uint8_t>(state.stale_slots & 0xFF);
     out[pos++] = static_cast<uint8_t>((state.stale_slots >> 8) & 0xFF);
     putU32(out, pos, static_cast<uint32_t>(state.sd_free_mb));
+    out[pos++] = state.scan_fault;
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -1266,6 +1281,10 @@ public:
     s.sd_free_mb = static_cast<int32_t>(getU32(data, pos));
     if (s.sd_free_mb < -1) {
       return false;
+    }
+    s.scan_fault = data[pos++];
+    if (s.scan_fault > 1) {
+      return false; // only 0 and 1 are valid
     }
     s.registry.setAutoAssign(s.config.slot_auto_assign != 0);
     s.registry.setMinAssignRssi(s.config.auto_assign_min_rssi);

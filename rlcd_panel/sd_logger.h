@@ -132,6 +132,7 @@ enum class EventCode : uint8_t {
   SHTC3_FAULT = 18,     // the onboard SHTC3 failed 3 reads in a row or recovered; detail low byte 1 fault, 0 back; high byte the Shtc3Result of the third failed read, 0 for back
   SENSOR_BATTERY = 19,  // the low battery latch of a slot changed; detail low byte is the slot number 1 to 10, high byte 1 low, 0 OK again
   JUMP_DROP = 20,       // JumpGuard dropped a reading jump of a slot; detail is the slot number 1 to 10
+  SCAN_FAULT = 21,      // the BLE scan start failed or works again; detail 1 fault, 0 back
 };
 
 struct LogEvent {
@@ -152,7 +153,7 @@ struct LogEvent {
 class EventRing {
 public:
   static constexpr size_t CAPACITY = 16;
-  static constexpr uint8_t MAX_CODE = static_cast<uint8_t>(EventCode::JUMP_DROP);
+  static constexpr uint8_t MAX_CODE = static_cast<uint8_t>(EventCode::SCAN_FAULT);
 
   size_t size() const { return count_; }
   uint16_t dropped() const { return dropped_; }
@@ -568,6 +569,7 @@ public:
       case EventCode::SHTC3_FAULT: return "SHTC3_FAULT";
       case EventCode::SENSOR_BATTERY: return "SENSOR_BATTERY";
       case EventCode::JUMP_DROP: return "JUMP_DROP";
+      case EventCode::SCAN_FAULT: return "SCAN_FAULT";
       case EventCode::NONE: break;
     }
     return nullptr;

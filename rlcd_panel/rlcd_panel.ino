@@ -335,6 +335,7 @@ int32_t g_pending_config_rejects = -1;
 bool g_pending_protection_release = false;
 bool g_reset_event_pending = false; // a start that is no deep sleep wakeup waits for its RESET event
 uint16_t g_reset_event_detail = 0;  // ResetReason of that start
+int8_t g_pending_scan_fault = -1; // scan start result (1 fault, 0 back) before the RTC time is known; -1 none
 int32_t g_pending_sd_event = -1; // SD_FAULT detail of the config load, recorded once the RTC time is known
 uint8_t g_pending_slot_release = 0; // mask of the slots releaseDeadSlots cleared, recorded once the RTC time is known
 
@@ -601,11 +602,21 @@ void initBle() {
   }
 }
 
+// Records the scan start result as a SCAN_FAULT event. An RTC time that is not read yet keeps the result pending.
+void recordScanStart(bool started) {
+  if (!g_rtc_time.valid) {
+    g_pending_scan_fault = started ? 0 : 1;
+    return;
+  }
+  g_state.recordScanResult(started, g_rtc_time);
+}
+
 // Blocks for one scan. The deep sleep cycle needs no concurrent work during the scan.
 // PersistentState::reject_log holds the reject log of the last scan; a scan that does not run clears it.
 void scanOnce(bool full_scan) {
   g_scan_saved_ms = 0;
   if (g_ble_scan == nullptr) {
+    recordScanStart(false);
     g_state.reject_log = RejectLog{};
     return;
   }
@@ -616,7 +627,9 @@ void scanOnce(bool full_scan) {
   g_state.registry.resetRejects();
   portEXIT_CRITICAL(&g_registry_mux);
   g_scan_running = true;
-  if (!g_ble_scan->start(duration_s, onScanComplete, false)) {
+  const bool scan_started = g_ble_scan->start(duration_s, onScanComplete, false);
+  recordScanStart(scan_started);
+  if (!scan_started) {
     g_scan_running = false;
     g_state.reject_log = RejectLog{}; // the reset ran, so the copy of the last scan must not stay old
     return;
@@ -916,6 +929,10 @@ void refreshSensors() {
   if (was_low != g_state.battery.low_battery) {
     const uint16_t pct = g_state.battery.percentage > 0 ? static_cast<uint16_t>(g_state.battery.percentage) : 0;
     g_state.events.record(g_rtc_time, g_state.battery.low_battery ? EventCode::BATTERY_LOW_SET : EventCode::BATTERY_LOW_CLEAR, pct);
+  }
+  if (g_pending_scan_fault >= 0) {
+    g_state.recordScanResult(g_pending_scan_fault == 0, g_rtc_time);
+    g_pending_scan_fault = -1;
   }
   if (g_pending_sd_event >= 0) {
     g_state.events.record(g_rtc_time, EventCode::SD_FAULT, static_cast<uint16_t>(g_pending_sd_event));
