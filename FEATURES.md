@@ -2582,3 +2582,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `ScannerView` shows a menu `Slot <N>` with the entries `Swap with slot <M>` for each slot of `AppModel.freeableSlots` (occupied, no fixed MAC). `AppModel.swapSlots` sends the command, then `STATUS`, and clears the old scan and reject results.
 - Tests: `ReplyTests.slotSwapCommandAndMessages`.
 - Validation: `swift test` and `swift build -c release` pass locally. The menu is not tested with hardware.
+
+## Identify button in the macOS app
+
+- `ConsoleCommand.identify` writes `IDENTIFY`. `IdentifyReply.parse` reads `OK IDENTIFY <4 hex digits>` and gives the code in upper case; a reply with 3 or 5 digits, a non-hex digit or another prefix throws `ParseError.badLine`.
+- `ConsoleCommand.identifyMessage` shows `Panel shows RLCD <XXXX>` for a good reply and `The panel rejected the command` for `ERR BAD_ARG`; other text stays as it is.
+- `DiagnosticsView` (maintenance group) and each row of the panel picker in `Views.swift` show the button `Identify panel`. `AppModel.identifyPanel` sends one command for each press and keeps the text in `identifyResult`; a new connection or a forgotten panel clears it. The user matches the code with the `PanelPin` and the physical panel.
+- Tests: `ReplyTests.identifyCommandAndReply`.
+- Validation: `swift test` (564 tests) and `swift build -c release` pass locally. The button is not tested with hardware.

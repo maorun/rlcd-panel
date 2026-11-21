@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Identify button in the macOS app
-  - Rank: [Total: 34, Use: 5, Setup: 10, Harmony: 9, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift
-  - Goal: Add `ConsoleCommand.identify` (`IDENTIFY`) and `IdentifyReply.parse` for `OK IDENTIFY <4 hex digits>`. Add the button `Identify panel` to `DiagnosticsView` and to each row of the panel picker. Show `Panel shows RLCD <XXXX>` after the reply, so the user can match the `PanelPin` with the physical panel. Do this after the firmware item "Console command IDENTIFY to find the connected panel".
-  - Acceptance test: `ReplyTests` assert the command line `IDENTIFY`, the parse of `OK IDENTIFY 3F2A`, `ParseError.badLine` for `OK IDENTIFY 3F2` and for `OK IDENTIFY XYZW`, and the error text of `ERR BAD_ARG`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-
 - [ ] Delay for the humidity alert in config.ini
   - Rank: [Total: 34, Use: 9, Setup: 8, Harmony: 8, Safety: 9, Effort: M]
   - Location: rlcd_panel/device_config.h, rlcd_panel/audio_alert.h, rlcd_panel/sparkline.h, rlcd_panel/power_manager.h, docs/config.example.ini, macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ConfigSchemaTests.swift, tests/test_firmware_logic.cpp

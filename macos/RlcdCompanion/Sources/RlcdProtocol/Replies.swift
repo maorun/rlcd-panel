@@ -531,6 +531,8 @@ public enum ConsoleCommand: Equatable {
     /// `ACK ALL`: stops the chime reminder of each active alert at once. The firmware answers `OK ACK ALL <2 hex digits>` or `ERR NOT_ACTIVE`.
     case ackAll
     case rtcTrim
+    /// `IDENTIFY`: shows the identify screen on the panel. The firmware answers `OK IDENTIFY <4 hex digits>` (USB and BLE).
+    case identify
     /// `SLOT CLEAR N` (N 1 to 10): frees one registry slot at once. The firmware answers `ERR FIXED_MAC` for a slot with a fixed MAC.
     case slotClear(Int)
     /// `SLOT SWAP A B` (A and B 1 to 10, different): swaps the registry data of two slots. The firmware answers `ERR FIXED_MAC` or `ERR SLOT_OFF` and changes nothing.
@@ -563,6 +565,15 @@ public enum ConsoleCommand: Equatable {
         switch reply {
         case "ERR NOT_ACTIVE": return "The alert is off"
         case "ERR READ_ONLY": return "Set ble_console=2 to apply"
+        default: return reply
+        }
+    }
+
+    /// Text for the replies of `IDENTIFY`; other text stays as it is.
+    public static func identifyMessage(_ reply: String) -> String {
+        if let identify = try? IdentifyReply.parse(reply) { return "Panel shows RLCD \(identify.code)" }
+        switch reply {
+        case "ERR BAD_ARG": return "The panel rejected the command"
         default: return reply
         }
     }
@@ -631,6 +642,7 @@ public enum ConsoleCommand: Equatable {
             return "ACK \(bit)"
         case .ackAll: return "ACK ALL"
         case .rtcTrim: return "RTC TRIM"
+        case .identify: return "IDENTIFY"
         case let .slotClear(slot):
             guard SlotAssignment.slots.contains(slot) else { return nil }
             return "SLOT CLEAR \(slot)"
@@ -664,4 +676,20 @@ public enum ConsoleBridge {
     public static let serviceUUID = "6E400001-B5A3-F393-E0A9-E50E24DCCA9E"
     public static let rxUUID = "6E400002-B5A3-F393-E0A9-E50E24DCCA9E"
     public static let txUUID = "6E400003-B5A3-F393-E0A9-E50E24DCCA9E"
+}
+
+/// Reply of `IDENTIFY`: `OK IDENTIFY <4 hex digits>` (the last 4 hex digits of the panel BLE MAC, shown on the panel as `RLCD <XXXX>`).
+public struct IdentifyReply: Equatable {
+    /// Four upper case hex digits.
+    public let code: String
+
+    public static func parse(_ line: String) throws -> IdentifyReply {
+        let prefix = "OK IDENTIFY "
+        guard line.hasPrefix(prefix) else { throw ParseError.badLine(line) }
+        let hex = line.dropFirst(prefix.count)
+        guard hex.utf8.count == 4,
+              hex.utf8.allSatisfy({ ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x41 && $0 <= 0x46) || ($0 >= 0x61 && $0 <= 0x66) })
+        else { throw ParseError.badLine(line) }
+        return IdentifyReply(code: hex.uppercased())
+    }
 }

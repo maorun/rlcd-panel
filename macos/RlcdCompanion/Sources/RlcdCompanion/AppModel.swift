@@ -91,6 +91,8 @@ final class AppModel: ConsoleLinkDelegate {
     var panelOffsetSeconds: Int?
     var lastChimeResult: String?
     var lastPatternResult: String?
+    /// Text after `IDENTIFY` (`Panel shows RLCD <XXXX>` or the error text).
+    var identifyResult: String?
     var message: String?
     /// User notifications for active alerts.
     var notificationsEnabled = false
@@ -435,6 +437,7 @@ final class AppModel: ConsoleLinkDelegate {
         panelOffsetSeconds = nil
         lastChimeResult = nil
         lastPatternResult = nil
+        identifyResult = nil
     }
 
     private func clearArchive() {
@@ -452,6 +455,7 @@ final class AppModel: ConsoleLinkDelegate {
         panelOffsetSeconds = nil
         lastChimeResult = nil
         lastPatternResult = nil
+        identifyResult = nil
         resetLink()
         consoleConnected = false
         consoleState = "Console not connected"
@@ -631,6 +635,7 @@ final class AppModel: ConsoleLinkDelegate {
         guard isIdle else { return }
         message = nil
         lastPatternResult = nil
+        identifyResult = nil
         queue = [.pattern(n)]
         sendNext()
     }
@@ -659,6 +664,15 @@ final class AppModel: ConsoleLinkDelegate {
         guard isIdle else { return }
         message = nil
         queue = [.ackAll, .status]
+        sendNext()
+    }
+
+    /// Shows the identify screen on the connected panel (`IDENTIFY`). Runs only on the user's button.
+    func identifyPanel() {
+        guard isIdle else { return }
+        message = nil
+        identifyResult = nil
+        queue = [.identify]
         sendNext()
     }
 
@@ -1264,6 +1278,10 @@ final class AppModel: ConsoleLinkDelegate {
                 message = text
                 if case .ack = cmd { message = ConsoleCommand.ackMessage(text) }
                 if cmd == .ackAll { message = ConsoleCommand.ackMessage(text) }
+                if cmd == .identify {
+                    message = ConsoleCommand.identifyMessage(text)
+                    identifyResult = message
+                }
                 if case .slotSwap = cmd { message = ConsoleCommand.slotSwapMessage(text) }
                 // A file that the card no longer holds (log retention) does not stop the other files.
                 var keepQueue = false
@@ -1371,7 +1389,7 @@ final class AppModel: ConsoleLinkDelegate {
                 queue.removeAll()
                 finishDownload(cmd, text: "unexpected reply")
             case (.set, .frame): batch?.receive(status: "ERR UNEXPECTED_REPLY")
-            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.ack, .frame), (.ackAll, .frame), (.rtcTrim, .frame), (.slotClear, .frame), (.slotSwap, .frame):
+            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.ack, .frame), (.ackAll, .frame), (.rtcTrim, .frame), (.identify, .frame), (.slotClear, .frame), (.slotSwap, .frame):
                 message = "Unexpected frame reply"
             }
         } catch {

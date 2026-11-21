@@ -188,6 +188,13 @@ struct MainView: View {
                                 Text("\(p.rssi) dBm").foregroundStyle(.secondary)
                                 Text("last packet " + ageText(p.lastPacket, now: context.date)).foregroundStyle(.secondary)
                                 Spacer()
+                                // The BLE console links to one panel: the pinned one, or the only one in range without a pin.
+                                // The USB console reaches the panel on the cable, so no row is the target there.
+                                let isConsoleTarget = model.transport == .bluetooth
+                                    && (model.pinnedPanel.map { $0 == p.id } ?? (model.discovered.panels.count == 1))
+                                Button("Identify panel") { model.identifyPanel() }
+                                    .disabled(!isConsoleTarget || !model.consoleConnected || !model.isIdle)
+                                    .help(isConsoleTarget ? "Show the identify screen on this panel" : "Pin this panel to identify it")
                                 if p.id == model.pinnedPanel {
                                     Text("pinned").font(.caption).foregroundStyle(.secondary)
                                 } else {
@@ -199,6 +206,7 @@ struct MainView: View {
                         }
                     }
                 }
+                if let r = model.identifyResult { Text(r).font(.caption.monospaced()) }
                 if model.discovered.panels.isEmpty { Text("No panel found yet.").font(.caption).foregroundStyle(.secondary) }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
