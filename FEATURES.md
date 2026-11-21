@@ -2286,6 +2286,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The shared `StatusReply.kt` (phone and watch, same source) holds `ChimeReminder(repeatHours, bits, lastS, nextS)` and `StatusReply.chime`. A missing line gives `null`; `--` gives a `null` field. `repeat_h` above 24, `bits` that are not 2 hex digits and a bad number throw `ParseException`, like `ChimeMetrics` of `Diagnostics.swift`.
 - `ChimeText.reminder(reminder)` (phone) gives `Erinnerung aus` for `repeatHours` 0, `Keine Erinnerung fällig` for `bits` 0 or without `nextS`, else `Nächste Erinnerung in <H> h <M> min`. `ChimeScreen` shows it below the mute state after each `STATUS` read (`ChimeState.reminder`).
 - Tests: `StatusReplyTest.parsesChimeLine` and `badChimeLineThrows`, `ChimeTextTest`.
+
+## Mold hours in the Android week chart
+
+- `WeekChartModel.mold(rows, sensor)` gives seven values of `WeekRow.moldHours` from day 6 (left) to day 0 (right). A gap day, a missing row, an empty field and a reply with the 7-column header give `null`.
+- `WeekScreen` shows a third `Canvas` `Schimmelstunden (h)` below the humidity chart: one bar for each day with hours, a fixed scale of 0 to 24 h (`MOLD_MAX_H`), an outline for a `null` day and the label `0 bis 24, max. <N> h`. The chart stays hidden when each value is `null`.
+- Tests: `WeekChartModelTest` (fixture `tests/fixtures/week_reply_sample.txt`).
 - Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
 
 ## Quiet hours line in STATUS
