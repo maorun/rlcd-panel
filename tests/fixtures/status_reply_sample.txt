@@ -18,4 +18,5 @@ WAKE cause=TIMER boots=1234 battery_interval_s=600
 LATCH vent=002 dry=000 batlow=008 stale=004
 NOISE db=48 band=MODERATE peak_db=71 peak_hour=19 events_sum=12
 CHIME repeat_h=2 bits=02 last_s=3600 next_s=3600
-CRC32 7936259f
+QUIET start_h=22 end_h=7 active=1 night_interval_s=900
+CRC32 7108cbc2
