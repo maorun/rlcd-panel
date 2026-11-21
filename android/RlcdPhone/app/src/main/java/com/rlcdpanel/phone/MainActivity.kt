@@ -38,6 +38,7 @@ import com.rlcdpanel.phone.protocol.ChimeCommand
 import com.rlcdpanel.phone.protocol.ChimeText
 import com.rlcdpanel.phone.protocol.CalibrationProposal
 import com.rlcdpanel.phone.protocol.CalibrationReply
+import com.rlcdpanel.phone.protocol.CalibrationSensors
 import com.rlcdpanel.phone.protocol.SaltCommand
 import com.rlcdpanel.phone.protocol.SaltReply
 import com.rlcdpanel.phone.protocol.SaltText
@@ -246,6 +247,7 @@ class MainActivity : ComponentActivity() {
                 CalibrationScreen(
                     state = calibState,
                     currentConfig = panelConfig.values,
+                    sensors = CalibrationSensors.selectable(healthState.rows, calibState.reference),
                     onPickReference = { calibState = calibState.copy(reference = it, reply = null, selected = emptySet(), message = null, isError = false, naCl = null, mgCl2 = null) },
                     onRead = { withConsolePermission { readCalibration() } },
                     onToggle = { key ->
@@ -891,6 +893,7 @@ class MainActivity : ComponentActivity() {
 
     /** Sends `CALIB N` after a tap; the proposals that the key range rejects never reach the list. */
     private fun readCalibration() {
+        if (calibState.reference !in 0..SaltCommand.MAX_SENSOR) return
         stopBleScan()
         calibState = calibState.copy(isBusy = true, isError = false, message = null, reply = null, selected = emptySet())
         consoleClient.send("CALIB ${calibState.reference}") { reply ->
@@ -915,7 +918,8 @@ class MainActivity : ComponentActivity() {
     private fun readSalt(magnesium: Boolean) {
         stopBleScan()
         val n = calibState.reference
-        val line = SaltCommand.line(n, magnesium) ?: return
+        if (n !in 0..SaltCommand.MAX_SENSOR) return
+        val line = SaltCommand.line(n, magnesium)
         calibState = calibState.copy(isBusy = true, isError = false, message = null)
         consoleClient.send(line) { reply ->
             calibState = when (reply) {

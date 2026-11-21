@@ -65,6 +65,8 @@ fun CalibrationScreen(
     state: CalibrationState,
     /** Active `config.ini` values of the last `CONFIG` read; empty until a read. */
     currentConfig: Map<String, String>,
+    /** Sensors of the picker; see `CalibrationSensors.selectable`. */
+    sensors: List<Int>,
     onPickReference: (Int) -> Unit,
     onRead: () -> Unit,
     onToggle: (String) -> Unit,
@@ -85,7 +87,7 @@ fun CalibrationScreen(
             item { Text("Referenz-Sensor (0 = onboard)", style = MaterialTheme.typography.titleMedium) }
             item {
                 Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    for (n in 0..10) {
+                    for (n in sensors) {
                         FilterChip(
                             selected = state.reference == n,
                             onClick = { onPickReference(n) },
@@ -93,6 +95,14 @@ fun CalibrationScreen(
                             label = { Text("$n") }
                         )
                     }
+                }
+            }
+            if (sensors.none { it > 5 }) {
+                item {
+                    Text(
+                        "Slots 6 bis 10 erscheinen nach einem STATUS-Lesen im Sensor-Health-Screen, sobald der Slot einen Messwert hat.",
+                        style = MaterialTheme.typography.bodySmall
+                    )
                 }
             }
             item {

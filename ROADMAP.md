@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Calibration proposals for slots 6 to 10 in the Android app
-  - Rank: [Total: 33, Use: 6, Setup: 10, Harmony: 7, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SaltCommand.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/CalibrationReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/CalibrationScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/SaltCommandTest.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/CalibrationReplyTest.kt
-  - Goal: Accept the sensors 0 to 10 in the `CALIB` and `SALT` commands of the Android app. Show slots 6 to 10 in `CalibrationScreen` when the slot has a reading. Do this after the firmware item "Console commands CALIB and SALT for slots 6 to 10".
-  - Acceptance test: `SaltCommandTest` asserts `SALT 10` and an `IllegalArgumentException` for 11. `CalibrationReplyTest` parses a reply with the key `slot9_temp_offset_c`. `gradle testDebugUnitTest` passes in CI.
-
 - [ ] Diagnostics report share in the Android app
   - Rank: [Total: 32, Use: 5, Setup: 9, Harmony: 8, Safety: 10, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/DiagnosticsReport.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/DiagnosticsReportTest.kt

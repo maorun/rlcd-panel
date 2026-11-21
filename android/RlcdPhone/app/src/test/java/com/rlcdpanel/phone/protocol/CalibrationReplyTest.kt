@@ -253,4 +253,21 @@ class CalibrationReplyTest {
         assertEquals(listOf("SET slot7_rh_gain=1.066"), sent)
         assertTrue(result!!.summary.startsWith("Set ble_console=2 to apply"))
     }
+
+    @Test
+    fun regressionGuardProposalKeysOfSlots6To10() {
+        val r = CalibrationReply.parse(
+            listOf(
+                "REFERENCE onboard",
+                "SENSOR slot9 hours=8 temp_offset=0.0 rh_offset=0.0 temp_diff=0.4 rh_diff=-2.1",
+                "slot9_temp_offset_c=-0.4",
+                "slot9_rh_offset_pct=2.1",
+                "slot10_temp_offset_c=-5.5"
+            )
+        )
+        assertEquals(
+            listOf(CalibrationProposal("slot9_temp_offset_c", "-0.4"), CalibrationProposal("slot9_rh_offset_pct", "2.1")),
+            r.proposals
+        )
+    }
 }
