@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Open window detection with a tile badge and an event code
-  - Rank: [Total: 29, Use: 8, Setup: 4, Harmony: 8, Safety: 9, Effort: M]
-  - Location: rlcd_panel/window_latch.h, rlcd_panel/device_config.h, rlcd_panel/power_manager.h, rlcd_panel/sd_logger.h, rlcd_panel/dashboard_view.h, rlcd_panel/rlcd_panel.ino, docs/config.example.ini, macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift, tests/test_firmware_logic.cpp
-  - Goal: Add the key `window_drop_c` (0 is off, else 1.0 to 5.0 C, default 0). Set a tile bit in `PersistentState::window_tiles` when the temperature of a tile in `climate_alert_tiles` falls by at least the limit within 15 minutes. Release the bit when the temperature rises again by half the limit or after 2 hours. Draw an inverted `W` badge beside the `D` badge. Record `EventCode::WINDOW_OPEN` (22, detail low byte tile, high byte 1 open, 0 closed). Raise `STATE_VERSION` to 71. Add the key to `KEYS`, the template and `ConfigSchema`.
-  - Acceptance test: Host tests assert a set for a drop of 2.0 C in 10 minutes with limit 1.5, no set for the same drop in 20 minutes, a release after 2 hours, no change with limit 0, a rejected bit above bit 10, one event for each edge and the RTC round trip with `STATE_VERSION` 71. `testConfigExampleTemplateInSync` and `ConfigSchemaTests` pass. `./scripts/generate-display-preview.sh` gives a preview with the `W` badge.
-
 - [ ] Open window event texts and notification in the macOS app
   - Rank: [Total: 28, Use: 7, Setup: 4, Harmony: 7, Safety: 10, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift, macos/RlcdCompanion/Sources/RlcdProtocol/EventFilter.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/EventTextTests.swift

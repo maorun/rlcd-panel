@@ -19,6 +19,7 @@
 #include "shtc3_sensor.h"
 #include "sparkline.h"
 #include "dry_latch.h"
+#include "window_latch.h"
 #include "ventilate_latch.h"
 #include "switchbot_ble.h"
 
@@ -111,6 +112,8 @@ struct PersistentState {
   bool muted = false;        // true: alerts stay silent
   uint16_t ventilate_tiles = 0; // ventilation badge latch, bit 0 onboard, bits 1..10 slots (VentilateLatch)
   uint16_t dry_tiles = 0;       // dry air badge latch, bit 0 onboard, bits 1..10 slots (DryLatch)
+  uint16_t window_tiles = 0;    // open window badge latch, bit 0 onboard, bits 1..10 slots (WindowLatch)
+  WindowLatch::Anchors window_anchors; // reference temperature and stamp of each tile (WindowLatch)
   uint16_t sensor_battery_latch = 0; // low battery latch, bits 0..9 are the registry slots (SensorBatteryLatch)
   uint32_t last_chime_ms = 0; // clock value of the last chime or alert rising edge (chime_repeat_h)
   uint8_t alert_mask = ALERT_NONE; // alerts active in the last wake cycle (hysteresis latch)
@@ -150,6 +153,16 @@ struct PersistentState {
       if (memcmp(config.slot_mac[i], next.slot_mac[i], DeviceConfig::MAC_BYTES) != 0 ||
           (config.isSlotEnabled(i) && !next.isSlotEnabled(i))) {
         resetSlot(i);
+      }
+    }
+    // A changed temperature offset steps the readings of its tile at once. A closed tile starts a new peak, so the
+    // step is no fall. An open tile keeps its lowest reading.
+    if (config.temp_offset_c != next.temp_offset_c || config.usb_temp_offset_c != next.usb_temp_offset_c) {
+      restartClosedWindowAnchor(0);
+    }
+    for (size_t i = 0; i < DeviceConfig::SLOT_COUNT; ++i) {
+      if (config.slot_temp_offset_c[i] != next.slot_temp_offset_c[i]) {
+        restartClosedWindowAnchor(1 + i);
       }
     }
     config = next;
@@ -245,6 +258,36 @@ struct PersistentState {
     events.record(now, EventCode::SCAN_FAULT, fault);
   }
 
+  // A change of the power source moves the onboard reading by usb_temp_offset_c at once. The onboard tile starts a new
+  // peak then, so the step is no fall. An open onboard tile keeps its bit and its lowest reading: a step down moves
+  // the release threshold with the reading only after the next lower reading, and a step up can release the bit early.
+  // Only the last valid pair of readings counts: an invalid battery read in one cycle hides the change.
+  void restartWindowOnPowerChange(const BatteryReading& previous, const BatteryReading& current) {
+    if (previous.valid && current.valid && previous.usb_powered != current.usb_powered) {
+      restartClosedWindowAnchor(0);
+    }
+  }
+
+  // Clears the anchor of `tile` when its window bit is clear.
+  void restartClosedWindowAnchor(size_t tile) {
+    if (tile < WindowLatch::TILE_COUNT && (window_tiles & (1u << tile)) == 0) {
+      window_anchors.clearTile(tile);
+    }
+  }
+
+  // Records one WINDOW_OPEN event for each changed bit between two window_tiles values: the tile (0 onboard, 1 to 10
+  // slots) in the low byte, high byte 1 for an open window, 0 for a closed one. A limit set to 0 clears the bits, so
+  // it records the close events of the open tiles.
+  void recordWindowChanges(uint16_t previous, uint16_t current, const RtcTime& now) {
+    const uint16_t changed = static_cast<uint16_t>((previous ^ current) & WindowLatch::ALL_MASK);
+    for (size_t i = 0; i < WindowLatch::TILE_COUNT; ++i) {
+      const uint16_t bit = static_cast<uint16_t>(1u << i);
+      if ((changed & bit) != 0) {
+        events.record(now, EventCode::WINDOW_OPEN, static_cast<uint16_t>(((current & bit) != 0 ? 0x0100u : 0u) | i));
+      }
+    }
+  }
+
   // Records one SENSOR_BATTERY event for each changed bit between two sensor_battery_latch values: slot number 1 to 10
   // in the low byte, high byte 1 for a low battery, 0 for a battery that is OK again. A limit of 0 records nothing.
   void recordBatteryChanges(uint16_t previous, uint16_t current, uint8_t limit_pct, const RtcTime& now) {
@@ -309,6 +352,10 @@ struct PersistentState {
     swapBit(sensor_battery_latch, a, b, 0);
     swapBit(ventilate_tiles, a, b, 1);
     swapBit(dry_tiles, a, b, 1);
+    swapBit(window_tiles, a, b, 1);
+    std::swap(window_anchors.ref[1 + a], window_anchors.ref[1 + b]);
+    std::swap(window_anchors.prev[1 + a], window_anchors.prev[1 + b]);
+    std::swap(window_anchors.stamp_ms[1 + a], window_anchors.stamp_ms[1 + b]);
     swapBit(stale_slots, a, b, 0);
     std::swap(history.slots[1 + a], history.slots[1 + b]);
     std::swap(history.temperatures[1 + a], history.temperatures[1 + b]);
@@ -360,6 +407,8 @@ struct PersistentState {
     sensor_battery_latch = static_cast<uint16_t>(sensor_battery_latch & ~(1u << index));
     ventilate_tiles = static_cast<uint16_t>(ventilate_tiles & ~(2u << index));
     dry_tiles = static_cast<uint16_t>(dry_tiles & ~(2u << index));
+    window_tiles = static_cast<uint16_t>(window_tiles & ~(2u << index));
+    window_anchors.clearTile(1 + index);
     stale_slots = static_cast<uint16_t>(stale_slots & ~(1u << index));
     history.slots[1 + index].clear();
     history.temperatures[1 + index].clear();
@@ -507,7 +556,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 70;
+  static constexpr uint8_t STATE_VERSION = 71;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -571,7 +620,10 @@ public:
   static constexpr size_t SD_FREE_SIZE = 4;
   // Scan fault flag (1 byte, just before the checksum).
   static constexpr size_t SCAN_FAULT_SIZE = 1;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + 4;
+  // Open window latch (just before the checksum): the key window_drop_c in 0.1 C steps (uint8), the bits (uint16,
+  // bits 0..10), then for each tile the reference temperature and the previous peak (both int16, 0.01 C, INT16_MIN none) and the clock stamp (uint32).
+  static constexpr size_t WINDOW_SIZE = 1 + 2 + WindowLatch::TILE_COUNT * (2 + 2 + 4);
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + WINDOW_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -924,6 +976,22 @@ public:
     out[pos++] = static_cast<uint8_t>((state.stale_slots >> 8) & 0xFF);
     putU32(out, pos, static_cast<uint32_t>(state.sd_free_mb));
     out[pos++] = state.scan_fault;
+    {
+      long tenths = lroundf(state.config.window_drop_c * 10.0f);
+      tenths = tenths < 0 ? 0 : (tenths > 50 ? 50 : tenths); // valid() range
+      out[pos++] = static_cast<uint8_t>(tenths);
+    }
+    out[pos++] = static_cast<uint8_t>(state.window_tiles & 0xFF);
+    out[pos++] = static_cast<uint8_t>((state.window_tiles >> 8) & 0xFF);
+    for (size_t i = 0; i < WindowLatch::TILE_COUNT; ++i) {
+      const uint16_t ref = static_cast<uint16_t>(state.window_anchors.ref[i]);
+      out[pos++] = static_cast<uint8_t>(ref & 0xFF);
+      out[pos++] = static_cast<uint8_t>(ref >> 8);
+      const uint16_t prev = static_cast<uint16_t>(state.window_anchors.prev[i]);
+      out[pos++] = static_cast<uint8_t>(prev & 0xFF);
+      out[pos++] = static_cast<uint8_t>(prev >> 8);
+      putU32(out, pos, state.window_anchors.stamp_ms[i]);
+    }
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -1340,6 +1408,26 @@ public:
     s.scan_fault = data[pos++];
     if (s.scan_fault > 1) {
       return false; // only 0 and 1 are valid
+    }
+    s.config.window_drop_c = static_cast<float>(data[pos++]) / 10.0f;
+    if (!s.config.valid()) {
+      return false; // a limit outside 0 or 1.0 to 5.0 C is corrupt
+    }
+    s.window_tiles = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    pos += 2;
+    if ((s.window_tiles & ~WindowLatch::ALL_MASK) != 0) {
+      return false; // a bit above bit 10 is corrupt
+    }
+    for (size_t i = 0; i < WindowLatch::TILE_COUNT; ++i) {
+      s.window_anchors.ref[i] = static_cast<int16_t>(static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8)));
+      pos += 2;
+      s.window_anchors.prev[i] = static_cast<int16_t>(static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8)));
+      pos += 2;
+      s.window_anchors.stamp_ms[i] = getU32(data, pos);
+      if (!WindowLatch::anchorValid((s.window_tiles & (1u << i)) != 0, s.window_anchors.ref[i],
+                                    s.window_anchors.prev[i], s.window_anchors.stamp_ms[i])) {
+        return false; // an open tile without a reference, or a reference out of range, is corrupt
+      }
     }
     s.registry.setAutoAssign(s.config.slot_auto_assign != 0);
     s.registry.setMinAssignRssi(s.config.auto_assign_min_rssi);

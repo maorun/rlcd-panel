@@ -485,6 +485,7 @@ void renderDashboard() {
   info.ventilate = (g_state.alert_mask & ALERT_VENTILATE) != 0;
   info.ventilate_tiles = g_state.ventilate_tiles;
   info.dry_tiles = g_state.dry_tiles;
+  info.window_tiles = g_state.window_tiles;
   info.sensor_battery_latch = g_state.sensor_battery_latch;
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;
@@ -922,6 +923,8 @@ void refreshSensors() {
     g_state.events.record(g_rtc_time, EventCode::SHTC3_FAULT, static_cast<uint16_t>(shtc3_edge));
   }
   g_state.recordPowerChange(previous_battery, g_state.battery, g_rtc_time);
+  // The USB offset moves the onboard reading at once: the window latch restarts the onboard anchor (before its update).
+  g_state.restartWindowOnPowerChange(previous_battery, g_state.battery);
   if (g_reset_event_pending) {
     g_state.events.record(g_rtc_time, EventCode::RESET, g_reset_event_detail);
     g_reset_event_pending = false;
@@ -973,6 +976,12 @@ void refreshSensors() {
   g_state.dry_tiles = DryLatch::update(
       g_state.dry_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
       config().dry_alert_limit_rh, config().climate_alert_tiles, config().staleTimeoutMs());
+  // The open window latch has no chime. The event time needs g_rtc_time, which is read before this step.
+  const uint16_t previous_window_tiles = g_state.window_tiles;
+  g_state.window_tiles = WindowLatch::update(
+      g_state.window_tiles, g_state.window_anchors, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
+      config().window_drop_c, config().climate_alert_tiles, config().staleTimeoutMs(), config().windowDropMs());
+  g_state.recordWindowChanges(previous_window_tiles, g_state.window_tiles, g_rtc_time);
   // The sensor battery latch updates before the first render. The chime follows in chimeOnSensorBattery().
   const uint16_t previous_battery_latch = g_state.sensor_battery_latch;
   g_state.sensor_battery_latch = SensorBatteryLatch::update(

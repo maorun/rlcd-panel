@@ -29,7 +29,7 @@ struct ConfigSchemaTests {
         let (active, commented) = try templateKeys()
         let template = Set(active.keys).union(commented)
         #expect(Set(ConfigSchema.keys) == template)
-        #expect(ConfigSchema.keys.count == 95)
+        #expect(ConfigSchema.keys.count == 96)
         #expect(Set(ConfigSchema.keys).count == ConfigSchema.keys.count)
         for e in ConfigSchema.entries {
             if let v = active[e.key] {
@@ -62,7 +62,8 @@ struct ConfigSchemaTests {
                 // Without an off value below the range, min-1 fails. With off == lo-1 (none here) it would pass.
                 if off != lo - 1 { #expect(ConfigSchema.validate(key: e.key, value: String(lo - 1)) != nil, "\(e.key) min-1") }
                 #expect(ConfigSchema.validate(key: e.key, value: "1.5") != nil)
-            case let .decimal(lo, hi):
+            case let .decimal(lo, hi, off):
+                if let off { #expect(ConfigSchema.validate(key: e.key, value: String(off)) == nil, "\(e.key) off") }
                 #expect(ConfigSchema.validate(key: e.key, value: String(lo)) == nil, "\(e.key) min")
                 #expect(ConfigSchema.validate(key: e.key, value: String(hi)) == nil, "\(e.key) max")
                 #expect(ConfigSchema.validate(key: e.key, value: String(hi + 0.1)) != nil, "\(e.key) max+")
@@ -317,14 +318,14 @@ struct ConfigSchemaTests {
             "slot6_rh_gain": (0.9, 1.1), "slot7_rh_gain": (0.9, 1.1), "slot8_rh_gain": (0.9, 1.1),
             "slot9_rh_gain": (0.9, 1.1), "slot10_rh_gain": (0.9, 1.1),
             "slot_release_h": (0, 168), "night_wake_interval_s": (60, 1800), "chime_repeat_h": (0, 24),
-            "heat_alert_limit_c": (27, 45), "wall_frsi_pct": (50, 95), "ble_broadcast_enabled": (0, 1), "ble_console": (0, 2), "slot_auto_assign": (0, 1), "auto_assign_min_rssi": (-100, -40),
+            "heat_alert_limit_c": (27, 45), "wall_frsi_pct": (50, 95), "ble_broadcast_enabled": (0, 1), "ble_console": (0, 2), "slot_auto_assign": (0, 1), "auto_assign_min_rssi": (-100, -40), "window_drop_c": (1, 5),
             "slot1_enabled": (0, 1), "slot2_enabled": (0, 1), "slot3_enabled": (0, 1), "slot4_enabled": (0, 1), "slot5_enabled": (0, 1),
             "slot6_enabled": (0, 1), "slot7_enabled": (0, 1), "slot8_enabled": (0, 1), "slot9_enabled": (0, 1), "slot10_enabled": (0, 1),
         ]
         for (key, (lo, hi)) in expected {
             switch ConfigSchema.entry(for: key)?.kind {
             case let .integer(l, h, _): #expect(Double(l) == lo && Double(h) == hi, "\(key)")
-            case let .decimal(l, h): #expect(l == lo && h == hi, "\(key)")
+            case let .decimal(l, h, _): #expect(l == lo && h == hi, "\(key)")
             case let .bitMask(bits): #expect(Double((1 << bits) - 1) == hi && lo == 0, "\(key)")
             default: Issue.record("\(key) has no numeric kind")
             }
