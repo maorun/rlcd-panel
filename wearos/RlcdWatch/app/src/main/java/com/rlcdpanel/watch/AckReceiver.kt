@@ -16,19 +16,25 @@ import com.rlcdpanel.watch.protocol.AckCommand
 import com.rlcdpanel.watch.protocol.ConsoleReply
 
 /**
- * Handles the tap on the Acknowledge action of the alert notification. Sends `ACK <N>` once through
+ * Handles the tap on the Acknowledge or Acknowledge all action of the alert notification. Sends `ACK <N>`
+ * or `ACK ALL` once through
  * [BleConsoleClient] and shows the result. It sends nothing without a tap and does not retry a failed command.
  */
 class AckReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        val all = intent.getBooleanExtra(EXTRA_ALL, false)
         val bit = intent.getIntExtra(EXTRA_BIT, -1)
-        val command = try {
-            AckCommand.line(bit)
-        } catch (_: IllegalArgumentException) {
-            return
+        val command = if (all) {
+            AckCommand.ALL
+        } else {
+            try {
+                AckCommand.line(bit)
+            } catch (_: IllegalArgumentException) {
+                return
+            }
         }
-        val notificationId = BleScanService.ackNotificationId(bit)
+        val notificationId = if (all) BleScanService.ACK_ALL_NOTIFICATION_ID else BleScanService.ackNotificationId(bit)
         if (!hasBluetoothPermissions(context)) {
             showResult(context.applicationContext, notificationId, "Bluetooth permission missing")
             return
@@ -46,6 +52,7 @@ class AckReceiver : BroadcastReceiver() {
                 done = true
                 handler.removeCallbacks(watchdog)
                 inFlight.set(false)
+                if (all && reply is ConsoleReply.Status && reply.line.startsWith("OK ACK ALL")) cancelBitNotifications(app)
                 showResult(app, notificationId, AckCommand.resultText(reply))
                 pending.finish()
             }
@@ -61,6 +68,12 @@ class AckReceiver : BroadcastReceiver() {
         } catch (_: SecurityException) {
             finishOnce(null)
         }
+    }
+
+    /** `ACK ALL` covers each bit, so the per-bit notifications and their actions are obsolete. */
+    private fun cancelBitNotifications(context: Context) {
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        for (bit in AckCommand.MIN_BIT..AckCommand.MAX_BIT) manager.cancel(BleScanService.ackNotificationId(bit))
     }
 
     /** `BleConsoleClient` needs both permissions on SDK 31 and later; it does not guard `connectGatt`. */
@@ -93,6 +106,7 @@ class AckReceiver : BroadcastReceiver() {
     companion object {
         const val ACTION_ACK = "com.rlcdpanel.watch.action.ACK"
         const val EXTRA_BIT = "com.rlcdpanel.watch.extra.ALERT_BIT"
+        const val EXTRA_ALL = "com.rlcdpanel.watch.extra.ACK_ALL"
         private const val RESULT_TIMEOUT_MS = 30_000L
         private const val WATCHDOG_MS = 8_000L
         private val inFlight = java.util.concurrent.atomic.AtomicBoolean(false)

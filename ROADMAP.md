@@ -24,12 +24,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Acknowledge all action in the Wear OS alert notification
-  - Rank: [Total: 27, Use: 6, Setup: 4, Harmony: 7, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/BleScanService.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/AckReceiver.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/AckCommandTest.kt
-  - Goal: Add the action `Acknowledge all` to the watch alert notification when two or more repeatable bits rise together. `AckReceiver` sends `ACK ALL` once after a user tap and shows the result text. Do this after the item "Acknowledge all button in the Android chime screen", which adds `AckCommand.ALL` to the shared file.
-  - Acceptance test: `AckCommandTest` on the watch asserts the action rule for `HUMIDITY | VENTILATE` (true) and `HUMIDITY | CHARGE_FULL` (false). `./scripts/check-protocol-sync.sh` exits 0. The CI job `Wear OS companion tests and APK` passes.
-
 - [ ] Runtime line in the Wear OS sensor health screen
   - Rank: [Total: 27, Use: 5, Setup: 5, Harmony: 7, Safety: 10, Effort: S]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt
