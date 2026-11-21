@@ -263,4 +263,39 @@ class StatusReplyTest {
             }
         }
     }
+
+    @Test
+    fun parsesLatchLine() {
+        val latch = StatusReply.parse(fixtureLines()).latch!!
+        assertEquals(LatchState(0x002, 0x000, 0x008, 0x004), latch)
+        assertEquals(listOf("V"), latch.badges(1))
+        assertEquals(listOf("BAT LOW"), latch.badges(4))
+        assertEquals(listOf("STALE"), latch.badges(3))
+        assertEquals(emptyList<String>(), latch.badges(11))
+        assertEquals(emptyList<String>(), latch.badges(-1))
+        assertEquals(emptyList<String>(), latch.badges(0))
+        assertNull(StatusReply.parse(fixtureLines().filter { !it.startsWith("LATCH ") }).latch)
+    }
+
+    @Test
+    fun latchBadgeOrderAndOnboardRules() {
+        val all = replace("LATCH ", "LATCH vent=7FF dry=7ff batlow=3ff stale=3FF").latch!!
+        assertEquals(listOf("V", "D"), all.badges(0))
+        assertEquals(listOf("V", "D", "BAT LOW", "STALE"), all.badges(10))
+    }
+
+    @Test
+    fun badLatchLineThrows() {
+        for (line in listOf(
+            "LATCH vent=800 dry=000 batlow=000 stale=000", "LATCH vent=000 dry=12 batlow=000 stale=000",
+            "LATCH vent=000 dry=000 batlow=400 stale=000", "LATCH vent=000 dry=000 batlow=000 stale=400",
+            "LATCH vent=00g dry=000 batlow=000 stale=000", "LATCH vent=000 dry=000 batlow=000"
+        )) {
+            try {
+                replace("LATCH ", line)
+                fail("expected ParseException for $line")
+            } catch (e: ParseException) {
+            }
+        }
+    }
 }

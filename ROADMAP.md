@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Badge latches in the Wear OS sensor health screen
-  - Rank: [Total: 28, Use: 5, Setup: 5, Harmony: 8, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/StatusReplyTest.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt
-  - Goal: The panel tiles show the badges `V`, `D`, `BAT LOW` and `STALE`. The `STATUS` line `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex>` gives the same state, but only the macOS app reads it. Add `LatchState(ventilate, dry, batteryLow, stale)`, `StatusReply.latch` and `LatchState.badges(sensor)` to the shared `StatusReply.kt`, with the rules of `LatchMetrics` in `Diagnostics.swift`: `vent` and `dry` up to `0x7ff`, `batlow` and `stale` up to `0x3ff`, the order `V`, `D`, `BAT LOW`, `STALE`, no `BAT LOW` and no `STALE` for sensor 0, no badge outside 0 to 10. Return `null` for a missing line. Throw `ParseException` for a value that is not 3 hex digits or above the limit. Show the badges in each sensor row of the watch `SensorHealthScreen`.
-  - Acceptance test: In the watch `StatusReplyTest`, assert the masks of the fixture line `LATCH vent=002 dry=000 batlow=008 stale=004`, `["V"]` for sensor 1, `["BAT LOW"]` for sensor 4, `["STALE"]` for sensor 3, `[]` for sensor 11, `null` without the line, and `ParseException` for `vent=800` and `dry=12`. In `SensorHealthTextTest`, assert the row text. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` and `android/RlcdPhone`, and `./scripts/check-protocol-sync.sh`.
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Quiet hours in the macOS diagnostics view

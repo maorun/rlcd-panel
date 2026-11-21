@@ -2,6 +2,7 @@ package com.rlcdpanel.watch
 
 import com.rlcdpanel.watch.protocol.ConsoleReply
 import com.rlcdpanel.watch.protocol.Fixtures
+import com.rlcdpanel.watch.protocol.LatchState
 import com.rlcdpanel.watch.protocol.MemoryState
 import com.rlcdpanel.watch.protocol.NoiseState
 import com.rlcdpanel.watch.protocol.ReplyAssembler
@@ -13,6 +14,7 @@ import com.rlcdpanel.watch.protocol.StatusSensor
 import com.rlcdpanel.watch.protocol.VersionReply
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -24,6 +26,18 @@ class SensorHealthTextTest {
     private fun fixtureLines(): List<String> = (fixtureReply() as ConsoleReply.Frame).lines
     private fun sensor(moldHours: Int?) =
         StatusSensor(1, "A", 20.0, 50.0, 80.0, -60.0, 10.0, "OK", "WOIO", moldHours)
+
+    @Test
+    fun badgeText() {
+        val latch = StatusReply.parse(fixtureLines()).latch
+        fun row(index: Int) = StatusSensor(index, "A", 20.0, 50.0, 80.0, -60.0, 10.0, "OK", "WOIO", null)
+        assertEquals("V", SensorHealthText.badges(latch, row(1)))
+        assertEquals("STALE", SensorHealthText.badges(latch, row(3)))
+        assertEquals("BAT LOW", SensorHealthText.badges(latch, row(4)))
+        assertNull(SensorHealthText.badges(latch, row(2)))
+        assertNull(SensorHealthText.badges(null, row(1)))
+        assertEquals("V · D · BAT LOW · STALE", SensorHealthText.badges(LatchState(2, 2, 1, 1), row(1)))
+    }
 
     @Test
     fun moldText() {

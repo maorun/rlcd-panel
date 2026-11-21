@@ -2356,3 +2356,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `PersistentState::scan_fault` (1 byte just before the checksum; a value above 1 is rejected; a power-on sets it to 0) holds the fault latch. `STATE_VERSION` is 70.
 - `PersistentState::recordScanResult(started, now)` records one `SCAN_FAULT` event on an edge: detail 1 when the scan start changes from OK to failed, detail 0 when it changes from failed back to OK, and nothing when the state stays equal. Before `g_rtc_time.valid` is known, `recordScanStart` stores the result in `g_pending_scan_fault` and `refreshSensors()` flushes it once the RTC time is read.
 - Tests: `testScanFaultEvents` covers the rising fault edge, repeated failures without filling the ring, the recovery edge, repeated good starts, `SdLogCodec::formatEventRow`, the rejection of `scan_fault` = 2, and the RTC round trip with `STATE_VERSION` 70.
+
+## Badge latches in the Wear OS sensor health screen
+
+- The panel tiles show the badges `V`, `D`, `BAT LOW` and `STALE`. The `STATUS` line `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex>` gives the same state. Only the macOS app read it.
+- The shared `StatusReply.kt` (phone and watch, same source) holds `LatchState(ventilate, dry, batteryLow, stale)`, `StatusReply.latch` and `LatchState.badges(sensor)`, with the rules of `LatchMetrics` in `Diagnostics.swift`: `vent` and `dry` up to `0x7ff`, `batlow` and `stale` up to `0x3ff`, the order `V`, `D`, `BAT LOW`, `STALE`, no `BAT LOW` and no `STALE` for sensor 0, no badge outside 0 to 10. A missing line gives `null`. A value that is not 3 hex digits or is above its limit throws `ParseException`.
+- `SensorHealthText.badges(latch, sensor)` gives the text `V · STALE`; the `SensorHealthScreen` row of each sensor shows it as `Badges <text>` and shows no line for a sensor without a badge.
+- Tests: `StatusReplyTest.parsesLatchLine`, `latchBadgeOrderAndOnboardRules` and `badLatchLineThrows`, `SensorHealthTextTest.badgeText`.
+- Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
