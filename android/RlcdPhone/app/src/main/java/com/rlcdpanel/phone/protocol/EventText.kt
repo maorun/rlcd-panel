@@ -88,6 +88,7 @@ object EventText {
                 val back = d shr 8
                 if (d !in 0..0xFFFF || slot !in 1..10 || back > 1) raw else if (back == 1) "Slot $slot back" else "Slot $slot lost"
             }
+            "JUMP_DROP" -> if (d in 1..10) "Slot $d reading jump dropped" else raw
             "CONFIG_SET" -> {
                 val index = d and 0xFF
                 val transport = d shr 8

@@ -18,6 +18,15 @@ class EventTextTest {
     }
 
     @Test
+    fun jumpDropGivesSlotText() {
+        assertEquals("Slot 3 reading jump dropped", EventText.describe(row("JUMP_DROP", 3)))
+        assertEquals("Slot 10 reading jump dropped", EventText.describe(row("JUMP_DROP", 10)))
+        assertEquals("JUMP_DROP,0", EventText.describe(row("JUMP_DROP", 0)))
+        assertEquals("JUMP_DROP,11", EventText.describe(row("JUMP_DROP", 11)))
+        assertEquals("JUMP_DROP,259", EventText.describe(row("JUMP_DROP", 259)))
+    }
+
+    @Test
     fun slotEventsUseHighAndLowByte() {
         assertEquals("Slot 3 back", EventText.describe(row("SLOT_STALE", 0x0103)))
         assertEquals("Slot 2 lost", EventText.describe(row("SLOT_STALE", 0x0002)))
