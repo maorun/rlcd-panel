@@ -107,12 +107,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: The watch parses `WeekRow.moldHours`, but each day row of `WeekScreen` shows only the temperature and the humidity. Add `WeekText.mold(row)`: `Schimmel <N> h` with the `WARNING` mark above 0 hours, and an empty text for `null`, so a reply with 7 columns keeps the current rows. Show the text below the humidity of each day row.
   - Acceptance test: In `WeekTextTest`, assert `Schimmel 0 h` for 0, the warning mark and `Schimmel 5 h` for 5, and an empty text for `null`. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`.
 
-- [ ] Noise line in the Wear OS sensor health screen
-  - Rank: [Total: 26, Use: 4, Setup: 4, Harmony: 8, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt
-  - Goal: Use `StatusReply.noise` of the entry "Noise line in the Android sensor health screen" in the watch. Add `SensorHealthText.noise(state)`: `Lärm <db> dB <band>` in one line, `Lärm --` for `null`. Show the row below the memory row of the watch `SensorHealthScreen`. Do not show the peak, because the watch row has room for one short line.
-  - Acceptance test: In `SensorHealthTextTest`, assert `Lärm 48 dB MODERATE` for the fixture state, `Lärm -- dB QUIET` for `db` `null`, and `Lärm --` for `null`. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` and `./scripts/check-protocol-sync.sh`.
-
 - [ ] Acknowledge all button in the macOS diagnostics view
   - Rank: [Total: 25, Use: 5, Setup: 4, Harmony: 7, Safety: 9, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift

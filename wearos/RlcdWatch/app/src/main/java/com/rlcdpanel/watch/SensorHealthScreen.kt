@@ -31,6 +31,7 @@ import com.rlcdpanel.watch.console.BleConsoleClient
 import com.rlcdpanel.watch.protocol.ChimeCommand
 import com.rlcdpanel.watch.protocol.ConsoleReply
 import com.rlcdpanel.watch.protocol.MemoryState
+import com.rlcdpanel.watch.protocol.NoiseState
 import com.rlcdpanel.watch.protocol.NtpState
 import com.rlcdpanel.watch.protocol.ReceptionRate
 import com.rlcdpanel.watch.protocol.ReplyError
@@ -116,6 +117,9 @@ object SensorHealthText {
         s?.let { "SHTC3 nack ${it.nack}, short ${it.shortReads}, crc ${it.crc}, run ${it.run}, retried ${it.retried}" } ?: "SHTC3 --"
     fun memory(m: MemoryState?): String =
         m?.let { "Heap frei ${it.free} B, min ${it.min} B, größter Block ${it.largest} B, PSRAM ${it.psram} B" } ?: "Heap --"
+
+    /** One short line: `Lärm <db> dB <band>`; the peak stays out because the watch row has room for one line. */
+    fun noise(n: NoiseState?): String = n?.let { "Lärm ${it.db ?: "--"} dB ${it.band}" } ?: "Lärm --"
 
     /** Text of a failed `MUTE` or `STATUS` reply that `ChimeCommand.failureText` does not word itself. */
     fun muteFallback(reply: ConsoleReply): String =
@@ -385,6 +389,15 @@ fun SensorHealthScreen(
                             text = (if (warn) "${SensorHealthText.WARNING} " else "") + SensorHealthText.memory(status.memory),
                             fontSize = 10.sp,
                             color = if (warn) Color(0xFFFFB74D) else Color(0xFFB0BEC5),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    }
+                    item {
+                        Text(
+                            text = SensorHealthText.noise(status.noise),
+                            fontSize = 10.sp,
+                            color = Color(0xFFB0BEC5),
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(horizontal = 12.dp)
                         )

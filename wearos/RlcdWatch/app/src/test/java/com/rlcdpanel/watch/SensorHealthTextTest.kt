@@ -3,6 +3,7 @@ package com.rlcdpanel.watch
 import com.rlcdpanel.watch.protocol.ConsoleReply
 import com.rlcdpanel.watch.protocol.Fixtures
 import com.rlcdpanel.watch.protocol.MemoryState
+import com.rlcdpanel.watch.protocol.NoiseState
 import com.rlcdpanel.watch.protocol.ReplyAssembler
 import com.rlcdpanel.watch.protocol.ResetState
 import com.rlcdpanel.watch.protocol.Shtc3State
@@ -73,6 +74,13 @@ class SensorHealthTextTest {
         val frame = SensorHealthText.chimeResult(busy, ConsoleReply.Frame(emptyList()), null)
         assertTrue(frame.isError)
         assertEquals("Antwort nicht lesbar", frame.message)
+    }
+
+    @Test
+    fun noiseText() {
+        assertEquals("Lärm 48 dB MODERATE", SensorHealthText.noise(StatusReply.parse(fixtureLines()).noise))
+        assertEquals("Lärm -- dB QUIET", SensorHealthText.noise(NoiseState(null, "QUIET", null, null, 0)))
+        assertEquals("Lärm --", SensorHealthText.noise(null))
     }
 
     @Test
