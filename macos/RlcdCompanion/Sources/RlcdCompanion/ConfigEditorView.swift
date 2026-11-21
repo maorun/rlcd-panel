@@ -67,6 +67,17 @@ struct ConfigEditorView: View {
                 Text(entry.unit).font(.caption).foregroundStyle(.secondary)
             }
             Text(problem ?? entry.description).font(.caption2).foregroundStyle(problem == nil ? Color.secondary : Color.red)
+            if entry.key == "night_wake_interval_s" { runtimePreview(reply) }
+        }
+    }
+
+    /// `About <N> h on battery` below `night_wake_interval_s`. Needs the last `STATUS` with `RUNTIME`, `AWAKE` and `QUIET`.
+    @ViewBuilder private func runtimePreview(_ reply: ConfigReply) -> some View {
+        // The current schedule is the one that `RUNTIME h` was measured with: the `CONFIG` values of the `STATUS` read.
+        if let d = model.diagnostics, let measured = model.diagnosticsConfig {
+            let hours = RuntimePreview.hours(config: measured, draft: model.draft.merging(reply.values) { mine, _ in mine },
+                                             runtime: d.runtime, awake: d.awake, quiet: d.quiet)
+            Text(RuntimePreview.text(hours)).font(.caption).foregroundStyle(.secondary)
         }
     }
 

@@ -37,6 +37,8 @@ final class AppModel: ConsoleLinkDelegate {
     /// The last `CONFIG` reply; a link reset keeps it (a panel change clears it), so the menu bar keeps names and `temp_unit`.
     private(set) var lastConfig: ConfigReply?
     var diagnostics: DiagnosticsReply?
+    /// `CONFIG` values that were active when `diagnostics` was read. `RUNTIME h` belongs to this schedule, not to a later `SET`.
+    private(set) var diagnosticsConfig: [String: String]?
     var version: VersionReply?
     /// `Include names and MACs` of the diagnostics report. Off hides each name and MAC value.
     var reportIncludeNames = false
@@ -408,6 +410,7 @@ final class AppModel: ConsoleLinkDelegate {
         config = nil
         lastConfig = nil // names and unit belong to the old panel
         diagnostics = nil
+        diagnosticsConfig = nil
         version = nil
         scanResult = nil; panelImage = nil; rejectsResult = nil
         calibration = nil
@@ -487,7 +490,7 @@ final class AppModel: ConsoleLinkDelegate {
     func refresh() {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty else { return }
         message = nil
-        queue = [.status, .history, .events, .config, .week]
+        queue = [.config, .status, .history, .events, .week] // CONFIG first: `diagnosticsConfig` takes the values that the STATUS read ran with
         sendNext()
     }
 
@@ -511,10 +514,11 @@ final class AppModel: ConsoleLinkDelegate {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { return }
         message = nil
         diagnostics = nil // a failed reply must not leave values of an older reply
+        diagnosticsConfig = nil
         version = nil
         panelTime = nil
         panelOffsetSeconds = nil
-        queue = diagnosticsRefreshCommands + [.time]
+        queue = [.config] + diagnosticsRefreshCommands + [.time] // CONFIG first, see `diagnosticsConfig`
         sendNext()
     }
 
@@ -1190,6 +1194,7 @@ final class AppModel: ConsoleLinkDelegate {
                 panelImage = nil
                 rejectsResult = nil
                 config = nil // the ble_console level of a lost link must not gate SET on the next link
+                diagnosticsConfig = nil // the runtime preview needs the schedule of the same link
                 draft = [:]
                 abandonCommands()
             }
@@ -1266,9 +1271,11 @@ final class AppModel: ConsoleLinkDelegate {
                 panelOffsetSeconds = PanelClock.offsetSeconds(panelTime: t, macDate: Date())
             case let (.status, .frame(lines)):
                 diagnostics = nil // a bad reply must not leave the values of an older reply
+                diagnosticsConfig = nil
                 let parsed = try StatusReply.parse(lines: lines)
                 status = parsed
                 diagnostics = try DiagnosticsReply.parse(status: parsed)
+                diagnosticsConfig = config?.values
             case let (.version, .frame(lines)):
                 version = nil
                 version = try VersionReply.parse(lines: lines)
