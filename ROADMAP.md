@@ -24,12 +24,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Runtime line in the Wear OS sensor health screen
-  - Rank: [Total: 27, Use: 5, Setup: 5, Harmony: 7, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt
-  - Goal: Show `Runtime <N> h` and `Cycles <N.N>` from the shared `StatusReply.runtime` in the panel section of `SensorHealthScreen`. Show no line for `null`. Do this after the item "Runtime and awake time lines in the Android sensor health screen".
-  - Acceptance test: `SensorHealthTextTest` asserts the text for `h=412 cycles=3.5`, `Runtime --` for `h=--`, and no line for a missing `RUNTIME` line. The CI job `Wear OS companion tests and APK` passes.
-
 - [ ] Console command CONFIG <key> to read one value
   - Rank: [Total: 27, Use: 3, Setup: 8, Harmony: 6, Safety: 10, Effort: S]
   - Location: rlcd_panel/serial_console.h, tests/test_firmware_logic.cpp

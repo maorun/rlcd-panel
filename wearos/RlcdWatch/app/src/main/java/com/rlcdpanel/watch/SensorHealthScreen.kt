@@ -37,6 +37,7 @@ import com.rlcdpanel.watch.protocol.NtpState
 import com.rlcdpanel.watch.protocol.ReceptionRate
 import com.rlcdpanel.watch.protocol.ReplyError
 import com.rlcdpanel.watch.protocol.ResetState
+import com.rlcdpanel.watch.protocol.RuntimeState
 import com.rlcdpanel.watch.protocol.Shtc3State
 import com.rlcdpanel.watch.protocol.StatusReply
 import com.rlcdpanel.watch.protocol.StatusSensor
@@ -117,6 +118,13 @@ object SensorHealthText {
 
     /** True for a known free space below [SD_LOW_MB]. */
     fun isSdLow(mb: Int?): Boolean = mb != null && mb < SD_LOW_MB
+
+    /** `Runtime <N> h`; `Runtime --` for `h=--`; null without a `RUNTIME` line, so no row shows. */
+    fun runtimeHours(r: RuntimeState?): String? = r?.let { rt -> rt.hours?.let { "Runtime $it h" } ?: "Runtime --" }
+
+    /** `Cycles <N.N>`; `Cycles --` for `cycles=--`; null without a `RUNTIME` line. */
+    fun cycles(r: RuntimeState?): String? =
+        r?.let { "Cycles ${it.cycles?.let { c -> "%.1f".format(java.util.Locale.ROOT, c) } ?: "--"}" }
 
     fun reset(r: ResetState?): String = r?.let { "Reset ${it.reason}, abnormal ${it.abnormalCount ?: "--"}" } ?: "Reset --"
     fun shtc3(s: Shtc3State?): String =
@@ -377,6 +385,16 @@ fun SensorHealthScreen(
                             color = if (low) Color(0xFFFFB74D) else Color(0xFFB0BEC5),
                             textAlign = TextAlign.Center
                         )
+                    }
+                    listOfNotNull(SensorHealthText.runtimeHours(status.runtime), SensorHealthText.cycles(status.runtime)).forEach { text ->
+                        item {
+                            Text(
+                                text = text,
+                                fontSize = 10.sp,
+                                color = Color(0xFFB0BEC5),
+                                textAlign = TextAlign.Center
+                            )
+                        }
                     }
                     item {
                         val warn = status.reset?.isAbnormal == true

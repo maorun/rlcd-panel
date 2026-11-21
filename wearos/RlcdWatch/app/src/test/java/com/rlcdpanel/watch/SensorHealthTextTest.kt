@@ -7,6 +7,7 @@ import com.rlcdpanel.watch.protocol.MemoryState
 import com.rlcdpanel.watch.protocol.NoiseState
 import com.rlcdpanel.watch.protocol.ReplyAssembler
 import com.rlcdpanel.watch.protocol.ResetState
+import com.rlcdpanel.watch.protocol.RuntimeState
 import com.rlcdpanel.watch.protocol.Shtc3State
 import com.rlcdpanel.watch.protocol.ReplyError
 import com.rlcdpanel.watch.protocol.StatusReply
@@ -60,6 +61,27 @@ class SensorHealthTextTest {
     fun sdFreeText() {
         assertEquals("SD frei 14820 MB", SensorHealthText.sdFree(14820))
         assertEquals("SD frei --", SensorHealthText.sdFree(null))
+    }
+
+    @Test
+    fun runtimeTexts() {
+        val r = RuntimeState(412, 18, 3.5, 1200)
+        assertEquals("Runtime 412 h", SensorHealthText.runtimeHours(r))
+        assertEquals("Cycles 3.5", SensorHealthText.cycles(r))
+        val dashes = RuntimeState(null, 0, null, 0)
+        assertEquals("Runtime --", SensorHealthText.runtimeHours(dashes))
+        assertEquals("Cycles --", SensorHealthText.cycles(dashes))
+        assertNull(SensorHealthText.runtimeHours(null))
+        assertNull(SensorHealthText.cycles(null))
+    }
+
+    @Test
+    fun runtimeTextsFromFixtureAndMissingLine() {
+        val lines = fixtureLines()
+        val full = StatusReply.parse(lines)
+        assertEquals("Runtime 412 h", SensorHealthText.runtimeHours(full.runtime))
+        val missing = StatusReply.parse(lines.filter { !it.startsWith("RUNTIME ") && !it.startsWith("AWAKE ") })
+        assertNull(SensorHealthText.runtimeHours(missing.runtime))
     }
 
     @Test

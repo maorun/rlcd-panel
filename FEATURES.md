@@ -2501,3 +2501,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The event list view uses `model.lastConfig` for the room names.
 - The firmware does not change; the RTC layout and `STATE_VERSION` do not change.
 - Tests: `EventTextTests.windowOpenAndClosedUseTheRoomName`, `windowOpenWithUnknownHighByteOrTileGivesRawText`, `windowOpenIsClimate`, `windowWatchReportsOnlyNewOpenEvents`, `windowWatchSkipsAnOpenRowThatALaterRowClosed`, `windowWatchCountsEqualRowsWithEmptyTimeOnce`, `openedWindowTileRejectsTileAboveTenAndOtherRows`.
+
+## Runtime line in the Wear OS sensor health screen
+
+- **Code:** `wearos/RlcdWatch/.../SensorHealthScreen.kt`, `SensorHealthTextTest.kt`.
+- `SensorHealthText.runtimeHours` shows `Runtime <N> h` and `SensorHealthText.cycles` shows `Cycles <N.N>` from the shared `StatusReply.runtime` (`RuntimeState`). `h=--` gives `Runtime --` and `cycles=--` gives `Cycles --`. A missing `RUNTIME` line gives `null`, so the screen shows no row.
+- `SensorHealthScreen` shows both rows below the SD line and above the reset line. The rows never show a warning.
+- The firmware, the shared `StatusReply.kt`, the RTC layout and `STATE_VERSION` do not change.
+- Tests: `SensorHealthTextTest.runtimeTexts` and `runtimeTextsFromFixtureAndMissingLine`.
+- Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The local machine has no Android SDK, so `gradle testDebugUnitTest assembleDebug` did not run locally. CI runs it.
