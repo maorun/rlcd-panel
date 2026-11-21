@@ -1179,7 +1179,7 @@ class MainActivity : ComponentActivity() {
                 is ConsoleReply.Frame -> try {
                     val status = StatusReply.parse(reply.lines)
                     val limit = panelConfig.values["sensor_battery_limit_pct"]?.toDoubleOrNull()
-                    SensorHealthState(rows = SensorHealth.rows(status, limit), ntp = status.ntp, sdFreeMb = status.sdFreeMb, reset = status.reset, shtc3 = status.shtc3, memory = status.memory, rtc = status.rtc, noise = status.noise, status = status).also { s ->
+                    SensorHealthState(rows = SensorHealth.rows(status, limit), ntp = status.ntp, sdFreeMb = status.sdFreeMb, reset = status.reset, shtc3 = status.shtc3, memory = status.memory, rtc = status.rtc, noise = status.noise, runtime = status.runtime, awake = status.awake, status = status).also { s ->
                         sourceBadges = s.rows.mapNotNull { r -> r.badge?.let { r.slot to it } }.toMap()
                     }
                 } catch (e: ParseException) {

@@ -1,5 +1,6 @@
 package com.rlcdpanel.phone
 
+import com.rlcdpanel.phone.protocol.AwakeState
 import com.rlcdpanel.phone.protocol.ConsoleReply
 import com.rlcdpanel.phone.protocol.Fixtures
 import com.rlcdpanel.phone.protocol.MemoryState
@@ -7,6 +8,7 @@ import com.rlcdpanel.phone.protocol.NoiseState
 import com.rlcdpanel.phone.protocol.ReplyAssembler
 import com.rlcdpanel.phone.protocol.ResetState
 import com.rlcdpanel.phone.protocol.RtcState
+import com.rlcdpanel.phone.protocol.RuntimeState
 import com.rlcdpanel.phone.protocol.SensorHealth
 import com.rlcdpanel.phone.protocol.Shtc3State
 import com.rlcdpanel.phone.protocol.StatusReply
@@ -52,6 +54,20 @@ class SensorHealthTextTest {
         assertEquals("Reset --", SensorHealthText.reset(null))
         assertEquals("SHTC3 --", SensorHealthText.shtc3(null))
         assertEquals("Heap --", SensorHealthText.memory(null))
+    }
+
+    @Test
+    fun runtimeAndAwakeTexts() {
+        val status = StatusReply.parse(fixtureLines())
+        assertEquals("Restlaufzeit 412 h", SensorHealthText.runtimeHours(status.runtime))
+        assertEquals("Ladezyklen 3.5", SensorHealthText.cycles(status.runtime))
+        assertEquals("Wachzeit Ø 2350 ms", SensorHealthText.awake(status.awake))
+        assertEquals("Restlaufzeit --", SensorHealthText.runtimeHours(RuntimeState(null, 0, null, 0)))
+        assertEquals("Ladezyklen --", SensorHealthText.cycles(RuntimeState(null, 0, null, 0)))
+        assertEquals("Wachzeit Ø --", SensorHealthText.awake(AwakeState(null, null, null, 0)))
+        assertEquals("Restlaufzeit --", SensorHealthText.runtimeHours(null))
+        assertEquals("Ladezyklen --", SensorHealthText.cycles(null))
+        assertEquals("Wachzeit Ø --", SensorHealthText.awake(null))
     }
 
     @Test

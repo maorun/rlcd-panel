@@ -148,7 +148,7 @@ class StatusReplyTest {
 
     @Test
     fun badCrcThrowsParseException() {
-        val text = Fixtures.file("status_reply_sample.txt").readText().replace("CRC32 7108cbc2", "CRC32 00000000")
+        val text = Fixtures.file("status_reply_sample.txt").readText().replace("CRC32 62a64947", "CRC32 00000000")
         val reply = ReplyAssembler().append(text.toByteArray())!!
         assertTrue(reply is ConsoleReply.Corrupt)
         try {
@@ -293,6 +293,45 @@ class StatusReplyTest {
         )) {
             try {
                 replace("LATCH ", line)
+                fail("expected ParseException for $line")
+            } catch (e: ParseException) {
+            }
+        }
+    }
+
+    @Test
+    fun parsesRuntimeAndAwakeLines() {
+        val status = StatusReply.parse(fixtureLines())
+        assertEquals(RuntimeState(412, 18, 3.5, 1200), status.runtime)
+        assertEquals(AwakeState(2100, 2350, 4100, 24), status.awake)
+        val dashes = StatusReply.parse(fixtureLines().map {
+            when {
+                it.startsWith("RUNTIME ") -> "RUNTIME h=-- samples=0 cycles=-- scan_saved_ms=0"
+                it.startsWith("AWAKE ") -> "AWAKE last_ms=-- avg_ms=-- max_ms=-- samples=0"
+                else -> it
+            }
+        })
+        assertEquals(RuntimeState(null, 0, null, 0), dashes.runtime)
+        assertEquals(AwakeState(null, null, null, 0), dashes.awake)
+        val missing = StatusReply.parse(fixtureLines().filter { !it.startsWith("RUNTIME ") && !it.startsWith("AWAKE ") })
+        assertNull(missing.runtime)
+        assertNull(missing.awake)
+    }
+
+    @Test
+    fun badRuntimeAndAwakeLinesThrow() {
+        for ((prefix, line) in listOf(
+            "RUNTIME " to "RUNTIME h=x samples=1 cycles=1.0 scan_saved_ms=0",
+            "RUNTIME " to "RUNTIME h=1 samples=x cycles=1.0 scan_saved_ms=0",
+            "RUNTIME " to "RUNTIME h=1 samples=1 cycles=x scan_saved_ms=0",
+            "RUNTIME " to "RUNTIME h=1 samples=1 cycles=1.0 scan_saved_ms=-1",
+            "RUNTIME " to "RUNTIME h=1 samples=1 cycles=1.0",
+            "AWAKE " to "AWAKE last_ms=x avg_ms=1 max_ms=1 samples=1",
+            "AWAKE " to "AWAKE last_ms=1 avg_ms=1 max_ms=1",
+            "AWAKE " to "AWAKE last_ms=1 avg_ms=-1 max_ms=1 samples=1"
+        )) {
+            try {
+                replace(prefix, line)
                 fail("expected ParseException for $line")
             } catch (e: ParseException) {
             }

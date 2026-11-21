@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Runtime and awake time lines in the Android sensor health screen
-  - Rank: [Total: 29, Use: 6, Setup: 6, Harmony: 7, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/StatusReplyTest.kt
-  - Goal: Parse the `STATUS` lines `RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>` and `AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>` in the shared `StatusReply.kt`. Show `Restlaufzeit <N> h`, `Ladezyklen <N.N>` and `Wachzeit Ø <N> ms` in `SensorHealthScreen`. A missing line gives `null`. A bad number throws `ParseException`.
-  - Acceptance test: `StatusReplyTest` reads `tests/fixtures/status_reply_sample.txt` and asserts each field, `null` for `--`, `null` for a missing line and a `ParseException` for `h=x`. `./scripts/check-protocol-sync.sh` exits 0. The CI jobs pass.
-
 - [ ] Open window detection with a tile badge and an event code
   - Rank: [Total: 29, Use: 8, Setup: 4, Harmony: 8, Safety: 9, Effort: M]
   - Location: rlcd_panel/window_latch.h, rlcd_panel/device_config.h, rlcd_panel/power_manager.h, rlcd_panel/sd_logger.h, rlcd_panel/dashboard_view.h, rlcd_panel/rlcd_panel.ino, docs/config.example.ini, macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift, tests/test_firmware_logic.cpp
