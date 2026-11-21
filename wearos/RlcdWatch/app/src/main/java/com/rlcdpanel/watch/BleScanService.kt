@@ -319,6 +319,20 @@ class BleScanService : Service() {
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        // The same rule as the macOS and Android buttons: two or more rising repeatable bits give one more action.
+        val ackAll = if (AckCommand.canAcknowledgeAll(rising.rawValue, 0)) {
+            PendingIntent.getBroadcast(
+                this,
+                ACK_ALL_REQUEST,
+                Intent(this, AckReceiver::class.java).apply {
+                    action = AckReceiver.ACTION_ACK
+                    putExtra(AckReceiver.EXTRA_ALL, true)
+                },
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+        } else {
+            null
+        }
         // One notification for each acknowledgeable bit, so that an ACK result and a later alert keep the other actions.
         for (bit in ackBits) {
             val ack = PendingIntent.getBroadcast(
@@ -330,7 +344,7 @@ class BleScanService : Service() {
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
+            val builder = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
                 .setSmallIcon(R.mipmap.ic_launcher)
                 .setContentTitle("RLCD Alarm")
                 .setContentText(AlertMask(1 shl bit).names.joinToString(", "))
@@ -338,7 +352,8 @@ class BleScanService : Service() {
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .addAction(android.R.drawable.ic_menu_agenda, "Acknowledge", ack)
-                .build()
+            if (ackAll != null) builder.addAction(android.R.drawable.ic_menu_agenda, "Acknowledge all", ackAll)
+            val notification = builder.build()
             manager.notify(ackNotificationId(bit), notification)
         }
         if (otherText.isEmpty()) return
@@ -487,6 +502,9 @@ class BleScanService : Service() {
         const val SILENCE_CHANNEL_ID = "rlcd_silence_channel"
         private const val ACK_REQUEST_BASE = 100
         private const val ACK_NOTIFICATION_BASE = 910
+        private const val ACK_ALL_REQUEST = 120
+        /** Notification id of the `ACK ALL` result; 918 to 939 are free, 940 and up are stale tiles. */
+        const val ACK_ALL_NOTIFICATION_ID = 925
         const val STALE_NOTIFICATION_BASE_ID = 940
 
         /** Notification id of the alert with [bit]; the ACK result replaces it. */
