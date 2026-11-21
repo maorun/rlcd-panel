@@ -31,9 +31,10 @@ struct PreviewScene {
   bool dry = false;           // dry air: the onboard tile and slot 1 show the "D" badge
   bool muted = false;         // mute flag: the header shows the "M" badge
   bool window = false;        // open window: the onboard tile and slot 1 show the "W" badge
+  bool wall = false;          // cold outer wall: the onboard tile and slot 1 show the "C" badge
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 19;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 20;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
@@ -55,6 +56,7 @@ constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_tiles6", DisplayMode::DASHBOARD, false, false, false, false, false, false, 6},
     {"display_preview_muted", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, false, true},
     {"display_preview_window", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, true, false, true},
+    {"display_preview_wall", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, false, false, false, true},
 };
 
 // Renders one mode with the fixed sample data used for all documentation previews.
@@ -62,7 +64,7 @@ inline void renderScene(
     St7305Framebuffer& fb, DisplayMode mode, bool low_battery, bool quiet_hours = false,
     bool long_runtime = false, bool battery_empty = false, bool ventilate = false,
     bool invert = false, uint8_t tiles = 0, uint8_t stats_page = 0, bool dry = false,
-    bool muted = false, bool window = false) {
+    bool muted = false, bool window = false, bool wall = false) {
   Shtc3Reading onboard;
   onboard.valid = true;
   onboard.temperature_c = 21.8f;
@@ -252,6 +254,11 @@ inline void renderScene(
     }
     WindowLatch::update(0, anchors, warm, warm_slots, MAX_SWITCHBOT_SENSORS, now_ms - 10UL * 60UL * 1000UL, 2.0f);
     info.window_tiles = WindowLatch::update(0, anchors, onboard, slots, MAX_SWITCHBOT_SENSORS, now_ms, 2.0f);
+  }
+  if (wall) {
+    // The wall badge needs a mold limit and an outdoor slot: slot 2 (13.8 C, the garden) is outdoors, the wall factor is 70 %,
+    // the limit is 50 %RH, so the onboard tile and slot 1 show the "C" badge.
+    info.wall_tiles = WallLatch::update(0, onboard, slots, MAX_SWITCHBOT_SENSORS, now_ms, 50, 70, 2);
   }
   info.sensor_battery_latch = SensorBatteryLatch::update(0, slots, MAX_SWITCHBOT_SENSORS, now_ms, DeviceConfig::DEFAULT_SENSOR_BATTERY_LIMIT_PCT);
   info.config_from_sd = true;

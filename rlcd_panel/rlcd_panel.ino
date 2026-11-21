@@ -486,6 +486,7 @@ void renderDashboard() {
   info.ventilate_tiles = g_state.ventilate_tiles;
   info.dry_tiles = g_state.dry_tiles;
   info.window_tiles = g_state.window_tiles;
+  info.wall_tiles = g_state.wall_tiles;
   info.sensor_battery_latch = g_state.sensor_battery_latch;
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;
@@ -976,6 +977,9 @@ void refreshSensors() {
   g_state.dry_tiles = DryLatch::update(
       g_state.dry_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
       config().dry_alert_limit_rh, config().climate_alert_tiles, config().staleTimeoutMs());
+  g_state.wall_tiles = WallLatch::update(
+      g_state.wall_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
+      config().mold_alert_limit_rh, config().wall_frsi_pct, config().outdoor_slot, config().staleTimeoutMs());
   // The open window latch has no chime. The event time needs g_rtc_time, which is read before this step.
   const uint16_t previous_window_tiles = g_state.window_tiles;
   g_state.window_tiles = WindowLatch::update(
@@ -1525,6 +1529,7 @@ void setup() {
       snap.sensor_battery_latch = g_state.sensor_battery_latch;
       snap.ventilate_tiles = g_state.ventilate_tiles;
       snap.dry_tiles = g_state.dry_tiles;
+      snap.wall_tiles = g_state.wall_tiles;
       snap.stale_slots = g_state.stale_slots;
       snap.noise_history = g_state.noise_history;
       snap.noise_band = g_state.noise_band;

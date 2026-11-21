@@ -24,12 +24,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Wall humidity badge on the climate tiles
-  - Rank: [Total: 27, Use: 7, Setup: 3, Harmony: 8, Safety: 9, Effort: M]
-  - Location: rlcd_panel/dashboard_view.h, rlcd_panel/climate_math.h, rlcd_panel/power_manager.h, rlcd_panel/serial_console.h, tools/preview_scenes.h, tests/test_firmware_logic.cpp
-  - Goal: Set a tile bit in `PersistentState::wall_tiles` when `ClimateMath::wallSurfaceRh` of the tile is at or above `mold_alert_limit_rh`. Release it 3 %RH below the limit, for an empty or stale tile, for the outdoor tile and for `wall_frsi_pct` 0. Draw an inverted `C` badge beside the `D` badge. Append ` wall=<3 hex digits>` to the `STATUS` line `LATCH`. Raise `STATE_VERSION`.
-  - Acceptance test: Host tests assert a set at the limit, the hysteresis, a clear for a stale outdoor slot, a rejected bit above bit 10, the `LATCH` line with `wall=` and the RTC round trip. `./scripts/generate-display-preview.sh` adds `docs/display_preview_wall.png` with the badge. `arduino-cli compile rlcd_panel` passes.
-
 - [ ] Room comparison chart in the macOS app
   - Rank: [Total: 26, Use: 7, Setup: 2, Harmony: 7, Safety: 10, Effort: M]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/ClimateCompare.swift, macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ClimateCompareTests.swift
