@@ -2116,7 +2116,7 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The line count, the RTC layout and `STATE_VERSION` do not change.
 - `StatusSensor.moldHours` (`Int?`) in the macOS, phone and watch parsers is `nil` or `null` for `--` and a missing field. A bad number gives `ParseError.badLine` or `ParseException`.
 - The phone `SensorHealthScreen` shows `Schimmel <N> h` on each sensor row, with a warning symbol and the error colour above 0.
-- Tests: `testSerialStatusMoldHours`, `ReplyTests`, and both `StatusReplyTest` classes. `tests/fixtures/status_reply_sample.txt` holds the field; the CRC literal is `7936259f`.
+- Tests: `testSerialStatusMoldHours`, `ReplyTests`, and both `StatusReplyTest` classes. `tests/fixtures/status_reply_sample.txt` holds the field; the CRC literal is `7108cbc2`.
 
 ## Panel diagnostics lines in the Wear OS sensor health screen
 
@@ -2226,7 +2226,7 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The console command `STATUS` shows `CHIME repeat_h=<N> bits=<2 hex digits> last_s=<N|--> next_s=<N|-->` after `NOISE` and before `CRC32`.
 - `repeat_h` is `chime_repeat_h`. `bits` is `AlertEvaluator::repeatableBits(alert_mask)` without the `alert_ack` bits. `last_s` is the time since `PersistentState::last_chime_ms`; `--` for stamp 0. `next_s` is `repeat_h * 3600 - last_s`, at least 0; `--` for `repeat_h` 0 and for `bits` 00. `next_s` is the nominal due time: mute, quiet hours and `chime_alert_mask` still skip the sound and restart the timer. Stamp 0 counts from clock zero. A stamp ahead of the clock wraps like `AlertEvaluator::repeat`.
 - `SerialStatusSnapshot` has the new field `last_chime_ms`. The sketch fills it from the RTC copy. The RTC layout and `STATE_VERSION` do not change. The Kotlin parsers ignore the line.
-- Tests: `testStatusChimeLine` asserts the filled line, an acknowledged alert, `ALERT_CHARGE_FULL`, an overdue reminder, stamp 0 and the order `NOISE`, `CHIME`, `CRC32`. Each full `STATUS` assert counts one more line. `tests/fixtures/status_reply_sample.txt` holds the line; the CRC literal is `7936259f`.
+- Tests: `testStatusChimeLine` asserts the filled line, an acknowledged alert, `ALERT_CHARGE_FULL`, an overdue reminder, stamp 0 and the order `NOISE`, `CHIME`, `CRC32`. Each full `STATUS` assert counts one more line. `tests/fixtures/status_reply_sample.txt` holds the line; the CRC literal is `7108cbc2`.
 
 ## Panel 24-hour history over the BLE console in the Android app
 
@@ -2238,7 +2238,7 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 
 - The shared `StatusReply.kt` of the phone and the watch parses the `STATUS` line `RTC trim=<N|--> drift_ppm=<N|-->` into `RtcState(trim, driftPpm)` (`StatusReply.rtc`). `--` gives a `null` field and a missing line gives `null`. A bad number and a trim outside -64 to 63 throw `ParseException`. `RtcState.canTrim` is true for a drift of 3 ppm or more in either direction.
 - `SensorHealthScreen` shows the row `RTC Trim <N>, Drift <N> ppm` and the button `RTC trimmen` only when `panelConfig.canWrite` is true and `canTrim` is true (`SensorHealthText.canTrim`). `MainActivity.trimRtc` sends `RTC TRIM` after a tap, then `STATUS` after an `OK`. `SensorHealthText.trimResult` shows `OK RTC TRIM <old> <new>`, `ERR NO_DRIFT` and `ERR READ_ONLY` as short texts.
-- Tests: `StatusReplyTest` (phone and watch) and `SensorHealthTextTest`. `tests/fixtures/status_reply_sample.txt` holds the line `RTC trim=0 drift_ppm=5` after `RESET` with a new `CRC32` (`7936259f`).
+- Tests: `StatusReplyTest` (phone and watch) and `SensorHealthTextTest`. `tests/fixtures/status_reply_sample.txt` holds the line `RTC trim=0 drift_ppm=5` after `RESET` with a new `CRC32` (`7108cbc2`).
 
 ## Chime reminder time in the macOS diagnostics view
 
@@ -2287,3 +2287,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `ChimeText.reminder(reminder)` (phone) gives `Erinnerung aus` for `repeatHours` 0, `Keine Erinnerung fällig` for `bits` 0 or without `nextS`, else `Nächste Erinnerung in <H> h <M> min`. `ChimeScreen` shows it below the mute state after each `STATUS` read (`ChimeState.reminder`).
 - Tests: `StatusReplyTest.parsesChimeLine` and `badChimeLineThrows`, `ChimeTextTest`.
 - Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
+
+## Quiet hours line in STATUS
+
+- The console command `STATUS` shows `QUIET start_h=<H> end_h=<H> active=<0|1|--> night_interval_s=<N>` after `CHIME` and before `CRC32`.
+- `start_h` and `end_h` are `quiet_hours_start_hour` and `quiet_hours_end_hour`. `active` is `QuietHoursWindow::isActive` at the RTC time of the command; `--` for an invalid, unreadable or stopped RTC time. `night_interval_s` is `night_wake_interval_s` (0 is off). An equal start and end hour gives `active=0`.
+- `SerialStatusSnapshot::quiet_active` is `int8_t` (-1 unknown); `SerialStatusSnapshot::quietFlag` derives it. The sketch reads the RTC for each `STATUS`. The RTC layout and `STATE_VERSION` do not change. The Kotlin parsers ignore the line.
+- Tests: `testStatusQuietLine` asserts 23:30 (`active=1`), 12:00 (`active=0`), a stopped oscillator (`active=--`), an equal start and end hour and the order `CHIME`, `QUIET`, `CRC32`. Each full `STATUS` assert counts 29 lines now. `tests/fixtures/status_reply_sample.txt` holds the line; the CRC literal is `7108cbc2`.

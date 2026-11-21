@@ -726,6 +726,15 @@ struct SerialStatusSnapshot {
   bool muted = false;
   uint8_t alert_ack = 0; // acknowledged alert bits (ACK)
   uint32_t last_chime_ms = 0; // RTC copy of PersistentState::last_chime_ms, 0 is no stamp
+  int8_t quiet_active = -1; // QuietHoursWindow::isActive at the RTC time of the command; -1 is unknown
+
+  // 1 or 0 from QuietHoursWindow::isActive; -1 for a failed read, an invalid time or a stopped oscillator.
+  static int8_t quietFlag(bool read_ok, const RtcTime& time, const QuietHoursWindow& window) {
+    if (!read_ok || !time.valid || time.oscillator_stopped) {
+      return -1;
+    }
+    return window.isActive(time) ? 1 : 0;
+  }
   uint32_t now_ms = 0; // RTC-backed clock
   SdStatus sd_status = SdStatus::UNKNOWN; // last card result
   uint32_t sd_status_ms = 0;              // clock value of that result
@@ -1644,6 +1653,16 @@ public:
       }
       len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "CHIME repeat_h=%u bits=%02x last_s=%s next_s=%s\n",
                                           static_cast<unsigned>(repeat_h), static_cast<unsigned>(bits), last, next));
+    }
+    {
+      char active[4] = "--";
+      if (snap.quiet_active >= 0) {
+        snprintf(active, sizeof(active), "%d", snap.quiet_active != 0 ? 1 : 0);
+      }
+      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "QUIET start_h=%u end_h=%u active=%s night_interval_s=%u\n",
+                                          static_cast<unsigned>(snap.config->quiet_hours_start_hour),
+                                          static_cast<unsigned>(snap.config->quiet_hours_end_hour), active,
+                                          static_cast<unsigned>(snap.config->night_wake_interval_s)));
     }
     if (len >= sizeof(text)) {
       return;
