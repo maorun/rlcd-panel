@@ -2557,3 +2557,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `TelemetryHistory.comparePoints(nowMillis, metric)` returns `ComparePoints`: `series` has the `windowPoints` of each tile with at least one value in the window (ascending by tile index, no entry for an empty tile), `min` and `max` span the values of all listed tiles (`null` without a value). A missing value in a list stays a gap.
 - Tests: `comparePointsListsTilesWithValuesAndSharesTheRange` and `comparePointsGivesNoEntryForEmptyTilesAndNoRangeWithoutValues`.
 - Validation: `gradle testDebugUnitTest assembleDebug` runs in CI only (no local Android SDK).
+
+## Vibration pattern for each alert on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AlertVibration.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/BleScanService.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/AlertVibrationTest.kt`.
+- `AlertVibration.pattern(alerts)` returns the timing array for `VibrationEffect.createWaveform` (delay, on, off, on, ...). The lowest set bit selects the pattern: `FREEZER` three short pulses (120 ms), `HUMIDITY` two long pulses (400 ms), `HEAT` four short pulses, each other bit one long pulse. The gap is 120 ms. Mask 0 gives an empty array and no vibration.
+- `BleScanService.vibrateAlert(alerts)` uses the rising alert bits of a frame, so several new bits give the pattern of the lowest bit. `MainActivity.vibrateAlert(alerts)` uses the same rule for the ventilation stop and abort advice with `AlertMask.VENTILATE`.
+- Tests: `AlertVibrationTest` covers the freezer, humidity and heat arrays, one pulse for other bits, the lowest-bit rule for `HUMIDITY | HEAT` and the empty array for mask 0.
+- Validation: `gradle testDebugUnitTest assembleDebug` runs in CI only (no local Android SDK).

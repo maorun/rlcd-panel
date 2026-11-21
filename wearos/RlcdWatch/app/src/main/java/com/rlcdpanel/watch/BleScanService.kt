@@ -22,6 +22,7 @@ import androidx.core.content.ContextCompat
 import com.rlcdpanel.watch.complication.ClimateComplicationService
 import com.rlcdpanel.watch.protocol.AckCommand
 import com.rlcdpanel.watch.protocol.AlertMask
+import com.rlcdpanel.watch.protocol.AlertVibration
 import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.tile.ClimateTileService
 import com.rlcdpanel.watch.protocol.AlertTransitions
@@ -210,7 +211,7 @@ class BleScanService : Service() {
         feedStaleWatch(incoming.frame)
 
         if (!transition.risingAlerts.isEmpty) {
-            vibrateAlert()
+            vibrateAlert(transition.risingAlerts)
             postAlertNotification(transition.risingAlerts)
         }
 
@@ -459,10 +460,10 @@ class BleScanService : Service() {
         }
     }
 
-    private fun vibrateAlert() {
-        getVibrator()?.vibrate(
-            VibrationEffect.createWaveform(longArrayOf(0L, 250L, 120L, 250L, 120L, 250L), -1)
-        )
+    private fun vibrateAlert(alerts: AlertMask) {
+        val timings = AlertVibration.pattern(alerts)
+        if (timings.isEmpty()) return
+        getVibrator()?.vibrate(VibrationEffect.createWaveform(timings, -1))
     }
 
     private fun vibrateNotice() {

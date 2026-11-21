@@ -24,12 +24,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Vibration pattern for each alert on the Wear OS watch
-  - Rank: [Total: 24, Use: 6, Setup: 1, Harmony: 7, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AlertVibration.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/BleScanService.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/AlertVibrationTest.kt
-  - Goal: Give each alert bit its own vibration pattern, so the user knows the alert without a look at the watch: freezer three short pulses, humidity two long pulses, heat four short pulses, and one pulse for each other bit. For more rising bits, use the pattern of the lowest bit. Use the same rule in `MainActivity` and `BleScanService`.
-  - Acceptance test: `AlertVibrationTest` asserts the timing arrays of the freezer, humidity and heat bits, the lowest-bit rule for `HUMIDITY | HEAT` and an empty array for mask 0. The CI job `Wear OS companion tests and APK` passes.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.
