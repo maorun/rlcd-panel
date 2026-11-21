@@ -118,6 +118,7 @@ fun HistoryScreen(
     panel: PanelHistoryState,
     showPanel: Boolean,
     onReadPanel: () -> Unit,
+    onReadSensor: (Int) -> Unit,
     onLocal: () -> Unit,
     onShare: () -> Unit,
     onBack: () -> Unit
@@ -187,6 +188,7 @@ fun HistoryScreen(
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(panelConfig.tileName(index), style = MaterialTheme.typography.titleMedium)
+                            OutlinedButton(onClick = { onReadSensor(index) }, enabled = !panel.isReading) { Text("Nur diesen Raum lesen") }
                             val (temp, rh) = shown.getValue(index)
                             MetricChart(temp, shownNow, "Temperatur", "°C", Color(0xFFFF8A65), maxGap)
                             MetricChart(rh, shownNow, "Feuchte", "%RH", Color(0xFF4FC3F7), maxGap)

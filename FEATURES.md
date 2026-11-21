@@ -2322,3 +2322,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `BleScanService.postAlertNotification(rising)` posts one notification for each bit of `AckCommand.actionBits(rising)` with the action `Acknowledge` (notification id `930` + bit, `ackNotificationId`; the ids 910 to 920 stay with the stale notifications). Other rising bits keep the old notification (id 900). The action exists only when `PanelConfig.canWrite` is true (`ble_console=2`); else the old single notification stays.
 - `AckReceiver` (not exported) runs after a user tap only. It checks `BLUETOOTH_SCAN` and `BLUETOOTH_CONNECT`, sends `ACK <N>` once through `BleConsoleClient` (one command in flight, 8 s watchdog) and shows `AckCommand.resultText` in a short notification.
 - Tests: `AckCommandTest` (phone) asserts that `HUMIDITY | CHARGE_FULL` gives `[1]`. `./scripts/check-protocol-sync.sh` and `--self-test` pass. The Gradle tasks did not run on this host (no Android SDK); the CI jobs run them.
+
+## Panel history of one sensor in the Android app
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/HistoryCommand.kt`, `HistoryScreen.kt`, `MainActivity.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/HistoryCommandTest.kt`
+- `HistoryCommand.line(sensor)` gives `HISTORY <N>` for 0 to 10 and `HISTORY` for `null`. Another number throws `IllegalArgumentException`.
+- Each sensor card of `HistoryScreen` has the button `Nur diesen Raum lesen`. It sends `HISTORY <N>` and reads only the rows of this sensor. The button `Panel-Verlauf lesen` still reads all sensors.
+- An older firmware answers `HISTORY <N>` with `ERR UNKNOWN` (the old parser takes no argument; `HistoryCommand.shouldFallBack`; other `ERR` lines do not retry). `MainActivity.readPanelHistory` then sends `HISTORY` once and keeps the rows of the sensor with `HistoryCommand.filter`.
+- A one-sensor read shows only the card of this sensor. The button `Lokal` and a new read of all sensors bring the other rooms back.
+- A one-sensor read with no usable values for the sensor shows `Keine Werte für diesen Raum` and keeps the local curves.
+- Tests: `HistoryCommandTest` (command lines, the exception for 11 and -1, the fallback rule, the filter on `tests/fixtures/history_reply_sample.txt`).
+- Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.

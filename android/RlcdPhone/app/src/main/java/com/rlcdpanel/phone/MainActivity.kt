@@ -59,6 +59,7 @@ import com.rlcdpanel.phone.protocol.VersionReply
 import com.rlcdpanel.phone.protocol.WeekCsv
 import com.rlcdpanel.phone.protocol.WeekReply
 import com.rlcdpanel.phone.protocol.WeekRow
+import com.rlcdpanel.phone.protocol.HistoryCommand
 import com.rlcdpanel.phone.protocol.HistoryReply
 import com.rlcdpanel.phone.ventilation.OutdoorClimate
 import com.rlcdpanel.phone.ventilation.LocationInput
@@ -208,7 +209,8 @@ class MainActivity : ComponentActivity() {
                     nowMillis = nowMillis,
                     panel = panelHistory,
                     showPanel = showPanelHistory,
-                    onReadPanel = { withConsolePermission { readPanelHistory() } },
+                    onReadPanel = { withConsolePermission { readPanelHistory(null) } },
+                    onReadSensor = { sensor -> withConsolePermission { readPanelHistory(sensor) } },
                     onLocal = { showPanelHistory = false },
                     onShare = { shareHistoryCsv(history) },
                     onBack = { closePanelHistory() }
@@ -564,22 +566,37 @@ class MainActivity : ComponentActivity() {
         if (!scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
     }
 
-    /** Sends `HISTORY` after a tap. A failed read keeps the local curves. */
-    private fun readPanelHistory() {
+    /** Sends `HISTORY <N>` for one [sensor], `HISTORY` for `null`, after a tap. A failed read keeps the local curves. */
+    private fun readPanelHistory(sensor: Int?) {
         stopBleScan()
         panelHistory = PanelHistoryState(isReading = true)
         showPanelHistory = false
-        consoleClient.send("HISTORY") { reply ->
-            val readAt = System.currentTimeMillis()
-            when (reply) {
-                is ConsoleReply.Frame -> try {
-                    panelHistory = PanelHistoryState(rows = HistoryReply.parse(reply.lines), readAtMillis = readAt, loaded = true)
-                    showPanelHistory = true
-                } catch (e: ParseException) {
-                    panelHistory = PanelHistoryState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
-                }
-                else -> panelHistory = PanelHistoryState(message = BleConsoleClient.errorText(reply))
+        consoleClient.send(HistoryCommand.line(sensor)) { reply ->
+            // An older firmware answers `HISTORY <N>` with `ERR`. Send `HISTORY` once and keep the rows of the sensor.
+            if (reply is ConsoleReply.Status && HistoryCommand.shouldFallBack(sensor, reply.line)) {
+                consoleClient.send(HistoryCommand.line(null)) { full -> finishPanelHistory(full, sensor) }
+            } else {
+                finishPanelHistory(reply, sensor)
             }
+        }
+    }
+
+    private fun finishPanelHistory(reply: ConsoleReply, sensor: Int?) {
+        val readAt = System.currentTimeMillis()
+        when (reply) {
+            is ConsoleReply.Frame -> try {
+                val parsed = HistoryReply.parse(reply.lines)
+                val rows = if (sensor == null) parsed else HistoryCommand.filter(parsed, sensor)
+                if (sensor != null && PanelHistoryChart.sensors(rows).isEmpty()) {
+                    panelHistory = PanelHistoryState(message = "Keine Werte für diesen Raum")
+                } else {
+                    panelHistory = PanelHistoryState(rows = rows, readAtMillis = readAt, loaded = true)
+                    showPanelHistory = true
+                }
+            } catch (e: ParseException) {
+                panelHistory = PanelHistoryState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
+            }
+            else -> panelHistory = PanelHistoryState(message = BleConsoleClient.errorText(reply))
         }
     }
 
