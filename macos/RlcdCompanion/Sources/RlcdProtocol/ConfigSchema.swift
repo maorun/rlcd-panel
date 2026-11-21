@@ -8,8 +8,8 @@ public enum ConfigCategory: String, CaseIterable, Sendable {
 public enum ConfigValueKind: Equatable, Sendable {
     /// Whole number in `min...max`. `off` is one more accepted value outside the range (for example 0).
     case integer(min: Int, max: Int, off: Int? = nil)
-    /// Decimal number in `min...max`.
-    case decimal(min: Double, max: Double)
+    /// Decimal number in `min...max`. `off` is one more accepted value outside the range (for example 0).
+    case decimal(min: Double, max: Double, off: Double? = nil)
     /// One of the listed texts.
     case enumeration([String])
     /// Whole number of `bits` bits.
@@ -89,6 +89,7 @@ public enum ConfigSchema {
             e("mold_alert_limit_rh", .climate, .integer(min: 40, max: 95), "70", "%RH", "Count the hours above this humidity for the mold alert."),
             e("heat_alert_limit_c", .climate, .integer(min: 27, max: 45, off: 0), "0", "°C", "Start the heat alert at this feels-like temperature. 0 is off."),
             e("dry_alert_limit_rh", .climate, .integer(min: 20, max: 45, off: 0), "0", "%RH", "Show the dry air badge at or below this humidity. 0 is off."),
+            e("window_drop_c", .climate, .decimal(min: 1, max: 5, off: 0), "0", "°C", "Show the W badge on a tile that falls by this temperature within 15 minutes. 0 is off. The badge ends when the tile rises by half the limit or after 2 hours."),
             e("wall_frsi_pct", .climate, .integer(min: 50, max: 95, off: 0), "0", "%", "Temperature factor of the outer wall for the WALL text of the stats view. Needs the outdoor slot. 0 is off."),
             e("ventilate_limit_rh", .climate, .integer(min: 50, max: 80), "60", "%RH", "Show the ventilation badge above this humidity."),
             // Alerts
@@ -170,7 +171,7 @@ public enum ConfigSchema {
         "wall_frsi_pct", "slot_auto_assign",
         "slot1_enabled", "slot2_enabled", "slot3_enabled", "slot4_enabled", "slot5_enabled",
         "slot6_enabled", "slot7_enabled", "slot8_enabled", "slot9_enabled", "slot10_enabled",
-        "auto_assign_min_rssi",
+        "auto_assign_min_rssi", "window_drop_c",
     ]
     private static let index: [String: Int] = Dictionary(uniqueKeysWithValues: keys.enumerated().map { ($1, $0) })
 
@@ -225,9 +226,12 @@ public enum ConfigSchema {
             return validateInteger(value, lo: lo, hi: hi, off: off)
         case let .bitMask(bits):
             return validateInteger(value, lo: 0, hi: (1 << bits) - 1, off: nil)
-        case let .decimal(lo, hi):
+        case let .decimal(lo, hi, off):
             guard let v = parseNumber(value) else { return .notANumber }
-            return v >= lo && v <= hi ? nil : .outOfRange("\(fmt(lo)) to \(fmt(hi))")
+            if v >= lo && v <= hi { return nil }
+            if let off, v == off { return nil }
+            let range = "\(fmt(lo)) to \(fmt(hi))"
+            return .outOfRange(off.map { "\(fmt($0)) or \(range)" } ?? range)
         case let .enumeration(list):
             return list.contains(value) ? nil : .notInList(list)
         case .name:

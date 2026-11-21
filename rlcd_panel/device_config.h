@@ -91,6 +91,9 @@ struct DeviceConfig {
   static constexpr uint8_t DEFAULT_DRY_ALERT_LIMIT_RH = 0; // 0 switches the dry air badge off
   static constexpr uint8_t MIN_DRY_ALERT_LIMIT_RH = 20;
   static constexpr uint8_t MAX_DRY_ALERT_LIMIT_RH = 45;
+  static constexpr float DEFAULT_WINDOW_DROP_C = 0.0f; // 0 switches the open window badge off
+  static constexpr float MIN_WINDOW_DROP_C = 1.0f;
+  static constexpr float MAX_WINDOW_DROP_C = 5.0f;
   static constexpr uint8_t DEFAULT_WALL_FRSI_PCT = 0; // 0 switches the wall humidity text off
   static constexpr uint8_t MIN_WALL_FRSI_PCT = 50;
   static constexpr uint8_t MAX_WALL_FRSI_PCT = 95;
@@ -170,6 +173,7 @@ struct DeviceConfig {
   uint8_t chime_repeat_h = DEFAULT_CHIME_REPEAT_H; // hours until the chime of an active alert sounds again, 0 = off, else 1..24
   uint8_t heat_alert_limit_c = DEFAULT_HEAT_ALERT_LIMIT_C; // feels-like limit of the heat alert in C, 0 = off, else 27..45
   uint8_t dry_alert_limit_rh = DEFAULT_DRY_ALERT_LIMIT_RH; // a tile at or below this %RH shows the dry air badge, 0 = off, else 20..45
+  float window_drop_c = DEFAULT_WINDOW_DROP_C; // a tile that falls by this many C within 15 minutes shows the "W" badge, 0 = off, else 1.0..5.0, 0.1 C steps
   uint8_t wall_frsi_pct = DEFAULT_WALL_FRSI_PCT; // temperature factor of the outer wall for the WALL text in percent, 0 = off, else 50..95
   uint8_t ble_broadcast_enabled = DEFAULT_BLE_BROADCAST_ENABLED; // 1 = advertise the climate tiles after each scan (ble_telemetry.h), 0 = off
   int8_t auto_assign_min_rssi = DEFAULT_AUTO_ASSIGN_MIN_RSSI; // a new MAC with a weaker RSSI in dBm gets no free slot, 0 = off, else -100..-40
@@ -210,6 +214,16 @@ struct DeviceConfig {
     const uint32_t longest_s = night_wake_interval_s > wake_interval_s ? night_wake_interval_s : wake_interval_s;
     const uint32_t floor_ms = (longest_s + SCAN_DURATION_S) * 1000UL;
     return configured < floor_ms ? floor_ms : configured;
+  }
+
+  // Window of the open window latch in ms: 15 minutes, or one wake interval plus the scan time when the longest
+  // interval of the board is longer, so two readings always fall into one window. Equals WindowLatch::DROP_WINDOW_MS.
+  // A night_wake_interval_s above 15 minutes widens the window all day, because the RTC copy does not know the next interval.
+  uint32_t windowDropMs() const {
+    const uint32_t longest_s = night_wake_interval_s > wake_interval_s ? night_wake_interval_s : wake_interval_s;
+    const uint32_t interval_ms = (longest_s + SCAN_DURATION_S) * 1000UL;
+    const uint32_t base_ms = 15UL * 60UL * 1000UL;
+    return interval_ms > base_ms ? interval_ms : base_ms;
   }
 
   static bool inRange(float v, float lo, float hi) {
@@ -307,6 +321,7 @@ struct DeviceConfig {
       }
     }
     return inRange(temp_offset_c, MIN_TEMP_OFFSET_C, MAX_TEMP_OFFSET_C) &&
+           (window_drop_c == 0.0f || inRange(window_drop_c, MIN_WINDOW_DROP_C, MAX_WINDOW_DROP_C)) &&
            inRange(usb_temp_offset_c, MIN_USB_TEMP_OFFSET_C, MAX_USB_TEMP_OFFSET_C) &&
            inRange(rh_offset_pct, MIN_RH_OFFSET_PCT, MAX_RH_OFFSET_PCT) &&
            inRange(rh_gain, MIN_RH_GAIN, MAX_RH_GAIN) &&
@@ -366,7 +381,7 @@ struct DeviceConfig {
            climate_alert_tiles == d.climate_alert_tiles && battery_offset_mv == d.battery_offset_mv &&
            slot_release_h == d.slot_release_h && night_wake_interval_s == d.night_wake_interval_s &&
            temp_unit == d.temp_unit && chime_repeat_h == d.chime_repeat_h &&
-           heat_alert_limit_c == d.heat_alert_limit_c && dry_alert_limit_rh == d.dry_alert_limit_rh && wall_frsi_pct == d.wall_frsi_pct && ble_broadcast_enabled == d.ble_broadcast_enabled &&
+           heat_alert_limit_c == d.heat_alert_limit_c && dry_alert_limit_rh == d.dry_alert_limit_rh && wall_frsi_pct == d.wall_frsi_pct && window_drop_c == d.window_drop_c && ble_broadcast_enabled == d.ble_broadcast_enabled &&
            ble_console == d.ble_console && slot_auto_assign == d.slot_auto_assign &&
            auto_assign_min_rssi == d.auto_assign_min_rssi &&
            slot_enabled_mask == d.slot_enabled_mask;
@@ -417,7 +432,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 8192;
-  static constexpr size_t KEY_COUNT = 95;
+  static constexpr size_t KEY_COUNT = 96;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -450,7 +465,7 @@ public:
       "wall_frsi_pct", "slot_auto_assign",
       "slot1_enabled", "slot2_enabled", "slot3_enabled", "slot4_enabled", "slot5_enabled",
       "slot6_enabled", "slot7_enabled", "slot8_enabled", "slot9_enabled", "slot10_enabled",
-      "auto_assign_min_rssi",
+      "auto_assign_min_rssi", "window_drop_c",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -651,6 +666,17 @@ private:
       return false;
     }
     out = v;
+    return true;
+  }
+
+  // window_drop_c: 0 (off) or 1.0 to 5.0 C, rounded to 0.1 C steps (the RTC byte holds tenths).
+  static bool parseWindowDrop(const char* s, size_t n, float& out) {
+    float v = 0.0f;
+    if (!parseFloatIn(s, n, 0.0f, DeviceConfig::MAX_WINDOW_DROP_C, v) ||
+        (v != 0.0f && v < DeviceConfig::MIN_WINDOW_DROP_C)) {
+      return false;
+    }
+    out = static_cast<float>(lroundf(v * 10.0f)) / 10.0f;
     return true;
   }
 
@@ -993,6 +1019,9 @@ private:
     } else if (keyIs(key, key_len, "auto_assign_min_rssi")) {
       index = 94;
       ok = parseAutoAssignRssi(val, val_len, cfg.auto_assign_min_rssi);
+    } else if (keyIs(key, key_len, "window_drop_c")) {
+      index = 95;
+      ok = parseWindowDrop(val, val_len, cfg.window_drop_c);
     } else if (keyIs(key, key_len, "ble_console")) {
       index = 39;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_BLE_CONSOLE, cfg.ble_console);
@@ -1076,6 +1105,7 @@ public:
     ok = ok && putInt(out, cap, pos, "heat_alert_limit_c", cfg.heat_alert_limit_c);
     ok = ok && putInt(out, cap, pos, "dry_alert_limit_rh", cfg.dry_alert_limit_rh);
     ok = ok && putInt(out, cap, pos, "wall_frsi_pct", cfg.wall_frsi_pct);
+    ok = ok && putFloat(out, cap, pos, "window_drop_c", cfg.window_drop_c);
     ok = ok && putInt(out, cap, pos, "ble_broadcast_enabled", cfg.ble_broadcast_enabled);
     ok = ok && putInt(out, cap, pos, "ble_console", cfg.ble_console);
     ok = ok && putInt(out, cap, pos, "slot_auto_assign", cfg.slot_auto_assign);

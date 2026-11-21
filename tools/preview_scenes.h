@@ -30,9 +30,10 @@ struct PreviewScene {
   uint8_t stats_page = 0;     // stats view page 0 or 1 (page 1 shows slots 4 and 5)
   bool dry = false;           // dry air: the onboard tile and slot 1 show the "D" badge
   bool muted = false;         // mute flag: the header shows the "M" badge
+  bool window = false;        // open window: the onboard tile and slot 1 show the "W" badge
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 18;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 19;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
@@ -53,6 +54,7 @@ constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_tiles2", DisplayMode::DASHBOARD, false, false, false, false, false, false, 2},
     {"display_preview_tiles6", DisplayMode::DASHBOARD, false, false, false, false, false, false, 6},
     {"display_preview_muted", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, false, true},
+    {"display_preview_window", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, true, false, true},
 };
 
 // Renders one mode with the fixed sample data used for all documentation previews.
@@ -60,7 +62,7 @@ inline void renderScene(
     St7305Framebuffer& fb, DisplayMode mode, bool low_battery, bool quiet_hours = false,
     bool long_runtime = false, bool battery_empty = false, bool ventilate = false,
     bool invert = false, uint8_t tiles = 0, uint8_t stats_page = 0, bool dry = false,
-    bool muted = false) {
+    bool muted = false, bool window = false) {
   Shtc3Reading onboard;
   onboard.valid = true;
   onboard.temperature_c = 21.8f;
@@ -235,6 +237,22 @@ inline void renderScene(
   info.ventilate_tiles = VentilateLatch::update(0, onboard, slots, MAX_SWITCHBOT_SENSORS, now_ms, DeviceConfig::DEFAULT_VENTILATE_LIMIT_RH);
   // The dry air badge needs a limit; the default is off, so the scene uses 35 %RH.
   info.dry_tiles = DryLatch::update(0, onboard, slots, MAX_SWITCHBOT_SENSORS, now_ms, dry ? 35 : DeviceConfig::DEFAULT_DRY_ALERT_LIMIT_RH);
+  if (window) {
+    // The open window badge needs a drop: the first call sets the anchors, the second one sees a fall of 2.5 C in 10 minutes.
+    WindowLatch::Anchors anchors;
+    Shtc3Reading warm = onboard;
+    warm.temperature_c += 2.5f;
+    SwitchBotReading warm_slots[MAX_SWITCHBOT_SENSORS];
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      warm_slots[i] = slots[i];
+      warm_slots[i].temperature_c += 2.5f;
+      if (warm_slots[i].updated_ms != 0) {
+        warm_slots[i].updated_ms -= 10UL * 60UL * 1000UL; // the packet is as old as the call
+      }
+    }
+    WindowLatch::update(0, anchors, warm, warm_slots, MAX_SWITCHBOT_SENSORS, now_ms - 10UL * 60UL * 1000UL, 2.0f);
+    info.window_tiles = WindowLatch::update(0, anchors, onboard, slots, MAX_SWITCHBOT_SENSORS, now_ms, 2.0f);
+  }
   info.sensor_battery_latch = SensorBatteryLatch::update(0, slots, MAX_SWITCHBOT_SENSORS, now_ms, DeviceConfig::DEFAULT_SENSOR_BATTERY_LIMIT_PCT);
   info.config_from_sd = true;
   info.config_rejected = 2; // two rejected config.ini lines
