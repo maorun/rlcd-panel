@@ -2405,3 +2405,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `AlertLimits.run` sends the commands one by one, then `CONFIG` (same batch as `SlotAssignment.run`). The first `ERR` line stops the batch before `CONFIG`; the summary names the failed reply and the count of applied keys.
 - The edit fields and the `Anwenden` button show only when `PanelConfig.canWrite` is true (`ble_console=2`). Otherwise the screen shows the cached values read-only with the `ble_console=2` hint. The button `CONFIG lesen` refreshes the cache.
 - No firmware change, no RTC layout change. Tests: `AlertLimitsTest` (ranges, fixed order, unchanged value, invalid value, stop after `ERR BAD_VALUE`, `CONFIG` last).
+
+## Calibration of slots 6 to 10 in the Android app
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SaltCommand.kt`, `CalibrationScreen.kt`, `MainActivity.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/SaltCommandTest.kt`, `CalibrationReplyTest.kt`.
+- `SaltCommand.line(sensor, magnesium)` accepts 0 to 10 and throws `IllegalArgumentException` for another value. `MainActivity.readSalt` skips a sensor outside this range. `CALIB N` uses the same reference numbers.
+- `CalibrationSensors.selectable(rows, keep)` lists the sensors of the picker in `CalibrationScreen`: 0 to 5 always, and each slot 6 to 10 only when its `STATUS` state is `OK`, `STALE` or `BATLOW`. Without a `STATUS` read (`healthState.rows` empty) only 0 to 5 and the picked reference (`keep`) show. `CalibrationScreen` shows a hint while no slot 6 to 10 is listed. `MainActivity.readCalibration` and `readSalt` skip a reference outside 0 to 10.
+- `CalibrationReply.parse` and `SaltReply.parse` keep the proposal keys `slot6_*` to `slot10_*` (`CalibrationKeys` already accepted them).
+- No firmware change, no RTC layout change. Tests: `SaltCommandTest` (`SALT 10`, exception for 11 and -1), `CalibrationSensorsTest` (picker filter, kept reference), `CalibrationReplyTest.regressionGuardProposalKeysOfSlots6To10` (`slot9_temp_offset_c`; a guard, the parser already accepted the keys).
