@@ -43,7 +43,7 @@ class ClimateComplicationService : ComplicationDataSourceService() {
         return when (type) {
             ComplicationType.SHORT_TEXT -> ShortTextComplicationData.Builder(
                 PlainComplicationText.Builder(model.temperatureText).build(),
-                PlainComplicationText.Builder(describe("Temperature", model.temperatureText, model.roomName)).build()
+                PlainComplicationText.Builder(ClimateComplicationModel.describe("Temperature", model.temperatureText, model.roomName, model.alertNames)).build()
             )
                 .setTitle(PlainComplicationText.Builder(model.humidityText).build())
                 .setTapAction(tap)
@@ -53,7 +53,7 @@ class ClimateComplicationService : ComplicationDataSourceService() {
                 model.humidityValue,
                 ClimateComplicationModel.MIN_VALUE,
                 ClimateComplicationModel.MAX_VALUE,
-                PlainComplicationText.Builder(describe("Humidity", model.humidityText, model.roomName)).build()
+                PlainComplicationText.Builder(ClimateComplicationModel.describe("Humidity", model.humidityText, model.roomName, model.alertNames)).build()
             )
                 .setText(PlainComplicationText.Builder(model.humidityText).build())
                 .setTapAction(tap)
@@ -62,10 +62,6 @@ class ClimateComplicationService : ComplicationDataSourceService() {
             else -> null
         }
     }
-
-    /** Content description with the room name of [PanelConfig.tileName]. */
-    private fun describe(label: String, value: String, roomName: String): String =
-        if (roomName.isEmpty()) "$label $value" else "$roomName $label $value"
 
     companion object {
         /** Asks the system to redraw each complication of this service after the cache changed. */

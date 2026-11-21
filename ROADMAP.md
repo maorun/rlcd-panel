@@ -96,12 +96,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Put this entry after "Console command ACK ALL". The diagnostics view shows one `Acknowledge` button for each active alert. Add `ConsoleCommand.ackAll` with the line `ACK ALL`. Extend `ConsoleCommand.ackMessage` with `OK ACK ALL <mask>` (`Acknowledged: <names>`) and keep the current texts for `ERR NOT_ACTIVE` and `ERR READ_ONLY`. Add `AppModel.acknowledgeAll()`: it queues `.ackAll` and `.status`, like `acknowledge(bit:)`. Show the button `Acknowledge all` only when two or more active bits are not acknowledged.
   - Acceptance test: In `ReplyTests`, assert the line `ACK ALL`, `Acknowledged: Humidity, Ventilate` for `OK ACK ALL 22`, the current text for `ERR NOT_ACTIVE`, and the button rule for 1 and 2 open bits with a pure helper. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
 
-- [ ] Alert mark in the Wear OS watch face complication
-  - Rank: [Total: 25, Use: 7, Setup: 1, Harmony: 7, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/complication/ClimateComplicationModel.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/complication/ClimateComplicationService.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/complication/ClimateComplicationModelTest.kt
-  - Goal: The complication shows the temperature and the humidity of the focused room. It does not show an active panel alert, so the user must open the app or the tile. Add `ClimateComplicationModel.hasAlert` from `TelemetryFrame.alerts` of the cached frame. For an alert, put `!` before the temperature text (`!21.4°`) and add the alert names to the content description. A stale frame and an empty cache give no mark. Keep the `SHORT_TEXT` text at 7 characters or less.
-  - Acceptance test: In `ClimateComplicationModelTest`, assert `!21.4°` and `hasAlert` true for a frame with alert mask `0x02`, no mark for mask 0, no mark for a stale frame, and a text length of 7 or less for `-10.5°` with an alert. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`.
-
 - [ ] Weekly mold sum in the panel week chart
   - Rank: [Total: 24, Use: 6, Setup: 2, Harmony: 7, Safety: 9, Effort: S]
   - Location: rlcd_panel/dashboard_view.h, tools/preview_scenes.h, tests/test_firmware_logic.cpp, docs/display_preview_chart_week.png, AGENTS.md
