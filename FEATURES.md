@@ -2565,3 +2565,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `BleScanService.vibrateAlert(alerts)` uses the rising alert bits of a frame, so several new bits give the pattern of the lowest bit. `MainActivity.vibrateAlert(alerts)` uses the same rule for the ventilation stop and abort advice with `AlertMask.VENTILATE`.
 - Tests: `AlertVibrationTest` covers the freezer, humidity and heat arrays, one pulse for other bits, the lowest-bit rule for `HUMIDITY | HEAT` and the empty array for mask 0.
 - Validation: `gradle testDebugUnitTest assembleDebug` runs in CI only (no local Android SDK).
+
+## Serial console command IDENTIFY to find the connected panel
+
+- **Code:** `rlcd_panel/serial_console.h` (`SerialCommandKind::IDENTIFY`, `SerialConsoleRunner::identify`), `rlcd_panel/dashboard_view.h` (`DashboardView::renderIdentify`), `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tools/render_display_preview.cpp`, `tests/test_firmware_logic.cpp`, `docs/display_preview_identify.png`.
+- `IDENTIFY` renders the inverted text `RLCD <last 4 hex digits of the BLE MAC>`, the firmware version and the transport (`USB` or `BLE`), flushes it with `g_panel.flush` (no `display_invert`, like `PATTERN`) and plays one short note under the `BEEP` rules (mute, quiet hours and volume 0 keep it silent and the reply stays `OK IDENTIFY`). The reply is `OK IDENTIFY <4 hex digits>`; extra text gives `ERR BAD_ARG`.
+- The sketch reads the BLE address with `esp_read_mac(ESP_MAC_BT)`. The command calls `FrameRefresh::invalidate()`, so the next wake cycle flushes the normal view. `SCREEN` gives `ERR NO_FRAME` until then.
+- The command runs on USB and on BLE at each `ble_console` level. It does not mount the card. The RTC layout and `STATE_VERSION` do not change.
+- Tests: parser, `execute()` gate, BLE bridge with `ble_console` 1, reply `OK IDENTIFY 3F2A`, `ERR BAD_ARG` for `IDENTIFY X`, the render CRC-32 for `USB` and `BLE`, and the silent paths.
+- Validation: host tests, `./scripts/generate-display-preview.sh` and `arduino-cli compile rlcd_panel` pass locally. Hardware behavior (panel flush, note) is not tested.

@@ -32,9 +32,10 @@ struct PreviewScene {
   bool muted = false;         // mute flag: the header shows the "M" badge
   bool window = false;        // open window: the onboard tile and slot 1 show the "W" badge
   bool wall = false;          // cold outer wall: the onboard tile and slot 1 show the "C" badge
+  bool identify = false;      // console command IDENTIFY: white text on black ("RLCD 3F2A", version, transport)
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 20;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 21;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
@@ -57,6 +58,7 @@ constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_muted", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, false, true},
     {"display_preview_window", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, true, false, true},
     {"display_preview_wall", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, false, false, false, true},
+    {"display_preview_identify", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, false, false, false, false, true},
 };
 
 // Renders one mode with the fixed sample data used for all documentation previews.
@@ -64,7 +66,11 @@ inline void renderScene(
     St7305Framebuffer& fb, DisplayMode mode, bool low_battery, bool quiet_hours = false,
     bool long_runtime = false, bool battery_empty = false, bool ventilate = false,
     bool invert = false, uint8_t tiles = 0, uint8_t stats_page = 0, bool dry = false,
-    bool muted = false, bool window = false, bool wall = false) {
+    bool muted = false, bool window = false, bool wall = false, bool identify = false) {
+  if (identify) {
+    DashboardView::renderIdentify(fb, 0x3F2A, "1.0.0", "USB");
+    return;
+  }
   Shtc3Reading onboard;
   onboard.valid = true;
   onboard.temperature_c = 21.8f;

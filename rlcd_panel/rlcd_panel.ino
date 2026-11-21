@@ -10,6 +10,7 @@
 #include <type_traits>
 #include <freertos/FreeRTOS.h>
 #include <freertos/portmacro.h>
+#include <esp_mac.h>
 
 #include "audio_alert.h"
 #include "audio_loopback.h"
@@ -1610,6 +1611,20 @@ void setup() {
       Runner::showPattern(sink, g_framebuffer, g_panel,
                                                                 command.reference, &g_state.frame);
       g_frame_rendered = false; // the framebuffer holds the pattern, not a render: SCREEN gives ERR NO_FRAME
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::IDENTIFY) {
+      // Raw flush like PATTERN (no display_invert); one note under the BEEP rules. No card access. The next wake cycle
+      // renders the normal view again.
+      uint8_t bt_mac[6] = {0};
+      esp_read_mac(bt_mac, ESP_MAC_BT); // the BLE address, also while the BLE stack is stopped
+      const uint16_t mac_tail = static_cast<uint16_t>((bt_mac[4] << 8) | bt_mac[5]);
+      ensurePanelStarted(); // a skipped refresh left the panel off
+      Es8311Hal identify_hal;
+      Runner::identify(sink, g_framebuffer, g_panel, identify_hal, mac_tail,
+                       [&](St7305Framebuffer& fb) {
+                         DashboardView::renderIdentify(fb, mac_tail, FIRMWARE_VERSION, transport == 0 ? "USB" : "BLE");
+                       },
+                       g_state.muted, quietHours().isActive(g_rtc_time), config().chime_volume_pct, &g_state.frame);
+      g_frame_rendered = false; // the framebuffer holds the identify screen, not a render: SCREEN gives ERR NO_FRAME
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SCREEN) {
       // The bytes of the last render (after invert() with display_invert 1). No card access, no panel flush.
       Runner::showScreen(sink, g_framebuffer, g_frame_rendered);
