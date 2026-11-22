@@ -156,6 +156,16 @@ object SensorHealthText {
         else -> state.copy(isTesting = false, message = "Antwort nicht lesbar", isError = true)
     }
 
+    /** State after an `IDENTIFY` reply: `Panel zeigt RLCD <XXXX>`; [failure] is the text of `ChimeCommand.failureText`. */
+    fun identifyResult(state: ChimeTestState, reply: ConsoleReply, failure: String?): ChimeTestState {
+        val text = (reply as? ConsoleReply.Status)?.line?.let { ChimeCommand.identifyText(it) }
+        return when {
+            failure != null -> state.copy(isTesting = false, message = failure.ifBlank { "Antwort nicht lesbar" }, isError = true)
+            text != null -> state.copy(isTesting = false, message = text, isError = false)
+            else -> state.copy(isTesting = false, message = "Antwort nicht lesbar", isError = true)
+        }
+    }
+
     /** Reception rate of the slot of a `SENSOR` line; slot 0 is the onboard sensor and has none; slots 1 to 10 are possible. */
     fun rateOf(status: StatusReply, sensor: StatusSensor): ReceptionRate? =
         if (sensor.index in 1..10) status.reception?.getOrNull(sensor.index - 1) else null
@@ -175,6 +185,7 @@ fun SensorHealthScreen(
     chimeState: ChimeTestState = ChimeTestState(),
     onSelectChime: (Int) -> Unit = {},
     onTestChime: () -> Unit = {},
+    onIdentify: () -> Unit = {},
     versionState: VersionReadState = VersionReadState(),
     onReadVersion: () -> Unit = {}
 ) {
@@ -352,6 +363,15 @@ fun SensorHealthScreen(
                         modifier = Modifier.fillMaxWidth(0.85f),
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text(if (chimeState.isTesting) "Sende ..." else "Test chime", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                item {
+                    Chip(
+                        onClick = onIdentify,
+                        enabled = !chimeState.isTesting && !state.isReading && !state.isMuting && !clockState.isReadingClock && !versionState.isReading,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text(if (chimeState.isTesting) "Sende ..." else "Panel finden", fontSize = 12.sp, maxLines = 1) }
                     )
                 }
                 chimeState.message?.let { message ->

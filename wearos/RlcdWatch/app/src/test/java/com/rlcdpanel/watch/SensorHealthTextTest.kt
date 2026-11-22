@@ -146,4 +146,14 @@ class SensorHealthTextTest {
         assertTrue(alertShtc3.isAlert)
         assertTrue(lowMemory.isLow)
     }
+
+    @Test
+    fun identifyResultTexts() {
+        val busy = ChimeTestState(isTesting = true, bit = 2)
+        val reply = ConsoleReply.Status("OK IDENTIFY 3F2A")
+        assertEquals(ChimeTestState(isTesting = false, bit = 2, message = "Panel zeigt RLCD 3F2A", isError = false),
+            SensorHealthText.identifyResult(busy, reply, null))
+        assertEquals(true, SensorHealthText.identifyResult(busy, ConsoleReply.Status("OK IDENTIFY 3F"), null).isError)
+        assertEquals("Panel meldet", SensorHealthText.identifyResult(busy, ConsoleReply.Status("ERR X"), "Panel meldet").message)
+    }
 }

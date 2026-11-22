@@ -366,6 +366,7 @@ class MainActivity : ComponentActivity() {
                     chimeState = chimeState,
                     onSelectChime = { if (!chimeState.isTesting) chimeState = chimeState.copy(bit = it, message = null) },
                     onTestChime = { testChime() },
+                    onIdentify = { identifyPanel() },
                     versionState = versionState,
                     onReadVersion = { readVersion() }
                 )
@@ -928,6 +929,25 @@ class MainActivity : ComponentActivity() {
         consoleClient.send(ChimeCommand.beep(chimeState.bit)) { reply ->
             val failure = ChimeCommand.failureText(reply) { SensorHealthText.muteFallback(it) }
             chimeState = SensorHealthText.chimeResult(chimeState, reply, failure)
+        }
+    }
+
+    /** Sends `IDENTIFY` once. Only a tap on the `Panel finden` chip calls it. A failed command is not retried. */
+    private fun identifyPanel() {
+        if (chimeState.isTesting || healthState.isReading || healthState.isMuting || pendingClockRead || pendingVersionRead || versionState.isReading || pendingHealthRead ||
+            pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || clockState.isReadingClock || isReadingConfig || consoleClient.isRunning
+        ) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
+        ) {
+            chimeState = chimeState.copy(message = "Bluetooth-Berechtigung fehlt", isError = true)
+            return
+        }
+        chimeState = chimeState.copy(isTesting = true, message = null, isError = false)
+        consoleClient.send(ChimeCommand.IDENTIFY) { reply ->
+            val failure = ChimeCommand.failureText(reply) { SensorHealthText.muteFallback(it) }
+            chimeState = SensorHealthText.identifyResult(chimeState, reply, failure)
         }
     }
 

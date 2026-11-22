@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Identify action in the Wear OS sensor health screen
-  - Rank: [Total: 32, Use: 5, Setup: 9, Harmony: 8, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ChimeCommand.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ChimeCommand.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ChimeCommandTest.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/ChimeCommandTest.kt
-  - Goal: Add `ChimeCommand.IDENTIFY` (`IDENTIFY`) and `ChimeCommand.identifyText(line)` for `OK IDENTIFY <4 hex digits>` to the shared file. Add the chip `Panel finden` to the watch `SensorHealthScreen`. Send the command once for each tap and show `Panel zeigt RLCD <XXXX>`. Do this after the firmware item "Console command IDENTIFY to find the connected panel".
-  - Acceptance test: `ChimeCommandTest` on the watch and on the phone asserts the command text, the text for `OK IDENTIFY 3F2A`, and `null` for `OK IDENTIFY 3F`. `./scripts/check-protocol-sync.sh` and `./scripts/check-protocol-sync.sh --self-test` exit 0. The CI jobs `Wear OS companion tests and APK` and `Android phone companion tests and APK` pass.
-
 - [ ] Console command SNOOZE for a timed mute
   - Rank: [Total: 32, Use: 9, Setup: 5, Harmony: 9, Safety: 9, Effort: M]
   - Location: rlcd_panel/serial_console.h, rlcd_panel/power_manager.h, rlcd_panel/audio_alert.h, rlcd_panel/dashboard_view.h, rlcd_panel/rlcd_panel.ino, tests/fixtures/status_reply_sample.txt, tests/test_firmware_logic.cpp
