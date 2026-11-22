@@ -109,6 +109,11 @@ uint32_t nowMs() {
   return PowerPlatform::clockMs();
 }
 
+// Mute flag or a running snooze: the chime logic and the header treat both alike.
+bool effectiveMuted() {
+  return AlertEvaluator::silenced(g_state.muted, g_state.snooze, nowMs());
+}
+
 // Set only while the console command SCAN runs: the callback then fills the collector and leaves the registry alone.
 // Read and written inside g_registry_mux.
 ScanCollector* g_scan_collector = nullptr;
@@ -482,7 +487,7 @@ void renderDashboard() {
   info.mic_cal_busy = g_mic_cal_busy;
   info.mic_cal_failed = g_mic_cal_failed;
   info.quiet_hours = quietHours().isActive(g_rtc_time);
-  info.muted = g_state.muted;
+  info.muted = effectiveMuted();
   info.ventilate = (g_state.alert_mask & ALERT_VENTILATE) != 0;
   info.ventilate_tiles = g_state.ventilate_tiles;
   info.dry_tiles = g_state.dry_tiles;
@@ -580,12 +585,12 @@ void calibrateMicrophone() {
 void runLoopbackTest() {
   const bool quiet = quietHours().isActive(g_rtc_time);
   const uint8_t volume = config().chime_volume_pct;
-  if (AudioLoopback::skipReason(g_state.muted, quiet, volume) == LoopbackStatus::NOT_RUN) {
+  if (AudioLoopback::skipReason(effectiveMuted(), quiet, volume) == LoopbackStatus::NOT_RUN) {
     g_loopback.status = LoopbackStatus::RUNNING;
     renderDashboard(); // shows "AUDIO LOOP: RUNNING"
   }
   LoopbackHal hal;
-  g_loopback = AudioLoopback::run(hal, volume, g_state.muted, quiet);
+  g_loopback = AudioLoopback::run(hal, volume, effectiveMuted(), quiet);
   if (!g_loopback.passed() && !g_loopback.skipped()) {
     Serial.println("Audio loopback failed");
   }
@@ -1076,7 +1081,7 @@ void applyAlertStep(const AlertEvaluator::Step& step) {
 void chimeOnNoise(bool have_noise, const MicCalibration& cal) {
   const int level_db = have_noise ? cal.splDb(g_noise.rms) : 0;
   applyAlertStep(NoiseAlertEvaluator::step(
-      g_state.muted, g_state.alert_mask, have_noise, level_db, config().noise_alert_limit_db,
+      effectiveMuted(), g_state.alert_mask, have_noise, level_db, config().noise_alert_limit_db,
       quietHours().isActive(g_rtc_time), config().chime_alert_mask));
 }
 
@@ -1279,14 +1284,14 @@ void chimeOnAlerts() {
   // Quiet hours suppress the sound only. The mask is stored, so no chime replays later. The noise
   // bit stays as it is: only the hourly noise window changes it.
   applyAlertStep(AlertEvaluator::climateStep(
-      g_state.muted, g_state.alert_mask, climate, quietHours().isActive(g_rtc_time), config().chime_alert_mask));
+      effectiveMuted(), g_state.alert_mask, climate, quietHours().isActive(g_rtc_time), config().chime_alert_mask));
 }
 
 // Sounds one chime when the first external sensor latch switches on. The latch itself updates in
 // refreshSensors(). Mute and quiet hours suppress the sound only; the mask is stored.
 void chimeOnSensorBattery() {
   applyAlertStep(AlertEvaluator::batteryStep(
-      g_state.muted, g_state.alert_mask, g_state.sensor_battery_latch, quietHours().isActive(g_rtc_time),
+      effectiveMuted(), g_state.alert_mask, g_state.sensor_battery_latch, quietHours().isActive(g_rtc_time),
       config().chime_alert_mask));
 }
 
@@ -1294,7 +1299,7 @@ void chimeOnSensorBattery() {
 // battery power. Mute and quiet hours suppress the sound only; the mask is stored.
 void chimeOnChargeFull() {
   applyAlertStep(AlertEvaluator::chargeStep(
-      g_state.muted, g_state.alert_mask, g_state.battery, quietHours().isActive(g_rtc_time),
+      effectiveMuted(), g_state.alert_mask, g_state.battery, quietHours().isActive(g_rtc_time),
       config().chime_alert_mask));
 }
 
@@ -1302,7 +1307,7 @@ void chimeOnChargeFull() {
 // stamp advances also when mute, quiet hours or chime_alert_mask suppress the sound.
 void chimeRepeat() {
   const AlertEvaluator::Repeat r = AlertEvaluator::repeat(
-      g_state.muted, g_state.alert_mask, quietHours().isActive(g_rtc_time), config().chime_alert_mask,
+      effectiveMuted(), g_state.alert_mask, quietHours().isActive(g_rtc_time), config().chime_alert_mask,
       config().chime_repeat_h, g_state.last_chime_ms, nowMs(), g_state.alert_ack);
   g_state.last_chime_ms = r.stamp;
   playChime(r.chime);
@@ -1348,6 +1353,9 @@ void setup() {
   g_mode_controller.setMode(g_state.mode);
   g_mode_controller.setChartSensor(g_state.chart_sensor);
   g_mode_controller.setStatsPage(g_state.stats_page);
+  if (g_state.snooze.expired(nowMs())) {
+    g_state.snooze.clear(); // a finished snooze must not revive after a 32-bit clock wrap
+  }
   g_cycles.fromRtc(g_cycle_rtc); // blank memory after a power-on keeps the empty tracker
 
   // Empty battery protection: check the cell before any module starts. A set latch skips the BLE
@@ -1538,6 +1546,7 @@ void setup() {
       snap.noise_band = g_state.noise_band;
       snap.daily_noise = g_state.daily.noise;
       snap.muted = g_state.muted;
+      snap.snooze = g_state.snooze;
       snap.alert_ack = g_state.alert_ack;
       snap.last_chime_ms = g_state.last_chime_ms;
       {
@@ -1625,7 +1634,7 @@ void setup() {
                        [&](St7305Framebuffer& fb) {
                          DashboardView::renderIdentify(fb, mac_tail, FIRMWARE_VERSION, transport == 0 ? "USB" : "BLE");
                        },
-                       g_state.muted, quietHours().isActive(g_rtc_time), config().chime_volume_pct, &g_state.frame);
+                       effectiveMuted(), quietHours().isActive(g_rtc_time), config().chime_volume_pct, &g_state.frame);
       g_frame_rendered = false; // the framebuffer holds the identify screen, not a render: SCREEN gives ERR NO_FRAME
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SCREEN) {
       // The bytes of the last render (after invert() with display_invert 1). No card access, no panel flush.
@@ -1638,8 +1647,21 @@ void setup() {
         mute_now = g_rtc_time;
       }
       const uint8_t mute_source = transport == 0 ? 1 : 2; // 1 USB, 2 BLE
-      Runner::setMute(sink, g_state.muted, command.reference, &g_state.events, &mute_now, mute_source);
-      if (g_state.muted != was_muted) {
+      const bool was_snoozed = g_state.snooze.active(nowMs());
+      Runner::setMute(sink, g_state.muted, command.reference, &g_state.events, &mute_now, mute_source, &g_state.snooze, nowMs());
+      if (g_state.muted != was_muted || was_snoozed) {
+        renderDashboard(); // the header mute marker shows the new state
+      }
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SNOOZE) {
+      // RTC copy only, no card access; the save of this wake cycle writes the state.
+      const bool was_snoozed = g_state.snooze.active(nowMs());
+      RtcTime snooze_now = g_rtc_time;
+      if (!g_rtc.readTime(snooze_now)) {
+        snooze_now = g_rtc_time;
+      }
+      const uint8_t snooze_source = transport == 0 ? 1 : 2; // 1 USB, 2 BLE
+      Runner::setSnooze(sink, g_state.snooze, command.minutes, nowMs(), &g_state.events, &snooze_now, snooze_source);
+      if (g_state.snooze.active(nowMs()) != was_snoozed) {
         renderDashboard(); // the header mute marker shows the new state
       }
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::ACK) {
@@ -1677,7 +1699,7 @@ void setup() {
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::BEEP) {
       Es8311Hal beep_hal;
       Runner::beep(sink, beep_hal, command.reference,
-                                                         g_state.muted, quietHours().isActive(g_rtc_time),
+                                                         effectiveMuted(), quietHours().isActive(g_rtc_time),
                                                          config().chime_volume_pct);
     } else if (status == SerialParseStatus::OK) {
       Runner::execute(console_storage, sink, command);
@@ -1726,7 +1748,12 @@ void setup() {
         millis(),
         g_mode_controller.mode() == DisplayMode::SYSTEM_DIAGNOSTICS)) {
       case BootEvent::TOGGLE_MUTE:
-        g_state.muted = !g_state.muted;
+        {
+          // A BOOT press ends a running snooze. The press then unmutes: the header showed the mute marker.
+          const bool snoozed = g_state.snooze.active(nowMs());
+          g_state.snooze.clear();
+          g_state.muted = snoozed ? false : !g_state.muted;
+        }
         {
           RtcTime boot_now = g_rtc_time;
           if (!g_rtc.readTime(boot_now)) {

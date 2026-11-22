@@ -2623,3 +2623,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SensorHealthScreen` shows the chip `Panel finden`. `MainActivity.identifyPanel` sends `IDENTIFY` once for each tap, with the same guards and permission check as `testChime`; `SensorHealthText.identifyResult` shows the text under the chime result or the error. No retry.
 - Tests: `ChimeCommandTest` on the watch and the phone (`identifyCommandAndTexts`), `SensorHealthTextTest.identifyResultTexts`.
 - Validation: `check-protocol-sync.sh` and its `--self-test` pass locally. `gradle testDebugUnitTest` did not run locally (no Android SDK); CI runs it. The chip is not tested with hardware.
+
+## Console command SNOOZE for a timed mute
+
+- `SNOOZE <M>` (M 0 to 720 minutes) mutes the chime for a time. `Snooze` (`audio_alert.h`) holds the start stamp (`uint32_t`, `nowMs()`) and the minutes (`uint16_t`). `active(now)` uses the unsigned clock difference, so a 32-bit clock wrap keeps the end correct. `AlertEvaluator::silenced(muted, snooze, now)` joins the mute flag and the snooze; the sketch passes it as `muted` to `chimeBits`, `repeat`, the noise step and the loopback test (`effectiveMuted()`). The header shows the mute marker `M` while the snooze runs.
+- `PersistentState::snooze` takes 6 bytes just before the checksum (`PowerManager::SNOOZE_SIZE`): stamp (4 bytes) and minutes (2 bytes), little-endian. The RTC check rejects minutes above 720 and minutes 0 with a stamp. A power-on sets both to 0. `setup()` clears an expired snooze at each wake cycle, so a clock wrap never revives it. `STATE_VERSION` is 74.
+- `SNOOZE 0`, `MUTE 0`, `MUTE 1` and a `BOOT` press end the snooze. The reply is `OK SNOOZE <M>`. `ERR BAD_ARG` for 721, a non-digit, a sign and extra text. `ERR READ_ONLY` on BLE with `ble_console` 1. No card access.
+- `MUTE_CHANGE` records a snooze start with detail low byte 2 and the source in the high byte (`0x0102` for USB, `0x0202` for BLE), and the end of a running snooze with low byte 0.
+- The `STATUS` line `CHIME` ends with ` snooze_s=<N|-->` (remaining seconds, `--` without an active snooze). The line count does not change. `tests/fixtures/status_reply_sample.txt` holds `snooze_s=3540`.
+- Tests: `testSerialSnoozeCommand`, `testSnoozeMuteLogic` (59 and 61 minutes, clock wrap, repeat), `testSnoozeMuteEnds`, `testStatusChimeSnoozeLine`, `testSnoozeRtcRoundTrip`.
+- Validation: host tests, `arduino-cli compile rlcd_panel` and `check-protocol-sync.sh` with `--self-test` pass locally. The behavior is not tested with hardware.

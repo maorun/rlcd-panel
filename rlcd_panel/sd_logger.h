@@ -127,7 +127,7 @@ enum class EventCode : uint8_t {
   ALERT_ACK = 13,       // a console ACK stopped the chime reminder of an alert; detail is the alert bit (mask)
   SLOT_STALE = 14,      // a slot became stale or recovered; detail is the slot number (low byte), high byte 0 lost, 1 back
   POWER_SOURCE = 15,    // the power source changed; detail 1 is USB power, 0 is battery power
-  MUTE_CHANGE = 16,     // the mute flag changed; detail low byte 1 muted, 0 unmuted; high byte source (0 BOOT, 1 USB, 2 BLE)
+  MUTE_CHANGE = 16,     // the mute flag changed; detail low byte 1 muted, 0 unmuted, 2 snooze started; high byte source (0 BOOT, 1 USB, 2 BLE)
   CLOCK_SET = 17,       // the panel clock changed by a console command; detail low byte 0 TIME SET, 1 RTC TRIM; high byte transport (0 USB, 1 BLE)
   SHTC3_FAULT = 18,     // the onboard SHTC3 failed 3 reads in a row or recovered; detail low byte 1 fault, 0 back; high byte the Shtc3Result of the third failed read, 0 for back
   SENSOR_BATTERY = 19,  // the low battery latch of a slot changed; detail low byte is the slot number 1 to 10, high byte 1 low, 0 OK again

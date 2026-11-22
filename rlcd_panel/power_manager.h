@@ -122,6 +122,7 @@ struct PersistentState {
   int32_t sd_free_mb = -1;         // free MicroSD space in MB at the last card read; -1 is unknown (STATUS)
   uint8_t scan_fault = 0;          // 1: the last BLE scan start failed (recordScanResult); a power-on sets 0
   uint16_t stale_slots = 0;        // stale latch, bits 0..9 are the registry slots (recordStaleChanges)
+  Snooze snooze;                   // timed mute (console SNOOZE); active alerts work as for muted
   uint8_t alert_ack = ALERT_NONE;  // acknowledged alert bits (console ACK): no chime reminder while the alert stays on
   NoiseBand noise_band = NoiseBand::QUIET; // band of the last noise window (hysteresis latch)
   NtpSyncState ntp;          // NTP attempt time, result and backoff
@@ -560,7 +561,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 73;
+  static constexpr uint8_t STATE_VERSION = 74;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -628,7 +629,9 @@ public:
   // bits 0..10), then for each tile the reference temperature and the previous peak (both int16, 0.01 C, INT16_MIN none) and the clock stamp (uint32).
   static constexpr size_t WINDOW_SIZE = 1 + 2 + WindowLatch::TILE_COUNT * (2 + 2 + 4);
   static constexpr size_t WALL_SIZE = 2;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + WINDOW_SIZE + WALL_SIZE + 4;
+  // Snooze (just before the checksum): start stamp (uint32), minutes (uint16).
+  static constexpr size_t SNOOZE_SIZE = 4 + 2;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + WINDOW_SIZE + WALL_SIZE + SNOOZE_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -1000,6 +1003,9 @@ public:
     }
     out[pos++] = static_cast<uint8_t>(state.wall_tiles & 0xFF);
     out[pos++] = static_cast<uint8_t>((state.wall_tiles >> 8) & 0xFF);
+    putU32(out, pos, state.snooze.start_ms);
+    out[pos++] = static_cast<uint8_t>(state.snooze.minutes & 0xFF);
+    out[pos++] = static_cast<uint8_t>(state.snooze.minutes >> 8);
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -1442,6 +1448,12 @@ public:
     pos += 2;
     if ((s.wall_tiles & ~WallLatch::ALL_MASK) != 0) {
       return false; // a bit above bit 10 is corrupt
+    }
+    s.snooze.start_ms = getU32(data, pos);
+    s.snooze.minutes = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    pos += 2;
+    if (!s.snooze.valid()) {
+      return false; // minutes above 720 or a stamp without minutes is corrupt
     }
     s.registry.setAutoAssign(s.config.slot_auto_assign != 0);
     s.registry.setMinAssignRssi(s.config.auto_assign_min_rssi);
