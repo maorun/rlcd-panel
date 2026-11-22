@@ -2608,3 +2608,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SlotConfigScreen` shows the button `Tauschen mit …` for each slot when `PanelConfig.canWrite` is true. The dialog lists the other slots and disables each slot that `swap` refuses. `MainActivity.swapSlots` sends the command and sends `STATUS` after an `OK SLOT SWAP` reply.
 - Tests: `SlotConfigTest` (`swapSendsOneCommandForTwoFreeSlots`, `swapRefusesFixedMacDisabledEqualAndUnknownSlots`, `swapReplyTexts`).
 - Validation: `check-protocol-sync.sh` and its `--self-test` pass locally. `gradle testDebugUnitTest` did not run locally (no Android SDK); CI runs it.
+
+## Outdoor sensor selection in the Android slot configuration screen
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SlotConfig.kt`, `SlotConfigScreen.kt`
+- `SlotConfig.setOutdoorSlot(slot, config)` gives `SET outdoor_slot=<N>` for N 0 to 10 (0 is off). It gives an empty list when N equals the cached `outdoor_slot`, and throws `IllegalArgumentException` for 11 or -1. `SlotConfig.outdoorSlot(config)` reads the stored value (0 when missing or malformed).
+- `SlotConfigScreen` shows the selector `Außensensor` (`Keiner` or `Slot 1` to `Slot 10` with the stored names) when `PanelConfig.canWrite` is true. Each slot card shows the text `Außensensor` for the active slot.
+- Tests: `SlotConfigTest` (`setOutdoorSlotSendsChangedValue`, `setOutdoorSlotSendsNothingForUnchangedValue`, `setOutdoorSlotRejectsSlotOutsideRange`).
+- Validation: `check-protocol-sync.sh` and its `--self-test` pass locally. `gradle testDebugUnitTest` did not run locally (no Android SDK); CI runs it.

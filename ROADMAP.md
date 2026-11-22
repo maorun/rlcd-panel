@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Outdoor sensor selection in the Android slot configuration screen
-  - Rank: [Total: 33, Use: 7, Setup: 9, Harmony: 8, Safety: 9, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SlotConfig.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SlotConfigScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/SlotConfigTest.kt
-  - Goal: Add `SlotConfig.setOutdoorSlot(slot: Int, config: PanelConfig): List<String>` to send `SET outdoor_slot=<N>` (0 to 10, 0 is off) when the value changes. Add an outdoor sensor selector (None or Slot 1 to 10 with their stored names) to `SlotConfigScreen` when `PanelConfig.canWrite` is true. Mark the active outdoor slot in each slot card.
-  - Acceptance test: `SlotConfigTest` asserts the command for slot 2, slot 0 (off), an empty list for an unchanged value, and an `IllegalArgumentException` for slot 11 or -1. `gradle testDebugUnitTest assembleDebug` passes in the CI job `Android phone companion tests and APK`.
-
 - [ ] Identify action in the Wear OS sensor health screen
   - Rank: [Total: 32, Use: 5, Setup: 9, Harmony: 8, Safety: 10, Effort: S]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ChimeCommand.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ChimeCommand.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ChimeCommandTest.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/ChimeCommandTest.kt
