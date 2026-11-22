@@ -2668,3 +2668,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SlotAssignment.timeoutSeconds(for: .ntpSync)` is 30 s (`ntpSyncTimeoutSeconds`), because the panel blocks for about 14 s. `SlotAssignment.ntpSyncAllowed(onUsb:)` allows USB only.
 - Test: `ReplyTests.ntpSyncCommandAndTexts`.
 - Validation: `swift test` (568 tests), `swift build -c release`, `check-protocol-sync.sh` and `--self-test` pass locally.
+
+## Snooze action in the Wear OS alert notification
+
+- The alert notification of the watch has the action `1 h stumm` (`BleScanService.postAlertNotification`, request code 121). Each per-bit notification and the notification of the other alerts carry it.
+- `AckReceiver` (`ACTION_SNOOZE`) sends `ChimeCommand.snooze(60)` (`SNOOZE 60`) once through `BleConsoleClient`, with the same permission check, one command in flight and 8 s watchdog as the ACK actions. It shows the result under `SNOOZE_NOTIFICATION_ID` 926 with `ChimeCommand.failureText` and `okText` (`Stumm für 60 min`, `Set ble_console=2 to apply` for `ERR READ_ONLY`, `Keine Antwort vom Panel` without a reply).
+- Tests: `ChimeCommandTest.snoozeLines` and `snoozeResultText` on the watch.
+- Validation: `check-protocol-sync.sh` and `--self-test` pass locally. `gradle testDebugUnitTest` did not run locally (no Android SDK); CI runs it. The action is not tested on the watch.

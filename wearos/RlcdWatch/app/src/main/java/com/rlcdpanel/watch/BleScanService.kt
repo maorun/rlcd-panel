@@ -334,6 +334,12 @@ class BleScanService : Service() {
         } else {
             null
         }
+        val snooze = PendingIntent.getBroadcast(
+            this,
+            SNOOZE_REQUEST,
+            Intent(this, AckReceiver::class.java).apply { action = AckReceiver.ACTION_SNOOZE },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
         // One notification for each acknowledgeable bit, so that an ACK result and a later alert keep the other actions.
         for (bit in ackBits) {
             val ack = PendingIntent.getBroadcast(
@@ -354,6 +360,7 @@ class BleScanService : Service() {
                 .setAutoCancel(true)
                 .addAction(android.R.drawable.ic_menu_agenda, "Acknowledge", ack)
             if (ackAll != null) builder.addAction(android.R.drawable.ic_menu_agenda, "Acknowledge all", ackAll)
+            builder.addAction(android.R.drawable.ic_lock_silent_mode, "1 h stumm", snooze)
             val notification = builder.build()
             manager.notify(ackNotificationId(bit), notification)
         }
@@ -365,6 +372,7 @@ class BleScanService : Service() {
             .setContentIntent(openApp)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
+            .addAction(android.R.drawable.ic_lock_silent_mode, "1 h stumm", snooze)
             .build()
         manager.notify(ALERT_NOTIFICATION_ID, notification)
     }
@@ -506,6 +514,9 @@ class BleScanService : Service() {
         private const val ACK_ALL_REQUEST = 120
         /** Notification id of the `ACK ALL` result; 918 to 939 are free, 940 and up are stale tiles. */
         const val ACK_ALL_NOTIFICATION_ID = 925
+        private const val SNOOZE_REQUEST = 121
+        /** Notification id of the `SNOOZE 60` result. */
+        const val SNOOZE_NOTIFICATION_ID = 926
         const val STALE_NOTIFICATION_BASE_ID = 940
 
         /** Notification id of the alert with [bit]; the ACK result replaces it. */

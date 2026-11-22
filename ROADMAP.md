@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Snooze action in the Wear OS alert notification
-  - Rank: [Total: 28, Use: 7, Setup: 3, Harmony: 8, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/BleScanService.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/AckReceiver.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ChimeCommandTest.kt
-  - Goal: Add the action `1 h stumm` to the watch alert notification. `AckReceiver` sends `SNOOZE 60` once after the tap and shows the result text from the shared `ChimeCommand`. Do this after the item "Snooze buttons and notification action in the Android app", which adds `ChimeCommand.snooze` to the shared file.
-  - Acceptance test: `ChimeCommandTest` on the watch asserts `SNOOZE 60` and the result text of `OK SNOOZE 60` and `ERR READ_ONLY`. `./scripts/check-protocol-sync.sh` and `./scripts/check-protocol-sync.sh --self-test` exit 0. The CI job `Wear OS companion tests and APK` passes.
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Open window latch in the STATUS line LATCH
