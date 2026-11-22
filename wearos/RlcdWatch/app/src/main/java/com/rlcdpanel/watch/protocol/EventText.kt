@@ -106,7 +106,8 @@ object EventText {
                 val state = d and 0xFF
                 val source = d shr 8
                 val name = listOf("BOOT", "USB", "BLE").getOrNull(source)
-                if (d !in 0..0xFFFF || state > 1 || name == null) raw
+                if (d !in 0..0xFFFF || state > 2 || name == null) raw
+                else if (state == 2) "Chime snoozed ($name)"
                 else if (state == 1) "Chime muted ($name)" else "Chime on ($name)"
             }
             "SHTC3_FAULT" -> {

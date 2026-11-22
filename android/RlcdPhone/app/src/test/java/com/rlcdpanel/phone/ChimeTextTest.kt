@@ -22,4 +22,13 @@ class ChimeTextTest {
         assertEquals("Keine Erinnerung fällig", ChimeText.reminder(ChimeReminder(2, 0, null, null)))
         assertEquals("Keine Erinnerung fällig", ChimeText.reminder(ChimeReminder(2, 2, null, null)))
     }
+
+    @Test
+    fun showsSnoozeRemainingRoundedUp() {
+        assertEquals("0 h 1 min", ChimeText.snoozeRemaining(1))
+        assertEquals("0 h 1 min", ChimeText.snoozeRemaining(60))
+        assertEquals("0 h 59 min", ChimeText.snoozeRemaining(3540))
+        assertEquals("1 h 0 min", ChimeText.snoozeRemaining(3600))
+        assertEquals("12 h 0 min", ChimeText.snoozeRemaining(43200))
+    }
 }

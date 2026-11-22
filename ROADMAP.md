@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Snooze buttons and notification action in the Android app
-  - Rank: [Total: 30, Use: 8, Setup: 4, Harmony: 8, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ChimeCommand.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ChimeCommand.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/EventText.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/EventText.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/ChimeScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/AckReceiver.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/BleScanService.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/ChimeCommandTest.kt
-  - Goal: Add `ChimeCommand.snooze(minutes)` and the result text of `OK SNOOZE <M>` to the shared file. Parse ` snooze_s=` into `ChimeState.snoozeSeconds` in the shared `StatusReply.kt`. Show `MUTE_CHANGE` with low byte 2 as `Chime snoozed (<source>)`. Add the buttons `1 h stumm`, `8 h stumm` and `Stumm beenden` to `ChimeScreen` when `PanelConfig.canWrite` is true. Add the action `1 h stumm` to the alert notification; `AckReceiver` sends `SNOOZE 60` once after the tap. Do this after the firmware item "Console command SNOOZE for a timed mute".
-  - Acceptance test: `ChimeCommandTest` asserts `SNOOZE 60`, an `IllegalArgumentException` for 721, and the result text. `StatusReplyTest` asserts `snoozeSeconds` for `3540`, `null` for `--` and a `ParseException` for `x`. `EventTextTest` asserts the snooze text. `./scripts/check-protocol-sync.sh` and `./scripts/check-protocol-sync.sh --self-test` exit 0. The CI jobs pass.
-
 - [ ] Clock sync button in the macOS diagnostics view
   - Rank: [Total: 30, Use: 5, Setup: 8, Harmony: 8, Safety: 9, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift

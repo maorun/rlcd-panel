@@ -94,8 +94,8 @@ data class NoiseState(val db: Int?, val band: String, val peakDb: Int?, val peak
     }
 }
 
-/** `CHIME repeat_h=<N> bits=<2 hex digits> last_s=<N|--> next_s=<N|-->`: chime reminder state; `--` gives a null field. */
-data class ChimeReminder(val repeatHours: Int, val bits: Int, val lastS: Long?, val nextS: Long?) {
+/** `CHIME repeat_h=<N> bits=<2 hex digits> last_s=<N|--> next_s=<N|--> snooze_s=<N|-->`: chime reminder state; `--` and a missing `snooze_s` give a null field. */
+data class ChimeReminder(val repeatHours: Int, val bits: Int, val lastS: Long?, val nextS: Long?, val snoozeSeconds: Long? = null) {
     companion object {
         const val MAX_REPEAT_HOURS = 24
     }
@@ -347,7 +347,8 @@ data class StatusReply(
                 throw ParseException(line)
             }
             fun optional(key: String): Long? = if (f[key] == "--") null else counter(f, key, line)
-            return ChimeReminder(repeat, bitsText.toInt(16), optional("last_s"), optional("next_s"))
+            val snooze = if (f.containsKey("snooze_s")) optional("snooze_s") else null
+            return ChimeReminder(repeat, bitsText.toInt(16), optional("last_s"), optional("next_s"), snooze)
         }
 
         /** `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex>`; a value that is not 3 hex digits or above its limit throws. */

@@ -321,6 +321,7 @@ class MainActivity : ComponentActivity() {
                     onMute = { on -> withConsolePermission { setMute(on) } },
                     onTest = { bit -> withConsolePermission { testChime(bit) } },
                     onAckAll = { withConsolePermission { acknowledgeAll() } },
+                    onSnooze = { minutes -> withConsolePermission { snoozeChime(minutes) } },
                     onBack = { closeChime() }
                 )
                 BackHandler { closeChime() }
@@ -875,18 +876,36 @@ class MainActivity : ComponentActivity() {
 
     private fun chimeStateAfterStatus(reply: ConsoleReply, expected: Boolean?): ChimeState {
         if (reply !is ConsoleReply.Frame) {
-            return chimeState.copy(isBusy = false, isError = true, reminder = null, alertMask = null, ackedMask = null, message = BleConsoleClient.errorText(reply))
+            return chimeState.copy(isBusy = false, isError = true, reminder = null, alertMask = null, ackedMask = null, snoozeSeconds = null, message = BleConsoleClient.errorText(reply))
         }
         return try {
             val status = StatusReply.parse(reply.lines)
             chimeState.copy(
                 isBusy = false, isError = false, muted = status.muted ?: expected,
                 reminder = status.chime?.let { ChimeText.reminder(it) },
-                alertMask = status.alertMask, ackedMask = status.ackedMask,
+                alertMask = status.alertMask, ackedMask = status.ackedMask, snoozeSeconds = status.chime?.snoozeSeconds,
                 message = if (expected != null) "Stumm ${if (expected) "an" else "aus"}" else null
             )
         } catch (e: ParseException) {
-            chimeState.copy(isBusy = false, isError = true, reminder = null, alertMask = null, ackedMask = null, message = "Antwort nicht lesbar: ${e.line.take(80)}")
+            chimeState.copy(isBusy = false, isError = true, reminder = null, alertMask = null, ackedMask = null, snoozeSeconds = null, message = "Antwort nicht lesbar: ${e.line.take(80)}")
+        }
+    }
+
+    /** Sends `SNOOZE <M>` after a tap, then `STATUS`; the result text stays visible after the read. */
+    private fun snoozeChime(minutes: Int) {
+        stopBleScan()
+        chimeState = chimeState.copy(isBusy = true, isError = false, message = null)
+        consoleClient.send(ChimeCommand.snooze(minutes)) { reply ->
+            val failure = ChimeCommand.failureText(reply) { BleConsoleClient.errorText(it) }
+            if (failure != null) {
+                chimeState = chimeState.copy(isBusy = false, isError = true, message = failure)
+            } else {
+                val text = ChimeCommand.okText((reply as ConsoleReply.Status).line)
+                consoleClient.send(ChimeCommand.STATUS) { status ->
+                    val next = chimeStateAfterStatus(status, null)
+                    chimeState = if (!next.isError) next.copy(message = text) else next.copy(message = "$text; ${next.message}")
+                }
+            }
         }
     }
 

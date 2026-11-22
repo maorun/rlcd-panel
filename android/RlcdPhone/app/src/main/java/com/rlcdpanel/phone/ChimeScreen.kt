@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.AckCommand
 import com.rlcdpanel.phone.protocol.ChimeCommand
+import com.rlcdpanel.phone.protocol.ChimeText
 import com.rlcdpanel.phone.protocol.PanelConfig
 
 /** State of the chime screen: [muted] is null until a `STATUS` read or a `MUTE` command confirms it. */
@@ -32,6 +33,8 @@ data class ChimeState(
     /** `alerts=` and `acked=` of the last `STATUS` read; null before a read or without the fields. */
     val alertMask: Int? = null,
     val ackedMask: Int? = null,
+    /** `snooze_s=` of the last `STATUS` read; null without a running snooze or without the field. */
+    val snoozeSeconds: Long? = null,
     val message: String? = null,
     val isError: Boolean = false
 ) {
@@ -48,6 +51,7 @@ fun ChimeScreen(
     onMute: (Boolean) -> Unit,
     onTest: (Int) -> Unit,
     onAckAll: () -> Unit,
+    onSnooze: (Int) -> Unit,
     onBack: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -85,6 +89,20 @@ fun ChimeScreen(
                     )
                 }
             }
+            state.snoozeSeconds?.let {
+                item { Text("Stumm noch ${ChimeText.snoozeRemaining(it)}", style = MaterialTheme.typography.bodyMedium) }
+            }
+            if (panelConfig.canWrite) {
+                item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { onSnooze(60) }, enabled = !state.isBusy) { Text("1 h stumm") }
+                        OutlinedButton(onClick = { onSnooze(480) }, enabled = !state.isBusy) { Text("8 h stumm") }
+                    }
+                }
+                item {
+                    OutlinedButton(onClick = { onSnooze(0) }, enabled = !state.isBusy) { Text("Stumm beenden") }
+                }
+            }
             if (state.canAcknowledgeAll && panelConfig.canWrite) {
                 item {
                     Button(onClick = onAckAll, enabled = !state.isBusy) { Text("Alle bestätigen") }
@@ -100,7 +118,7 @@ fun ChimeScreen(
             }
             item {
                 Text(
-                    "Sendet MUTE und BEEP über die BLE-Konsole. Das Panel braucht USB-Strom und ble_console 2.",
+                    "Sendet MUTE, SNOOZE und BEEP über die BLE-Konsole. Das Panel braucht USB-Strom und ble_console 2.",
                     style = MaterialTheme.typography.bodySmall
                 )
             }
