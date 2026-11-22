@@ -1419,6 +1419,12 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - **Preview:** `docs/display_preview_wall.png` shows the badge on the onboard tile and slot 1 (slot 2 is the outdoor tile).
 - Host tests `testWallLatchLogic` and `testWallTilesRtcAndPreview` assert the set at the limit, the hold and the release (hysteresis), the clear for a stale outdoor slot, a stale indoor slot, an empty outdoor slot, frsi 0 and no outdoor slot, the rejected bit 11, the RTC round trip and the preview scene. `testStatusLatchLine` asserts the `wall=` field.
 
+## Window latch in the STATUS line LATCH
+
+- The console command `STATUS` appends ` window=<3 hex digits>` after `wall=` to the `LATCH` line (RTC copy of `PersistentState::window_tiles`; bit 0 onboard, bits 1 to 10 slots). `SerialStatusSnapshot::window_tiles` holds it; `rlcd_panel.ino` fills it. The RTC layout and `STATE_VERSION` do not change. The apps read fields by name and ignore it.
+- `tests/fixtures/status_reply_sample.txt` holds the field and a recalculated `CRC32` line.
+- Host test `testStatusLatchLine` asserts `window=000` and `window=402` (tiles 1 and 10); the fixture check asserts the sample line and the CRC-32.
+
 ## Daily mold hours in the daily file
 
 - `SdLogger::appendDaily` writes `/sdcard/daily_v4_YYYY.csv` with 48 columns: the 42 columns of `daily_v3` plus `mold_h_0` to `mold_h_5`. Each column holds the hours of one sensor (onboard, then slots 1 to 5) above `mold_alert_limit_rh` (`HumidityHistory::countAbove`, strictly above the limit). A sensor without samples gives an empty field.

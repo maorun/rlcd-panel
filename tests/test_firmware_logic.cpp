@@ -12468,17 +12468,18 @@ void testStatusFrameLine() {
 void testStatusLatchLine() {
   StatusFixture f;
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[24] == "LATCH vent=000 dry=000 batlow=000 stale=000 wall=000");
+  assert(lines[24] == "LATCH vent=000 dry=000 batlow=000 stale=000 wall=000 window=000");
   f.snap.ventilate_tiles = 0x002;
   f.snap.dry_tiles = 0x401;
   f.snap.sensor_battery_latch = 0x208;
   f.snap.stale_slots = 0x004;
   f.snap.wall_tiles = 0x403;
+  f.snap.window_tiles = 0x402;
   const std::string out = f.run();
   lines = statusLines(out);
   assert(lines.size() == 29);
   assert(lines[23].rfind("WAKE ", 0) == 0);
-  assert(lines[24] == "LATCH vent=002 dry=401 batlow=208 stale=004 wall=403");
+  assert(lines[24] == "LATCH vent=002 dry=401 batlow=208 stale=004 wall=403 window=402");
   assert(lines[28].rfind("CRC32 ", 0) == 0);
   assert(out.find("\nWAKE ") < out.find("\nLATCH ") && out.find("\nLATCH ") < out.rfind("CRC32 "));
   // Slot 10 (bit 9) keeps its BATLOW state.
@@ -19164,6 +19165,7 @@ void testSdCardStatus() {
   // The status sample holds the SD line with free_mb and a good CRC-32 line
   const std::string sample = readRepoFile("tests/fixtures/status_reply_sample.txt");
   assert(sample.find("\nSD status=OK age=30 free_mb=14820\n") != std::string::npos);
+  assert(sample.find("\nLATCH vent=002 dry=000 batlow=008 stale=004 wall=002 window=402\n") != std::string::npos);
   const size_t crc_at = sample.rfind("CRC32 ");
   assert(crc_at != std::string::npos);
   char crc_text[16];
