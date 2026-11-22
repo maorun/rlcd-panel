@@ -2651,3 +2651,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `EventText` shows `MUTE_CHANGE` with low byte 2 as `Chime snoozed (<source>)`.
 - Tests: `DiagnosticsTests.parsesChimeLine`, `ReplyParserTests.buildSnoozeLine`, `EventTextTests.muteChangeGivesStateAndSource`.
 - Validation: `swift test` (567 tests), `swift build -c release`, `check-protocol-sync.sh` and `--self-test` pass locally. The tests use the new API, so they do not compile without the change. CI not run yet.
+
+## Snooze buttons and notification action in the Android app
+
+- `ChimeCommand.snooze(minutes)` (shared file of phone and watch) builds `SNOOZE <M>` for 0 to 720 and throws `IllegalArgumentException` otherwise. `ChimeCommand.snoozeText` and `okText` word `OK SNOOZE <M>` as `Stumm für <M> min` or `Stumm beendet`; `failureText` treats the reply as success.
+- `ChimeReminder.snoozeSeconds` (`Long?`) parses ` snooze_s=<N|-->` of the `CHIME` line in the shared `StatusReply.kt` (`null` for `--` and for a missing field, `ParseException` for a bad number). `EventText` shows `MUTE_CHANGE` with low byte 2 as `Chime snoozed (<source>)`.
+- `ChimeScreen` shows `Stumm noch <H> h <M> min` and, with `PanelConfig.canWrite`, the buttons `1 h stumm`, `8 h stumm` and `Stumm beenden` (`SNOOZE 60`, `SNOOZE 480`, `SNOOZE 0`, then `STATUS`).
+- The alert notification has the action `1 h stumm` when `PanelConfig.canWrite` is true. `AckReceiver` (`ACTION_SNOOZE`) sends `SNOOZE 60` once through `BleConsoleClient` and shows the result text.
+- Tests: `ChimeCommandTest.snoozeLines`, `snoozeResultText`, `StatusReplyTest.parsesChimeLine`, `badChimeLineThrows`, `EventTextTest.muteChangeGivesStateAndSource`.
+- Validation: `check-protocol-sync.sh` and `--self-test` pass locally. The Gradle tests did not run locally (no Android SDK); CI runs them.

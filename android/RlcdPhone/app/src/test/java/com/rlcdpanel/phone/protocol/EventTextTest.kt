@@ -68,6 +68,8 @@ class EventTextTest {
         assertEquals("Chime muted (BOOT)", EventText.describe(row("MUTE_CHANGE", 0x0001)))
         assertEquals("Chime muted (USB)", EventText.describe(row("MUTE_CHANGE", 0x0101)))
         assertEquals("Chime on (BLE)", EventText.describe(row("MUTE_CHANGE", 0x0200)))
+        assertEquals("Chime snoozed (USB)", EventText.describe(row("MUTE_CHANGE", 0x0102)))
+        assertEquals("MUTE_CHANGE,771", EventText.describe(row("MUTE_CHANGE", 0x0303)))
         assertEquals("MUTE_CHANGE,770", EventText.describe(row("MUTE_CHANGE", 0x0302)))
     }
 

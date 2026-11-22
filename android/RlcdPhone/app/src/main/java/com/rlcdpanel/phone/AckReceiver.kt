@@ -13,22 +13,24 @@ import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import com.rlcdpanel.phone.console.BleConsoleClient
 import com.rlcdpanel.phone.protocol.AckCommand
+import com.rlcdpanel.phone.protocol.ChimeCommand
 import com.rlcdpanel.phone.protocol.ConsoleReply
 
 /**
- * Handles the tap on the Acknowledge action of the alert notification. Sends `ACK <N>` once through
+ * Handles the tap on the Acknowledge and `1 h stumm` actions of the alert notification. Sends `ACK <N>` or `SNOOZE 60` once through
  * [BleConsoleClient] and shows the result. It sends nothing without a tap and does not retry a failed command.
  */
 class AckReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
+        val snooze = intent.action == ACTION_SNOOZE
         val bit = intent.getIntExtra(EXTRA_BIT, -1)
         val command = try {
-            AckCommand.line(bit)
+            if (snooze) ChimeCommand.snooze(SNOOZE_MINUTES) else AckCommand.line(bit)
         } catch (_: IllegalArgumentException) {
             return
         }
-        val notificationId = BleScanService.ackNotificationId(bit)
+        val notificationId = if (snooze) BleScanService.SNOOZE_NOTIFICATION_ID else BleScanService.ackNotificationId(bit)
         if (!hasBluetoothPermissions(context)) {
             showResult(context.applicationContext, notificationId, "Bluetooth permission missing")
             return
@@ -46,7 +48,7 @@ class AckReceiver : BroadcastReceiver() {
                 done = true
                 handler.removeCallbacks(watchdog)
                 inFlight.set(false)
-                showResult(app, notificationId, AckCommand.resultText(reply))
+                showResult(app, notificationId, if (snooze) snoozeResultText(reply) else AckCommand.resultText(reply))
                 pending.finish()
             }
         }
@@ -61,6 +63,12 @@ class AckReceiver : BroadcastReceiver() {
         } catch (_: Exception) {
             finishOnce(null)
         }
+    }
+
+    private fun snoozeResultText(reply: ConsoleReply?): String {
+        if (reply == null) return "Keine Antwort vom Panel"
+        return ChimeCommand.failureText(reply) { BleConsoleClient.errorText(it) }
+            ?: ChimeCommand.okText((reply as ConsoleReply.Status).line)
     }
 
     /** `BleConsoleClient` needs both permissions on SDK 31 and later; it does not guard `connectGatt`. */
@@ -92,6 +100,8 @@ class AckReceiver : BroadcastReceiver() {
 
     companion object {
         const val ACTION_ACK = "com.rlcdpanel.phone.action.ACK"
+        const val ACTION_SNOOZE = "com.rlcdpanel.phone.action.SNOOZE"
+        const val SNOOZE_MINUTES = 60
         const val EXTRA_BIT = "com.rlcdpanel.phone.extra.ALERT_BIT"
         private const val RESULT_TIMEOUT_MS = 30_000L
         private const val WATCHDOG_MS = 8_000L

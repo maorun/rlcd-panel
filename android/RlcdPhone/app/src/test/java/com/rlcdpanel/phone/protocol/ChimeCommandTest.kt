@@ -15,6 +15,29 @@ class ChimeCommandTest {
     }
 
     @Test
+    fun snoozeLines() {
+        assertEquals("SNOOZE 60", ChimeCommand.snooze(60))
+        assertEquals("SNOOZE 0", ChimeCommand.snooze(0))
+        assertEquals("SNOOZE 720", ChimeCommand.snooze(720))
+        for (bad in listOf(721, -1)) {
+            try {
+                ChimeCommand.snooze(bad)
+                fail("expected IllegalArgumentException for $bad")
+            } catch (e: IllegalArgumentException) {
+            }
+        }
+    }
+
+    @Test
+    fun snoozeResultText() {
+        assertEquals("Stumm für 60 min", ChimeCommand.okText("OK SNOOZE 60"))
+        assertEquals("Stumm beendet", ChimeCommand.okText("OK SNOOZE 0"))
+        assertNull(ChimeCommand.failureText(ConsoleReply.Status("OK SNOOZE 60"), ::fallback))
+        assertEquals("Set ble_console=2 to apply", ChimeCommand.failureText(ConsoleReply.Status("ERR READ_ONLY"), ::fallback))
+        assertEquals("Panel meldet: OK SNOOZE 721", ChimeCommand.failureText(ConsoleReply.Status("OK SNOOZE 721"), ::fallback))
+    }
+
+    @Test
     fun beepLinesForBits0To7() {
         for (bit in 0..7) assertEquals("BEEP $bit", ChimeCommand.beep(bit))
     }

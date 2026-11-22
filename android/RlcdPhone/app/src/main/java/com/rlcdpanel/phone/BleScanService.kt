@@ -329,7 +329,8 @@ class BleScanService : Service() {
     private fun postAlertNotification(rising: AlertMask) {
         // The Acknowledge action needs the BLE console write level, so read the config only for an acknowledgeable bit.
         val candidateBits = AckCommand.actionBits(rising)
-        val ackBits = if (candidateBits.isNotEmpty() && PanelConfig.load(this).canWrite) candidateBits else emptyList()
+        val canWrite = rising.rawValue != 0 && PanelConfig.load(this).canWrite
+        val ackBits = if (canWrite) candidateBits else emptyList()
         val ackMask = ackBits.fold(0) { mask, bit -> mask or (1 shl bit) }
         val otherText = AlertMask(rising.rawValue and ackMask.inv()).names.joinToString(", ")
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
@@ -344,6 +345,12 @@ class BleScanService : Service() {
             Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
+        val snooze = if (canWrite) PendingIntent.getBroadcast(
+            this,
+            SNOOZE_REQUEST,
+            Intent(this, AckReceiver::class.java).apply { action = AckReceiver.ACTION_SNOOZE },
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        ) else null
         // One notification for each acknowledgeable bit, so that an ACK result and a later alert keep the other actions.
         for (bit in ackBits) {
             val ack = PendingIntent.getBroadcast(
@@ -355,7 +362,7 @@ class BleScanService : Service() {
                 },
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
             )
-            val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
+            val builder = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle("RLCD Alarm")
                 .setContentText(AlertMask(1 shl bit).names.joinToString(", "))
@@ -363,18 +370,20 @@ class BleScanService : Service() {
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
                 .addAction(android.R.drawable.ic_menu_agenda, "Acknowledge", ack)
-                .build()
+            if (snooze != null) builder.addAction(android.R.drawable.ic_lock_silent_mode, "1 h stumm", snooze)
+            val notification = builder.build()
             manager.notify(ackNotificationId(bit), notification)
         }
         if (otherText.isEmpty()) return
-        val notification = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
+        val builder = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle("RLCD Alarm")
             .setContentText(otherText)
             .setContentIntent(openApp)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
-            .build()
+        if (snooze != null) builder.addAction(android.R.drawable.ic_lock_silent_mode, "1 h stumm", snooze)
+        val notification = builder.build()
         manager.notify(ALERT_NOTIFICATION_ID, notification)
     }
 
@@ -525,6 +534,8 @@ class BleScanService : Service() {
         /** Ids 930 to 937 for the acknowledgeable alert bits 0 to 7; 910 to 920 belong to the stale notifications. */
         private const val ACK_NOTIFICATION_BASE = 930
         private const val ACK_REQUEST_BASE = 100
+        private const val SNOOZE_REQUEST = 120
+        const val SNOOZE_NOTIFICATION_ID = 940
 
         fun ackNotificationId(bit: Int): Int = ACK_NOTIFICATION_BASE + bit
         const val SILENCE_CHECK_MS = 60_000L
