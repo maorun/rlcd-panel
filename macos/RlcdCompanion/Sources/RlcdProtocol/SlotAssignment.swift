@@ -69,9 +69,17 @@ public enum SlotAssignment {
     /// The scan takes about 4 s. The 10 s reply timeout leaves room for it; each received chunk restarts the timer.
     public static let scanTimeoutSeconds = 10
     public static let defaultTimeoutSeconds = 10
+    /// `NTP SYNC` blocks the panel for about 14 s.
+    public static let ntpSyncTimeoutSeconds = 30
+    /// `NTP SYNC` answers `ERR NOT_OVER_BLE` on BLE: send it on the USB serial link only.
+    public static func ntpSyncAllowed(onUsb: Bool) -> Bool { onUsb }
 
     /// Seconds to wait for the reply of a command.
     public static func timeoutSeconds(for command: ConsoleCommand) -> Int {
-        command == .scan ? scanTimeoutSeconds : defaultTimeoutSeconds
+        switch command {
+        case .scan: return scanTimeoutSeconds
+        case .ntpSync: return ntpSyncTimeoutSeconds
+        default: return defaultTimeoutSeconds
+        }
     }
 }

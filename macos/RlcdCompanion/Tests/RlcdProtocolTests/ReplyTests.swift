@@ -184,6 +184,20 @@ struct ReplyAssemblerTests {
         #expect(ConsoleCommand.ackMessage("OK ACK ALL zz") == "OK ACK ALL zz")
     }
 
+    @Test func ntpSyncCommandAndTexts() {
+        #expect(ConsoleCommand.ntpSync.line == "NTP SYNC")
+        #expect(SlotAssignment.timeoutSeconds(for: .ntpSync) == 30)
+        #expect(SlotAssignment.ntpSyncAllowed(onUsb: true))
+        #expect(!SlotAssignment.ntpSyncAllowed(onUsb: false))
+        #expect(ConsoleCommand.ntpSyncMessage("OK NTP SYNC") == "Clock synced")
+        #expect(ConsoleCommand.ntpSyncMessage("ERR NO_WIFI") == "No Wi-Fi credentials on the panel")
+        #expect(ConsoleCommand.ntpSyncMessage("ERR NTP_FAILED NTP_TIMEOUT") == "Clock sync failed: the time server did not answer")
+        #expect(ConsoleCommand.ntpSyncMessage("ERR NTP_FAILED WIFI_FAILED") == "Clock sync failed: Wi-Fi did not connect")
+        #expect(ConsoleCommand.ntpSyncMessage("ERR NTP_FAILED RTC_WRITE_FAILED") == "Clock sync failed: the clock chip did not accept the time")
+        #expect(ConsoleCommand.ntpSyncMessage("ERR NOT_OVER_BLE") == "Clock sync needs the USB serial link")
+        #expect(ConsoleCommand.ntpSyncMessage("ERR NTP_FAILED FOO") == "ERR NTP_FAILED FOO")
+    }
+
     @Test func canAcknowledgeAllRule() {
         #expect(!ConsoleCommand.canAcknowledgeAll(alertMask: 0x00, ackedMask: 0x00))
         #expect(!ConsoleCommand.canAcknowledgeAll(alertMask: 0x02, ackedMask: 0x00))

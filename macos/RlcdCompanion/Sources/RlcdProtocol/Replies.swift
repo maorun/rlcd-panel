@@ -533,6 +533,8 @@ public enum ConsoleCommand: Equatable {
     /// `ACK ALL`: stops the chime reminder of each active alert at once. The firmware answers `OK ACK ALL <2 hex digits>` or `ERR NOT_ACTIVE`.
     case ackAll
     case rtcTrim
+    /// `NTP SYNC`: one Wi-Fi clock sync (USB serial only). The firmware blocks for about 14 s and answers `OK NTP SYNC`, `ERR NO_WIFI`, `ERR NTP_FAILED <reason>` or `ERR NOT_OVER_BLE`.
+    case ntpSync
     /// `IDENTIFY`: shows the identify screen on the panel. The firmware answers `OK IDENTIFY <4 hex digits>` (USB and BLE).
     case identify
     /// `SLOT CLEAR N` (N 1 to 10): frees one registry slot at once. The firmware answers `ERR FIXED_MAC` for a slot with a fixed MAC.
@@ -586,6 +588,25 @@ public enum ConsoleCommand: Equatable {
         case "ERR FIXED_MAC": return "A slot with a fixed MAC cannot be swapped"
         case "ERR SLOT_OFF": return "A disabled slot cannot be swapped"
         case "ERR READ_ONLY": return "Set ble_console=2 to apply"
+        default: return reply
+        }
+    }
+
+    /// Text for the replies of `NTP SYNC`; unknown text and an unknown reason stay as they are.
+    public static func ntpSyncMessage(_ reply: String) -> String {
+        let failed = "ERR NTP_FAILED "
+        if reply.hasPrefix(failed) {
+            switch String(reply.dropFirst(failed.count)) {
+            case "WIFI_FAILED": return "Clock sync failed: Wi-Fi did not connect"
+            case "NTP_TIMEOUT": return "Clock sync failed: the time server did not answer"
+            case "RTC_WRITE_FAILED": return "Clock sync failed: the clock chip did not accept the time"
+            default: return reply
+            }
+        }
+        switch reply {
+        case "OK NTP SYNC": return "Clock synced"
+        case "ERR NO_WIFI": return "No Wi-Fi credentials on the panel"
+        case "ERR NOT_OVER_BLE": return "Clock sync needs the USB serial link"
         default: return reply
         }
     }
@@ -647,6 +668,7 @@ public enum ConsoleCommand: Equatable {
             return "ACK \(bit)"
         case .ackAll: return "ACK ALL"
         case .rtcTrim: return "RTC TRIM"
+        case .ntpSync: return "NTP SYNC"
         case .identify: return "IDENTIFY"
         case let .slotClear(slot):
             guard SlotAssignment.slots.contains(slot) else { return nil }

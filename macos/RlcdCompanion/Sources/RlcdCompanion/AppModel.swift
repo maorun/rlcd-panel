@@ -731,6 +731,16 @@ final class AppModel: ConsoleLinkDelegate {
         sendNext()
     }
 
+    /// Syncs the clock over Wi-Fi (`NTP SYNC`), then reads `STATUS` again. Runs only on the user's button and on USB.
+    /// The firmware answers `ERR NO_WIFI`, `ERR NTP_FAILED <reason>` and `ERR NOT_OVER_BLE`; the texts come from `ntpSyncMessage`.
+    func syncClockOverWifi() {
+        guard isIdle, canSet else { return }
+        guard SlotAssignment.ntpSyncAllowed(onUsb: transport == .usb) else { message = ConsoleCommand.ntpSyncMessage("ERR NOT_OVER_BLE"); return }
+        message = nil
+        queue = [.ntpSync, .status]
+        sendNext()
+    }
+
     /// Chime alert name.
     static func chimeName(_ bit: Int) -> String {
         switch bit {
@@ -1292,6 +1302,7 @@ final class AppModel: ConsoleLinkDelegate {
                     identifyResult = message
                 }
                 if case .slotSwap = cmd { message = ConsoleCommand.slotSwapMessage(text) }
+                if cmd == .ntpSync { message = ConsoleCommand.ntpSyncMessage(text) }
                 // A file that the card no longer holds (log retention) does not stop the other files.
                 var keepQueue = false
                 if case .dump = cmd {
@@ -1398,7 +1409,7 @@ final class AppModel: ConsoleLinkDelegate {
                 queue.removeAll()
                 finishDownload(cmd, text: "unexpected reply")
             case (.set, .frame): batch?.receive(status: "ERR UNEXPECTED_REPLY")
-            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.snooze, .frame), (.ack, .frame), (.ackAll, .frame), (.rtcTrim, .frame), (.identify, .frame), (.slotClear, .frame), (.slotSwap, .frame):
+            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.snooze, .frame), (.ack, .frame), (.ackAll, .frame), (.rtcTrim, .frame), (.ntpSync, .frame), (.identify, .frame), (.slotClear, .frame), (.slotSwap, .frame):
                 message = "Unexpected frame reply"
             }
         } catch {
