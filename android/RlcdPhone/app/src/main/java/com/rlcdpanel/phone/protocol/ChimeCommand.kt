@@ -3,6 +3,7 @@ package com.rlcdpanel.phone.protocol
 /** Console commands `MUTE` and `BEEP` and the texts of their replies. */
 object ChimeCommand {
     const val STATUS = "STATUS"
+    const val IDENTIFY = "IDENTIFY"
     const val READ_ONLY_TEXT = "Set ble_console=2 to apply"
 
     /** Alert names of the bits 0 to 7 (`AlertMask`). */
@@ -25,7 +26,7 @@ object ChimeCommand {
     fun failureText(reply: ConsoleReply, fallback: (ConsoleReply) -> String): String? {
         val line = (reply as? ConsoleReply.Status)?.line ?: return fallback(reply)
         return when {
-            line == "OK MUTE 0" || line == "OK MUTE 1" || line.startsWith("OK BEEP ") -> null
+            line == "OK MUTE 0" || line == "OK MUTE 1" || line.startsWith("OK BEEP ") || identifyText(line) != null -> null
             line.startsWith("ERR READ_ONLY") -> READ_ONLY_TEXT
             line.startsWith("ERR MUTED") -> "Panel ist stumm, in den Ruhezeiten oder Lautstärke 0"
             line.startsWith("ERR PLAY_FAILED") -> "Wiedergabe fehlgeschlagen"
@@ -42,5 +43,15 @@ object ChimeCommand {
             ms.isNotEmpty() && ms.length <= 6 && ms.all { it in '0'..'9' })
             "${alertName(bit)}: gespielt ($ms ms)"
         else line.take(80)
+    }
+
+    /** `Panel zeigt RLCD <XXXX>` for `OK IDENTIFY <4 hex digits>`; null for any other line. */
+    fun identifyText(line: String): String? {
+        val words = line.split(' ')
+        val code = words.getOrNull(2)
+        return if (words.size == 3 && words[0] == "OK" && words[1] == "IDENTIFY" && code != null &&
+            code.length == 4 && code.all { it in '0'..'9' || it in 'A'..'F' || it in 'a'..'f' })
+            "Panel zeigt RLCD ${code.uppercase()}"
+        else null
     }
 }

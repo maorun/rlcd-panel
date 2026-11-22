@@ -51,4 +51,16 @@ class ChimeCommandTest {
         assertEquals("Panel meldet: ERR BAD_ARG", ChimeCommand.failureText(ConsoleReply.Status("ERR BAD_ARG"), ::fallback))
         assertEquals("Panel meldet: OK STATUS", ChimeCommand.failureText(ConsoleReply.Status("OK STATUS"), ::fallback))
     }
+
+    @Test
+    fun identifyCommandAndTexts() {
+        assertEquals("IDENTIFY", ChimeCommand.IDENTIFY)
+        assertEquals("Panel zeigt RLCD 3F2A", ChimeCommand.identifyText("OK IDENTIFY 3F2A"))
+        assertEquals("Panel zeigt RLCD 3F2A", ChimeCommand.identifyText("OK IDENTIFY 3f2a"))
+        assertNull(ChimeCommand.identifyText("OK IDENTIFY 3F"))
+        assertNull(ChimeCommand.identifyText("OK IDENTIFY 3F2AB"))
+        assertNull(ChimeCommand.identifyText("OK IDENTIFY 3G2A"))
+        assertNull(ChimeCommand.identifyText("ERR BAD_ARG"))
+        assertNull(ChimeCommand.failureText(ConsoleReply.Status("OK IDENTIFY 3F2A")) { "x" })
+    }
 }

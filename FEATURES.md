@@ -2616,3 +2616,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SlotConfigScreen` shows the selector `Außensensor` (`Keiner` or `Slot 1` to `Slot 10` with the stored names) when `PanelConfig.canWrite` is true. Each slot card shows the text `Außensensor` for the active slot.
 - Tests: `SlotConfigTest` (`setOutdoorSlotSendsChangedValue`, `setOutdoorSlotSendsNothingForUnchangedValue`, `setOutdoorSlotRejectsSlotOutsideRange`).
 - Validation: `check-protocol-sync.sh` and its `--self-test` pass locally. `gradle testDebugUnitTest` did not run locally (no Android SDK); CI runs it.
+
+## Identify action in the Wear OS sensor health screen
+
+- `ChimeCommand.IDENTIFY` (`IDENTIFY`) and `ChimeCommand.identifyText(line)` sit in the shared `ChimeCommand.kt` of the watch and the phone (same code). `identifyText` gives `Panel zeigt RLCD <XXXX>` (upper case) for `OK IDENTIFY <4 hex digits>` and `null` for 3 or 5 digits, a non-hex digit, extra words or another line. `failureText` treats a good `OK IDENTIFY` reply as no failure.
+- `SensorHealthScreen` shows the chip `Panel finden`. `MainActivity.identifyPanel` sends `IDENTIFY` once for each tap, with the same guards and permission check as `testChime`; `SensorHealthText.identifyResult` shows the text under the chime result or the error. No retry.
+- Tests: `ChimeCommandTest` on the watch and the phone (`identifyCommandAndTexts`), `SensorHealthTextTest.identifyResultTexts`.
+- Validation: `check-protocol-sync.sh` and its `--self-test` pass locally. `gradle testDebugUnitTest` did not run locally (no Android SDK); CI runs it. The chip is not tested with hardware.
