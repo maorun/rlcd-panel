@@ -91,5 +91,18 @@ object SlotConfig {
         else -> line.take(80)
     }
 
+    /** Stored `outdoor_slot` (0 is off); 0 for a missing, malformed or out-of-range value. */
+    fun outdoorSlot(config: PanelConfig): Int =
+        config.values["outdoor_slot"]?.trim()?.toIntOrNull()?.takeIf { it in 0..SlotAssignment.SLOTS.last } ?: 0
+
+    /**
+     * `SET outdoor_slot=<N>` (0 to 10, 0 is off). The list is empty when [slot] equals the cached [config] value.
+     * @throws IllegalArgumentException for a slot outside 0 to 10.
+     */
+    fun setOutdoorSlot(slot: Int, config: PanelConfig): List<String> {
+        require(slot in 0..SlotAssignment.SLOTS.last) { "outdoor_slot $slot outside 0..${SlotAssignment.SLOTS.last}" }
+        return if (slot == outdoorSlot(config)) emptyList() else listOf("SET outdoor_slot=$slot")
+    }
+
     fun autoAssign(on: Boolean): List<String> = listOf("SET slot_auto_assign=${if (on) 1 else 0}")
 }

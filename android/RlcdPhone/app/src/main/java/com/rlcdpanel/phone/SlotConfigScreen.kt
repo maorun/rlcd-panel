@@ -72,6 +72,18 @@ fun SlotConfigScreen(
                     )
                 }
             }
+            if (panelConfig.canWrite) {
+                item {
+                    OutdoorSelector(
+                        panelConfig = panelConfig,
+                        enabled = !state.isBusy,
+                        onSelect = { slot ->
+                            val commands = SlotConfig.setOutdoorSlot(slot, panelConfig)
+                            if (commands.isNotEmpty()) onApply(commands)
+                        }
+                    )
+                }
+            }
             if (state.readOnly || !panelConfig.canWrite) {
                 item { Text(SlotAssignment.READ_ONLY_TEXT, color = MaterialTheme.colorScheme.error) }
             }
@@ -100,6 +112,9 @@ fun SlotConfigScreen(
                                 onCheckedChange = { onApply(SlotConfig.setEnabled(slot, it)) },
                                 enabled = !state.isBusy && panelConfig.canWrite
                             )
+                        }
+                        if (SlotConfig.outdoorSlot(panelConfig) == slot) {
+                            Text("Außensensor", color = MaterialTheme.colorScheme.primary)
                         }
                         if (!slotOn) Text("Deaktiviert", color = MaterialTheme.colorScheme.error)
                         Text("MAC: ${panelConfig.slotMac(slot) ?: "nicht fest"}")
@@ -140,6 +155,39 @@ fun SlotConfigScreen(
         )
     }
 }
+
+@Composable
+private fun OutdoorSelector(panelConfig: PanelConfig, enabled: Boolean, onSelect: (Int) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    val active = SlotConfig.outdoorSlot(panelConfig)
+    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text("Außensensor", style = MaterialTheme.typography.titleMedium)
+            Text("outdoor_slot", style = MaterialTheme.typography.bodySmall)
+        }
+        OutlinedButton(onClick = { open = true }, enabled = enabled) { Text(outdoorLabel(active, panelConfig)) }
+    }
+    if (open) {
+        AlertDialog(
+            onDismissRequest = { open = false },
+            title = { Text("Außensensor wählen") },
+            text = {
+                LazyColumn {
+                    items((0..SlotAssignment.SLOTS.last).toList(), key = { it }) { slot ->
+                        TextButton(onClick = { open = false; onSelect(slot) }) {
+                            Text((if (slot == active) "✓ " else "") + outdoorLabel(slot, panelConfig))
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { open = false }) { Text("Abbrechen") } }
+        )
+    }
+}
+
+private fun outdoorLabel(slot: Int, config: PanelConfig): String =
+    if (slot == 0) "Keiner" else "Slot $slot" + (config.slotName(slot)?.let { ": $it" } ?: "")
 
 @Composable
 private fun SlotEditorDialog(

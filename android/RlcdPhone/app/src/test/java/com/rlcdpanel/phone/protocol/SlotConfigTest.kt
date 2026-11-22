@@ -2,6 +2,7 @@ package com.rlcdpanel.phone.protocol
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -185,5 +186,34 @@ class SlotConfigTest {
         assertEquals("Ein Slot ist deaktiviert", SlotConfig.swapResultText("ERR SLOT_OFF"))
         assertEquals("Set ble_console=2 to apply", SlotConfig.swapResultText("ERR READ_ONLY"))
         assertEquals("ERR BAD_ARG", SlotConfig.swapResultText("ERR BAD_ARG"))
+    }
+
+    @Test
+    fun setOutdoorSlotSendsChangedValue() {
+        assertEquals(listOf("SET outdoor_slot=2"), SlotConfig.setOutdoorSlot(2, empty))
+        assertEquals(listOf("SET outdoor_slot=10"), SlotConfig.setOutdoorSlot(10, PanelConfig(mapOf("outdoor_slot" to "2"))))
+        assertEquals(listOf("SET outdoor_slot=0"), SlotConfig.setOutdoorSlot(0, PanelConfig(mapOf("outdoor_slot" to "2"))))
+    }
+
+    @Test
+    fun setOutdoorSlotSendsNothingForUnchangedValue() {
+        assertEquals(emptyList<String>(), SlotConfig.setOutdoorSlot(2, PanelConfig(mapOf("outdoor_slot" to " 2 "))))
+        assertEquals(emptyList<String>(), SlotConfig.setOutdoorSlot(0, empty))
+    }
+
+    @Test
+    fun malformedOrOutOfRangeStoredValueCountsAsOff() {
+        for (stored in listOf("abc", "11", "-3", "")) {
+            val config = PanelConfig(mapOf("outdoor_slot" to stored))
+            assertEquals(0, SlotConfig.outdoorSlot(config))
+            assertEquals(listOf("SET outdoor_slot=2"), SlotConfig.setOutdoorSlot(2, config))
+            assertEquals(emptyList<String>(), SlotConfig.setOutdoorSlot(0, config))
+        }
+    }
+
+    @Test
+    fun setOutdoorSlotRejectsSlotOutsideRange() {
+        assertThrows(IllegalArgumentException::class.java) { SlotConfig.setOutdoorSlot(11, empty) }
+        assertThrows(IllegalArgumentException::class.java) { SlotConfig.setOutdoorSlot(-1, empty) }
     }
 }
