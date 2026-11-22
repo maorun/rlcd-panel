@@ -36,14 +36,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK, IDENTIFY };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK, IDENTIFY, SNOOZE };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
+  BAD_ARG,  // CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '='); CONFIG <key> with an unknown key
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv, daily_v4_YYYY.csv or events_v1_YYYY.csv
@@ -55,7 +55,8 @@ constexpr size_t SET_VALUE_SIZE = 41;
 struct SerialCommand {
   SerialCommandKind kind = SerialCommandKind::NONE;
   char file[SdLogCodec::LOG_NAME_SIZE] = {0};
-  uint8_t reference = 0; // CALIB and SALT: 0 onboard, 1 to 10 a slot; BEEP and ACK: alert bit number 0 to 7; PATTERN: pattern number 0 to 2; MUTE: 0 or 1; SLOT CLEAR: slot number 1 to 10
+  uint8_t reference = 0; // CALIB and SALT: 0 onboard, 1 to 10 a slot; BEEP and ACK: alert bit number 0 to 7; PATTERN: pattern number 0 to 2; MUTE: 0 or 1; SNOOZE: minutes 0 to 720 (uint16 in `minutes`); SLOT CLEAR: slot number 1 to 10
+  uint16_t minutes = 0; // SNOOZE: length in minutes 0 to 720
   uint8_t reference_b = 0; // SLOT SWAP: second slot number 1 to 10 (`reference` holds the first)
   bool history_one = false; // HISTORY: true for "HISTORY <N>"; `reference` then holds the sensor 0 to 10
   bool ack_all = false; // ACK: true for "ACK ALL" (every active repeatable alert bit that is not acknowledged)
@@ -169,6 +170,27 @@ public:
       }
       out.kind = SerialCommandKind::MUTE;
       out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "SNOOZE")) {
+      // one to three digits, value 0 to 720
+      const size_t digits = len - cmd_len - 1;
+      if (len <= cmd_len + 1 || digits > 3 || (digits > 1 && line[cmd_len + 1] == '0')) {
+        return SerialParseStatus::BAD_ARG; // one canonical form: no leading zero
+      }
+      uint16_t value = 0;
+      for (size_t i = 0; i < digits; ++i) {
+        const char d = line[cmd_len + 1 + i];
+        if (d < '0' || d > '9') {
+          return SerialParseStatus::BAD_ARG;
+        }
+        value = static_cast<uint16_t>(value * 10 + static_cast<uint16_t>(d - '0'));
+      }
+      if (value > Snooze::MAX_MINUTES) {
+        return SerialParseStatus::BAD_ARG;
+      }
+      out.kind = SerialCommandKind::SNOOZE;
+      out.minutes = value;
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "SLOT")) {
@@ -590,8 +612,8 @@ private:
 // Line side of the BLE console. The RX characteristic feeds feed(); a complete line goes through
 // the same SerialConsole parser as on USB. The bridge only decides what a central may run:
 //   ble_console 0: nothing (the service does not run)
-//   ble_console 1: the read commands; SET, MUTE, ACK, SLOT CLEAR, TIME SET and RTC TRIM reply "ERR READ_ONLY"
-//   ble_console 2: also SET, MUTE, ACK, SLOT CLEAR, TIME SET and RTC TRIM
+//   ble_console 1: the read commands; SET, MUTE, SNOOZE, ACK, SLOT CLEAR, TIME SET and RTC TRIM reply "ERR READ_ONLY"
+//   ble_console 2: also SET, MUTE, SNOOZE, ACK, SLOT CLEAR, TIME SET and RTC TRIM
 //   DUMP (a monthly file is too large for BLE), SCREEN (15,000 bytes) and SCAN (the scan stops the BLE stack that carries
 //   the console) reply "ERR NOT_OVER_BLE" at each level.
 // Only one central connects. A disconnect clears the partial line.
@@ -663,7 +685,7 @@ public:
         command.kind == SerialCommandKind::SCREEN) {
       return "ERR NOT_OVER_BLE\n";
     }
-    const bool writes = command.kind == SerialCommandKind::SET || command.kind == SerialCommandKind::MUTE ||
+    const bool writes = command.kind == SerialCommandKind::SET || command.kind == SerialCommandKind::MUTE || command.kind == SerialCommandKind::SNOOZE ||
                         command.kind == SerialCommandKind::RTC_TRIM || command.kind == SerialCommandKind::SLOT_CLEAR ||
                         command.kind == SerialCommandKind::SLOT_SWAP || command.kind == SerialCommandKind::ACK ||
                         (command.kind == SerialCommandKind::TIME && command.time_set);
@@ -791,6 +813,7 @@ struct SerialStatusSnapshot {
   DailyNoiseStats daily_noise;       // RTC copy of the noise summary of the current day
   bool muted = false;
   uint8_t alert_ack = 0; // acknowledged alert bits (ACK)
+  Snooze snooze;      // RTC copy of PersistentState::snooze
   uint32_t last_chime_ms = 0; // RTC copy of PersistentState::last_chime_ms, 0 is no stamp
   int8_t quiet_active = -1; // QuietHoursWindow::isActive at the RTC time of the command; -1 is unknown
 
@@ -846,7 +869,7 @@ struct SerialStatusSnapshot {
 //   "ERR BAD_KEY" for a key outside DeviceConfigParser::KEYS, "ERR BAD_ARG" for extra text. showConfigKey() works on the RTC copy.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW> format=<...> mac=<...> mold_h=<N|-->" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 5 (slots, calibrated readings), a missing value gives "--";
-//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|--> free_mb=<N|-->" (age since the last card result; free card space of the last card read), then "RESET reason=<TEXT> abnormal=<N|-->", then "RTC trim=<N|--> drift_ppm=<N|-->" (offset register of the PCF85063A; the drift rate only for a figure of 24 h or more), then "NTP ok=<0|1|--> failures=<N> age_s=<N|--> next_s=<N|-->" (RTC copy of the NTP state; "--" without an attempt or without Wi-Fi credentials; next_s is the time to the next due attempt; age_s and next_s use the 32-bit clock difference of NtpSchedule::due and wrap like it), then "SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>[ usb_offset=<x>]" (the offset only on USB power), then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N> thermopro=<N> unassigned=<N> jumps=<N>" (packets of the current scan that no slot took; unassigned counts the packets blocked by slot_auto_assign=0; jumps counts the pending packets of a large reading jump that JumpGuard dropped), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1> acked=<hex mask>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "MEMORY free=<N> min=<N> largest=<N> psram=<N>" (heap and PSRAM bytes of the current wake cycle; no RTC state), then "FRAME crc=<8 hex digits|--> skips=<N>" (RTC copy of FrameRefresh: CRC-32 of the last flushed frame, "--" for 0, and the skip counter), then "WAKE cause=<POWER_ON|TIMER|KEY|OTHER> boots=<N> battery_interval_s=<N>" (cause of this wake cycle, RTC copy of boot_count, and the sleep interval that PowerManager::powerConfig gives on battery power at the current RTC time), then "LATCH vent=<3 hex digits> dry=<3 hex digits> batlow=<3 hex digits> stale=<3 hex digits>" (RTC copy of the badge latches; vent and dry: bit 0 onboard, bits 1 to 10 slots; batlow and stale: bits 0 to 9 slots), then "NOISE db=<N|--> band=<QUIET|MODERATE|LOUD> peak_db=<N|--> peak_hour=<N|--> events_sum=<N>" (RTC copy: newest hourly noise level, noise band latch, peak of the current day; no microphone access), then "CHIME repeat_h=<N> bits=<2 hex digits> last_s=<N|--> next_s=<N|-->" (chime_repeat_h; bits are the repeatable active alerts without the acknowledged ones; seconds since the last chime stamp, "--" for 0; seconds to the next reminder, at least 0, "--" for repeat_h 0 and for bits 0), then "CRC32 <8 hex digits>" over all lines
+//   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|--> free_mb=<N|-->" (age since the last card result; free card space of the last card read), then "RESET reason=<TEXT> abnormal=<N|-->", then "RTC trim=<N|--> drift_ppm=<N|-->" (offset register of the PCF85063A; the drift rate only for a figure of 24 h or more), then "NTP ok=<0|1|--> failures=<N> age_s=<N|--> next_s=<N|-->" (RTC copy of the NTP state; "--" without an attempt or without Wi-Fi credentials; next_s is the time to the next due attempt; age_s and next_s use the 32-bit clock difference of NtpSchedule::due and wrap like it), then "SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>[ usb_offset=<x>]" (the offset only on USB power), then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N> thermopro=<N> unassigned=<N> jumps=<N>" (packets of the current scan that no slot took; unassigned counts the packets blocked by slot_auto_assign=0; jumps counts the pending packets of a large reading jump that JumpGuard dropped), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1> acked=<hex mask>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "MEMORY free=<N> min=<N> largest=<N> psram=<N>" (heap and PSRAM bytes of the current wake cycle; no RTC state), then "FRAME crc=<8 hex digits|--> skips=<N>" (RTC copy of FrameRefresh: CRC-32 of the last flushed frame, "--" for 0, and the skip counter), then "WAKE cause=<POWER_ON|TIMER|KEY|OTHER> boots=<N> battery_interval_s=<N>" (cause of this wake cycle, RTC copy of boot_count, and the sleep interval that PowerManager::powerConfig gives on battery power at the current RTC time), then "LATCH vent=<3 hex digits> dry=<3 hex digits> batlow=<3 hex digits> stale=<3 hex digits>" (RTC copy of the badge latches; vent and dry: bit 0 onboard, bits 1 to 10 slots; batlow and stale: bits 0 to 9 slots), then "NOISE db=<N|--> band=<QUIET|MODERATE|LOUD> peak_db=<N|--> peak_hour=<N|--> events_sum=<N>" (RTC copy: newest hourly noise level, noise band latch, peak of the current day; no microphone access), then "CHIME repeat_h=<N> bits=<2 hex digits> last_s=<N|--> next_s=<N|--> snooze_s=<N|-->" (chime_repeat_h; bits are the repeatable active alerts without the acknowledged ones; seconds since the last chime stamp, "--" for 0; seconds to the next reminder, at least 0, "--" for repeat_h 0 and for bits 0; remaining snooze seconds, "--" without an active snooze), then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
 //   BEEP N -> "OK BEEP <N> <duration ms>" after one playback of the chime of alert bit N (0 to 7), or "ERR MUTED"
 //   (mute, quiet hours, volume 0) or "ERR PLAY_FAILED". beep() needs no card: execute() ignores BEEP.
@@ -1759,8 +1782,12 @@ public:
         const uint32_t elapsed_s = (snap.now_ms - snap.last_chime_ms) / 1000UL;
         snprintf(next, sizeof(next), "%lu", static_cast<unsigned long>(elapsed_s >= period_s ? 0UL : period_s - elapsed_s));
       }
-      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "CHIME repeat_h=%u bits=%02x last_s=%s next_s=%s\n",
-                                          static_cast<unsigned>(repeat_h), static_cast<unsigned>(bits), last, next));
+      char snooze[16] = "--";
+      if (snap.snooze.active(snap.now_ms)) {
+        snprintf(snooze, sizeof(snooze), "%lu", static_cast<unsigned long>(snap.snooze.remainingS(snap.now_ms)));
+      }
+      len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "CHIME repeat_h=%u bits=%02x last_s=%s next_s=%s snooze_s=%s\n",
+                                          static_cast<unsigned>(repeat_h), static_cast<unsigned>(bits), last, next, snooze));
     }
     {
       char active[4] = "--";
@@ -1932,15 +1959,37 @@ public:
     send(sink, line);
   }
 
+  // SNOOZE <M>: starts a timed mute of `minutes` (0 ends it) and replies "OK SNOOZE <M>". No card access. One
+  // MUTE_CHANGE event (detail low byte 2 a snooze start, 0 an end; source in the high byte) records a start, and an end
+  // of a snooze that was still active. A new snooze while another runs restarts the timer and records the start again.
+  // An unmuted flag stays as it is: the snooze acts like a mute only while it runs.
+  static void setSnooze(Sink& sink, Snooze& snooze, uint16_t minutes, uint32_t now_ms, EventRing* events = nullptr,
+                        const RtcTime* now = nullptr, uint8_t source = 1) {
+    const bool was_active = snooze.active(now_ms);
+    snooze.start(now_ms, minutes);
+    if (events != nullptr && now != nullptr && (minutes != 0 || was_active)) {
+      events->record(*now, EventCode::MUTE_CHANGE,
+                     static_cast<uint16_t>((static_cast<uint16_t>(source) << 8) | (minutes != 0 ? 2u : 0u)));
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "OK SNOOZE %u\n", static_cast<unsigned>(minutes));
+    send(sink, line);
+  }
+
   // Sets the mute flag (0 or 1) and replies "OK MUTE <0|1>". No card access. The flag lives in the RTC state; the next
   // save of the wake cycle keeps it. A value above 1 never arrives (the parser limits it); it is treated as 1 here.
   // With events and now, one MUTE_CHANGE event records the change (detail: source in the high byte, state in the low
-  // byte; source 0 BOOT, 1 USB, 2 BLE) only when the flag changed.
+  // byte; source 0 BOOT, 1 USB, 2 BLE) only when the flag changed or a running snooze ended (the MUTE command clears `snooze`).
   static void setMute(Sink& sink, bool& muted, uint8_t value, EventRing* events = nullptr, const RtcTime* now = nullptr,
-                      uint8_t source = 1) {
+                      uint8_t source = 1, Snooze* snooze = nullptr, uint32_t now_ms = 0) {
     const bool was_muted = muted;
+    // MUTE 0 and MUTE 1 end a running snooze. An unchanged flag then still records the end of the snooze (as unmuted).
+    const bool snooze_ended = snooze != nullptr && snooze->active(now_ms);
+    if (snooze != nullptr) {
+      snooze->clear();
+    }
     muted = value != 0;
-    if (events != nullptr && now != nullptr && muted != was_muted) {
+    if (events != nullptr && now != nullptr && (muted != was_muted || (snooze_ended && !muted))) {
       events->record(*now, EventCode::MUTE_CHANGE, static_cast<uint16_t>((static_cast<uint16_t>(source) << 8) | (muted ? 1u : 0u)));
     }
     char line[16];
@@ -2126,7 +2175,7 @@ public:
         command.kind == SerialCommandKind::RTC_TRIM || command.kind == SerialCommandKind::WEEK ||
         command.kind == SerialCommandKind::SLOT_CLEAR || command.kind == SerialCommandKind::SLOT_SWAP ||
         command.kind == SerialCommandKind::REJECTS || command.kind == SerialCommandKind::ACK ||
-        command.kind == SerialCommandKind::IDENTIFY) {
+        command.kind == SerialCommandKind::IDENTIFY || command.kind == SerialCommandKind::SNOOZE) {
       return;
     }
     if (!storage.mount()) {
@@ -2157,6 +2206,7 @@ public:
       case SerialCommandKind::REJECTS:
       case SerialCommandKind::ACK:
       case SerialCommandKind::IDENTIFY:
+      case SerialCommandKind::SNOOZE:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;

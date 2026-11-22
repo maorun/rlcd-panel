@@ -67,6 +67,43 @@ struct AlertLimits {
   float humidityReleasePct() const { return humidity_trigger_pct - HUMIDITY_HYSTERESIS_PCT; }
 };
 
+// Timed mute (console SNOOZE <M>). The start stamp is the RTC-backed clock (nowMs()), the length is in minutes. While
+// the snooze is active, the chime logic works as for the mute flag. The unsigned difference is safe over the 32-bit
+// clock wrap. Minutes 0 is off. The wake cycle clears a snooze that `expired`, so a clock wrap
+// after 49 days never revives it.
+struct Snooze {
+  static constexpr uint16_t MAX_MINUTES = 720;
+  static constexpr uint32_t MS_PER_MINUTE = 60000UL;
+
+  uint32_t start_ms = 0;
+  uint16_t minutes = 0;
+
+  bool active(uint32_t now_ms) const {
+    return minutes != 0 && static_cast<uint32_t>(now_ms - start_ms) < static_cast<uint32_t>(minutes) * MS_PER_MINUTE;
+  }
+
+  // True for a snooze that ran out: the fields are still set.
+  bool expired(uint32_t now_ms) const { return minutes != 0 && !active(now_ms); }
+
+  // Seconds to the end, 0 when not active.
+  uint32_t remainingS(uint32_t now_ms) const {
+    if (!active(now_ms)) {
+      return 0;
+    }
+    const uint32_t total_s = static_cast<uint32_t>(minutes) * 60UL;
+    return total_s - static_cast<uint32_t>(now_ms - start_ms) / 1000UL;
+  }
+
+  void start(uint32_t now_ms, uint16_t length_min) {
+    start_ms = length_min == 0 ? 0 : now_ms;
+    minutes = length_min;
+  }
+  void clear() { start(0, 0); }
+
+  // RTC check: minutes above the limit and a stamp without minutes are corrupt.
+  bool valid() const { return minutes <= MAX_MINUTES && (minutes != 0 || start_ms == 0); }
+};
+
 // Decoupled threshold evaluator. It has no hardware dependency, so the host tests build it.
 // Each alert has a trigger limit and a release limit (hysteresis), so a reading at the limit
 // does not chime on every wake cycle.
@@ -132,6 +169,11 @@ public:
       mask |= ALERT_HUMIDITY;
     }
     return mask;
+  }
+
+  // The mute flag or a running snooze: both silence the chime.
+  static bool silenced(bool muted, const Snooze& snooze, uint32_t now_ms) {
+    return muted || snooze.active(now_ms);
   }
 
   // Alerts that switched on since the last cycle and may sound. Mute and quiet hours suppress the

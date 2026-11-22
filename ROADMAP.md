@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Console command SNOOZE for a timed mute
-  - Rank: [Total: 32, Use: 9, Setup: 5, Harmony: 9, Safety: 9, Effort: M]
-  - Location: rlcd_panel/serial_console.h, rlcd_panel/power_manager.h, rlcd_panel/audio_alert.h, rlcd_panel/dashboard_view.h, rlcd_panel/rlcd_panel.ino, tests/fixtures/status_reply_sample.txt, tests/test_firmware_logic.cpp
-  - Goal: Add `SNOOZE <M>` (M 0 to 720 minutes). Store the start stamp (`uint32_t`, `nowMs()`) and the minutes (`uint16_t`) in `PersistentState::snooze`, 6 bytes just before the checksum. While the snooze is active, `AlertEvaluator::chimeBits` and `AlertEvaluator::repeat` work as for `muted`, and the header shows the mute marker. `SNOOZE 0`, `MUTE 0`, `MUTE 1` and a `BOOT` press end the snooze. Reply `OK SNOOZE <M>`. Give `ERR BAD_ARG` for 721, a non-digit and extra text, and `ERR READ_ONLY` on BLE with `ble_console` 1. Record `MUTE_CHANGE` with detail low byte 2 and the source in the high byte. Append ` snooze_s=<N|-->` (remaining seconds) to the `STATUS` line `CHIME`. Reject minutes above 720 and minutes 0 with a stamp in the RTC check. A power-on sets both to 0. Raise `STATE_VERSION` by one.
-  - Acceptance test: Host tests assert that `SNOOZE 60` mutes a rising bit at 59 minutes and not at 61 minutes, that a 32-bit clock wrap keeps the end correct, that `MUTE 0` ends the snooze, the event detail `0x0102` for USB, the `CHIME` line with `snooze_s=3540` and `snooze_s=--`, the RTC round trip and the rejected values. Update `tests/fixtures/status_reply_sample.txt` and the `STATUS` line count asserts. `c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner` and `arduino-cli compile rlcd_panel` pass.
-
 - [ ] Console command NTP SYNC to sync the clock on request
   - Rank: [Total: 32, Use: 6, Setup: 9, Harmony: 9, Safety: 8, Effort: M]
   - Location: rlcd_panel/serial_console.h, rlcd_panel/ntp_sync.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp
