@@ -23,12 +23,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Open window latch in the STATUS line LATCH
-  - Rank: [Total: 27, Use: 3, Setup: 7, Harmony: 7, Safety: 10, Effort: S]
-  - Location: rlcd_panel/serial_console.h, rlcd_panel/rlcd_panel.ino, tests/fixtures/status_reply_sample.txt, tests/test_firmware_logic.cpp
-  - Goal: Append ` window=<3 hex digits>` after `wall=` to the `STATUS` line `LATCH` (RTC copy of `PersistentState::window_tiles`; bit 0 onboard, bits 1 to 10 slots). Add `SerialStatusSnapshot::window_tiles`. Do not change the RTC layout or `STATE_VERSION`. Update the shared fixture.
-  - Acceptance test: Host tests assert `window=000` for no open tile, `window=402` for tiles 1 and 10, and the correct `CRC32` line. The macOS and Kotlin parser tests pass with the new fixture line. `c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner` and `arduino-cli compile rlcd_panel` pass.
-
 - [ ] Wall and window latches in the macOS diagnostics view
   - Rank: [Total: 27, Use: 4, Setup: 6, Harmony: 7, Safety: 10, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsTests.swift
