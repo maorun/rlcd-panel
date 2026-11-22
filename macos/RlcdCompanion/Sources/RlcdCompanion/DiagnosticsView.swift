@@ -108,6 +108,7 @@ struct DiagnosticsView: View {
                     }
                     if let c = model.diagnostics?.chime {
                         Text(c.reminderText).font(.caption).foregroundStyle(.secondary)
+                        if let t = c.snoozeText { Text(t).font(.caption).foregroundStyle(.secondary) }
                     }
 
                     if let r = model.lastChimeResult {

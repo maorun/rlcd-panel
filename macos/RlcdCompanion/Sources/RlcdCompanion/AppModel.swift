@@ -649,6 +649,15 @@ final class AppModel: ConsoleLinkDelegate {
         sendNext()
     }
 
+    /// Mutes the chime for `minutes` (`SNOOZE M`, 0 ends it), then reads `STATUS` again so the text follows the panel.
+    /// Runs only on the user's menu item.
+    func snooze(minutes: Int) {
+        guard isIdle, ConsoleCommand.snooze(minutes).line != nil else { return }
+        message = nil
+        queue = [.snooze(minutes), .status]
+        sendNext()
+    }
+
     /// Stops the chime reminder of one active alert (`ACK N`), then reads `STATUS` again so the row follows the panel.
     /// Runs only on the user's button. The firmware answers `ERR NOT_ACTIVE` for an alert that is off and `ERR READ_ONLY` on BLE with `ble_console` 1.
     func acknowledge(bit: Int) {
@@ -1389,7 +1398,7 @@ final class AppModel: ConsoleLinkDelegate {
                 queue.removeAll()
                 finishDownload(cmd, text: "unexpected reply")
             case (.set, .frame): batch?.receive(status: "ERR UNEXPECTED_REPLY")
-            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.ack, .frame), (.ackAll, .frame), (.rtcTrim, .frame), (.identify, .frame), (.slotClear, .frame), (.slotSwap, .frame):
+            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.snooze, .frame), (.ack, .frame), (.ackAll, .frame), (.rtcTrim, .frame), (.identify, .frame), (.slotClear, .frame), (.slotSwap, .frame):
                 message = "Unexpected frame reply"
             }
         } catch {

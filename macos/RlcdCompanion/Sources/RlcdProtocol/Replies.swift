@@ -526,6 +526,8 @@ public enum ConsoleCommand: Equatable {
     case beep(Int)
     case pattern(Int)
     case mute(Bool)
+    /// `SNOOZE M` (M 0 to 720 minutes): mutes the chime for a time; 0 ends a running snooze. The firmware answers `ERR READ_ONLY` on BLE with `ble_console` 1.
+    case snooze(Int)
     /// `ACK N` (N 0 to 7): stops the chime reminder of one active alert. The firmware answers `ERR NOT_ACTIVE` for an alert that is off.
     case ack(Int)
     /// `ACK ALL`: stops the chime reminder of each active alert at once. The firmware answers `OK ACK ALL <2 hex digits>` or `ERR NOT_ACTIVE`.
@@ -637,6 +639,9 @@ public enum ConsoleCommand: Equatable {
             guard (0...2).contains(n) else { return nil }
             return "PATTERN \(n)"
         case let .mute(on): return on ? "MUTE 1" : "MUTE 0"
+        case let .snooze(minutes):
+            guard (0...720).contains(minutes) else { return nil }
+            return "SNOOZE \(minutes)"
         case let .ack(bit):
             guard (0...7).contains(bit) else { return nil }
             return "ACK \(bit)"
