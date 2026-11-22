@@ -275,14 +275,15 @@ public:
   }
 };
 
-#ifdef ARDUINO
-
+// Result of one NtpClient::sync call; the value is the detail of EventCode::NTP_SYNC.
 enum class NtpResult : uint8_t {
   OK = 0,
   WIFI_FAILED,
   NTP_TIMEOUT,
   RTC_WRITE_FAILED,
 };
+
+#ifdef ARDUINO
 
 class NtpClient {
 public:

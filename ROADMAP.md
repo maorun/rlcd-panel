@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Console command NTP SYNC to sync the clock on request
-  - Rank: [Total: 32, Use: 6, Setup: 9, Harmony: 9, Safety: 8, Effort: M]
-  - Location: rlcd_panel/serial_console.h, rlcd_panel/ntp_sync.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp
-  - Goal: Add `NTP SYNC` on USB serial. Run `NtpClient::sync` once through an injected function of the sketch, as `SCAN` does with `consoleScanOnce`. Call `NtpSchedule::record` and record `EventCode::NTP_SYNC` with the `NtpResult`. Reply `OK NTP SYNC` or `ERR NTP_FAILED <WIFI_FAILED|NTP_TIMEOUT|RTC_WRITE_FAILED>`. Give `ERR NO_WIFI` without credentials (`NtpSchedule::hasCredentials`), `ERR NOT_OVER_BLE` on BLE and `ERR BAD_ARG` for extra text. Do not mount the card. Do not change the RTC layout or `STATE_VERSION`.
-  - Acceptance test: Host tests with a fake sync function assert the reply for each `NtpResult`, the event row, the updated `NTP` line of `STATUS` (`ok=1 failures=0`), `ERR NO_WIFI` with empty credentials, `ERR NOT_OVER_BLE` through `BleConsoleBridge` and `ERR BAD_ARG` for `NTP SYNC 1`. `c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner` and `arduino-cli compile rlcd_panel` pass.
-
 - [ ] Event texts for SCAN_FAULT and WINDOW_OPEN in the companion apps
   - Rank: [Total: 31, Use: 5, Setup: 7, Harmony: 9, Safety: 10, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift, macos/RlcdCompanion/Sources/RlcdProtocol/EventFilter.swift, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/EventText.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/EventFilter.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/EventText.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/EventFilter.kt, tests/fixtures/events_reply_sample.txt, macos/RlcdCompanion/Tests/RlcdProtocolTests/EventTextTests.swift, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/EventTextTest.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/EventTextTest.kt
