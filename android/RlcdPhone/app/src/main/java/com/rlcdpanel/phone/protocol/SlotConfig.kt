@@ -65,5 +65,31 @@ object SlotConfig {
         if (slot !in SlotAssignment.SLOTS) emptyList()
         else listOf("SET slot${slot}_enabled=${if (enabled) 1 else 0}")
 
+    /**
+     * `SLOT SWAP <A> <B>` swaps the readings and histories of two slots on the panel. The firmware refuses a slot
+     * with a fixed MAC (`ERR FIXED_MAC`) and a disabled slot (`ERR SLOT_OFF`), so the plan refuses them before the send.
+     */
+    fun swap(a: Int, b: Int, config: PanelConfig): Plan {
+        if (a !in SlotAssignment.SLOTS || b !in SlotAssignment.SLOTS) return Plan.Invalid("Slot gibt es nicht")
+        if (a == b) return Plan.Invalid("Zwei verschiedene Slots wählen")
+        for (slot in listOf(a, b)) {
+            if (config.slotMac(slot) != null) return Plan.Invalid("Slot $slot hat eine feste MAC")
+            if (!config.slotEnabled(slot)) return Plan.Invalid("Slot $slot ist deaktiviert")
+        }
+        return Plan.Commands(listOf("SLOT SWAP $a $b"))
+    }
+
+    /** True for `OK SLOT SWAP <A> <B>`: the app then sends `STATUS`. */
+    fun swapSucceeded(line: String): Boolean = line.startsWith("OK SLOT SWAP ")
+
+    /** Result text of a `SLOT SWAP` reply line. */
+    fun swapResultText(line: String): String = when {
+        swapSucceeded(line) -> "Slots getauscht"
+        line.startsWith("ERR FIXED_MAC") -> "Ein Slot hat eine feste MAC und lässt sich nicht tauschen"
+        line.startsWith("ERR SLOT_OFF") -> "Ein Slot ist deaktiviert"
+        line.startsWith("ERR READ_ONLY") -> SlotAssignment.READ_ONLY_TEXT
+        else -> line.take(80)
+    }
+
     fun autoAssign(on: Boolean): List<String> = listOf("SET slot_auto_assign=${if (on) 1 else 0}")
 }

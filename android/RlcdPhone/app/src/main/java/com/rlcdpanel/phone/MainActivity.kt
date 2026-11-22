@@ -45,6 +45,7 @@ import com.rlcdpanel.phone.protocol.SaltReply
 import com.rlcdpanel.phone.protocol.SaltText
 import com.rlcdpanel.phone.protocol.TwoPointCalibration
 import com.rlcdpanel.phone.protocol.ConsoleReply
+import com.rlcdpanel.phone.protocol.SlotConfig
 import com.rlcdpanel.phone.protocol.PanelClock
 import com.rlcdpanel.phone.protocol.ParseException
 import com.rlcdpanel.phone.protocol.SensorHealth
@@ -306,6 +307,7 @@ class MainActivity : ComponentActivity() {
                     panelConfig = panelConfig,
                     formats = sourceBadges,
                     onApply = { commands -> withConsolePermission { applySlotCommands(commands) } },
+                    onSwap = { command -> withConsolePermission { swapSlots(command) } },
                     onBack = { closeSlots() }
                 )
                 BackHandler { closeSlots() }
@@ -789,6 +791,28 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Sends one `SLOT SWAP <A> <B>`, then `STATUS` after an `OK` reply. */
+    private fun swapSlots(command: String) {
+        stopBleScan()
+        slotState = slotState.copy(isBusy = true, isError = false, readOnly = false, message = null)
+        consoleClient.send(command) { reply ->
+            val line = (reply as? ConsoleReply.Status)?.line
+            if (line != null && SlotConfig.swapSucceeded(line)) {
+                consoleClient.send(CONSOLE_STATUS) { status ->
+                    // A reply after closeSlots must not overwrite the state of another screen.
+                    if (showSlots) {
+                        applyStatusReply(status)
+                        val note = if (status is ConsoleReply.Frame) "" else ". STATUS lesen fehlgeschlagen"
+                        slotState = slotState.copy(isBusy = false, isError = false, message = SlotConfig.swapResultText(line) + note)
+                    }
+                }
+            } else if (showSlots) {
+                val text = line?.let { SlotConfig.swapResultText(it) } ?: SlotAssignment.failureText(reply)
+                slotState = slotState.copy(isBusy = false, isError = true, readOnly = line?.startsWith("ERR READ_ONLY") == true, message = text)
+            }
+        }
+    }
+
     private fun closeAlertLimits() {
         consoleClient.cancel()
         pendingConsoleAction = null
@@ -1174,22 +1198,25 @@ class MainActivity : ComponentActivity() {
         // The telemetry scan stops, so the console scan and connection have the radio.
         stopBleScan()
         healthState = SensorHealthState(isReading = true)
-        consoleClient.send(CONSOLE_STATUS) { reply ->
-            healthState = when (reply) {
-                is ConsoleReply.Frame -> try {
-                    val status = StatusReply.parse(reply.lines)
-                    val limit = panelConfig.values["sensor_battery_limit_pct"]?.toDoubleOrNull()
-                    SensorHealthState(rows = SensorHealth.rows(status, limit), ntp = status.ntp, sdFreeMb = status.sdFreeMb, reset = status.reset, shtc3 = status.shtc3, memory = status.memory, rtc = status.rtc, noise = status.noise, runtime = status.runtime, awake = status.awake, status = status).also { s ->
-                        sourceBadges = s.rows.mapNotNull { r -> r.badge?.let { r.slot to it } }.toMap()
-                    }
-                } catch (e: ParseException) {
-                    sourceBadges = emptyMap()
-                    SensorHealthState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
+        consoleClient.send(CONSOLE_STATUS) { reply -> applyStatusReply(reply) }
+    }
+
+    /** Stores the `STATUS` [reply] in the health state and refreshes the slot format badges. */
+    private fun applyStatusReply(reply: ConsoleReply) {
+        healthState = when (reply) {
+            is ConsoleReply.Frame -> try {
+                val status = StatusReply.parse(reply.lines)
+                val limit = panelConfig.values["sensor_battery_limit_pct"]?.toDoubleOrNull()
+                SensorHealthState(rows = SensorHealth.rows(status, limit), ntp = status.ntp, sdFreeMb = status.sdFreeMb, reset = status.reset, shtc3 = status.shtc3, memory = status.memory, rtc = status.rtc, noise = status.noise, runtime = status.runtime, awake = status.awake, status = status).also { s ->
+                    sourceBadges = s.rows.mapNotNull { r -> r.badge?.let { r.slot to it } }.toMap()
                 }
-                else -> {
-                    sourceBadges = emptyMap()
-                    SensorHealthState(message = BleConsoleClient.errorText(reply))
-                }
+            } catch (e: ParseException) {
+                sourceBadges = emptyMap()
+                SensorHealthState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
+            }
+            else -> {
+                sourceBadges = emptyMap()
+                SensorHealthState(message = BleConsoleClient.errorText(reply))
             }
         }
     }

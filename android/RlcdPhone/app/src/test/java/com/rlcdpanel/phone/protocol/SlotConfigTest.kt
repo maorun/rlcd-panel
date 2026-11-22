@@ -159,4 +159,31 @@ class SlotConfigTest {
         val named = PanelConfig(mapOf("slot1_name" to "KITCHEN"))
         assertEquals(emptyList<String>(), commands(SlotConfig.define(1, "", "kitchen", named)))
     }
+
+    @Test
+    fun swapSendsOneCommandForTwoFreeSlots() {
+        assertEquals(listOf("SLOT SWAP 1 4"), commands(SlotConfig.swap(1, 4, empty)))
+        assertEquals(listOf("SLOT SWAP 10 2"), commands(SlotConfig.swap(10, 2, empty)))
+    }
+
+    @Test
+    fun swapRefusesFixedMacDisabledEqualAndUnknownSlots() {
+        assertTrue(SlotConfig.swap(1, 4, PanelConfig(mapOf("slot4_mac" to mac.uppercase()))) is SlotConfig.Plan.Invalid)
+        assertTrue(SlotConfig.swap(1, 4, PanelConfig(mapOf("slot1_mac" to mac.uppercase()))) is SlotConfig.Plan.Invalid)
+        assertTrue(SlotConfig.swap(1, 2, PanelConfig(mapOf("slot2_enabled" to "0"))) is SlotConfig.Plan.Invalid)
+        assertTrue(SlotConfig.swap(3, 3, empty) is SlotConfig.Plan.Invalid)
+        assertTrue(SlotConfig.swap(0, 3, empty) is SlotConfig.Plan.Invalid)
+        assertTrue(SlotConfig.swap(3, 11, empty) is SlotConfig.Plan.Invalid)
+    }
+
+    @Test
+    fun swapReplyTexts() {
+        assertTrue(SlotConfig.swapSucceeded("OK SLOT SWAP 1 4"))
+        assertTrue(!SlotConfig.swapSucceeded("ERR FIXED_MAC"))
+        assertEquals("Ein Slot hat eine feste MAC und lässt sich nicht tauschen", SlotConfig.swapResultText("ERR FIXED_MAC"))
+        assertEquals("Slots getauscht", SlotConfig.swapResultText("OK SLOT SWAP 1 4"))
+        assertEquals("Ein Slot ist deaktiviert", SlotConfig.swapResultText("ERR SLOT_OFF"))
+        assertEquals("Set ble_console=2 to apply", SlotConfig.swapResultText("ERR READ_ONLY"))
+        assertEquals("ERR BAD_ARG", SlotConfig.swapResultText("ERR BAD_ARG"))
+    }
 }
