@@ -399,4 +399,12 @@ struct ReplyParserTests {
         #expect(ConsoleCommand.set(key: String(repeating: "k", count: 35), value: "1").line == nil)
         #expect(ConsoleCommand.history.line == "HISTORY")
     }
+
+    @Test func buildSnoozeLine() {
+        #expect(ConsoleCommand.snooze(60).line == "SNOOZE 60")
+        #expect(ConsoleCommand.snooze(0).line == "SNOOZE 0")
+        #expect(ConsoleCommand.snooze(720).line == "SNOOZE 720")
+        #expect(ConsoleCommand.snooze(721).line == nil)
+        #expect(ConsoleCommand.snooze(-1).line == nil)
+    }
 }

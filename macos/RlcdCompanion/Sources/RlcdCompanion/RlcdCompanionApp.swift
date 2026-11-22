@@ -39,6 +39,16 @@ struct RlcdCompanionApp: App {
                 NSApplication.shared.activate(ignoringOtherApps: true)
             }
             Divider()
+            if let text = model.diagnostics?.chime?.snoozeText {
+                Text(text)
+            }
+            Button("Mute for 1 hour") { model.snooze(minutes: 60) }
+                .disabled(!model.isIdle)
+            Button("Mute for 8 hours") { model.snooze(minutes: 480) }
+                .disabled(!model.isIdle)
+            Button("End snooze") { model.snooze(minutes: 0) }
+                .disabled(!model.isIdle)
+            Divider()
             Button("Quit") { NSApplication.shared.terminate(nil) }
         } label: {
             Label(summary.labelWithMark, systemImage: summary.symbolName)

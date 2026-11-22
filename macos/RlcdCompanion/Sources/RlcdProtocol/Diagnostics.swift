@@ -279,6 +279,8 @@ public struct ChimeMetrics: Equatable {
     public let bits: Int
     public let lastS: Int?
     public let nextS: Int?
+    /// Remaining seconds of a running `SNOOZE`; `nil` for `snooze_s=--` and for a line without the field (older firmware).
+    public var snoozeS: Int? = nil
 
     public static func parse(line: String) throws -> ChimeMetrics {
         let f = fieldMap(line)
@@ -287,7 +289,15 @@ public struct ChimeMetrics: Equatable {
               bitsText.utf8.allSatisfy({ ($0 >= 0x30 && $0 <= 0x39) || ($0 >= 0x61 && $0 <= 0x66) || ($0 >= 0x41 && $0 <= 0x46) }),
               let bits = Int(bitsText, radix: 16) else { throw ParseError.badLine(line) }
         return ChimeMetrics(repeatHours: repeatHours, bits: bits,
-                            lastS: try counter(f, "last_s", line: line), nextS: try counter(f, "next_s", line: line))
+                            lastS: try counter(f, "last_s", line: line), nextS: try counter(f, "next_s", line: line),
+                            snoozeS: f["snooze_s"] == nil ? nil : try counter(f, "snooze_s", line: line))
+    }
+
+    /// `Muted for <H:MM>` (minutes rounded up, so 3540 s gives `0:59`) or `nil` without a running snooze.
+    public var snoozeText: String? {
+        guard let snoozeS, snoozeS > 0 else { return nil }
+        let minutes = (snoozeS + 59) / 60
+        return String(format: "Muted for %d:%02d", minutes / 60, minutes % 60)
     }
 
     /// `Reminder off`, `No reminder due` or `Next reminder in <H> h <M> min` (minutes rounded down).

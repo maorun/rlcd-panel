@@ -2642,3 +2642,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `tests/fixtures/events_reply_sample.txt` has two new rows (`SCAN_FAULT,1`, `WINDOW_OPEN,257`) and a new CRC-32. Swift counts 24 rows with `EVENTS_DROPPED`, Kotlin counts 23 rows; the `sensors` category holds 10 rows.
 - Tests: `EventTextTests.scanFaultGivesFailedAndBack`, `EventFilterTests.scanFaultIsSensorAndWindowOpenIsClimate`, Kotlin `EventTextTest.scanFaultGivesFailedAndBack` and `windowOpenGivesTileText`, `EventFilterTest.scanFaultIsSensorAndWindowOpenIsClimate`, `EventsReplyTest.sharedFixtureParses`.
 - Validation: `swift test` (566 tests), `swift build -c release`, `check-protocol-sync.sh` and `--self-test` pass locally. The Swift tests fail without the source change. The Kotlin tests did not run locally (no Android SDK); the CI jobs run them.
+
+## Snooze menu in the macOS menu bar
+
+- `ConsoleCommand.snooze(Int)` sends `SNOOZE <M>` (M 0 to 720); another value gives no line. `AppModel.snooze(minutes:)` sends the command, then `STATUS`, only on a user action.
+- The `MenuBarExtra` shows `Mute for 1 hour`, `Mute for 8 hours` and `End snooze` (`SNOOZE 60`, `SNOOZE 480`, `SNOOZE 0`), disabled without an idle console link.
+- `ChimeMetrics.snoozeS` parses ` snooze_s=<N|-->` of the `CHIME` line (`nil` for `--` and for a missing field, `ParseError.badLine` for a bad number). `ChimeMetrics.snoozeText` gives `Muted for <H:MM>` (minutes rounded up); the menu and `DiagnosticsView` show it.
+- `EventText` shows `MUTE_CHANGE` with low byte 2 as `Chime snoozed (<source>)`.
+- Tests: `DiagnosticsTests.parsesChimeLine`, `ReplyParserTests.buildSnoozeLine`, `EventTextTests.muteChangeGivesStateAndSource`.
+- Validation: `swift test` (567 tests), `swift build -c release`, `check-protocol-sync.sh` and `--self-test` pass locally. The tests use the new API, so they do not compile without the change. CI not run yet.

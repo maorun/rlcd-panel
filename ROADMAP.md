@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Snooze menu in the macOS menu bar
-  - Rank: [Total: 30, Use: 8, Setup: 4, Harmony: 8, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift, macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift, macos/RlcdCompanion/Sources/RlcdCompanion/RlcdCompanionApp.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsTests.swift
-  - Goal: Add `ConsoleCommand.snooze(Int)` (`SNOOZE <M>`, 0 to 720). Add the menu items `Mute for 1 hour`, `Mute for 8 hours` and `End snooze` to the `MenuBarExtra`. Send the command, then `STATUS`. Parse ` snooze_s=<N|-->` of the `CHIME` line and show `Muted for <H:MM>`. Show `MUTE_CHANGE` with low byte 2 as `Chime snoozed (<source>)`. Do this after the firmware item "Console command SNOOZE for a timed mute".
-  - Acceptance test: `DiagnosticsTests` assert `snooze_s=3540` as 3540, `nil` for `--` and for a missing field, and `ParseError.badLine` for `snooze_s=x`. `ReplyTests` assert `SNOOZE 60` and a precondition failure for 721. `EventTextTests` assert the snooze text. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-
 - [ ] Snooze buttons and notification action in the Android app
   - Rank: [Total: 30, Use: 8, Setup: 4, Harmony: 8, Safety: 10, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ChimeCommand.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ChimeCommand.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/EventText.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/EventText.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/ChimeScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/AckReceiver.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/BleScanService.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/ChimeCommandTest.kt

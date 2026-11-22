@@ -280,6 +280,14 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         #expect(m == ChimeMetrics(repeatHours: 2, bits: 2, lastS: 3600, nextS: 3600))
         let noNext = try ChimeMetrics.parse(line: "CHIME repeat_h=2 bits=02 last_s=3600 next_s=--")
         #expect(noNext.nextS == nil)
+        let snoozed = try ChimeMetrics.parse(line: "CHIME repeat_h=0 bits=00 last_s=-- next_s=-- snooze_s=3540")
+        #expect(snoozed.snoozeS == 3540 && snoozed.snoozeText == "Muted for 0:59")
+        #expect(try ChimeMetrics.parse(line: "CHIME repeat_h=0 bits=00 last_s=-- next_s=-- snooze_s=--").snoozeS == nil)
+        #expect(m.snoozeS == nil && m.snoozeText == nil)
+        #expect(try ChimeMetrics.parse(line: "CHIME repeat_h=0 bits=00 last_s=-- next_s=-- snooze_s=7200").snoozeText == "Muted for 2:00")
+        #expect(try ChimeMetrics.parse(line: "CHIME repeat_h=0 bits=00 last_s=-- next_s=-- snooze_s=0").snoozeText == nil)
+        let badSnooze = "CHIME repeat_h=0 bits=00 last_s=-- next_s=-- snooze_s=x"
+        #expect(throws: ParseError.badLine(badSnooze)) { try ChimeMetrics.parse(line: badSnooze) }
         let noLast = try ChimeMetrics.parse(line: "CHIME repeat_h=0 bits=00 last_s=-- next_s=--")
         #expect(noLast.lastS == nil)
         let d = try DiagnosticsReply.parse(otherLines: ["CHIME": "CHIME repeat_h=2 bits=02 last_s=3600 next_s=3600"])
