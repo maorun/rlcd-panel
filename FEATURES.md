@@ -2660,3 +2660,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The alert notification has the action `1 h stumm` when `PanelConfig.canWrite` is true. `AckReceiver` (`ACTION_SNOOZE`) sends `SNOOZE 60` once through `BleConsoleClient` and shows the result text.
 - Tests: `ChimeCommandTest.snoozeLines`, `snoozeResultText`, `StatusReplyTest.parsesChimeLine`, `badChimeLineThrows`, `EventTextTest.muteChangeGivesStateAndSource`.
 - Validation: `check-protocol-sync.sh` and `--self-test` pass locally. The Gradle tests did not run locally (no Android SDK); CI runs them.
+
+## Clock sync button in the macOS diagnostics view
+
+- `ConsoleCommand.ntpSync` sends `NTP SYNC`. `ConsoleCommand.ntpSyncMessage` shows readable texts: `Clock synced`, `No Wi-Fi credentials on the panel` (`ERR NO_WIFI`), one text for each reason of `ERR NTP_FAILED <WIFI_FAILED|NTP_TIMEOUT|RTC_WRITE_FAILED>` and `Clock sync needs the USB serial link` (`ERR NOT_OVER_BLE`). Other text and an unknown reason stay raw.
+- `DiagnosticsView` shows the button `Sync clock now (Wi-Fi)` in the group `Clock sync (NTP)`. It needs an idle USB link. `AppModel.syncClockOverWifi` sends `NTP SYNC`, then `STATUS`, on a user action only. The existing `AppModel.syncClock` (`TIME SET`) is unchanged.
+- `SlotAssignment.timeoutSeconds(for: .ntpSync)` is 30 s (`ntpSyncTimeoutSeconds`), because the panel blocks for about 14 s. `SlotAssignment.ntpSyncAllowed(onUsb:)` allows USB only.
+- Test: `ReplyTests.ntpSyncCommandAndTexts`.
+- Validation: `swift test` (568 tests), `swift build -c release`, `check-protocol-sync.sh` and `--self-test` pass locally.

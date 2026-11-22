@@ -305,6 +305,8 @@ struct DiagnosticsView: View {
                 Text("\(m.ok ? "ok" : "failed")  failures \(m.failures)  last try \(n(m.ageSeconds)) s ago  next in \(n(m.nextSeconds)) s")
             }
         } else { Text("no sync attempt yet or no Wi-Fi credentials").foregroundStyle(.secondary) }
+        Button("Sync clock now (Wi-Fi)") { model.syncClockOverWifi() }
+            .disabled(!model.canSet || !model.isIdle || model.transport != .usb)
     }
 
     @ViewBuilder private func sdCard(_ s: StatusReply?) -> some View {

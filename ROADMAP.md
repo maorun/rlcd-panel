@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Clock sync button in the macOS diagnostics view
-  - Rank: [Total: 30, Use: 5, Setup: 8, Harmony: 8, Safety: 9, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift
-  - Goal: Add `ConsoleCommand.ntpSync` (`NTP SYNC`). Add the button `Sync clock now (Wi-Fi)` to the group `Clock sync (NTP)`. Send the command on the USB link only, with a 30 s reply timeout, then `STATUS`. Show readable texts for `ERR NO_WIFI`, `ERR NTP_FAILED <reason>` and `ERR NOT_OVER_BLE`. Do this after the firmware item "Console command NTP SYNC to sync the clock on request".
-  - Acceptance test: `ReplyTests` assert the command line, the texts of `ERR NO_WIFI` and `ERR NTP_FAILED NTP_TIMEOUT`, and the raw text for an unknown reason. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-
 - [ ] Snooze action in the Wear OS alert notification
   - Rank: [Total: 28, Use: 7, Setup: 3, Harmony: 8, Safety: 10, Effort: S]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/BleScanService.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/AckReceiver.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ChimeCommandTest.kt
