@@ -179,6 +179,14 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("SENSOR_BATTERY", 516)) == "SENSOR_BATTERY,516")
     }
 
+    @Test func scanFaultGivesFailedAndBack() {
+        #expect(EventText.describe(row("SCAN_FAULT", 1)) == "BLE scan start failed")
+        #expect(EventText.describe(row("SCAN_FAULT", 0)) == "BLE scan works again")
+        #expect(EventText.describe(row("SCAN_FAULT", 2)) == "SCAN_FAULT,2")
+        #expect(EventText.describe(row("SCAN_FAULT", 256)) == "SCAN_FAULT,256")
+        #expect(EventText.describe(row("WINDOW_OPEN", 523)) == "WINDOW_OPEN,523")
+    }
+
     @Test func slotStaleGivesLostAndBack() {
         #expect(EventText.describe(row("SLOT_STALE", 0x0002)) == "Slot 2 lost")
         #expect(EventText.describe(row("SLOT_STALE", 0x0102)) == "Slot 2 back")
@@ -281,7 +289,7 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
             .filter { !$0.hasPrefix("CRC32") }
         let rows = try EventsReply.parse(lines: lines)
-        #expect(rows.count == 22)
+        #expect(rows.count == 24)
         #expect(rows[0] == EventRow(time: "2026-11-18 09:00:00", event: "EVENTS_DROPPED", detail: 0))
         let texts = rows.dropFirst().map(EventText.describe)
         #expect(texts[0] == "reset PANIC (abnormal)")
@@ -297,6 +305,8 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(texts[17] == "Slot 4 battery low")
         #expect(texts[18] == "Slot 4 battery OK")
         #expect(texts[19] == "Slot 3 reading jump dropped")
-        #expect(texts[20] == "FUTURE_EVENT,7")
+        #expect(texts[20] == "BLE scan start failed")
+        #expect(texts[21] == "Window open in Slot 1")
+        #expect(texts[22] == "FUTURE_EVENT,7")
     }
 }

@@ -15,7 +15,7 @@ object EventFilter {
     /** The names match `EventCode` in `rlcd_panel/sd_logger.h`; a new code falls into `OTHER` until it is listed here. */
     val NAMES: Map<Category, Set<String>> = mapOf(
         Category.ALERTS to setOf("ALERT_RISE", "ALERT_FALL", "ALERT_ACK", "BATTERY_LOW_SET", "BATTERY_LOW_CLEAR", "EMPTY_PROTECTION"),
-        Category.SENSORS to setOf("SLOT_ASSIGN", "SLOT_RELEASE", "SLOT_STALE", "SHTC3_FAULT", "SENSOR_BATTERY", "JUMP_DROP"),
+        Category.SENSORS to setOf("SLOT_ASSIGN", "SLOT_RELEASE", "SLOT_STALE", "SHTC3_FAULT", "SENSOR_BATTERY", "JUMP_DROP", "SCAN_FAULT"),
         Category.CLIMATE to setOf("WINDOW_OPEN"),
         Category.POWER to setOf("RESET", "POWER_SOURCE", "SD_FAULT"),
         Category.CONFIG to setOf("CONFIG_LOAD", "CONFIG_SET", "NTP_SYNC", "MUTE_CHANGE")

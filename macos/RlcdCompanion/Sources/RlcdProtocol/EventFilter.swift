@@ -13,7 +13,7 @@ public enum EventFilter {
     /// The names match `EventCode` in `rlcd_panel/sd_logger.h`; a new code falls into `other` until it is listed here.
     private static let names: [Category: Set<String>] = [
         .alerts: ["ALERT_RISE", "ALERT_FALL", "ALERT_ACK", "BATTERY_LOW_SET", "BATTERY_LOW_CLEAR", "EMPTY_PROTECTION"],
-        .sensors: ["SLOT_ASSIGN", "SLOT_RELEASE", "SLOT_STALE", "SHTC3_FAULT", "SENSOR_BATTERY", "JUMP_DROP"],
+        .sensors: ["SLOT_ASSIGN", "SLOT_RELEASE", "SLOT_STALE", "SHTC3_FAULT", "SENSOR_BATTERY", "JUMP_DROP", "SCAN_FAULT"],
         .climate: ["WINDOW_OPEN"],
         .power: ["RESET", "POWER_SOURCE", "SD_FAULT"],
         .config: ["CONFIG_LOAD", "CONFIG_SET", "NTP_SYNC", "MUTE_CHANGE"],

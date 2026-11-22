@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Event texts for SCAN_FAULT and WINDOW_OPEN in the companion apps
-  - Rank: [Total: 31, Use: 5, Setup: 7, Harmony: 9, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift, macos/RlcdCompanion/Sources/RlcdProtocol/EventFilter.swift, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/EventText.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/EventFilter.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/EventText.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/EventFilter.kt, tests/fixtures/events_reply_sample.txt, macos/RlcdCompanion/Tests/RlcdProtocolTests/EventTextTests.swift, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/EventTextTest.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/EventTextTest.kt
-  - Goal: Show `SCAN_FAULT` events as `BLE scan start failed` (detail 1) and `BLE scan works again` (detail 0) in the three apps. Put `SCAN_FAULT` in the filter category `sensors`. Show `WINDOW_OPEN` events in the shared Kotlin `EventText.kt` as `Window open (tile <N>)` and `Window closed (tile <N>)`, with `Onboard` for tile 0. Keep the raw text for another detail. Add one row of each code to the shared events fixture.
-  - Acceptance test: `EventTextTests`, `EventFilterTests` and the Kotlin `EventTextTest`, `EventFilterTest` and `EventsReplyTest` assert both texts of each code, the raw text for `SCAN_FAULT,2` and `WINDOW_OPEN,523`, the category, and the new fixture row counts (Swift counts the `EVENTS_DROPPED` row, Kotlin does not). `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass. `./scripts/check-protocol-sync.sh` and `./scripts/check-protocol-sync.sh --self-test` exit 0. The Android and Wear OS CI jobs pass.
-
 - [ ] Snooze menu in the macOS menu bar
   - Rank: [Total: 30, Use: 8, Setup: 4, Harmony: 8, Safety: 10, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift, macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift, macos/RlcdCompanion/Sources/RlcdCompanion/RlcdCompanionApp.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsTests.swift

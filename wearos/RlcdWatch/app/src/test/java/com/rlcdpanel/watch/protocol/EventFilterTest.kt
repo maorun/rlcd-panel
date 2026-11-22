@@ -39,14 +39,14 @@ class EventFilterTest {
     @Test
     fun filtersFixtureByCategories() {
         val log = EventsReply.parse(fixtureLines())
-        assertEquals(21, log.rows.size)
+        assertEquals(23, log.rows.size)
         assertEquals(0, log.dropped)
 
         val alerts = EventFilter.apply(log.rows, setOf(EventFilter.Category.ALERTS))
         assertEquals(3, alerts.size)
 
         val sensors = EventFilter.apply(log.rows, setOf(EventFilter.Category.SENSORS))
-        assertEquals(9, sensors.size)
+        assertEquals(10, sensors.size)
 
         val power = EventFilter.apply(log.rows, setOf(EventFilter.Category.POWER))
         assertEquals(4, power.size)
@@ -62,6 +62,14 @@ class EventFilterTest {
     }
 
     @Test
+    fun scanFaultIsSensorAndWindowOpenIsClimate() {
+        assertEquals(EventFilter.Category.SENSORS, EventFilter.category("SCAN_FAULT"))
+        assertEquals(EventFilter.Category.CLIMATE, EventFilter.category("WINDOW_OPEN"))
+        val log = EventsReply.parse(fixtureLines())
+        assertEquals(1, EventFilter.apply(log.rows, setOf(EventFilter.Category.CLIMATE)).size)
+    }
+
+    @Test
     fun unlistedEventsAreOther() {
         assertEquals(EventFilter.Category.OTHER, EventFilter.category("CLOCK_SET"))
         assertEquals(EventFilter.Category.OTHER, EventFilter.category("FUTURE_EVENT"))
@@ -72,7 +80,7 @@ class EventFilterTest {
     fun emptySetKeepsAllRowsAndPreservesOrder() {
         val log = EventsReply.parse(fixtureLines())
         val filtered = EventFilter.apply(log.rows, emptySet())
-        assertEquals(21, filtered.size)
+        assertEquals(23, filtered.size)
         assertEquals(log.rows, filtered)
     }
 

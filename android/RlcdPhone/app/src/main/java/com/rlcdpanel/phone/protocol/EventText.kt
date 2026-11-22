@@ -132,6 +132,18 @@ object EventText {
                     if (action == 0) "Clock set ($name)" else "RTC trimmed ($name)"
                 }
             }
+            "SCAN_FAULT" -> when (d) {
+                1 -> "BLE scan start failed"
+                0 -> "BLE scan works again"
+                else -> raw
+            }
+            "WINDOW_OPEN" -> {
+                // Low byte is the tile (0 onboard, 1 to 10 slots); the high byte 1 marks an open window, 0 a closed one.
+                val tile = d and 0xFF
+                val open = d shr 8
+                if (d !in 0..0xFFFF || tile > 10 || open > 1) raw
+                else "Window ${if (open == 1) "open" else "closed"} (${if (tile == 0) "Onboard" else "tile $tile"})"
+            }
             "SD_FAULT" -> SD_STATUSES[d]?.let { if (d == 1) "SD card OK" else "SD card fault: $it" } ?: raw
             else -> raw
         }
