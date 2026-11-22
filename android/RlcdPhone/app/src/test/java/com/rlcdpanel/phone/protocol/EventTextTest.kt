@@ -18,6 +18,24 @@ class EventTextTest {
     }
 
     @Test
+    fun scanFaultGivesFailedAndBack() {
+        assertEquals("BLE scan start failed", EventText.describe(row("SCAN_FAULT", 1)))
+        assertEquals("BLE scan works again", EventText.describe(row("SCAN_FAULT", 0)))
+        assertEquals("SCAN_FAULT,2", EventText.describe(row("SCAN_FAULT", 2)))
+        assertEquals("SCAN_FAULT,256", EventText.describe(row("SCAN_FAULT", 256)))
+    }
+
+    @Test
+    fun windowOpenGivesTileText() {
+        assertEquals("Window open (Onboard)", EventText.describe(row("WINDOW_OPEN", 0x0100)))
+        assertEquals("Window closed (Onboard)", EventText.describe(row("WINDOW_OPEN", 0x0000)))
+        assertEquals("Window open (tile 3)", EventText.describe(row("WINDOW_OPEN", 0x0103)))
+        assertEquals("Window closed (tile 10)", EventText.describe(row("WINDOW_OPEN", 0x000A)))
+        assertEquals("WINDOW_OPEN,523", EventText.describe(row("WINDOW_OPEN", 523)))
+        assertEquals("WINDOW_OPEN,11", EventText.describe(row("WINDOW_OPEN", 11)))
+    }
+
+    @Test
     fun jumpDropGivesSlotText() {
         assertEquals("Slot 3 reading jump dropped", EventText.describe(row("JUMP_DROP", 3)))
         assertEquals("Slot 10 reading jump dropped", EventText.describe(row("JUMP_DROP", 10)))

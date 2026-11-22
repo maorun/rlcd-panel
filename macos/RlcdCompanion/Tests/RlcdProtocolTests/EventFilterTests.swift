@@ -18,9 +18,9 @@ import Foundation
 
     @Test func rowCountOfEachCategory() throws {
         let rows = try sampleRows()
-        #expect(rows.count == 22)
+        #expect(rows.count == 24)
         #expect(EventFilter.apply(rows, [.alerts]).count == 3)
-        #expect(EventFilter.apply(rows, [.sensors]).count == 9)
+        #expect(EventFilter.apply(rows, [.sensors]).count == 10)
         #expect(EventFilter.apply(rows, [.power]).count == 4)
         #expect(EventFilter.apply(rows, [.config]).count == 2)
         #expect(EventFilter.apply(rows, [.other]).count == 4)
@@ -33,6 +33,14 @@ import Foundation
         #expect(EventFilter.category(of: "SENSOR_BATTERY") == .sensors)
         #expect(EventFilter.category(of: "JUMP_DROP") == .sensors)
         #expect(EventFilter.apply(rows, [.sensors]).map(\.event).contains("SHTC3_FAULT"))
+    }
+
+    @Test func scanFaultIsSensorAndWindowOpenIsClimate() throws {
+        let rows = try sampleRows()
+        #expect(EventFilter.category(of: "SCAN_FAULT") == .sensors)
+        #expect(EventFilter.apply(rows, [.sensors]).map(\.event).contains("SCAN_FAULT"))
+        #expect(EventFilter.category(of: "WINDOW_OPEN") == .climate)
+        #expect(EventFilter.apply(rows, [.climate]).count == 1)
     }
 
     @Test func futureEventIsOther() throws {

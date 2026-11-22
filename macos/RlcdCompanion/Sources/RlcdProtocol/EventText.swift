@@ -91,6 +91,9 @@ public enum EventText {
             let slot = d & 0xFF, low = d >> 8
             guard (0...0xFFFF).contains(d), (1...10).contains(slot), low <= 1 else { return raw }
             return low == 1 ? "Slot \(slot) battery low" : "Slot \(slot) battery OK"
+        case "SCAN_FAULT":
+            guard d == 0 || d == 1 else { return raw }
+            return d == 1 ? "BLE scan start failed" : "BLE scan works again"
         case "WINDOW_OPEN":
             // Low byte is the tile (0 onboard, 1 to 10 slots); the high byte 1 marks an open window, 0 a closed one.
             let tile = d & 0xFF, open = d >> 8
