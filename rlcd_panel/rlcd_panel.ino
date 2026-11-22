@@ -1615,6 +1615,24 @@ void setup() {
       ble_console.stop();
       Runner::scan(sink, scan_registry, consoleScanOnce);
       ble_console.start(); // the scan stopped the BLE stack
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::NTP_SYNC) {
+      // One sync on request, USB only (BleConsoleBridge::gate). No card access. The radio runs only inside the call
+      // (about 14 s); the save of this wake cycle writes the NTP state.
+      const TimeZone ntp_tz{RLCD_TZ_STD_OFFSET_S, RLCD_TZ_EU_DST != 0};
+      RtcTime ntp_now = g_rtc_time;
+      ble_console.stop(); // the radio is Wi-Fi only inside the call
+      Runner::ntpSync(sink, g_state.ntp, NtpSchedule::hasCredentials(RLCD_WIFI_SSID, RLCD_WIFI_PASSWORD),
+                      &g_state.events, &ntp_now, [&]() {
+                        const NtpResult ntp_result =
+                            NtpClient::sync(g_rtc, RLCD_WIFI_SSID, RLCD_WIFI_PASSWORD, ntp_tz, g_state.rtc_drift);
+                        if (ntp_result == NtpResult::OK) {
+                          updateRtc(); // the event and the header clock take the new time
+                          ntp_now = g_rtc_time;
+                        }
+                        return ntp_result;
+                      }, []() { return nowMs(); });
+      ble_console.start();
+      renderDashboard(); // the header clock shows the new time
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::PATTERN) {
       // Raw flush without display_invert: g_panel.flush, not flushFramebuffer(); keep it so (the host test checks the raw bytes). No card access. The pattern
       // stays until the next render; the next wake cycle draws the normal view again.

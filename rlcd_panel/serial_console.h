@@ -36,14 +36,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK, IDENTIFY, SNOOZE };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
+  BAD_ARG,  // CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '='); CONFIG <key> with an unknown key
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv, daily_v4_YYYY.csv or events_v1_YYYY.csv
@@ -420,6 +420,18 @@ public:
       out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
       return SerialParseStatus::OK;
     }
+    if (matches(line, cmd_len, "NTP")) {
+      static const char ntp_prefix[] = "NTP SYNC";
+      const size_t ntp_len = sizeof(ntp_prefix) - 1;
+      if (len < ntp_len || memcmp(line, ntp_prefix, ntp_len) != 0 || (len > ntp_len && line[ntp_len] != ' ')) {
+        return SerialParseStatus::UNKNOWN; // only "NTP SYNC" exists
+      }
+      if (len != ntp_len) {
+        return SerialParseStatus::BAD_ARG; // NTP SYNC takes no argument
+      }
+      out.kind = SerialCommandKind::NTP_SYNC;
+      return SerialParseStatus::OK;
+    }
     if (matches(line, cmd_len, "RTC")) {
       if (len != 8 || memcmp(line, "RTC TRIM", 8) != 0) {
         return SerialParseStatus::UNKNOWN; // only "RTC TRIM" exists
@@ -614,8 +626,8 @@ private:
 //   ble_console 0: nothing (the service does not run)
 //   ble_console 1: the read commands; SET, MUTE, SNOOZE, ACK, SLOT CLEAR, TIME SET and RTC TRIM reply "ERR READ_ONLY"
 //   ble_console 2: also SET, MUTE, SNOOZE, ACK, SLOT CLEAR, TIME SET and RTC TRIM
-//   DUMP (a monthly file is too large for BLE), SCREEN (15,000 bytes) and SCAN (the scan stops the BLE stack that carries
-//   the console) reply "ERR NOT_OVER_BLE" at each level.
+//   DUMP (a monthly file is too large for BLE), SCREEN (15,000 bytes), SCAN (the scan stops the BLE stack that carries
+//   the console) and NTP SYNC (the Wi-Fi sync blocks the loop and shares the radio with the console) reply "ERR NOT_OVER_BLE" at each level.
 // Only one central connects. A disconnect clears the partial line.
 class BleConsoleBridge {
 public:
@@ -682,7 +694,7 @@ public:
   // Empty text: the command may run at this level.
   static const char* gate(const SerialCommand& command, uint8_t level) {
     if (command.kind == SerialCommandKind::DUMP || command.kind == SerialCommandKind::SCAN ||
-        command.kind == SerialCommandKind::SCREEN) {
+        command.kind == SerialCommandKind::SCREEN || command.kind == SerialCommandKind::NTP_SYNC) {
       return "ERR NOT_OVER_BLE\n";
     }
     const bool writes = command.kind == SerialCommandKind::SET || command.kind == SerialCommandKind::MUTE || command.kind == SerialCommandKind::SNOOZE ||
@@ -1910,6 +1922,32 @@ public:
     return true;
   }
 
+  // NTP SYNC: runs one NTP sync on request (USB only, "ERR NOT_OVER_BLE" on BLE). Without Wi-Fi credentials the reply is
+  // "ERR NO_WIFI" and nothing runs or records. Else `run_sync()` runs NtpClient::sync and returns the NtpResult;
+  // NtpSchedule::record stores the attempt, and one NTP_SYNC event records the result (detail = NtpResult) with the time
+  // that `*now` holds after the call (the sketch re-reads the RTC in `run_sync`). Reply "OK NTP SYNC" or
+  // "ERR NTP_FAILED <WIFI_FAILED|NTP_TIMEOUT|RTC_WRITE_FAILED>". No card access. Returns true after a successful sync.
+  template <typename RunSync, typename Clock>
+  static bool ntpSync(Sink& sink, NtpSyncState& state, bool credentials, EventRing* events, const RtcTime* now,
+                      RunSync run_sync, Clock clock_ms) {
+    if (!credentials) {
+      send(sink, "ERR NO_WIFI\n");
+      return false;
+    }
+    const NtpResult result = run_sync();
+    NtpSchedule::record(state, clock_ms(), result == NtpResult::OK); // read after the call: the sync takes seconds
+    if (events != nullptr && now != nullptr) {
+      events->record(*now, EventCode::NTP_SYNC, static_cast<uint16_t>(result));
+    }
+    switch (result) {
+      case NtpResult::OK: send(sink, "OK NTP SYNC\n"); return true;
+      case NtpResult::NTP_TIMEOUT: send(sink, "ERR NTP_FAILED NTP_TIMEOUT\n"); return false;
+      case NtpResult::RTC_WRITE_FAILED: send(sink, "ERR NTP_FAILED RTC_WRITE_FAILED\n"); return false;
+      case NtpResult::WIFI_FAILED:
+      default: send(sink, "ERR NTP_FAILED WIFI_FAILED\n"); return false;
+    }
+  }
+
   // Plays the chime of alert bit `bit` (0 to 7) once and replies "OK BEEP <bit> <duration ms>". The
   // reply "ERR MUTED" (mute, quiet hours or volume 0) leaves the hardware untouched, "ERR PLAY_FAILED"
   // follows a failed playback. The Hal powers down on every path (AudioSequencer). A cleared bit in
@@ -2175,7 +2213,8 @@ public:
         command.kind == SerialCommandKind::RTC_TRIM || command.kind == SerialCommandKind::WEEK ||
         command.kind == SerialCommandKind::SLOT_CLEAR || command.kind == SerialCommandKind::SLOT_SWAP ||
         command.kind == SerialCommandKind::REJECTS || command.kind == SerialCommandKind::ACK ||
-        command.kind == SerialCommandKind::IDENTIFY || command.kind == SerialCommandKind::SNOOZE) {
+        command.kind == SerialCommandKind::IDENTIFY || command.kind == SerialCommandKind::SNOOZE ||
+        command.kind == SerialCommandKind::NTP_SYNC) {
       return;
     }
     if (!storage.mount()) {
@@ -2207,6 +2246,7 @@ public:
       case SerialCommandKind::ACK:
       case SerialCommandKind::IDENTIFY:
       case SerialCommandKind::SNOOZE:
+      case SerialCommandKind::NTP_SYNC:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;

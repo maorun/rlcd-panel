@@ -23813,6 +23813,93 @@ void testSlotEnabledFeature() {
   DashboardView::renderSensorStats(stats_fb, bat_rd, stats_slots, 10, "12:00", 10000, false, nullptr, nullptr, &st_cfg);
 }
 
+void testNtpSyncCommand() {
+  SerialCommand cmd;
+  assert(parseText("NTP SYNC", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::NTP_SYNC);
+  assert(parseText("NTP SYNC 1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("NTP SYNC ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("NTP", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("NTP SYNCS", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("ntp sync", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("NTP SYNC", cmd) == SerialParseStatus::OK);
+  FakeConsoleStorage storage;
+  FakeSink none;
+  TestRunner::execute(storage, none, cmd); // no card access
+  assert(none.out.empty() && storage.mounts == 0);
+  for (uint8_t level = 1; level <= 2; ++level) {
+    assert(std::string(BleConsoleBridge::gate(cmd, level)) == "ERR NOT_OVER_BLE\n");
+  }
+  // Through the bridge: the reply is fixed text, the command never runs.
+  BleConsoleBridge bridge;
+  bridge.setLevel(2);
+  assert(bridge.onConnect());
+  const std::string line = "NTP SYNC\n";
+  SerialCommand fed;
+  const char* reply = "";
+  BleConsoleBridge::Action action = BleConsoleBridge::Action::NONE;
+  for (char c : line) {
+    action = bridge.feed(static_cast<uint8_t>(c), fed, reply);
+  }
+  assert(action == BleConsoleBridge::Action::REPLY && std::string(reply) == "ERR NOT_OVER_BLE\n");
+
+  // One reply for each NtpResult, one event with the result as detail, NtpSchedule::record for the attempt.
+  RtcTime now;
+  now.valid = true;
+  now.year = 2026;
+  now.month = 11;
+  now.day = 22;
+  const struct {
+    NtpResult result;
+    const char* reply;
+  } cases[] = {
+      {NtpResult::OK, "OK NTP SYNC\n"},
+      {NtpResult::WIFI_FAILED, "ERR NTP_FAILED WIFI_FAILED\n"},
+      {NtpResult::NTP_TIMEOUT, "ERR NTP_FAILED NTP_TIMEOUT\n"},
+      {NtpResult::RTC_WRITE_FAILED, "ERR NTP_FAILED RTC_WRITE_FAILED\n"},
+  };
+  for (const auto& c : cases) {
+    FakeSink sink;
+    NtpSyncState state;
+    state.failures = 3;
+    EventRing events;
+    int calls = 0;
+    const bool ok = TestRunner::ntpSync(sink, state, true, &events, &now, [&]() {
+      ++calls;
+      return c.result;
+    }, [] { return 5000U; });
+    assert(calls == 1 && ok == (c.result == NtpResult::OK) && sink.out == c.reply);
+    assert(state.has_attempted && state.last_attempt_ms == 5000 && state.last_ok == ok);
+    assert(state.failures == (ok ? 0 : 4));
+    assert(events.size() == 1 && events.at(0).code == EventCode::NTP_SYNC &&
+           events.at(0).detail == static_cast<uint16_t>(c.result));
+  }
+  // The NTP line of STATUS after a success: ok=1 failures=0.
+  {
+    StatusFixture f;
+    NtpSyncState state;
+    state.failures = 2;
+    f.snap.ntp = &state;
+    f.snap.ntp_credentials = true;
+    FakeSink sink;
+    EventRing events;
+    f.snap.now_ms = 100000;
+    assert(TestRunner::ntpSync(sink, state, true, &events, &now, [] { return NtpResult::OK; }, [&] { return f.snap.now_ms; }));
+    assert(statusLines(f.run())[14] == "NTP ok=1 failures=0 age_s=0 next_s=86400");
+  }
+  // Without credentials: no sync call, no state change, no event.
+  {
+    FakeSink sink;
+    NtpSyncState state;
+    EventRing events;
+    int calls = 0;
+    assert(!TestRunner::ntpSync(sink, state, NtpSchedule::hasCredentials("", ""), &events, &now, [&]() {
+      ++calls;
+      return NtpResult::OK;
+    }, [] { return 1U; }));
+    assert(sink.out == "ERR NO_WIFI\n" && calls == 0 && !state.has_attempted && events.size() == 0);
+  }
+}
+
 int main() {
   testTempUnitConfig();
   testClimateMathToDisplay();
@@ -24323,6 +24410,7 @@ testSerialConfigNegativeSmallOffset();
   testClockSetEvents();
   testRtcTrimFailuresKeepBaseline();
   testRtcTrimParserAndGate();
+  testNtpSyncCommand();
   testRtcTrimStatusLine();
   testRtcDriftIntervalPersistence();
   testDiagnosticsRtcDriftLine();
