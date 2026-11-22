@@ -47,9 +47,11 @@ fun SlotConfigScreen(
     /** Format badge of each slot from the last sensor health read (slot 1..10); empty before a read. */
     formats: Map<Int, String>,
     onApply: (List<String>) -> Unit,
+    onSwap: (String) -> Unit,
     onBack: () -> Unit
 ) {
     var editing by remember { mutableStateOf<Int?>(null) }
+    var swapping by remember { mutableStateOf<Int?>(null) }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
@@ -108,12 +110,26 @@ fun SlotConfigScreen(
                                 onClick = { (SlotConfig.clear(slot) as? SlotConfig.Plan.Commands)?.let { onApply(it.commands) } },
                                 enabled = !state.isBusy && panelConfig.canWrite
                             ) { Text("Leeren") }
+                            if (panelConfig.canWrite) {
+                                OutlinedButton(
+                                    onClick = { swapping = slot },
+                                    enabled = !state.isBusy && panelConfig.slotMac(slot) == null && slotOn
+                                ) { Text("Tauschen mit …") }
+                            }
                         }
                     }
                 }
             }
             item { Spacer(modifier = Modifier.height(24.dp)) }
         }
+    }
+    swapping?.let { slot ->
+        SlotSwapDialog(
+            slot = slot,
+            panelConfig = panelConfig,
+            onSwap = { command -> swapping = null; onSwap(command) },
+            onDismiss = { swapping = null }
+        )
     }
     editing?.let { slot ->
         SlotEditorDialog(
@@ -162,6 +178,33 @@ private fun SlotEditorDialog(
                 enabled = plan is SlotConfig.Plan.Commands && plan.commands.isNotEmpty() && panelConfig.canWrite
             ) { Text("Anwenden") }
         },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } }
+    )
+}
+
+@Composable
+private fun SlotSwapDialog(
+    slot: Int,
+    panelConfig: PanelConfig,
+    onSwap: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Slot $slot tauschen mit") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                for (other in SlotAssignment.SLOTS.filter { it != slot }) {
+                    val plan = SlotConfig.swap(slot, other, panelConfig)
+                    TextButton(
+                        onClick = { (plan as? SlotConfig.Plan.Commands)?.let { onSwap(it.commands.first()) } },
+                        enabled = plan is SlotConfig.Plan.Commands && panelConfig.canWrite
+                    ) { Text("Slot $other") }
+                }
+                Text("Nur Slots ohne feste MAC und nicht deaktiviert.", style = MaterialTheme.typography.bodySmall)
+            }
+        },
+        confirmButton = {},
         dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } }
     )
 }

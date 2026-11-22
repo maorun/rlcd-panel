@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Slot swap in the Android slot configuration screen
-  - Rank: [Total: 33, Use: 6, Setup: 10, Harmony: 8, Safety: 9, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SlotConfig.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SlotConfigScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/SlotConfigTest.kt
-  - Goal: Add `SlotConfig.swap(a, b, config): Plan`. Give `Plan.Commands(listOf("SLOT SWAP <A> <B>"))` for two different slots from 1 to 10. Give `Plan.Invalid` for a slot with a fixed MAC, for a disabled slot (`slotN_enabled=0`) and for equal slots. Add the button `Tauschen mit …` to the slot editor when `PanelConfig.canWrite` is true. Send `STATUS` after an `OK SLOT SWAP` reply.
-  - Acceptance test: `SlotConfigTest` asserts the command for slots 1 and 4, `Plan.Invalid` for a fixed MAC in slot 4, for `slot2_enabled=0` and for slots 3 and 3, and the result text of `ERR FIXED_MAC`. `gradle testDebugUnitTest` passes in CI.
-
 - [ ] Identify action in the Wear OS sensor health screen
   - Rank: [Total: 32, Use: 5, Setup: 9, Harmony: 8, Safety: 10, Effort: S]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ChimeCommand.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ChimeCommand.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ChimeCommandTest.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/ChimeCommandTest.kt

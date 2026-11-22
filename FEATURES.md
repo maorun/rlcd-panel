@@ -2599,3 +2599,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The macOS `ConfigSchema` has the entry `mold_alert_delay_h` (integer 1 to 12, off 0) and `ConfigSchemaTests.rangesMatchFirmwareConstants` checks the range.
 - Tests: `testMoldAlertDelay` (delay 0, two and three samples with delay 3, a sample at the limit, a live reading at the limit, no history, release, slot tile), `testMoldAlertDelayConfig` (parser, rejected 13 and -1, text round trip, `SET` check, RTC round trip and rejected trailer byte). The test without the change fails in `testMoldAlertDelay`.
 - Validation: the host tests (231 suites), `swift test` (564 tests) and `arduino-cli compile rlcd_panel` pass locally. The delay is not tested with hardware.
+
+## Slot swap in the Android slot configuration screen
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SlotConfig.kt`, `SlotConfigScreen.kt`, `MainActivity.kt`
+- `SlotConfig.swap(a, b, config)` gives `Plan.Commands(listOf("SLOT SWAP <A> <B>"))` for two different slots from 1 to 10. It gives `Plan.Invalid` for a slot with a fixed MAC, for a disabled slot (`slotN_enabled=0`), for equal slots and for a slot outside 1 to 10.
+- `SlotConfig.swapSucceeded` and `SlotConfig.swapResultText` word the reply (`OK SLOT SWAP`, `ERR FIXED_MAC`, `ERR SLOT_OFF`, `ERR READ_ONLY`).
+- `SlotConfigScreen` shows the button `Tauschen mit …` for each slot when `PanelConfig.canWrite` is true. The dialog lists the other slots and disables each slot that `swap` refuses. `MainActivity.swapSlots` sends the command and sends `STATUS` after an `OK SLOT SWAP` reply.
+- Tests: `SlotConfigTest` (`swapSendsOneCommandForTwoFreeSlots`, `swapRefusesFixedMacDisabledEqualAndUnknownSlots`, `swapReplyTexts`).
+- Validation: `check-protocol-sync.sh` and its `--self-test` pass locally. `gradle testDebugUnitTest` did not run locally (no Android SDK); CI runs it.
