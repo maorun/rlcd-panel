@@ -13,6 +13,7 @@
 #include "pcf85063_rtc.h"
 #include "sd_logger.h"
 #include "es7210_mic.h"
+#include "ntp_sync.h"
 #include "shtc3_sensor.h"
 #include "sparkline.h"
 #include "st7305_framebuffer.h"
@@ -53,6 +54,9 @@ struct SystemInfo {
   int32_t sd_free_mb = -1;     // free MicroSD space in MB; negative (unmounted, unknown) shows "--"
   SdStatus sd_status = SdStatus::UNKNOWN; // card fault replaces the free space text (OK and UNKNOWN keep it)
   Shtc3Health shtc3;           // failed onboard SHTC3 reads; "SHTC3 ERR: N" is inverted from a run of 3
+  NtpSyncState ntp;            // RTC copy of the NTP attempt state for the "NTP:" line
+  bool ntp_credentials = false; // Wi-Fi credentials exist; without them the line shows "NTP: --"
+  uint32_t now_ms = 0;         // RTC-backed clock (nowMs()) for the age of the last sync
 };
 
 class DashboardView {
@@ -147,6 +151,8 @@ public:
   static constexpr uint16_t LOOPBACK_Y = 260; // diagnostics: speaker to microphone test line
   static constexpr uint16_t MIC_TEST_Y = 224; // diagnostics: microphone self-test line
   static constexpr uint16_t PERCENTILE_X = 240; // diagnostics: "L10/L90" text (scale 1) right of "SD FREE"
+  static constexpr uint16_t NTP_X = 300; // diagnostics: "NTP:" text (scale 1) right of the "UP:" line; 16 glyphs end at x = 396
+  static constexpr uint16_t NTP_Y = 168; // same line as "UP:" (y = 164)
   static constexpr uint16_t PERCENTILE_Y = 148; // same line as "SD FREE:" (y = 144); 21 glyphs end at x = 366
   // Spectrum view: 32 bars of 10 px with a 2 px gap fill x = 8 to 391. A level of 100 gives a bar
   // of 200 px, from y = 40 to the baseline at y = 240. The labels sit under the baseline.
@@ -1470,6 +1476,10 @@ public:
         static_cast<unsigned long>((total_s / 60) % 60),
         static_cast<unsigned long>(total_s % 60));
     drawLine(fb, 10, 164, line);
+
+    // Clock sync at scale 1 right of the uptime line; the text changes once each hour.
+    NtpSchedule::describe(info.ntp, info.ntp_credentials, info.now_ms, line, sizeof(line));
+    fb.drawText(NTP_X, NTP_Y, line, 1, true);
 
     // RTC drift at y = 184, between the uptime line (ends y = 178) and the noise line (y = 204).
     // Widest: "RTC DRIFT: -86400 S (-99999 PPM)" = 32 glyphs = 384 px.

@@ -2688,3 +2688,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The Wear OS sensor health screen shows the wall and window latches. The shared `StatusReply.kt` (phone and watch, same source) holds `LatchState.wall` and `LatchState.window` (`Int?`): they parse `wall=` and `window=` of the `LATCH` line (3 hex digits, at most `7ff`; `null` for a missing field of older firmware; `ParseException` for a bad field or a mask above `7ff`). `LatchState.badges(sensor)` adds `Wand` and `Fenster` after `D` and before `BAT LOW`, so `SensorHealthText.badges` gives for example `V · Wand · Fenster`.
 - Tests: `StatusReplyTest.parsesLatchLine`, `latchBadgeOrderAndOnboardRules`, `latchWithoutWallAndWindowGivesNull` and `badLatchLineThrows`, `SensorHealthTextTest.badgeText`; phone `StatusReplyTest.parsesWallAndWindowMasks` and `badWallAndWindowThrow`. The phone `DiagnosticsReport` line `Panel badges` now lists `Wand` and `Fenster` too (`DiagnosticsReportTest.badgeLineListsLatchedSensors`).
 - Validation: `check-protocol-sync.sh` and `--self-test` pass locally. `gradle testDebugUnitTest` did not run locally (no Android SDK); CI runs it.
+
+## Clock sync line in the panel diagnostics view
+
+- The diagnostics view shows one `NTP:` line at scale 1 (`DashboardView::NTP_X` 300, `NTP_Y` 168), right of the `UP:` line. The gap below `UP:` is only 6 px, so the line sits beside it.
+- `NtpSchedule::describe(state, credentials, now_ms, out, capacity)` (`ntp_sync.h`) builds the text: `NTP: OK <N>H AGO` after a success (whole hours, `>99H` above 99), `NTP: FAIL <N>` after failures, `NTP: --` without credentials or without an attempt.
+- `SystemInfo` has the new fields `ntp` (RTC copy of `NtpSyncState`), `ntp_credentials` and `now_ms`. `rlcd_panel.ino` fills them from `g_state.ntp`, `NtpSchedule::hasCredentials` and `nowMs()`. The view does not start Wi-Fi.
+- The text changes once each hour, so `FrameRefresh` still skips. The RTC layout and `STATE_VERSION` do not change.
+- Test: `testDiagnosticsNtpLine` (three texts, `NTP: OK 0H AGO`, no change inside one hour, only the NTP rows differ, fixed CRC-32 `0x02727b14` of the diagnostics scene).
+- Validation: host tests (231 suites), `generate-display-preview.sh`, `arduino-cli compile rlcd_panel`, `check-protocol-sync.sh` and `--self-test` pass locally.

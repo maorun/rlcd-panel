@@ -2,6 +2,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
 #include "pcf85063_rtc.h"
@@ -260,6 +261,26 @@ public:
     if (battery_low) return NtpDecision::SKIP_LOW_BATTERY;
     if (!due(s, now_ms, interval_h)) return NtpDecision::SKIP_NOT_DUE;
     return NtpDecision::ATTEMPT;
+  }
+
+  // Diagnostics text of the RTC copy: "NTP: OK <N>H AGO" (whole hours, ">99H" above 99), "NTP: FAIL <N>"
+  // after failures and "NTP: --" without credentials or without an attempt. Starts no Wi-Fi.
+  static void describe(const NtpSyncState& s, bool credentials, uint32_t now_ms, char* out, size_t capacity) {
+    if (out == nullptr || capacity == 0) {
+      return;
+    }
+    if (!credentials || !s.has_attempted) {
+      snprintf(out, capacity, "NTP: --");
+    } else if (!s.last_ok) {
+      snprintf(out, capacity, "NTP: FAIL %u", static_cast<unsigned>(s.failures));
+    } else {
+      const uint32_t hours = static_cast<uint32_t>(now_ms - s.last_attempt_ms) / MS_PER_HOUR;
+      if (hours > 99) {
+        snprintf(out, capacity, "NTP: OK >99H AGO");
+      } else {
+        snprintf(out, capacity, "NTP: OK %luH AGO", static_cast<unsigned long>(hours));
+      }
+    }
   }
 
   // Records one attempt. A failure keeps the RTC unchanged and starts or extends the backoff.

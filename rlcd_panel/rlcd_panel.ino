@@ -501,6 +501,9 @@ void renderDashboard() {
   info.stats_page = g_mode_controller.statsPage();
   info.runtime = g_state.battery_history.estimate(g_state.battery, g_scan_saved_ms, &g_state.awake);
   info.rtc_drift = g_state.rtc_drift;
+  info.ntp = g_state.ntp;
+  info.ntp_credentials = NtpSchedule::hasCredentials(RLCD_WIFI_SSID, RLCD_WIFI_PASSWORD);
+  info.now_ms = nowMs();
   info.sd_free_mb = g_sd_free_mb;
   info.sd_status = g_state.sd_status;
   info.cycle_tenths = g_cycles.cycleTenths();
