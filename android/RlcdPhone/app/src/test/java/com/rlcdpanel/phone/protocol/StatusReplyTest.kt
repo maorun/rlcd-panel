@@ -333,4 +333,26 @@ class StatusReplyTest {
             }
         }
     }
+
+    @Test
+    fun parsesWallAndWindowMasks() {
+        val latch = StatusReply.parse(fixtureLines()).latch!!
+        assertEquals(0x002, latch.wall)
+        assertEquals(0x402, latch.window)
+        assertEquals(listOf("V", "Wand", "Fenster"), latch.badges(1))
+        val old = replace("LATCH ", "LATCH vent=002 dry=000 batlow=008 stale=004").latch!!
+        assertNull(old.wall)
+        assertNull(old.window)
+    }
+
+    @Test
+    fun badWallAndWindowThrow() {
+        for (extra in listOf("wall=800", "window=800", "wall=", "window=00g", "wall=1")) {
+            try {
+                replace("LATCH ", "LATCH vent=000 dry=000 batlow=000 stale=000 $extra")
+                fail("expected ParseException for $extra")
+            } catch (e: ParseException) {
+            }
+        }
+    }
 }

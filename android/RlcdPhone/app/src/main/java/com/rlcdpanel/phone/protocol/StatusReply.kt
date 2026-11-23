@@ -102,13 +102,22 @@ data class ChimeReminder(val repeatHours: Int, val bits: Int, val lastS: Long?, 
 }
 
 /**
- * `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex>`: the badge latches of the panel.
- * `vent` and `dry` use bit 0 for the onboard tile and bits 1 to 10 for the slots; `batlow` and `stale`
- * use bits 0 to 9 for the slots 1 to 10.
+ * `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex> [wall=<3 hex>] [window=<3 hex>]`: the badge
+ * latches of the panel. `vent`, `dry`, `wall` and `window` use bit 0 for the onboard tile and bits 1 to 10
+ * for the slots; `batlow` and `stale` use bits 0 to 9 for the slots 1 to 10. `wall` and `window` are null
+ * for a panel firmware that does not send them.
  */
-data class LatchState(val ventilate: Int, val dry: Int, val batteryLow: Int, val stale: Int) {
+data class LatchState(
+    val ventilate: Int,
+    val dry: Int,
+    val batteryLow: Int,
+    val stale: Int,
+    val wall: Int? = null,
+    val window: Int? = null
+) {
     /**
-     * Badge texts of sensor 0 (onboard) or 1 to 10 (slot), in the order `V`, `D`, `BAT LOW`, `STALE`.
+     * Badge texts of sensor 0 (onboard) or 1 to 10 (slot), in the order `V`, `D`, `Wand`, `Fenster`,
+     * `BAT LOW`, `STALE`.
      * The onboard sensor never gets `BAT LOW` or `STALE`; an unknown sensor has no badge.
      */
     fun badges(sensor: Int): List<String> {
@@ -116,6 +125,8 @@ data class LatchState(val ventilate: Int, val dry: Int, val batteryLow: Int, val
         val out = mutableListOf<String>()
         if (ventilate shr sensor and 1 == 1) out.add("V")
         if (dry shr sensor and 1 == 1) out.add("D")
+        if (wall != null && wall shr sensor and 1 == 1) out.add("Wand")
+        if (window != null && window shr sensor and 1 == 1) out.add("Fenster")
         if (sensor >= 1) {
             if (batteryLow shr (sensor - 1) and 1 == 1) out.add("BAT LOW")
             if (stale shr (sensor - 1) and 1 == 1) out.add("STALE")
@@ -351,7 +362,10 @@ data class StatusReply(
             return ChimeReminder(repeat, bitsText.toInt(16), optional("last_s"), optional("next_s"), snooze)
         }
 
-        /** `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex>`; a value that is not 3 hex digits or above its limit throws. */
+        /**
+         * `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex>` with the optional `wall` and `window`; a value
+         * that is not 3 hex digits or above its limit throws, a missing `wall` or `window` gives null.
+         */
         private fun parseLatch(line: String): LatchState {
             val f = fields(line)
             fun mask(key: String, max: Int): Int {
@@ -361,7 +375,9 @@ data class StatusReply(
             }
             return LatchState(
                 mask("vent", LatchState.MAX_TILE_MASK), mask("dry", LatchState.MAX_TILE_MASK),
-                mask("batlow", LatchState.MAX_SLOT_MASK), mask("stale", LatchState.MAX_SLOT_MASK)
+                mask("batlow", LatchState.MAX_SLOT_MASK), mask("stale", LatchState.MAX_SLOT_MASK),
+                if (f.containsKey("wall")) mask("wall", LatchState.MAX_TILE_MASK) else null,
+                if (f.containsKey("window")) mask("window", LatchState.MAX_TILE_MASK) else null
             )
         }
 

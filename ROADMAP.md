@@ -23,12 +23,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Wall and window latches in the Wear OS sensor health screen
-  - Rank: [Total: 27, Use: 4, Setup: 6, Harmony: 7, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/StatusReplyTest.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt
-  - Goal: Parse `wall=` and `window=` of the `LATCH` line into `LatchState.wall` and `LatchState.window` (`Int?`) in the shared `StatusReply.kt`. Show `Wand` and `Fenster` beside the other badge names of each room in the watch `SensorHealthScreen`. Do this after the firmware item "Open window latch in the STATUS line LATCH".
-  - Acceptance test: `StatusReplyTest` asserts both masks from the fixture, `null` for a missing field and a `ParseException` for a mask above `7ff`. `SensorHealthTextTest` asserts the badge text of tile 1. `./scripts/check-protocol-sync.sh` and `./scripts/check-protocol-sync.sh --self-test` exit 0. The CI jobs pass.
-
 - [ ] Clock sync line in the panel diagnostics view
   - Rank: [Total: 26, Use: 4, Setup: 6, Harmony: 6, Safety: 10, Effort: S]
   - Location: rlcd_panel/dashboard_view.h, rlcd_panel/ntp_sync.h, rlcd_panel/rlcd_panel.ino, tools/preview_scenes.h, tests/test_firmware_logic.cpp

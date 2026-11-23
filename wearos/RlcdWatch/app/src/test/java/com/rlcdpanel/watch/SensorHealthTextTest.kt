@@ -32,12 +32,14 @@ class SensorHealthTextTest {
     fun badgeText() {
         val latch = StatusReply.parse(fixtureLines()).latch
         fun row(index: Int) = StatusSensor(index, "A", 20.0, 50.0, 80.0, -60.0, 10.0, "OK", "WOIO", null)
-        assertEquals("V", SensorHealthText.badges(latch, row(1)))
+        assertEquals("V · Wand · Fenster", SensorHealthText.badges(latch, row(1)))
         assertEquals("STALE", SensorHealthText.badges(latch, row(3)))
         assertEquals("BAT LOW", SensorHealthText.badges(latch, row(4)))
         assertNull(SensorHealthText.badges(latch, row(2)))
+        assertEquals("Fenster", SensorHealthText.badges(latch, row(10)))
         assertNull(SensorHealthText.badges(null, row(1)))
         assertEquals("V · D · BAT LOW · STALE", SensorHealthText.badges(LatchState(2, 2, 1, 1), row(1)))
+        assertEquals("V · D · Wand · Fenster · BAT LOW · STALE", SensorHealthText.badges(LatchState(2, 2, 1, 1, 2, 2), row(1)))
     }
 
     @Test

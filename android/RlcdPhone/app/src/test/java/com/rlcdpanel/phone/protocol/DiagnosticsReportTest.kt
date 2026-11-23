@@ -31,7 +31,7 @@ class DiagnosticsReportTest {
     @Test
     fun badgeLineListsLatchedSensors() {
         val l = lines(DiagnosticsReport.build(version, status, rejects))
-        assertTrue(l.contains("Panel badges: 1 V; 3 STALE; 4 BAT LOW"))
+        assertTrue(l.contains("Panel badges: 1 V, Wand, Fenster; 3 STALE; 4 BAT LOW; 10 Fenster"))
     }
 
     @Test
