@@ -33,6 +33,7 @@ import com.rlcdpanel.watch.protocol.ConsoleReply
 import com.rlcdpanel.watch.protocol.LatchState
 import com.rlcdpanel.watch.protocol.MemoryState
 import com.rlcdpanel.watch.protocol.NoiseState
+import com.rlcdpanel.watch.protocol.BleRejectState
 import com.rlcdpanel.watch.protocol.NtpState
 import com.rlcdpanel.watch.protocol.ReceptionRate
 import com.rlcdpanel.watch.protocol.ReplyError
@@ -111,6 +112,10 @@ object SensorHealthText {
         offsetSeconds?.let { "Clock offset: ${if (it > 0) "+" else ""}$it s" } ?: "Clock offset: --"
 
     fun ntp(ntp: NtpState?): String? = ntp?.let { "Uhr-Sync ${if (it.ok) "ok" else "Fehler"}, ${it.failures} Fehlversuche" }
+
+    /** `BLE abgelehnt <N>, Sprünge <N>` (`--` for a missing `jumps` field); null without a `BLE` line. */
+    fun bleRejects(ble: BleRejectState?): String? =
+        ble?.let { "BLE abgelehnt ${it.rejected}, Sprünge ${it.jumps ?: "--"}" }
 
     const val SD_LOW_MB = 100
 
@@ -389,6 +394,17 @@ fun SensorHealthScreen(
                     SensorHealthText.ntp(status.ntp)?.let { text ->
                         item {
                             val warn = status.ntp?.isWarning == true
+                            Text(
+                                text = (if (warn) "${SensorHealthText.WARNING} " else "") + text,
+                                fontSize = 10.sp,
+                                color = if (warn) Color(0xFFFFB74D) else Color(0xFFB0BEC5),
+                                textAlign = TextAlign.Center
+                            )
+                        }
+                    }
+                    SensorHealthText.bleRejects(status.bleRejects)?.let { text ->
+                        item {
+                            val warn = status.bleRejects?.isWarning == true
                             Text(
                                 text = (if (warn) "${SensorHealthText.WARNING} " else "") + text,
                                 fontSize = 10.sp,

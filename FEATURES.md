@@ -2704,3 +2704,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SensorHealthText` (`SensorHealthScreen.kt`) shows `Ruhezeit <H>–<H> Uhr` (with `, aktiv` while active), `Akku-Intervall <N> s`, `Nachtintervall <N> s` (0 is `aus`) and `Weckgrund <cause>` in the card `Panel diagnostics`; `--` for a missing line.
 - Tests: `StatusReplyTest` (`parsesQuietLine`, `badQuietLineThrows`, `parsesWakeLine`, `badWakeLineThrows`, read `tests/fixtures/status_reply_sample.txt`) and `SensorHealthTextTest.quietAndWakeTexts`.
 - Validation: `check-protocol-sync.sh` and `--self-test` pass locally. The Gradle tests did not run locally (no Android SDK on this host); the CI jobs run them.
+
+## BLE reject counters in the Wear OS sensor health screen
+
+- `StatusReply.kt` (phone and watch, same code) parses the `STATUS` line `BLE rejected=<N> last=<MAC|--> ... unassigned=<N> jumps=<N>` into `BleRejectState`. `last=--` gives `null`. A missing `unassigned` or `jumps` field gives `null` (older firmware). A missing line gives `null`. A bad number, a missing `rejected` field or a value above 65535 throws `ParseException`. `BleRejectState.isWarning` is true when `unassigned` is above 0.
+- `SensorHealthText.bleRejects` (`SensorHealthScreen.kt`) shows `BLE abgelehnt <N>, Sprünge <N>` (`--` for a missing `jumps` field) in the panel section. The screen adds `⚠` and the warning colour when `unassigned` is above 0.
+- Tests: `StatusReplyTest` (`parsesBleRejectLine`, `badBleRejectLineThrows`) and `SensorHealthTextTest.bleRejectText`.
+- Validation: `check-protocol-sync.sh` and `--self-test` pass locally. The Gradle tests did not run locally (no Android SDK on this host); the CI jobs run them.
