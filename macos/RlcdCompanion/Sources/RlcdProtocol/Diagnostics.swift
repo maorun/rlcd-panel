@@ -439,8 +439,9 @@ public struct WakeMetrics: Equatable {
     }
 }
 
-/// `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex>`: the badge latches of the panel.
-/// `vent` and `dry` use bit 0 for the onboard tile and bits 1 to 10 for the slots; `batlow` and `stale`
+/// `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex> [wall=<3 hex> window=<3 hex>]`: the badge latches
+/// of the panel. `wall` and `window` come from newer firmware only.
+/// `vent`, `dry`, `wall` and `window` use bit 0 for the onboard tile and bits 1 to 10 for the slots; `batlow` and `stale`
 /// use bits 0 to 9 for the slots 1 to 10.
 public struct LatchMetrics: Equatable {
     public static let sensorCount = 11
@@ -448,8 +449,14 @@ public struct LatchMetrics: Equatable {
     public let dry: Int
     public let batteryLow: Int
     public let stale: Int
+    /// Wall humidity mask (`wall=`) and open window mask (`window=`): bit 0 onboard, bits 1 to 10 slots.
+    /// `nil` when older firmware sends no such field.
+    public let wall: Int?
+    public let window: Int?
 
-    public var hasBadges: Bool { ventilate != 0 || dry != 0 || batteryLow != 0 || stale != 0 }
+    public var hasBadges: Bool {
+        ventilate != 0 || dry != 0 || batteryLow != 0 || stale != 0 || (wall ?? 0) != 0 || (window ?? 0) != 0
+    }
 
     /// A missing line is no error; `parse(lines:)` gives `nil` for it.
     public static func parse(lines: [String]) throws -> LatchMetrics? {
@@ -465,18 +472,22 @@ public struct LatchMetrics: Equatable {
                   let v = Int(s, radix: 16), v <= max else { throw ParseError.badLine(line) }
             return v
         }
+        func optionalMask(_ key: String) throws -> Int? { f[key] == nil ? nil : try mask(key, max: 0x7ff) }
         return LatchMetrics(
             ventilate: try mask("vent", max: 0x7ff), dry: try mask("dry", max: 0x7ff),
-            batteryLow: try mask("batlow", max: 0x3ff), stale: try mask("stale", max: 0x3ff))
+            batteryLow: try mask("batlow", max: 0x3ff), stale: try mask("stale", max: 0x3ff),
+            wall: try optionalMask("wall"), window: try optionalMask("window"))
     }
 
-    /// Badge texts of sensor 0 (onboard) or 1 to 10 (slot), in the order `V`, `D`, `BAT LOW`, `STALE`.
+    /// Badge texts of sensor 0 (onboard) or 1 to 10 (slot), in the order `V`, `D`, `Wall`, `Window`, `BAT LOW`, `STALE`.
     /// The onboard sensor never gets `BAT LOW` or `STALE`; an unknown sensor has no badge.
     public func badges(forSensor sensor: Int) -> [String] {
         guard (0..<Self.sensorCount).contains(sensor) else { return [] }
         var out: [String] = []
         if ventilate >> sensor & 1 == 1 { out.append("V") }
         if dry >> sensor & 1 == 1 { out.append("D") }
+        if (wall ?? 0) >> sensor & 1 == 1 { out.append("Wall") }
+        if (window ?? 0) >> sensor & 1 == 1 { out.append("Window") }
         if sensor >= 1 {
             if batteryLow >> (sensor - 1) & 1 == 1 { out.append("BAT LOW") }
             if stale >> (sensor - 1) & 1 == 1 { out.append("STALE") }

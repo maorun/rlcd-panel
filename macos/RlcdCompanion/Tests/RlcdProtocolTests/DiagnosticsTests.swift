@@ -257,6 +257,59 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         #expect(all.badges(forSensor: 0) == ["V", "D"])
     }
 
+    @Test func parsesWallAndWindowMasks() throws {
+        let m = try LatchMetrics.parse(line: "LATCH vent=002 dry=000 batlow=008 stale=004 wall=002 window=402")
+        #expect(m.wall == 0x002)
+        #expect(m.window == 0x402)
+        #expect(m.badges(forSensor: 1) == ["V", "Wall", "Window"])
+        #expect(m.badges(forSensor: 10) == ["Window"])
+        #expect(m.badges(forSensor: 0).isEmpty)
+        let only = try LatchMetrics.parse(line: "LATCH vent=000 dry=000 batlow=000 stale=000 wall=000 window=001")
+        #expect(only.hasBadges)
+        #expect(only.badges(forSensor: 0) == ["Window"])
+        let wallOnly = try LatchMetrics.parse(line: "LATCH vent=000 dry=000 batlow=000 stale=000 wall=004 window=000")
+        #expect(wallOnly.hasBadges)
+        let none = try LatchMetrics.parse(line: "LATCH vent=000 dry=000 batlow=000 stale=000 wall=000 window=000")
+        #expect(!none.hasBadges)
+    }
+
+    @Test func parsesWallAndWindowFromSharedFixture() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let text = try String(contentsOf: url.appendingPathComponent("tests/fixtures/status_reply_sample.txt"), encoding: .utf8)
+        let m = try #require(try LatchMetrics.parse(lines: lines(text)))
+        #expect(m.wall == 0x002)
+        #expect(m.window == 0x402)
+    }
+
+    @Test func wallAndWindowAreNilForOlderFirmware() throws {
+        let m = try LatchMetrics.parse(line: "LATCH vent=002 dry=000 batlow=008 stale=004")
+        #expect(m.wall == nil)
+        #expect(m.window == nil)
+        #expect(m.badges(forSensor: 1) == ["V"])
+    }
+
+    @Test func wallOrWindowAloneParses() throws {
+        let base = "LATCH vent=000 dry=000 batlow=000 stale=000"
+        let wallOnly = try LatchMetrics.parse(line: base + " wall=002")
+        #expect(wallOnly.wall == 0x002)
+        #expect(wallOnly.window == nil)
+        #expect(wallOnly.badges(forSensor: 1) == ["Wall"])
+        let windowOnly = try LatchMetrics.parse(line: base + " window=7FF")
+        #expect(windowOnly.wall == nil)
+        #expect(windowOnly.window == 0x7ff)
+        #expect(windowOnly.hasBadges)
+        #expect(windowOnly.badges(forSensor: 10) == ["Window"])
+    }
+
+    @Test func wallAndWindowRejectBadFields() {
+        let base = "LATCH vent=000 dry=000 batlow=000 stale=000"
+        for bad in [base + " wall=0x2 window=000", base + " wall=800 window=000", base + " wall=000 window=800",
+                    base + " wall=00 window=000", base + " wall=000 window=zzz", base + " wall= window=000"] {
+            #expect(throws: ParseError.badLine(bad)) { try LatchMetrics.parse(line: bad) }
+        }
+    }
+
     @Test func latchIsNilWithoutTheLine() throws {
         let d = try DiagnosticsReply.parse(otherLines: [:])
         #expect(d.latch == nil)

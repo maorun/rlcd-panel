@@ -23,12 +23,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Wall and window latches in the macOS diagnostics view
-  - Rank: [Total: 27, Use: 4, Setup: 6, Harmony: 7, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/DiagnosticsTests.swift
-  - Goal: Parse `wall=` and `window=` of the `LATCH` line into `LatchMetrics.wall` and `LatchMetrics.window` (`Int?`, `nil` for a missing field of older firmware). Include both in `hasBadges`. Show the badge names `Wall` and `Window` for each tile in the latch group of `DiagnosticsView`. Do this after the firmware item "Open window latch in the STATUS line LATCH".
-  - Acceptance test: `DiagnosticsTests` assert `wall=002 window=402` from the fixture, `nil` for a line without both fields, and `ParseError.badLine` for `wall=0x2` and for a mask above `0x7ff`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-
 - [ ] Wall and window latches in the Wear OS sensor health screen
   - Rank: [Total: 27, Use: 4, Setup: 6, Harmony: 7, Safety: 10, Effort: S]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/StatusReplyTest.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt
