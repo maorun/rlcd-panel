@@ -267,8 +267,11 @@ class StatusReplyTest {
     @Test
     fun parsesLatchLine() {
         val latch = StatusReply.parse(fixtureLines()).latch!!
-        assertEquals(LatchState(0x002, 0x000, 0x008, 0x004), latch)
-        assertEquals(listOf("V"), latch.badges(1))
+        assertEquals(LatchState(0x002, 0x000, 0x008, 0x004, 0x002, 0x402), latch)
+        assertEquals(0x002, latch.wall)
+        assertEquals(0x402, latch.window)
+        assertEquals(listOf("V", "Wand", "Fenster"), latch.badges(1))
+        assertEquals(listOf("Fenster"), latch.badges(10))
         assertEquals(listOf("BAT LOW"), latch.badges(4))
         assertEquals(listOf("STALE"), latch.badges(3))
         assertEquals(emptyList<String>(), latch.badges(11))
@@ -279,9 +282,26 @@ class StatusReplyTest {
 
     @Test
     fun latchBadgeOrderAndOnboardRules() {
-        val all = replace("LATCH ", "LATCH vent=7FF dry=7ff batlow=3ff stale=3FF").latch!!
-        assertEquals(listOf("V", "D"), all.badges(0))
-        assertEquals(listOf("V", "D", "BAT LOW", "STALE"), all.badges(10))
+        val all = replace("LATCH ", "LATCH vent=7FF dry=7ff batlow=3ff stale=3FF wall=7ff window=7FF").latch!!
+        assertEquals(listOf("V", "D", "Wand", "Fenster"), all.badges(0))
+        assertEquals(listOf("V", "D", "Wand", "Fenster", "BAT LOW", "STALE"), all.badges(10))
+    }
+
+    @Test
+    fun latchWithEmptyWallThrows() {
+        try {
+            replace("LATCH ", "LATCH vent=000 dry=000 batlow=000 stale=000 wall=")
+            fail("expected ParseException")
+        } catch (e: ParseException) {
+        }
+    }
+
+    @Test
+    fun latchWithoutWallAndWindowGivesNull() {
+        val latch = replace("LATCH ", "LATCH vent=002 dry=000 batlow=008 stale=004").latch!!
+        assertNull(latch.wall)
+        assertNull(latch.window)
+        assertEquals(listOf("V"), latch.badges(1))
     }
 
     @Test
@@ -289,7 +309,9 @@ class StatusReplyTest {
         for (line in listOf(
             "LATCH vent=800 dry=000 batlow=000 stale=000", "LATCH vent=000 dry=12 batlow=000 stale=000",
             "LATCH vent=000 dry=000 batlow=400 stale=000", "LATCH vent=000 dry=000 batlow=000 stale=400",
-            "LATCH vent=00g dry=000 batlow=000 stale=000", "LATCH vent=000 dry=000 batlow=000"
+            "LATCH vent=00g dry=000 batlow=000 stale=000", "LATCH vent=000 dry=000 batlow=000",
+            "LATCH vent=000 dry=000 batlow=000 stale=000 wall=800", "LATCH vent=000 dry=000 batlow=000 stale=000 window=800",
+            "LATCH vent=000 dry=000 batlow=000 stale=000 wall=1", "LATCH vent=000 dry=000 batlow=000 stale=000 window=00g"
         )) {
             try {
                 replace("LATCH ", line)
