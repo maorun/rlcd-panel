@@ -2697,3 +2697,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The text changes once each hour, so `FrameRefresh` still skips. The RTC layout and `STATE_VERSION` do not change.
 - Test: `testDiagnosticsNtpLine` (three texts, `NTP: OK 0H AGO`, no change inside one hour, only the NTP rows differ, fixed CRC-32 `0x02727b14` of the diagnostics scene).
 - Validation: host tests (231 suites), `generate-display-preview.sh`, `arduino-cli compile rlcd_panel`, `check-protocol-sync.sh` and `--self-test` pass locally.
+
+## Quiet hours and wake lines in the Android sensor health screen
+
+- `StatusReply.kt` (phone and watch, same code) parses the `STATUS` lines `QUIET start_h=<H> end_h=<H> active=<0|1|--> night_interval_s=<N>` into `QuietHoursState` and `WAKE cause=<POWER_ON|TIMER|KEY|OTHER> boots=<N> battery_interval_s=<N>` into `WakeState`. `active=--` gives `null`. A missing line gives `null`. A bad number, an hour above 23, a bad `active` or `cause=SLEEP` throws `ParseException`.
+- `SensorHealthText` (`SensorHealthScreen.kt`) shows `Ruhezeit <H>–<H> Uhr` (with `, aktiv` while active), `Akku-Intervall <N> s`, `Nachtintervall <N> s` (0 is `aus`) and `Weckgrund <cause>` in the card `Panel diagnostics`; `--` for a missing line.
+- Tests: `StatusReplyTest` (`parsesQuietLine`, `badQuietLineThrows`, `parsesWakeLine`, `badWakeLineThrows`, read `tests/fixtures/status_reply_sample.txt`) and `SensorHealthTextTest.quietAndWakeTexts`.
+- Validation: `check-protocol-sync.sh` and `--self-test` pass locally. The Gradle tests did not run locally (no Android SDK on this host); the CI jobs run them.

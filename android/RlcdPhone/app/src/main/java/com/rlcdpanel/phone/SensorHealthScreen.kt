@@ -22,6 +22,8 @@ import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.ConfigCache
 import com.rlcdpanel.phone.protocol.ConfigCacheInfo
 import com.rlcdpanel.phone.protocol.AwakeState
+import com.rlcdpanel.phone.protocol.QuietHoursState
+import com.rlcdpanel.phone.protocol.WakeState
 import com.rlcdpanel.phone.protocol.MemoryState
 import com.rlcdpanel.phone.protocol.NoiseState
 import com.rlcdpanel.phone.protocol.RuntimeState
@@ -100,6 +102,12 @@ object SensorHealthText {
     fun runtimeHours(r: RuntimeState?): String = r?.hours?.let { "Restlaufzeit $it h" } ?: "Restlaufzeit --"
     fun cycles(r: RuntimeState?): String = r?.cycles?.let { "Ladezyklen ${"%.1f".format(java.util.Locale.ROOT, it)}" } ?: "Ladezyklen --"
     fun awake(a: AwakeState?): String = a?.avgMs?.let { "Wachzeit Ø $it ms" } ?: "Wachzeit Ø --"
+    fun quiet(q: QuietHoursState?): String =
+        q?.let { "Ruhezeit ${it.startHour}–${it.endHour} Uhr" + if (it.active == true) ", aktiv" else "" } ?: "Ruhezeit --"
+    fun batteryInterval(w: WakeState?): String = w?.let { "Akku-Intervall ${it.batteryIntervalSeconds} s" } ?: "Akku-Intervall --"
+    fun nightInterval(q: QuietHoursState?): String =
+        q?.let { "Nachtintervall " + if (it.nightIntervalSeconds == 0) "aus" else "${it.nightIntervalSeconds} s" } ?: "Nachtintervall --"
+    fun wakeCause(w: WakeState?): String = w?.let { "Weckgrund ${it.cause}" } ?: "Weckgrund --"
     fun noise(n: NoiseState?): String {
         if (n == null) return "Lärm --"
         val peak = if (n.peakDb != null && n.peakHour != null) ", Spitze ${n.peakDb} dB um ${n.peakHour} Uhr" else ""
@@ -280,7 +288,11 @@ fun SensorHealthScreen(
                                 false to SensorHealthText.runtimeHours(state.runtime),
                                 false to SensorHealthText.cycles(state.runtime),
                                 false to SensorHealthText.awake(state.awake),
-                                false to SensorHealthText.noise(state.noise)
+                                false to SensorHealthText.noise(state.noise),
+                                false to SensorHealthText.quiet(state.status?.quiet),
+                                false to SensorHealthText.batteryInterval(state.status?.wake),
+                                false to SensorHealthText.nightInterval(state.status?.quiet),
+                                false to SensorHealthText.wakeCause(state.status?.wake)
                             )
                             for ((warn, text) in lines) {
                                 Text(

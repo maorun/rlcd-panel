@@ -5,6 +5,7 @@ import com.rlcdpanel.phone.protocol.ConsoleReply
 import com.rlcdpanel.phone.protocol.Fixtures
 import com.rlcdpanel.phone.protocol.MemoryState
 import com.rlcdpanel.phone.protocol.NoiseState
+import com.rlcdpanel.phone.protocol.QuietHoursState
 import com.rlcdpanel.phone.protocol.ReplyAssembler
 import com.rlcdpanel.phone.protocol.ResetState
 import com.rlcdpanel.phone.protocol.RtcState
@@ -12,6 +13,7 @@ import com.rlcdpanel.phone.protocol.RuntimeState
 import com.rlcdpanel.phone.protocol.SensorHealth
 import com.rlcdpanel.phone.protocol.Shtc3State
 import com.rlcdpanel.phone.protocol.StatusReply
+import com.rlcdpanel.phone.protocol.WakeState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -98,5 +100,19 @@ class SensorHealthTextTest {
         assertEquals("Kein Drift-Wert von 24 h oder mehr", SensorHealthText.trimResult("ERR NO_DRIFT"))
         assertEquals("Set ble_console=2 to apply", SensorHealthText.trimResult("ERR READ_ONLY"))
         assertEquals("Panel meldet: ERR WRITE_FAILED", SensorHealthText.trimResult("ERR WRITE_FAILED"))
+    }
+
+    @Test
+    fun quietAndWakeTexts() {
+        assertEquals("Ruhezeit 22–7 Uhr, aktiv", SensorHealthText.quiet(QuietHoursState(22, 7, true, 900)))
+        assertEquals("Ruhezeit 22–7 Uhr", SensorHealthText.quiet(QuietHoursState(22, 7, null, 900)))
+        assertEquals("Ruhezeit --", SensorHealthText.quiet(null))
+        assertEquals("Nachtintervall aus", SensorHealthText.nightInterval(QuietHoursState(22, 7, false, 0)))
+        assertEquals("Nachtintervall 900 s", SensorHealthText.nightInterval(QuietHoursState(22, 7, false, 900)))
+        assertEquals("Nachtintervall --", SensorHealthText.nightInterval(null))
+        assertEquals("Akku-Intervall 600 s", SensorHealthText.batteryInterval(WakeState("TIMER", 1, 600)))
+        assertEquals("Akku-Intervall --", SensorHealthText.batteryInterval(null))
+        assertEquals("Weckgrund TIMER", SensorHealthText.wakeCause(WakeState("TIMER", 1, 600)))
+        assertEquals("Weckgrund --", SensorHealthText.wakeCause(null))
     }
 }

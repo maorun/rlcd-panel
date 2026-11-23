@@ -23,12 +23,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Quiet hours and wake lines in the Android sensor health screen
-  - Rank: [Total: 26, Use: 4, Setup: 6, Harmony: 6, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/StatusReplyTest.kt
-  - Goal: Parse the `STATUS` lines `QUIET start_h=<H> end_h=<H> active=<0|1|--> night_interval_s=<N>` and `WAKE cause=<POWER_ON|TIMER|KEY|OTHER> boots=<N> battery_interval_s=<N>` in the shared `StatusReply.kt`. Show `Ruhezeit <H>–<H> Uhr` with `aktiv` while active, `Akku-Intervall <N> s`, `Nachtintervall <N> s` (0 is `aus`) and `Weckgrund <cause>` in `SensorHealthScreen`. A missing line gives `null`. A bad number throws `ParseException`.
-  - Acceptance test: `StatusReplyTest` reads `tests/fixtures/status_reply_sample.txt` and asserts each field, `null` for `active=--`, `null` for a missing line, and a `ParseException` for `boots=x` and for `cause=SLEEP`. `./scripts/check-protocol-sync.sh` and `./scripts/check-protocol-sync.sh --self-test` exit 0. The CI jobs pass.
-
 - [ ] BLE reject counters in the Wear OS sensor health screen
   - Rank: [Total: 26, Use: 3, Setup: 7, Harmony: 6, Safety: 10, Effort: S]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/StatusReplyTest.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt
