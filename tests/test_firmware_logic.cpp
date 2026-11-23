@@ -7345,6 +7345,88 @@ void testSdFreeMegabytes() {
   assert(SdLogCodec::freeMegabytes(1ULL << 50, 0) == static_cast<int32_t>(SdLogCodec::MAX_FREE_MB));
 }
 
+void testDiagnosticsNtpLine() {
+  char text[40];
+  NtpSyncState state;
+  // No attempt: "--", also with credentials
+  NtpSchedule::describe(state, true, 1000, text, sizeof(text));
+  assert(strcmp(text, "NTP: --") == 0);
+  // Success: whole hours, "0H" directly after the sync
+  NtpSchedule::record(state, 5000, true);
+  NtpSchedule::describe(state, true, 5000, text, sizeof(text));
+  assert(strcmp(text, "NTP: OK 0H AGO") == 0);
+  NtpSchedule::describe(state, true, 5000 + 3600000UL - 1, text, sizeof(text));
+  assert(strcmp(text, "NTP: OK 0H AGO") == 0);
+  NtpSchedule::describe(state, true, 5000 + 3600000UL, text, sizeof(text));
+  assert(strcmp(text, "NTP: OK 1H AGO") == 0);
+  NtpSchedule::describe(state, true, 5000 + 99UL * 3600000UL + 3599999UL, text, sizeof(text));
+  assert(strcmp(text, "NTP: OK 99H AGO") == 0);
+  NtpSchedule::describe(state, true, 5000 + 100UL * 3600000UL, text, sizeof(text));
+  assert(strcmp(text, "NTP: OK >99H AGO") == 0);
+  // The 32-bit clock difference survives a wrap of the clock
+  NtpSyncState wrapped;
+  NtpSchedule::record(wrapped, 0xFFFFFFFFu - 1000u, true);
+  NtpSchedule::describe(wrapped, true, 2000u, text, sizeof(text));
+  assert(strcmp(text, "NTP: OK 0H AGO") == 0);
+  NtpSchedule::describe(state, true, 5000 + 150UL * 3600000UL, text, sizeof(text));
+  assert(strcmp(text, "NTP: OK >99H AGO") == 0);
+  // Without credentials the line stays "--"
+  NtpSchedule::describe(state, false, 5000, text, sizeof(text));
+  assert(strcmp(text, "NTP: --") == 0);
+  // Failures
+  NtpSchedule::record(state, 6000, false);
+  NtpSchedule::record(state, 7000, false);
+  NtpSchedule::describe(state, true, 9000, text, sizeof(text));
+  assert(strcmp(text, "NTP: FAIL 2") == 0);
+
+  // The render changes only the NTP line, and not within one hour
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  SystemInfo info;
+  info.ntp_credentials = true;
+  St7305Framebuffer none, ok0, ok0_later, ok1;
+  none.clear(true);
+  DashboardView::renderDiagnostics(none, battery, info, "12:00");
+  NtpSyncState synced;
+  NtpSchedule::record(synced, 5000, true);
+  info.ntp = synced;
+  info.now_ms = 5000;
+  ok0.clear(true);
+  DashboardView::renderDiagnostics(ok0, battery, info, "12:00");
+  info.now_ms = 5000 + 3000000UL;
+  ok0_later.clear(true);
+  DashboardView::renderDiagnostics(ok0_later, battery, info, "12:00");
+  info.now_ms = 5000 + 3600000UL;
+  ok1.clear(true);
+  DashboardView::renderDiagnostics(ok1, battery, info, "12:00");
+  assert(ok0.crc32() == ok0_later.crc32()); // FrameRefresh still skips within the hour
+  assert(ok0.crc32() != none.crc32());
+  assert(ok0.crc32() != ok1.crc32());
+  for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      if (y < DashboardView::NTP_Y || y >= DashboardView::NTP_Y + 7) {
+        assert(ok0.getPixel(x, y) == none.getPixel(x, y));
+      }
+    }
+  }
+
+  // Fixed render bytes of the diagnostics preview scene
+  St7305Framebuffer scene;
+  scene.clear(true);
+  for (uint8_t i = 0; i < preview::PREVIEW_SCENE_COUNT; ++i) {
+    if (strcmp(preview::PREVIEW_SCENES[i].file_name, "display_preview_diagnostics") == 0) {
+      preview::renderScene(
+          scene, preview::PREVIEW_SCENES[i].mode, preview::PREVIEW_SCENES[i].low_battery, preview::PREVIEW_SCENES[i].quiet_hours,
+          preview::PREVIEW_SCENES[i].long_runtime, preview::PREVIEW_SCENES[i].battery_empty, preview::PREVIEW_SCENES[i].ventilate,
+          preview::PREVIEW_SCENES[i].invert, preview::PREVIEW_SCENES[i].tiles, preview::PREVIEW_SCENES[i].stats_page, preview::PREVIEW_SCENES[i].dry,
+          preview::PREVIEW_SCENES[i].muted, preview::PREVIEW_SCENES[i].window, preview::PREVIEW_SCENES[i].wall, preview::PREVIEW_SCENES[i].identify);
+    }
+  }
+  assert(scene.crc32() == 0x02727b14u);
+}
+
 void testDiagnosticsSdFreeLine() {
   BatteryReading battery;
   battery.valid = true;
@@ -24206,6 +24288,7 @@ int main() {
   testLogRetentionConfig();
   testSdFreeMegabytes();
   testDiagnosticsSdFreeLine();
+  testDiagnosticsNtpLine();
   testGoertzelDetectsOneKhzSine();
   testGoertzelRejectsOtherFrequencies();
   testGoertzelRejectsSilenceAndNoise();

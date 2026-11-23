@@ -274,6 +274,9 @@ inline void renderScene(
   info.rtc_drift.drift_s = 3;
   info.rtc_drift.rate_ppm = 35;
   info.sd_free_mb = 7421;
+  info.ntp_credentials = true;
+  info.now_ms = 6UL * 3600000UL;
+  NtpSchedule::record(info.ntp, 3600000UL, true); // last sync 5 h ago
   info.cycle_tenths = 123; // 12.3 cycles
   info.shtc3.nack = 2;     // three failed onboard SHTC3 reads, none in a row
   info.shtc3.short_reads = 1;

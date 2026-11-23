@@ -23,12 +23,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Clock sync line in the panel diagnostics view
-  - Rank: [Total: 26, Use: 4, Setup: 6, Harmony: 6, Safety: 10, Effort: S]
-  - Location: rlcd_panel/dashboard_view.h, rlcd_panel/ntp_sync.h, rlcd_panel/rlcd_panel.ino, tools/preview_scenes.h, tests/test_firmware_logic.cpp
-  - Goal: Add one line below the `UP:` line of the diagnostics view: `NTP: OK <N>H AGO` after a success, `NTP: FAIL <N>` after failures and `NTP: --` without credentials or without an attempt. Use the RTC copy of `NtpSyncState` through a new `SystemInfo` field. Show whole hours, so the text changes once each hour and `FrameRefresh` still skips. Do not start Wi-Fi.
-  - Acceptance test: Host tests assert the three texts, `NTP: OK 0H AGO` directly after a sync, and the render bytes of the diagnostics scene against a fixed CRC-32. `./scripts/generate-display-preview.sh` updates `docs/display_preview_diagnostics.png` with the line. `c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner` and `arduino-cli compile rlcd_panel` pass.
-
 - [ ] Quiet hours and wake lines in the Android sensor health screen
   - Rank: [Total: 26, Use: 4, Setup: 6, Harmony: 6, Safety: 10, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/StatusReplyTest.kt
