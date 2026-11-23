@@ -296,6 +296,51 @@ class StatusReplyTest {
     }
 
     @Test
+    fun parsesQuietLine() {
+        assertEquals(QuietHoursState(22, 7, true, 900), StatusReply.parse(fixtureLines()).quiet)
+        assertNull(replace("QUIET ", "QUIET start_h=22 end_h=7 active=-- night_interval_s=0").quiet?.active)
+        assertEquals(false, replace("QUIET ", "QUIET start_h=22 end_h=7 active=0 night_interval_s=0").quiet?.active)
+        assertNull(StatusReply.parse(fixtureLines().filter { !it.startsWith("QUIET ") }).quiet)
+    }
+
+    @Test
+    fun badQuietLineThrows() {
+        for (line in listOf(
+            "QUIET start_h=24 end_h=7 active=1 night_interval_s=900", "QUIET start_h=x end_h=7 active=1 night_interval_s=900",
+            "QUIET start_h=22 end_h=7 active=2 night_interval_s=900", "QUIET start_h=22 end_h=7 active=1 night_interval_s=x",
+            "QUIET start_h=22 end_h=7 active=1"
+        )) {
+            try {
+                replace("QUIET ", line)
+                fail("expected ParseException for $line")
+            } catch (e: ParseException) {
+            }
+        }
+    }
+
+    @Test
+    fun parsesWakeLine() {
+        assertEquals(WakeState("TIMER", 1234, 600), StatusReply.parse(fixtureLines()).wake)
+        assertEquals("KEY", replace("WAKE ", "WAKE cause=KEY boots=1 battery_interval_s=60").wake?.cause)
+        assertEquals(4294967295L, replace("WAKE ", "WAKE cause=KEY boots=4294967295 battery_interval_s=60").wake?.boots)
+        assertNull(StatusReply.parse(fixtureLines().filter { !it.startsWith("WAKE ") }).wake)
+    }
+
+    @Test
+    fun badWakeLineThrows() {
+        for (line in listOf(
+            "WAKE cause=TIMER boots=x battery_interval_s=600", "WAKE cause=SLEEP boots=1 battery_interval_s=600",
+            "WAKE cause=TIMER boots=1 battery_interval_s=x", "WAKE boots=1 battery_interval_s=600"
+        )) {
+            try {
+                replace("WAKE ", line)
+                fail("expected ParseException for $line")
+            } catch (e: ParseException) {
+            }
+        }
+    }
+
+    @Test
     fun parsesRuntimeAndAwakeLines() {
         val status = StatusReply.parse(fixtureLines())
         assertEquals(RuntimeState(412, 18, 3.5, 1200), status.runtime)

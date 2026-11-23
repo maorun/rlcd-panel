@@ -101,6 +101,20 @@ data class ChimeReminder(val repeatHours: Int, val bits: Int, val lastS: Long?, 
     }
 }
 
+/** `QUIET start_h=<H> end_h=<H> active=<0|1|--> night_interval_s=<N>`: quiet hours; `active` is null for `--` (no valid RTC time), `night_interval_s` 0 is off. */
+data class QuietHoursState(val startHour: Int, val endHour: Int, val active: Boolean?, val nightIntervalSeconds: Int) {
+    companion object {
+        const val MAX_HOUR = 23
+    }
+}
+
+/** `WAKE cause=<POWER_ON|TIMER|KEY|OTHER> boots=<N> battery_interval_s=<N>`: last wake cause, boot count and the wake interval on battery power. */
+data class WakeState(val cause: String, val boots: Long, val batteryIntervalSeconds: Int) {
+    companion object {
+        val CAUSES = setOf("POWER_ON", "TIMER", "KEY", "OTHER")
+    }
+}
+
 /**
  * `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex> [wall=<3 hex>] [window=<3 hex>]`: the badge
  * latches of the panel. `vent`, `dry`, `wall` and `window` use bit 0 for the onboard tile and bits 1 to 10
@@ -178,7 +192,11 @@ data class StatusReply(
     /** `alerts=<2 hex digits>` of the `POWER` line; null for a missing or bad field. */
     val alertMask: Int? = null,
     /** `acked=<2 hex digits>` of the `POWER` line; null for a missing or bad field. */
-    val ackedMask: Int? = null
+    val ackedMask: Int? = null,
+    /** Null without a `QUIET` line. */
+    val quiet: QuietHoursState? = null,
+    /** Null without a `WAKE` line. */
+    val wake: WakeState? = null
 ) {
     val isUsbPower: Boolean get() = powerSource == "USB"
 
@@ -223,6 +241,8 @@ data class StatusReply(
             var noise: NoiseState? = null
             var chime: ChimeReminder? = null
             var latch: LatchState? = null
+            var quiet: QuietHoursState? = null
+            var wake: WakeState? = null
             for (line in lines) {
                 val words = line.split(' ').filter { it.isNotEmpty() }
                 val head = words.firstOrNull() ?: continue
@@ -268,10 +288,12 @@ data class StatusReply(
                     "NOISE" -> noise = parseNoise(line)
                     "CHIME" -> chime = parseChime(line)
                     "LATCH" -> latch = parseLatch(line)
+                    "QUIET" -> quiet = parseQuiet(line)
+                    "WAKE" -> wake = parseWake(line)
                 }
             }
             if (sensors.isEmpty()) throw ParseException("SENSOR")
-            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory, rtc, runtime, awake, noise, chime, latch, alertMask, ackedMask)
+            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory, rtc, runtime, awake, noise, chime, latch, alertMask, ackedMask, quiet, wake)
         }
 
         private fun hexByte(s: String?): Int? =
@@ -379,6 +401,30 @@ data class StatusReply(
                 if (f.containsKey("wall")) mask("wall", LatchState.MAX_TILE_MASK) else null,
                 if (f.containsKey("window")) mask("window", LatchState.MAX_TILE_MASK) else null
             )
+        }
+
+        /** `QUIET start_h=<H> end_h=<H> active=<0|1|--> night_interval_s=<N>`; an hour above 23, a bad `active` or a bad number throws. */
+        private fun parseQuiet(line: String): QuietHoursState {
+            val f = fields(line)
+            val active = when (f["active"]) {
+                "0" -> false
+                "1" -> true
+                "--" -> null
+                else -> throw ParseException(line)
+            }
+            return QuietHoursState(
+                counter(f, "start_h", line, QuietHoursState.MAX_HOUR.toLong()).toInt(),
+                counter(f, "end_h", line, QuietHoursState.MAX_HOUR.toLong()).toInt(),
+                active, counter(f, "night_interval_s", line).toInt()
+            )
+        }
+
+        /** `WAKE cause=<POWER_ON|TIMER|KEY|OTHER> boots=<N> battery_interval_s=<N>`; an unknown cause or a bad number throws. */
+        private fun parseWake(line: String): WakeState {
+            val f = fields(line)
+            val cause = f["cause"]
+            if (cause == null || cause !in WakeState.CAUSES) throw ParseException(line)
+            return WakeState(cause, counter(f, "boots", line, UInt.MAX_VALUE.toLong()), counter(f, "battery_interval_s", line).toInt())
         }
 
         private fun parseMemory(line: String): MemoryState {
