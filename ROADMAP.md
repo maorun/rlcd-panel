@@ -23,12 +23,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] BLE reject counters in the Wear OS sensor health screen
-  - Rank: [Total: 26, Use: 3, Setup: 7, Harmony: 6, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/StatusReplyTest.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt
-  - Goal: Parse the `STATUS` line `BLE rejected=<N> last=<MAC|--> ... unassigned=<N> jumps=<N>` into `BleRejectState` in the shared `StatusReply.kt` (`unassigned` and `jumps` are `null` for older firmware). Show `BLE abgelehnt <N>, Sprünge <N>` in the panel section of the watch `SensorHealthScreen`. Show the line with `⚠` when `unassigned` is above 0.
-  - Acceptance test: `StatusReplyTest` asserts the fields of the fixture line, `null` for `last=--`, `null` for a missing `jumps` field and a `ParseException` for `rejected=x`. `SensorHealthTextTest` asserts the text and the warning mark. `./scripts/check-protocol-sync.sh` and `./scripts/check-protocol-sync.sh --self-test` exit 0. The CI jobs pass.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

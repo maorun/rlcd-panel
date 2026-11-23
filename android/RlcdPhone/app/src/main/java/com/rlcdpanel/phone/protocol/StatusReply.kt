@@ -40,6 +40,18 @@ data class NtpState(val ok: Boolean, val failures: Int, val ageSeconds: Long?, v
     }
 }
 
+/**
+ * `BLE rejected=<N> last=<MAC|--> ... unassigned=<N> jumps=<N>`: rejected BLE packets of the last scan.
+ * [last] is null for `--`; [unassigned] and [jumps] are null for older firmware.
+ */
+data class BleRejectState(val rejected: Int, val last: String?, val unassigned: Int?, val jumps: Int?) {
+    val isWarning: Boolean get() = (unassigned ?: 0) > 0
+
+    companion object {
+        const val MAX_COUNT = 65535L
+    }
+}
+
 /** `RESET reason=<TEXT> abnormal=<N|-->`: last reset reason and count of abnormal resets (null for `--`). */
 data class ResetState(val reason: String, val abnormalCount: Int?) {
     val isAbnormal: Boolean get() = reason in ABNORMAL_REASONS
@@ -196,7 +208,9 @@ data class StatusReply(
     /** Null without a `QUIET` line. */
     val quiet: QuietHoursState? = null,
     /** Null without a `WAKE` line. */
-    val wake: WakeState? = null
+    val wake: WakeState? = null,
+    /** Null without a `BLE` line. */
+    val bleRejects: BleRejectState? = null
 ) {
     val isUsbPower: Boolean get() = powerSource == "USB"
 
@@ -243,6 +257,7 @@ data class StatusReply(
             var latch: LatchState? = null
             var quiet: QuietHoursState? = null
             var wake: WakeState? = null
+            var bleRejects: BleRejectState? = null
             for (line in lines) {
                 val words = line.split(' ').filter { it.isNotEmpty() }
                 val head = words.firstOrNull() ?: continue
@@ -290,10 +305,11 @@ data class StatusReply(
                     "LATCH" -> latch = parseLatch(line)
                     "QUIET" -> quiet = parseQuiet(line)
                     "WAKE" -> wake = parseWake(line)
+                    "BLE" -> bleRejects = parseBleRejects(line)
                 }
             }
             if (sensors.isEmpty()) throw ParseException("SENSOR")
-            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory, rtc, runtime, awake, noise, chime, latch, alertMask, ackedMask, quiet, wake)
+            return StatusReply(sensors, reception, src, sensorLines, ntp, muted, sdStatus, sdFreeMb, reset, shtc3, memory, rtc, runtime, awake, noise, chime, latch, alertMask, ackedMask, quiet, wake, bleRejects)
         }
 
         private fun hexByte(s: String?): Int? =
@@ -417,6 +433,16 @@ data class StatusReply(
                 counter(f, "end_h", line, QuietHoursState.MAX_HOUR.toLong()).toInt(),
                 active, counter(f, "night_interval_s", line).toInt()
             )
+        }
+
+        /** `BLE rejected=<N> last=<MAC|--> ...`; `unassigned` and `jumps` are optional, a bad number throws. */
+        private fun parseBleRejects(line: String): BleRejectState {
+            val f = fields(line)
+            val rejected = counter(f, "rejected", line, BleRejectState.MAX_COUNT).toInt()
+            val last = format(f["last"])
+            fun optional(key: String): Int? =
+                if (f[key] == null) null else counter(f, key, line, BleRejectState.MAX_COUNT).toInt()
+            return BleRejectState(rejected, last, optional("unassigned"), optional("jumps"))
         }
 
         /** `WAKE cause=<POWER_ON|TIMER|KEY|OTHER> boots=<N> battery_interval_s=<N>`; an unknown cause or a bad number throws. */

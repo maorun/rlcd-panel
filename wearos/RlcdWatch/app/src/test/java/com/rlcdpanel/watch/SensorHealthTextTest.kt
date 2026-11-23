@@ -1,5 +1,6 @@
 package com.rlcdpanel.watch
 
+import com.rlcdpanel.watch.protocol.BleRejectState
 import com.rlcdpanel.watch.protocol.ConsoleReply
 import com.rlcdpanel.watch.protocol.Fixtures
 import com.rlcdpanel.watch.protocol.LatchState
@@ -157,5 +158,15 @@ class SensorHealthTextTest {
             SensorHealthText.identifyResult(busy, reply, null))
         assertEquals(true, SensorHealthText.identifyResult(busy, ConsoleReply.Status("OK IDENTIFY 3F"), null).isError)
         assertEquals("Panel meldet", SensorHealthText.identifyResult(busy, ConsoleReply.Status("ERR X"), "Panel meldet").message)
+    }
+
+    @Test
+    fun bleRejectText() {
+        assertEquals("BLE abgelehnt 7, Sprünge 2", SensorHealthText.bleRejects(BleRejectState(7, null, 0, 2)))
+        assertEquals("BLE abgelehnt 7, Sprünge --", SensorHealthText.bleRejects(BleRejectState(7, null, null, null)))
+        assertEquals(null, SensorHealthText.bleRejects(null))
+        assertTrue(BleRejectState(7, null, 3, 2).isWarning)
+        assertFalse(BleRejectState(7, null, 0, 2).isWarning)
+        assertFalse(BleRejectState(7, null, null, null).isWarning)
     }
 }

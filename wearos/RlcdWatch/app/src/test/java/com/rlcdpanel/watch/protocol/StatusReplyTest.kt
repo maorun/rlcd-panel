@@ -359,4 +359,38 @@ class StatusReplyTest {
             }
         }
     }
+
+    private fun withBle(line: String) = fixtureLines().map { if (it.startsWith("BLE ")) line else it }
+
+    @Test
+    fun parsesBleRejectLine() {
+        val old = StatusReply.parse(fixtureLines()).bleRejects!!
+        assertEquals(0, old.rejected)
+        assertNull(old.last)
+        assertNull(old.unassigned)
+        assertNull(old.jumps)
+        assertTrue(!old.isWarning)
+        val full = StatusReply.parse(withBle("BLE rejected=7 last=AA:BB:CC:DD:EE:FF woio=1 meter=2 bthome=0 atc=0 thermopro=4 unassigned=3 jumps=2")).bleRejects!!
+        assertEquals(7, full.rejected)
+        assertEquals("AA:BB:CC:DD:EE:FF", full.last)
+        assertEquals(3, full.unassigned)
+        assertEquals(2, full.jumps)
+        assertTrue(full.isWarning)
+        val noJumps = StatusReply.parse(withBle("BLE rejected=1 last=-- woio=1 meter=0 bthome=0 atc=0 thermopro=0 unassigned=0")).bleRejects!!
+        assertNull(noJumps.jumps)
+        assertEquals(0, noJumps.unassigned)
+        assertNull(StatusReply.parse(fixtureLines().filterNot { it.startsWith("BLE ") }).bleRejects)
+        assertEquals(65535, StatusReply.parse(withBle("BLE rejected=65535 last=--")).bleRejects!!.rejected)
+    }
+
+    @Test
+    fun badBleRejectLineThrows() {
+        for (bad in listOf("BLE rejected=x last=--", "BLE last=--", "BLE rejected=1 last=-- jumps=x", "BLE rejected=65536 last=--")) {
+            try {
+                StatusReply.parse(withBle(bad))
+                fail("expected ParseException for $bad")
+            } catch (e: ParseException) {
+            }
+        }
+    }
 }
