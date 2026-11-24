@@ -383,6 +383,85 @@ struct ReplyParserTests {
         #expect(try EventsReply.parse(lines: ["BEGIN EVENTS", EventsReply.header]).isEmpty)
     }
 
+    @Test func eventsNewestCommand() {
+        #expect(ConsoleCommand.eventsNewest(1).line == "EVENTS 1")
+        #expect(ConsoleCommand.eventsNewest(5).line == "EVENTS 5")
+        #expect(ConsoleCommand.eventsNewest(16).line == "EVENTS 16")
+        #expect(ConsoleCommand.eventsNewest(0).line == nil)
+        #expect(ConsoleCommand.eventsNewest(17).line == nil)
+        #expect(ConsoleCommand.eventsNewest(5).data == Data("EVENTS 5\n".utf8))
+    }
+
+    @Test func recentEventsFiveRows() throws {
+        let plain = """
+        BEGIN EVENTS
+        time,event,detail
+        2026-11-14 08:00:00,RESET,1
+        2026-11-14 09:00:00,RESET,1
+        2026-11-14 10:00:00,RESET,1
+        2026-11-14 11:00:00,RESET,1
+        ,SLOT_ASSIGN,513
+
+        """
+        let recent = RecentEvents.make(rows: try EventsReply.parse(lines: lines(plain)), config: nil)
+        #expect(recent.lines.count == 5)
+        #expect(!recent.lost)
+        #expect(recent.lines == [
+            "--  slot 2 METER",
+            "2026-11-14 11:00:00  reset POWERON",
+            "2026-11-14 10:00:00  reset POWERON",
+            "2026-11-14 09:00:00  reset POWERON",
+            "2026-11-14 08:00:00  reset POWERON",
+        ])
+    }
+
+    @Test func recentEventsCutsLongReply() throws {
+        let long = """
+        BEGIN EVENTS
+        time,event,detail
+        2026-11-14 01:00:00,RESET,1
+        2026-11-14 02:00:00,RESET,1
+        2026-11-14 03:00:00,RESET,1
+        2026-11-14 04:00:00,RESET,1
+        2026-11-14 05:00:00,RESET,1
+        2026-11-14 06:00:00,RESET,1
+        2026-11-14 07:00:00,RESET,1
+
+        """
+        let recent = RecentEvents.make(rows: try EventsReply.parse(lines: lines(long)), config: nil)
+        #expect(recent.lines.map { String($0.prefix(19)) } == [
+            "2026-11-14 07:00:00", "2026-11-14 06:00:00", "2026-11-14 05:00:00",
+            "2026-11-14 04:00:00", "2026-11-14 03:00:00",
+        ])
+        #expect(!recent.lost)
+    }
+
+    @Test func recentEventsLost() throws {
+        let dropped = """
+        BEGIN EVENTS
+        time,event,detail
+        2026-11-14 10:00:00,EVENTS_DROPPED,3
+        2026-11-14 07:00:00,RESET,1
+        2026-11-14 08:00:00,RESET,1
+        2026-11-14 09:00:00,RESET,1
+        2026-11-14 09:30:00,RESET,1
+        ,SLOT_ASSIGN,513
+
+        """
+        let rows = try EventsReply.parse(lines: lines(dropped))
+        #expect(rows.count == 6)
+        let recent = RecentEvents.make(rows: rows, config: nil)
+        #expect(recent.lost)
+        #expect(recent.lines == [
+            "--  slot 2 METER",
+            "2026-11-14 09:30:00  reset POWERON",
+            "2026-11-14 09:00:00  reset POWERON",
+            "2026-11-14 08:00:00  reset POWERON",
+            "2026-11-14 07:00:00  reset POWERON",
+        ])
+        #expect(RecentEvents.make(rows: [], config: nil) == .empty)
+    }
+
     @Test func config() throws {
         let c = try ConfigReply.parse(lines: lines(configText))
         #expect(c.values["temp_offset_c"] == "-1.9")

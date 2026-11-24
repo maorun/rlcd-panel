@@ -20,6 +20,11 @@ public enum EventText {
 
     public static func describe(_ row: EventRow) -> String { describe(row, config: nil) }
 
+    /// One list line: the time (`--` for an empty time), two spaces and the readable text.
+    public static func line(_ row: EventRow, config: ConfigReply?) -> String {
+        "\(row.time.isEmpty ? "--" : row.time)  \(describe(row, config: config))"
+    }
+
     /// Same text; `config` supplies the room names of `WINDOW_OPEN` rows.
     public static func describe(_ row: EventRow, config: ConfigReply?) -> String {
         let d = row.detail
@@ -179,5 +184,23 @@ public struct WindowWatch {
             if !closedLater { tiles.append(tile) }
         }
         return tiles
+    }
+}
+
+/// The newest events for the menu bar: `EventText` lines, newest first, and the flag for lost events.
+public struct RecentEvents: Equatable {
+    /// Number of events that the menu bar shows and that `EVENTS <N>` reads.
+    public static let count = 5
+    public let lines: [String]
+    /// True when the reply holds the `EVENTS_DROPPED` row.
+    public let lost: Bool
+
+    public static let empty = RecentEvents(lines: [], lost: false)
+
+    /// Takes the rows of an `EVENTS <N>` reply (oldest first). The `EVENTS_DROPPED` row sets `lost` and gives no line.
+    public static func make(rows: [EventRow], config: ConfigReply?, limit: Int = count) -> RecentEvents {
+        let events = rows.filter { $0.event != "EVENTS_DROPPED" }
+        let lines = events.suffix(max(0, limit)).reversed().map { EventText.line($0, config: config) }
+        return RecentEvents(lines: lines, lost: events.count != rows.count)
     }
 }

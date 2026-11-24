@@ -33,12 +33,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Add `StatusSensor.temperatureTrend` and `StatusSensor.humidityTrend` (`SensorTrend?` with `rise`, `fall`, `steady`) from the `temp_trend=` and `rh_trend=` fields of the `SENSOR` lines. Give `nil` for `--` and for a missing field. Throw `ParseError.badLine` for another text. Show an arrow up, an arrow down or a dash beside the temperature and the humidity of each sensor row in the menu bar list and in `DiagnosticsView`. Do not send a new command.
   - Acceptance test: `ReplyTests` read `tests/fixtures/status_reply_sample.txt` and assert each trend value of each sensor, `nil` for `--` and for a line without the fields, and `ParseError.badLine` for `rh_trend=UP`. Run `cd macos/RlcdCompanion && swift test && swift build -c release`.
 
-- [ ] Recent events in the macOS menu bar
-  - Rank: [Total: 29, Use: 6, Setup: 5, Harmony: 8, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift, macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift, FEATURES.md
-  - Goal: Add `ConsoleCommand.eventsNewest(Int)` for `EVENTS <N>` (N 1 to 16). Add a section `Recent events` to the menu bar view with the newest 5 events as `EventText` lines, newest first. Read the events with `EVENTS 5` on a user action and after each `STATUS` refresh that the user starts. Show `Events lost` when the reply has the `EVENTS_DROPPED` row. Send the command on USB and on BLE.
-  - Acceptance test: `ReplyTests` assert the command text `EVENTS 1`, `EVENTS 5` and `EVENTS 16`, a precondition failure or `nil` for 0 and 17, and the parse of a 5-row reply with and without the `EVENTS_DROPPED` row through `EventsReply`. Run `cd macos/RlcdCompanion && swift test && swift build -c release`.
-
 - [ ] Console command TODAY for the minimum and maximum of the current day
   - Rank: [Total: 29, Use: 7, Setup: 4, Harmony: 8, Safety: 10, Effort: M]
   - Location: rlcd_panel/serial_console.h, rlcd_panel/sparkline.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp, tests/fixtures/today_reply_sample.txt, AGENTS.md, FEATURES.md
