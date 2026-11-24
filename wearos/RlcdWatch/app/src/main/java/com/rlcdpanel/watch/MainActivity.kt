@@ -96,6 +96,7 @@ class MainActivity : ComponentActivity() {
     private var showEvents by mutableStateOf(false)
     private var eventState by mutableStateOf(EventLogState())
     private var pendingEventsRead = false
+    private var pendingEventsAll = false
     private var showSignal by mutableStateOf(false)
     private var signalState by mutableStateOf(SignalMeterState())
     /** Elapsed time does not jump with a clock change, so the 5 minute limit holds. */
@@ -185,7 +186,7 @@ class MainActivity : ComponentActivity() {
             } else if (spread) {
                 startSpreadRead()
             } else if (events) {
-                startEventsRead()
+                startEventsRead(pendingEventsAll)
             } else if (health) {
                 healthState = healthState.copy(isReading = true, message = null)
                 startHealthRead()
@@ -209,7 +210,7 @@ class MainActivity : ComponentActivity() {
         } else if (spread) {
             spreadState = SpreadState(message = "Bluetooth-Berechtigung fehlt")
         } else if (events) {
-            eventState = EventLogState(message = "Bluetooth-Berechtigung fehlt")
+            eventState = eventState.copy(isReading = false, message = "Bluetooth-Berechtigung fehlt")
         } else if (health) {
             healthState = healthState.copy(isReading = false, message = "Bluetooth-Berechtigung fehlt")
         } else {
@@ -398,7 +399,7 @@ class MainActivity : ComponentActivity() {
 
             if (showSensorHealth && showEvents) {
                 BackHandler { closeEvents() }
-                EventLogScreen(state = eventState, onRead = { readEvents() })
+                EventLogScreen(state = eventState, onRead = { readEvents(all = false) }, onReadAll = { readEvents(all = true) })
                 return@setContent
             }
 
@@ -495,6 +496,7 @@ class MainActivity : ComponentActivity() {
         healthState = healthState.copy(isReading = false, isMuting = false)
         eventState = EventLogState()
         pendingEventsRead = false
+        pendingEventsAll = false
         weekState = WeekState()
         pendingWeekRead = false
         saltState = SaltState()
@@ -1030,14 +1032,16 @@ class MainActivity : ComponentActivity() {
     private fun closeEvents() {
         consoleClient.cancel()
         pendingEventsRead = false
+        pendingEventsAll = false
         eventState = EventLogState()
         showEvents = false
     }
 
-    /** Asks for the console permissions, then sends `EVENTS` once. Only a tap in the event log screen calls it. */
-    private fun readEvents() {
+    /** Asks for the console permissions, then sends `EVENTS 8` or, for [all], `EVENTS` once. Only a tap in the event log screen calls it. */
+    private fun readEvents(all: Boolean) {
         if (eventState.isReading || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingSelfTestRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || consoleClient.isRunning) return
-        eventState = EventLogState(isReading = true)
+        eventState = eventState.copy(isReading = true, message = null)
+        pendingEventsAll = all
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
@@ -1048,24 +1052,25 @@ class MainActivity : ComponentActivity() {
             consolePermissionLauncher.launch(needed.toTypedArray())
             return
         }
-        startEventsRead()
+        startEventsRead(all)
     }
 
     /** A failed CRC-32 or a timeout gives one error text. The command is not repeated. */
-    private fun startEventsRead() {
+    private fun startEventsRead(all: Boolean) {
         if (consoleClient.isRunning) {
-            eventState = EventLogState(message = "Panel-Verbindung ist belegt")
+            eventState = eventState.copy(isReading = false, message = "Panel-Verbindung ist belegt")
             return
         }
-        consoleClient.send("EVENTS") { reply ->
+        val command = if (all) "EVENTS" else EventsReply.newestCommand(EventLogState.SHORT_COUNT)
+        consoleClient.send(command) { reply ->
             eventState = when (reply) {
                 is ConsoleReply.Frame -> try {
                     val log = EventsReply.parse(reply.lines)
-                    EventLogState(rows = log.rows, dropped = log.dropped, loaded = true)
+                    EventLogState(rows = log.rows, dropped = log.dropped, loaded = true, all = all)
                 } catch (e: ParseException) {
-                    EventLogState(message = "Antwort nicht lesbar")
+                    eventState.copy(isReading = false, message = "Antwort nicht lesbar")
                 }
-                else -> EventLogState(message = BleConsoleClient.errorText(reply))
+                else -> eventState.copy(isReading = false, message = BleConsoleClient.errorText(reply))
             }
         }
     }

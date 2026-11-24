@@ -57,12 +57,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Add `EventsReply.newestCommand(n)` for `EVENTS <N>` (N 1 to 16, `IllegalArgumentException` for another value). Add a card `Recent events` to `PhoneDashboardScreen` with the newest 3 events as `EventText` lines, newest first, and a button that opens `EventLogScreen`. Read the card with `EVENTS 3` over the BLE console only on a user action. Keep the full `EVENTS` read of `EventLogScreen`.
   - Acceptance test: `EventsReplyTest` asserts the command text `EVENTS 3`, `IllegalArgumentException` for 0 and 17, and the parse of a 3-row reply with and without the `EVENTS_DROPPED` row. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`.
 
-- [ ] Short event log read on the Wear OS watch
-  - Rank: [Total: 28, Use: 5, Setup: 5, Harmony: 8, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/EventsReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/EventLogScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/EventsReplyTest.kt, FEATURES.md
-  - Goal: Add `EventsReply.newestCommand(n)` for `EVENTS <N>` (N 1 to 16, `IllegalArgumentException` for another value). Make `EventLogScreen` read `EVENTS 8` first, because a short reply needs less BLE time on the watch. Add a chip `Show all` that reads `EVENTS` once. Keep the `EventFilterChip` on both lists.
-  - Acceptance test: `EventsReplyTest` asserts the command text `EVENTS 8`, `IllegalArgumentException` for 0 and 17, and the parse of an 8-row reply with and without the `EVENTS_DROPPED` row. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`. Install the APK with `./scripts/install-watch-apk.sh` and verify the short list and the `Show all` chip.
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Week screen for one room on the Wear OS watch
