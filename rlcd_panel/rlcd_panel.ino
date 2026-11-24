@@ -493,6 +493,7 @@ void renderDashboard() {
   info.dry_tiles = g_state.dry_tiles;
   info.window_tiles = g_state.window_tiles;
   info.wall_tiles = g_state.wall_tiles;
+  info.reception_low = g_state.reception_low;
   info.sensor_battery_latch = g_state.sensor_battery_latch;
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;

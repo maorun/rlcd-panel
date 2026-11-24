@@ -27,11 +27,7 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Weak signal badge in the climate tiles
-  - **Location:** `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `scripts/generate-display-preview.sh`, `tests/test_firmware_logic.cpp`, `docs/display_preview_weak_signal.png`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Show on the panel which sensor has a weak BLE signal, so the user can move the sensor or the panel. Draw the inverted `R` badge beside the `V`, `D`, `W` and `C` badges in each tile style when the bit of the slot is set in `PersistentState::reception_low`. Use the RTC copy only. Do not draw the badge on the onboard tile. Keep the tile text, the RTC layout and `STATE_VERSION`. Add one preview scene with one weak slot.
-  - **Acceptance:** A host test renders a tile with the bit set and finds the badge pixels at the expected position in STANDARD, LARGE and COMPACT style. A host test with mask 0 gives the same framebuffer CRC-32 as before the change. A host test with a weak slot that is also stale keeps the `STALE` badge readable. `./scripts/generate-display-preview.sh` writes `docs/display_preview_weak_signal.png`. The host unit tests pass.
-  - **Rank:** [Total: 31, Use: 7, Setup: 8, Harmony: 7, Safety: 9, Effort: M]
+
 - [ ] Console command DAYS for the newest daily rows
   - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/days_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
   - **Goal:** Give the companion apps a long-term history over BLE, where `DUMP` is not allowed. Add `DAYS <N>` with N 1 to 31, no leading zero. Read the newest N valid rows of the current `daily_v5_YYYY.csv` and, with fewer rows, of the previous year file, each from the last 16384 bytes through `Storage::readTail`. Reply `BEGIN DAYS <n>`, the `daily_v5` header, the rows oldest first and the `CRC32` line. Mount and unmount the card in the command. Reply `ERR NO_CARD`, `ERR NO_FILE`, `ERR READ_FAILED` and `ERR BAD_ARG` with the same rules as `TAIL`. Run on USB and BLE at each `ble_console` level. Keep the RTC layout and `STATE_VERSION`.

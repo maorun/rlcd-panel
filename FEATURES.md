@@ -3133,3 +3133,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `MainActivity.parseStatusReply` parses each `STATUS` reply of the sensor health read and of the mute read, then calls `checkWindowNotifications`. It posts one notification `Window open: <name>` for each rising tile (name from `PanelConfig.tileName`, id `WindowWatch.notificationId`, 2100 plus the tile) and one short vibration (`vibrateNotice`) for each read. Without the notification permission (Android 13 and later), nothing is posted. A reply that does not parse changes nothing.
 - A window that opens while the notification permission is missing is not replayed after a grant (same rule as the phone and `checkWallNotifications`). The badge `Fenster` in `SensorHealthScreen` still shows the open tiles.
 - Validation: `WindowWatchTest` (8 tests) covers the first read, a rising bit, an equal mask, a falling bit, a missing field, a bit above tile 10 and the message and notification id. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.
+
+## Weak signal badge in the climate tiles
+
+- A slot tile draws the inverted badge `R` while its bit is set in `PersistentState::reception_low` (bit 0 is slot 1, bit 9 is slot 10). The user can then move the sensor or the panel.
+- The badge sits in the STANDARD, LARGE and COMPACT tile styles, beside the `V`, `D`, `W` and `C` badges (same 10 px steps, order `V`, `D`, `W`, `C`, `R`).
+- The onboard tile never shows it. A stale tile draws no `R` badge, so the `STALE` badge stays readable. The tile text does not change.
+- `SystemInfo::reception_low` carries the RTC copy to `DashboardView::render`; `rlcd_panel.ino` fills it from `g_state.reception_low`. The RTC layout and `STATE_VERSION` do not change. A mask of 0 gives the same frames as before.
+- **Preview:** `docs/display_preview_weak_signal.png` shows the badge on slot 1.
+- Host test `testWeakSignalBadge` asserts the badge pixels in each tile style, the shift beside the `C` badge, the stale tile, the CRC-32 of the sample scenes with mask 0 and the preview scene.
