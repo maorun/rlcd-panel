@@ -21555,6 +21555,17 @@ void testBleTelemetrySkipRules() {
   assert(!BleTelemetryCodec::shouldBroadcast(1, empty));
 }
 
+void testBleTelemetryAdvertiseDuration() {
+  static_assert(BleTelemetryCodec::ADVERTISE_MS == 1500, "battery advertising time");
+  assert(BleTelemetryCodec::advertiseMs(false) == 1500);
+  assert(BleTelemetryCodec::advertiseMs(false) / BleTelemetryCodec::PAGE_COUNT == 750);
+  assert(BleTelemetryCodec::advertiseMs(true) >= 1500);
+  assert(BleTelemetryCodec::advertiseMs(true) == 2000);
+  assert(BleTelemetryCodec::advertiseMs(true) / BleTelemetryCodec::PAGE_COUNT == 1000);
+  assert(BleTelemetryCodec::advertiseMs(false) % BleTelemetryCodec::PAGE_COUNT == 0);
+  assert(BleTelemetryCodec::advertiseMs(true) % BleTelemetryCodec::PAGE_COUNT == 0);
+}
+
 void testBleTelemetryBuildTiles() {
   SwitchBotRegistry reg;
   SwitchBotReading r;
@@ -24598,6 +24609,7 @@ void testNtpSyncCommand() {
 }
 
 int main() {
+  testBleTelemetryAdvertiseDuration();
   testTempUnitConfig();
   testClimateMathToDisplay();
   testTempUnitDashboard();

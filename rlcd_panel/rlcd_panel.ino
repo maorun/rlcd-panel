@@ -1033,7 +1033,7 @@ void broadcastTelemetry() {
     advertising->setAdvertisementType(BLE_GAP_CONN_MODE_NON); // non-connectable (NimBLE conn_mode)
     advertising->setMinInterval(BleTelemetryCodec::INTERVAL_UNITS);
     advertising->setMaxInterval(BleTelemetryCodec::INTERVAL_UNITS);
-    const uint32_t total_ms = g_state.battery.usb_powered ? 1000 : BleTelemetryCodec::ADVERTISE_MS;
+    const uint32_t total_ms = BleTelemetryCodec::advertiseMs(g_state.battery.usb_powered);
     const uint32_t page_ms = total_ms / BleTelemetryCodec::PAGE_COUNT;
 
     for (uint8_t page = 0; page < BleTelemetryCodec::PAGE_COUNT; ++page) {

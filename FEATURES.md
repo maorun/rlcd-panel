@@ -1070,7 +1070,7 @@ The Wear OS app shows the radio signal of one sensor. The sensor health screen s
 - `BleTelemetryCodec` encodes one Manufacturer Data frame of 20 bytes: the company ID `0xFFFF` and an 18-byte payload. The flags field (3 bytes) and the AD header (2 bytes) bring the advertising data to 25 bytes. The limit is 31 bytes.
 - The payload holds the format version (1), the sequence number, the cell percentage (255 is unknown), the alert mask, the valid tile mask, four tiles and a CRC-8 (`0x31`).
 - Each tile holds the temperature (`int16`, 0.01 C, little-endian) and the relative humidity (`uint8`, 0.5 %RH). An empty or stale tile has its bit cleared in the valid mask and zero bytes. The temperature stays in Celsius.
-- After the scan, the wake cycle advertises the frame as non-connectable for 100 ms (interval 20 ms). The advertising stops before the deep sleep.
+- After the scan, the wake cycle advertises the frame as non-connectable for 1500 ms on battery power (750 ms for each of the 2 pages) and 2000 ms on USB power (interval 20 ms; `BleTelemetryCodec::advertiseMs`). The longer time raises the reception chance of the companion devices. The advertising stops before the deep sleep.
 - A low battery alert and the empty battery protection skip the broadcast.
 - The key uses 1 byte in the config trailer after `heat_alert_limit_c`. The state version is 44. The console command `CONFIG` shows `ble_broadcast_enabled=<N>`.
 - Thus a host reads all four tiles without a cable.

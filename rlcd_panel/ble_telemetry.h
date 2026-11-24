@@ -52,10 +52,16 @@ public:
   static constexpr size_t MANUFACTURER_AD_SIZE = 2 + MANUFACTURER_DATA_SIZE;
   static constexpr size_t ADVERTISING_SIZE = FLAGS_AD_SIZE + MANUFACTURER_AD_SIZE;
   static constexpr size_t ADVERTISING_LIMIT = 31;
-  static constexpr uint32_t ADVERTISE_MS = 500;
+  static constexpr uint32_t ADVERTISE_MS = 1500;     // battery power: 750 ms for each of the 2 pages
+  static constexpr uint32_t ADVERTISE_USB_MS = 2000; // USB power: 1000 ms for each page
   static constexpr uint16_t INTERVAL_UNITS = 32; // 20 ms in units of 0.625 ms
 
   static_assert(ADVERTISING_SIZE <= ADVERTISING_LIMIT, "telemetry frame must fit into one advertising packet");
+
+  // Total advertising time of one wake cycle (all pages).
+  static constexpr uint32_t advertiseMs(bool usb_powered) {
+    return usb_powered ? ADVERTISE_USB_MS : ADVERTISE_MS;
+  }
 
   // The broadcast runs only when the key is 1 and neither the low battery alert nor the empty
   // battery protection is set.
