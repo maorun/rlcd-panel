@@ -2893,3 +2893,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `PersistentState::recordWallChanges(previous, current, now)` and `recordDryChanges(previous, current, now)` call `recordTileChanges`. `refreshSensors()` runs them directly after `DryLatch::update` and `WallLatch::update`. One event for each changed bit: detail low byte the tile 0 to 10, high byte 1 set, 0 clear. An equal mask records nothing. `resetSlot` and a power-on record nothing. The RTC layout and `STATE_VERSION` do not change.
 - `EventText` of the macOS app and of the Android and Wear OS apps shows `Wall damp (<tile>)`, `Wall dry again (<tile>)`, `Dry air (<tile>)` and `Air humidity good (<tile>)`. A tile above 10 or a high byte above 1 gives the raw text. `EventFilter` lists both names in the category `climate`.
 - Tests: `testWallDryAirEvents` asserts one event for each changed bit, no event for an equal mask, the detail bytes and `resetSlot`. The event ring checks accept code 25 and reject code 26. `EventTextTests` and both `EventTextTest` classes assert the texts.
+
+## Feels-like and absolute humidity curves in the Android history screen
+
+- `HistoryCurve` (`HistoryReply.kt`: `Temperature`, `Humidity`, `Feels like`, `Absolute humidity`) and `PanelHistoryRow.value(curve)` derive the two new values for each hour with `ClimateMath.heatIndexC` and `ClimateMath.absoluteHumidityGm3`.
+- An hour without a temperature and humidity pair, and an invalid input, gives `null`. The chart shows a gap for it.
+- `HistoryScreen` shows a curve selector in the panel history view. It draws one chart for the selected curve. The local history keeps its temperature and humidity charts.
+- Tests: `HistoryReplyTest` asserts the derived values against `tests/fixtures/climate_math_vectors.txt`, the sample fixture and the gap.

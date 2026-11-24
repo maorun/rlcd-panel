@@ -83,12 +83,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Feels-like and absolute humidity curves in the Android history screen
-  - Rank: [Total: 25, Use: 6, Setup: 1, Harmony: 8, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/HistoryScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/HistoryReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ClimateMath.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/HistoryReplyTest.kt, FEATURES.md
-  - Goal: Calculate the feels-like temperature (`ClimateMath.heatIndexC`) and the absolute humidity (`ClimateMath.absoluteHumidityGm3`) for each hour of the panel history. Add a curve selector with `Temperature`, `Humidity`, `Feels like` and `Absolute humidity` to `HistoryScreen`. Skip an hour without a pair of values.
-  - Acceptance test: `HistoryReplyTest` asserts the derived values of `tests/fixtures/history_reply_sample.txt` against `tests/fixtures/climate_math_vectors.txt` and the gap for a missing value. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`.
-
 - [ ] Ventilation advice complication on the Wear OS watch face
   - Rank: [Total: 22, Use: 5, Setup: 0, Harmony: 7, Safety: 10, Effort: S]
   - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/complication/ClimateComplicationService.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/complication/ClimateComplicationModel.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/ventilation/VentilationGuide.kt, wearos/RlcdWatch/app/src/main/AndroidManifest.xml, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/complication/ClimateComplicationModelTest.kt, FEATURES.md
