@@ -36,6 +36,7 @@ import com.rlcdpanel.phone.protocol.TimeReply
 import com.rlcdpanel.phone.protocol.VersionReply
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.SensorHealth
+import com.rlcdpanel.phone.protocol.SensorTrend
 import com.rlcdpanel.phone.protocol.SelfTestReply
 import com.rlcdpanel.phone.protocol.SelfTestState as CheckState
 
@@ -138,6 +139,10 @@ object SensorHealthText {
     }
     fun mold(row: SensorHealth): String =
         row.moldHours?.let { (if (it > 0) "⚠ " else "") + "Schimmel $it h" } ?: "Schimmel --"
+    fun trendSymbol(trend: SensorTrend?): String = trend?.symbol ?: "–"
+    fun trend(row: SensorHealth, temperature: Double?, humidity: Double?): String =
+        "Temp ${temperature?.let { "%.1f °C".format(it) } ?: "--"} ${trendSymbol(row.temperatureTrend)}  " +
+            "Feuchte ${humidity?.let { "%.1f %%".format(it) } ?: "--"} ${trendSymbol(row.humidityTrend)}"
     fun isMold(row: SensorHealth): Boolean = (row.moldHours ?: 0) > 0
     fun firmware(v: VersionReply): String = "Firmware ${v.firmware} (${v.git}), Zustand ${v.state}, gebaut ${v.built}"
     fun battery(row: SensorHealth): String = row.battery?.let { "Batterie ${it.toInt()} %" } ?: "Batterie --"
@@ -351,6 +356,8 @@ fun SensorHealthScreen(
                         Text(SensorHealthText.rssi(row))
                         Text(SensorHealthText.rate(row))
                         Text(SensorHealthText.battery(row))
+                        val values = state.status?.sensors?.firstOrNull { it.index == row.slot }
+                        Text(SensorHealthText.trend(row, values?.temperature, values?.humidity))
                         Text(
                             SensorHealthText.mold(row),
                             color = if (SensorHealthText.isMold(row)) MaterialTheme.colorScheme.error

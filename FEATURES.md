@@ -3072,3 +3072,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The sensor health screen has the chip `Today`. `MainActivity.readToday` sends `TODAY` over the BLE console only after a tap on `Read today` (with the Bluetooth permission check). `ERR NO_TIME` shows `Panel clock not set`. The panel needs USB power and `ble_console` 1 or 2.
 - `TodayReplyTest` reads `tests/fixtures/today_reply_sample.txt` and covers the rows, `null` for empty fields, `ParseException` cases, the `--` texts for a sensor with 0 hours and the `ERR NO_TIME` text.
 - Validation: `./scripts/check-protocol-sync.sh` and `--self-test` pass. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.
+
+## Trend arrows in the Android sensor health screen
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt`, `protocol/SensorHealth.kt`, `SensorHealthScreen.kt`, `StatusReplyTest.kt`.
+- `StatusReply.parse` reads `temp_trend` and `rh_trend` of each `SENSOR` line into `StatusSensor.temperatureTrend` and `StatusSensor.humidityTrend` (`SensorTrend`: `RISE`, `FALL`, `STEADY`). `--` and a missing field give `null`. Another text throws `ParseException`.
+- `SensorHealth` carries both trends. `SensorHealthScreen` shows a line `Temp <value> <arrow>  Feuchte <value> <arrow>` for each slot: `↑` for `RISE`, `↓` for `FALL`, `–` for `STEADY` and for `null`.
+- Tests: `StatusReplyTest.trendsOfFixtureAndBadFields` reads `tests/fixtures/status_reply_sample.txt`. It runs in CI only when the host has no Android SDK.
