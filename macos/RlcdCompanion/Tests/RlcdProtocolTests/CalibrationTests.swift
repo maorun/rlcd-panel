@@ -556,3 +556,77 @@ import Testing
         #expect(FrsiReply.statusResult("ERR OTHER").message == "ERR OTHER")
     }
 }
+
+// MARK: SPREAD
+
+private func loadSpreadFixture() throws -> Data {
+    var url = URL(fileURLWithPath: #filePath)
+    for _ in 0..<5 { url.deleteLastPathComponent() }
+    return try Data(contentsOf: url.appendingPathComponent("tests/fixtures/spread_reply_sample.txt"))
+}
+
+@Test func spreadSharedFixture() throws {
+    var assembler = ReplyAssembler()
+    guard case .frame(let lines)? = assembler.append(try loadSpreadFixture()).first else {
+        Issue.record("fixture is not a valid frame"); return
+    }
+    let r = try SpreadReply.parse(lines: lines)
+    let rows = [
+        SensorSpread(name: "onboard", tempDev: 0.0, rhDev: 0.0, isOutlier: false),
+        SensorSpread(name: "slot1", tempDev: 0.2, rhDev: 1.0, isOutlier: false),
+        SensorSpread(name: "slot2", tempDev: -0.2, rhDev: -1.0, isOutlier: false),
+    ]
+    #expect(r.outcome == .measured(sensors: 3, tempMedian: 20.0, rhMedian: 50.0, rows: rows))
+    #expect(r.rows.count == 3)
+    #expect(r.rows[1].slot == 1)
+    #expect(r.rows[0].slot == nil)
+}
+
+@Test func spreadOutlierFlag() throws {
+    let r = try SpreadReply.parse(lines: [
+        "SPREAD sensors=3 temp_median=20.0 rh_median=50.0",
+        "SENSOR onboard temp_dev=0.0 rh_dev=0.0 OK",
+        "SENSOR slot1 temp_dev=0.6 rh_dev=1.0 OUTLIER",
+        "SENSOR slot2 temp_dev=-0.6 rh_dev=-1.0 OUTLIER"])
+    #expect(r.rows.map(\.isOutlier) == [false, true, true])
+}
+
+@Test func spreadSkipResult() throws {
+    #expect(try SpreadReply.parse(lines: ["SKIP sensors=2"]).outcome == .skipped(sensors: 2))
+    #expect(try SpreadReply.parse(lines: ["SKIP sensors=2"]).rows.isEmpty)
+}
+
+@Test func spreadBadLinesThrow() {
+    let head = "SPREAD sensors=1 temp_median=20.0 rh_median=50.0"
+    let badTemp = "SENSOR onboard temp_dev=x rh_dev=0.0 OK"
+    #expect(throws: ParseError.badLine(badTemp)) { try SpreadReply.parse(lines: [head, badTemp]) }
+    let badFlag = "SENSOR onboard temp_dev=0.0 rh_dev=0.0 MAYBE"
+    #expect(throws: ParseError.badLine(badFlag)) { try SpreadReply.parse(lines: [head, badFlag]) }
+    let noMedian = "SPREAD sensors=1 temp_median=20.0"
+    #expect(throws: ParseError.badLine(noMedian)) { try SpreadReply.parse(lines: [noMedian]) }
+}
+
+@Test func spreadCommandLine() {
+    #expect(ConsoleCommand.spread.line == "SPREAD")
+}
+
+@Test func spreadCountMustMatchSensorLines() {
+    let lines = ["SPREAD sensors=3 temp_median=20.0 rh_median=50.0",
+                 "SENSOR onboard temp_dev=0.0 rh_dev=0.0 OK",
+                 "SENSOR slot1 temp_dev=0.2 rh_dev=1.0 OK"]
+    #expect(throws: ParseError.badLine(lines[0])) { try SpreadReply.parse(lines: lines) }
+}
+
+@Test func spreadSkipBadInputThrows() {
+    #expect(throws: ParseError.badLine("SKIP sensors=x")) { try SpreadReply.parse(lines: ["SKIP sensors=x"]) }
+    #expect(throws: ParseError.badLine("SKIP sensors=2 extra")) { try SpreadReply.parse(lines: ["SKIP sensors=2 extra"]) }
+}
+
+@Test func spreadSlotNumberRange() {
+    func slot(_ name: String) -> Int? { SensorSpread(name: name, tempDev: 0, rhDev: 0, isOutlier: true).slot }
+    #expect(slot("slot10") == 10)
+    #expect(slot("slot0") == nil)
+    #expect(slot("slot11") == nil)
+    #expect(slot("slotx") == nil)
+    #expect(slot("onboard") == nil)
+}
