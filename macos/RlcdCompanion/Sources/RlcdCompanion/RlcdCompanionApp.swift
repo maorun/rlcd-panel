@@ -39,6 +39,19 @@ struct RlcdCompanionApp: App {
                 NSApplication.shared.activate(ignoringOtherApps: true)
             }
             Divider()
+            Text("Recent events")
+            if model.recentEvents.lines.isEmpty {
+                Text("No events read")
+            }
+            ForEach(Array(model.recentEvents.lines.enumerated()), id: \.offset) { _, line in
+                Text(line)
+            }
+            if model.recentEvents.lost {
+                Text("Events lost")
+            }
+            Button("Read events") { model.readRecentEvents() }
+                .disabled(!model.isIdle)
+            Divider()
             if let text = model.diagnostics?.chime?.snoozeText {
                 Text(text)
             }

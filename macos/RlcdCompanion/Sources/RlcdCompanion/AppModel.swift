@@ -28,6 +28,8 @@ final class AppModel: ConsoleLinkDelegate {
     private let logStore = TelemetryLogStore()
     var telemetryLog: TelemetryLog { logStore.log }
     var events: [EventRow] = []
+    /// The newest events for the menu bar, from `EVENTS 5`.
+    var recentEvents = RecentEvents.empty
     /// Selected category of the event list; `nil` shows all events.
     var eventCategory: EventFilter.Category?
     var filteredEvents: [EventRow] {
@@ -440,6 +442,7 @@ final class AppModel: ConsoleLinkDelegate {
         history = []
         week = []
         events = []
+        recentEvents = .empty
         windowWatch = WindowWatch() // the next list of a panel is a new baseline
         config = nil
         lastConfig = nil // names and unit belong to the old panel
@@ -528,7 +531,16 @@ final class AppModel: ConsoleLinkDelegate {
     func refresh() {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty else { return }
         message = nil
-        queue = [.config, .status, .history, .events, .week] // CONFIG first: `diagnosticsConfig` takes the values that the STATUS read ran with
+        recentEvents = .empty // a failed read must not leave the lines of an older reply
+        queue = [.config, .status, .history, .events, .week, .eventsNewest(RecentEvents.count)] // CONFIG first: `diagnosticsConfig` takes the values that the STATUS read ran with
+        sendNext()
+    }
+
+    /// Reads the newest 5 events for the menu bar (`EVENTS 5`, USB and BLE). Runs only on the user's menu item.
+    func readRecentEvents() {
+        guard isIdle else { return }
+        message = nil
+        queue = [.eventsNewest(RecentEvents.count)]
         sendNext()
     }
 
@@ -556,7 +568,8 @@ final class AppModel: ConsoleLinkDelegate {
         version = nil
         panelTime = nil
         panelOffsetSeconds = nil
-        queue = [.config] + diagnosticsRefreshCommands + [.time] // CONFIG first, see `diagnosticsConfig`
+        recentEvents = .empty // a failed read must not leave the lines of an older reply
+        queue = [.config] + diagnosticsRefreshCommands + [.time, .eventsNewest(RecentEvents.count)] // CONFIG first, see `diagnosticsConfig`
         sendNext()
     }
 
@@ -1330,6 +1343,7 @@ final class AppModel: ConsoleLinkDelegate {
             if cmd == .screen { panelImage = nil }
             if cmd == .rejects { rejectsResult = nil }
             if case .tail = cmd { tailResult = nil }
+            if case .eventsNewest = cmd { recentEvents = .empty }
             if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
             pendingCommand = nil
             queue.removeAll()
@@ -1415,6 +1429,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if cmd == .screen { panelImage = nil } // a rejected frame must not stay next to the error
                 if cmd == .rejects { rejectsResult = nil }
                 if case .tail = cmd { tailResult = nil }
+                if case .eventsNewest = cmd { recentEvents = .empty }
                 if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
                 if cmd == .scan { stopRepeatScan(.scanFailed) }
                 if case .historySensor = cmd { stopSaltWatch(.replyFailed) }
@@ -1454,6 +1469,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if cmd == .screen { panelImage = nil } // ERR NO_FRAME must not leave an old image
                 if cmd == .rejects { rejectsResult = nil }
                 if case .tail = cmd { tailResult = nil; message = TailReply.message(text) }
+                if case .eventsNewest = cmd { recentEvents = .empty }
                 if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
                 if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
                 if cmd == .scan, text.hasPrefix("ERR") { stopRepeatScan(.scanFailed) }
@@ -1496,6 +1512,9 @@ final class AppModel: ConsoleLinkDelegate {
             case let (.events, .frame(lines)):
                 events = try EventsReply.parse(lines: lines)
                 checkWindowNotifications(events)
+            case let (.eventsNewest, .frame(lines)):
+                recentEvents = .empty // a reply that fails to parse must not leave the old lines
+                recentEvents = RecentEvents.make(rows: try EventsReply.parse(lines: lines), config: lastConfig)
             case let (.config, .frame(lines)):
                 batch?.receiveFrame()
                 config = try ConfigReply.parse(lines: lines)

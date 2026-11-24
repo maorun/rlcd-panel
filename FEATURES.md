@@ -3003,3 +3003,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `EVENTS <N>` needs the panel firmware with this command (PR #380). An older firmware answers `ERR BAD_ARG`; the app shows the error text and `Show all` still reads the full ring.
 - A failed read keeps the rows of the last good read and shows only the error text.
 - Tests: `EventsReplyTest` asserts `EVENTS 8`, `IllegalArgumentException` for 0 and 17, the parse of an 8-row reply with and without the `EVENTS_DROPPED` row and the row count of the short and the full list.
+
+## Recent events in the macOS menu bar
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/RlcdCompanionApp.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift`
+- `ConsoleCommand.eventsNewest(_ n: Int)` sends `EVENTS <N>` for N 1 to 16. For 0, 17 and negative values `line` is `nil`, so the app sends nothing.
+- `RecentEvents.make(rows:config:limit:)` takes the rows of an `EventsReply` and returns the newest 5 events as `EventText` lines, newest first. The `EVENTS_DROPPED` row gives no line and sets `lost`.
+- The menu bar has the section `Recent events`: the lines, the text `No events read` for an empty list, the text `Events lost` when the reply has the `EVENTS_DROPPED` row, and the button `Read events`.
+- `AppModel.readRecentEvents()` sends `EVENTS 5` only after the button. `AppModel.refresh()` and `AppModel.refreshDiagnostics()` (both start with a user action) add `EVENTS 5` after their reads. The command runs on USB and on BLE at each `ble_console` level. A lost link, a timeout and a bad reply clear the old lines.
+- The firmware keeps the `EVENTS_DROPPED` row for `EVENTS <N>` only when N covers all stored events. With `EVENTS 5` the text `Events lost` shows only while the ring holds 5 or fewer events.
+- Tests: `ReplyTests` assert `EVENTS 1`, `EVENTS 5` and `EVENTS 16`, `nil` for 0 and 17, and the parse of a 5-row reply with and without the `EVENTS_DROPPED` row, and the cut of a 7-row reply to the newest 5.
+- Validation: `swift build -c release` passed. `swift test` did not run on the local host (no `TestingMacros` plugin without Xcode), so the CI job `macOS companion tests` runs it. A standalone harness of `Sources/RlcdProtocol/*.swift` checked the same assertions and passed.

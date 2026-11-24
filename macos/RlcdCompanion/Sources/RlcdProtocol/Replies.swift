@@ -519,6 +519,8 @@ public enum ConsoleCommand: Equatable {
     case status, history, events, week, config, version, scan, screen
     /// `HISTORY N` (N 0 to 10): the 24-hour history of one sensor.
     case historySensor(Int)
+    /// `EVENTS N` (N 1 to 16): the newest N rows of the event ring, oldest first (USB and BLE).
+    case eventsNewest(Int)
     /// `REJECTS`: the packets that the last BLE scan rejected (works on USB and on BLE).
     case rejects
     /// `SELFTEST`: runs each onboard hardware check once (USB and BLE; the BLE scan check skips on BLE).
@@ -652,6 +654,7 @@ public enum ConsoleCommand: Equatable {
         case .history: return "HISTORY"
         case let .historySensor(n): return (0...10).contains(n) ? "HISTORY \(n)" : nil
         case .events: return "EVENTS"
+        case let .eventsNewest(n): return (1...16).contains(n) ? "EVENTS \(n)" : nil
         case .week: return "WEEK"
         case .spread: return "SPREAD"
         case let .tail(rows): return (1...72).contains(rows) ? "TAIL \(rows)" : nil

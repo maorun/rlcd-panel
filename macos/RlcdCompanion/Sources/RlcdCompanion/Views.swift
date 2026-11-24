@@ -296,7 +296,7 @@ struct MainView: View {
                 }
                 .pickerStyle(.segmented)
                 ForEach(Array(model.filteredEvents.enumerated()), id: \.offset) { _, e in
-                    Text("\(e.time.isEmpty ? "--" : e.time)  \(EventText.describe(e, config: model.lastConfig))")
+                    Text(EventText.line(e, config: model.lastConfig))
                         .font(.system(.caption, design: .monospaced))
                         .foregroundStyle(EventText.isAbnormal(e) ? Color.red : Color.primary)
                 }
