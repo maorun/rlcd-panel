@@ -1761,6 +1761,19 @@ The console command `SCAN` gives `ERR NOT_OVER_BLE` on BLE, so a user without a 
 - `tests/fixtures/sensor_adv_vectors.txt` holds 47 lines (22 good and 25 rejected, each format has both). `testSensorAdvertisementFixtureVectors` in `tests/test_firmware_logic.cpp` decodes each line with the firmware parsers. `SensorAdvertisementTest` decodes the same lines and asserts the same values. `SlotAssignmentTest` asserts the command order, the upper-case name, the 13-character name, the duplicate MAC, the stop at the first `ERR` and the `READ_ONLY` text.
 - The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.
 
+## Signal series in the Android sensor finder
+
+A user who moves a sensor needs a stable signal, not one RSSI value. The finder of the phone app now keeps a short series for each MAC. It ports `ScanSeries.swift`.
+
+- `SignalSeries` (`finder/SignalSeries.kt`) takes an injected clock (`() -> Long`, milliseconds). The phone scan runs without a break, so the series cuts it into windows of 15 s (`WINDOW_MILLIS`). Each window keeps the strongest RSSI of each MAC. A closed window adds one value; the series keeps the last 10 values (`MAX_VALUES`) and gives minimum, mean and maximum (`Stats`).
+- A MAC without a packet in a closed window gets one missed window. `Stats.missed` counts over all closed windows (`Stats.windows`), the RSSI values only over the last 10. The open window is not counted.
+- `advance()` closes the elapsed windows, also after a silent gap. The series stops with `StopReason.TIMEOUT` after 40 windows (10 minutes, `MAX_DURATION_MILLIS`). `stop(reason)` keeps the values and the first reason. `start()` drops the old values.
+- `MainActivity` starts the series with the finder scan and records each packet. A ticker (1 s) calls `advance()`, publishes the statistics and checks the scan permission. The series stops with `USER` (button, slot assignment), `SCREEN_STOPPED` (`onStop`, close of the screen), `TIMEOUT`, `PERMISSION_LOST` (permission check or scan error) or `SCAN_FAILED`. The values stay on the screen after the stop.
+- `SensorFinderScreen` shows `Serie (<n>): min, Ø, max dBm, <missed> von <windows> Fenstern ohne Paket` in each row (`SensorFinderText.series`) and the stop text of a timeout, a lost permission and a failed scan. The scan itself keeps running after the timeout.
+- No firmware, RTC or protocol change.
+- `SignalSeriesTest` uses a fake clock and asserts the statistics, the strongest packet of a window, the limit of 10 values, the missed windows, the silent gap, the stop after 10 minutes, the first stop reason, a MAC that appears late (earlier windows count as missed, as in `ScanSeries.swift`) and the reset by `start()`. `SensorFinderTextTest` asserts the row text and the stop texts.
+- The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.
+
 ## Console command REJECTS with the reason of each rejected BLE packet
 
 The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. The user could not see why a sensor does not take a slot. The new console command `REJECTS` lists each rejected MAC with its reason.
