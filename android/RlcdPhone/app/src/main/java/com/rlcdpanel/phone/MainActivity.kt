@@ -42,6 +42,9 @@ import com.rlcdpanel.phone.protocol.ChimeText
 import com.rlcdpanel.phone.protocol.CalibrationProposal
 import com.rlcdpanel.phone.protocol.CalibrationReply
 import com.rlcdpanel.phone.protocol.CalibrationSensors
+import com.rlcdpanel.phone.protocol.FrsiCommand
+import com.rlcdpanel.phone.protocol.FrsiReply
+import com.rlcdpanel.phone.protocol.FrsiText
 import com.rlcdpanel.phone.protocol.SaltCommand
 import com.rlcdpanel.phone.protocol.SaltReply
 import com.rlcdpanel.phone.protocol.SaltText
@@ -261,6 +264,8 @@ class MainActivity : ComponentActivity() {
                     state = calibState,
                     currentConfig = panelConfig.values,
                     sensors = CalibrationSensors.selectable(healthState.rows, calibState.reference),
+                    frsiSensors = (CalibrationSensors.selectable(healthState.rows, calibState.frsiRoom) +
+                        CalibrationSensors.selectable(healthState.rows, calibState.frsiWall)).distinct().sorted(),
                     onPickReference = { calibState = calibState.copy(reference = it, reply = null, selected = emptySet(), message = null, isError = false, naCl = null, mgCl2 = null) },
                     onRead = { withConsolePermission { readCalibration() } },
                     onToggle = { key ->
@@ -271,6 +276,10 @@ class MainActivity : ComponentActivity() {
                     onApply = { withConsolePermission { applyCalibration() } },
                     onSalt = { magnesium -> withConsolePermission { readSalt(magnesium) } },
                     onApplyTwoPoint = { withConsolePermission { applyTwoPoint() } },
+                    onPickFrsiRoom = { calibState = calibState.copy(frsiRoom = it, frsi = null, message = null, isError = false) },
+                    onPickFrsiWall = { calibState = calibState.copy(frsiWall = it, frsi = null, message = null, isError = false) },
+                    onFrsi = { withConsolePermission { readFrsi() } },
+                    onApplyFrsi = { withConsolePermission { applyFrsi() } },
                     onBack = { closeCalibration() }
                 )
                 BackHandler { closeCalibration() }
@@ -1136,7 +1145,7 @@ class MainActivity : ComponentActivity() {
     private fun closeCalibration() {
         consoleClient.cancel()
         pendingConsoleAction = null
-        calibState = CalibrationState(reference = calibState.reference)
+        calibState = CalibrationState(reference = calibState.reference, frsiRoom = calibState.frsiRoom, frsiWall = calibState.frsiWall)
         showCalib = false
         showHealth = true
     }
@@ -1223,6 +1232,32 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /** Sends `FRSI R W` after a tap. */
+    private fun readFrsi() {
+        val room = calibState.frsiRoom
+        val wall = calibState.frsiWall
+        if (room !in 0..SaltCommand.MAX_SENSOR || wall !in 1..SaltCommand.MAX_SENSOR || room == wall) return
+        stopBleScan()
+        calibState = calibState.copy(isBusy = true, isError = false, message = null, frsi = null)
+        consoleClient.send(FrsiCommand.line(room, wall)) { reply ->
+            calibState = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    calibState.copy(isBusy = false, frsi = FrsiReply.parse(reply.lines))
+                } catch (e: ParseException) {
+                    calibState.copy(isBusy = false, isError = true, message = "Antwort nicht lesbar: ${e.line.take(80)}")
+                }
+                is ConsoleReply.Status -> calibState.copy(isBusy = false, isError = true, message = FrsiText.status(reply.line))
+                else -> calibState.copy(isBusy = false, isError = true, message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
+    /** Sends `SET wall_frsi_pct=<N>`, then `CONFIG`. */
+    private fun applyFrsi() {
+        val proposal = calibState.frsi?.proposal ?: return
+        runBatch(listOf(proposal), clearReply = false)
+    }
+
     /** Sends the selected proposals as `SET`, then `CONFIG`. The first `ERR` stops the batch and skips `CONFIG`. */
     private fun applyCalibration() {
         runBatch(calibState.chosen, clearReply = true)
@@ -1257,7 +1292,8 @@ class MainActivity : ComponentActivity() {
                 reply = if (changed || (clearReply && result.failure == null)) null else calibState.reply,
                 selected = if (changed || (clearReply && result.failure == null)) emptySet() else calibState.selected,
                 naCl = if (changed) null else calibState.naCl,
-                mgCl2 = if (changed) null else calibState.mgCl2
+                mgCl2 = if (changed) null else calibState.mgCl2,
+                frsi = if (changed) null else calibState.frsi
             )
         }
     }

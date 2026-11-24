@@ -2760,3 +2760,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The main screen has the button `Sensor einrichten`.
 - Tests: `SetupAssistantTest` (step order, command texts, each stop reason, restart after a stop and after `DONE`).
 - Validation: the host has no Java and no Android SDK, so Gradle did not run locally. The CI job `Android phone companion tests and APK` runs the tests.
+
+## Wall factor proposal in the Android calibration screen
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/FrsiReply.kt`, `CalibrationScreen.kt`, `MainActivity.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/FrsiReplyTest.kt`, `tests/fixtures/frsi_reply_sample.txt`.
+- `FrsiCommand.line(room, wall)` builds `FRSI <R> <W>` (R 0 to 10, W 1 to 10, different numbers; else `IllegalArgumentException`). `FrsiReply.parse` reads the three reply types: the measurement (`FRSI room=… wall=… hours=… frsi=… span=… delta_c=…` plus the line `wall_frsi_pct=<N>`), `SKIP hours=<n>` and `UNSTABLE span=<x|-->`. A bad number throws `ParseException`. A proposal outside 50 to 95 gives no proposal.
+- `ERR LOW_DELTA`, `ERR NO_OUTDOOR` and `ERR BAD_ARG` arrive as status lines. `FrsiText.status` shows a clear text for each. `ERR READ_ONLY` (`ble_console=1`) shows `Set ble_console=2 to apply`, as for the other calibration commands.
+- `CalibrationScreen` has the section `Wall factor`: two drop-down menus (room and wall), the button `FRSI`, the result text and the button `Apply wall factor`. The button sends `SET wall_frsi_pct=<N>`, then `CONFIG`, through `CalibrationBatch`.
+- Tests: `FrsiReplyTest` (fixture, `SKIP`, `UNSTABLE`, proposal range, bad numbers, command line, status texts).
+- Validation: the host has no Java and no Android SDK, so Gradle did not run locally. The CI job `Android phone companion tests and APK` runs `gradle testDebugUnitTest assembleDebug`.

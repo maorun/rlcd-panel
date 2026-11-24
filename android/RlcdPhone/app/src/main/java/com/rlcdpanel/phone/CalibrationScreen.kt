@@ -2,6 +2,7 @@ package com.rlcdpanel.phone
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,18 +16,25 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.CalibrationProposal
 import com.rlcdpanel.phone.protocol.CalibrationReply
+import com.rlcdpanel.phone.protocol.FrsiReply
+import com.rlcdpanel.phone.protocol.FrsiText
 import com.rlcdpanel.phone.protocol.SaltReply
 import com.rlcdpanel.phone.protocol.SaltText
 import com.rlcdpanel.phone.protocol.TwoPointCalibration
@@ -42,7 +50,11 @@ data class CalibrationState(
     val isError: Boolean = false,
     /** Last NaCl and MgCl2 check of the picked reference sensor. */
     val naCl: SaltReply? = null,
-    val mgCl2: SaltReply? = null
+    val mgCl2: SaltReply? = null,
+    /** Room sensor (0 to 10) and wall slot (1 to 10) of the wall factor section. */
+    val frsiRoom: Int = 0,
+    val frsiWall: Int = 1,
+    val frsi: FrsiReply? = null
 ) {
     /** The proposals that a tap on `Apply` sends, in reply order. */
     val chosen: List<CalibrationProposal>
@@ -67,12 +79,17 @@ fun CalibrationScreen(
     currentConfig: Map<String, String>,
     /** Sensors of the picker; see `CalibrationSensors.selectable`. */
     sensors: List<Int>,
+    frsiSensors: List<Int>,
     onPickReference: (Int) -> Unit,
     onRead: () -> Unit,
     onToggle: (String) -> Unit,
     onApply: () -> Unit,
     onSalt: (Boolean) -> Unit,
     onApplyTwoPoint: () -> Unit,
+    onPickFrsiRoom: (Int) -> Unit,
+    onPickFrsiWall: (Int) -> Unit,
+    onFrsi: () -> Unit,
+    onApplyFrsi: () -> Unit,
     onBack: () -> Unit
 ) {
     val evaluation = remember(state.naCl, state.mgCl2, currentConfig) {
@@ -152,6 +169,33 @@ fun CalibrationScreen(
                     }
                 }
             }
+            item { Text("Wall factor", style = MaterialTheme.typography.titleMedium) }
+            item {
+                Text(
+                    "Lege einen Slot an die Innenseite der Außenwand. Der Außen-Slot (outdoor_slot) muss frische Werte haben.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    SensorMenu("Raum", state.frsiRoom, frsiSensors, !state.isBusy, onPickFrsiRoom)
+                    SensorMenu("Wand", state.frsiWall, frsiSensors.filter { it >= 1 }, !state.isBusy, onPickFrsiWall)
+                    Button(onClick = onFrsi, enabled = !state.isBusy && state.frsiRoom != state.frsiWall) { Text("FRSI") }
+                }
+            }
+            state.frsi?.let { r ->
+                item { Text(FrsiText.outcome(r)) }
+                r.proposal?.let { p ->
+                    item {
+                        Card(modifier = Modifier.fillMaxWidth()) {
+                            Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                Text("${p.key}=${p.value}")
+                                Button(onClick = onApplyFrsi, enabled = !state.isBusy) { Text("Apply wall factor") }
+                            }
+                        }
+                    }
+                }
+            }
             state.message?.let {
                 item {
                     Text(it, color = if (state.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground)
@@ -185,6 +229,20 @@ fun CalibrationScreen(
                 }
             }
             item { Spacer(modifier = Modifier.height(24.dp)) }
+        }
+    }
+}
+
+/** Drop-down menu of one sensor number. */
+@Composable
+private fun SensorMenu(label: String, value: Int, options: List<Int>, enabled: Boolean, onPick: (Int) -> Unit) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        OutlinedButton(onClick = { open = true }, enabled = enabled) { Text("$label $value") }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            for (n in options) {
+                DropdownMenuItem(text = { Text("$n") }, onClick = { open = false; onPick(n) })
+            }
         }
     }
 }
