@@ -45,12 +45,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Trend arrows in the Wear OS sensor health screen
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/StatusReplyTest.kt`, `FEATURES.md`
-  - **Goal:** Show the 3-hour direction of temperature and humidity for each sensor on the wrist. Parse `temp_trend` and `rh_trend` with the same rules as the Android parser. Show the arrow beside each value in the Wear OS `SensorHealthScreen`.
-  - **Acceptance:** `StatusReplyTest` reads `tests/fixtures/status_reply_sample.txt` and gives the trend values of the fixture. `--` and a missing field give `null`. Another text throws `ParseException`. `gradle testDebugUnitTest assembleDebug` passes in `wearos/RlcdWatch`.
-  - **Rank:** [Total: 27, Use: 7, Setup: 4, Harmony: 7, Safety: 9, Effort: S]
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

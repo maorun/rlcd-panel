@@ -3080,3 +3080,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `StatusReply.parse` reads `temp_trend` and `rh_trend` of each `SENSOR` line into `StatusSensor.temperatureTrend` and `StatusSensor.humidityTrend` (`SensorTrend`: `RISE`, `FALL`, `STEADY`). `--` and a missing field give `null`. Another text throws `ParseException`.
 - `SensorHealth` carries both trends. `SensorHealthScreen` shows a line `Temp <value> <arrow>  Feuchte <value> <arrow>` for each slot: `↑` for `RISE`, `↓` for `FALL`, `–` for `STEADY` and for `null`.
 - Tests: `StatusReplyTest.trendsOfFixtureAndBadFields` reads `tests/fixtures/status_reply_sample.txt`. It runs in CI only when the host has no Android SDK.
+
+## Trend arrows in the Wear OS sensor health screen
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt`, `SensorHealthScreen.kt`, `StatusReplyTest.kt`.
+- `StatusReply.parse` reads `temp_trend` and `rh_trend` of each `SENSOR` line into `StatusSensor.temperatureTrend` and `StatusSensor.humidityTrend` (`SensorTrend`: `RISE`, `FALL`, `STEADY`), with the same rules as the Android parser. `--` and a missing field give `null`. Another text throws `ParseException`.
+- `SensorHealthScreen` shows a line `T <value> <arrow>  RH <value> <arrow>` in each sensor card: `↑` for `RISE`, `↓` for `FALL`, `–` for `STEADY` and for `null` (`SensorHealthText.trend`).
+- Tests: `StatusReplyTest.trendsOfFixtureAndBadFields` reads `tests/fixtures/status_reply_sample.txt`.
