@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Newest climate rows screen in the Android app
-  - Rank: [Total: 31, Use: 6, Setup: 7, Harmony: 8, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/TailScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TailReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TailCommand.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/TailCommandTest.kt, FEATURES.md
-  - Goal: Use the existing `TailReply.parse` in a new `TailScreen`. Add a pure `TailCommand.text(rows)` that gives `TAIL <N>` for N 1 to 72 and null for other values. Let the user select 6, 24 or 72 rows. Send `TAIL <N>` over the BLE console only on a user action. Show one row for each hour with the local time, the onboard values and the values of each slot with a name. Show an empty field as `--`. Show `ERR NO_CARD`, `ERR NO_FILE` and `ERR READ_FAILED` as clear texts. Add one entry on the main screen.
-  - Acceptance test: `TailCommandTest` asserts `TAIL 6`, `TAIL 72`, null for 0, 73 and -1. `TailReplyTest` asserts the row count and the empty fields of `tests/fixtures/tail_reply_sample.txt`. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`.
-
 - [ ] Newest climate rows in the macOS diagnostics view
   - Rank: [Total: 31, Use: 6, Setup: 7, Harmony: 8, Safety: 10, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/TailReply.swift, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/TailReplyTests.swift, FEATURES.md

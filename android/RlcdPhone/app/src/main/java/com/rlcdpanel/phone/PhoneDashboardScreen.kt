@@ -91,6 +91,7 @@ fun PhoneDashboardScreen(
     onOpenSensorHealth: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
     onOpenWeek: () -> Unit = {},
+    onOpenTail: () -> Unit = {},
     onOpenEvents: () -> Unit = {},
     onOpenSetup: () -> Unit = {},
     /** Protocol source badge of each tile index, from the last sensor health read; tile 0 is always the onboard sensor. */
@@ -125,6 +126,7 @@ fun PhoneDashboardScreen(
                         onOpenSensorHealth = onOpenSensorHealth,
                         onOpenHistory = onOpenHistory,
                         onOpenWeek = onOpenWeek,
+                        onOpenTail = onOpenTail,
                         onOpenEvents = onOpenEvents,
                         onOpenSetup = onOpenSetup
                     )
@@ -204,6 +206,7 @@ private fun StatusHeader(
     onOpenSensorHealth: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenWeek: () -> Unit,
+    onOpenTail: () -> Unit,
     onOpenEvents: () -> Unit,
     onOpenSetup: () -> Unit
 ) {
@@ -265,6 +268,14 @@ private fun StatusHeader(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F), contentColor = Color.White)
             ) {
                 Text("Wochenverlauf 7 Tage")
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Button(
+                onClick = onOpenTail,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F), contentColor = Color.White)
+            ) {
+                Text("Neueste Logzeilen")
             }
             Spacer(modifier = Modifier.height(6.dp))
             Button(
