@@ -37,14 +37,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST, SPREAD, TAIL };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST, SPREAD, TAIL, TODAY };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, or with extra text; SELFTEST and SPREAD with extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
+  BAD_ARG,  // CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, or with extra text; SELFTEST, SPREAD and TODAY with extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '='); CONFIG <key> with an unknown key
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv, daily_v4_YYYY.csv or events_v1_YYYY.csv
@@ -77,7 +77,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "CONFIG <key>", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "SPREAD", "TAIL 1..72", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "CONFIG <key>", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "SPREAD", "TODAY", "TAIL 1..72", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -295,6 +295,13 @@ public:
         return SerialParseStatus::BAD_ARG; // SPREAD takes no argument
       }
       out.kind = SerialCommandKind::SPREAD;
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "TODAY")) {
+      if (cmd_len != len) {
+        return SerialParseStatus::BAD_ARG; // TODAY takes no argument
+      }
+      out.kind = SerialCommandKind::TODAY;
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "TAIL")) {
@@ -1142,6 +1149,18 @@ struct SerialStatusSnapshot {
 //   reference (the mean of the two middle means for an even count) and OUTLIER means a deviation above 0.5 C or 3.0 %RH.
 //   Fewer than 3 such sensors give "SKIP sensors=<n>" and the CRC32 line, extra text gives "ERR BAD_ARG". showSpread() works on
 //   the RTC copy: no card access, no state change, so execute() ignores SPREAD. USB and BLE at each ble_console level.
+//   TODAY -> "BEGIN TODAY", the header "sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct", one row for
+//   each sensor (0 onboard, 1 to 10 a slot) that holds at least one hourly sample, and "CRC32 <8 hex digits>". The row covers the hourly
+//   samples of the RTC ClimateHistory since the last local midnight of the RTC time: the newest sample is as old as the time since
+//   ClimateHistory::last_sample_ms, each older sample is one hour older, and a sample counts when its age does not exceed the minutes
+//   since midnight. `hours` is the larger sample count of the two histories; a sensor without a sample since midnight has hours 0 and
+//   empty value fields; a half-empty pair has empty fields on its empty side. Values use 0.1 steps (the mean rounds half away from
+//   zero). "ERR NO_TIME" for an invalid, stopped or untrusted RTC time (year before 2025 or after 2099, or a failed clock read), "ERR BAD_ARG" for extra text. The age of the
+//   samples is an approximation: it follows the newest push and assumes 60 minutes between pushes, but the real step is 60 minutes plus up
+//   to one wake interval, so a sample near midnight can fall on the wrong side. A sensor that skipped a push shifts by one hour. A slot
+//   without new samples (stale, lost) keeps its old samples and shows them as today's values (like SPREAD); TODAY has no STALE marker.
+//   The day boundary is the local wall clock of the RTC (a plain 24-hour day, also on a DST change day). showToday() works on the
+//   RTC copy: no card access, no state change, so execute() ignores TODAY. USB and BLE at each ble_console level.
 //   TAIL <N> -> "BEGIN TAIL <n>", the CSV header of climate_v6, the newest rows (N 1 to 72) oldest first and "CRC32 <8 hex digits>". <n> is
 //   the row count sent. The rows come from the last 16384 bytes of the current month file; fewer than N rows there add the rows of the
 //   last 16384 bytes of the previous month file, but only when the window of the current file reaches its start (no gap). Only complete rows with the 42 columns count (a partial first line, a line without
@@ -1573,6 +1592,83 @@ public:
         len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "SENSOR %s temp_dev=%s rh_dev=%s %s\n",
                                             names[sensor_of[k]], f[0], f[1], outlier ? "OUTLIER" : "OK"));
       }
+    }
+    SerialCrc32 crc;
+    crc.update(reinterpret_cast<const uint8_t*>(text), len);
+    if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+      return;
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
+  // Minimum, maximum and mean of the hourly samples of each sensor since the last local midnight of `now` (see TODAY above). `now_ms`
+  // is the RTC-backed clock of `history.last_sample_ms`. The card and the state stay untouched.
+  static void showToday(Sink& sink, const ClimateHistory& history, const RtcTime& now, uint32_t now_ms) {
+    static const char* const names[ClimateHistory::SLOT_COUNT] = {
+        "onboard", "slot1", "slot2", "slot3", "slot4", "slot5",
+        "slot6", "slot7", "slot8", "slot9", "slot10"};
+    if (!now.valid || now.oscillator_stopped || now.year < ClimateHistory::RESTORE_MIN_TRUSTED_YEAR || now.year > 2099 ||
+        !NtpTime::isValidDate(now.year, now.month, now.day) || now.hour > 23 || now.minute > 59) {
+      send(sink, "ERR NO_TIME\n");
+      return;
+    }
+    const int64_t since_midnight_min = static_cast<int64_t>(now.hour) * 60 + now.minute;
+    const int64_t newest_age_min =
+        history.has_sampled ? static_cast<int64_t>(static_cast<uint32_t>(now_ms - history.last_sample_ms) / 60000UL) : 0;
+    // number of newest samples (0 is the newest) that lie after midnight
+    const int64_t fit = history.has_sampled && newest_age_min <= since_midnight_min
+                            ? (since_midnight_min - newest_age_min) / 60 + 1
+                            : 0;
+    char text[1024];
+    size_t len = static_cast<size_t>(snprintf(
+        text, sizeof(text), "BEGIN TODAY\nsensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct\n"));
+    for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
+      const TemperatureHistory& th = history.temperatures[i];
+      const HumidityHistory& hh = history.slots[i];
+      if (th.size() == 0 && hh.size() == 0) {
+        continue;
+      }
+      char t_field[3][12] = {"", "", ""};
+      char h_field[3][12] = {"", "", ""};
+      size_t t_n = th.size() < static_cast<size_t>(fit) ? th.size() : static_cast<size_t>(fit);
+      size_t h_n = hh.size() < static_cast<size_t>(fit) ? hh.size() : static_cast<size_t>(fit);
+      if (t_n > 0) {
+        int32_t lo = th.at(th.size() - 1);
+        int32_t hi = lo;
+        int32_t sum = 0;
+        for (size_t k = 0; k < t_n; ++k) {
+          const int32_t v = th.at(th.size() - 1 - k);
+          lo = v < lo ? v : lo;
+          hi = v > hi ? v : hi;
+          sum += v;
+        }
+        formatTenths(t_field[0], sizeof(t_field[0]), lo);
+        formatTenths(t_field[1], sizeof(t_field[1]), hi);
+        formatTenths(t_field[2], sizeof(t_field[2]), divRound(sum, static_cast<int32_t>(t_n)));
+      }
+      if (h_n > 0) {
+        int32_t lo = hh.at(hh.size() - 1);
+        int32_t hi = lo;
+        int32_t sum = 0;
+        for (size_t k = 0; k < h_n; ++k) {
+          const int32_t v = hh.at(hh.size() - 1 - k);
+          lo = v < lo ? v : lo;
+          hi = v > hi ? v : hi;
+          sum += v;
+        }
+        formatTenths(h_field[0], sizeof(h_field[0]), lo);
+        formatTenths(h_field[1], sizeof(h_field[1]), hi);
+        formatTenths(h_field[2], sizeof(h_field[2]), divRound(sum, static_cast<int32_t>(h_n)));
+      }
+      const int row = snprintf(text + len, sizeof(text) - len, "%u,%s,%u,%s,%s,%s,%s,%s,%s\n",
+                               static_cast<unsigned>(i), names[i], static_cast<unsigned>(t_n > h_n ? t_n : h_n),
+                               t_field[0], t_field[1], t_field[2], h_field[0], h_field[1], h_field[2]);
+      if (row < 0 || static_cast<size_t>(row) >= sizeof(text) - len) {
+        break; // cannot happen with 11 rows of at most 70 bytes; never read past the buffer
+      }
+      len += static_cast<size_t>(row);
     }
     SerialCrc32 crc;
     crc.update(reinterpret_cast<const uint8_t*>(text), len);
@@ -2760,7 +2856,7 @@ public:
         command.kind == SerialCommandKind::IDENTIFY || command.kind == SerialCommandKind::SNOOZE ||
         command.kind == SerialCommandKind::NTP_SYNC || command.kind == SerialCommandKind::FRSI ||
         command.kind == SerialCommandKind::SELFTEST || command.kind == SerialCommandKind::SPREAD ||
-        command.kind == SerialCommandKind::TAIL) {
+        command.kind == SerialCommandKind::TAIL || command.kind == SerialCommandKind::TODAY) {
       return;
     }
     if (!storage.mount()) {
@@ -2797,6 +2893,7 @@ public:
       case SerialCommandKind::SELFTEST:
       case SerialCommandKind::SPREAD:
       case SerialCommandKind::TAIL:
+      case SerialCommandKind::TODAY:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;

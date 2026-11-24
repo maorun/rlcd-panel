@@ -9,7 +9,7 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - **Power & Battery:** Deep sleep with CRC-checked RTC state, wake & night intervals, USB detection, low-battery banner, empty-battery protection, runtime & cycle tracking, awake-time stats.
 - **Audio & Alerts:** `ES8311` chimes (freezer, mold, heat, noise, dropout, charge full) with repeat & quiet hours, `BOOT` mute, `ES7210` noise & transient monitor (L10/L90), mic self-test & speaker loopback.
 - **Logging & Time:** MicroSD hourly CSV (`climate_v5`), daily summaries (`daily_v4` with mold hours), event log (`events_v1`), retention & free-space check, Wi-Fi NTP sync, `PCF85063A` RTC drift tracking & frequency trim (`RTC TRIM`).
-- **Configuration & Console:** MicroSD `config.ini` up to 8 KB with host validator, USB serial & BLE console (`STATUS`, `CONFIG`, `SET`, `LIST`, `DUMP`, `SCAN`, `CALIB`, `SALT`, `RTC TRIM`, `MUTE`, `SLOT CLEAR`, `SLOT SWAP`, `BEEP`, `PATTERN`, `SCREEN`, `TIME`, `HISTORY`, `WEEK`, `EVENTS`, `VERSION`), `CONFIG_SET` and `SD_FAULT` event recording.
+- **Configuration & Console:** MicroSD `config.ini` up to 8 KB with host validator, USB serial & BLE console (`STATUS`, `CONFIG`, `SET`, `LIST`, `DUMP`, `SCAN`, `CALIB`, `SALT`, `RTC TRIM`, `MUTE`, `SLOT CLEAR`, `SLOT SWAP`, `BEEP`, `PATTERN`, `SCREEN`, `TIME`, `HISTORY`, `WEEK`, `TODAY`, `EVENTS`, `VERSION`), `CONFIG_SET` and `SD_FAULT` event recording.
 - **macOS Companion App:** Signed `.app` bundle & menu bar summary, live BLE telemetry, panel pinning, `config.ini` editor & backup, BLE scanner with repeated scan mode, guided sensor setup assistant, sensor health table, calibration assistant with single & two-point salt check, diagnostics & clipboard report, log archive & charts (including 7-day week chart), remote screen, CSV export, open at login.
 
 ## Deep sleep power management with periodic wakeup
@@ -3023,3 +3023,15 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The fields show `--` for `Trend::UNKNOWN`, for example with 3 samples, and for each slot that is empty, disabled or stale.
 - The firmware calculates the fields on each `STATUS`. It adds no RTC state. The line count, the RTC layout and `STATE_VERSION` do not change. The macOS, Android and Wear OS `StatusReply` parsers ignore the new fields.
 - Tests: host tests assert `RISE`, `FALL` and `STEADY` at the exact thresholds (0.5 C, 3.0 %RH), `--` for 3 samples, an empty slot and a stale slot, and one full `SENSOR` line. `tests/fixtures/status_reply_sample.txt` holds the fields with a new CRC-32.
+
+## Serial console command TODAY for the minimum and maximum of the current day
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/today_reply_sample.txt`
+- The console command `TODAY` (`SerialCommandKind::TODAY`, `SerialConsoleRunner::showToday`) shows the minimum, maximum and mean of the hourly samples since the last local midnight for the onboard sensor and slots 1 to 10.
+- The RTC time gives the minutes since midnight. The newest sample is as old as the time since `ClimateHistory::last_sample_ms`; each older sample is one hour older. A sample counts when its age does not exceed the minutes since midnight.
+- Reply: `BEGIN TODAY`, the header `sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct`, one row for each sensor that holds a sample, and the `CRC32` line. `hours` is the larger sample count of the two histories. A sensor without a sample since midnight has hours 0 and empty value fields. Values use 0.1 steps.
+- An invalid, stopped or untrusted RTC time (year before 2025 or after 2099) gives `ERR NO_TIME`; a failed clock read gives it too. Extra text gives `ERR BAD_ARG`.
+- The age is an approximation: it assumes 60 minutes between pushes, but the real step is 60 minutes plus up to one wake interval, so a sample near midnight can fall on the wrong side. A slot without new samples (stale or lost) keeps its old samples and shows them as today's values, like `SPREAD`; the reply has no `STALE` marker. The day boundary is the local wall clock of the RTC (a plain 24-hour day, also on a DST change day).
+- The command reads the RTC copy only. It does not access the card and does not change the state. It runs on USB and on BLE at each `ble_console` level. The RTC layout and `STATE_VERSION` do not change.
+- Host tests cover the parser, a sensor with 5 samples since midnight, the exclusion of samples before midnight (also the exact limit), a sensor without a sample, a half-empty pair, `ERR NO_TIME`, `ERR BAD_ARG`, the BLE gate, and one reply against `tests/fixtures/today_reply_sample.txt`.
+- Validation on the board: send `TODAY` over USB and check the reply and the `CRC32` line.
