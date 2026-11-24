@@ -21,11 +21,7 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Trend arrows in the macOS sensor list
-  - Rank: [Total: 30, Use: 7, Setup: 4, Harmony: 9, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift, FEATURES.md
-  - Goal: Add `StatusSensor.temperatureTrend` and `StatusSensor.humidityTrend` (`SensorTrend?` with `rise`, `fall`, `steady`) from the `temp_trend=` and `rh_trend=` fields of the `SENSOR` lines. Give `nil` for `--` and for a missing field. Throw `ParseError.badLine` for another text. Show an arrow up, an arrow down or a dash beside the temperature and the humidity of each sensor row in the menu bar list and in `DiagnosticsView`. Do not send a new command.
-  - Acceptance test: `ReplyTests` read `tests/fixtures/status_reply_sample.txt` and assert each trend value of each sensor, `nil` for `--` and for a line without the fields, and `ParseError.badLine` for `rh_trend=UP`. Run `cd macos/RlcdCompanion && swift test && swift build -c release`.
+
 
 ## Priority 3: Display and Logging (Score 22–27)
 

@@ -25,6 +25,29 @@ func sourceFormat(_ s: String?) -> String? {
     return s
 }
 
+/// Trend of a 24-hour history (`temp_trend=` and `rh_trend=` of the `SENSOR` line).
+public enum SensorTrend: String, Equatable {
+    case rise = "RISE"
+    case fall = "FALL"
+    case steady = "STEADY"
+
+    /// Arrow up, arrow down or a dash.
+    public var symbol: String {
+        switch self {
+        case .rise: return "↑"
+        case .fall: return "↓"
+        case .steady: return "–"
+        }
+    }
+
+    /// `nil` for a missing field and `--`; `ParseError.badLine` for another text.
+    static func parse(_ value: String?, line: String) throws -> SensorTrend? {
+        guard let value, value != "--" else { return nil }
+        guard let trend = SensorTrend(rawValue: value) else { throw ParseError.badLine(line) }
+        return trend
+    }
+}
+
 /// `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...> format=<...> mac=<...> mold_h=<N|-->`.
 public struct StatusSensor: Equatable {
     public let index: Int
@@ -41,6 +64,10 @@ public struct StatusSensor: Equatable {
     public let mac: String?
     /// `mold_h=` of the `SENSOR` line: hourly samples above `mold_alert_limit_rh`; `nil` for `--` and a missing field.
     public let moldHours: Int?
+    /// `temp_trend=` of the `SENSOR` line; `nil` for `--` and a missing field.
+    public let temperatureTrend: SensorTrend?
+    /// `rh_trend=` of the `SENSOR` line; `nil` for `--` and a missing field.
+    public let humidityTrend: SensorTrend?
 
     public init(
         index: Int,
@@ -53,7 +80,9 @@ public struct StatusSensor: Equatable {
         state: String,
         format: String? = nil,
         mac: String? = nil,
-        moldHours: Int? = nil
+        moldHours: Int? = nil,
+        temperatureTrend: SensorTrend? = nil,
+        humidityTrend: SensorTrend? = nil
     ) {
         self.index = index
         self.name = name
@@ -66,6 +95,8 @@ public struct StatusSensor: Equatable {
         self.format = format
         self.mac = mac
         self.moldHours = moldHours
+        self.temperatureTrend = temperatureTrend
+        self.humidityTrend = humidityTrend
     }
 
     /// The protocol source badge of `format`, `nil` without a known format.
@@ -123,7 +154,9 @@ public struct StatusReply: Equatable {
                     index: idx, name: String(words[2]), temperature: number(f["temp"]),
                     humidity: number(f["rh"]), battery: number(f["bat"]), rssi: number(f["rssi"]),
                     ageSeconds: number(f["age"]), state: f["state"] ?? "", format: sourceFormat(f["format"]),
-                    mac: sourceFormat(f["mac"]), moldHours: moldHours))
+                    mac: sourceFormat(f["mac"]), moldHours: moldHours,
+                    temperatureTrend: try SensorTrend.parse(f["temp_trend"], line: line),
+                    humidityTrend: try SensorTrend.parse(f["rh_trend"], line: line)))
             case "SD":
                 sd = f["status"]
                 if let v = f["free_mb"], v != "--" {
