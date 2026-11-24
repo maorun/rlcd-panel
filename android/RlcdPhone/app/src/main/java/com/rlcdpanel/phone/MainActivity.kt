@@ -33,6 +33,7 @@ import com.rlcdpanel.phone.finder.FoundSensor
 import com.rlcdpanel.phone.finder.SensorFinderList
 import com.rlcdpanel.phone.protocol.SetupAssistant
 import com.rlcdpanel.phone.finder.SensorFinderScanner
+import com.rlcdpanel.phone.finder.SignalSeries
 import com.rlcdpanel.phone.finder.SlotAssignment
 import com.rlcdpanel.phone.protocol.AckCommand
 import com.rlcdpanel.phone.protocol.AlertLimits
@@ -149,6 +150,8 @@ class MainActivity : ComponentActivity() {
     private var finderState by mutableStateOf(SensorFinderState())
     private val finderList = SensorFinderList()
     private var finderScanner: SensorFinderScanner? = null
+    private val finderSeries = SignalSeries { android.os.SystemClock.elapsedRealtime() }
+    private var finderTicker: Job? = null
     private var weekState by mutableStateOf(WeekState())
     private var calibState by mutableStateOf(CalibrationState())
     private var pendingConsoleAction: (() -> Unit)? = null
@@ -512,7 +515,7 @@ class MainActivity : ComponentActivity() {
     override fun onStop() {
         val consoleWasRunning = consoleClient.isRunning
         consoleClient.cancel()
-        stopFinderScan()
+        stopFinderScan(stopFromScreen = true)
         if (showSetup) onSetupStop(consoleWasRunning)
         if (finderState.isBusy) {
             finderState = finderState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, CONFIG lesen")
@@ -712,37 +715,82 @@ class MainActivity : ComponentActivity() {
         showHealth = true
     }
 
+    private fun hasFinderScanPermission(): Boolean {
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Manifest.permission.BLUETOOTH_SCAN
+        else Manifest.permission.ACCESS_FINE_LOCATION
+        return ContextCompat.checkSelfPermission(this, needed) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /** Publishes the series statistics and the stop reason to the finder screen. */
+    private fun publishFinderSeries() {
+        finderState = finderState.copy(
+            series = finderSeries.stats().associateBy { it.mac },
+            seriesStop = finderSeries.stopReason
+        )
+    }
+
+    /** Stops the series with [reason] and keeps its values on the screen. */
+    private fun stopFinderSeries(reason: SignalSeries.StopReason) {
+        finderTicker?.cancel()
+        finderTicker = null
+        finderSeries.stop(reason)
+        if (showFinder) publishFinderSeries()
+    }
+
+    /** Closes elapsed windows each second and stops the series when the scan permission is lost. */
+    private fun startFinderTicker() {
+        finderTicker?.cancel()
+        finderTicker = lifecycleScope.launch {
+            while (finderSeries.isRunning) {
+                delay(1000)
+                if (!hasFinderScanPermission()) {
+                    finderScanner?.stop()
+                    finderState = finderState.copy(isScanning = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
+                    stopFinderSeries(SignalSeries.StopReason.PERMISSION_LOST)
+                    return@launch
+                }
+                finderSeries.advance()
+                publishFinderSeries()
+            }
+        }
+    }
+
     /** Starts the finder scan after a tap; the background scan of the telemetry pauses meanwhile. */
     private fun startFinderScan() {
-        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            listOf(Manifest.permission.BLUETOOTH_SCAN)
-        } else {
-            listOf(Manifest.permission.ACCESS_FINE_LOCATION)
-        }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
-        if (needed.isNotEmpty()) {
+        if (!hasFinderScanPermission()) {
             finderState = finderState.copy(isError = true, message = "Bluetooth-Berechtigung fehlt. Erst Sensor-Status öffnen und erlauben.")
             return
         }
         stopBleScan()
         finderList.clear()
+        finderSeries.start()
         val scanner = finderScanner ?: SensorFinderScanner(
             this,
             onResult = { ad, rssi ->
                 // A result that arrives after stop or close must not refill the list.
                 if (showFinder && finderState.isScanning) {
                     finderList.add(ad, rssi, System.currentTimeMillis())
+                    finderSeries.record(ad.mac, rssi)
                     finderState = finderState.copy(rows = finderList.sorted())
                 }
             },
-            onError = { text -> finderState = finderState.copy(isScanning = false, isError = true, message = text) }
+            onError = { text ->
+                finderState = finderState.copy(isScanning = false, isError = true, message = text)
+                stopFinderSeries(
+                    if (!hasFinderScanPermission()) SignalSeries.StopReason.PERMISSION_LOST
+                    else SignalSeries.StopReason.SCAN_FAILED
+                )
+            }
         ).also { finderScanner = it }
         val started = scanner.start()
         finderState = SensorFinderState(isScanning = started, message = if (started) null else finderState.message, isError = !started)
+        if (started) startFinderTicker() else stopFinderSeries(SignalSeries.StopReason.SCAN_FAILED)
     }
 
     /** Stops the finder scan. Called from the button, `closeFinder` and `onStop`. */
-    private fun stopFinderScan() {
+    private fun stopFinderScan(stopFromScreen: Boolean = false) {
         finderScanner?.stop()
+        stopFinderSeries(if (stopFromScreen) SignalSeries.StopReason.SCREEN_STOPPED else SignalSeries.StopReason.USER)
         if (finderState.isScanning) finderState = finderState.copy(isScanning = false)
     }
 

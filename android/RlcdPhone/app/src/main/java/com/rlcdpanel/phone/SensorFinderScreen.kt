@@ -28,6 +28,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.finder.FoundSensor
+import com.rlcdpanel.phone.finder.SignalSeries
 import com.rlcdpanel.phone.finder.SlotAssignment
 import com.rlcdpanel.phone.protocol.PanelConfig
 
@@ -36,6 +37,9 @@ data class SensorFinderState(
     val isScanning: Boolean = false,
     val isBusy: Boolean = false,
     val rows: List<FoundSensor> = emptyList(),
+    /** Signal series statistics for each MAC (upper case). */
+    val series: Map<String, SignalSeries.Stats> = emptyMap(),
+    val seriesStop: SignalSeries.StopReason? = null,
     val message: String? = null,
     val isError: Boolean = false
 )
@@ -46,6 +50,21 @@ object SensorFinderText {
         val ad = row.advertisement
         val battery = if (ad.batteryPct >= 0) ", Batterie ${ad.batteryPct} %" else ""
         return "%.1f °C, %d %%RH%s".format(ad.temperatureC, ad.humidityPct, battery)
+    }
+
+    /** One line with the minimum, mean and maximum of the last windows and the missed windows. */
+    fun series(stats: SignalSeries.Stats?): String =
+        if (stats == null) "Serie: wartet auf das erste 15-s-Fenster"
+        else "Serie (%d): min %d, Ø %.1f, max %d dBm, %d von %d Fenstern ohne Paket".format(
+            stats.count, stats.min, stats.mean, stats.max, stats.missed, stats.windows
+        )
+
+    /** Text for the end of the series, or null while it runs or before it starts. */
+    fun seriesStop(reason: SignalSeries.StopReason?): String? = when (reason) {
+        null, SignalSeries.StopReason.USER, SignalSeries.StopReason.SCREEN_STOPPED -> null
+        SignalSeries.StopReason.TIMEOUT -> "Serie nach 10 Minuten beendet"
+        SignalSeries.StopReason.PERMISSION_LOST -> "Serie beendet: Scan-Berechtigung fehlt"
+        SignalSeries.StopReason.SCAN_FAILED -> "Serie beendet: Scan fehlgeschlagen"
     }
 
     /** Slot of the MAC in the cached config, or the free-slot hint. */
@@ -90,6 +109,7 @@ fun SensorFinderScreen(
             state.message?.let {
                 item { Text(it, color = if (state.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground) }
             }
+            SensorFinderText.seriesStop(state.seriesStop)?.let { item { Text(it, style = MaterialTheme.typography.bodySmall) } }
             if (state.rows.isEmpty()) {
                 item { Text(if (state.isScanning) "Suche läuft…" else "Keine Sensoren gefunden", style = MaterialTheme.typography.bodyMedium) }
             }
@@ -100,6 +120,7 @@ fun SensorFinderScreen(
                         Text("${ad.mac} [${ad.format.badge}]", style = MaterialTheme.typography.titleMedium)
                         Text(SensorFinderText.reading(row))
                         Text("RSSI ${row.rssi} dBm, ${SensorFinderText.slot(row, panelConfig)}")
+                        Text(SensorFinderText.series(state.series[ad.mac.uppercase()]), style = MaterialTheme.typography.bodySmall)
                         OutlinedButton(
                             onClick = { selectedMac = ad.mac; slot = SlotAssignment.slotOf(ad.mac, panelConfig) ?: slot },
                             enabled = !state.isBusy
