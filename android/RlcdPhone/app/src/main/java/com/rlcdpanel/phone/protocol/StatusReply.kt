@@ -2,6 +2,22 @@ package com.rlcdpanel.phone.protocol
 
 class ParseException(val line: String) : Exception("Bad console line: $line")
 
+/** 3-hour direction of one value: `temp_trend=` or `rh_trend=` of a `SENSOR` line (`RISE`, `FALL`, `STEADY`). */
+enum class SensorTrend(val symbol: String) {
+    RISE("↑"), FALL("↓"), STEADY("–");
+
+    companion object {
+        /** `--` and a missing field give null; another text throws. */
+        fun parse(text: String?, line: String): SensorTrend? = when (text) {
+            null, "--" -> null
+            "RISE" -> RISE
+            "FALL" -> FALL
+            "STEADY" -> STEADY
+            else -> throw ParseException(line)
+        }
+    }
+}
+
 /** `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...> format=<...> mac=<...> mold_h=<N|-->`; `--` gives null. */
 data class StatusSensor(
     val index: Int,
@@ -17,7 +33,11 @@ data class StatusSensor(
     /** `mold_h=` of the `SENSOR` line: hourly samples above `mold_alert_limit_rh`; null for `--` and a missing field. */
     val moldHours: Int? = null,
     /** `mac=` of the `SENSOR` line as `AA:BB:CC:DD:EE:FF`; null for `--`, a missing field and a bad text. */
-    val mac: String? = null
+    val mac: String? = null,
+    /** `temp_trend=` of the `SENSOR` line; null for `--` and a missing field. */
+    val temperatureTrend: SensorTrend? = null,
+    /** `rh_trend=` of the `SENSOR` line; null for `--` and a missing field. */
+    val humidityTrend: SensorTrend? = null
 ) {
     /** The protocol source badge of [format]; null without a known format. */
     val badge: String? get() = SensorHealth.badgeFor(format)
@@ -280,7 +300,8 @@ data class StatusReply(
                         sensors.add(
                             StatusSensor(
                                 idx, words[2], number(f["temp"]), number(f["rh"]), number(f["bat"]),
-                                number(f["rssi"]), number(f["age"]), f["state"], format(f["format"]), moldHours, macText(f["mac"])
+                                number(f["rssi"]), number(f["age"]), f["state"], format(f["format"]), moldHours, macText(f["mac"]),
+                                SensorTrend.parse(f["temp_trend"], line), SensorTrend.parse(f["rh_trend"], line)
                             )
                         )
                     }
