@@ -63,7 +63,7 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Add `FrsiReply.parse` for the `FRSI <R> <W>` reply (`SKIP`, `UNSTABLE`, `ERR LOW_DELTA`, `ERR NO_OUTDOOR`). Add `ConsoleCommand.frsi(room:wall:)`. Add a section to `CalibrationView` with two sensor pickers, the result and an apply button that sends `SET wall_frsi_pct=<N>` through `ConfigBatch`. This entry needs the console command `FRSI`.
   - Acceptance test: `CalibrationTests` assert each reply type of `tests/fixtures/frsi_reply_sample.txt`, `ParseError.badLine` for `frsi=x` and the batch text. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
 
-- [ ] Wall factor proposal in the Android calibration screen
+- [x] Wall factor proposal in the Android calibration screen
   - Rank: [Total: 32, Use: 5, Setup: 9, Harmony: 8, Safety: 10, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/FrsiReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/CalibrationScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/CalibrationBatch.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/FrsiReplyTest.kt, FEATURES.md
   - Goal: Parse the `FRSI <R> <W>` reply in `FrsiReply.parse`. Add a wall factor section to `CalibrationScreen` with two sensor menus, the result text and an apply button that sends `SET wall_frsi_pct=<N>` over the BLE console. Show `ERR READ_ONLY` as a clear text for `ble_console=1`. This entry needs the console command `FRSI`.
