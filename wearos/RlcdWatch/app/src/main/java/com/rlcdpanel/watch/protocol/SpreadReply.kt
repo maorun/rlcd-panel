@@ -15,12 +15,20 @@ data class SpreadReply(val outcome: Outcome) {
         val isOutlier: Boolean
     )
 
+    /** One proposal line: the temperature and humidity offset key of an OUTLIER sensor with the proposed values. */
+    data class Proposal(val tempKey: String, val tempOffset: Double, val rhKey: String, val rhOffset: Double) {
+        /** The `SET` commands that apply the proposal, temperature first. */
+        val setCommands: List<String>
+            get() = listOf("SET $tempKey=$tempOffset", "SET $rhKey=$rhOffset")
+    }
+
     sealed class Outcome {
         data class Measured(
             val sensors: Long,
             val tempMedian: Double,
             val rhMedian: Double,
-            val rows: List<SensorSpread>
+            val rows: List<SensorSpread>,
+            val proposals: List<Proposal> = emptyList()
         ) : Outcome()
 
         /** `SKIP sensors=<n>`: fewer than 3 sensors have 6 hours of samples. */
@@ -49,11 +57,21 @@ data class SpreadReply(val outcome: Outcome) {
             val tempMedian = CalibrationReply.decimal(f["temp_median"])
             val rhMedian = CalibrationReply.decimal(f["rh_median"])
             if (words.size != 4 || n == null || tempMedian == null || rhMedian == null) throw ParseException(first)
-            // A proposal line (`<key>=<x> <key>=<x>`) follows each OUTLIER line; this parser does not use it yet.
-            val rows = body.drop(1).filter { !PROPOSAL.matches(it) }
+            // A proposal line (`<key>=<x> <key>=<x>`) follows each OUTLIER line.
+            val rest = body.drop(1)
+            val rows = rest.filter { !PROPOSAL.matches(it) }
                 .map { if (it.startsWith("SENSOR ")) row(it) else throw ParseException(it) }
             if (rows.size.toLong() != n) throw ParseException(first)
-            return SpreadReply(Outcome.Measured(n, tempMedian, rhMedian, rows))
+            val proposals = rest.filter { PROPOSAL.matches(it) }.map { proposal(it) }
+            return SpreadReply(Outcome.Measured(n, tempMedian, rhMedian, rows, proposals))
+        }
+
+        private fun proposal(line: String): Proposal {
+            val parts = line.split(' ').map { it.split('=') }
+            val temp = CalibrationReply.decimal(parts[0][1])
+            val rh = CalibrationReply.decimal(parts[1][1])
+            if (temp == null || rh == null) throw ParseException(line)
+            return Proposal(parts[0][0], temp, parts[1][0], rh)
         }
 
         /** The name may hold spaces: it is the text between `SENSOR ` and ` temp_dev=`. */

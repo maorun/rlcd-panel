@@ -95,6 +95,7 @@ fun CalibrationScreen(
     onFrsi: () -> Unit,
     onApplyFrsi: () -> Unit,
     onSpread: () -> Unit,
+    onApplySpread: (SpreadReply.Proposal) -> Unit,
     onBack: () -> Unit
 ) {
     val evaluation = remember(state.naCl, state.mgCl2, currentConfig) {
@@ -218,6 +219,15 @@ fun CalibrationScreen(
                                 SpreadText.row(row),
                                 color = if (row.isOutlier) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground
                             )
+                        }
+                        items(o.proposals, key = { it.tempKey }) { p ->
+                            Card(modifier = Modifier.fillMaxWidth()) {
+                                Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Text("${p.tempKey}=${p.tempOffset}")
+                                    Text("${p.rhKey}=${p.rhOffset}")
+                                    Button(onClick = { onApplySpread(p) }, enabled = !state.isBusy) { Text("Apply") }
+                                }
+                            }
                         }
                     }
                     is SpreadReply.Outcome.Skipped -> item { Text(SpreadText.SKIP_TEXT) }

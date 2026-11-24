@@ -34,6 +34,34 @@ class SpreadReplyTest {
     }
 
     @Test
+    fun sharedFixtureGivesOneProposalWithTwoKeys() {
+        val frame = ReplyAssembler().append(Fixtures.file("spread_reply_sample.txt").readBytes()) as ConsoleReply.Frame
+        val m = SpreadReply.parse(frame.lines).outcome as SpreadReply.Outcome.Measured
+        assertEquals(
+            listOf(SpreadReply.Proposal("slot2_temp_offset_c", -1.0, "slot2_rh_offset_pct", -5.0)),
+            m.proposals
+        )
+        assertEquals(
+            listOf("SET slot2_temp_offset_c=-1.0", "SET slot2_rh_offset_pct=-5.0"),
+            m.proposals[0].setCommands
+        )
+    }
+
+    @Test
+    fun replyWithoutProposalLinesGivesEmptyList() {
+        val m = parse(header, "SENSOR a temp_dev=0.0 rh_dev=0.0 OK").outcome as SpreadReply.Outcome.Measured
+        assertTrue(m.proposals.isEmpty())
+    }
+
+    @Test
+    fun badProposalNumberThrows() {
+        val sensor = "SENSOR a temp_dev=0.6 rh_dev=0.0 OUTLIER"
+        assertBad(header, sensor, "temp_offset_c=1.2.3 rh_offset_pct=0.0")
+        assertBad(header, sensor, "temp_offset_c=x rh_offset_pct=0.0")
+        assertBad(header, sensor, "temp_offset_c=-- rh_offset_pct=0.0")
+    }
+
+    @Test
     fun outlierFlagIsKept() {
         val m = parse(header, "SENSOR slot3 temp_dev=0.6 rh_dev=-3.1 OUTLIER").outcome as SpreadReply.Outcome.Measured
         assertTrue(m.rows[0].isOutlier)

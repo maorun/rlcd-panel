@@ -339,6 +339,7 @@ class MainActivity : ComponentActivity() {
                     onFrsi = { withConsolePermission { readFrsi() } },
                     onApplyFrsi = { withConsolePermission { applyFrsi() } },
                     onSpread = { withConsolePermission { readSpread() } },
+                    onApplySpread = { proposal -> withConsolePermission { applySpread(proposal) } },
                     onBack = { closeCalibration() }
                 )
                 BackHandler { closeCalibration() }
@@ -1586,6 +1587,45 @@ class MainActivity : ComponentActivity() {
                 else -> calibState.copy(isBusy = false, isError = true, message = BleConsoleClient.errorText(reply))
             }
         }
+    }
+
+    /**
+     * Sends the two `SET` commands of one `SPREAD` proposal, then `SPREAD` again. The first `ERR` stops the chain;
+     * `ERR READ_ONLY` shows the text for `ble_console` 1.
+     */
+    private fun applySpread(proposal: SpreadReply.Proposal) {
+        stopBleScan()
+        calibState = calibState.copy(isBusy = true, isError = false, message = null)
+        fun fail(text: String) {
+            calibState = calibState.copy(isBusy = false, isError = true, message = text)
+        }
+        fun step(commands: List<String>) {
+            if (commands.isEmpty()) {
+                consoleClient.send(SpreadCommand.LINE) { reply ->
+                    calibState = when (reply) {
+                        is ConsoleReply.Frame -> try {
+                            calibState.copy(
+                                isBusy = false, isError = false, message = "Übernommen: ${proposal.tempKey}, ${proposal.rhKey}",
+                                spread = SpreadReply.parse(reply.lines)
+                            )
+                        } catch (e: ParseException) {
+                            calibState.copy(isBusy = false, isError = true, message = "Antwort nicht lesbar: ${e.line.take(80)}")
+                        }
+                        else -> calibState.copy(isBusy = false, isError = true, message = BleConsoleClient.errorText(reply))
+                    }
+                }
+                return
+            }
+            consoleClient.send(commands.first()) { reply ->
+                val status = (reply as? ConsoleReply.Status)?.line
+                when {
+                    status != null && status.startsWith("OK") -> step(commands.drop(1))
+                    status != null -> fail(CalibrationBatch.failureText(status))
+                    else -> fail(CalibrationBatch.UNKNOWN_STATE)
+                }
+            }
+        }
+        step(proposal.setCommands)
     }
 
     /** Sends `SET wall_frsi_pct=<N>`, then `CONFIG`. */
