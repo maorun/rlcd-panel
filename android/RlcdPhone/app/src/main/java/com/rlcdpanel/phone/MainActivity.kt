@@ -89,6 +89,7 @@ import com.rlcdpanel.phone.ventilation.OutdoorWeatherService
 import com.rlcdpanel.phone.ventilation.VentilationAction
 import com.rlcdpanel.phone.ventilation.VentilationGuide
 import com.rlcdpanel.phone.protocol.WallWatch
+import com.rlcdpanel.phone.protocol.WindowWatch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -116,6 +117,7 @@ class MainActivity : ComponentActivity() {
     private var roomStates by mutableStateOf<Map<Int, RoomVentilationState>>(emptyMap())
     private val lastObservedAktionen = mutableMapOf<Int, VentilationAction>()
     private val wallWatch = WallWatch()
+    private val windowWatch = WindowWatch()
     private var panelConfig by mutableStateOf(PanelConfig())
 
     private var pendingConsoleCommand = CONSOLE_STATUS
@@ -1168,6 +1170,7 @@ class MainActivity : ComponentActivity() {
         }
         return try {
             val status = StatusReply.parse(reply.lines)
+            checkWindowNotifications(status)
             chimeState.copy(
                 isBusy = false, isError = false, muted = status.muted ?: expected,
                 reminder = status.chime?.let { ChimeText.reminder(it) },
@@ -1672,6 +1675,7 @@ class MainActivity : ComponentActivity() {
         healthState = when (reply) {
             is ConsoleReply.Frame -> try {
                 val status = StatusReply.parse(reply.lines)
+                checkWindowNotifications(status)
                 val limit = panelConfig.values["sensor_battery_limit_pct"]?.toDoubleOrNull()
                 SensorHealthState(rows = SensorHealth.rows(status, limit), ntp = status.ntp, sdFreeMb = status.sdFreeMb, reset = status.reset, shtc3 = status.shtc3, memory = status.memory, rtc = status.rtc, noise = status.noise, runtime = status.runtime, awake = status.awake, status = status).also { s ->
                     sourceBadges = s.rows.mapNotNull { r -> r.badge?.let { r.slot to it } }.toMap()
@@ -1872,6 +1876,17 @@ class MainActivity : ComponentActivity() {
                     notificationId = NOTIFICATION_ID_WALL_BASE + tileIndex
                 )
             }
+        }
+    }
+
+    /** Posts one notification for each window bit of `LATCH` that rose since the previous `STATUS` read. */
+    private fun checkWindowNotifications(status: StatusReply) {
+        for (tileIndex in windowWatch.update(status.latch?.window)) {
+            postVentilationNotification(
+                title = "RLCD Alarm",
+                message = WindowWatch.message(panelConfig.tileName(tileIndex)),
+                notificationId = WindowWatch.notificationId(tileIndex)
+            )
         }
     }
 
