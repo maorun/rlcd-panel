@@ -552,6 +552,18 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - macOS companion: `ConsoleCommand.salt(N)` sends `SALT N` (no line for `N` outside 0 to 5). `SaltReply.parse` (`Calibration.swift`) reads the three reply types and throws `ParseError.badLine` for a bad number. `CalibrationView` has a salt check section: the user selects a sensor and presses `Check`, then applies the proposal through `ConfigBatch` (`SET`, then `CONFIG`).
 - Host tests cover the table at 15, 20, 25 and 30 C, NaN at 9 C, a stable sensor at 73.0 %RH and 25 C (proposal +2.3 %RH plus the active offset), the clamp, `SKIP` with 5 samples, `UNSTABLE` with a span of 1.2 %RH, `ERR BAD_TEMP`, the key names, `ERR BAD_ARG` for `SALT 6`, the CRC-32 line and the USB power gate. `SaltReplyTests` cover the Swift parser.
 
+## Serial console command FRSI for the wall surface factor
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/climate_math.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/frsi_reply_sample.txt`.
+- The console command `FRSI <R> <W>` measures the temperature factor of a wall. `R` is the room sensor (`0` onboard, `1` to `10` a slot). `W` is a slot that the user attaches to the inner wall surface. The two numbers must differ, and `W` 0 gives `ERR BAD_ARG`. The samples pair by age: a skipped hourly push of one history shifts its age. A missing number, a number above 10, a leading zero, equal numbers and extra text give `ERR BAD_ARG`.
+- `ClimateMath::wallFactor(t_room, t_wall, t_out)` gives `(t_wall - t_out) / (t_room - t_out)`. It gives NaN for a non-finite or out-of-range input and for `t_out` at or above `t_room`.
+- The command reads the last 6 hourly samples of `R`, `W` and the `outdoor_slot` from the RTC `ClimateHistory`. It calculates the factor for each hour and takes the mean. The reply is `FRSI room=<name> wall=<name> hours=<n> frsi=<x.xx> span=<x.xx> delta_c=<x>`, the proposal line `wall_frsi_pct=<N>` (the mean in percent, clamped to 50 to 95) and the `CRC32` line. `delta_c` is the mean difference of room and outdoor temperature.
+- Fewer than 6 samples give `SKIP hours=<n>`. A mean difference below 10 C gives `ERR LOW_DELTA`. A factor span above 0.10 gives `UNSTABLE span=<x>`; an hour without a usable factor gives `UNSTABLE span=--`. `SKIP` and `UNSTABLE` end with the `CRC32` line. The errors have no `CRC32` line.
+- `ERR NO_OUTDOOR` means that `outdoor_slot` is 0 or that the outdoor slot has no valid, fresh reading (`DeviceConfig::staleTimeoutMs()`). `ERR BAD_ARG` also covers the outdoor slot as `R` or `W`.
+- The command uses the RTC copy and the registry only. It does not access the card and does not change the state. It runs on USB and on BLE at each `ble_console` level, also at level 1 (read command). The RTC layout and `STATE_VERSION` do not change.
+- Host tests cover `wallFactor` for fixed values and NaN, the parser, each reply and error of `showFrsi` with a fixed `ClimateHistory`, the clamp to 50 and 95, the BLE gate, `execute()` and one reply against `tests/fixtures/frsi_reply_sample.txt`.
+- Validation on the board: send `FRSI 0 2` over USB and check the reply and the `CRC32` line.
+
 ## High-humidity ventilation badge on the sensor tiles
 
 - **Code:** `rlcd_panel/ventilate_latch.h`, `rlcd_panel/device_config.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.

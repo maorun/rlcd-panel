@@ -19,7 +19,7 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Console command FRSI for the wall surface factor
+- [x] Console command FRSI for the wall surface factor
   - Rank: [Total: 35, Use: 6, Setup: 10, Harmony: 9, Safety: 10, Effort: M]
   - Location: rlcd_panel/serial_console.h, rlcd_panel/climate_math.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp, tests/fixtures/frsi_reply_sample.txt, AGENTS.md, FEATURES.md
   - Goal: Add the console command `FRSI <R> <W>` (`SerialCommandKind::FRSI`). R is the room sensor (0 onboard, 1 to 10 a slot). W is a slot that the user attaches to the inner wall surface. Use the last 6 hourly samples of R, W and `outdoor_slot` from the RTC `ClimateHistory`. Calculate `frsi = (t_wall - t_out) / (t_room - t_out)` for each hour and the mean (`ClimateMath::wallFactor`). Reply `FRSI room=<name> wall=<name> hours=<n> frsi=<x.xx> span=<x.xx> delta_c=<x>`, the proposal line `wall_frsi_pct=<N>` (clamped to 50 to 95) and the `CRC32` line. Reply `SKIP hours=<n>` below 6 samples, `ERR LOW_DELTA` when the mean difference of room and outdoor temperature is below 10 C, `UNSTABLE span=<x>` above a span of 0.10, `ERR NO_OUTDOOR` without a fresh `outdoor_slot` reading and `ERR BAD_ARG` for equal sensors, the outdoor slot, a number above 10 or extra text. Do not access the card. Do not change the state. Run the command on USB and on BLE at each `ble_console` level.

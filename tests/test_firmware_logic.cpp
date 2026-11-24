@@ -15523,6 +15523,190 @@ std::string saltOutput(uint8_t reference, const ClimateHistory& h, const DeviceC
 }
 } // namespace
 
+namespace {
+// History of the FRSI tests: onboard 20 C, outdoor slot1 0 C, wall slot2 14 C (factor 0.70), 6 hourly samples.
+void fillFrsi(ClimateHistory& h, size_t sensor, int hours, float temp) {
+  for (int i = 0; i < hours; ++i) {
+    h.temperatures[sensor].pushCelsius(temp);
+  }
+}
+
+SwitchBotRegistry frsiRegistry(uint32_t updated_ms) {
+  SwitchBotRegistry reg;
+  SwitchBotReading r;
+  r.valid = true;
+  r.mac[5] = 1;
+  r.temperature_c = 0.0f;
+  r.humidity_pct = 80;
+  r.updated_ms = updated_ms;
+  assert(reg.upsert(r));
+  return reg;
+}
+
+std::string frsiOutput(uint8_t room, uint8_t wall, const ClimateHistory& h, uint8_t outdoor, const SwitchBotRegistry& reg,
+                       uint32_t now_ms = 2000) {
+  FakeSink sink;
+  DeviceConfig cfg;
+  cfg.outdoor_slot = outdoor;
+  TestRunner::showFrsi(sink, room, wall, h, cfg, reg, now_ms);
+  return sink.out;
+}
+
+bool frsiCrcOk(const std::string& out) {
+  return calibCrcOk(out);
+}
+} // namespace
+
+void testWallFactor() {
+  assert(fabsf(ClimateMath::wallFactor(20.0f, 14.0f, 0.0f) - 0.70f) < 0.0001f);
+  assert(fabsf(ClimateMath::wallFactor(20.0f, 20.0f, 0.0f) - 1.0f) < 0.0001f);
+  assert(fabsf(ClimateMath::wallFactor(20.0f, 0.0f, 0.0f)) < 0.0001f);
+  assert(fabsf(ClimateMath::wallFactor(22.0f, 15.0f, -3.0f) - 0.72f) < 0.0001f);
+  assert(isnan(ClimateMath::wallFactor(20.0f, 14.0f, 21.0f))); // t_out above t_room
+  assert(isnan(ClimateMath::wallFactor(20.0f, 14.0f, 20.0f))); // no difference
+  assert(isnan(ClimateMath::wallFactor(NAN, 14.0f, 0.0f)));
+  assert(isnan(ClimateMath::wallFactor(20.0f, INFINITY, 0.0f)));
+  assert(isnan(ClimateMath::wallFactor(20.0f, 14.0f, -200.0f)));
+}
+
+void testSerialFrsiParser() {
+  SerialCommand cmd;
+  assert(parseText("FRSI 0 2", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::FRSI &&
+         cmd.reference == 0 && cmd.reference_b == 2);
+  assert(parseText("FRSI 10 1\r\n", cmd) == SerialParseStatus::OK && cmd.reference == 10 && cmd.reference_b == 1);
+  assert(parseText("FRSI 3 10", cmd) == SerialParseStatus::OK && cmd.reference == 3 && cmd.reference_b == 10);
+  assert(parseText("FRSI", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 1 ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 1 0", cmd) == SerialParseStatus::BAD_ARG);   // the wall is a slot, not the onboard sensor
+  assert(parseText("FRSI 0 0", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 1 1", cmd) == SerialParseStatus::BAD_ARG);   // equal sensors
+  assert(parseText("FRSI 11 1", cmd) == SerialParseStatus::BAD_ARG);  // above 10
+  assert(parseText("FRSI 1 11", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 01 2", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 1 2 3", cmd) == SerialParseStatus::BAD_ARG); // extra text
+  assert(parseText("FRSI 1 2x", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI -1 2", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI1 2", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("frsi 0 2", cmd) == SerialParseStatus::UNKNOWN);
+  // allowed on BLE at each level; execute() ignores FRSI: no mount, no output
+  assert(parseText("FRSI 0 2", cmd) == SerialParseStatus::OK);
+  for (uint8_t level = 0; level <= 2; ++level) {
+    assert(std::string(BleConsoleBridge::gate(cmd, level)).empty());
+  }
+  FakeConsoleStorage storage;
+  FakeSink quiet;
+  TestRunner::execute(storage, quiet, cmd);
+  assert(storage.mounts == 0 && quiet.out.empty());
+}
+
+void testSerialFrsiReply() {
+  ClimateHistory h;
+  fillFrsi(h, 0, 6, 20.0f);
+  fillFrsi(h, 1, 6, 0.0f);
+  fillFrsi(h, 2, 6, 14.0f);
+  const SwitchBotRegistry reg = frsiRegistry(1000);
+  std::string out = frsiOutput(0, 2, h, 1, reg);
+  assert(out.rfind("FRSI room=onboard wall=slot2 hours=6 frsi=0.70 span=0.00 delta_c=20.0\nwall_frsi_pct=70\nCRC32 ", 0) == 0);
+  assert(frsiCrcOk(out));
+  // the reply equals the shared fixture
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  std::ifstream in(root + "tests/fixtures/frsi_reply_sample.txt");
+  assert(in.good());
+  const std::string fixture((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  assert(out == fixture);
+  // the card and the state stay untouched: the history is unchanged by the reply
+  assert(h.temperatures[0].size() == 6 && h.temperatures[2].size() == 6);
+  // a slot as room sensor: the room is slot3 at 21 C, the wall slot2 at 15 C, outdoor -3 C: (15 + 3) / (21 + 3) = 0.75
+  ClimateHistory h2;
+  fillFrsi(h2, 3, 8, 21.0f);
+  fillFrsi(h2, 2, 8, 15.0f);
+  fillFrsi(h2, 1, 8, -3.0f);
+  out = frsiOutput(3, 2, h2, 1, reg);
+  assert(out.rfind("FRSI room=slot3 wall=slot2 hours=6 frsi=0.75 span=0.00 delta_c=24.0\nwall_frsi_pct=75\nCRC32 ", 0) == 0);
+  // clamp to 50 to 95
+  ClimateHistory low = h;
+  low.temperatures[2] = TemperatureHistory();
+  fillFrsi(low, 2, 6, 2.0f); // factor 0.10
+  out = frsiOutput(0, 2, low, 1, reg);
+  assert(out.find("frsi=0.10 ") != std::string::npos && out.find("wall_frsi_pct=50\n") != std::string::npos);
+  ClimateHistory high = h;
+  high.temperatures[2] = TemperatureHistory();
+  fillFrsi(high, 2, 6, 19.8f); // factor 0.99
+  out = frsiOutput(0, 2, high, 1, reg);
+  assert(out.find("frsi=0.99 ") != std::string::npos && out.find("wall_frsi_pct=95\n") != std::string::npos);
+}
+
+void testSerialFrsiErrorsAndShortReplies() {
+  ClimateHistory h;
+  fillFrsi(h, 0, 6, 20.0f);
+  fillFrsi(h, 1, 6, 0.0f);
+  fillFrsi(h, 2, 6, 14.0f);
+  const SwitchBotRegistry reg = frsiRegistry(1000);
+  // fewer than 6 samples
+  ClimateHistory shortHistory;
+  fillFrsi(shortHistory, 0, 6, 20.0f);
+  fillFrsi(shortHistory, 1, 6, 0.0f);
+  fillFrsi(shortHistory, 2, 5, 14.0f);
+  std::string out = frsiOutput(0, 2, shortHistory, 1, reg);
+  assert(out.rfind("SKIP hours=5\nCRC32 ", 0) == 0 && frsiCrcOk(out));
+  // mean difference below 10 C
+  ClimateHistory lowDelta = h;
+  lowDelta.temperatures[0] = TemperatureHistory();
+  fillFrsi(lowDelta, 0, 6, 9.9f);
+  assert(frsiOutput(0, 2, lowDelta, 1, reg) == "ERR LOW_DELTA\n");
+  ClimateHistory edge = h;
+  edge.temperatures[0] = TemperatureHistory();
+  fillFrsi(edge, 0, 6, 10.0f);
+  edge.temperatures[2] = TemperatureHistory();
+  fillFrsi(edge, 2, 6, 7.0f);
+  assert(frsiOutput(0, 2, edge, 1, reg).rfind("FRSI room=onboard wall=slot2 hours=6 frsi=0.70", 0) == 0);
+  // span above 0.10: the wall changes from 14 C to 17 C (0.70 to 0.85)
+  ClimateHistory unstable = h;
+  unstable.temperatures[2] = TemperatureHistory();
+  fillFrsi(unstable, 2, 3, 14.0f);
+  fillFrsi(unstable, 2, 3, 17.0f);
+  out = frsiOutput(0, 2, unstable, 1, reg);
+  assert(out.rfind("UNSTABLE span=0.15\nCRC32 ", 0) == 0 && frsiCrcOk(out));
+  // a span of exactly 0.10 is stable
+  ClimateHistory edgeSpan = h;
+  edgeSpan.temperatures[2] = TemperatureHistory();
+  fillFrsi(edgeSpan, 2, 3, 14.0f);
+  fillFrsi(edgeSpan, 2, 3, 16.0f);
+  out = frsiOutput(0, 2, edgeSpan, 1, reg);
+  assert(out.rfind("FRSI room=onboard wall=slot2 hours=6 frsi=0.75 span=0.10 ", 0) == 0);
+  // one hour with an outdoor temperature above the room: no usable factor
+  ClimateHistory noFactor = h;
+  noFactor.temperatures[1] = TemperatureHistory();
+  fillFrsi(noFactor, 1, 5, 0.0f);
+  fillFrsi(noFactor, 1, 1, 26.0f);
+  out = frsiOutput(0, 2, noFactor, 1, reg);
+  assert(out.rfind("UNSTABLE span=--\nCRC32 ", 0) == 0);
+  // no fresh outdoor reading
+  assert(frsiOutput(0, 2, h, 0, reg) == "ERR NO_OUTDOOR\n");                    // outdoor_slot off
+  assert(frsiOutput(0, 2, h, 1, SwitchBotRegistry(), 2000) == "ERR NO_OUTDOOR\n"); // no reading
+  assert(frsiOutput(0, 2, h, 1, reg, 1000 + 31UL * 60UL * 1000UL) == "ERR NO_OUTDOOR\n"); // stale
+  // equal sensors and the outdoor slot
+  assert(frsiOutput(0, 0, h, 1, reg) == "ERR BAD_ARG\n");
+  assert(frsiOutput(1, 2, h, 1, reg) == "ERR BAD_ARG\n"); // room is the outdoor slot
+  assert(frsiOutput(0, 1, h, 1, reg) == "ERR BAD_ARG\n"); // wall is the outdoor slot
+  assert(frsiOutput(1, 0, h, 2, reg) == "ERR BAD_ARG\n"); // the wall is a slot
+  assert(frsiOutput(11, 2, h, 1, reg) == "ERR BAD_ARG\n"); // a number above 10
+  assert(frsiOutput(0, 11, h, 1, reg) == "ERR BAD_ARG\n");
+  assert(frsiOutput(255, 2, h, 1, reg) == "ERR BAD_ARG\n");
+  assert(frsiOutput(0, 255, h, 1, reg) == "ERR BAD_ARG\n");
+  // a short write ends the reply without a CRC32 line
+  FakeSink cutSink;
+  cutSink.limit = 5;
+  DeviceConfig cfg;
+  cfg.outdoor_slot = 1;
+  TestRunner::showFrsi(cutSink, 0, 2, h, cfg, reg, 2000);
+  assert(cutSink.out.size() == 5 && cutSink.out.find("CRC32") == std::string::npos);
+}
+
 void testSaltReferenceTable() {
   assert(fabsf(ClimateMath::saltReferenceRh(15.0f) - 75.6f) < 0.001f);
   assert(fabsf(ClimateMath::saltReferenceRh(20.0f) - 75.5f) < 0.001f);
@@ -24516,6 +24700,10 @@ testSerialConfigNegativeSmallOffset();
   testSerialCalibReferenceOnboardUnchanged();
   testSerialCalibShortWriteAndNoCard();
   testSaltReferenceTable();
+  testWallFactor();
+  testSerialFrsiParser();
+  testSerialFrsiReply();
+  testSerialFrsiErrorsAndShortReplies();
   testMagnesiumReferenceTable();
   testRhGainCorrection();
   testRhGainConfigKeys();
