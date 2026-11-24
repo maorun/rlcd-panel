@@ -191,6 +191,7 @@ fun SensorHealthScreen(
     onOpenSelfTest: () -> Unit = {},
     onOpenSalt: () -> Unit = {},
     onOpenSpread: () -> Unit = {},
+    onOpenToday: () -> Unit = {},
     clockState: ClockReadState = ClockReadState(),
     onReadClock: () -> Unit = {},
     chimeState: ChimeTestState = ChimeTestState(),
@@ -251,6 +252,14 @@ fun SensorHealthScreen(
                         modifier = Modifier.fillMaxWidth(0.85f),
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text("Co-location check", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                item {
+                    Chip(
+                        onClick = onOpenToday,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text("Today", fontSize = 12.sp, maxLines = 1) }
                     )
                 }
                 item {
