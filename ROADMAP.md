@@ -83,12 +83,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Event codes for the wall humidity and dry air badges
-  - Rank: [Total: 27, Use: 6, Setup: 3, Harmony: 8, Safety: 10, Effort: S]
-  - Location: rlcd_panel/power_manager.h, rlcd_panel/sd_logger.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp, macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/EventText.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/EventText.kt, AGENTS.md, FEATURES.md
-  - Goal: Add the next two free `EventCode` values `WALL_DAMP` and `DRY_AIR`. Record one event for each changed bit of `wall_tiles` and `dry_tiles` with the same detail layout as `WINDOW_OPEN` (low byte tile 0 to 10, high byte 1 set, 0 clear). Use the pattern of `PersistentState::recordWindowChanges`. `resetSlot` and a power-on record nothing. Do not change the RTC layout and `STATE_VERSION`. Add the texts `Wall damp (<tile>)`, `Wall dry again (<tile>)`, `Dry air (<tile>)` and `Air humidity good (<tile>)` to `EventText` in the three apps.
-  - Acceptance test: Host tests assert one event for each changed bit, no event for an equal mask and the detail bytes. The event text tests of the three apps assert the texts. Run the host test command, `arduino-cli compile rlcd_panel`, `swift test` and `gradle testDebugUnitTest` in both Kotlin apps.
-
 - [ ] Feels-like and absolute humidity curves in the Android history screen
   - Rank: [Total: 25, Use: 6, Setup: 1, Harmony: 8, Safety: 10, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/HistoryScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/HistoryReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ClimateMath.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/HistoryReplyTest.kt, FEATURES.md

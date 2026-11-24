@@ -40,6 +40,8 @@ import Foundation
         #expect(EventFilter.category(of: "SCAN_FAULT") == .sensors)
         #expect(EventFilter.apply(rows, [.sensors]).map(\.event).contains("SCAN_FAULT"))
         #expect(EventFilter.category(of: "WINDOW_OPEN") == .climate)
+        #expect(EventFilter.category(of: "WALL_DAMP") == .climate)
+        #expect(EventFilter.category(of: "DRY_AIR") == .climate)
         #expect(EventFilter.apply(rows, [.climate]).count == 1)
     }
 

@@ -105,6 +105,13 @@ public enum EventText {
             let tile = d & 0xFF, open = d >> 8
             guard (0...0xFFFF).contains(d), tile <= 10, open <= 1 else { return raw }
             return "Window \(open == 1 ? "open" : "closed") in \(roomName(tile: tile, config: config))"
+        case "WALL_DAMP", "DRY_AIR":
+            // Low byte is the tile (0 onboard, 1 to 10 slots); the high byte 1 marks the badge set, 0 cleared.
+            let tile = d & 0xFF, set = d >> 8
+            guard (0...0xFFFF).contains(d), tile <= 10, set <= 1 else { return raw }
+            let room = roomName(tile: tile, config: config)
+            if row.event == "WALL_DAMP" { return set == 1 ? "Wall damp (\(room))" : "Wall dry again (\(room))" }
+            return set == 1 ? "Dry air (\(room))" : "Air humidity good (\(room))"
         case "CONFIG_SET":
             let index = d & 0xFF, transport = d >> 8
             guard (0...0xFFFF).contains(d), transport <= 1 else { return raw }

@@ -65,6 +65,8 @@ class EventFilterTest {
     fun scanFaultIsSensorAndWindowOpenIsClimate() {
         assertEquals(EventFilter.Category.SENSORS, EventFilter.category("SCAN_FAULT"))
         assertEquals(EventFilter.Category.CLIMATE, EventFilter.category("WINDOW_OPEN"))
+        assertEquals(EventFilter.Category.CLIMATE, EventFilter.category("WALL_DAMP"))
+        assertEquals(EventFilter.Category.CLIMATE, EventFilter.category("DRY_AIR"))
         val log = EventsReply.parse(fixtureLines())
         assertEquals(1, EventFilter.apply(log.rows, setOf(EventFilter.Category.CLIMATE)).size)
     }

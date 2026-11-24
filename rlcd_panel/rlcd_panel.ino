@@ -987,12 +987,17 @@ void refreshSensors() {
   g_state.ventilate_tiles = VentilateLatch::update(
       g_state.ventilate_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
       config().ventilate_limit_rh, config().staleTimeoutMs(), config().door_ref_slot);
+  const uint16_t previous_dry_tiles = g_state.dry_tiles;
   g_state.dry_tiles = DryLatch::update(
       g_state.dry_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
       config().dry_alert_limit_rh, config().climate_alert_tiles, config().staleTimeoutMs());
+  const uint16_t previous_wall_tiles = g_state.wall_tiles;
   g_state.wall_tiles = WallLatch::update(
       g_state.wall_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
       config().mold_alert_limit_rh, config().wall_frsi_pct, config().outdoor_slot, config().staleTimeoutMs());
+  // The dry air and wall humidity latches have no chime. The event time needs g_rtc_time.
+  g_state.recordDryChanges(previous_dry_tiles, g_state.dry_tiles, g_rtc_time);
+  g_state.recordWallChanges(previous_wall_tiles, g_state.wall_tiles, g_rtc_time);
   // The open window latch has no chime. The event time needs g_rtc_time, which is read before this step.
   const uint16_t previous_window_tiles = g_state.window_tiles;
   g_state.window_tiles = WindowLatch::update(

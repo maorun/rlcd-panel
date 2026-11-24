@@ -151,6 +151,15 @@ object EventText {
                 if (d !in 0..0xFFFF || tile > 10 || open > 1) raw
                 else "Window ${if (open == 1) "open" else "closed"} (${if (tile == 0) "Onboard" else "tile $tile"})"
             }
+            "WALL_DAMP", "DRY_AIR" -> {
+                // Low byte is the tile (0 onboard, 1 to 10 slots); the high byte 1 marks the badge set, 0 cleared.
+                val tile = d and 0xFF
+                val set = d shr 8
+                val room = if (tile == 0) "Onboard" else "tile $tile"
+                if (d !in 0..0xFFFF || tile > 10 || set > 1) raw
+                else if (row.event == "WALL_DAMP") (if (set == 1) "Wall damp ($room)" else "Wall dry again ($room)")
+                else (if (set == 1) "Dry air ($room)" else "Air humidity good ($room)")
+            }
             "SD_FAULT" -> SD_STATUSES[d]?.let { if (d == 1) "SD card OK" else "SD card fault: $it" } ?: raw
             else -> raw
         }
