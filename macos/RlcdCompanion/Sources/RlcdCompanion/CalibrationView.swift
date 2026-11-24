@@ -41,12 +41,59 @@ struct CalibrationView: View {
                 }
                 if let s = model.batchSummary { Text(s).font(.caption).foregroundStyle(.secondary) }
                 Divider()
+                spreadSection
+                Divider()
                 saltSection
                 Divider()
                 frsiSection
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
         .onDisappear { model.stopSaltWatch(.viewClosed) }
+    }
+
+    /// Co-location check: all sensors at one place for 6 hours, then `SPREAD` shows the deviation of each sensor.
+    private var spreadSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Co-location check").font(.headline)
+            Text("Put all sensors at one place for 6 hours, then read the deviation of each sensor.")
+                .font(.caption).foregroundStyle(.secondary)
+            Button("Read spread") { model.spreadCheck() }
+                .disabled(!model.isIdle)
+            if let reply = model.spread {
+                switch reply.outcome {
+                case let .measured(sensors, tempMedian, rhMedian, rows):
+                    Text("\(sensors) sensors, median \(String(format: "%.1f", tempMedian)) °C, "
+                         + "\(String(format: "%.1f", rhMedian)) %RH").font(.callout)
+                    Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 2) {
+                        GridRow {
+                            Text("Sensor"); Text("Temp dev (°C)"); Text("RH dev (%RH)"); Text("")
+                        }.font(.caption).foregroundStyle(.secondary)
+                        ForEach(Array(rows.enumerated()), id: \.offset) { _, row in spreadRow(row) }
+                    }
+                case let .skipped(sensors):
+                    Text("\(sensors) sensors have 6 hours of data (3 needed). Put 3 or more sensors at one place for 6 hours.")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+
+    private func spreadRow(_ row: SensorSpread) -> some View {
+        GridRow {
+            Text(row.name)
+            Text(String(format: "%+.1f", row.tempDev))
+            Text(String(format: "%+.1f", row.rhDev))
+            HStack {
+                if row.isOutlier {
+                    Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                        .help("Outlier: more than 0.5 °C or 3.0 %RH from the median")
+                    if let slot = row.slot {
+                        Button("Salt check") { model.saltSensor = slot }
+                            .disabled(!model.calibrationSensors.contains(slot))
+                    }
+                }
+            }
+        }.font(.system(.caption, design: .monospaced))
     }
 
     /// Humidity check of one sensor in a closed box with saturated sodium chloride (6 hours at least).

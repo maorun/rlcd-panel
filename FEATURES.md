@@ -587,6 +587,16 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Host tests cover the parser, the median for an odd and an even count, the limits at the exact value and above it for both quantities, the `SKIP` reply, a sensor with 5 samples, and one reply against `tests/fixtures/spread_reply_sample.txt`.
 - Validation on the board: put the sensors together for 6 hours, send `SPREAD` over USB and check the reply and the `CRC32` line.
 
+## Co-location check in the macOS calibration view
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift`
+- `SpreadReply.parse` reads the `SPREAD` reply: the header `SPREAD sensors=<n> temp_median=<x> rh_median=<x>`, one `SensorSpread` (name, temperature deviation, humidity deviation, outlier flag) for each `SENSOR` line, and the reply `SKIP sensors=<n>`. `SensorSpread.slot` gives the slot number of a name `slot<N>`.
+- `ParseError.badLine` covers a bad number, a flag other than `OK` and `OUTLIER`, a header without `rh_median`, and a sensor count that differs from the `SENSOR` lines.
+- `ConsoleCommand.spread` sends `SPREAD`. `AppModel.spreadCheck` sends it only on a user action, on USB and on BLE.
+- `CalibrationView` has the section `Co-location check` with the button `Read spread`, a table of the sensors and a warning symbol for each `OUTLIER` row. An outlier slot shows the button `Salt check`, which selects this slot in the salt section.
+- Host tests read `tests/fixtures/spread_reply_sample.txt` and cover the `SKIP` reply, the outlier flag and the bad lines.
+- Validation: `swift test` and `swift build -c release` in `macos/RlcdCompanion`. The view needs a check on the real panel.
+
 ## Serial console command SELFTEST for the onboard hardware
 
 - **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/selftest_reply_sample.txt`.

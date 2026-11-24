@@ -79,6 +79,7 @@ final class AppModel: ConsoleLinkDelegate {
     var frsiRoom = 0
     var frsiWall = 1
     var frsi: FrsiReply?
+    var spread: SpreadReply?
     var twoPointMessage: String?
     /// Proposal keys that the user selected.
     var calibrationSelection: Set<String> = []
@@ -1135,6 +1136,16 @@ final class AppModel: ConsoleLinkDelegate {
         frsi?.changes(current: config?.values) ?? []
     }
 
+    /// Reads the co-location check of `SPREAD`. Runs only on the user's button press; the firmware reads the RTC copy.
+    func spreadCheck() {
+        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        message = nil
+        batchSummary = nil
+        spread = nil
+        queue = [.spread]
+        sendNext()
+    }
+
     /// Reads the wall factor of `FRSI R W`. Runs only on the user's button press; the firmware reads the RTC copy.
     func frsiCheck(room: Int, wall: Int) {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
@@ -1416,6 +1427,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if case .calib = cmd { calibration = nil }
                 if case .salt = cmd { salt = nil }
                 if case .saltMagnesium = cmd { saltMagnesium = nil }
+                if cmd == .spread { spread = nil }
                 if case .frsi = cmd {
                     let result = FrsiReply.statusResult(text) // ERR LOW_DELTA and ERR NO_OUTDOOR are results
                     frsi = result.reply
@@ -1501,6 +1513,9 @@ final class AppModel: ConsoleLinkDelegate {
             case let (.saltMagnesium, .frame(lines)):
                 saltMagnesium = nil
                 saltMagnesium = try SaltReply.parse(lines: lines)
+            case let (.spread, .frame(lines)):
+                spread = nil
+                spread = try SpreadReply.parse(lines: lines)
             case let (.frsi, .frame(lines)):
                 frsi = nil
                 frsi = try FrsiReply.parse(lines: lines)

@@ -409,3 +409,66 @@ public enum CalibrationSensors {
         return Array(alwaysShown) + Array(Set(extra)).sorted()
     }
 }
+
+/// One sensor line of the `SPREAD` reply.
+public struct SensorSpread: Equatable, Sendable {
+    public let name: String
+    /// Deviation of the temperature mean from the median in C.
+    public let tempDev: Double
+    /// Deviation of the humidity mean from the median in %RH.
+    public let rhDev: Double
+    public let isOutlier: Bool
+
+    /// The slot number 1 to 10 of a name `slot<N>`; `nil` for `onboard` and for every other name.
+    public var slot: Int? {
+        guard name.hasPrefix("slot"), let n = CalibrationReply.hours(String(name.dropFirst(4))), (1...10).contains(n)
+        else { return nil }
+        return n
+    }
+}
+
+/// Reply of the console command `SPREAD`: the co-location check of all sensors.
+public struct SpreadReply: Equatable, Sendable {
+    public enum Outcome: Equatable, Sendable {
+        case measured(sensors: Int, tempMedian: Double, rhMedian: Double, rows: [SensorSpread])
+        /// Fewer than 3 sensors have 6 hourly samples.
+        case skipped(sensors: Int)
+    }
+
+    public let outcome: Outcome
+
+    /// The sensors of a measured reply, else an empty list.
+    public var rows: [SensorSpread] {
+        if case let .measured(_, _, _, rows) = outcome { return rows }
+        return []
+    }
+
+    /// Parses the lines of a `SPREAD` frame (a `BEGIN` line is allowed). The first line decides the outcome.
+    /// Throws `ParseError.badLine` for a bad number, a count that differs from the `SENSOR` lines or a flag
+    /// other than `OK` and `OUTLIER`.
+    public static func parse(lines: [String]) throws -> SpreadReply {
+        let body = lines.filter { !$0.hasPrefix("BEGIN ") }
+        guard let first = body.first else { throw ParseError.missingLine("SPREAD") }
+        let words = first.split(separator: " ")
+        let f = CalibrationReply.fields(first)
+        if first.hasPrefix("SKIP ") {
+            guard words.count == 2, let n = CalibrationReply.hours(f["sensors"]) else { throw ParseError.badLine(first) }
+            return SpreadReply(outcome: .skipped(sensors: n))
+        }
+        guard first.hasPrefix("SPREAD ") else { throw ParseError.missingLine("SPREAD") }
+        guard words.count == 4, let n = CalibrationReply.hours(f["sensors"]),
+              let temp = CalibrationReply.decimal(f["temp_median"]), let rh = CalibrationReply.decimal(f["rh_median"])
+        else { throw ParseError.badLine(first) }
+        var rows: [SensorSpread] = []
+        for line in body.dropFirst() where line.hasPrefix("SENSOR ") {
+            let w = line.split(separator: " ")
+            let lf = CalibrationReply.fields(line)
+            guard w.count == 5, let t = CalibrationReply.decimal(lf["temp_dev"]),
+                  let h = CalibrationReply.decimal(lf["rh_dev"]), w[4] == "OK" || w[4] == "OUTLIER"
+            else { throw ParseError.badLine(line) }
+            rows.append(SensorSpread(name: String(w[1]), tempDev: t, rhDev: h, isOutlier: w[4] == "OUTLIER"))
+        }
+        guard rows.count == n else { throw ParseError.badLine(first) }
+        return SpreadReply(outcome: .measured(sensors: n, tempMedian: temp, rhMedian: rh, rows: rows))
+    }
+}

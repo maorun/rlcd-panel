@@ -552,6 +552,8 @@ public enum ConsoleCommand: Equatable {
     case saltMagnesium(Int)
     /// `FRSI R W` (R 0 to 10 room sensor, W 1 to 10 wall slot, different): the temperature factor of a wall.
     case frsi(room: Int, wall: Int)
+    /// `SPREAD`: the co-location check of all sensors (RTC copy only).
+    case spread
 
     public static func beep(bit: Int) -> ConsoleCommand { .beep(bit) }
     public static func pattern(n: Int) -> ConsoleCommand { .pattern(n) }
@@ -649,6 +651,7 @@ public enum ConsoleCommand: Equatable {
         case let .historySensor(n): return (0...10).contains(n) ? "HISTORY \(n)" : nil
         case .events: return "EVENTS"
         case .week: return "WEEK"
+        case .spread: return "SPREAD"
         case .config: return "CONFIG"
         case .version: return "VERSION"
         case .scan: return "SCAN"

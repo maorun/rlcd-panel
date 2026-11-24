@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Co-location check in the macOS calibration view
-  - Rank: [Total: 34, Use: 5, Setup: 10, Harmony: 9, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift, FEATURES.md
-  - Goal: Add `SpreadReply.parse` for the `SPREAD` reply: the header line `SPREAD sensors=<n> temp_median=<x> rh_median=<x>`, one `SensorSpread` (name, temperature deviation, humidity deviation, outlier flag) for each `SENSOR` line and the `SKIP sensors=<n>` reply. Add `ConsoleCommand.spread`. Add a section `Co-location check` to `CalibrationView` with a read button, a table of the sensors and a warning symbol for each `OUTLIER` row. For an outlier slot, show a button that opens the `SALT` section for this slot. Send `SPREAD` only on a user action, on USB and on BLE.
-  - Acceptance test: `CalibrationTests` read `tests/fixtures/spread_reply_sample.txt` and assert the sensor count, both medians, each deviation and each flag. Assert the `SKIP` result, `ParseError.badLine` for `temp_dev=x` and for a flag other than `OK` and `OUTLIER`, and `ParseError.badLine` for a header without `rh_median`. Run `cd macos/RlcdCompanion && swift test && swift build -c release`.
-
 - [ ] Co-location check in the Android calibration screen
   - Rank: [Total: 34, Use: 5, Setup: 10, Harmony: 9, Safety: 10, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SpreadReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/CalibrationScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/SpreadReplyTest.kt, FEATURES.md
