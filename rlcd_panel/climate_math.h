@@ -84,6 +84,17 @@ public:
     return rh > 100.0f ? 100.0f : rh;
   }
 
+  // Temperature factor of a wall: (t_wall - t_out) / (t_room - t_out). NaN for NaN, infinite or out-of-range input and
+  // for t_out at or above t_room (no usable temperature difference).
+  static float wallFactor(float t_room_c, float t_wall_c, float t_out_c) {
+    if (!isfinite(t_room_c) || !isfinite(t_wall_c) || !isfinite(t_out_c) || t_room_c < MIN_TEMP_C || t_room_c > MAX_TEMP_C ||
+        t_wall_c < MIN_TEMP_C || t_wall_c > MAX_TEMP_C || t_out_c < MIN_TEMP_C || t_out_c > MAX_TEMP_C ||
+        t_out_c >= t_room_c) {
+      return NAN;
+    }
+    return (t_wall_c - t_out_c) / (t_room_c - t_out_c);
+  }
+
   // Returns an invalid result for NaN, infinite or out-of-range input. 0 %RH gives no dew point
   // (the logarithm diverges), so it is invalid as well.
   static ClimateDerived compute(float temp_c, float humidity_pct) {
