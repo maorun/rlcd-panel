@@ -14999,9 +14999,23 @@ void testSerialWeekParserAndGate() {
   SerialCommand cmd;
   assert(parseText("WEEK", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::WEEK);
   assert(parseText("WEEK\r\n", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::WEEK);
-  assert(parseText("WEEK 1", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
-  assert(parseText("WEEK ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("WEEK", cmd) == SerialParseStatus::OK && !cmd.week_one);
+  assert(parseText("WEEK 0", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::WEEK && cmd.week_one && cmd.reference == 0);
+  assert(parseText("WEEK 5\r\n", cmd) == SerialParseStatus::OK && cmd.week_one && cmd.reference == 5);
+  const char* bad_forms[] = {"WEEK 6", "WEEK 1x", "WEEK ", "WEEK  ", "WEEK 1 2", "WEEK 10", "WEEK -1", "WEEK x"};
+  for (const char* bad : bad_forms) {
+    assert(parseText(bad, cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE && !cmd.week_one);
+  }
+  assert(parseText("WEEK1", cmd) == SerialParseStatus::UNKNOWN && !cmd.week_one);
   assert(parseText("WEEKS", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("WEEK 2", cmd) == SerialParseStatus::OK);
+  assert(std::string(BleConsoleBridge::gate(cmd, 0)).empty()); // WEEK <N> is a read command too
+  assert(std::string(BleConsoleBridge::gate(cmd, 1)).empty());
+  assert(std::string(BleConsoleBridge::gate(cmd, 2)).empty());
+  FakeConsoleStorage one_storage;
+  FakeSink one_sink;
+  TestRunner::execute(one_storage, one_sink, cmd);
+  assert(one_sink.out.empty() && one_storage.mounts == 0 && one_storage.unmounts == 0);
   assert(parseText("WEEK", cmd) == SerialParseStatus::OK);
   assert(std::string(BleConsoleBridge::gate(cmd, 0)).empty()); // read command: allowed on BLE at each level
   assert(std::string(BleConsoleBridge::gate(cmd, 1)).empty());
@@ -15039,6 +15053,101 @@ void testSerialWeekRowsDatesAndCrc() {
     FakeSink cut;
     cut.limit = limit;
     TestRunner::showWeek(cut, state.week);
+    assert(cut.out.size() == limit && cut.out.find("CRC32") == std::string::npos);
+  }
+}
+
+// Builds the WeekHistory of tests/fixtures/week_reply_sample.txt (stamp 2026-11-18, day 0 is 2026-11-17).
+static std::string readWeekFixture() {
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  std::ifstream in(root + "tests/fixtures/week_reply_sample.txt");
+  assert(in.good());
+  return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+}
+
+static WeekHistory weekFromFixture() {
+  WeekHistory week;
+  assert(week.advance(weekTime(2026, 11, 18), ClimateHistory(), true)); // the first valid call only stamps
+  const std::vector<std::string> lines = splitLines(readWeekFixture());
+  assert(lines.size() == 2 + 42 + 1);
+  for (size_t i = 2; i < 2 + 42; ++i) {
+    std::vector<std::string> f;
+    size_t start = 0;
+    for (size_t at; (at = lines[i].find(',', start)) != std::string::npos; start = at + 1) {
+      f.push_back(lines[i].substr(start, at - start));
+    }
+    f.push_back(lines[i].substr(start));
+    assert(f.size() == 8);
+    auto tenths = [](const std::string& v) { return static_cast<int16_t>(std::lround(std::stod(v) * 10.0)); };
+    const bool has_t = !f[3].empty();
+    const bool has_h = !f[5].empty();
+    const uint8_t mold = f[7].empty() ? WeekHistory::GAP : static_cast<uint8_t>(std::stoi(f[7]));
+    week.setDay(static_cast<size_t>(std::stoi(f[0])), static_cast<size_t>(std::stoi(f[1])), has_t, has_t ? tenths(f[3]) : 0,
+                has_t ? tenths(f[4]) : 0, has_h, has_h ? tenths(f[5]) : 0, has_h ? tenths(f[6]) : 0, mold);
+  }
+  return week;
+}
+
+void testSerialWeekWithoutArgumentMatchesFixture() {
+  // The fixture holds the rows of sensors 0 to 5 (the apps read these). The firmware sends 11 sensors; sensors 6 to 10 are gap rows here.
+  const WeekHistory week = weekFromFixture();
+  FakeSink sink;
+  TestRunner::showWeek(sink, week);
+  const std::vector<std::string> lines = splitLines(sink.out);
+  const std::vector<std::string> fixture = splitLines(readWeekFixture());
+  assert(lines.size() == 2 + 77 + 1 && fixture.size() == 2 + 42 + 1);
+  for (size_t i = 0; i < 2 + 42; ++i) {
+    assert(lines[i] == fixture[i]);
+  }
+  for (size_t i = 2 + 42; i < 2 + 77; ++i) {
+    assert(lines[i].find(",2026-11-") != std::string::npos && lines[i].rfind(",,,,,") == lines[i].size() - 5); // empty sensors: gaps only
+  }
+  FakeSink all;
+  TestRunner::showWeek(all, week, -1);
+  assert(all.out == sink.out);
+}
+
+void testSerialWeekOneSensorRowsAndCrc() {
+  const WeekHistory week = weekFromFixture();
+  uint8_t before[WeekHistory::SERIALIZED_SIZE];
+  uint8_t after[WeekHistory::SERIALIZED_SIZE];
+  week.serialize(before);
+  FakeSink sink;
+  TestRunner::showWeek(sink, week, 2);
+  week.serialize(after);
+  assert(memcmp(before, after, sizeof(before)) == 0); // the reply changes no state
+  const std::vector<std::string> lines = splitLines(sink.out);
+  assert(lines.size() == 2 + 7 + 1);
+  assert(lines[0] == "BEGIN WEEK");
+  assert(lines[1] == "sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h");
+  const std::vector<std::string> fixture = splitLines(readWeekFixture());
+  for (size_t d = 0; d < 7; ++d) {
+    assert(lines[2 + d] == fixture[2 + 2 * 7 + d]); // sensor 2 only
+    assert(lines[2 + d].rfind("2,", 0) == 0);
+  }
+  assert(lines[2 + 3] == "2,3,2026-11-14,,,,,"); // gap day
+  const size_t crc_at = sink.out.rfind("CRC32 ");
+  assert(crc_at != std::string::npos);
+  const std::string body = sink.out.substr(0, crc_at);
+  assert(sink.out == body + historyCrcLine(body) + "\n"); // CRC over the filtered bytes
+  FakeSink other;
+  TestRunner::showWeek(other, week, 0);
+  assert(other.out != sink.out && splitLines(other.out).size() == 2 + 7 + 1);
+  FakeSink last;
+  TestRunner::showWeek(last, week, 5);
+  const std::vector<std::string> last_lines = splitLines(last.out);
+  assert(last_lines.size() == 2 + 7 + 1);
+  for (size_t d = 0; d < 7; ++d) {
+    assert(last_lines[2 + d] == fixture[2 + 5 * 7 + d]); // sensor 5 only
+  }
+  const std::string last_body = last.out.substr(0, last.out.rfind("CRC32 "));
+  assert(last.out == last_body + historyCrcLine(last_body) + "\n");
+  for (size_t limit = 0; limit < crc_at; ++limit) {
+    FakeSink cut;
+    cut.limit = limit;
+    TestRunner::showWeek(cut, week, 2);
     assert(cut.out.size() == limit && cut.out.find("CRC32") == std::string::npos);
   }
 }
@@ -15254,10 +15363,15 @@ void testSerialWeekOverBleBridge() {
   }
   assert(action == BleConsoleBridge::Action::RUN && command.kind == SerialCommandKind::WEEK);
   action = BleConsoleBridge::Action::NONE;
-  for (const char c : std::string("WEEK 1\n")) {
+  for (const char c : std::string("WEEK 6\n")) {
     action = bridge.feed(static_cast<uint8_t>(c), command, reply);
   }
   assert(action == BleConsoleBridge::Action::REPLY && std::string(reply) == "ERR BAD_ARG\n");
+  for (const char c : std::string("WEEK 2\n")) {
+    action = bridge.feed(static_cast<uint8_t>(c), command, reply);
+  }
+  assert(action == BleConsoleBridge::Action::RUN && command.kind == SerialCommandKind::WEEK && command.week_one &&
+         command.reference == 2);
 }
 
 void testSerialWeekWithoutStamp() {
@@ -25421,6 +25535,8 @@ int main() {
   testSerialWeekParserAndGate();
   testSerialWeekRowsDatesAndCrc();
   testSerialWeekWithoutStamp();
+  testSerialWeekWithoutArgumentMatchesFixture();
+  testSerialWeekOneSensorRowsAndCrc();
   testSerialWeekDatesCrossYearBoundary();
   testSerialWeekOverBleBridge();
   testRejectLogReasons();
