@@ -41,6 +41,8 @@ import com.rlcdpanel.watch.protocol.ConsoleReply
 import com.rlcdpanel.watch.protocol.EventsReply
 import com.rlcdpanel.watch.protocol.RejectsReply
 import com.rlcdpanel.watch.protocol.SelfTestReply
+import com.rlcdpanel.watch.protocol.SpreadCommand
+import com.rlcdpanel.watch.protocol.SpreadReply
 import com.rlcdpanel.watch.protocol.HistoryReply
 import com.rlcdpanel.watch.protocol.SaltCommand
 import com.rlcdpanel.watch.protocol.SaltReply
@@ -118,6 +120,9 @@ class MainActivity : ComponentActivity() {
     private var showSelfTest by mutableStateOf(false)
     private var selfTestState by mutableStateOf(SelfTestUiState())
     private var pendingSelfTestRead = false
+    private var showSpread by mutableStateOf(false)
+    private var spreadState by mutableStateOf(SpreadState())
+    private var pendingSpreadRead = false
 
     private var scanPermissionDenied = false
     private var notificationPermissionAsked = false
@@ -148,6 +153,7 @@ class MainActivity : ComponentActivity() {
         val salt = pendingSaltRead
         val rejects = pendingRejectsRead
         val selfTest = pendingSelfTestRead
+        val spread = pendingSpreadRead
         val history = pendingHistoryRead
         val clock = pendingClockRead
         val version = pendingVersionRead
@@ -157,6 +163,7 @@ class MainActivity : ComponentActivity() {
         pendingSaltRead = false
         pendingRejectsRead = false
         pendingSelfTestRead = false
+        pendingSpreadRead = false
         pendingHistoryRead = false
         pendingClockRead = false
         pendingVersionRead = false
@@ -175,6 +182,8 @@ class MainActivity : ComponentActivity() {
                 startRejectsRead()
             } else if (selfTest) {
                 startSelfTest()
+            } else if (spread) {
+                startSpreadRead()
             } else if (events) {
                 startEventsRead()
             } else if (health) {
@@ -197,6 +206,8 @@ class MainActivity : ComponentActivity() {
             rejectsState = RejectsState(message = "Bluetooth-Berechtigung fehlt")
         } else if (selfTest) {
             selfTestState = SelfTestUiState(message = "Bluetooth-Berechtigung fehlt")
+        } else if (spread) {
+            spreadState = SpreadState(message = "Bluetooth-Berechtigung fehlt")
         } else if (events) {
             eventState = EventLogState(message = "Bluetooth-Berechtigung fehlt")
         } else if (health) {
@@ -362,6 +373,12 @@ class MainActivity : ComponentActivity() {
                 return@setContent
             }
 
+            if (showSensorHealth && showSpread) {
+                BackHandler { closeSpread() }
+                SpreadScreen(state = spreadState, onRead = { readSpread() })
+                return@setContent
+            }
+
             if (showSensorHealth && showSelfTest) {
                 BackHandler { closeSelfTest() }
                 SelfTestScreen(
@@ -401,6 +418,7 @@ class MainActivity : ComponentActivity() {
                     },
                     onOpenRejects = { showRejects = true },
                     onOpenSelfTest = { showSelfTest = true },
+                    onOpenSpread = { showSpread = true },
                     onOpenSalt = {
                         saltRoom = focusedRoomIndex
                         showSalt = true
@@ -487,6 +505,8 @@ class MainActivity : ComponentActivity() {
         pendingRejectsRead = false
         selfTestState = SelfTestUiState()
         pendingSelfTestRead = false
+        spreadState = SpreadState()
+        pendingSpreadRead = false
         // An open permission dialog keeps pendingClockRead, so its result still starts the tapped TIME read.
         clockState = ClockReadState()
         versionState = VersionReadState()
@@ -911,6 +931,52 @@ class MainActivity : ComponentActivity() {
                     RejectsState(message = "Antwort nicht lesbar")
                 }
                 else -> RejectsState(message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
+    private fun closeSpread() {
+        consoleClient.cancel()
+        pendingSpreadRead = false
+        spreadState = SpreadState()
+        showSpread = false
+    }
+
+    /** Asks for the console permissions, then sends `SPREAD` once. Only a tap in the co-location screen calls it. */
+    private fun readSpread() {
+        if (spreadState.isReading || pendingSpreadRead) return
+        if (selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSelfTestRead || pendingRejectsRead || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || consoleClient.isRunning) {
+            spreadState = SpreadState(message = "Panel-Verbindung ist belegt")
+            return
+        }
+        spreadState = SpreadState(isReading = true)
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            emptyList()
+        }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isNotEmpty()) {
+            pendingSpreadRead = true
+            consolePermissionLauncher.launch(needed.toTypedArray())
+            return
+        }
+        startSpreadRead()
+    }
+
+    /** A failed CRC-32, a timeout or an `ERR` reply gives one error text. The command is not repeated. */
+    private fun startSpreadRead() {
+        if (consoleClient.isRunning) {
+            spreadState = SpreadState(message = "Panel-Verbindung ist belegt")
+            return
+        }
+        consoleClient.send(SpreadCommand.LINE) { reply ->
+            spreadState = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    SpreadState(reply = SpreadReply.parse(reply.lines))
+                } catch (e: ParseException) {
+                    SpreadState(message = "Antwort nicht lesbar")
+                }
+                else -> SpreadState(message = BleConsoleClient.errorText(reply))
             }
         }
     }
