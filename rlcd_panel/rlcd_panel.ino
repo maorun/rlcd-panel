@@ -1506,6 +1506,13 @@ void setup() {
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SPREAD) {
       // The RTC histories answer: no card access, no state change, so the console keeps running.
       Runner::showSpread(sink, g_state.history);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::TODAY) {
+      // The RTC histories answer: no card access, no state change, so the console keeps running.
+      RtcTime today_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again
+      if (!g_rtc.readTime(today_now)) {
+        today_now.valid = false; // an old time can sit on the wrong day: reply ERR NO_TIME
+      }
+      Runner::showToday(sink, g_state.history, today_now, nowMs());
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::TAIL) {
       // The card answers: showTail mounts and unmounts it. The BLE scan has stopped while a console command runs. No state change.
       RtcTime tail_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again
