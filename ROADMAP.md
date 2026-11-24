@@ -83,11 +83,19 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
+<<<<<<< HEAD
 - [ ] Feels-like and absolute humidity curves in the Android history screen
   - Rank: [Total: 25, Use: 6, Setup: 1, Harmony: 8, Safety: 10, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/HistoryScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/HistoryReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ClimateMath.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/HistoryReplyTest.kt, FEATURES.md
   - Goal: Calculate the feels-like temperature (`ClimateMath.heatIndexC`) and the absolute humidity (`ClimateMath.absoluteHumidityGm3`) for each hour of the panel history. Add a curve selector with `Temperature`, `Humidity`, `Feels like` and `Absolute humidity` to `HistoryScreen`. Skip an hour without a pair of values.
   - Acceptance test: `HistoryReplyTest` asserts the derived values of `tests/fixtures/history_reply_sample.txt` against `tests/fixtures/climate_math_vectors.txt` and the gap for a missing value. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`.
+=======
+- [ ] Console command TAIL for the newest climate rows
+  - Rank: [Total: 25, Use: 5, Setup: 4, Harmony: 8, Safety: 8, Effort: M]
+  - Location: rlcd_panel/serial_console.h, rlcd_panel/sd_logger.h, tests/test_firmware_logic.cpp, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TailReply.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/TailReplyTest.kt, AGENTS.md, FEATURES.md
+  - Goal: Add the console command `TAIL <N>` (N 1 to 72). Read the newest N rows of the current `climate_v6_YYYYMM.csv` file and, if necessary, of the previous month file. Read at most 16384 bytes from the file end. Reply `BEGIN TAIL <n>`, the header, the rows oldest first and the `CRC32` line. Reply `ERR NO_CARD`, `ERR NO_FILE` and `ERR BAD_ARG` for 0, 73, a non-digit or extra text. Run the command on USB and on BLE at each `ble_console` level. Add `TailReply.parse` to the Android app with the column layout of `SdLogCodec::parseClimateRow`.
+  - Acceptance test: Host tests assert the row selection over the month limit, the byte limit and each error reply with an in-memory file system. `TailReplyTest` asserts the parsed rows and `ParseException` for a wrong column count. Run the host test command, `arduino-cli compile rlcd_panel` and `gradle testDebugUnitTest` in `android/RlcdPhone`. On the board, send `TAIL 3` over BLE and verify the `CRC32` line.
+>>>>>>> 199d4d3 (Add feels-like and absolute humidity curves to history)
 
 - [ ] Ventilation advice complication on the Wear OS watch face
   - Rank: [Total: 22, Use: 5, Setup: 0, Harmony: 7, Safety: 10, Effort: S]

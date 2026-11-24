@@ -9,6 +9,24 @@ data class PanelHistoryRow(
     val noiseDb: Double?
 )
 
+/** Curve of the panel history. The last two derive from the temperature and humidity pair of one hour. */
+enum class HistoryCurve(val label: String, val unit: String) {
+    TEMPERATURE("Temperature", "°C"),
+    HUMIDITY("Humidity", "%RH"),
+    FEELS_LIKE("Feels like", "°C"),
+    ABSOLUTE_HUMIDITY("Absolute humidity", "g/m³")
+}
+
+/** Value of [curve] for this hour. An hour without a pair of values gives null for a derived curve. */
+fun PanelHistoryRow.value(curve: HistoryCurve): Double? = when (curve) {
+    HistoryCurve.TEMPERATURE -> temperatureC
+    HistoryCurve.HUMIDITY -> humidityPct
+    HistoryCurve.FEELS_LIKE ->
+        if (temperatureC == null || humidityPct == null) null else ClimateMath.heatIndexC(temperatureC, humidityPct)
+    HistoryCurve.ABSOLUTE_HUMIDITY ->
+        if (temperatureC == null || humidityPct == null) null else ClimateMath.absoluteHumidityGm3(temperatureC, humidityPct)
+}
+
 /** Port of `HistoryReply.parse` of `Replies.swift`. The rule set and the errors stay the same. */
 object HistoryReply {
     const val HEADER = "sensor,age_h,temp_c,rh_pct,noise_db"

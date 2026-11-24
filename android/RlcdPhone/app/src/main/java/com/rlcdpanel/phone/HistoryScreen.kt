@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.ComparePoints
+import com.rlcdpanel.phone.protocol.HistoryCurve
 import com.rlcdpanel.phone.protocol.HistoryMetric
 import com.rlcdpanel.phone.protocol.HistoryPoint
 import com.rlcdpanel.phone.protocol.PanelHistoryRow
@@ -58,9 +59,9 @@ object PanelHistoryChart {
         rows.filter { it.temperatureC != null || it.humidityPct != null }.map { it.sensor }.distinct().sorted()
 
     /** Points of one sensor, oldest first. Age 0 sits at [readAtMillis], the read time; the newest hourly sample is up to 1 h older. */
-    fun points(rows: List<PanelHistoryRow>, sensor: Int, readAtMillis: Long, humidity: Boolean): List<HistoryPoint> =
+    fun points(rows: List<PanelHistoryRow>, sensor: Int, readAtMillis: Long, curve: HistoryCurve): List<HistoryPoint> =
         rows.filter { it.sensor == sensor }.sortedByDescending { it.ageHours }.map {
-            HistoryPoint(readAtMillis - it.ageHours * HOUR_MILLIS, if (humidity) it.humidityPct else it.temperatureC)
+            HistoryPoint(readAtMillis - it.ageHours * HOUR_MILLIS, it.value(curve))
         }
 }
 
@@ -142,11 +143,11 @@ fun HistoryScreen(
                 }.filterValues { (temp, _) -> temp.any { it.value != null } }
             }
             val panelView = showPanel && panel.loaded
-            val panelSeries = remember(panel) {
+            var curve by remember { mutableStateOf(HistoryCurve.TEMPERATURE) }
+            val panelSeries = remember(panel, curve) {
                 PanelHistoryChart.sensors(panel.rows).associateWith { i ->
-                    PanelHistoryChart.points(panel.rows, i, panel.readAtMillis, false) to
-                        PanelHistoryChart.points(panel.rows, i, panel.readAtMillis, true)
-                }
+                    PanelHistoryChart.points(panel.rows, i, panel.readAtMillis, curve) to emptyList<HistoryPoint>()
+                }.filterValues { (points, _) -> points.any { it.value != null } }
             }
             val shown = if (panelView) panelSeries else series
             val shownNow = if (panelView) panel.readAtMillis else windowNow
@@ -169,6 +170,14 @@ fun HistoryScreen(
                             Text(if (panel.isReading) "Lese Panel…" else "Panel-Verlauf lesen")
                         }
                         if (panelView) OutlinedButton(onClick = onLocal) { Text("Lokal") }
+                    }
+                }
+                if (panelView) item {
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        for (c in HistoryCurve.values()) {
+                            if (c == curve) Button(onClick = {}) { Text(c.label, style = MaterialTheme.typography.labelSmall) }
+                            else OutlinedButton(onClick = { curve = c }) { Text(c.label, style = MaterialTheme.typography.labelSmall) }
+                        }
                     }
                 }
                 item {
@@ -199,8 +208,13 @@ fun HistoryScreen(
                             Text(panelConfig.tileName(index), style = MaterialTheme.typography.titleMedium)
                             OutlinedButton(onClick = { onReadSensor(index) }, enabled = !panel.isReading) { Text("Nur diesen Raum lesen") }
                             val (temp, rh) = shown.getValue(index)
-                            MetricChart(temp, shownNow, "Temperatur", "°C", Color(0xFFFF8A65), maxGap)
-                            MetricChart(rh, shownNow, "Feuchte", "%RH", Color(0xFF4FC3F7), maxGap)
+                            if (panelView) {
+                                val color = if (curve == HistoryCurve.HUMIDITY || curve == HistoryCurve.ABSOLUTE_HUMIDITY) Color(0xFF4FC3F7) else Color(0xFFFF8A65)
+                                MetricChart(temp, shownNow, curve.label, curve.unit, color, maxGap)
+                            } else {
+                                MetricChart(temp, shownNow, "Temperatur", "°C", Color(0xFFFF8A65), maxGap)
+                                MetricChart(rh, shownNow, "Feuchte", "%RH", Color(0xFF4FC3F7), maxGap)
+                            }
                         }
                     }
                 }
