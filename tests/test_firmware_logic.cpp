@@ -15603,6 +15603,117 @@ void testSerialFrsiParser() {
 }
 
 namespace {
+void fillSpread(ClimateHistory& h, size_t sensor, int hours, float temp, float rh) {
+  for (int i = 0; i < hours; ++i) {
+    h.temperatures[sensor].pushCelsius(temp);
+    h.slots[sensor].pushPercent(rh);
+  }
+}
+
+std::string spreadOutput(const ClimateHistory& h) {
+  FakeSink sink;
+  TestRunner::showSpread(sink, h);
+  return sink.out;
+}
+} // namespace
+
+void testSerialSpread() {
+  SerialCommand cmd;
+  assert(parseText("SPREAD", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SPREAD);
+  assert(parseText("SPREAD\r\n", cmd) == SerialParseStatus::OK);
+  assert(parseText("SPREAD 1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("SPREAD ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("SPREADX", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("spread", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("SPREAD", cmd) == SerialParseStatus::OK);
+  for (uint8_t level = 0; level <= 2; ++level) {
+    assert(std::string(BleConsoleBridge::gate(cmd, level)).empty());
+  }
+  FakeConsoleStorage storage;
+  FakeSink quiet;
+  TestRunner::execute(storage, quiet, cmd);
+  assert(storage.mounts == 0 && quiet.out.empty());
+
+  // odd count (3): median of 20.0, 20.2, 19.8 C and 50, 51, 49 %RH; the reply equals the shared fixture
+  ClimateHistory h;
+  fillSpread(h, 0, 6, 20.0f, 50.0f);
+  fillSpread(h, 1, 6, 20.2f, 51.0f);
+  fillSpread(h, 2, 6, 19.8f, 49.0f);
+  std::string out = spreadOutput(h);
+  assert(out.rfind("SPREAD sensors=3 temp_median=20.0 rh_median=50.0\nSENSOR onboard temp_dev=0.0 rh_dev=0.0 OK\n", 0) == 0);
+  assert(frsiCrcOk(out));
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  std::ifstream in(root + "tests/fixtures/spread_reply_sample.txt");
+  assert(in.good());
+  const std::string fixture((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  assert(out == fixture);
+  assert(h.temperatures[0].size() == 6); // no state change
+
+  // even count (4): the median is the mean of the two middle means: 20.0 and 20.2 give 20.1
+  ClimateHistory even;
+  fillSpread(even, 0, 6, 20.0f, 50.0f);
+  fillSpread(even, 1, 6, 20.2f, 52.0f);
+  fillSpread(even, 2, 6, 19.9f, 49.0f);
+  fillSpread(even, 3, 6, 20.3f, 53.0f);
+  out = spreadOutput(even);
+  assert(out.rfind("SPREAD sensors=4 temp_median=20.1 rh_median=51.0\n", 0) == 0);
+  assert(out.find("SENSOR onboard temp_dev=-0.1 rh_dev=-1.0 OK\nSENSOR slot1 temp_dev=0.1 rh_dev=1.0 OK\n"
+                  "SENSOR slot2 temp_dev=-0.2 rh_dev=-2.0 OK\nSENSOR slot3 temp_dev=0.2 rh_dev=2.0 OK\nCRC32 ") != std::string::npos);
+
+  // rounding tie: the median 20.05 C shows as 20.1 C (half away from zero); the negative median -20.05 C shows as -20.1 C
+  ClimateHistory tie;
+  fillSpread(tie, 0, 6, 20.0f, 50.0f);
+  fillSpread(tie, 1, 6, 20.0f, 50.0f);
+  fillSpread(tie, 2, 6, 20.1f, 50.0f);
+  fillSpread(tie, 3, 6, 20.1f, 50.0f);
+  out = spreadOutput(tie);
+  assert(out.rfind("SPREAD sensors=4 temp_median=20.1 rh_median=50.0\nSENSOR onboard temp_dev=-0.1 ", 0) == 0);
+  ClimateHistory neg;
+  fillSpread(neg, 0, 6, -20.0f, 50.0f);
+  fillSpread(neg, 1, 6, -20.0f, 50.0f);
+  fillSpread(neg, 2, 6, -20.1f, 50.0f);
+  fillSpread(neg, 3, 6, -20.1f, 50.0f);
+  out = spreadOutput(neg);
+  assert(out.rfind("SPREAD sensors=4 temp_median=-20.1 rh_median=50.0\nSENSOR onboard temp_dev=0.1 ", 0) == 0);
+
+  // exact limit: 0.5 C and 3.0 %RH from the median is OK, 0.6 C or 3.1 %RH is an OUTLIER
+  ClimateHistory lim;
+  fillSpread(lim, 0, 6, 20.0f, 50.0f);
+  fillSpread(lim, 1, 6, 20.0f, 50.0f);
+  fillSpread(lim, 2, 6, 20.5f, 53.0f);
+  out = spreadOutput(lim);
+  assert(out.find("SENSOR slot2 temp_dev=0.5 rh_dev=3.0 OK\n") != std::string::npos);
+  ClimateHistory above;
+  fillSpread(above, 0, 6, 20.0f, 50.0f);
+  fillSpread(above, 1, 6, 20.0f, 50.0f);
+  fillSpread(above, 2, 6, 20.6f, 50.0f);
+  assert(spreadOutput(above).find("SENSOR slot2 temp_dev=0.6 rh_dev=0.0 OUTLIER\n") != std::string::npos);
+  ClimateHistory aboveRh;
+  fillSpread(aboveRh, 0, 6, 20.0f, 50.0f);
+  fillSpread(aboveRh, 1, 6, 20.0f, 50.0f);
+  fillSpread(aboveRh, 2, 6, 20.0f, 46.9f);
+  assert(spreadOutput(aboveRh).find("SENSOR slot2 temp_dev=0.0 rh_dev=-3.1 OUTLIER\n") != std::string::npos);
+
+  // fewer than 3 sensors, also when a sensor has fewer than 6 samples
+  ClimateHistory shortH;
+  fillSpread(shortH, 0, 6, 20.0f, 50.0f);
+  fillSpread(shortH, 1, 6, 20.0f, 50.0f);
+  fillSpread(shortH, 2, 5, 20.0f, 50.0f);
+  out = spreadOutput(shortH);
+  assert(out.rfind("SKIP sensors=2\nCRC32 ", 0) == 0 && frsiCrcOk(out));
+  // a sensor with 5 samples is left out, the other 3 count
+  fillSpread(shortH, 3, 6, 20.0f, 50.0f);
+  out = spreadOutput(shortH);
+  assert(out.rfind("SPREAD sensors=3 ", 0) == 0 && out.find("slot2") == std::string::npos);
+  const size_t posSlot1 = out.find("SENSOR slot1 ");
+  const size_t posSlot3 = out.find("SENSOR slot3 ");
+  assert(out.find("SENSOR onboard ") < posSlot1 && posSlot1 < posSlot3 && posSlot3 != std::string::npos);
+  assert(spreadOutput(ClimateHistory()).rfind("SKIP sensors=0\nCRC32 ", 0) == 0);
+}
+
+namespace {
 using SelfStatus = SelfTestOutcome::Status;
 
 struct SelfTestFakes {
@@ -24904,6 +25015,7 @@ testSerialConfigNegativeSmallOffset();
   testSerialFrsiParser();
   testSerialFrsiReply();
   testSerialSelfTestParser();
+  testSerialSpread();
   testSerialSelfTestChecks();
   testSerialSelfTestReply();
   testSerialFrsiErrorsAndShortReplies();

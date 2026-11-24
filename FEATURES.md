@@ -564,6 +564,18 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Host tests cover `wallFactor` for fixed values and NaN, the parser, each reply and error of `showFrsi` with a fixed `ClimateHistory`, the clamp to 50 and 95, the BLE gate, `execute()` and one reply against `tests/fixtures/frsi_reply_sample.txt`.
 - Validation on the board: send `FRSI 0 2` over USB and check the reply and the `CRC32` line.
 
+## Serial console command SPREAD for a co-location check of all sensors
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/spread_reply_sample.txt`
+- The console command `SPREAD` checks that all sensors read the same values. Put all sensors at one location for 6 hours, then send `SPREAD`.
+- `ClimateHistory::recentSums` adds the newest 6 hourly temperature and humidity samples of one sensor (onboard and slots 1 to 10). A sensor with fewer than 6 samples in one of the two histories does not count. The command does not check the age of the samples: a sensor that stopped sending keeps its old hours and can show as `OUTLIER`.
+- The command calculates the median of the means of the counted sensors for temperature and humidity (the mean of the two middle means for an even count). Integer maths keep the limit checks exact.
+- Reply: `SPREAD sensors=<n> temp_median=<x> rh_median=<x>`, one line `SENSOR <name> temp_dev=<x> rh_dev=<x> <OK|OUTLIER>` for each counted sensor, and the `CRC32` line. `OUTLIER` means a deviation above 0.5 C or above 3.0 %RH; the exact limit is `OK`. The check uses the exact deviation and the printed value rounds to 0.1, so a line with `0.5` can show `OUTLIER`.
+- Fewer than 3 counted sensors give `SKIP sensors=<n>` and the `CRC32` line. Extra text gives `ERR BAD_ARG`.
+- The command reads the RTC copy only. It does not access the card and does not change the state. It runs on USB and on BLE at each `ble_console` level. The RTC layout and `STATE_VERSION` do not change.
+- Host tests cover the parser, the median for an odd and an even count, the limits at the exact value and above it for both quantities, the `SKIP` reply, a sensor with 5 samples, and one reply against `tests/fixtures/spread_reply_sample.txt`.
+- Validation on the board: put the sensors together for 6 hours, send `SPREAD` over USB and check the reply and the `CRC32` line.
+
 ## Serial console command SELFTEST for the onboard hardware
 
 - **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/selftest_reply_sample.txt`.
