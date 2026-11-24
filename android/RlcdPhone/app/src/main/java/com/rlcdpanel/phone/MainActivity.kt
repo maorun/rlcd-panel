@@ -56,7 +56,10 @@ import com.rlcdpanel.phone.protocol.PanelClock
 import com.rlcdpanel.phone.protocol.ParseException
 import com.rlcdpanel.phone.protocol.SensorHealth
 import com.rlcdpanel.phone.protocol.StatusReply
+import com.rlcdpanel.phone.protocol.ConfigBackup
+import com.rlcdpanel.phone.protocol.ConfigBackupException
 import com.rlcdpanel.phone.protocol.ConfigCache
+import com.rlcdpanel.phone.protocol.ConfigRestorePlan
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryHistory
@@ -124,6 +127,9 @@ class MainActivity : ComponentActivity() {
     private var showHealth by mutableStateOf(false)
     private var showHistory by mutableStateOf(false)
     private var showCalib by mutableStateOf(false)
+    private var showBackup by mutableStateOf(false)
+    private var backupState by mutableStateOf(ConfigBackupState())
+    private var backupLoadJob: Job? = null
     private var showWeek by mutableStateOf(false)
     private var panelHistory by mutableStateOf(PanelHistoryState())
     private var showPanelHistory by mutableStateOf(false)
@@ -264,6 +270,19 @@ class MainActivity : ComponentActivity() {
                 BackHandler { closeWeek() }
                 return@setContent
             }
+            if (showBackup) {
+                ConfigBackupScreen(
+                    state = backupState,
+                    hasConfig = configState.info != null,
+                    consoleWritable = panelConfig.canWrite,
+                    onSave = { withConsolePermission { saveBackup() } },
+                    onPickFile = { pickBackupFile() },
+                    onRestore = { withConsolePermission { applyBackup() } },
+                    onBack = { closeBackup() }
+                )
+                BackHandler { closeBackup() }
+                return@setContent
+            }
             if (showCalib) {
                 CalibrationScreen(
                     state = calibState,
@@ -374,6 +393,7 @@ class MainActivity : ComponentActivity() {
                     nowMillis = System.currentTimeMillis(),
                     onReadConfig = { ensureConsolePermissionAndRead(CONSOLE_CONFIG) },
                     onOpenCalibration = { showHealth = false; showCalib = true },
+                    onOpenBackup = { showHealth = false; showBackup = true },
                     onOpenFinder = { showHealth = false; showFinder = true },
                     onOpenChime = { showHealth = false; showChime = true },
                     onOpenSlots = { showHealth = false; showSlots = true },
@@ -537,12 +557,19 @@ class MainActivity : ComponentActivity() {
         if (alertLimitState.isBusy) {
             alertLimitState = alertLimitState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, CONFIG lesen")
         }
+        if (backupState.isBusy) {
+            backupState = backupState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, CONFIG lesen")
+        }
         if (calibState.isBusy) {
             calibState = calibState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, CONFIG lesen")
         }
         // Background scanning continues in BleScanService.
         lastObservedAktionen.clear()
         super.onStop()
+    }
+
+    private val backupFileLauncher = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) loadBackupFile(uri)
     }
 
     private val consolePermissionLauncher = registerForActivityResult(
@@ -561,6 +588,7 @@ class MainActivity : ComponentActivity() {
             else if (showAlertLimits) alertLimitState = alertLimitState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else if (showSlots) slotState = slotState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else if (showChime) chimeState = chimeState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
+            else if (showBackup) backupState = backupState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else calibState = calibState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             return@registerForActivityResult
         }
@@ -1197,6 +1225,116 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    private fun closeBackup() {
+        backupLoadJob?.cancel()
+        consoleClient.cancel()
+        pendingConsoleAction = null
+        backupState = ConfigBackupState()
+        showBackup = false
+        showHealth = true
+    }
+
+    /** Sends `CONFIG` after a tap and shares the values as a `config.ini` text. */
+    private fun saveBackup() {
+        backupLoadJob?.cancel()
+        stopBleScan()
+        backupState = backupState.copy(isBusy = true, isError = false, message = null)
+        consoleClient.send("CONFIG") { reply ->
+            if (reply !is ConsoleReply.Frame) {
+                backupState = backupState.copy(isBusy = false, isError = true, message = BleConsoleClient.errorText(reply))
+                return@send
+            }
+            val parsed = PanelConfig.parseConfigReply(reply.lines)
+            if (parsed.text.isEmpty()) {
+                backupState = backupState.copy(isBusy = false, isError = true, message = "Antwort enthält keine Werte")
+                return@send
+            }
+            val text = ConfigBackup.render(PanelConfig.parseText(parsed.text).values)
+            lifecycleScope.launch {
+                val info = withContext(Dispatchers.IO) { ConfigCache.store(filesDir, reply, System.currentTimeMillis()) }
+                if (info != null) {
+                    panelConfig = withContext(Dispatchers.IO) { PanelConfig.load(this@MainActivity) }
+                    configState = ConfigReadState(info = info)
+                }
+            }
+            val note = if (parsed.source == "SD") null else "Das Panel nutzt Standardwerte (keine Karte). Die Datei hält diese."
+            // The saved read replaces the cached values, so a loaded review is stale.
+            backupState = backupState.copy(isBusy = false, isError = false, message = note, plan = null, fileName = null, needsRead = false)
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "text/plain"
+                putExtra(Intent.EXTRA_SUBJECT, ConfigBackup.FILE_NAME)
+                putExtra(Intent.EXTRA_TITLE, ConfigBackup.FILE_NAME)
+                putExtra(Intent.EXTRA_TEXT, text)
+            }
+            startActivity(Intent.createChooser(send, "config.ini sichern"))
+        }
+    }
+
+    private fun pickBackupFile() {
+        if (backupState.isBusy) return
+        if (configState.info == null || backupState.needsRead) {
+            backupState = backupState.copy(isError = true, message = "Erst CONFIG lesen (Save backup oder Read panel config)")
+            return
+        }
+        backupFileLauncher.launch(arrayOf("*/*"))
+    }
+
+    /** Reads the picked file (8192 bytes at most) and opens the restore review. Nothing is sent yet. */
+    private fun loadBackupFile(uri: android.net.Uri) {
+        if (backupState.isBusy) return
+        backupLoadJob?.cancel()
+        val current = panelConfig.values // read on the main thread
+        backupLoadJob = lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    val bytes = contentResolver.openInputStream(uri)?.use { it.readCapped(ConfigBackup.MAX_BYTES + 1) }
+                        ?: return@withContext Result.failure<ConfigRestorePlan>(IllegalStateException("Datei nicht lesbar"))
+                    Result.success(ConfigRestorePlan.build(ConfigBackup.parse(bytes), current))
+                } catch (e: ConfigBackupException) {
+                    Result.failure(e)
+                } catch (e: Exception) {
+                    Result.failure(IllegalStateException("Datei nicht lesbar"))
+                }
+            }
+            val name = uri.lastPathSegment?.substringAfterLast('/')
+            backupState = result.fold(
+                onSuccess = { backupState.copy(plan = it, fileName = name, isError = false, message = null) },
+                onFailure = {
+                    val text = (it as? ConfigBackupException)?.reason ?: it.message ?: "Datei nicht lesbar"
+                    backupState.copy(plan = null, fileName = null, isError = true, message = "Backup abgelehnt: $text")
+                }
+            )
+        }
+    }
+
+    /** Sends the changed keys as `SET` in batch order (`ble_console` last), then `CONFIG`. The first `ERR` stops it. */
+    private fun applyBackup() {
+        val plan = backupState.plan ?: return
+        if (!plan.canRestore(panelConfig.canWrite)) return
+        backupLoadJob?.cancel()
+        stopBleScan()
+        backupState = backupState.copy(isBusy = true, isError = false, message = null)
+        CalibrationBatch(plan.proposals).run(consoleClient::send) { result ->
+            result.config?.let { frame ->
+                lifecycleScope.launch {
+                    val info = withContext(Dispatchers.IO) { ConfigCache.store(filesDir, frame, System.currentTimeMillis()) }
+                    if (info != null) {
+                        panelConfig = withContext(Dispatchers.IO) { PanelConfig.load(this@MainActivity) }
+                        configState = ConfigReadState(info = info)
+                    }
+                }
+            }
+            val ok = result.failure == null && !result.configFailed
+            // The panel values changed or are unknown, so the old review is stale.
+            backupState = backupState.copy(
+                isBusy = false, isError = !ok, message = result.summary,
+                plan = if (result.applied.isNotEmpty() || ok) null else backupState.plan,
+                // A stop after applied keys leaves the cached values behind the panel until the next CONFIG read.
+                needsRead = result.config == null && result.applied.isNotEmpty()
+            )
+        }
+    }
+
     private fun closeCalibration() {
         consoleClient.cancel()
         pendingConsoleAction = null
@@ -1207,7 +1345,7 @@ class MainActivity : ComponentActivity() {
 
     /** Runs [action] after the Bluetooth permissions; the action sends console commands. */
     private fun withConsolePermission(action: () -> Unit) {
-        if (calibState.isBusy || chimeState.isBusy || weekState.isReading || panelHistory.isReading || eventState.isReading || rejectsState.isReading || finderState.isBusy || setupState.isBusy || slotState.isBusy || alertLimitState.isBusy || consoleClient.isRunning) return
+        if (backupState.isBusy || calibState.isBusy || chimeState.isBusy || weekState.isReading || panelHistory.isReading || eventState.isReading || rejectsState.isReading || finderState.isBusy || setupState.isBusy || slotState.isBusy || alertLimitState.isBusy || consoleClient.isRunning) return
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
@@ -1224,6 +1362,7 @@ class MainActivity : ComponentActivity() {
             else if (showAlertLimits) alertLimitState = alertLimitState.copy(isBusy = true, message = null)
             else if (showSlots) slotState = slotState.copy(isBusy = true, message = null)
             else if (showChime) chimeState = chimeState.copy(isBusy = true, message = null)
+            else if (showBackup) backupState = backupState.copy(isBusy = true, message = null)
             else calibState = calibState.copy(isBusy = true, message = null)
             consolePermissionLauncher.launch(needed.toTypedArray())
             return
@@ -1775,3 +1914,15 @@ private const val CONSOLE_TIME = "TIME"
 private const val CONSOLE_RTC_TRIM = "RTC TRIM"
 private const val CONSOLE_TIME_SET = "TIME SET"
 private const val CONSOLE_CONFIG = "CONFIG"
+
+/** Reads at most [limit] bytes, so a huge picked file never fills the memory. */
+private fun java.io.InputStream.readCapped(limit: Int): ByteArray {
+    val out = java.io.ByteArrayOutputStream()
+    val buffer = ByteArray(4096)
+    while (out.size() < limit) {
+        val n = read(buffer, 0, minOf(buffer.size, limit - out.size()))
+        if (n < 0) break
+        out.write(buffer, 0, n)
+    }
+    return out.toByteArray()
+}
