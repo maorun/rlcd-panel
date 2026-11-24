@@ -1578,6 +1578,7 @@ void setup() {
       snap.wall_tiles = g_state.wall_tiles;
       snap.window_tiles = g_state.window_tiles;
       snap.stale_slots = g_state.stale_slots;
+      snap.reception_low = g_state.reception_low;
       snap.noise_history = g_state.noise_history;
       snap.noise_band = g_state.noise_band;
       snap.daily_noise = g_state.daily.noise;

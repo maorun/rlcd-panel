@@ -1531,6 +1531,12 @@ The Wear OS app shows the radio signal of one sensor. The sensor health screen s
 - `tests/fixtures/status_reply_sample.txt` holds the field and a recalculated `CRC32` line.
 - Host test `testStatusLatchLine` asserts `window=000` and `window=402` (tiles 1 and 10); the fixture check asserts the sample line and the CRC-32.
 
+## Low reception mask in the STATUS line LATCH
+
+- The console command `STATUS` appends ` rxlow=<3 hex digits>` after `window=` to the `LATCH` line (RTC copy of `PersistentState::reception_low`; bits 0 to 9 are slots 1 to 10). `SerialStatusSnapshot::reception_low` holds it; `rlcd_panel.ino` fills it. The line count, the RTC layout and `STATE_VERSION` do not change. The apps read fields by name and ignore it.
+- `tests/fixtures/status_reply_sample.txt` holds the field and a recalculated `CRC32` line.
+- Host test `testStatusLatchLine` asserts `rxlow=000` and `rxlow=202` (slots 2 and 10).
+
 ## Daily mold hours in the daily file
 
 - `SdLogger::appendDaily` writes `/sdcard/daily_v4_YYYY.csv` with 48 columns: the 42 columns of `daily_v3` plus `mold_h_0` to `mold_h_5`. Each column holds the hours of one sensor (onboard, then slots 1 to 5) above `mold_alert_limit_rh` (`HumidityHistory::countAbove`, strictly above the limit). A sensor without samples gives an empty field.
