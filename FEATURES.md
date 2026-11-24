@@ -597,6 +597,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Host tests read `tests/fixtures/spread_reply_sample.txt` and cover the `SKIP` reply, the outlier flag and the bad lines.
 - Validation: `swift test` and `swift build -c release` in `macos/RlcdCompanion`. The view needs a check on the real panel.
 
+## Co-location check in the Android calibration screen
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SpreadReply.kt`, `CalibrationScreen.kt`, `MainActivity.kt`, `SpreadReplyTest.kt`
+- The pure Kotlin object `SpreadReply.parse` reads the `SPREAD` reply: the header `SPREAD sensors=<n> temp_median=<x> rh_median=<x>`, one `SensorSpread` (name, temperature deviation, humidity deviation, outlier flag) for each `SENSOR` line, or `SKIP sensors=<n>`. It throws `ParseException` for a bad number, a flag other than `OK` and `OUTLIER`, a wrong word count, a missing header field, or a `SENSOR` line count that differs from `sensors`.
+- `CalibrationScreen` has a section `Co-location check` with the button `Read SPREAD`. It shows the medians, one row for each sensor with both deviations and a `⚠` mark for each `OUTLIER` row. `SKIP` shows `Put 3 or more sensors at one place for 6 hours`.
+- The app sends `SPREAD` over the BLE console only after a tap. A lost link or a timeout shows the text of `BleConsoleClient.errorText`.
+- Validation: `SpreadReplyTest` reads `tests/fixtures/spread_reply_sample.txt`. It runs in CI only (no Android SDK on the local host).
+
 ## Serial console command SELFTEST for the onboard hardware
 
 - **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/selftest_reply_sample.txt`.

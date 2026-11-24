@@ -37,6 +37,8 @@ import com.rlcdpanel.phone.protocol.FrsiReply
 import com.rlcdpanel.phone.protocol.FrsiText
 import com.rlcdpanel.phone.protocol.SaltReply
 import com.rlcdpanel.phone.protocol.SaltText
+import com.rlcdpanel.phone.protocol.SpreadReply
+import com.rlcdpanel.phone.protocol.SpreadText
 import com.rlcdpanel.phone.protocol.TwoPointCalibration
 
 /** State of the calibration screen: the picked reference, the reply, the selected keys and the last message. */
@@ -54,7 +56,9 @@ data class CalibrationState(
     /** Room sensor (0 to 10) and wall slot (1 to 10) of the wall factor section. */
     val frsiRoom: Int = 0,
     val frsiWall: Int = 1,
-    val frsi: FrsiReply? = null
+    val frsi: FrsiReply? = null,
+    /** Last `SPREAD` reply of the co-location check. */
+    val spread: SpreadReply? = null
 ) {
     /** The proposals that a tap on `Apply` sends, in reply order. */
     val chosen: List<CalibrationProposal>
@@ -90,6 +94,7 @@ fun CalibrationScreen(
     onPickFrsiWall: (Int) -> Unit,
     onFrsi: () -> Unit,
     onApplyFrsi: () -> Unit,
+    onSpread: () -> Unit,
     onBack: () -> Unit
 ) {
     val evaluation = remember(state.naCl, state.mgCl2, currentConfig) {
@@ -194,6 +199,28 @@ fun CalibrationScreen(
                             }
                         }
                     }
+                }
+            }
+            item { Text("Co-location check", style = MaterialTheme.typography.titleMedium) }
+            item {
+                Text(
+                    "Lege alle Sensoren 6 h an einen Ort. Danach vergleicht SPREAD jeden Sensor mit dem Median.",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
+            item { Button(onClick = onSpread, enabled = !state.isBusy) { Text("Read SPREAD") } }
+            state.spread?.let { r ->
+                when (val o = r.outcome) {
+                    is SpreadReply.Outcome.Measured -> {
+                        item { Text(SpreadText.summary(o)) }
+                        items(o.rows) { row ->
+                            Text(
+                                SpreadText.row(row),
+                                color = if (row.isOutlier) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground
+                            )
+                        }
+                    }
+                    is SpreadReply.Outcome.Skipped -> item { Text(SpreadText.SKIP_TEXT) }
                 }
             }
             state.message?.let {

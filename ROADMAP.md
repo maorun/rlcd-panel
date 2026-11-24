@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Co-location check in the Android calibration screen
-  - Rank: [Total: 34, Use: 5, Setup: 10, Harmony: 9, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SpreadReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/CalibrationScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/SpreadReplyTest.kt, FEATURES.md
-  - Goal: Parse the `SPREAD` reply in a pure Kotlin object `SpreadReply` with the same result as the macOS `SpreadReply.parse`. Add a section `Co-location check` to `CalibrationScreen` with a read button, one row for each sensor with both deviations and a `⚠` mark for each `OUTLIER` row. Show `SKIP sensors=<n>` as the text `Put 3 or more sensors at one place for 6 hours`. Send `SPREAD` over the BLE console only on a user action. Show a lost link as a clear text.
-  - Acceptance test: `SpreadReplyTest` reads `tests/fixtures/spread_reply_sample.txt` and asserts the sensor count, both medians, each deviation and each flag. Assert the `SKIP` result and a `ParseException` for `rh_dev=x` and for a bad flag. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`.
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 - [ ] Co-location check screen on the Wear OS watch
