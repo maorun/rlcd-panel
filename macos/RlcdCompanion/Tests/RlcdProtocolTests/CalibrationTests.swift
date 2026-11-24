@@ -573,8 +573,8 @@ private func loadSpreadFixture() throws -> Data {
     let r = try SpreadReply.parse(lines: lines)
     let rows = [
         SensorSpread(name: "onboard", tempDev: 0.0, rhDev: 0.0, isOutlier: false),
-        SensorSpread(name: "slot1", tempDev: 0.2, rhDev: 1.0, isOutlier: false),
-        SensorSpread(name: "slot2", tempDev: -0.2, rhDev: -1.0, isOutlier: false),
+        SensorSpread(name: "slot1", tempDev: 0.0, rhDev: 0.0, isOutlier: false),
+        SensorSpread(name: "slot2", tempDev: 1.0, rhDev: 5.0, isOutlier: true),
     ]
     #expect(r.outcome == .measured(sensors: 3, tempMedian: 20.0, rhMedian: 50.0, rows: rows))
     #expect(r.rows.count == 3)
