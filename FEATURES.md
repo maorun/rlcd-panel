@@ -2864,3 +2864,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `MainActivity.checkWindowNotifications` runs at each parsed `STATUS` reply (`applyStatusReply` and the chime status read). It posts one notification `Window open: <name>` for each rising tile (name from `PanelConfig.tileName`, notification id `WindowWatch.notificationId` 2100 plus the tile). Without the notification permission (Android 13 and later), nothing is posted.
 - The app has no periodic `STATUS` poll. A notification appears only when the user reads `STATUS`.
 - Validation: `WindowWatchTest` (8 tests) covers the first read, a rising bit, an equal mask, a falling bit, a missing field, a missing first field, a bit above tile 10 and the message and notification id. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
+
+## Event code for a low BLE reception rate
+
+- `EventCode::RECEPTION_LOW` (23, `EventRing::MAX_CODE` 23, `SdLogCodec::eventName` `"RECEPTION_LOW"`) records when the BLE reception rate of a slot falls low or recovers.
+- `PersistentState::recordReceptionChanges(now)` runs once after each `ReceptionHistory::recordScan` in `setup()`. A slot with 12 or more counted scans sets its latch bit below 50 %. The bit holds between 50 % and 70 % and releases at 70 % or more. A slot with fewer than 12 counted scans keeps its bit.
+- One event for each changed bit: detail low byte the slot number 1 to 10, high byte 1 for low, 0 for good again. An equal state records nothing. A slot without a reading loses its bit without an event.
+- `PersistentState::reception_low` (`uint16_t`, 2 bytes `RECEPTION_LOW_SIZE` just before the checksum) stores the bits. `deserialize` rejects a bit above bit 9 and a bit of an empty slot. `resetSlot` clears the bit without an event. `swapSlotsByUser` swaps the bit. `STATE_VERSION` is 75.
+- `EventText` of the macOS app and of the Android and Wear OS apps shows `Slot <N> weak signal` (high byte 1) and `Slot <N> signal good` (high byte 0). Another detail gives the raw text `RECEPTION_LOW,<detail>`. `EventFilter` puts `RECEPTION_LOW` in the category `sensors`.
+- Tests: `testReceptionLowEvents` asserts the set, the hold between 50 % and 70 %, the release, the 12-scan minimum, the RTC round trip and checks, and `resetSlot`. `EventTextTests`, both `EventTextTest.kt` files assert the texts.

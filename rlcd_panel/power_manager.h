@@ -121,6 +121,8 @@ struct PersistentState {
   uint8_t alert_mask = ALERT_NONE; // alerts active in the last wake cycle (hysteresis latch)
   int32_t sd_free_mb = -1;         // free MicroSD space in MB at the last card read; -1 is unknown (STATUS)
   uint8_t scan_fault = 0;          // 1: the last BLE scan start failed (recordScanResult); a power-on sets 0
+  uint16_t reception_low = 0;      // low reception latch, bits 0..9 are the registry slots (recordReceptionChanges)
+  static constexpr uint8_t RECEPTION_LOW_MIN_SCANS = 12; // counted scans before the latch may set
   uint16_t stale_slots = 0;        // stale latch, bits 0..9 are the registry slots (recordStaleChanges)
   Snooze snooze;                   // timed mute (console SNOOZE); active alerts work as for muted
   uint8_t alert_ack = ALERT_NONE;  // acknowledged alert bits (console ACK): no chime reminder while the alert stays on
@@ -250,6 +252,35 @@ struct PersistentState {
     }
   }
 
+  // Low reception latch after ReceptionHistory::recordScan. A slot with at least 12 counted scans sets its bit below
+  // 50 % and releases it at 70 % or more; between the two the bit holds. One RECEPTION_LOW event for each change: slot
+  // number 1 to 10 in the low byte, high byte 1 low, 0 good again. A slot without a reading loses its bit silently.
+  void recordReceptionChanges(const RtcTime& now) {
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      const uint16_t bit = static_cast<uint16_t>(1u << i);
+      if (!registry.slot(i).valid) {
+        reception_low = static_cast<uint16_t>(reception_low & ~bit);
+        continue;
+      }
+      const uint8_t scans = reception.scans(i);
+      const bool was = (reception_low & bit) != 0;
+      bool low = was;
+      if (scans >= RECEPTION_LOW_MIN_SCANS) {
+        const unsigned got = reception.received(i);
+        if (got * 100u < 50u * scans) {
+          low = true;
+        } else if (got * 100u >= 70u * scans) {
+          low = false;
+        }
+      }
+      if (low == was) {
+        continue;
+      }
+      reception_low = static_cast<uint16_t>(low ? (reception_low | bit) : (reception_low & ~bit));
+      events.record(now, EventCode::RECEPTION_LOW, static_cast<uint16_t>((low ? 0x0100u : 0u) | (i + 1)));
+    }
+  }
+
   // One SCAN_FAULT event for each change of the scan start result: detail 1 for the first failed start, 0 for the
   // next good start. An equal state records nothing, so a radio that fails in each wake cycle does not fill the ring.
   void recordScanResult(bool started, const RtcTime& now) {
@@ -361,6 +392,7 @@ struct PersistentState {
     std::swap(window_anchors.prev[1 + a], window_anchors.prev[1 + b]);
     std::swap(window_anchors.stamp_ms[1 + a], window_anchors.stamp_ms[1 + b]);
     swapBit(stale_slots, a, b, 0);
+    swapBit(reception_low, a, b, 0);
     std::swap(history.slots[1 + a], history.slots[1 + b]);
     std::swap(history.temperatures[1 + a], history.temperatures[1 + b]);
     reception.swap(a, b);
@@ -415,6 +447,7 @@ struct PersistentState {
     wall_tiles = static_cast<uint16_t>(wall_tiles & ~(2u << index));
     window_anchors.clearTile(1 + index);
     stale_slots = static_cast<uint16_t>(stale_slots & ~(1u << index));
+    reception_low = static_cast<uint16_t>(reception_low & ~(1u << index));
     history.slots[1 + index].clear();
     history.temperatures[1 + index].clear();
     reception.clear(index);
@@ -561,7 +594,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 74;
+  static constexpr uint8_t STATE_VERSION = 75;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -631,7 +664,8 @@ public:
   static constexpr size_t WALL_SIZE = 2;
   // Snooze (just before the checksum): start stamp (uint32), minutes (uint16).
   static constexpr size_t SNOOZE_SIZE = 4 + 2;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + WINDOW_SIZE + WALL_SIZE + SNOOZE_SIZE + 4;
+  static constexpr size_t RECEPTION_LOW_SIZE = 2;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + WINDOW_SIZE + WALL_SIZE + SNOOZE_SIZE + RECEPTION_LOW_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -1006,6 +1040,8 @@ public:
     putU32(out, pos, state.snooze.start_ms);
     out[pos++] = static_cast<uint8_t>(state.snooze.minutes & 0xFF);
     out[pos++] = static_cast<uint8_t>(state.snooze.minutes >> 8);
+    out[pos++] = static_cast<uint8_t>(state.reception_low & 0xFF);
+    out[pos++] = static_cast<uint8_t>((state.reception_low >> 8) & 0xFF);
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -1454,6 +1490,16 @@ public:
     pos += 2;
     if (!s.snooze.valid()) {
       return false; // minutes above 720 or a stamp without minutes is corrupt
+    }
+    s.reception_low = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    pos += 2;
+    if ((s.reception_low >> MAX_SWITCHBOT_SENSORS) != 0) {
+      return false; // a bit above bit 9 is corrupt
+    }
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if ((s.reception_low & (1u << i)) != 0 && !s.registry.slot(i).valid) {
+        return false; // a low reception bit of an empty slot is corrupt
+      }
     }
     s.registry.setAutoAssign(s.config.slot_auto_assign != 0);
     s.registry.setMinAssignRssi(s.config.auto_assign_min_rssi);
