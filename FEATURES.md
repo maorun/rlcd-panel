@@ -2909,3 +2909,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - An hour without a temperature and humidity pair, and an invalid input, gives `null`. The chart shows a gap for it.
 - `HistoryScreen` shows a curve selector in the panel history view. It draws one chart for the selected curve. The local history keeps its temperature and humidity charts.
 - Tests: `HistoryReplyTest` asserts the derived values against `tests/fixtures/climate_math_vectors.txt`, the sample fixture and the gap.
+
+## Self-test screen on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SelfTestScreen.kt`, `protocol/SelfTestReply.kt`, `SensorHealthScreen.kt`, `MainActivity.kt`, `scripts/check-protocol-sync.sh`.
+- `SelfTestReply.kt` is a copy of the phone file. The `FILES` list of `scripts/check-protocol-sync.sh` holds it, so the check fails when the two copies differ.
+- The sensor health screen has the chip `Self-test`. The screen shows one chip for each `CHECK` line (mark, name, `OK`, `FAIL` or `SKIP`, detail) and the counts `Bestanden <N>, fehlgeschlagen <N>`.
+- The watch sends `SELFTEST` over the BLE console only after the user taps `Start self-test` and then `Test jetzt starten`. The warning text says that the command mounts the card and runs the microphones for 1 s.
+- `CHECK ble SKIP CONSOLE` is an expected result over BLE. The chip adds the text `erwartet über BLE`.
+- A timeout gives the text `Verbindung zum Panel verloren`. A reply without an `END SELFTEST` line gives `Antwort unvollständig: END SELFTEST fehlt`. Another bad reply gives `Antwort nicht lesbar`. The command is not repeated.
+- Tests: `SelfTestReplyTest` reads `tests/fixtures/selftest_reply_sample.txt` and asserts each check, the counts and the `ParseException` for a bad verdict. `SelfTestTextTest` covers the texts.
+- Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The local host has no Android SDK, so the Gradle tests run in the CI job `Wear OS companion tests and APK`.
