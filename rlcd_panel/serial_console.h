@@ -59,6 +59,7 @@ struct SerialCommand {
   uint8_t reference = 0; // CALIB and SALT: 0 onboard, 1 to 10 a slot; BEEP and ACK: alert bit number 0 to 7; PATTERN: pattern number 0 to 2; MUTE: 0 or 1; SNOOZE: minutes 0 to 720 (uint16 in `minutes`); SLOT CLEAR: slot number 1 to 10
   uint16_t minutes = 0; // SNOOZE: length in minutes 0 to 720
   uint8_t reference_b = 0; // SLOT SWAP: second slot number 1 to 10; FRSI: wall slot 1 to 10 (`reference` holds the first, the room sensor 0 to 10)
+  bool week_one = false; // WEEK: true for "WEEK <N>"; `reference` then holds the sensor 0 to 5
   bool history_one = false; // HISTORY: true for "HISTORY <N>"; `reference` then holds the sensor 0 to 10
   bool ack_all = false; // ACK: true for "ACK ALL" (every active repeatable alert bit that is not acknowledged)
   bool salt_mgcl2 = false; // SALT: true for "SALT N MGCL2" (magnesium chloride reference, no proposal line)
@@ -338,10 +339,17 @@ public:
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "WEEK")) {
-      if (cmd_len != len) {
-        return SerialParseStatus::BAD_ARG; // WEEK takes no argument
-      }
       out.kind = SerialCommandKind::WEEK;
+      if (cmd_len == len) {
+        return SerialParseStatus::OK;
+      }
+      // optional sensor argument: "WEEK <N>" with N 0 to 5
+      if (line[cmd_len] != ' ' || len - cmd_len - 1 != 1 || line[cmd_len + 1] < '0' || line[cmd_len + 1] > '5') {
+        out = SerialCommand{};
+        return SerialParseStatus::BAD_ARG;
+      }
+      out.week_one = true;
+      out.reference = static_cast<uint8_t>(line[cmd_len + 1] - '0');
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "REJECTS")) {
@@ -1840,9 +1848,9 @@ public:
 
   // Sends the 7-day minimum and maximum of each sensor from the RTC copy as CSV: one row per sensor (0 onboard, 1 to 5 a
   // slot) and day (day 0 is the day before the stamp). The date is empty without a stamp, a gap day gives empty value
-  // fields. Values are in 0.5 steps; `mold_h` is the hour count above mold_alert_limit_rh (empty for a gap day). The card and the state stay untouched. A short write ends the reply, so the host
+  // fields. `only_sensor` 0 to 5 sends only the 7 rows of that sensor, -1 sends all. Values are in 0.5 steps; `mold_h` is the hour count above mold_alert_limit_rh (empty for a gap day). The card and the state stay untouched. A short write ends the reply, so the host
   // sees no CRC32 line.
-  static void showWeek(Sink& sink, const WeekHistory& week) {
+  static void showWeek(Sink& sink, const WeekHistory& week, int only_sensor = -1) {
     SerialCrc32 crc;
     auto emit = [&](const char* text) {
       const size_t len = strlen(text);
@@ -1856,6 +1864,9 @@ public:
       return;
     }
     for (size_t s = 0; s < WeekHistory::SENSORS; ++s) {
+      if (only_sensor >= 0 && s != static_cast<size_t>(only_sensor)) {
+        continue;
+      }
       for (size_t d = 0; d < WeekHistory::DAYS; ++d) {
         char date[16] = "";
         if (week.hasDate()) {

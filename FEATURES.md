@@ -2920,3 +2920,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - A timeout gives the text `Verbindung zum Panel verloren`. A reply without an `END SELFTEST` line gives `Antwort unvollständig: END SELFTEST fehlt`. Another bad reply gives `Antwort nicht lesbar`. The command is not repeated.
 - Tests: `SelfTestReplyTest` reads `tests/fixtures/selftest_reply_sample.txt` and asserts each check, the counts and the `ParseException` for a bad verdict. `SelfTestTextTest` covers the texts.
 - Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The local host has no Android SDK, so the Gradle tests run in the CI job `Wear OS companion tests and APK`.
+
+## Console command WEEK <N> for one sensor
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/week_reply_sample.txt`
+- The console command `WEEK <N>` (N 0 to 5, `SerialCommand::week_one`, sensor in `SerialCommand::reference`) sends only the 7 rows of sensor N. The header, the row format and the `CRC32` line are the same as for `WEEK`. The `CRC32` covers the filtered bytes.
+- `WEEK 6`, `WEEK 1x`, `WEEK ` and extra text give `ERR BAD_ARG`. `WEEK` without an argument keeps its reply of 42 rows.
+- The command uses only the RTC copy. It needs no card and changes no state. It runs on USB and on BLE at each `ble_console` level, so the watch and the phone read one sensor with fewer BLE notifications.
+- Host tests cover the parse of `WEEK 0` and `WEEK 5`, each bad form, the 7 rows of sensor 2, the `CRC32` line, the short write, an unchanged state and the reply of `WEEK` against `tests/fixtures/week_reply_sample.txt`.

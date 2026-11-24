@@ -51,12 +51,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Add `TailReply.parse` for the `TAIL <N>` reply with the column layout of the `climate_v6` header (`ClimateLog` row type, `nil` for an empty field). Add `ConsoleCommand.tail(_ rows: Int)`, which accepts only 1 to 72. Add a group `Newest log rows` to `DiagnosticsView` with a row count picker (6, 24, 72), a read button and a table. Show `ERR NO_CARD`, `ERR NO_FILE` and `ERR READ_FAILED` as clear texts. Send `TAIL` only on a user action, on USB and on BLE.
   - Acceptance test: `TailReplyTests` read `tests/fixtures/tail_reply_sample.txt` and assert the row count, the first and the last time stamp and each empty field. Assert `ParseError.badLine` for a wrong column count and for `BEGIN TAIL x`, and `nil` from `ConsoleCommand.tail(0)` and `ConsoleCommand.tail(73)`. Run `cd macos/RlcdCompanion && swift test && swift build -c release`.
 
-- [ ] Console command WEEK <N> for one sensor
-  - Rank: [Total: 30, Use: 5, Setup: 7, Harmony: 8, Safety: 10, Effort: S]
-  - Location: rlcd_panel/serial_console.h, tests/test_firmware_logic.cpp, tests/fixtures/week_reply_sample.txt, AGENTS.md, FEATURES.md
-  - Goal: Add the optional argument `WEEK <N>` (N 0 to 5, `SerialCommand::week_one`). Send only the 7 rows of sensor N with the same header and the `CRC32` line, as `HISTORY <N>` does. Reply `ERR BAD_ARG` for `WEEK 6`, `WEEK 1x`, `WEEK ` and extra text. Keep the reply of `WEEK` without an argument. Use only the RTC copy. Do not access the card. Do not change the state. Run the command on USB and on BLE at each `ble_console` level, so the watch and the phone can read one sensor with fewer BLE notifications.
-  - Acceptance test: Host tests in `tests/test_firmware_logic.cpp` assert the parse of `WEEK 0` and `WEEK 5`, `ERR BAD_ARG` for each bad form, the 7 rows of sensor 2 only and the `CRC32` line over the filtered bytes. Assert that `WEEK` without an argument still matches `tests/fixtures/week_reply_sample.txt`. Run `c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner && rm -f test_runner` and `arduino-cli compile rlcd_panel`.
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Console command EVENTS <N> for the newest events

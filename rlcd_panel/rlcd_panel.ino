@@ -1515,7 +1515,7 @@ void setup() {
       Runner::showTail(console_storage, sink, command.reference, tail_now);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::WEEK) {
       // The RTC week history answers: no card access, so the console keeps running.
-      Runner::showWeek(sink, g_state.week);
+      Runner::showWeek(sink, g_state.week, command.week_one ? static_cast<int>(command.reference) : -1);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::REJECTS) {
       // The RTC copy of the reject log answers: no card access, no BLE scan, so the console keeps running.
       Runner::showRejects(sink, g_state.reject_log);
