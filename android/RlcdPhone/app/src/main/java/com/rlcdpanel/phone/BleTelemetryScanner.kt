@@ -67,8 +67,8 @@ class BleTelemetryScanner(
         }
 
         // CRC-8 is an integrity check, not authentication. Any nearby device can forge a valid frame.
-        // Use a wildcard filter so the hardware filter does not drop non-connectable 0xFFFF packets.
-        val filter = ScanFilter.Builder().build()
+        // A manufacturer ID filter lets Android hardware filtering deliver results with the screen off.
+        val filter = buildFilter()
 
         val settings = ScanSettings.Builder()
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
@@ -121,6 +121,21 @@ class BleTelemetryScanner(
     }
 
     companion object {
+        /** Manufacturer ID of the hardware scan filter. */
+        const val FILTER_COMPANY_ID: Int = TelemetryFrame.COMPANY_ID
+
+        /** Required data prefix of the scan filter. Empty data matches each payload of the company ID. */
+        val FILTER_DATA: ByteArray get() = byteArrayOf()
+
+        /** Mask of the scan filter. A non-null empty mask selects prefix matching in the software filter. */
+        val FILTER_MASK: ByteArray get() = byteArrayOf()
+
+        /** Builds the scan filter for the telemetry Manufacturer Data (company ID 0xFFFF). */
+        fun buildFilter(): ScanFilter =
+            ScanFilter.Builder()
+                .setManufacturerData(FILTER_COMPANY_ID, FILTER_DATA, FILTER_MASK)
+                .build()
+
         /**
          * Extracts the 24-byte telemetry payload from the scan record.
          * Tries Android API SparseArray lookup first, then falls back to raw advertisement parsing.
