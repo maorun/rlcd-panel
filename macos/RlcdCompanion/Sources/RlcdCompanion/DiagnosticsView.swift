@@ -55,6 +55,10 @@ struct DiagnosticsView: View {
                 alertTimeline().frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            GroupBox("Today") {
+                todayBox.frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             GroupBox("Newest log rows") {
                 tailBox.frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -155,6 +159,39 @@ struct DiagnosticsView: View {
     }
 
     /// Row count picker, read button and the newest climate rows. Sends `TAIL` only on the button.
+    private var todayBox: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Button("Read today") { model.readToday() }
+                .disabled(!model.canCopyReport)
+            if let rows = model.today {
+                if rows.isEmpty {
+                    Text("No sensor holds a sample.").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 2) {
+                        GridRow {
+                            Text("Sensor"); Text("Hours"); Text("Temp min / max / mean"); Text("RH min / max / mean")
+                        }.font(.caption.bold())
+                        ForEach(rows, id: \.sensor) { row in
+                            GridRow {
+                                Text(row.name)
+                                Text("\(row.hours)")
+                                Text(row.hours == 0 ? "--" : todayTriple(row.temperatureMinC, row.temperatureMaxC, row.temperatureMeanC, unit: "°C"))
+                                Text(row.hours == 0 ? "--" : todayTriple(row.humidityMinPct, row.humidityMaxPct, row.humidityMeanPct, unit: "%"))
+                            }
+                        }
+                    }
+                    .font(.system(.caption, design: .monospaced))
+                }
+            } else {
+                Text("not read yet").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func todayTriple(_ lo: Double?, _ hi: Double?, _ mean: Double?, unit: String) -> String {
+        [lo, hi, mean].map { $0.map { String(format: "%.1f", $0) } ?? "--" }.joined(separator: " / ") + " " + unit
+    }
+
     private var tailBox: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack(spacing: 8) {

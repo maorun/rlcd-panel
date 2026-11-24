@@ -3087,3 +3087,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `StatusReply.parse` reads `temp_trend` and `rh_trend` of each `SENSOR` line into `StatusSensor.temperatureTrend` and `StatusSensor.humidityTrend` (`SensorTrend`: `RISE`, `FALL`, `STEADY`), with the same rules as the Android parser. `--` and a missing field give `null`. Another text throws `ParseException`.
 - `SensorHealthScreen` shows a line `T <value> <arrow>  RH <value> <arrow>` in each sensor card: `↑` for `RISE`, `↓` for `FALL`, `–` for `STEADY` and for `null` (`SensorHealthText.trend`).
 - Tests: `StatusReplyTest.trendsOfFixtureAndBadFields` reads `tests/fixtures/status_reply_sample.txt`.
+
+## Today summary in the macOS diagnostics view
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift`
+- `TodayReply.parse` parses the reply of the console command `TODAY`: `BEGIN TODAY`, the header `sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct` and one `TodayRow` for each row (sensor 0 to 10, name, hours 0 to 24, minimum, maximum and mean of temperature and humidity). An empty field gives `nil`. A wrong column count, a bad number, a sensor above 10, hours above 24 or a repeated sensor throws `ParseError.badLine`. `ConsoleCommand.today` sends `TODAY`.
+- `TodayReply.message` maps `ERR NO_TIME` to the text `Panel clock not set`. Other error lines keep their text.
+- `DiagnosticsView` has the group `Today` with the button `Read today` and one row for each sensor: name, hours and the minimum, maximum and mean of temperature and humidity (`--` for a sensor with 0 hours or an empty value). `AppModel.readToday` sends `TODAY` only on this button, on USB and on BLE. A lost link, a rejected reply or an error reply clears the rows.
+- Tests: `TodayReplyTests` parse `tests/fixtures/today_reply_sample.txt` (2 rows, same as the Android `TodayReplyTest`), empty fields, bad rows, bad headers, the `ERR NO_TIME` text and the command line.
