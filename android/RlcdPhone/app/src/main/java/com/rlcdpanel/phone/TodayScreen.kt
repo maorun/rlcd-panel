@@ -20,16 +20,19 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.TodayRow
+import java.util.Locale
 
 /** Result of one `TODAY` read: the rows, or a text that tells why there are none. */
 data class TodayState(
     val isReading: Boolean = false,
     val rows: List<TodayRow> = emptyList(),
-    val message: String? = null
+    val message: String? = null,
+    /** True after a reply that parsed; an empty [rows] list then means the panel holds no sensor. */
+    val hasRead: Boolean = false
 )
 
 object TodayText {
-    private fun value(v: Double?, unit: String) = if (v == null) "--" else "%.1f %s".format(v, unit)
+    private fun value(v: Double?, unit: String) = if (v == null) "--" else String.format(Locale.ROOT, "%.1f %s", v, unit)
 
     fun temperature(row: TodayRow): String =
         "Temperatur: min ${value(row.temperatureMinC, "°C")} • max ${value(row.temperatureMaxC, "°C")} • Ø ${value(row.temperatureMeanC, "°C")}"
@@ -61,6 +64,9 @@ fun TodayScreen(state: TodayState, onRead: () -> Unit, onBack: () -> Unit) {
                 )
             }
             state.message?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            if (state.hasRead && state.rows.isEmpty() && state.message == null) {
+                item { Text("Keine Sensoren", style = MaterialTheme.typography.bodyMedium) }
+            }
             items(state.rows, key = { it.sensor }) { row ->
                 Card(modifier = Modifier.fillMaxWidth()) {
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

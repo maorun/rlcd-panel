@@ -58,6 +58,9 @@ class TodayReplyTest {
         bad("BEGIN TODAY", h, "11,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0")
         bad("BEGIN TODAY", h, "0,onboard,5,18.0,17.0,15.0,43.0,47.0,45.0")
         bad("BEGIN TODAY", h, "0,a,1,1,2,1,1,2,1", "0,b,1,1,2,1,1,2,1")
+        bad("BEGIN TODAY", h, "0,onboard,5,13.0,17.0,15.0,48.0,47.0,45.0")
+        bad("BEGIN TODAY", h, "+1,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0")
+        bad("BEGIN TODAY", h, "0,onboard,5,1e3,17.0,15.0,43.0,47.0,45.0")
     }
 
     @Test
@@ -66,6 +69,13 @@ class TodayReplyTest {
         bad("BEGIN TODAY")
         bad("BEGIN TODAY", "sensor,name,hours")
         bad("BEGIN TODAY", "sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h")
+    }
+
+    @Test
+    fun textShowsDashesForNull() {
+        val row = TodayRow(0, "onboard", 5, 13.0, null, 15.0, null, null, 45.0)
+        assertEquals("Temperatur: min 13.0 °C • max -- • Ø 15.0 °C", com.rlcdpanel.phone.TodayText.temperature(row))
+        assertEquals("Feuchte: min -- • max -- • Ø 45.0 %rF", com.rlcdpanel.phone.TodayText.humidity(row))
     }
 
     @Test

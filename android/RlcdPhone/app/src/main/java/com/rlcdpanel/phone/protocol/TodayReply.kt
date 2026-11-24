@@ -30,6 +30,9 @@ object TodayReply {
         return s.toDouble()
     }
 
+    /** Plain digits only; a sign, padding and an empty text give null. */
+    private fun unsigned(s: String): Int? = s.takeIf { t -> t.isNotEmpty() && t.all { it in '0'..'9' } }?.toIntOrNull()
+
     /** Text for a status line, or null when the line needs no special text. */
     fun statusText(line: String): String? = if (line.trim() == "ERR NO_TIME") NO_TIME_TEXT else null
 
@@ -40,8 +43,8 @@ object TodayReply {
         val seen = HashSet<Int>()
         return lines.drop(2).map { line ->
             val c = line.split(",")
-            val s = c.getOrNull(0)?.takeIf { t -> t.isNotEmpty() && t.all { it in '0'..'9' } }?.toIntOrNull()
-            val h = c.getOrNull(2)?.takeIf { t -> t.isNotEmpty() && t.all { it in '0'..'9' } }?.toIntOrNull()
+            val s = c.getOrNull(0)?.let(::unsigned)
+            val h = c.getOrNull(2)?.let(::unsigned)
             if (c.size != COLUMNS || s == null || s !in 0..10 || h == null || h > 24 || !seen.add(s)) throw ParseException(line)
             val row = TodayRow(
                 s, c[1], h,

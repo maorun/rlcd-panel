@@ -138,8 +138,8 @@ class MainActivity : ComponentActivity() {
     private var backupState by mutableStateOf(ConfigBackupState())
     private var backupLoadJob: Job? = null
     private var showWeek by mutableStateOf(false)
-private var showToday by mutableStateOf(false)
-private var todayState by mutableStateOf(TodayState())
+    private var showToday by mutableStateOf(false)
+    private var todayState by mutableStateOf(TodayState())
     private var showTail by mutableStateOf(false)
     private var panelHistory by mutableStateOf(PanelHistoryState())
     private var showPanelHistory by mutableStateOf(false)
@@ -551,7 +551,7 @@ private var todayState by mutableStateOf(TodayState())
                 onOpenSensorHealth = { showHealth = true },
                 onOpenHistory = { showHistory = true },
                 onOpenWeek = { showWeek = true },
-onOpenToday = { showToday = true },
+                onOpenToday = { showToday = true },
                 onOpenTail = { showTail = true },
                 onOpenEvents = { showEvents = true },
                 recentEvents = recentEventState,
@@ -822,7 +822,7 @@ onOpenToday = { showToday = true },
         consoleClient.send("TODAY") { reply ->
             todayState = when (reply) {
                 is ConsoleReply.Frame -> try {
-                    TodayState(rows = TodayReply.parse(reply.lines))
+                    TodayState(rows = TodayReply.parse(reply.lines), hasRead = true)
                 } catch (e: ParseException) {
                     TodayState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
                 }
