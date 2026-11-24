@@ -42,6 +42,8 @@ struct CalibrationView: View {
                 if let s = model.batchSummary { Text(s).font(.caption).foregroundStyle(.secondary) }
                 Divider()
                 saltSection
+                Divider()
+                frsiSection
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -86,6 +88,53 @@ struct CalibrationView: View {
                 }
             }
             twoPointSection
+        }
+    }
+
+    /// Wall factor from the last 6 hours of a room sensor, a wall slot and the outdoor slot (`FRSI R W`).
+    private var frsiSection: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text("Wall factor").font(.headline)
+            Text("Put one slot sensor on the inner wall surface and use a day with 10 °C or more between room and outdoor.")
+                .font(.caption).foregroundStyle(.secondary)
+            HStack {
+                Picker("Room", selection: $model.frsiRoom) {
+                    ForEach(model.calibrationSensors, id: \.self) { Text($0 == 0 ? "Onboard" : "Slot \($0)").tag($0) }
+                }.frame(maxWidth: 180)
+                    .onChange(of: model.calibrationSensors) { _, sensors in
+                        if !sensors.contains(model.frsiRoom) { model.frsiRoom = 0 }
+                    }
+                Picker("Wall", selection: $model.frsiWall) {
+                    ForEach(model.calibrationSensors.filter { $0 > 0 }, id: \.self) { Text("Slot \($0)").tag($0) }
+                }.frame(maxWidth: 180)
+                    .onChange(of: model.calibrationSensors) { _, sensors in
+                        if !sensors.contains(model.frsiWall) { model.frsiWall = 1 }
+                    }
+                Button("Check wall") { model.frsiCheck(room: model.frsiRoom, wall: model.frsiWall) }
+                    .disabled(!model.isIdle)
+            }
+            if let reply = model.frsi {
+                switch reply.outcome {
+                case let .measured(m, proposal):
+                    Text("\(m.room) to \(m.wall): \(m.hours) h, factor \(String(format: "%.2f", m.frsi)), "
+                         + "span \(String(format: "%.2f", m.span)), room minus outdoor \(String(format: "%.1f", m.deltaC)) °C")
+                        .font(.callout)
+                    if let p = proposal {
+                        Text("\(p.key) = \(p.value)").font(.system(.caption, design: .monospaced))
+                        Button("Apply wall factor") { model.applyFrsi() }
+                            .disabled(model.frsiChanges.isEmpty || !model.isIdle)
+                    }
+                case let .skipped(hours):
+                    Text("\(hours) h, too few samples (6 needed)").font(.caption).foregroundStyle(.secondary)
+                case let .unstable(span):
+                    Text("Factor span \(span.map { String(format: "%.2f", $0) } ?? "--") is above 0.10, wait and check again")
+                        .font(.caption).foregroundStyle(.secondary)
+                case .lowDelta:
+                    Text(FrsiReply.errorText("ERR LOW_DELTA")).font(.caption).foregroundStyle(.secondary)
+                case .noOutdoor:
+                    Text(FrsiReply.errorText("ERR NO_OUTDOOR")).font(.caption).foregroundStyle(.secondary)
+                }
+            }
         }
     }
 

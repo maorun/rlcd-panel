@@ -68,6 +68,10 @@ final class AppModel: ConsoleLinkDelegate {
     var saltSelected = true
     /// Result of `SALT N MGCL2`: the second point of the two-point calibration.
     var saltMagnesium: SaltReply?
+    /// Sensors of the wall factor check and its last reply (`FRSI R W`).
+    var frsiRoom = 0
+    var frsiWall = 1
+    var frsi: FrsiReply?
     var twoPointMessage: String?
     /// Proposal keys that the user selected.
     var calibrationSelection: Set<String> = []
@@ -1068,6 +1072,35 @@ final class AppModel: ConsoleLinkDelegate {
         sendNextBatchCommand()
     }
 
+    /// Wall factor changes of the last `FRSI` proposal against the last `CONFIG` reply.
+    var frsiChanges: [ConfigChange] {
+        frsi?.changes(current: config?.values) ?? []
+    }
+
+    /// Reads the wall factor of `FRSI R W`. Runs only on the user's button press; the firmware reads the RTC copy.
+    func frsiCheck(room: Int, wall: Int) {
+        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        guard room != wall, ConsoleCommand.frsi(room: room, wall: wall).line != nil else {
+            message = "Pick two different sensors, the wall must be a slot"; return
+        }
+        message = nil
+        batchSummary = nil
+        frsi = nil
+        queue = [.frsi(room: room, wall: wall)]
+        sendNext()
+    }
+
+    /// Sends `SET wall_frsi_pct=<N>` through `ConfigBatch` (`SET` command, then `CONFIG`).
+    func applyFrsi() {
+        let changes = frsiChanges
+        guard !changes.isEmpty else { message = "No proposal to apply"; return }
+        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        message = nil
+        batchSummary = nil
+        batch = ConfigBatch(changes: changes)
+        sendNextBatchCommand()
+    }
+
     /// Reads the histories comparison of `CALIB N`. Runs only on the user's button press; the firmware reads the RTC copy.
     func calibrate(reference: Int) {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
@@ -1320,6 +1353,11 @@ final class AppModel: ConsoleLinkDelegate {
                 if case .calib = cmd { calibration = nil }
                 if case .salt = cmd { salt = nil }
                 if case .saltMagnesium = cmd { saltMagnesium = nil }
+                if case .frsi = cmd {
+                    let result = FrsiReply.statusResult(text) // ERR LOW_DELTA and ERR NO_OUTDOOR are results
+                    frsi = result.reply
+                    message = result.message
+                }
                 if cmd == .screen { panelImage = nil } // ERR NO_FRAME must not leave an old image
                 if cmd == .rejects { rejectsResult = nil }
                 if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
@@ -1389,6 +1427,9 @@ final class AppModel: ConsoleLinkDelegate {
             case let (.saltMagnesium, .frame(lines)):
                 saltMagnesium = nil
                 saltMagnesium = try SaltReply.parse(lines: lines)
+            case let (.frsi, .frame(lines)):
+                frsi = nil
+                frsi = try FrsiReply.parse(lines: lines)
             case let (.list, .frame(lines)):
                 archiveFiles = []
                 archiveFiles = try ListReply.parse(lines: lines)
