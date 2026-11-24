@@ -37,14 +37,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST, SPREAD };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, or with extra text; SELFTEST with extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
+  BAD_ARG,  // CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, or with extra text; SELFTEST and SPREAD with extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '='); CONFIG <key> with an unknown key
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv, daily_v4_YYYY.csv or events_v1_YYYY.csv
@@ -75,7 +75,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "CONFIG <key>", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "CONFIG <key>", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "SPREAD", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -286,6 +286,13 @@ public:
         return SerialParseStatus::BAD_ARG; // SCAN takes no argument
       }
       out.kind = SerialCommandKind::SCAN;
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "SPREAD")) {
+      if (cmd_len != len) {
+        return SerialParseStatus::BAD_ARG; // SPREAD takes no argument
+      }
+      out.kind = SerialCommandKind::SPREAD;
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "SELFTEST")) {
@@ -1082,6 +1089,12 @@ struct SerialStatusSnapshot {
 //   0.10 (or an hour without a usable factor, "span=--") gives "UNSTABLE span=<x>", no fresh outdoor_slot reading gives
 //   "ERR NO_OUTDOOR", equal sensors, the outdoor slot or a number above 10 give "ERR BAD_ARG". showFrsi() works on the RTC copy:
 //   no card access, no state change, so execute() ignores FRSI. USB and BLE at each ble_console level.
+//   SPREAD -> "SPREAD sensors=<n> temp_median=<x> rh_median=<x>", one line "SENSOR <name> temp_dev=<x> rh_dev=<x> <OK|OUTLIER>" for
+//   each sensor and "CRC32 <8 hex digits>". All sensors sit at one place for 6 hours; the mean of the last 6 hourly samples of each
+//   sensor with 6 temperature and 6 humidity samples (onboard and slots 1 to 10) counts, the median of these means is the
+//   reference (the mean of the two middle means for an even count) and OUTLIER means a deviation above 0.5 C or 3.0 %RH.
+//   Fewer than 3 such sensors give "SKIP sensors=<n>" and the CRC32 line, extra text gives "ERR BAD_ARG". showSpread() works on
+//   the RTC copy: no card access, no state change, so execute() ignores SPREAD. USB and BLE at each ble_console level.
 //   Any failure -> "ERR <NO_CARD|NOT_FOUND|READ_FAILED>". A read error after BEGIN pads the
 //   payload with zero bytes to the announced count, then sends "ERR READ_FAILED" in place of the
 //   CRC32 line, so the host stays in step with the frame and sees the error.
@@ -1451,6 +1464,61 @@ public:
                                            "FRSI room=%s wall=%s hours=%u frsi=%s span=%s delta_c=%s\nwall_frsi_pct=%ld\n",
                                            names[room], names[wall], static_cast<unsigned>(FRSI_HOURS), f[0], f[1], f[2],
                                            static_cast<long>(pct)));
+      }
+    }
+    SerialCrc32 crc;
+    crc.update(reinterpret_cast<const uint8_t*>(text), len);
+    if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+      return;
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
+  // Co-location check: the mean of the last SPREAD_HOURS hourly samples of each sensor with enough temperature and humidity
+  // samples, the median of these means and the deviation of each sensor from it. The card and the state stay untouched.
+  // The age of the samples is not checked: a sensor without new samples keeps its old hours, so the user must keep all sensors alive
+  // for the 6 hours. A lost sensor can show as OUTLIER.
+  // The OUTLIER check uses the exact deviation (sixths of 0.1 units), the printed value rounds to one decimal, so "0.5" can show
+  // OUTLIER when the exact deviation is above the limit.
+  // All maths run in integers: a sum of 6 tenths and its doubled median keep the limit checks exact.
+  static void showSpread(Sink& sink, const ClimateHistory& history) {
+    static const char* const names[ClimateHistory::SLOT_COUNT] = {
+        "onboard", "slot1", "slot2", "slot3", "slot4", "slot5",
+        "slot6", "slot7", "slot8", "slot9", "slot10"};
+    int32_t t_sum[ClimateHistory::SLOT_COUNT];
+    int32_t rh_sum[ClimateHistory::SLOT_COUNT];
+    size_t sensor_of[ClimateHistory::SLOT_COUNT];
+    size_t count = 0;
+    for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
+      if (history.recentSums(i, SPREAD_HOURS, t_sum[count], rh_sum[count])) {
+        sensor_of[count++] = i;
+      }
+    }
+    char text[1024];
+    size_t len = 0;
+    if (count < SPREAD_MIN_SENSORS) {
+      len = static_cast<size_t>(snprintf(text, sizeof(text), "SKIP sensors=%u\n", static_cast<unsigned>(count)));
+    } else {
+      const int32_t t_med2 = medianTwice(t_sum, count);
+      const int32_t rh_med2 = medianTwice(rh_sum, count);
+      char f[2][12];
+      formatTenths(f[0], sizeof(f[0]), divRound(t_med2, 2 * static_cast<int32_t>(SPREAD_HOURS)));
+      formatTenths(f[1], sizeof(f[1]), divRound(rh_med2, 2 * static_cast<int32_t>(SPREAD_HOURS)));
+      len = static_cast<size_t>(snprintf(text, sizeof(text), "SPREAD sensors=%u temp_median=%s rh_median=%s\n",
+                                         static_cast<unsigned>(count), f[0], f[1]));
+      for (size_t k = 0; k < count; ++k) {
+        const int32_t t_dev2 = 2 * t_sum[k] - t_med2;
+        const int32_t rh_dev2 = 2 * rh_sum[k] - rh_med2;
+        const int32_t t_abs = t_dev2 < 0 ? -t_dev2 : t_dev2;
+        const int32_t rh_abs = rh_dev2 < 0 ? -rh_dev2 : rh_dev2;
+        const bool outlier = t_abs > SPREAD_MAX_TEMP_TENTHS * 2 * static_cast<int32_t>(SPREAD_HOURS) ||
+                             rh_abs > SPREAD_MAX_RH_TENTHS * 2 * static_cast<int32_t>(SPREAD_HOURS);
+        formatTenths(f[0], sizeof(f[0]), divRound(t_dev2, 2 * static_cast<int32_t>(SPREAD_HOURS)));
+        formatTenths(f[1], sizeof(f[1]), divRound(rh_dev2, 2 * static_cast<int32_t>(SPREAD_HOURS)));
+        len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "SENSOR %s temp_dev=%s rh_dev=%s %s\n",
+                                            names[sensor_of[k]], f[0], f[1], outlier ? "OUTLIER" : "OK"));
       }
     }
     SerialCrc32 crc;
@@ -2521,7 +2589,7 @@ public:
         command.kind == SerialCommandKind::REJECTS || command.kind == SerialCommandKind::ACK ||
         command.kind == SerialCommandKind::IDENTIFY || command.kind == SerialCommandKind::SNOOZE ||
         command.kind == SerialCommandKind::NTP_SYNC || command.kind == SerialCommandKind::FRSI ||
-        command.kind == SerialCommandKind::SELFTEST) {
+        command.kind == SerialCommandKind::SELFTEST || command.kind == SerialCommandKind::SPREAD) {
       return;
     }
     if (!storage.mount()) {
@@ -2556,6 +2624,7 @@ public:
       case SerialCommandKind::NTP_SYNC:
       case SerialCommandKind::FRSI:
       case SerialCommandKind::SELFTEST:
+      case SerialCommandKind::SPREAD:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;
@@ -2568,10 +2637,33 @@ public:
   static constexpr size_t FRSI_HOURS = 6;
   static constexpr int32_t FRSI_MIN_DELTA_TENTHS = 100;  // 10.0 C
   static constexpr int32_t FRSI_MAX_SPAN_HUNDREDTHS = 10; // 0.10
+  static constexpr size_t SPREAD_HOURS = 6;
+  static constexpr size_t SPREAD_MIN_SENSORS = 3;
+  static constexpr int32_t SPREAD_MAX_TEMP_TENTHS = 5;  // 0.5 C
+  static constexpr int32_t SPREAD_MAX_RH_TENTHS = 30;   // 3.0 %RH
   static constexpr size_t SALT_HOURS = 6;
   static constexpr int32_t SALT_MAX_SPAN_TENTHS = 10; // 1.0 %RH
 
 private:
+  // Rounds a / b half away from zero (b > 0).
+  static int32_t divRound(int32_t a, int32_t b) {
+    return a >= 0 ? (a + b / 2) / b : -((-a + b / 2) / b);
+  }
+
+  // Twice the median of `values` (count 1 to 11): the middle value doubled, or the sum of the two middle values.
+  static int32_t medianTwice(const int32_t* values, size_t count) {
+    int32_t sorted[ClimateHistory::SLOT_COUNT];
+    for (size_t i = 0; i < count; ++i) {
+      size_t j = i;
+      while (j > 0 && sorted[j - 1] > values[i]) {
+        sorted[j] = sorted[j - 1];
+        --j;
+      }
+      sorted[j] = values[i];
+    }
+    return count % 2 == 1 ? 2 * sorted[count / 2] : sorted[count / 2 - 1] + sorted[count / 2];
+  }
+
   // Hours with a temperature and a humidity sample in the reference and in the sensor.
   static size_t commonHours(const ClimateHistory& h, size_t reference, size_t sensor) {
     size_t n = h.slots[reference].size();

@@ -454,6 +454,21 @@ struct ClimateHistory {
 
   HumidityHistory slots[SLOT_COUNT];
   TemperatureHistory temperatures[SLOT_COUNT];
+
+  // Sums of the newest `hours` temperature samples (0.1 C) and humidity samples (0.1 %RH) of one sensor. False when the sensor
+  // has fewer than `hours` samples in either history. Read only.
+  bool recentSums(size_t sensor, size_t hours, int32_t& temp_sum, int32_t& rh_sum) const {
+    if (sensor >= SLOT_COUNT || hours == 0 || temperatures[sensor].size() < hours || slots[sensor].size() < hours) {
+      return false;
+    }
+    temp_sum = 0;
+    rh_sum = 0;
+    for (size_t k = 0; k < hours; ++k) {
+      temp_sum += temperatures[sensor].at(temperatures[sensor].size() - 1 - k);
+      rh_sum += slots[sensor].at(slots[sensor].size() - 1 - k);
+    }
+    return true;
+  }
   uint32_t last_sample_ms = 0;
   bool has_sampled = false;
   // One bit for each hourly onboard temperature sample: bit 0 is the newest, a set bit means a USB powered sample
