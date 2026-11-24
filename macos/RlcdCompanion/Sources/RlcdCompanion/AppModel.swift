@@ -80,6 +80,10 @@ final class AppModel: ConsoleLinkDelegate {
     var frsiWall = 1
     var frsi: FrsiReply?
     var spread: SpreadReply?
+    /// Reply of the last `TAIL` command, `nil` before a user read and after an error.
+    var tailResult: TailReply?
+    /// Row count of the picker in the `Newest log rows` group (one of `TailReply.rowChoices`).
+    var tailRows = 24
     var twoPointMessage: String?
     /// Proposal keys that the user selected.
     var calibrationSelection: Set<String> = []
@@ -442,7 +446,7 @@ final class AppModel: ConsoleLinkDelegate {
         diagnostics = nil
         diagnosticsConfig = nil
         version = nil
-        scanResult = nil; panelImage = nil; rejectsResult = nil; selfTestResult = nil; selfTestLines = []
+        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         panelTime = nil
@@ -461,7 +465,7 @@ final class AppModel: ConsoleLinkDelegate {
     func disconnectConsole() {
         stopRepeatScan(.user)
         stopSaltWatch(.user)
-        scanResult = nil; panelImage = nil; rejectsResult = nil; selfTestResult = nil; selfTestLines = []
+        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         panelTime = nil
@@ -477,7 +481,7 @@ final class AppModel: ConsoleLinkDelegate {
     func selectTransport(_ t: Transport) {
         stopRepeatScan(.user)
         stopSaltWatch(.user)
-        scanResult = nil; panelImage = nil; rejectsResult = nil; selfTestResult = nil; selfTestLines = []
+        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         transport = t
@@ -886,6 +890,17 @@ final class AppModel: ConsoleLinkDelegate {
         guard pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
         message = nil
         queue = [.rejects]
+        sendNext()
+    }
+
+    /// Reads the newest climate rows with `TAIL <rows>`. Runs only on the user's button, on USB and on BLE.
+    func readTail(rows: Int) {
+        guard consoleConnected else { message = "Console not connected"; return }
+        guard pendingCommand == nil, queue.isEmpty, batch == nil, !reportRunning else { message = "Wait for the running command"; return }
+        guard ConsoleCommand.tail(rows).line != nil else { message = "Row count must be 1 to 72"; return }
+        message = nil
+        tailResult = nil
+        queue = [.tail(rows)]
         sendNext()
     }
 
@@ -1314,6 +1329,7 @@ final class AppModel: ConsoleLinkDelegate {
             if case .historySensor = cmd { stopSaltWatch(.replyFailed) }
             if cmd == .screen { panelImage = nil }
             if cmd == .rejects { rejectsResult = nil }
+            if case .tail = cmd { tailResult = nil }
             if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
             pendingCommand = nil
             queue.removeAll()
@@ -1364,6 +1380,7 @@ final class AppModel: ConsoleLinkDelegate {
                 scanResult = nil // the slot column of a lost link is stale
                 panelImage = nil
                 rejectsResult = nil
+                tailResult = nil
                 config = nil // the ble_console level of a lost link must not gate SET on the next link
                 diagnosticsConfig = nil // the runtime preview needs the schedule of the same link
                 draft = [:]
@@ -1397,6 +1414,7 @@ final class AppModel: ConsoleLinkDelegate {
                 message = "Reply rejected: \(e)"
                 if cmd == .screen { panelImage = nil } // a rejected frame must not stay next to the error
                 if cmd == .rejects { rejectsResult = nil }
+                if case .tail = cmd { tailResult = nil }
                 if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
                 if cmd == .scan { stopRepeatScan(.scanFailed) }
                 if case .historySensor = cmd { stopSaltWatch(.replyFailed) }
@@ -1435,6 +1453,7 @@ final class AppModel: ConsoleLinkDelegate {
                 }
                 if cmd == .screen { panelImage = nil } // ERR NO_FRAME must not leave an old image
                 if cmd == .rejects { rejectsResult = nil }
+                if case .tail = cmd { tailResult = nil; message = TailReply.message(text) }
                 if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
                 if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
                 if cmd == .scan, text.hasPrefix("ERR") { stopRepeatScan(.scanFailed) }
@@ -1486,6 +1505,10 @@ final class AppModel: ConsoleLinkDelegate {
                 rejectsResult = nil // a reply that fails to parse must not leave the old rows
                 rejectsResult = try RejectsReply.parse(lines: lines)
             case (.rejects, .file): message = "Unexpected file reply"
+            case let (.tail, .frame(lines)):
+                tailResult = nil // a reply that fails to parse must not leave the old rows
+                tailResult = try TailReply.parse(lines: lines)
+            case (.tail, .file): message = "Unexpected file reply"
             case let (.selfTest, .frame(lines)):
                 selfTestResult = nil // a reply that fails to parse must not leave an old result
                 selfTestLines = []
