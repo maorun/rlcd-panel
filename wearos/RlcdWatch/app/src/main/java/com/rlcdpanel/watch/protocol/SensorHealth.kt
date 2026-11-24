@@ -14,7 +14,9 @@ data class SensorHealth(
     val reception: ReceptionRate?,
     val verdict: Verdict,
     /** `mold_h=` of the `SENSOR` line; null for `--` and a missing field. */
-    val moldHours: Int? = null
+    val moldHours: Int? = null,
+    val temperatureTrend: SensorTrend? = null,
+    val humidityTrend: SensorTrend? = null
 ) {
     /** The protocol source badge of the panel tiles; null without a known format. */
     val badge: String? get() = badgeFor(format)
@@ -67,7 +69,7 @@ data class SensorHealth(
                 val age = value(f, "age", line)
                 val state = f["state"]?.takeIf { it.isNotEmpty() } ?: throw ParseException(line)
                 val rate = status.reception?.getOrNull(slot - 1)
-                out.add(SensorHealth(slot, words[2], rssi, battery, age, state, StatusReply.format(f["format"]), rate, verdict(state, rssi, battery, rate, limit), status.sensors.firstOrNull { it.index == slot }?.moldHours))
+                out.add(SensorHealth(slot, words[2], rssi, battery, age, state, StatusReply.format(f["format"]), rate, verdict(state, rssi, battery, rate, limit), status.sensors.firstOrNull { it.index == slot }?.moldHours, status.sensors.firstOrNull { it.index == slot }?.temperatureTrend, status.sensors.firstOrNull { it.index == slot }?.humidityTrend))
             }
             return out
         }
