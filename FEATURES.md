@@ -3035,3 +3035,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The command reads the RTC copy only. It does not access the card and does not change the state. It runs on USB and on BLE at each `ble_console` level. The RTC layout and `STATE_VERSION` do not change.
 - Host tests cover the parser, a sensor with 5 samples since midnight, the exclusion of samples before midnight (also the exact limit), a sensor without a sample, a half-empty pair, `ERR NO_TIME`, `ERR BAD_ARG`, the BLE gate, and one reply against `tests/fixtures/today_reply_sample.txt`.
 - Validation on the board: send `TODAY` over USB and check the reply and the `CRC32` line.
+
+## Today summary screen in the Android app
+
+- `TodayReply.parse` (`protocol/TodayReply.kt`) parses the reply of the console command `TODAY`: `BEGIN TODAY`, the header `sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct` and one `TodayRow` for each row (sensor 0 to 10, name, hours 0 to 24, minimum, maximum and mean of temperature and humidity). An empty field gives `null`.
+- `ParseException` covers a wrong or missing `BEGIN` line, a wrong header, a column count other than 9, a bad sensor number, bad hours, a duplicate sensor, a bad number (only plain decimals count; `NaN`, `Infinity` and `temp_min_c=x` are bad) and a minimum above the maximum.
+- `TodayReply.statusText` maps the status line `ERR NO_TIME` to the text `Panel clock not set`. Other status lines keep the text of `BleConsoleClient.errorText`.
+- `TodayScreen` shows one card for each row: the name, the hours and the minimum, maximum and mean of temperature and humidity (`--` for an empty value). A sensor with 0 hours shows `Keine Daten seit Mitternacht`.
+- The main screen has the entry `Heute`. `MainActivity.readToday` sends `TODAY` over the BLE console only after a tap on `Read today` (with the Bluetooth permission check). It stops the scan during the read, and `closeToday` restarts it. The panel needs USB power and `ble_console` 1 or 2.
+- `TodayReplyTest` reads `tests/fixtures/today_reply_sample.txt` and covers each row, `null` for empty fields, `ParseException` for 8 columns, for `temp_min_c=x` and for a wrong header, and the `ERR NO_TIME` text. The shared protocol files stay unchanged, so `scripts/check-protocol-sync.sh` passes.
+- Validation: the local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.

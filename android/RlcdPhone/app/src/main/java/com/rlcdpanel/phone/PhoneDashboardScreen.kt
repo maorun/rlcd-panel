@@ -96,6 +96,7 @@ fun PhoneDashboardScreen(
     onOpenSensorHealth: () -> Unit = {},
     onOpenHistory: () -> Unit = {},
     onOpenWeek: () -> Unit = {},
+    onOpenToday: () -> Unit = {},
     onOpenTail: () -> Unit = {},
     onOpenEvents: () -> Unit = {},
     /** Result of the last `EVENTS 3` read of the card `Recent events`. */
@@ -134,6 +135,7 @@ fun PhoneDashboardScreen(
                         onOpenSensorHealth = onOpenSensorHealth,
                         onOpenHistory = onOpenHistory,
                         onOpenWeek = onOpenWeek,
+                        onOpenToday = onOpenToday,
                         onOpenTail = onOpenTail,
                         onOpenEvents = onOpenEvents,
                         onOpenSetup = onOpenSetup
@@ -222,6 +224,7 @@ private fun StatusHeader(
     onOpenSensorHealth: () -> Unit,
     onOpenHistory: () -> Unit,
     onOpenWeek: () -> Unit,
+    onOpenToday: () -> Unit,
     onOpenTail: () -> Unit,
     onOpenEvents: () -> Unit,
     onOpenSetup: () -> Unit
@@ -284,6 +287,14 @@ private fun StatusHeader(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F), contentColor = Color.White)
             ) {
                 Text("Wochenverlauf 7 Tage")
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Button(
+                onClick = onOpenToday,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F), contentColor = Color.White)
+            ) {
+                Text("Heute")
             }
             Spacer(modifier = Modifier.height(6.dp))
             Button(
