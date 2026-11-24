@@ -25,12 +25,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Week screen for one room on the Wear OS watch
-  - Rank: [Total: 26, Use: 5, Setup: 3, Harmony: 8, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/WeekReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/WeekScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/WeekReplyTest.kt, FEATURES.md
-  - Goal: Add `WeekReply.sensorCommand(n)` for `WEEK <N>` (N 0 to 5, `IllegalArgumentException` for another value). Make `WeekScreen` read `WEEK <N>` for the focused room of `TelemetryCache` instead of the full `WEEK` reply. Add a chip that selects the next sensor and reads its 7 rows. Keep the parse of the 7 rows through `WeekReply.parse`.
-  - Acceptance test: `WeekReplyTest` asserts the command text `WEEK 0` and `WEEK 5`, `IllegalArgumentException` for -1 and 6, and the parse of a 7-row reply of one sensor with and without the `mold_h` column. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

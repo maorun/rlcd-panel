@@ -103,6 +103,7 @@ class MainActivity : ComponentActivity() {
     private val signalMeter = SignalMeter { android.os.SystemClock.elapsedRealtime() }
     private var signalScanner: SignalMeterScanner? = null
     private var showWeek by mutableStateOf(false)
+    private var weekSensor by mutableIntStateOf(0)
     private var weekState by mutableStateOf(WeekState())
     private var pendingWeekRead = false
     private var showHistory by mutableStateOf(false)
@@ -357,9 +358,10 @@ class MainActivity : ComponentActivity() {
                 BackHandler { closeWeek() }
                 WeekScreen(
                     state = weekState,
-                    roomName = panelConfig.tileName(focusedRoomIndex),
-                    sensor = focusedRoomIndex,
-                    onRead = { readWeek() }
+                    roomName = panelConfig.tileName(weekSensor),
+                    sensor = weekSensor,
+                    onRead = { readWeek() },
+                    onNextSensor = { nextWeekSensor() }
                 )
                 return@setContent
             }
@@ -410,7 +412,10 @@ class MainActivity : ComponentActivity() {
                     onRead = { readSensorHealth() },
                     onSetMute = { setMute(it) },
                     onOpenEvents = { showEvents = true },
-                    onOpenWeek = { showWeek = true },
+                    onOpenWeek = {
+                        weekSensor = focusedRoomIndex.coerceIn(0, WeekReply.MAX_SENSOR)
+                        showWeek = true
+                    },
                     onOpenSignal = { sensor ->
                         val mac = sensor.mac ?: return@SensorHealthScreen
                         signalState = SignalMeterState(name = sensor.name, mac = mac)
@@ -812,7 +817,22 @@ class MainActivity : ComponentActivity() {
         showWeek = false
     }
 
-    /** Asks for the console permissions, then sends `WEEK` once. Only a tap in the week screen calls it. */
+    /** Selects the next sensor (wrap 5 to 0) and reads its 7 rows. */
+    private fun nextWeekSensor() {
+        if (weekState.isReading || pendingWeekRead || consoleClient.isRunning) return
+        val previousSensor = weekSensor
+        val previousState = weekState
+        weekSensor = (weekSensor + 1) % (WeekReply.MAX_SENSOR + 1)
+        weekState = WeekState()
+        readWeek()
+        // readWeek returns early while another console read runs. Then keep the old sensor and rows.
+        if (!weekState.isReading && !pendingWeekRead) {
+            weekSensor = previousSensor
+            weekState = previousState
+        }
+    }
+
+    /** Asks for the console permissions, then sends `WEEK <N>` for the selected sensor once. Only a tap in the week screen calls it. */
     private fun readWeek() {
         if (weekState.isReading || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingSelfTestRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || consoleClient.isRunning) return
         weekState = WeekState(isReading = true)
@@ -835,7 +855,7 @@ class MainActivity : ComponentActivity() {
             weekState = WeekState(message = "Panel-Verbindung ist belegt")
             return
         }
-        consoleClient.send("WEEK") { reply ->
+        consoleClient.send(WeekReply.sensorCommand(weekSensor)) { reply ->
             weekState = when (reply) {
                 is ConsoleReply.Frame -> try {
                     WeekState(rows = WeekReply.parse(reply.lines), loaded = true)

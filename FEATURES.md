@@ -3055,3 +3055,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The app sends no new command. It uses the `STATUS` reply that it already reads.
 - Tests: `ReplyTests` read `tests/fixtures/status_reply_sample.txt` and assert each trend value of the 6 sensors, `nil` for `--` and for a line without the fields, the symbols, and `ParseError.badLine` for `rh_trend=UP`.
 - Validation: `swift build -c release` and `swift test` (637 tests) passed on the local host. `./scripts/check-protocol-sync.sh` exited with 0.
+
+## Week screen for one room on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/WeekReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/WeekScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/WeekReply.kt`
+- `WeekReply.sensorCommand(n)` returns `WEEK <N>` for N 0 to 5 (`WeekReply.MAX_SENSOR`). Another number throws `IllegalArgumentException`. The phone copy of `WeekReply.kt` has the same code, so `scripts/check-protocol-sync.sh` stays at exit 0.
+- The week screen reads only the 7 rows of one sensor with `WEEK <N>` instead of the 42 rows of `WEEK`. The sensor starts as the focused room of `TelemetryCache` when the user opens the screen. The parse stays `WeekReply.parse`.
+- The chip `Next sensor` selects the next sensor (wrap 5 to 0), clears the old rows and reads its 7 rows. The title shows the name of the selected sensor. The chip is off while a read runs. The command runs only after a user tap.
+- Tests: `WeekReplyTest` (watch and phone) asserts `WEEK 0` and `WEEK 5`, `IllegalArgumentException` for -1 and 6, and the parse of a 7-row reply of one sensor with and without the `mold_h` column.

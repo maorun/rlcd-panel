@@ -30,7 +30,7 @@ import java.time.LocalDate
 import java.time.format.DateTimeParseException
 import java.util.Locale
 
-/** Result of one `WEEK` read: the rows of all sensors, or a text that tells why there are none. */
+/** Result of one `WEEK <N>` read: the 7 rows of one sensor, or a text that tells why there are none. */
 data class WeekState(
     val isReading: Boolean = false,
     val rows: List<WeekRow> = emptyList(),
@@ -90,7 +90,8 @@ fun WeekScreen(
     state: WeekState,
     roomName: String,
     sensor: Int,
-    onRead: () -> Unit
+    onRead: () -> Unit,
+    onNextSensor: () -> Unit = {}
 ) {
     val listState = rememberScalingLazyListState()
     val days = WeekText.daysOf(state.rows, sensor)
@@ -113,6 +114,15 @@ fun WeekScreen(
                         modifier = Modifier.fillMaxWidth(0.85f),
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text(if (state.isReading) "Lese Panel ..." else "Read week", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                item {
+                    Chip(
+                        onClick = onNextSensor,
+                        enabled = !state.isReading,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text("Next sensor", fontSize = 12.sp, maxLines = 1) }
                     )
                 }
                 state.message?.let { message ->
