@@ -83,6 +83,15 @@ struct SetupAssistantView: View {
                 Button("Apply selected") { model.setupApply() }
                     .disabled(a.calibrationChanges.isEmpty || !model.isIdle || !model.canSet)
             }
+            if let o = a.outdoorProposal(week: model.week, config: model.config) {
+                Text(o.text).font(.caption)
+                Button("Use slot \(o.slot) as outdoor slot") { model.setupApplyOutdoor() }
+                    .disabled(!model.isIdle || !model.canSet)
+            }
+            if model.week.isEmpty {
+                Text("No WEEK data for an outdoor proposal.").font(.caption).foregroundStyle(.secondary)
+                Button("Read week data") { model.refresh() }.disabled(!model.isIdle)
+            }
             Button("Finish without calibration") { model.setup?.finish() }
         case .done:
             Text("Setup done.").font(.caption)

@@ -46,6 +46,8 @@ public struct SetupAssistant {
     public private(set) var pending: ConsoleCommand?
 
     private var batch: ConfigBatch?
+    /// True while the batch of the outdoor proposal runs: the assistant stays in step `calibrate` after its `CONFIG`.
+    private var outdoorBatch = false
     private let now: () -> Date
     private var lastActionAt: Date
 
@@ -143,6 +145,23 @@ public struct SetupAssistant {
         return nextCommand()
     }
 
+    /// Proposal for `outdoor_slot` from the `WEEK` reply, `nil` without a clear candidate.
+    public func outdoorProposal(week: [WeekRow], config current: ConfigReply?) -> OutdoorProposal? {
+        guard step == .calibrate else { return nil }
+        return OutdoorProposal.propose(week: week, config: current ?? config)
+    }
+
+    /// Sends `SET outdoor_slot=<N>` through `ConfigBatch`, then `CONFIG`.
+    public mutating func beginApplyOutdoor(week: [WeekRow], config current: ConfigReply? = nil) -> ConsoleCommand? {
+        guard begin(), step == .calibrate, pending == nil, batch == nil else { return nil }
+        if let current { config = current }
+        guard let proposal = outdoorProposal(week: week, config: config) else { notice = "No outdoor proposal"; return nil }
+        let change = ConfigChange(key: "outdoor_slot", old: config?.values["outdoor_slot"] ?? "", new: String(proposal.slot))
+        batch = ConfigBatch(changes: [change])
+        outdoorBatch = true
+        return nextCommand()
+    }
+
     /// Ends the assistant without a calibration.
     public mutating func finish() {
         guard begin(), step == .calibrate, pending == nil, batch == nil else { return }
@@ -182,6 +201,7 @@ public struct SetupAssistant {
         stop = .linkLost(reason)
         pending = nil
         batch = nil
+        outdoorBatch = false
     }
 
     /// The command could not go out (no console line). Ends the assistant, so it does not wait for a reply.
@@ -208,6 +228,7 @@ public struct SetupAssistant {
             stop = .timeout
             pending = nil
             batch = nil
+            outdoorBatch = false
             return false
         }
         lastActionAt = current
@@ -222,6 +243,7 @@ public struct SetupAssistant {
     private mutating func fail(_ text: String) {
         stop = .reply(text)
         batch = nil
+        outdoorBatch = false
     }
 
     private mutating func receive(frame lines: [String], for command: ConsoleCommand) throws {
@@ -236,6 +258,7 @@ public struct SetupAssistant {
             batch?.receiveFrame()
             guard batch?.isFinished == true else { return }
             batch = nil
+            if outdoorBatch { outdoorBatch = false; return }
             step = step == .assign ? .verify : .done
         case .status:
             let parsed = try StatusReply.parse(lines: lines)

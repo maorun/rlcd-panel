@@ -51,7 +51,7 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Show the `ReceptionHistory` rate of each slot as `RX <N>%` in the stats view (`DashboardView::formatReception`, scale 1, right-aligned to x = 392, on the RSSI line). Show `RX --` for an empty slot and for fewer than 6 counted scans. Invert the text below 50 %. Do not draw the text when the gap to the next text is below 4 px. Calculate it on each render. Do not add RTC state.
   - Acceptance test: Host tests assert `formatReception` for 24 of 24, 11 of 24, 5 scans and an empty slot, and the inverted pixels below 50 %. Run `./scripts/generate-display-preview.sh` and inspect `docs/display_preview_stats.png`. Run the host test command from `AGENTS.md` and `arduino-cli compile rlcd_panel`.
 
-- [ ] Outdoor slot proposal in the macOS setup assistant
+- [x] Outdoor slot proposal in the macOS setup assistant
   - Rank: [Total: 33, Use: 6, Setup: 9, Harmony: 8, Safety: 10, Effort: M]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/OutdoorProposal.swift, macos/RlcdCompanion/Sources/RlcdProtocol/SetupAssistant.swift, macos/RlcdCompanion/Sources/RlcdCompanion/SetupAssistantView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/OutdoorProposalTests.swift, FEATURES.md
   - Goal: Propose a value for `outdoor_slot` from the `WEEK` reply. Select the slot with the largest mean daily temperature range over at least 3 days. Propose it only when its range is at least twice the range of the next slot and its daily minimum is below the onboard minimum. Show the proposal with the slot name and the ranges in the setup assistant. Apply it on a user action through `ConfigBatch`. Show no proposal when `outdoor_slot` already has this value.
