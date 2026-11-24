@@ -19,11 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Offset proposals in the console command SPREAD
-  - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/climate_math.h`, `tests/test_firmware_logic.cpp`, `tests/fixtures/spread_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Let the user align each co-located sensor in one step. Add one proposal line for each `OUTLIER` sensor after its `SENSOR` line. The line is `<temp_key>=<x> <rh_key>=<x>`. Each value is the active offset plus the median minus the sensor mean, clamped to the key range. Use `temp_offset_c` and `rh_offset_pct` for the onboard sensor and `slotN_temp_offset_c` and `slotN_rh_offset_pct` for slots 1 to 10. Keep `OK` sensors without a proposal line.
-  - **Acceptance:** A host test with three sensors and one sensor 1.0 C and 5.0 %RH above the median gives one proposal line with the corrected keys and values. A host test with a proposal beyond the key range gives the clamped limit. A host test with only `OK` sensors gives the old reply bytes and the old `CRC32` line. The updated fixture parses in `tests/test_firmware_logic.cpp`.
-  - **Rank:** [Total: 35, Use: 8, Setup: 10, Harmony: 8, Safety: 9, Effort: S]
 - [ ] Apply the SPREAD offset proposals in the macOS calibration view
   - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift`, `FEATURES.md`
   - **Goal:** Let the user correct an outlier sensor from the co-location check without manual typing. Parse the proposal lines of the `SPREAD` reply into `SpreadReply.proposals`. Show one checkbox for each proposal in `CalibrationView`. Send the selected values through `ConfigBatch`, then send `SPREAD` again. Requires "Offset proposals in the console command SPREAD".

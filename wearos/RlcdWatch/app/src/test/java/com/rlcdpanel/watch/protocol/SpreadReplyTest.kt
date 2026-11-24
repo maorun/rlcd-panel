@@ -29,8 +29,8 @@ class SpreadReplyTest {
         assertEquals(50.0, m.rhMedian, 0.0)
         assertEquals(3, m.rows.size)
         assertEquals(SpreadReply.SensorSpread("onboard", 0.0, 0.0, false), m.rows[0])
-        assertEquals(SpreadReply.SensorSpread("slot1", 0.2, 1.0, false), m.rows[1])
-        assertEquals(SpreadReply.SensorSpread("slot2", -0.2, -1.0, false), m.rows[2])
+        assertEquals(SpreadReply.SensorSpread("slot1", 0.0, 0.0, false), m.rows[1])
+        assertEquals(SpreadReply.SensorSpread("slot2", 1.0, 5.0, true), m.rows[2])
     }
 
     @Test
