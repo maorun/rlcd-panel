@@ -1505,7 +1505,7 @@ void setup() {
                        nowMs());
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SPREAD) {
       // The RTC histories answer: no card access, no state change, so the console keeps running.
-      Runner::showSpread(sink, g_state.history);
+      Runner::showSpread(sink, g_state.history, g_state.config);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::TODAY) {
       // The RTC histories answer: no card access, no state change, so the console keeps running.
       RtcTime today_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again

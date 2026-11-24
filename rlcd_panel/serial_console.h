@@ -1147,6 +1147,9 @@ struct SerialStatusSnapshot {
 //   each sensor and "CRC32 <8 hex digits>". All sensors sit at one place for 6 hours; the mean of the last 6 hourly samples of each
 //   sensor with 6 temperature and 6 humidity samples (onboard and slots 1 to 10) counts, the median of these means is the
 //   reference (the mean of the two middle means for an even count) and OUTLIER means a deviation above 0.5 C or 3.0 %RH.
+//   Each OUTLIER line is followed by one proposal line "<temp_key>=<x> <rh_key>=<x>" (temp_offset_c and rh_offset_pct for the onboard
+//   sensor, slotN_temp_offset_c and slotN_rh_offset_pct for slots 1 to 10): active offset + median - sensor mean (rounded to 0.1),
+//   clamped to the key range; OK sensors have no proposal line.
 //   Fewer than 3 such sensors give "SKIP sensors=<n>" and the CRC32 line, extra text gives "ERR BAD_ARG". showSpread() works on
 //   the RTC copy: no card access, no state change, so execute() ignores SPREAD. USB and BLE at each ble_console level.
 //   TODAY -> "BEGIN TODAY", the header "sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct", one row for
@@ -1555,10 +1558,13 @@ public:
   // The OUTLIER check uses the exact deviation (sixths of 0.1 units), the printed value rounds to one decimal, so "0.5" can show
   // OUTLIER when the exact deviation is above the limit.
   // All maths run in integers: a sum of 6 tenths and its doubled median keep the limit checks exact.
-  static void showSpread(Sink& sink, const ClimateHistory& history) {
+  static void showSpread(Sink& sink, const ClimateHistory& history, const DeviceConfig& config) {
     static const char* const names[ClimateHistory::SLOT_COUNT] = {
         "onboard", "slot1", "slot2", "slot3", "slot4", "slot5",
         "slot6", "slot7", "slot8", "slot9", "slot10"};
+    static const char* const prefixes[ClimateHistory::SLOT_COUNT] = {
+        "",       "slot1_", "slot2_", "slot3_", "slot4_", "slot5_",
+        "slot6_", "slot7_", "slot8_", "slot9_", "slot10_"};
     int32_t t_sum[ClimateHistory::SLOT_COUNT];
     int32_t rh_sum[ClimateHistory::SLOT_COUNT];
     size_t sensor_of[ClimateHistory::SLOT_COUNT];
@@ -1591,6 +1597,23 @@ public:
         formatTenths(f[1], sizeof(f[1]), divRound(rh_dev2, 2 * static_cast<int32_t>(SPREAD_HOURS)));
         len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "SENSOR %s temp_dev=%s rh_dev=%s %s\n",
                                             names[sensor_of[k]], f[0], f[1], outlier ? "OUTLIER" : "OK"));
+        if (outlier) {
+          // Proposal: active offset + median - sensor mean (the mean is sum / hours), clamped to the key range.
+          const size_t s = sensor_of[k];
+          const float temp_active = s == 0 ? config.temp_offset_c : config.slot_temp_offset_c[s - 1];
+          const float rh_active = s == 0 ? config.rh_offset_pct : config.slot_rh_offset_pct[s - 1];
+          const float temp_lo = s == 0 ? DeviceConfig::MIN_TEMP_OFFSET_C : DeviceConfig::MIN_SLOT_TEMP_OFFSET_C;
+          const float temp_hi = s == 0 ? DeviceConfig::MAX_TEMP_OFFSET_C : DeviceConfig::MAX_SLOT_TEMP_OFFSET_C;
+          const float rh_lo = s == 0 ? DeviceConfig::MIN_RH_OFFSET_PCT : DeviceConfig::MIN_SLOT_RH_OFFSET_PCT;
+          const float rh_hi = s == 0 ? DeviceConfig::MAX_RH_OFFSET_PCT : DeviceConfig::MAX_SLOT_RH_OFFSET_PCT;
+          const int32_t hours2 = 2 * static_cast<int32_t>(SPREAD_HOURS);
+          const int32_t temp_new = clampTenths(tenths(temp_active) - divRound(t_dev2, hours2), temp_lo, temp_hi);
+          const int32_t rh_new = clampTenths(tenths(rh_active) - divRound(rh_dev2, hours2), rh_lo, rh_hi);
+          formatTenths(f[0], sizeof(f[0]), temp_new);
+          formatTenths(f[1], sizeof(f[1]), rh_new);
+          len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "%stemp_offset_c=%s %srh_offset_pct=%s\n",
+                                              prefixes[s], f[0], prefixes[s], f[1]));
+        }
       }
     }
     SerialCrc32 crc;

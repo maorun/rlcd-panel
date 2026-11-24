@@ -1,5 +1,6 @@
 SPREAD sensors=3 temp_median=20.0 rh_median=50.0
 SENSOR onboard temp_dev=0.0 rh_dev=0.0 OK
-SENSOR slot1 temp_dev=0.2 rh_dev=1.0 OK
-SENSOR slot2 temp_dev=-0.2 rh_dev=-1.0 OK
-CRC32 7ec16b21
+SENSOR slot1 temp_dev=0.0 rh_dev=0.0 OK
+SENSOR slot2 temp_dev=1.0 rh_dev=5.0 OUTLIER
+slot2_temp_offset_c=-1.0 slot2_rh_offset_pct=-5.0
+CRC32 2ee27aaf

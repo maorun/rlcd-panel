@@ -16014,9 +16014,9 @@ void fillSpread(ClimateHistory& h, size_t sensor, int hours, float temp, float r
   }
 }
 
-std::string spreadOutput(const ClimateHistory& h) {
+std::string spreadOutput(const ClimateHistory& h, const DeviceConfig& cfg = DeviceConfig{}) {
   FakeSink sink;
-  TestRunner::showSpread(sink, h);
+  TestRunner::showSpread(sink, h, cfg);
   return sink.out;
 }
 } // namespace
@@ -16354,8 +16354,46 @@ void testSerialSpread() {
   std::ifstream in(root + "tests/fixtures/spread_reply_sample.txt");
   assert(in.good());
   const std::string fixture((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-  assert(out == fixture);
   assert(h.temperatures[0].size() == 6); // no state change
+  // only OK sensors: the old reply bytes and the old CRC32 line, no proposal line
+  assert(out ==
+         "SPREAD sensors=3 temp_median=20.0 rh_median=50.0\n"
+         "SENSOR onboard temp_dev=0.0 rh_dev=0.0 OK\n"
+         "SENSOR slot1 temp_dev=0.2 rh_dev=1.0 OK\n"
+         "SENSOR slot2 temp_dev=-0.2 rh_dev=-1.0 OK\n"
+         "CRC32 7ec16b21\n");
+  // one sensor 1.0 C and 5.0 %RH above the median: one proposal line with the corrected keys; the reply equals the fixture
+  ClimateHistory prop;
+  fillSpread(prop, 0, 6, 20.0f, 50.0f);
+  fillSpread(prop, 1, 6, 20.0f, 50.0f);
+  fillSpread(prop, 2, 6, 21.0f, 55.0f);
+  out = spreadOutput(prop);
+  assert(out.find("SENSOR slot2 temp_dev=1.0 rh_dev=5.0 OUTLIER\nslot2_temp_offset_c=-1.0 slot2_rh_offset_pct=-5.0\n") !=
+         std::string::npos);
+  assert(frsiCrcOk(out));
+  assert(out == fixture);
+  // the active offset counts: 0.5 C and 2.0 %RH active give -0.5 and -3.0
+  DeviceConfig active;
+  active.slot_temp_offset_c[1] = 0.5f;
+  active.slot_rh_offset_pct[1] = 2.0f;
+  assert(spreadOutput(prop, active).find("slot2_temp_offset_c=-0.5 slot2_rh_offset_pct=-3.0\n") != std::string::npos);
+  // a proposal beyond the key range gives the clamped limit (slot -5.0 C and -10.0 %RH, onboard -10.0 C and -10.0 %RH)
+  ClimateHistory far;
+  fillSpread(far, 0, 6, 35.0f, 90.0f);
+  fillSpread(far, 1, 6, 20.0f, 50.0f);
+  fillSpread(far, 2, 6, 20.0f, 50.0f);
+  fillSpread(far, 3, 6, 20.0f, 50.0f);
+  out = spreadOutput(far);
+  assert(out.find("SENSOR onboard temp_dev=15.0 rh_dev=40.0 OUTLIER\ntemp_offset_c=-10.0 rh_offset_pct=-10.0\nSENSOR slot1 ") !=
+         std::string::npos);
+  assert(out.find("slot2_temp_offset_c") == std::string::npos); // OK sensors have no proposal line
+  ClimateHistory farSlot;
+  fillSpread(farSlot, 0, 6, 20.0f, 50.0f);
+  fillSpread(farSlot, 1, 6, 20.0f, 50.0f);
+  fillSpread(farSlot, 2, 6, 20.0f, 50.0f);
+  fillSpread(farSlot, 3, 6, 30.0f, 95.0f);
+  out = spreadOutput(farSlot);
+  assert(out.find("OUTLIER\nslot3_temp_offset_c=-5.0 slot3_rh_offset_pct=-10.0\n") != std::string::npos);
 
   // even count (4): the median is the mean of the two middle means: 20.0 and 20.2 give 20.1
   ClimateHistory even;

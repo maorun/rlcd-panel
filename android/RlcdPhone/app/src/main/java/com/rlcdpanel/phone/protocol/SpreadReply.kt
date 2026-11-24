@@ -31,6 +31,9 @@ data class SpreadReply(val outcome: Outcome) {
         /** Sensor name rule of `device_config.h`: 1 to 12 characters of A-Z, 0-9, space and minus. */
         private val NAME = Regex("[A-Za-z0-9 -]{1,12}")
 
+        /** Offset proposal line after an OUTLIER sensor: two `key=value` pairs. */
+        private val PROPOSAL = Regex("[a-z0-9_]+=-?[0-9.]+ [a-z0-9_]+=-?[0-9.]+")
+
         /** Parses the lines of a `SPREAD` frame (a `BEGIN` line is allowed). The first line decides the outcome. */
         fun parse(lines: List<String>): SpreadReply {
             val body = lines.filter { !it.startsWith("BEGIN ") }
@@ -46,7 +49,9 @@ data class SpreadReply(val outcome: Outcome) {
             val tempMedian = CalibrationReply.decimal(f["temp_median"])
             val rhMedian = CalibrationReply.decimal(f["rh_median"])
             if (words.size != 4 || n == null || tempMedian == null || rhMedian == null) throw ParseException(first)
-            val rows = body.drop(1).map { if (it.startsWith("SENSOR ")) row(it) else throw ParseException(it) }
+            // A proposal line (`<key>=<x> <key>=<x>`) follows each OUTLIER line; this parser does not use it yet.
+            val rows = body.drop(1).filter { !PROPOSAL.matches(it) }
+                .map { if (it.startsWith("SENSOR ")) row(it) else throw ParseException(it) }
             if (rows.size.toLong() != n) throw ParseException(first)
             return SpreadReply(Outcome.Measured(n, tempMedian, rhMedian, rows))
         }
