@@ -10403,7 +10403,8 @@ struct FakeConsoleStorage {
     return n;
   }
   void closeLog() { open = false; }
-  uint64_t totalBytes() { return 1000; }
+  uint64_t total_bytes = 1000;
+  uint64_t totalBytes() { return total_bytes; }
   uint64_t usedBytes() { return 250; }
 
   void add(const char* name, const std::string& data) {
@@ -15599,6 +15600,205 @@ void testSerialFrsiParser() {
   FakeSink quiet;
   TestRunner::execute(storage, quiet, cmd);
   assert(storage.mounts == 0 && quiet.out.empty());
+}
+
+namespace {
+using SelfStatus = SelfTestOutcome::Status;
+
+struct SelfTestFakes {
+  SelfTestOutcome shtc3 = SelfTestChecks::shtc3(Shtc3Result::OK, false);
+  SelfTestOutcome rtc = SelfTestChecks::rtc(true, true, false);
+  SelfTestOutcome battery = SelfTestChecks::battery(3900);
+  SelfTestOutcome mic = SelfTestOutcome::of(SelfStatus::OK, "L=OK,R=OK");
+  SelfTestOutcome ble = SelfTestChecks::bleScan(true);
+  int mic_runs = 0;
+  int ble_runs = 0;
+};
+
+std::string selfTestOutput(SelfTestFakes& f, FakeConsoleStorage& storage, bool over_ble = false, bool muted = false,
+                           bool quiet = false) {
+  FakeSink sink;
+  TestRunner::selfTest(
+      storage, sink, over_ble, muted, quiet, [&]() { return f.shtc3; }, [&]() { return f.rtc; }, [&]() { return f.battery; },
+      [&]() { ++f.mic_runs; return f.mic; }, [&]() { ++f.ble_runs; return f.ble; });
+  return sink.out;
+}
+} // namespace
+
+void testSerialSelfTestParser() {
+  SerialCommand cmd;
+  assert(parseText("SELFTEST", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SELFTEST);
+  assert(parseText("SELFTEST\r\n", cmd) == SerialParseStatus::OK);
+  assert(parseText("SELFTEST 1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("SELFTEST ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("SELFTESTX", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("selftest", cmd) == SerialParseStatus::UNKNOWN);
+  // BLE at each level; execute() ignores SELFTEST: no mount, no output
+  assert(parseText("SELFTEST", cmd) == SerialParseStatus::OK);
+  for (uint8_t level = 0; level <= 2; ++level) {
+    assert(std::string(BleConsoleBridge::gate(cmd, level)).empty());
+  }
+  FakeConsoleStorage storage;
+  FakeSink quiet;
+  TestRunner::execute(storage, quiet, cmd);
+  assert(storage.mounts == 0 && quiet.out.empty());
+}
+
+void testSerialSelfTestChecks() {
+  assert(std::string(SelfTestChecks::shtc3(Shtc3Result::OK, false).detail) == "READ");
+  assert(std::string(SelfTestChecks::shtc3(Shtc3Result::OK, true).detail) == "RETRIED");
+  assert(SelfTestChecks::shtc3(Shtc3Result::NACK, true).status == SelfStatus::FAIL);
+  assert(std::string(SelfTestChecks::shtc3(Shtc3Result::SHORT, false).detail) == "SHORT");
+  assert(std::string(SelfTestChecks::shtc3(Shtc3Result::CRC, false).detail) == "CRC");
+  assert(std::string(SelfTestChecks::rtc(false, false, false).detail) == "NO_RTC");
+  assert(std::string(SelfTestChecks::rtc(true, false, true).detail) == "OSC_STOPPED");
+  assert(std::string(SelfTestChecks::rtc(true, false, false).detail) == "READ_FAILED");
+  assert(SelfTestChecks::rtc(true, true, false).status == SelfStatus::OK);
+  assert(SelfTestChecks::card(true, 0).status == SelfStatus::OK && std::string(SelfTestChecks::card(true, 7).detail) == "free_mb=7");
+  assert(std::string(SelfTestChecks::card(true, -1).detail) == "SIZE_UNKNOWN");
+  // battery limits are inclusive: 2500 and 4400 pass, 2499 and 4401 fail
+  assert(SelfTestChecks::battery(2500).status == SelfStatus::OK && SelfTestChecks::battery(4400).status == SelfStatus::OK);
+  assert(SelfTestChecks::battery(2499).status == SelfStatus::FAIL && SelfTestChecks::battery(4401).status == SelfStatus::FAIL);
+  assert(std::string(SelfTestChecks::battery(2499).detail) == "mv=2499");
+  // microphone verdict from one reading
+  NoiseReading good;
+  good.mic.valid = true;
+  assert(SelfTestChecks::microphone(good).status == SelfStatus::OK);
+  NoiseReading none;
+  assert(std::string(SelfTestChecks::microphone(none).detail) == "NO_DATA");
+  NoiseReading dead = good;
+  dead.mic.channel[1] = MicStatus::SILENT;
+  assert(SelfTestChecks::microphone(dead).status == SelfStatus::FAIL && std::string(SelfTestChecks::microphone(dead).detail) == "L=OK,R=SILENT");
+  NoiseReading skew = good;
+  skew.mic.imbalance_db = 11;
+  assert(std::string(SelfTestChecks::microphone(skew).detail) == "IMBALANCE=11dB");
+  skew.mic.imbalance_db = 10;
+  assert(SelfTestChecks::microphone(skew).status == SelfStatus::OK);
+}
+
+void testSerialSelfTestReply() {
+  SelfTestFakes f;
+  FakeConsoleStorage storage;
+  std::string out = selfTestOutput(f, storage);
+  assert(out.rfind("BEGIN SELFTEST\nCHECK shtc3 OK READ\nCHECK rtc OK RUNNING\nCHECK sd OK free_mb=0\n", 0) == 0);
+  assert(out.find("CHECK battery OK mv=3900\nCHECK mic OK L=OK,R=OK\nCHECK ble OK SCAN\nEND SELFTEST pass=6 fail=0\nCRC32 ") != std::string::npos);
+  assert(calibCrcOk(out));
+  assert(storage.mounts == 1 && storage.unmounts == 1 && f.mic_runs == 1 && f.ble_runs == 1);
+  // the reply equals the shared fixture
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  std::ifstream in(root + "tests/fixtures/selftest_reply_sample.txt");
+  assert(in.good());
+  const std::string fixture((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  assert(out == fixture);
+
+  // each single FAIL
+  {
+    SelfTestFakes x;
+    x.shtc3 = SelfTestChecks::shtc3(Shtc3Result::CRC, true);
+    FakeConsoleStorage st;
+    out = selfTestOutput(x, st);
+    assert(out.find("CHECK shtc3 FAIL CRC\n") != std::string::npos && out.find("END SELFTEST pass=5 fail=1\n") != std::string::npos);
+    assert(calibCrcOk(out));
+  }
+  {
+    SelfTestFakes x;
+    x.rtc = SelfTestChecks::rtc(true, false, true);
+    FakeConsoleStorage st;
+    out = selfTestOutput(x, st);
+    assert(out.find("CHECK rtc FAIL OSC_STOPPED\n") != std::string::npos && out.find("pass=5 fail=1\n") != std::string::npos);
+  }
+  {
+    SelfTestFakes x;
+    FakeConsoleStorage st;
+    st.card = false; // no MicroSD card
+    out = selfTestOutput(x, st);
+    assert(out.find("CHECK sd FAIL NO_CARD\n") != std::string::npos && out.find("pass=5 fail=1\n") != std::string::npos);
+    assert(st.unmounts == 0 && calibCrcOk(out));
+  }
+  {
+    SelfTestFakes x;
+    x.battery = SelfTestChecks::battery(2400);
+    FakeConsoleStorage st;
+    out = selfTestOutput(x, st);
+    assert(out.find("CHECK battery FAIL mv=2400\n") != std::string::npos && out.find("pass=5 fail=1\n") != std::string::npos);
+  }
+  {
+    SelfTestFakes x;
+    x.mic = SelfTestOutcome::of(SelfStatus::FAIL, "L=OK,R=STUCK");
+    FakeConsoleStorage st;
+    out = selfTestOutput(x, st);
+    assert(out.find("CHECK mic FAIL L=OK,R=STUCK\n") != std::string::npos && out.find("pass=5 fail=1\n") != std::string::npos);
+  }
+  {
+    SelfTestFakes x;
+    x.ble = SelfTestChecks::bleScan(false);
+    FakeConsoleStorage st;
+    out = selfTestOutput(x, st);
+    assert(out.find("CHECK ble FAIL START_FAILED\n") != std::string::npos && out.find("pass=5 fail=1\n") != std::string::npos);
+  }
+  // SKIP paths: muted, quiet hours, BLE transport; the skipped check function never runs
+  {
+    SelfTestFakes x;
+    FakeConsoleStorage st;
+    out = selfTestOutput(x, st, false, true, false);
+    assert(out.find("CHECK mic SKIP MUTED\n") != std::string::npos && out.find("pass=5 fail=0\n") != std::string::npos && x.mic_runs == 0);
+    SelfTestFakes y;
+    FakeConsoleStorage st2;
+    out = selfTestOutput(y, st2, false, false, true);
+    assert(out.find("CHECK mic SKIP QUIET\n") != std::string::npos && y.mic_runs == 0);
+    SelfTestFakes z;
+    FakeConsoleStorage st3;
+    out = selfTestOutput(z, st3, true);
+    assert(out.find("CHECK ble SKIP CONSOLE\n") != std::string::npos && z.ble_runs == 0 && z.mic_runs == 1);
+    assert(out.find("pass=5 fail=0\n") != std::string::npos && calibCrcOk(out));
+  }
+  // a card with an unknown size fails with SIZE_UNKNOWN; the card unmounts
+  {
+    SelfTestFakes x;
+    FakeConsoleStorage st;
+    st.total_bytes = 0;
+    out = selfTestOutput(x, st);
+    assert(out.find("CHECK sd FAIL SIZE_UNKNOWN\n") != std::string::npos && st.unmounts == 1 && out.find("pass=5 fail=1\n") != std::string::npos);
+  }
+  // BLE transport and muted together: both checks skip, the other four run
+  {
+    SelfTestFakes x;
+    FakeConsoleStorage st;
+    out = selfTestOutput(x, st, true, true, false);
+    assert(out.find("CHECK mic SKIP MUTED\n") != std::string::npos && out.find("CHECK ble SKIP CONSOLE\n") != std::string::npos);
+    assert(out.find("pass=4 fail=0\n") != std::string::npos && x.mic_runs == 0 && x.ble_runs == 0);
+  }
+  // the microphone window powers the ADC and the bus down on each path
+  {
+    FakeMicHal ok_hal;
+    assert(SelfTestChecks::microphoneWindow(ok_hal).status == SelfStatus::OK);
+    assert(ok_hal.shutdown_calls == 1 && ok_hal.end_calls == 1);
+    FakeMicHal no_bus;
+    no_bus.bus_ok = false;
+    assert(std::string(SelfTestChecks::microphoneWindow(no_bus).detail) == "NO_DATA");
+    assert(no_bus.shutdown_calls == 1 && no_bus.end_calls == 1);
+    FakeMicHal no_adc;
+    no_adc.adc_ok = false;
+    assert(SelfTestChecks::microphoneWindow(no_adc).status == SelfStatus::FAIL);
+    assert(no_adc.shutdown_calls == 1 && no_adc.end_calls == 1);
+    FakeMicHal cut_read;
+    cut_read.reads_before_fail = 3;
+    assert(SelfTestChecks::microphoneWindow(cut_read).status == SelfStatus::FAIL);
+    assert(cut_read.shutdown_calls == 1 && cut_read.end_calls == 1);
+  }
+  // a short write ends the reply: no CRC32 line
+  {
+    SelfTestFakes x;
+    FakeConsoleStorage st;
+    FakeSink cut;
+    cut.limit = 20;
+    TestRunner::selfTest(
+        st, cut, false, false, false, [&]() { return x.shtc3; }, [&]() { return x.rtc; }, [&]() { return x.battery; },
+        [&]() { return x.mic; }, [&]() { return x.ble; });
+    assert(cut.out.find("CRC32") == std::string::npos);
+  }
 }
 
 void testSerialFrsiReply() {
@@ -24703,6 +24903,9 @@ testSerialConfigNegativeSmallOffset();
   testWallFactor();
   testSerialFrsiParser();
   testSerialFrsiReply();
+  testSerialSelfTestParser();
+  testSerialSelfTestChecks();
+  testSerialSelfTestReply();
   testSerialFrsiErrorsAndShortReplies();
   testMagnesiumReferenceTable();
   testRhGainCorrection();
@@ -24749,6 +24952,6 @@ testSerialConfigNegativeSmallOffset();
   testClimateRestoreNoChange();
   testClimateRestoreTailParsing();
   testSlotEnabledFeature();
-  printf("All 231 firmware logic test suites passed.\n");
+  printf("All 234 firmware logic test suites passed.\n");
   return 0;
 }
