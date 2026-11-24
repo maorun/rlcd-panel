@@ -27,11 +27,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Apply the SPREAD offset proposals in the Android calibration screen
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SpreadReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/CalibrationScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/SpreadReplyTest.kt`, `FEATURES.md`
-  - **Goal:** Let the user correct an outlier sensor from the phone. Parse the proposal lines of the `SPREAD` reply. Show an `Apply` button for each proposal in the co-location card of `CalibrationScreen`. Send the `SET` commands over the BLE console, then send `SPREAD` again. Show `ERR READ_ONLY` as a clear text for `ble_console` 1. Requires "Offset proposals in the console command SPREAD".
-  - **Acceptance:** `SpreadReplyTest` reads `tests/fixtures/spread_reply_sample.txt` and gives one proposal with two keys. A reply without proposal lines gives an empty list. A bad number throws `ParseException`. `gradle testDebugUnitTest` passes in `android/RlcdPhone`.
-  - **Rank:** [Total: 33, Use: 8, Setup: 9, Harmony: 8, Safety: 8, Effort: M]
 
 
 ## Priority 3: Display and Logging (Score 22–27)
