@@ -317,6 +317,17 @@ public:
     return Trend::STEADY;
   }
 
+  // Text of the console command STATUS: RISE, FALL, STEADY or -- for UNKNOWN.
+  static const char* statusText(Trend trend) {
+    switch (trend) {
+      case Trend::RISE: return "RISE";
+      case Trend::FALL: return "FALL";
+      case Trend::STEADY: return "STEADY";
+      case Trend::UNKNOWN: break;
+    }
+    return "--";
+  }
+
   static Trend temperature(const TemperatureHistory& history) {
     const size_t n = history.size();
     if (n <= LOOKBACK_HOURS) {

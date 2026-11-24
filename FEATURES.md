@@ -3014,3 +3014,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The firmware keeps the `EVENTS_DROPPED` row for `EVENTS <N>` only when N covers all stored events. With `EVENTS 5` the text `Events lost` shows only while the ring holds 5 or fewer events.
 - Tests: `ReplyTests` assert `EVENTS 1`, `EVENTS 5` and `EVENTS 16`, `nil` for 0 and 17, and the parse of a 5-row reply with and without the `EVENTS_DROPPED` row, and the cut of a 7-row reply to the newest 5.
 - Validation: `swift build -c release` passed. `swift test` did not run on the local host (no `TestingMacros` plugin without Xcode), so the CI job `macOS companion tests` runs it. A standalone harness of `Sources/RlcdProtocol/*.swift` checked the same assertions and passed.
+
+## Trend fields in the STATUS SENSOR lines
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/sparkline.h`, `tests/test_firmware_logic.cpp`, `tests/fixtures/status_reply_sample.txt`
+- Each `SENSOR` line of the console command `STATUS` now ends with ` temp_trend=<RISE|FALL|STEADY|-->` and ` rh_trend=<RISE|FALL|STEADY|-->` after `mold_h=`.
+- The fields use `TrendClassifier::temperature` and `TrendClassifier::humidity` of the 24-hour histories. These are the same rules as the trend marks of the tiles. The new helper `TrendClassifier::statusText` gives the text.
+- The fields show `--` for `Trend::UNKNOWN`, for example with 3 samples, and for each slot that is empty, disabled or stale.
+- The firmware calculates the fields on each `STATUS`. It adds no RTC state. The line count, the RTC layout and `STATE_VERSION` do not change. The macOS, Android and Wear OS `StatusReply` parsers ignore the new fields.
+- Tests: host tests assert `RISE`, `FALL` and `STEADY` at the exact thresholds (0.5 C, 3.0 %RH), `--` for 3 samples, an empty slot and a stale slot, and one full `SENSOR` line. `tests/fixtures/status_reply_sample.txt` holds the fields with a new CRC-32.

@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Trend fields in the STATUS SENSOR lines
-  - Rank: [Total: 31, Use: 6, Setup: 6, Harmony: 9, Safety: 10, Effort: S]
-  - Location: rlcd_panel/serial_console.h, rlcd_panel/sparkline.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp, tests/fixtures/status_reply_sample.txt, AGENTS.md, FEATURES.md
-  - Goal: Append ` temp_trend=<RISE|FALL|STEADY|-->` and ` rh_trend=<RISE|FALL|STEADY|-->` after `mold_h=` to each `SENSOR` line of `STATUS`. Use `TrendClassifier::temperature` and `TrendClassifier::humidity` of the 24-hour histories of the sensor, the same rules as the trend marks of the tiles. Give `--` for `Trend::UNKNOWN` and for an empty, disabled or stale slot. Calculate the fields on each `STATUS`. Do not add RTC state. Do not change the line count, the RTC layout or `STATE_VERSION`. Keep the macOS, Android and Wear OS `StatusReply` parsers unchanged, because they ignore unknown fields.
-  - Acceptance test: Host tests in `tests/test_firmware_logic.cpp` assert `RISE`, `FALL` and `STEADY` at the exact thresholds (0.5 C, 3.0 %RH), `--` for 3 samples, for an empty slot and for a stale slot, and the full `SENSOR` line with fixed histories. Update `tests/fixtures/status_reply_sample.txt` and assert that `StatusReplyTest` of the phone and the watch and `ReplyTests` of macOS still pass. Run `c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp -o test_runner && ./test_runner && rm -f test_runner` and `arduino-cli compile rlcd_panel`.
-
 - [ ] Trend arrows in the macOS sensor list
   - Rank: [Total: 30, Use: 7, Setup: 4, Harmony: 9, Safety: 10, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift, FEATURES.md
