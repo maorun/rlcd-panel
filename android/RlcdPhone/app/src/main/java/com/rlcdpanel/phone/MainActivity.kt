@@ -47,6 +47,8 @@ import com.rlcdpanel.phone.protocol.FrsiCommand
 import com.rlcdpanel.phone.protocol.FrsiReply
 import com.rlcdpanel.phone.protocol.FrsiText
 import com.rlcdpanel.phone.protocol.SaltCommand
+import com.rlcdpanel.phone.protocol.SpreadCommand
+import com.rlcdpanel.phone.protocol.SpreadReply
 import com.rlcdpanel.phone.protocol.SaltReply
 import com.rlcdpanel.phone.protocol.SaltText
 import com.rlcdpanel.phone.protocol.TwoPointCalibration
@@ -306,6 +308,7 @@ class MainActivity : ComponentActivity() {
                     onPickFrsiWall = { calibState = calibState.copy(frsiWall = it, frsi = null, message = null, isError = false) },
                     onFrsi = { withConsolePermission { readFrsi() } },
                     onApplyFrsi = { withConsolePermission { applyFrsi() } },
+                    onSpread = { withConsolePermission { readSpread() } },
                     onBack = { closeCalibration() }
                 )
                 BackHandler { closeCalibration() }
@@ -1444,6 +1447,22 @@ class MainActivity : ComponentActivity() {
                     calibState.copy(isBusy = false, isError = true, message = "Antwort nicht lesbar: ${e.line.take(80)}")
                 }
                 is ConsoleReply.Status -> calibState.copy(isBusy = false, isError = true, message = FrsiText.status(reply.line))
+                else -> calibState.copy(isBusy = false, isError = true, message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
+    /** Sends `SPREAD` after a tap. A lost link shows the text of [BleConsoleClient.errorText]. */
+    private fun readSpread() {
+        stopBleScan()
+        calibState = calibState.copy(isBusy = true, isError = false, message = null, spread = null)
+        consoleClient.send(SpreadCommand.LINE) { reply ->
+            calibState = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    calibState.copy(isBusy = false, spread = SpreadReply.parse(reply.lines))
+                } catch (e: ParseException) {
+                    calibState.copy(isBusy = false, isError = true, message = "Antwort nicht lesbar: ${e.line.take(80)}")
+                }
                 else -> calibState.copy(isBusy = false, isError = true, message = BleConsoleClient.errorText(reply))
             }
         }
