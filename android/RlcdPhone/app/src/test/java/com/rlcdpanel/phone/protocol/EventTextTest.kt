@@ -23,6 +23,12 @@ class EventTextTest {
         assertEquals("Slot 3 signal good", EventText.describe(row("RECEPTION_LOW", 0x0003)))
         assertEquals("RECEPTION_LOW,256", EventText.describe(row("RECEPTION_LOW", 0x0100)))
         assertEquals("RECEPTION_LOW,523", EventText.describe(row("RECEPTION_LOW", 0x020B)))
+        assertEquals("Wall damp (tile 3)", EventText.describe(row("WALL_DAMP", 0x0103)))
+        assertEquals("Wall dry again (Onboard)", EventText.describe(row("WALL_DAMP", 0x0000)))
+        assertEquals("Dry air (tile 10)", EventText.describe(row("DRY_AIR", 0x010A)))
+        assertEquals("Air humidity good (tile 1)", EventText.describe(row("DRY_AIR", 0x0001)))
+        assertEquals("WALL_DAMP,512", EventText.describe(row("WALL_DAMP", 0x0200)))
+        assertEquals("DRY_AIR,11", EventText.describe(row("DRY_AIR", 0x000B)))
     }
 
     @Test

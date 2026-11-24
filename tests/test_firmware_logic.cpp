@@ -20065,7 +20065,7 @@ void testEventLog() {
       {0, 17},                        // count above 16
       {3 + 0, 2},                     // time flag above 1
       {3 + 8, 0},                     // code NONE in a used entry
-      {3 + 8, 24},                    // code above the last
+      {3 + 8, 26},                    // code above the last
       {3 + 3, 13},                    // month 13
       {3 + 4, 32},                    // day 32
       {3 + 5, 24},                    // hour 24
@@ -20205,7 +20205,7 @@ void testResetAndSlotEvents() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.events.at(0).code == EventCode::SLOT_RELEASE);
   const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE;
-  buf[base + 3 + 8] = 24;
+  buf[base + 3 + 8] = 26;
   const uint32_t crc = PowerManager::crc32(buf, PowerManager::SERIALIZED_SIZE - 4);
   for (int i = 0; i < 4; ++i) buf[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   PersistentState bad;
@@ -20301,11 +20301,15 @@ void testConfigSetEvents() {
   items[0].code = static_cast<EventCode>(23);
   assert(back.restore(1, 0, items) && back.at(0).code == EventCode::RECEPTION_LOW);
   items[0].code = static_cast<EventCode>(24);
+  assert(back.restore(1, 0, items) && back.at(0).code == EventCode::WALL_DAMP);
+  items[0].code = static_cast<EventCode>(25);
+  assert(back.restore(1, 0, items) && back.at(0).code == EventCode::DRY_AIR);
+  items[0].code = static_cast<EventCode>(26);
   assert(!back.restore(1, 0, items));
 }
 
 void testSensorBatteryEvents() {
-  assert(static_cast<uint8_t>(EventCode::SENSOR_BATTERY) == 19 && EventRing::MAX_CODE == 23);
+  assert(static_cast<uint8_t>(EventCode::SENSOR_BATTERY) == 19 && EventRing::MAX_CODE == 25);
   RtcTime t;
   t.valid = true;
   t.year = 2026;
@@ -20596,7 +20600,7 @@ void testWindowLatchLogic() {
 }
 
 void testWindowLatchEvents() {
-  assert(static_cast<uint8_t>(EventCode::WINDOW_OPEN) == 22 && EventRing::MAX_CODE == 23);
+  assert(static_cast<uint8_t>(EventCode::WINDOW_OPEN) == 22 && EventRing::MAX_CODE == 25);
   assert(strcmp(SdLogCodec::eventName(EventCode::WINDOW_OPEN), "WINDOW_OPEN") == 0);
   RtcTime t;
   t.valid = true;
@@ -20624,6 +20628,47 @@ void testWindowLatchEvents() {
   // A limit set to 0 clears the bits: one close event for each open tile
   s.recordWindowChanges(0x404, 0, t);
   assert(s.events.size() == 6 && s.events.at(4).detail == 0x0002 && s.events.at(5).detail == 0x000A);
+}
+
+void testWallDryAirEvents() {
+  assert(static_cast<uint8_t>(EventCode::WALL_DAMP) == 24 && static_cast<uint8_t>(EventCode::DRY_AIR) == 25);
+  assert(EventRing::MAX_CODE == 25);
+  assert(strcmp(SdLogCodec::eventName(EventCode::WALL_DAMP), "WALL_DAMP") == 0);
+  assert(strcmp(SdLogCodec::eventName(EventCode::DRY_AIR), "DRY_AIR") == 0);
+  RtcTime t;
+  t.valid = true;
+  t.year = 2026;
+  t.month = 11;
+  t.day = 24;
+  PersistentState s;
+  // An equal mask records nothing
+  s.recordWallChanges(0, 0, t);
+  s.recordWallChanges(0x5, 0x5, t);
+  s.recordDryChanges(0x5, 0x5, t);
+  assert(s.events.size() == 0);
+  // One event for each changed bit, lowest tile first
+  s.recordWallChanges(0, 0x5, t);
+  assert(s.events.size() == 2);
+  assert(s.events.at(0).code == EventCode::WALL_DAMP && s.events.at(0).detail == 0x0100);
+  assert(s.events.at(1).code == EventCode::WALL_DAMP && s.events.at(1).detail == 0x0102);
+  s.recordWallChanges(0x5, 0x4, t);
+  assert(s.events.size() == 3 && s.events.at(2).detail == 0x0000);
+  s.recordDryChanges(0, 0x401, t);
+  assert(s.events.size() == 5);
+  assert(s.events.at(3).code == EventCode::DRY_AIR && s.events.at(3).detail == 0x0100);
+  assert(s.events.at(4).code == EventCode::DRY_AIR && s.events.at(4).detail == 0x010A);
+  s.recordDryChanges(0x401, 0x400, t);
+  assert(s.events.size() == 6 && s.events.at(5).code == EventCode::DRY_AIR && s.events.at(5).detail == 0x0000);
+  // A bit above bit 10 records nothing
+  s.recordWallChanges(0, 0x0800, t);
+  s.recordDryChanges(0, 0x0800, t);
+  assert(s.events.size() == 6);
+  // resetSlot records nothing
+  const size_t before = s.events.size();
+  s.wall_tiles = 0x2;
+  s.dry_tiles = 0x2;
+  s.resetSlot(0);
+  assert(s.events.size() == before && s.wall_tiles == 0 && s.dry_tiles == 0);
 }
 
 void testWindowLatchRtcRoundTrip() {
@@ -20953,7 +20998,7 @@ void testWallTilesRtcAndPreview() {
 }
 
 void testScanFaultEvents() {
-  assert(static_cast<uint8_t>(EventCode::SCAN_FAULT) == 21 && EventRing::MAX_CODE == 23);
+  assert(static_cast<uint8_t>(EventCode::SCAN_FAULT) == 21 && EventRing::MAX_CODE == 25);
   assert(PowerManager::STATE_VERSION == 75);
   RtcTime t;
   t.valid = true;
@@ -21008,7 +21053,7 @@ void testScanFaultEvents() {
 }
 
 void testJumpDropEvents() {
-  assert(static_cast<uint8_t>(EventCode::JUMP_DROP) == 20 && EventRing::MAX_CODE == 23);
+  assert(static_cast<uint8_t>(EventCode::JUMP_DROP) == 20 && EventRing::MAX_CODE == 25);
   RtcTime t;
   t.valid = true;
   t.year = 2026;
@@ -21092,7 +21137,7 @@ void testJumpDropEvents() {
 }
 
 void testShtc3FaultEvents() {
-  assert(static_cast<uint8_t>(EventCode::SHTC3_FAULT) == 18 && EventRing::MAX_CODE == 23);
+  assert(static_cast<uint8_t>(EventCode::SHTC3_FAULT) == 18 && EventRing::MAX_CODE == 25);
   auto step = [](Shtc3Health& h, Shtc3Result r) {
     const uint8_t previous = h.run;
     h.record(r);
@@ -21116,7 +21161,7 @@ void testShtc3FaultEvents() {
 void testPowerSourceEvents() {
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 19; t1.hour = 9; t1.minute = 0; t1.second = 0;
-  assert(static_cast<uint8_t>(EventCode::POWER_SOURCE) == 15 && EventRing::MAX_CODE == 23);
+  assert(static_cast<uint8_t>(EventCode::POWER_SOURCE) == 15 && EventRing::MAX_CODE == 25);
   auto reading = [](bool valid, bool usb) {
     BatteryReading r;
     r.valid = valid;
@@ -21140,7 +21185,7 @@ void testPowerSourceEvents() {
 void testSlotStaleEvents() {
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 18; t1.hour = 9; t1.minute = 0; t1.second = 0;
-  assert(static_cast<uint8_t>(EventCode::SLOT_STALE) == 14 && EventRing::MAX_CODE == 23);
+  assert(static_cast<uint8_t>(EventCode::SLOT_STALE) == 14 && EventRing::MAX_CODE == 25);
   auto reading = [](uint8_t last) {
     SwitchBotReading r;
     r.valid = true;
@@ -21212,7 +21257,7 @@ void testSlotStaleEvents() {
 void testReceptionLowEvents() {
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 24; t1.hour = 9; t1.minute = 0; t1.second = 0;
-  assert(static_cast<uint8_t>(EventCode::RECEPTION_LOW) == 23 && EventRing::MAX_CODE == 23);
+  assert(static_cast<uint8_t>(EventCode::RECEPTION_LOW) == 23 && EventRing::MAX_CODE == 25);
   assert(std::string(SdLogCodec::eventName(EventCode::RECEPTION_LOW)) == "RECEPTION_LOW");
   auto reading = [](uint8_t last) {
     SwitchBotReading r;
@@ -21306,7 +21351,7 @@ void testReceptionLowEvents() {
 void testSdFaultEvents() {
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 15; t1.hour = 9; t1.minute = 0; t1.second = 0;
-  assert(static_cast<uint8_t>(EventCode::SD_FAULT) == 12 && static_cast<uint8_t>(EventCode::ALERT_ACK) == 13 && EventRing::MAX_CODE == 23);
+  assert(static_cast<uint8_t>(EventCode::SD_FAULT) == 12 && static_cast<uint8_t>(EventCode::ALERT_ACK) == 13 && EventRing::MAX_CODE == 25);
   const int32_t ok = static_cast<int32_t>(SdStatus::OK);
   assert(SdStatusCodec::faultEventDetail(SdStatus::OK, SdStatus::WRITE_FAILED) ==
          static_cast<int32_t>(SdStatus::WRITE_FAILED));
@@ -21340,7 +21385,7 @@ void testSdFaultEvents() {
   items[0].detail = 1;
   EventRing ring;
   assert(ring.restore(1, 0, items) && ring.at(0).code == EventCode::SD_FAULT);
-  items[0].code = static_cast<EventCode>(24);
+  items[0].code = static_cast<EventCode>(26);
   assert(!ring.restore(1, 0, items));
 }
 
@@ -22276,7 +22321,7 @@ void testSerialMuteCommand() {
     TestRunner::setMute(s5, flag, 1, nullptr, nullptr, 1); // no ring: the flag changes, no event
     assert(flag && mute_events.size() == 2);
     // EventRing accepts code 17 and rejects code 18
-    assert(EventRing::MAX_CODE == 23);
+    assert(EventRing::MAX_CODE == 25);
   }
   TestRunner::execute(storage, sink, cmd);
   assert(storage.mounts == 0); // execute() ignores MUTE
@@ -24730,6 +24775,7 @@ int main() {
   testWindowLatchConfig();
   testWindowLatchLogic();
   testWindowLatchEvents();
+  testWallDryAirEvents();
   testWindowLatchRtcRoundTrip();
   testWindowBadgeAndPreviewScene();
   testWallLatchLogic();

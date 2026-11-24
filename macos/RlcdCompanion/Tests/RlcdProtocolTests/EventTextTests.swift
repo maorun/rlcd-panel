@@ -195,6 +195,12 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("RECEPTION_LOW", 0x0100)) == "RECEPTION_LOW,256")
         #expect(EventText.describe(row("RECEPTION_LOW", 0x020B)) == "RECEPTION_LOW,523")
         #expect(EventFilter.category(of: "RECEPTION_LOW") == .sensors)
+        #expect(EventText.describe(row("WALL_DAMP", 0x0103)) == "Wall damp (Slot 3)")
+        #expect(EventText.describe(row("WALL_DAMP", 0x0000)) == "Wall dry again (Onboard)")
+        #expect(EventText.describe(row("DRY_AIR", 0x010A)) == "Dry air (Slot 10)")
+        #expect(EventText.describe(row("DRY_AIR", 0x0001)) == "Air humidity good (Slot 1)")
+        #expect(EventText.describe(row("WALL_DAMP", 0x0200)) == "WALL_DAMP,512")
+        #expect(EventText.describe(row("DRY_AIR", 0x000B)) == "DRY_AIR,11")
     }
 
     @Test func slotStaleGivesLostAndBack() {

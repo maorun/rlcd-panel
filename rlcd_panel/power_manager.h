@@ -313,11 +313,27 @@ struct PersistentState {
   // slots) in the low byte, high byte 1 for an open window, 0 for a closed one. A limit set to 0 clears the bits, so
   // it records the close events of the open tiles.
   void recordWindowChanges(uint16_t previous, uint16_t current, const RtcTime& now) {
-    const uint16_t changed = static_cast<uint16_t>((previous ^ current) & WindowLatch::ALL_MASK);
-    for (size_t i = 0; i < WindowLatch::TILE_COUNT; ++i) {
+    recordTileChanges(EventCode::WINDOW_OPEN, previous, current, WindowLatch::ALL_MASK, WindowLatch::TILE_COUNT, now);
+  }
+
+  // Records one WALL_DAMP event for each changed bit between two wall_tiles values: the tile (0 onboard, 1 to 10
+  // slots) in the low byte, high byte 1 for a damp wall, 0 for a dry wall again.
+  void recordWallChanges(uint16_t previous, uint16_t current, const RtcTime& now) {
+    recordTileChanges(EventCode::WALL_DAMP, previous, current, WallLatch::ALL_MASK, WallLatch::TILE_COUNT, now);
+  }
+
+  // Records one DRY_AIR event for each changed bit between two dry_tiles values: same detail layout as WALL_DAMP.
+  void recordDryChanges(uint16_t previous, uint16_t current, const RtcTime& now) {
+    recordTileChanges(EventCode::DRY_AIR, previous, current, DryLatch::ALL_MASK, DryLatch::TILE_COUNT, now);
+  }
+
+  void recordTileChanges(EventCode code, uint16_t previous, uint16_t current, uint16_t mask, size_t tile_count,
+                         const RtcTime& now) {
+    const uint16_t changed = static_cast<uint16_t>((previous ^ current) & mask);
+    for (size_t i = 0; i < tile_count; ++i) {
       const uint16_t bit = static_cast<uint16_t>(1u << i);
       if ((changed & bit) != 0) {
-        events.record(now, EventCode::WINDOW_OPEN, static_cast<uint16_t>(((current & bit) != 0 ? 0x0100u : 0u) | i));
+        events.record(now, code, static_cast<uint16_t>(((current & bit) != 0 ? 0x0100u : 0u) | i));
       }
     }
   }
