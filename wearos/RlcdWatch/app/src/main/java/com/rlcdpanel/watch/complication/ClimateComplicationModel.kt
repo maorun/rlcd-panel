@@ -3,6 +3,7 @@ package com.rlcdpanel.watch.complication
 import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.protocol.TelemetryFrame
+import com.rlcdpanel.watch.ventilation.VentilationGuide
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -69,6 +70,59 @@ data class ClimateComplicationModel(
                 roomName = roomName,
                 hasAlert = hasAlert,
                 alertNames = alerts.names
+            )
+        }
+    }
+}
+
+/**
+ * Content of the ventilation advice complication. [word] is `Lüften`, `Zu` or `--`; [title] is
+ * the absolute humidity difference in g/m3 (`+2.3`) or `--`. Both show `--` for an empty cache,
+ * a failed decode, a stale frame, a room without reading and a missing outdoor source.
+ */
+data class VentilationComplicationModel(
+    val word: String,
+    val title: String,
+    val roomName: String = ""
+) {
+    val isEmpty: Boolean get() = word == PLACEHOLDER
+
+    companion object {
+        const val PLACEHOLDER = "--"
+
+        fun empty(roomName: String = "") = VentilationComplicationModel(PLACEHOLDER, PLACEHOLDER, roomName)
+
+        /** Reads the focused room and the outdoor source from [cache]. It does not scan BLE. */
+        fun build(
+            cache: TelemetryCache,
+            nowMillis: Long,
+            config: PanelConfig = PanelConfig()
+        ): VentilationComplicationModel {
+            val focused = cache.focusedRoom()
+            val roomName = config.tileName(focused)
+            val page = focused / TelemetryFrame.TILES_PER_PAGE
+            val cached = cache.read(page = page)
+            if (cached == null || cached.isStale(nowMillis)) {
+                return empty(roomName)
+            }
+            val tile = cached.frame.tiles.getOrNull(focused % TelemetryFrame.TILES_PER_PAGE)
+            if (tile == null || !tile.isValid) {
+                return empty(roomName)
+            }
+            val outdoor = cache.readOutdoor()
+            val outdoorPage = outdoor.slotIndex?.let { it / TelemetryFrame.TILES_PER_PAGE } ?: page
+            val outdoorCached = if (outdoorPage == page) cached else cache.read(page = outdoorPage)
+            val advice = VentilationGuide.advise(
+                tile.temperatureC, tile.humidityPct, focused, outdoor, outdoorCached, nowMillis
+            ) ?: return empty(roomName)
+            val word = VentilationGuide.shortWord(advice)
+            if (word == PLACEHOLDER) {
+                return empty(roomName)
+            }
+            return VentilationComplicationModel(
+                word = word,
+                title = VentilationGuide.shortDifference(advice),
+                roomName = roomName
             )
         }
     }

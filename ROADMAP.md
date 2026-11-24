@@ -83,12 +83,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Ventilation advice complication on the Wear OS watch face
-  - Rank: [Total: 22, Use: 5, Setup: 0, Harmony: 7, Safety: 10, Effort: S]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/complication/ClimateComplicationService.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/complication/ClimateComplicationModel.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/ventilation/VentilationGuide.kt, wearos/RlcdWatch/app/src/main/AndroidManifest.xml, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/complication/ClimateComplicationModelTest.kt, FEATURES.md
-  - Goal: Add a second complication data source with the `SHORT_TEXT` type. Show the `VentilationGuide` advice of the focused room from the `TelemetryCache` frame as one short word (`Lüften`, `Zu`, `--`) and the absolute humidity difference as the title. Show `--` for an empty cache, a failed decode and a frame older than 35 minutes. Refresh with the update period of the climate complication.
-  - Acceptance test: `ClimateComplicationModelTest` asserts the text for each advice, for an old frame and for an empty cache. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`. Install the APK with `./scripts/install-watch-apk.sh` and add the complication to a watch face.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

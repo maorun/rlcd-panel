@@ -1,5 +1,8 @@
 package com.rlcdpanel.watch.ventilation
 
+import com.rlcdpanel.watch.protocol.CachedOutdoor
+import com.rlcdpanel.watch.protocol.CachedTelemetry
+import com.rlcdpanel.watch.protocol.TelemetryFrame
 import java.util.Locale
 import kotlin.math.exp
 
@@ -77,6 +80,62 @@ object VentilationGuide {
         val dampfdruck = saettigungsDampfdruck * (relFeuchteProzent / 100.0)
         return (dampfdruck * 216.74) / (tempCelsius + 273.15)
     }
+
+    /**
+     * Advice for the focused room from cached data, or null. No advice without an outdoor
+     * source, for the outdoor tile as focused room, for a stale outdoor frame and for an
+     * Open-Meteo reading older than 1 hour. The advice never assumes an open window.
+     */
+    fun advise(
+        indoorTempC: Double?,
+        indoorRhPct: Double?,
+        focusedRoom: Int,
+        outdoor: CachedOutdoor?,
+        outdoorCached: CachedTelemetry?,
+        nowMillis: Long
+    ): VentilationEmpfehlung? {
+        if (outdoor == null || indoorTempC == null || indoorRhPct == null) {
+            return null
+        }
+        val outTemp: Double?
+        val outRh: Double?
+        val slot = outdoor.slotIndex
+        if (slot != null) {
+            if (slot == focusedRoom || outdoorCached == null || outdoorCached.isStale(nowMillis)) {
+                return null
+            }
+            val outTile = outdoorCached.frame.tiles.getOrNull(slot % TelemetryFrame.TILES_PER_PAGE)
+            if (outdoorCached.frame.page != slot / TelemetryFrame.TILES_PER_PAGE ||
+                outTile == null || !outTile.isValid
+            ) {
+                return null
+            }
+            outTemp = outTile.temperatureC
+            outRh = outTile.humidityPct
+        } else {
+            val meteo = outdoor.meteo
+            if (meteo == null || meteo.isStale(nowMillis)) {
+                return null
+            }
+            outTemp = meteo.tempC
+            outRh = meteo.rhPct
+        }
+        if (outTemp == null || outRh == null) {
+            return null
+        }
+        return analysiereLueftung(indoorTempC, indoorRhPct, outTemp, outRh)
+    }
+
+    /** One short word for a watch face: `Lüften`, `Zu` or `--`. */
+    fun shortWord(advice: VentilationEmpfehlung?): String = when (advice?.aktion) {
+        VentilationAction.LUEFTUNG_STARTEN -> "Lüften"
+        VentilationAction.NICHT_LUEFTEN, VentilationAction.NEUTRAL -> "Zu"
+        else -> "--"
+    }
+
+    /** Absolute humidity difference (indoor minus outdoor) in g/m3, for example `+2.3`. */
+    fun shortDifference(advice: VentilationEmpfehlung): String =
+        String.format(Locale.US, "%+.1f", Math.round(advice.daten.differenz * 10) / 10.0)
 
     private fun formatNumber(value: Double): String {
         return if (value % 1.0 == 0.0) {

@@ -97,36 +97,7 @@ data class ClimateTileModel(
             outdoorCached: CachedTelemetry?,
             nowMillis: Long
         ): String? {
-            if (outdoor == null || indoorTempC == null || indoorRhPct == null) {
-                return null
-            }
-            val outTemp: Double?
-            val outRh: Double?
-            val slot = outdoor.slotIndex
-            if (slot != null) {
-                if (slot == focusedRoom || outdoorCached == null || outdoorCached.isStale(nowMillis)) {
-                    return null
-                }
-                val outTile = outdoorCached.frame.tiles.getOrNull(slot % TelemetryFrame.TILES_PER_PAGE)
-                if (outdoorCached.frame.page != slot / TelemetryFrame.TILES_PER_PAGE ||
-                    outTile == null || !outTile.isValid
-                ) {
-                    return null
-                }
-                outTemp = outTile.temperatureC
-                outRh = outTile.humidityPct
-            } else {
-                val meteo = outdoor.meteo
-                if (meteo == null || meteo.isStale(nowMillis)) {
-                    return null
-                }
-                outTemp = meteo.tempC
-                outRh = meteo.rhPct
-            }
-            if (outTemp == null || outRh == null) {
-                return null
-            }
-            return VentilationGuide.analysiereLueftung(indoorTempC, indoorRhPct, outTemp, outRh)?.titel
+            return VentilationGuide.advise(indoorTempC, indoorRhPct, focusedRoom, outdoor, outdoorCached, nowMillis)?.titel
         }
 
         fun formatAge(ageMillis: Long): String {

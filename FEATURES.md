@@ -1707,6 +1707,15 @@ The Wear OS app shows the radio signal of one sensor. The sensor health screen s
 - No `config.ini` key and no firmware change.
 - Tests: `ClimateComplicationModelTest` (text of the `two_tiles` vector for two rooms, empty cache, frame of 36 minutes, bad CRC-8, room without reading, ranged value 0 to 100, alert mark `!21.4°` for mask 0x02, no mark for mask 0, a stale frame and an empty cache, text length of 7 or less for `!-10.5°`). The local machine has no Android SDK, so CI runs `gradle testDebugUnitTest assembleDebug`.
 
+## Ventilation advice complication on the Wear OS watch face
+
+- `VentilationComplicationService` (`complication` package, extends `ComplicationDataSourceService`) is a second complication data source next to `ClimateComplicationService`. It supports only `SHORT_TEXT`: the text is one word (`Lüften`, `Zu` or `--`), the title is the absolute humidity difference of the focused room minus the outdoor air in g/m3 (`+2.3`, `-1.4`, `--`). A tap opens `MainActivity`.
+- `VentilationComplicationModel.build` reads the focused room and the outdoor source from `TelemetryCache`. It does not scan BLE. `Lüften` is `LUEFTUNG_STARTEN`; every other advice without an open window (`NICHT_LUEFTEN`, `NEUTRAL`) gives `Zu`. An empty cache, a failed decode, a frame older than 35 minutes, a room without a valid reading, no outdoor source, the outdoor tile as focused room, a stale outdoor frame and an Open-Meteo reading older than 1 hour give `--` for text and title.
+- `VentilationGuide.advise` holds the shared outdoor resolution; `ClimateTileModel` uses it too, so tile and complication agree. `VentilationGuide.shortWord` and `shortDifference` format the text.
+- `BleScanService` refreshes it through `ClimateComplicationService.requestUpdate` for each new sequence number. The manifest uses `UPDATE_PERIOD_SECONDS` 0 like the climate complication.
+- No `config.ini` key and no firmware change.
+- Tests: `ClimateComplicationModelTest` (`Lüften`, `Zu` for a wetter outdoor, equal air and a dry room, difference text, frame of 35 and 36 minutes, empty cache, bad CRC-8, missing outdoor source and outdoor sensor slot). The local machine has no Android SDK, so CI runs `gradle testDebugUnitTest assembleDebug`.
+
 ## Restore of the seven-day history from the daily file
 
 - **Code:** `rlcd_panel/sd_logger.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/rlcd_panel.ino`.

@@ -64,10 +64,60 @@ class ClimateComplicationService : ComplicationDataSourceService() {
     }
 
     companion object {
-        /** Asks the system to redraw each complication of this service after the cache changed. */
+        /**
+         * Asks the system to redraw each complication of this service and of
+         * [VentilationComplicationService] after the cache, the focus or the outdoor source changed.
+         */
         fun requestUpdate(context: Context) {
             ComplicationDataSourceUpdateRequester
                 .create(context, ComponentName(context, ClimateComplicationService::class.java))
+                .requestUpdateAll()
+            VentilationComplicationService.requestUpdate(context)
+        }
+    }
+}
+
+/**
+ * Watch face complication with the ventilation advice of the focused room (`SHORT_TEXT`). It reads
+ * [TelemetryCache] and does not scan BLE. A tap opens [MainActivity].
+ */
+class VentilationComplicationService : ComplicationDataSourceService() {
+
+    override fun getPreviewData(type: ComplicationType): ComplicationData? =
+        build(type, VentilationComplicationModel("Lüften", "+2.3"))
+
+    override fun onComplicationRequest(
+        request: ComplicationRequest,
+        listener: ComplicationRequestListener
+    ) {
+        val model = VentilationComplicationModel.build(TelemetryCache(this), System.currentTimeMillis(), PanelConfig.load(this))
+        listener.onComplicationData(build(request.complicationType, model))
+    }
+
+    private fun build(type: ComplicationType, model: VentilationComplicationModel): ComplicationData? {
+        if (type != ComplicationType.SHORT_TEXT) {
+            return null
+        }
+        val tap = PendingIntent.getActivity(
+            this,
+            0,
+            Intent(this, MainActivity::class.java),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+        )
+        val description = if (model.roomName.isEmpty()) "Ventilation ${model.word}" else "${model.roomName} Ventilation ${model.word}"
+        return ShortTextComplicationData.Builder(
+            PlainComplicationText.Builder(model.word).build(),
+            PlainComplicationText.Builder(description).build()
+        )
+            .setTitle(PlainComplicationText.Builder(model.title).build())
+            .setTapAction(tap)
+            .build()
+    }
+
+    companion object {
+        fun requestUpdate(context: Context) {
+            ComplicationDataSourceUpdateRequester
+                .create(context, ComponentName(context, VentilationComplicationService::class.java))
                 .requestUpdateAll()
         }
     }
