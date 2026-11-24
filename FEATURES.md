@@ -2825,3 +2825,15 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The one-line errors `ERR LOW_DELTA` and `ERR NO_OUTDOOR` show as text in the section. `ERR BAD_ARG` shows as a message.
 - Tests: `CalibrationTests` assert the shared fixture `tests/fixtures/frsi_reply_sample.txt`, each other outcome, `ParseError.badLine` for `frsi=x`, the out-of-range proposal, the command line and the batch text `SET wall_frsi_pct=70`, `CONFIG`.
 - Validation: `swift test -Xswiftc -plugin-path -Xswiftc /Library/Developer/CommandLineTools/usr/lib/swift/host/plugins/testing` (589 tests) and `swift build -c release` in `macos/RlcdCompanion`.
+
+## Salt test progress in the macOS calibration view
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/SaltProgress.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/SaltProgressTests.swift`
+- `ConsoleCommand.historySensor(N)` sends `HISTORY N` (N 0 to 10, another number gives no line). The reply parses with `HistoryReply.parse`.
+- `SaltProgress.stableHours(rows:sensor:)` counts the newest hours of one sensor, from age 0 on, whose humidity span stays at or below 1.0 %RH (same limit as `SALT N`). A missing hour or an hour that raises the span above the limit ends the count, so an unstable newest hour resets it to 1.
+- `SaltProgress` is a pure state machine with an injected clock. `intervalSeconds` is 600 and `maxDurationSeconds` is 28,800. `text` gives `Stable <n>/6 h` and `hoursRemaining` gives the hours until 6 stable hours. `StopReason` is `user`, `viewClosed`, `timeout`, `linkLost` or `replyFailed`; the first reason stays.
+- `CalibrationView` has the toggle `Watch salt test` in the salt section. `AppModel.setSaltWatch` sends `HISTORY N` for the selected sensor at once and then every 10 minutes while the console is idle. The watch stops on the toggle, on a closed view, on a lost link, on a transport change, on `ERR`, on a missing reply, on a corrupt reply and after 8 hours. The watch reads its own reply and leaves `AppModel.history` unchanged.
+- While the watch runs, `Check NaCl` stays disabled until 6 stable hours. The `SALT N` check itself stays a user action.
+- No firmware change, no RTC layout change, no `STATE_VERSION` change.
+- Tests: `SaltProgressTests` assert the stable hour count for a fixed `HistoryReply`, the reset after an unstable hour, a gap, the inclusive 1.0 %RH limit, the text, the remaining hours, the 8-hour stop with a fake clock, the first stop reason and the command line.
+- Validation: `swift test` (601 tests) and `swift build -c release` passed in `macos/RlcdCompanion`. With `maxSpanPct` set to 100 the new tests fail.

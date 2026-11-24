@@ -517,6 +517,8 @@ public struct ConfigReply: Equatable {
 /// The console commands that the app may send. The app sends one only after a user action.
 public enum ConsoleCommand: Equatable {
     case status, history, events, week, config, version, scan, screen
+    /// `HISTORY N` (N 0 to 10): the 24-hour history of one sensor.
+    case historySensor(Int)
     /// `REJECTS`: the packets that the last BLE scan rejected (works on USB and on BLE).
     case rejects
     case list
@@ -642,6 +644,7 @@ public enum ConsoleCommand: Equatable {
         switch self {
         case .status: return "STATUS"
         case .history: return "HISTORY"
+        case let .historySensor(n): return (0...10).contains(n) ? "HISTORY \(n)" : nil
         case .events: return "EVENTS"
         case .week: return "WEEK"
         case .config: return "CONFIG"

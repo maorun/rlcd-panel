@@ -81,12 +81,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Port `ScanSeries` to Kotlin `SignalSeries` with an injected clock. Keep the last 10 RSSI values of each MAC in 15 s windows: minimum, mean, maximum and missed windows. Show the values in each row of `SensorFinderScreen`, so the user can move a sensor to a place with a stable signal. Stop the series when the screen stops, after 10 minutes and on a lost scan permission.
   - Acceptance test: `SignalSeriesTest` asserts the statistics, the window limit of 10, the missed window count and the stop after 10 minutes with a fake clock. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`.
 
-- [ ] Salt test progress in the macOS calibration view
-  - Rank: [Total: 31, Use: 4, Setup: 9, Harmony: 8, Safety: 10, Effort: M]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/SaltProgress.swift, macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/SaltProgressTests.swift, FEATURES.md
-  - Goal: Add a `Watch salt test` toggle to `CalibrationView`. While it is on, send `HISTORY <N>` every 10 minutes and stop after 8 hours, on a lost link and on an `ERR` reply. `SaltProgress` calculates the count of stable hours (span of the newest hours at or below 1.0 %RH) and the hours until 6 stable hours. Show `Stable <n>/6 h` and enable the `SALT N` button at 6 stable hours.
-  - Acceptance test: `SaltProgressTests` assert the stable hour count for a fixed `HistoryReply`, a reset after an unstable hour and the stop rules with a fake clock. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
-
 - [ ] Event code for a low BLE reception rate
   - Rank: [Total: 30, Use: 5, Setup: 8, Harmony: 8, Safety: 9, Effort: S]
   - Location: rlcd_panel/switchbot_ble.h, rlcd_panel/power_manager.h, rlcd_panel/sd_logger.h, rlcd_panel/rlcd_panel.ino, tests/test_firmware_logic.cpp, macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/EventText.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/EventText.kt, AGENTS.md, FEATURES.md

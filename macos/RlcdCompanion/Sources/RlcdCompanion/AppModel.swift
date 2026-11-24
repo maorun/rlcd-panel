@@ -60,11 +60,15 @@ final class AppModel: ConsoleLinkDelegate {
     /// RSSI series of the repeated scan; runs only on a user toggle and on the USB link.
     var scanSeries = ScanSeries()
     private var repeatTask: Task<Void, Never>?
+    private var saltWatchTask: Task<Void, Never>?
     var panelImage: PanelImage?
     var calibration: CalibrationReply?
     var calibrationReference = 0
     var salt: SaltReply?
     var saltSensor = 0
+    /// Watch of the salt test: `HISTORY N` every 10 minutes for at most 8 hours.
+    var saltProgress = SaltProgress()
+    private(set) var saltWatchSensor = 0
     var saltSelected = true
     /// Result of `SALT N MGCL2`: the second point of the two-point calibration.
     var saltMagnesium: SaltReply?
@@ -452,6 +456,7 @@ final class AppModel: ConsoleLinkDelegate {
 
     func disconnectConsole() {
         stopRepeatScan(.user)
+        stopSaltWatch(.user)
         scanResult = nil; panelImage = nil; rejectsResult = nil
         calibration = nil
         clearArchive()
@@ -467,6 +472,7 @@ final class AppModel: ConsoleLinkDelegate {
 
     func selectTransport(_ t: Transport) {
         stopRepeatScan(.user)
+        stopSaltWatch(.user)
         scanResult = nil; panelImage = nil; rejectsResult = nil
         calibration = nil
         clearArchive()
@@ -897,6 +903,43 @@ final class AppModel: ConsoleLinkDelegate {
         }
     }
 
+    /// Starts or stops the salt test watch: `HISTORY N` every 10 minutes for at most 8 hours.
+    func setSaltWatch(_ on: Bool, sensor: Int) {
+        guard on else { stopSaltWatch(.user); return }
+        guard consoleConnected else { message = "Connect the console first"; return }
+        guard ConsoleCommand.historySensor(sensor).line != nil else { message = "Sensor must be 0 to 10"; return }
+        guard pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        message = nil
+        saltWatchSensor = sensor
+        saltProgress.start()
+        saltWatchTask?.cancel()
+        saltWatchTask = Task { [weak self] in
+            // `self` is not held across the sleep, so a closed window can free the model.
+            while !Task.isCancelled {
+                guard let go = self?.pollSaltWatch(sensor: sensor), go else { return }
+                try? await Task.sleep(for: .seconds(SaltProgress.intervalSeconds))
+            }
+        }
+    }
+
+    /// One tick of the salt watch. A tick while another command runs is skipped without a catch-up; the next tick reads the same 24 hours.
+    /// Returns false when the watch is over. The toggle is the user action;
+    /// the watch also runs on BLE, where the firmware allows `HISTORY` at each `ble_console` level.
+    private func pollSaltWatch(sensor: Int) -> Bool {
+        guard saltProgress.shouldPoll() else { return false }
+        if pendingCommand == nil, queue.isEmpty, batch == nil {
+            queue = [.historySensor(sensor)]
+            sendNext()
+        }
+        return true
+    }
+
+    func stopSaltWatch(_ reason: SaltProgress.StopReason) {
+        saltProgress.stop(reason)
+        saltWatchTask?.cancel()
+        saltWatchTask = nil
+    }
+
     func stopRepeatScan(_ reason: ScanSeries.StopReason) {
         scanSeries.stop(reason)
         repeatTask?.cancel()
@@ -1242,6 +1285,7 @@ final class AppModel: ConsoleLinkDelegate {
             failReport(reason: "no reply", pending: cmd)
             if case .dump = cmd { archiveSummary = "Download stopped, saved \(downloadStats.saved), failed \(downloadStats.failed)" }
             if cmd == .scan { scanResult = nil; stopRepeatScan(.scanFailed) } // no reply ends the repeat
+            if case .historySensor = cmd { stopSaltWatch(.replyFailed) }
             if cmd == .screen { panelImage = nil }
             if cmd == .rejects { rejectsResult = nil }
             pendingCommand = nil
@@ -1289,6 +1333,7 @@ final class AppModel: ConsoleLinkDelegate {
                 status = nil // the sensor list of a lost link must not feed the slot choice of the next one
                 setup?.linkLost(state)
                 stopRepeatScan(.linkLost)
+                stopSaltWatch(.linkLost)
                 scanResult = nil // the slot column of a lost link is stale
                 panelImage = nil
                 rejectsResult = nil
@@ -1326,6 +1371,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if cmd == .screen { panelImage = nil } // a rejected frame must not stay next to the error
                 if cmd == .rejects { rejectsResult = nil }
                 if cmd == .scan { stopRepeatScan(.scanFailed) }
+                if case .historySensor = cmd { stopSaltWatch(.replyFailed) }
                 // A wrong CRC-32 follows a complete frame, so the stream stays in step and the next file may follow.
                 // Any other error leaves the stream out of step.
                 if case .badCrc = e, case .dump = cmd {} else { queue.removeAll() }
@@ -1362,6 +1408,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if cmd == .rejects { rejectsResult = nil }
                 if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
                 if cmd == .scan, text.hasPrefix("ERR") { stopRepeatScan(.scanFailed) }
+                if case .historySensor = cmd, text.hasPrefix("ERR") { stopSaltWatch(.replyFailed) }
                 batch?.receive(status: text)
                 if text.hasPrefix("ERR"), !keepQueue { queue.removeAll() }
                 // A failed ACK still reads STATUS, so the row follows the panel (the alert may have cleared).
@@ -1390,6 +1437,10 @@ final class AppModel: ConsoleLinkDelegate {
                 version = nil
                 version = try VersionReply.parse(lines: lines)
             case let (.history, .frame(lines)): history = try HistoryReply.parse(lines: lines)
+            case let (.historySensor(n), .frame(lines)):
+                // The watch reads its own reply; the shared history rows stay as they are.
+                saltProgress.record(rows: try HistoryReply.parse(lines: lines), sensor: n)
+                if !saltProgress.isRunning { stopSaltWatch(saltProgress.stopReason ?? .timeout) }
             case let (.week, .frame(lines)):
                 week = [] // a reply that fails to parse must not leave the old rows
                 week = try WeekReply.parse(lines: lines)
@@ -1461,6 +1512,7 @@ final class AppModel: ConsoleLinkDelegate {
         } catch {
             message = "Reply not understood: \(error)"
             if cmd == .scan { stopRepeatScan(.scanFailed) }
+            if case .historySensor = cmd { stopSaltWatch(.replyFailed) }
         }
     }
 

@@ -46,6 +46,7 @@ struct CalibrationView: View {
                 frsiSection
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
+        .onDisappear { model.stopSaltWatch(.viewClosed) }
     }
 
     /// Humidity check of one sensor in a closed box with saturated sodium chloride (6 hours at least).
@@ -58,13 +59,24 @@ struct CalibrationView: View {
                 Picker("Sensor", selection: $model.saltSensor) {
                     ForEach(model.calibrationSensors, id: \.self) { Text($0 == 0 ? "Onboard" : "Slot \($0)").tag($0) }
                 }.frame(maxWidth: 220)
+                    .disabled(model.saltProgress.isRunning) // the watch counts the hours of this sensor
                     .onChange(of: model.calibrationSensors) { _, sensors in
                         if !sensors.contains(model.saltSensor) { model.saltSensor = 0 }
                     }
                 Button("Check NaCl") { model.saltCheck(sensor: model.saltSensor) }
-                    .disabled(!model.isIdle)
+                    .disabled(!model.isIdle || (model.saltProgress.isRunning && !model.saltProgress.isReady))
                 Button("Check MgCl2") { model.saltMagnesiumCheck(sensor: model.saltSensor) }
                     .disabled(!model.isIdle)
+            }
+            Toggle("Watch salt test", isOn: Binding(
+                get: { model.saltProgress.isRunning },
+                set: { model.setSaltWatch($0, sensor: model.saltSensor) }))
+            if model.saltProgress.isRunning || model.saltProgress.stopReason != nil {
+                Text("\(model.saltProgress.isRunning ? "Sensor \(model.saltWatchSensor): " : "")" + model.saltProgress.text + (model.saltProgress.isReady ? "" : ", \(model.saltProgress.hoursRemaining) h to go"))
+                    .font(.caption)
+                if let reason = model.saltProgress.stopReason, !model.saltProgress.isRunning {
+                    Text(Self.text(reason)).font(.caption).foregroundStyle(.secondary)
+                }
             }
             if let reply = model.salt {
                 switch reply.outcome {
@@ -159,6 +171,16 @@ struct CalibrationView: View {
             Button("Apply two-point result") { model.applyTwoPoint() }
                 .disabled(!model.isIdle)
             if let text = model.twoPointMessage { Text(text).font(.caption).foregroundStyle(.red) }
+        }
+    }
+
+    private static func text(_ r: SaltProgress.StopReason) -> String {
+        switch r {
+        case .user: return "Watch stopped."
+        case .viewClosed: return "Watch stopped: the view closed."
+        case .timeout: return "Watch stopped after 8 hours."
+        case .linkLost: return "Watch stopped: the link was lost."
+        case .replyFailed: return "Watch stopped: the panel gave no usable HISTORY reply."
         }
     }
 
