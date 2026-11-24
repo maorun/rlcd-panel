@@ -97,6 +97,82 @@ struct ClimateLogTests {
         #expect(l2.rows[0].noiseBand == "QUIET")
     }
 
+    @Test func batteryFieldsOfEachFormat() throws {
+        let rows = [
+            try ClimateLog.parse(text: Self.headerV6 + "\n" + Self.rowV6).rows[0],
+            try ClimateLog.parse(text: Self.headerV5 + "\n" + Self.rowV5).rows[0],
+            try ClimateLog.parse(text: Self.headerV4 + "\n" + Self.rowV4).rows[0],
+            try ClimateLog.parse(text: Self.headerV3 + "\n2026-09-01 09:00:00,70,3.90,0,20.0,40.5,,,,,,,,,,1000,45,QUIET,2").rows[0],
+            try ClimateLog.parse(text: Self.headerV2 + "\n2026-08-01 09:00:00,,,,20.0,40.5,,,,,,,,,,1000,45,QUIET").rows[0],
+        ]
+        #expect(rows.map(\.batteryPct) == [85, 85, 70, 70, nil])
+        #expect(rows.map(\.batteryV) == [4.05, 4.05, 3.90, 3.90, nil])
+        #expect(rows.map(\.usb) == [true, true, false, false, nil])
+    }
+
+    @Test func panelBatterySeriesPointsAndUsbRanges() throws {
+        func row(_ hour: Int, _ v: String, _ usb: String) -> String {
+            let h = String(format: "%02d", hour)
+            return "2026-11-14 \(h):00:00,80,\(v),\(usb)" + String(repeating: ",", count: 23)
+        }
+        let text = ([Self.headerV5, row(0, "4.10", "1"), row(1, "4.12", "1"), row(2, "4.00", "0"), row(3, "", "1"),
+                     row(4, "3.95", ""), row(5, "3.90", "1")]).joined(separator: "\n")
+        let series = PanelBatterySeries(rows: try ClimateLog.parse(text: text).rows)
+        #expect(series.points.map(\.volts) == [4.10, 4.12, 4.00, 3.95, 3.90])
+        #expect(series.usbRanges == [
+            .init(start: "2026-11-14 00:00:00", end: "2026-11-14 01:00:00"),
+            .init(start: "2026-11-14 03:00:00", end: "2026-11-14 03:00:00"),
+            .init(start: "2026-11-14 05:00:00", end: "2026-11-14 05:00:00"),
+        ])
+        // The end date covers the hour after the last USB row (Berlin time).
+        let first = try #require(series.usbRanges[0].startDate)
+        let end = try #require(series.usbRanges[0].endDate)
+        #expect(end.timeIntervalSince(first) == 2 * 3600)
+        #expect(try #require(series.usbRanges[1].endDate).timeIntervalSince(try #require(series.usbRanges[1].startDate)) == 3600)
+    }
+
+    @Test func panelBatteryUsbRunEndsAtLogGap() throws {
+        func row(_ time: String, _ usb: String) -> String {
+            "2026-11-14 \(time),80,4.00,\(usb)" + String(repeating: ",", count: 23)
+        }
+        // 01:00 to 05:00 is a gap of 4 h; 05:00 to 06:30 is exactly the 90 minute limit; 08:00 is a gap of 90 min + 30 s.
+        let text = [Self.headerV5, row("00:00:00", "1"), row("01:00:00", "1"), row("05:00:00", "1"),
+                    row("06:30:00", "1"), row("08:00:30", "1")].joined(separator: "\n")
+        let series = PanelBatterySeries(rows: try ClimateLog.parse(text: text).rows)
+        #expect(series.usbRanges == [
+            .init(start: "2026-11-14 00:00:00", end: "2026-11-14 01:00:00"),
+            .init(start: "2026-11-14 05:00:00", end: "2026-11-14 06:30:00"),
+            .init(start: "2026-11-14 08:00:30", end: "2026-11-14 08:00:30"),
+        ])
+    }
+
+    @Test func panelBatterySeriesWithoutVoltageIsEmpty() throws {
+        let line = "2026-11-14 11:00:00" + String(repeating: ",", count: 26)
+        let series = PanelBatterySeries(rows: try ClimateLog.parse(text: Self.headerV5 + "\n" + line).rows)
+        #expect(series.isEmpty)
+        #expect(series.usbRanges.isEmpty)
+        #expect(PanelBatterySeries(rows: []).isEmpty)
+    }
+
+    @Test func panelBatteryUsbRunSurvivesDstChange() throws {
+        func rows(_ times: [String]) throws -> [ClimateRow] {
+            let lines = times.map { "\($0),80,4.00,1" + String(repeating: ",", count: 23) }
+            return try ClimateLog.parse(text: ([Self.headerV5] + lines).joined(separator: "\n")).rows
+        }
+        // Spring forward 2026-03-29: 02:00 does not exist, so 01:00 to 03:00 is one real hour.
+        let spring = PanelBatterySeries(rows: try rows(["2026-03-29 01:00:00", "2026-03-29 03:00:00", "2026-03-29 04:00:00"]))
+        #expect(spring.usbRanges == [.init(start: "2026-03-29 01:00:00", end: "2026-03-29 04:00:00")])
+        // Fall back 2026-10-25: 02:00 occurs twice, the log holds one row for it.
+        let fall = PanelBatterySeries(rows: try rows(["2026-10-25 01:00:00", "2026-10-25 02:00:00", "2026-10-25 03:00:00"]))
+        #expect(fall.usbRanges == [.init(start: "2026-10-25 01:00:00", end: "2026-10-25 03:00:00")])
+    }
+
+    @Test func panelBatteryDatesUseBerlinTime() throws {
+        // 2026-11-14 10:00 in Berlin (CET, UTC+1) is 09:00 UTC.
+        let date = try #require(PanelBatterySeries.date("2026-11-14 10:00:00"))
+        #expect(date.timeIntervalSince1970 == 1_794_646_800)
+    }
+
     @Test func emptyRowFieldsGiveNil() throws {
         let line = "2026-11-14 11:00:00" + String(repeating: ",", count: 26)
         let r = try ClimateLog.parse(text: Self.headerV5 + "\n" + line).rows[0]

@@ -89,12 +89,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Add the next two free `EventCode` values `WALL_DAMP` and `DRY_AIR`. Record one event for each changed bit of `wall_tiles` and `dry_tiles` with the same detail layout as `WINDOW_OPEN` (low byte tile 0 to 10, high byte 1 set, 0 clear). Use the pattern of `PersistentState::recordWindowChanges`. `resetSlot` and a power-on record nothing. Do not change the RTC layout and `STATE_VERSION`. Add the texts `Wall damp (<tile>)`, `Wall dry again (<tile>)`, `Dry air (<tile>)` and `Air humidity good (<tile>)` to `EventText` in the three apps.
   - Acceptance test: Host tests assert one event for each changed bit, no event for an equal mask and the detail bytes. The event text tests of the three apps assert the texts. Run the host test command, `arduino-cli compile rlcd_panel`, `swift test` and `gradle testDebugUnitTest` in both Kotlin apps.
 
-- [ ] Panel cell battery chart in the macOS climate charts
-  - Rank: [Total: 26, Use: 5, Setup: 5, Harmony: 6, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/ClimateLog.swift, macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/ClimateLogTests.swift, FEATURES.md
-  - Goal: Read the `battery_pct`, `battery_v` and `usb` columns of the climate log rows. Show one chart of the panel cell voltage for the selected month. Mark the hours on USB power with a shaded band. Show `No battery data` when no row has a voltage.
-  - Acceptance test: `ClimateLogTests` assert the parsed battery fields for each log format, `nil` for an empty field and the USB hour ranges. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
-
 - [ ] Feels-like and absolute humidity curves in the Android history screen
   - Rank: [Total: 25, Use: 6, Setup: 1, Harmony: 8, Safety: 10, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/HistoryScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/HistoryReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ClimateMath.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/HistoryReplyTest.kt, FEATURES.md

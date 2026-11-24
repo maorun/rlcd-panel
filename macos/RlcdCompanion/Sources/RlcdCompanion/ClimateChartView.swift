@@ -93,6 +93,34 @@ struct ClimateChartView: View {
         }
     }
 
+    /// One chart of the panel cell voltage; a shaded band marks each run of hours on USB power.
+    @ViewBuilder private var panelBatteryView: some View {
+        let series = PanelBatterySeries(rows: data.rows)
+        Text("Panel cell").font(.headline)
+        if series.isEmpty {
+            Text("No battery data").font(.caption2).foregroundStyle(.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Cell voltage (V), shaded: USB power").font(.caption).foregroundStyle(.secondary)
+                Chart {
+                    ForEach(Array(series.usbRanges.enumerated()), id: \.offset) { _, range in
+                        if let start = range.startDate, let end = range.endDate {
+                            RectangleMark(xStart: .value("USB from", start), xEnd: .value("USB to", end))
+                                .foregroundStyle(.gray.opacity(0.25))
+                        }
+                    }
+                    ForEach(Array(series.points.enumerated()), id: \.offset) { _, point in
+                        if let date = PanelBatterySeries.date(point.timestamp) {
+                            LineMark(x: .value("Time", date), y: .value("Cell voltage", point.volts))
+                        }
+                    }
+                }
+                .chartYScale(domain: .automatic(includesZero: false))
+                .frame(height: 110)
+            }
+        }
+    }
+
     private func compareTitle(_ metric: ClimateCompare.Metric) -> String {
         switch metric {
         case .temperature: return "Temperature (\(temperatureUnit))"
@@ -201,6 +229,7 @@ struct ClimateChartView: View {
                     Text("Noise").font(.headline)
                     chart("Noise level (dB)", noise)
                 }
+                if mode == .sensors && !data.rows.isEmpty { panelBatteryView }
                 if !data.failedFiles.isEmpty {
                     Text("Unreadable: \(data.failedFiles.joined(separator: ", "))")
                         .font(.caption).foregroundStyle(.red)

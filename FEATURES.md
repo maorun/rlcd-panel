@@ -1417,6 +1417,11 @@ The Wear OS app shows the radio signal of one sensor. The sensor health screen s
 - `ClimateChartView` also shows the forecast for a slot that has no climate values in the selected month, when an earlier month of the window holds battery data.
 - `BatteryForecastTests` cover a line of 1 % per week from 80 %, the rows after a rise from 12 % to 100 %, a rise of 9 % and of 10 %, 6 days and exactly 7 days of data, the 60-day window, unsorted rows and gaps, a drop of 2 %, a flat and a rising line, the onboard sensor, a reached limit, a line across the DST change, `ClimateLog.earlierMonth`, and the limit from a config, from a value of 0 and the default.
 
+## Panel cell battery chart in the macOS climate charts
+- `PanelBatterySeries` (`ClimateLog.swift`) reads the `battery_v` and `usb` columns of the `ClimateRow` list of one month (`climate_v2` to `climate_v6`). `points` holds each row with a voltage; an empty field gives no point. `usbRanges` holds each run of consecutive rows with `usb` 1 (first and last timestamp); a row with `usb` 0 or an empty field ends a run.
+- `ClimateChartView` shows the section `Panel cell` in the `Sensors` mode: one line chart of the cell voltage with a gray band for each USB run (the last USB row covers the following hour). It shows `No battery data` when no row has a voltage. The app sends no console command and the firmware does not change.
+- `ClimateLogTests` cover the battery fields of each log format, `nil` for an empty field, the points, the USB ranges (run of two rows, single rows, an empty `usb` field) and the empty series.
+
 ## Second stats page for slots 4 and 5
 
 - **Code:** `rlcd_panel/dashboard_view.h`, `rlcd_panel/button_handler.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`
