@@ -1,0 +1,6 @@
+BEGIN TAIL 3
+timestamp,battery_pct,battery_v,usb,onboard_temp_c,onboard_rh,s1_temp_c,s1_rh,s1_battery_pct,s2_temp_c,s2_rh,s2_battery_pct,s3_temp_c,s3_rh,s3_battery_pct,s4_temp_c,s4_rh,s4_battery_pct,s5_temp_c,s5_rh,s5_battery_pct,s6_temp_c,s6_rh,s6_battery_pct,s7_temp_c,s7_rh,s7_battery_pct,s8_temp_c,s8_rh,s8_battery_pct,s9_temp_c,s9_rh,s9_battery_pct,s10_temp_c,s10_rh,s10_battery_pct,noise_rms,noise_db,noise_band,noise_events,noise_l10,noise_l90
+2026-03-28 23:00:00,87,4.00,1,21.5,45.0,-3.5,80.0,90,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+2026-03-01 03:00:00,87,4.00,1,21.5,45.0,-3.5,80.0,90,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+2026-03-01 04:00:00,87,4.00,1,21.5,45.0,-3.5,80.0,90,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,
+CRC32 187185f9
