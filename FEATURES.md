@@ -2955,3 +2955,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `EVENTS 0`, `EVENTS 17`, a leading zero, a non-digit and extra text give `ERR BAD_ARG`. `EVENTS` without an argument keeps its reply.
 - The command uses only the RTC copy. It does not clear the ring and needs no card. It runs on USB and on BLE at each `ble_console` level, so the apps read a few events with fewer BLE notifications.
 - Host tests cover each parse form, `EVENTS 1`, `EVENTS 16` against `EVENTS` for a full ring, the `EVENTS_DROPPED` rule, the `CRC32` line, the unchanged ring and the format of `tests/fixtures/events_reply_sample.txt`.
+
+## Co-location check screen on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/SpreadReply.kt`, `SpreadScreen.kt`, `SensorHealthScreen.kt`, `MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/SpreadReplyTest.kt`, `scripts/check-protocol-sync.sh`
+- `SpreadReply.kt` is a copy of the phone file. `scripts/check-protocol-sync.sh` now lists it in `FILES`, so a difference between the two copies fails the check.
+- `SpreadScreen` (`ScalingLazyColumn`) shows the temperature median, the humidity median and one chip for each sensor with both deviations. A `⚠` mark shows each `OUTLIER` row. `SKIP` shows `Put 3 or more sensors at one place for 6 hours`.
+- `SensorHealthScreen` has the chip `Co-location check`, which opens the screen. The watch sends `SPREAD` over the BLE console only after a tap on `Read SPREAD`. A lost link or a timeout shows the text of `BleConsoleClient.errorText`.
+- Validation: `SpreadReplyTest` reads `tests/fixtures/spread_reply_sample.txt` and asserts the same values as the phone test. It runs in CI only (no Android SDK on the local host).

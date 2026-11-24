@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Co-location check screen on the Wear OS watch
-  - Rank: [Total: 32, Use: 4, Setup: 9, Harmony: 9, Safety: 10, Effort: M]
-  - Location: wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SpreadScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/SpreadReply.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConsoleWire.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt, wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt, wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/SpreadReplyTest.kt, scripts/check-protocol-sync.sh, FEATURES.md
-  - Goal: Copy `SpreadReply.kt` from the phone into the watch protocol package. Add `SpreadReply.kt` to the `FILES` list of `scripts/check-protocol-sync.sh`. Add a `SpreadScreen` (`ScalingLazyColumn`) with the two medians and one chip for each sensor with both deviations and a `⚠` mark for each outlier. Open the screen from one entry in `SensorHealthScreen`. Send `SPREAD` over the BLE console only on a user action. This entry needs the entry "Co-location check in the Android calibration screen".
-  - Acceptance test: `SpreadReplyTest` in the watch reads `tests/fixtures/spread_reply_sample.txt` and asserts the same values as the phone test. `./scripts/check-protocol-sync.sh` exits 0 and `./scripts/check-protocol-sync.sh --self-test` exits 0. Run `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch`.
-
 - [ ] Newest climate rows screen in the Android app
   - Rank: [Total: 31, Use: 6, Setup: 7, Harmony: 8, Safety: 10, Effort: S]
   - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/TailScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TailReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TailCommand.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/TailCommandTest.kt, FEATURES.md
