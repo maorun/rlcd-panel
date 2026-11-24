@@ -32,7 +32,6 @@ import com.rlcdpanel.phone.console.BleConsoleClient
 import com.rlcdpanel.phone.finder.FoundSensor
 import com.rlcdpanel.phone.finder.SensorFinderList
 import com.rlcdpanel.phone.protocol.SetupAssistant
-import com.rlcdpanel.phone.protocol.StatusReply
 import com.rlcdpanel.phone.finder.SensorFinderScanner
 import com.rlcdpanel.phone.finder.SlotAssignment
 import com.rlcdpanel.phone.protocol.AckCommand
