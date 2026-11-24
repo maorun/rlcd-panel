@@ -14512,10 +14512,21 @@ void testSerialHistoryShortWriteAndNoCard() {
 
 void testSerialEventsParser() {
   SerialCommand cmd;
-  assert(parseText("EVENTS", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::EVENTS);
+  assert(parseText("EVENTS", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::EVENTS &&
+         !cmd.events_newest);
   assert(parseText("EVENTS\r\n", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::EVENTS);
-  assert(parseText("EVENTS 1", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
-  assert(parseText("EVENTS ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("EVENTS 1", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::EVENTS);
+  assert(cmd.events_newest && cmd.reference == 1);
+  assert(parseText("EVENTS 9", cmd) == SerialParseStatus::OK && cmd.events_newest && cmd.reference == 9);
+  assert(parseText("EVENTS 10\r\n", cmd) == SerialParseStatus::OK && cmd.events_newest && cmd.reference == 10);
+  assert(parseText("EVENTS 16", cmd) == SerialParseStatus::OK && cmd.events_newest && cmd.reference == 16);
+  const char* bad_args[] = {"EVENTS 0", "EVENTS 17", "EVENTS 99", "EVENTS 01", "EVENTS 00", "EVENTS 1x", "EVENTS x",
+                            "EVENTS -1", "EVENTS +1", "EVENTS 1 2", "EVENTS 1  ", "EVENTS  1", "EVENTS ", "EVENTS 100",
+                            "EVENTS 1.5"};
+  for (const char* text : bad_args) {
+    assert(parseText(text, cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+    assert(!cmd.events_newest && cmd.reference == 0);
+  }
   assert(parseText("events", cmd) == SerialParseStatus::UNKNOWN);
   assert(parseText("EVENTSX", cmd) == SerialParseStatus::UNKNOWN);
   assert(std::string(SerialConsole::errorLine(SerialParseStatus::BAD_ARG)) == "ERR BAD_ARG\n");
@@ -14574,6 +14585,88 @@ void testSerialEventsEmptyOneAndFull() {
   assert(lines[17].find("NTP_SYNC,15") != std::string::npos);
   const std::string expected = eventsExpected(ring, now);
   assert(full.out == expected + historyCrcLine(expected) + "\n");
+}
+
+void testSerialEventsNewest() {
+  const RtcTime now = eventsClock(12);
+  const std::string head = "BEGIN EVENTS\ntime,event,detail\n";
+  EventRing ring;
+  for (int i = 0; i < 5; ++i) {
+    ring.record(eventsClock(static_cast<uint8_t>(8 + i)), EventCode::NTP_SYNC, static_cast<uint16_t>(i));
+  }
+  const EventRing before = ring;
+  // EVENTS 1: the newest row only
+  FakeSink one;
+  TestRunner::showEvents(one, ring, now, 1);
+  const std::vector<std::string> one_lines = splitLines(one.out);
+  assert(one_lines.size() == 2 + 1 + 1);
+  assert(one_lines[2].find("NTP_SYNC,4") != std::string::npos);
+  const std::string one_body = head + one_lines[2] + "\n";
+  assert(one.out == one_body + historyCrcLine(one_body) + "\n");
+  // EVENTS 3: the three newest rows, oldest first
+  FakeSink three;
+  TestRunner::showEvents(three, ring, now, 3);
+  const std::vector<std::string> three_lines = splitLines(three.out);
+  assert(three_lines.size() == 2 + 3 + 1);
+  assert(three_lines[2].find("NTP_SYNC,2") != std::string::npos && three_lines[4].find("NTP_SYNC,4") != std::string::npos);
+  // N at or above the stored count equals EVENTS
+  FakeSink all;
+  TestRunner::showEvents(all, ring, now);
+  FakeSink cover5;
+  TestRunner::showEvents(cover5, ring, now, 5);
+  FakeSink cover16;
+  TestRunner::showEvents(cover16, ring, now, 16);
+  assert(cover5.out == all.out && cover16.out == all.out);
+  assert(before.size() == ring.size() && before.dropped() == ring.dropped()); // the ring stays
+  for (size_t i = 0; i < ring.size(); ++i) {
+    assert(before.at(i).code == ring.at(i).code && before.at(i).detail == ring.at(i).detail);
+  }
+
+  // Full ring: EVENTS 16 equals EVENTS
+  EventRing full;
+  for (int i = 0; i < 16; ++i) {
+    full.record(eventsClock(static_cast<uint8_t>(8 + (i % 10))), EventCode::NTP_SYNC, static_cast<uint16_t>(i));
+  }
+  FakeSink full_all;
+  TestRunner::showEvents(full_all, full, now);
+  FakeSink full_16;
+  TestRunner::showEvents(full_16, full, now, 16);
+  assert(full_all.out == full_16.out);
+  FakeSink full_15;
+  TestRunner::showEvents(full_15, full, now, 15);
+  assert(splitLines(full_15.out).size() == 2 + 15 + 1);
+  assert(full_15.out.find("NTP_SYNC,0\n") == std::string::npos);
+
+  // EVENTS_DROPPED only when the ring lost events and N covers all stored events
+  EventRing lost;
+  for (int i = 0; i < 18; ++i) {
+    lost.record(eventsClock(10), EventCode::CONFIG_LOAD, static_cast<uint16_t>(i));
+  }
+  assert(lost.size() == EventRing::CAPACITY && lost.dropped() == 2);
+  FakeSink lost_all;
+  TestRunner::showEvents(lost_all, lost, now, 16);
+  assert(splitLines(lost_all.out)[2] == "2026-11-14 12:05:09,EVENTS_DROPPED,2");
+  assert(splitLines(lost_all.out).size() == 2 + 1 + 16 + 1);
+  FakeSink lost_part;
+  TestRunner::showEvents(lost_part, lost, now, 15);
+  assert(lost_part.out.find("EVENTS_DROPPED") == std::string::npos);
+  assert(splitLines(lost_part.out).size() == 2 + 15 + 1);
+  FakeSink lost_one;
+  TestRunner::showEvents(lost_one, lost, now, 1);
+  assert(lost_one.out.find("EVENTS_DROPPED") == std::string::npos);
+  assert(lost_one.out.find("CONFIG_LOAD,17") != std::string::npos);
+
+  // EVENTS without an argument keeps the format of the sample file
+  const std::string sample = readRepoFile("tests/fixtures/events_reply_sample.txt");
+  assert(sample.compare(0, head.size(), head) == 0);
+  const size_t sample_crc = sample.rfind("CRC32 ");
+  assert(sample_crc != std::string::npos);
+  const std::string sample_body = sample.substr(0, sample_crc);
+  assert(sample.substr(sample_crc) == historyCrcLine(sample_body) + "\n");
+  assert(sample.find("EVENTS_DROPPED,0\n") != std::string::npos);
+  FakeSink empty;
+  TestRunner::showEvents(empty, EventRing{}, now);
+  assert(empty.out == head + historyCrcLine(head) + "\n");
 }
 
 void testSerialEventsDroppedNoTimeAndUnchangedRing() {
@@ -25683,6 +25776,7 @@ testSerialHistoryNoiseOnly();
 testSerialHistoryShortWriteAndNoCard();
 testSerialEventsParser();
 testSerialEventsEmptyOneAndFull();
+testSerialEventsNewest();
 testSerialEventsDroppedNoTimeAndUnchangedRing();
 testSerialEventsCrcShortWriteAndGate();
 testSerialPatternParser();

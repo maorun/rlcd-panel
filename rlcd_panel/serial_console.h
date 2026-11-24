@@ -44,7 +44,7 @@ enum class SerialParseStatus : uint8_t {
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, or with extra text; SELFTEST and SPREAD with extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
+  BAD_ARG,  // CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, or with extra text; SELFTEST and SPREAD with extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '='); CONFIG <key> with an unknown key
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv, daily_v4_YYYY.csv or events_v1_YYYY.csv
@@ -61,6 +61,7 @@ struct SerialCommand {
   uint8_t reference_b = 0; // SLOT SWAP: second slot number 1 to 10; FRSI: wall slot 1 to 10 (`reference` holds the first, the room sensor 0 to 10)
   bool week_one = false; // WEEK: true for "WEEK <N>"; `reference` then holds the sensor 0 to 5
   bool history_one = false; // HISTORY: true for "HISTORY <N>"; `reference` then holds the sensor 0 to 10
+  bool events_newest = false; // EVENTS: true for "EVENTS <N>"; `reference` then holds N 1 to 16
   bool ack_all = false; // ACK: true for "ACK ALL" (every active repeatable alert bit that is not acknowledged)
   bool salt_mgcl2 = false; // SALT: true for "SALT N MGCL2" (magnesium chloride reference, no proposal line)
   bool time_set = false; // TIME: true for "TIME SET <time>"; `time` then holds the parsed local time
@@ -76,7 +77,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "CONFIG <key>", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "SPREAD", "TAIL 1..72", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "CONFIG <key>", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "SPREAD", "TAIL 1..72", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -332,10 +333,26 @@ public:
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "EVENTS")) {
-      if (cmd_len != len) {
-        return SerialParseStatus::BAD_ARG; // EVENTS takes no argument
-      }
       out.kind = SerialCommandKind::EVENTS;
+      if (cmd_len == len) {
+        return SerialParseStatus::OK;
+      }
+      // optional count argument: "EVENTS <N>" with N 1 to 16, no leading zero
+      const char* p = line + cmd_len + 1;
+      const size_t arg_len = len - cmd_len - 1;
+      int count = 0;
+      if (line[cmd_len] == ' ' && arg_len >= 1 && arg_len <= 2 && p[0] >= '1' && p[0] <= '9') {
+        count = p[0] - '0';
+        if (arg_len == 2) {
+          count = (p[1] >= '0' && p[1] <= '9') ? count * 10 + (p[1] - '0') : 0;
+        }
+      }
+      if (count < 1 || count > 16) {
+        out = SerialCommand{};
+        return SerialParseStatus::BAD_ARG;
+      }
+      out.events_newest = true;
+      out.reference = static_cast<uint8_t>(count);
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "WEEK")) {
@@ -1904,7 +1921,9 @@ public:
   // Sends the event ring from the RTC copy as CSV, oldest event first, with the rows of events_v1_YYYY.csv. A ring with
   // lost events starts with the EVENTS_DROPPED row of the current time (no row for an invalid time, as in the file).
   // The card and the ring stay untouched. A short write ends the reply, so the host sees no CRC32 line.
-  static void showEvents(Sink& sink, const EventRing& ring, const RtcTime& now) {
+  // `newest` 1 to 16 sends only the newest rows (oldest first); the EVENTS_DROPPED row stays only when `newest` covers
+  // all stored events. 0 sends the whole ring.
+  static void showEvents(Sink& sink, const EventRing& ring, const RtcTime& now, size_t newest = 0) {
     SerialCrc32 crc;
     auto emit = [&](const char* text, size_t len) {
       if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
@@ -1918,11 +1937,13 @@ public:
       return;
     }
     char row[SdLogCodec::MAX_EVENT_ROW_SIZE];
-    const size_t dropped_len = SdLogCodec::formatEventsDroppedRow(now, ring.dropped(), row, sizeof(row));
+    const size_t first = (newest > 0 && newest < ring.size()) ? ring.size() - newest : 0;
+    const size_t dropped_len =
+        first == 0 ? SdLogCodec::formatEventsDroppedRow(now, ring.dropped(), row, sizeof(row)) : 0;
     if (dropped_len > 0 && !emit(row, dropped_len)) {
       return;
     }
-    for (size_t i = 0; i < ring.size(); ++i) {
+    for (size_t i = first; i < ring.size(); ++i) {
       const size_t len = SdLogCodec::formatEventRow(ring.at(i), row, sizeof(row));
       if (len > 0 && !emit(row, len)) {
         return;
