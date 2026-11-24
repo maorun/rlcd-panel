@@ -273,11 +273,14 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         #expect(!none.hasBadges)
     }
 
-    @Test func parsesWallAndWindowFromSharedFixture() throws {
+    private func statusFixtureText() throws -> String {
         var url = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { url.deleteLastPathComponent() }
-        let text = try String(contentsOf: url.appendingPathComponent("tests/fixtures/status_reply_sample.txt"), encoding: .utf8)
-        let m = try #require(try LatchMetrics.parse(lines: lines(text)))
+        return try String(contentsOf: url.appendingPathComponent("tests/fixtures/status_reply_sample.txt"), encoding: .utf8)
+    }
+
+    @Test func parsesWallAndWindowFromSharedFixture() throws {
+        let m = try #require(try LatchMetrics.parse(lines: lines(try statusFixtureText())))
         #expect(m.wall == 0x002)
         #expect(m.window == 0x402)
     }
@@ -306,6 +309,43 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         let base = "LATCH vent=000 dry=000 batlow=000 stale=000"
         for bad in [base + " wall=0x2 window=000", base + " wall=800 window=000", base + " wall=000 window=800",
                     base + " wall=00 window=000", base + " wall=000 window=zzz", base + " wall= window=000"] {
+            #expect(throws: ParseError.badLine(bad)) { try LatchMetrics.parse(line: bad) }
+        }
+    }
+
+    @Test func parsesReceptionLowFromSharedFixture() throws {
+        let m = try #require(try LatchMetrics.parse(lines: lines(try statusFixtureText())))
+        #expect(m.receptionLow == 0x202)
+        #expect(m.hasWeakSignal(slot: 2))
+        #expect(m.hasWeakSignal(slot: 10))
+        #expect(!m.hasWeakSignal(slot: 1))
+        #expect(!m.hasWeakSignal(slot: 0))
+        #expect(!m.hasWeakSignal(slot: 11))
+        #expect(m.badges(forSensor: 2) == ["RX LOW"])
+        #expect(m.badges(forSensor: 0).isEmpty)
+    }
+
+    @Test func receptionLowIsNilForOlderFirmware() throws {
+        let m = try LatchMetrics.parse(line: "LATCH vent=002 dry=000 batlow=008 stale=004 wall=002 window=402")
+        #expect(m.receptionLow == nil)
+        #expect(!m.hasWeakSignal(slot: 1))
+    }
+
+    @Test func receptionLowAloneSetsHasBadges() throws {
+        let base = "LATCH vent=000 dry=000 batlow=000 stale=000 wall=000 window=000"
+        let only = try LatchMetrics.parse(line: base + " rxlow=001")
+        #expect(only.hasBadges)
+        #expect(only.badges(forSensor: 1) == ["RX LOW"])
+        #expect(only.badges(forSensor: 0).isEmpty)
+        let none = try LatchMetrics.parse(line: base + " rxlow=000")
+        #expect(none.receptionLow == 0)
+        #expect(!none.hasBadges)
+        #expect(try LatchMetrics.parse(line: base + " rxlow=3FF").receptionLow == 0x3ff)
+    }
+
+    @Test func receptionLowRejectsBadFields() {
+        let base = "LATCH vent=000 dry=000 batlow=000 stale=000 wall=000 window=000"
+        for bad in [base + " rxlow=zzz", base + " rxlow=400", base + " rxlow=00", base + " rxlow=0x1", base + " rxlow="] {
             #expect(throws: ParseError.badLine(bad)) { try LatchMetrics.parse(line: bad) }
         }
     }

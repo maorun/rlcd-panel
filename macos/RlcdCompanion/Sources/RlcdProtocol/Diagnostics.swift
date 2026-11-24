@@ -439,8 +439,8 @@ public struct WakeMetrics: Equatable {
     }
 }
 
-/// `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex> [wall=<3 hex> window=<3 hex>]`: the badge latches
-/// of the panel. `wall` and `window` come from newer firmware only.
+/// `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex> [wall=<3 hex> window=<3 hex> rxlow=<3 hex>]`: the badge
+/// latches of the panel. `wall`, `window` and `rxlow` come from newer firmware only.
 /// `vent`, `dry`, `wall` and `window` use bit 0 for the onboard tile and bits 1 to 10 for the slots; `batlow` and `stale`
 /// use bits 0 to 9 for the slots 1 to 10.
 public struct LatchMetrics: Equatable {
@@ -453,9 +453,18 @@ public struct LatchMetrics: Equatable {
     /// `nil` when older firmware sends no such field.
     public let wall: Int?
     public let window: Int?
+    /// Weak BLE signal mask (`rxlow=`): bits 0 to 9 are the slots 1 to 10. `nil` when older firmware sends no field.
+    public let receptionLow: Int?
 
     public var hasBadges: Bool {
         ventilate != 0 || dry != 0 || batteryLow != 0 || stale != 0 || (wall ?? 0) != 0 || (window ?? 0) != 0
+            || (receptionLow ?? 0) != 0
+    }
+
+    /// True when slot 1 to 10 has a weak BLE signal (`rxlow=` bit `slot - 1`). Other numbers give false.
+    public func hasWeakSignal(slot: Int) -> Bool {
+        guard (1...10).contains(slot) else { return false }
+        return (receptionLow ?? 0) >> (slot - 1) & 1 == 1
     }
 
     /// A missing line is no error; `parse(lines:)` gives `nil` for it.
@@ -472,14 +481,15 @@ public struct LatchMetrics: Equatable {
                   let v = Int(s, radix: 16), v <= max else { throw ParseError.badLine(line) }
             return v
         }
-        func optionalMask(_ key: String) throws -> Int? { f[key] == nil ? nil : try mask(key, max: 0x7ff) }
+        func optionalMask(_ key: String, max: Int = 0x7ff) throws -> Int? { f[key] == nil ? nil : try mask(key, max: max) }
         return LatchMetrics(
             ventilate: try mask("vent", max: 0x7ff), dry: try mask("dry", max: 0x7ff),
             batteryLow: try mask("batlow", max: 0x3ff), stale: try mask("stale", max: 0x3ff),
-            wall: try optionalMask("wall"), window: try optionalMask("window"))
+            wall: try optionalMask("wall"), window: try optionalMask("window"),
+            receptionLow: try optionalMask("rxlow", max: 0x3ff))
     }
 
-    /// Badge texts of sensor 0 (onboard) or 1 to 10 (slot), in the order `V`, `D`, `Wall`, `Window`, `BAT LOW`, `STALE`.
+    /// Badge texts of sensor 0 (onboard) or 1 to 10 (slot), in the order `V`, `D`, `Wall`, `Window`, `BAT LOW`, `STALE`, `RX LOW`.
     /// The onboard sensor never gets `BAT LOW` or `STALE`; an unknown sensor has no badge.
     public func badges(forSensor sensor: Int) -> [String] {
         guard (0..<Self.sensorCount).contains(sensor) else { return [] }
@@ -491,6 +501,7 @@ public struct LatchMetrics: Equatable {
         if sensor >= 1 {
             if batteryLow >> (sensor - 1) & 1 == 1 { out.append("BAT LOW") }
             if stale >> (sensor - 1) & 1 == 1 { out.append("STALE") }
+            if hasWeakSignal(slot: sensor) { out.append("RX LOW") }
         }
         return out
     }

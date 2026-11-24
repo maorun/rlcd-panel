@@ -349,6 +349,11 @@ struct DiagnosticsView: View {
                     Text("bat \(r.battery.map { String(format: "%.0f %%", $0) } ?? "--")")
                     Text("age \(r.ageSeconds.map { String(format: "%.0f s", $0) } ?? "--")")
                     Text(r.reception.map { "\($0.received)/\($0.scans)" } ?? "--")
+                    if model.diagnostics?.latch?.hasWeakSignal(slot: r.slot) == true {
+                        Image(systemName: "antenna.radiowaves.left.and.right.slash").foregroundStyle(.orange)
+                            .help("Weak BLE signal (rxlow)")
+                            .accessibilityLabel("Weak signal")
+                    }
                     Text(r.verdict.rawValue).font(.caption.bold())
                         .foregroundStyle(r.verdict == .good ? Color.green : r.verdict == .empty ? Color.secondary : Color.orange)
                     Text(r.advice).font(.caption).foregroundStyle(.secondary)
