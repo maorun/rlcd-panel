@@ -130,7 +130,6 @@ class MainActivity : ComponentActivity() {
     private val setupAssistant = SetupAssistant()
     /** Counts up on restart, close and stop. A callback of an older session does nothing. */
     private var setupSession = 0
-    private var setupRows: List<FoundSensor> = emptyList()
     private var showChime by mutableStateOf(false)
     private var showSlots by mutableStateOf(false)
     private var showAlertLimits by mutableStateOf(false)
@@ -787,7 +786,6 @@ class MainActivity : ComponentActivity() {
         consoleClient.cancel()
         pendingConsoleAction = null
         setupAssistant.restart()
-        setupRows = emptyList()
         finderList.clear()
         setupState = SetupState()
     }
@@ -851,8 +849,7 @@ class MainActivity : ComponentActivity() {
     private fun useSetupScan() {
         finderScanner?.stop()
         setupState = setupState.copy(isScanning = false)
-        setupRows = finderList.sorted()
-        setupAssistant.scanned(setupRows, panelConfig)
+        setupAssistant.scanned(finderList.sorted(), panelConfig)
         refreshSetup(message = null)
     }
 

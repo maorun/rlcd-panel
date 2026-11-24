@@ -391,4 +391,26 @@ class SetupAssistantTest {
         assertNull(a.stop)
         assertEquals(Step.SCAN, a.step)
     }
+
+    @Test
+    fun batLowSensorPassesVerify() {
+        val a = assigned()
+        a.checkReception()
+        a.receive(ConsoleReply.Frame(statusLines(sensorLine(2, "Kueche", "BATLOW", newMac))))
+        assertEquals(Step.CALIBRATE, a.step)
+    }
+
+    @Test
+    fun restartInMiddleOfAssignBatchAllowsNewAssign() {
+        val a = chosen()
+        a.beginAssign(emptyStatus(), config())
+        a.receive(ConsoleReply.Status("OK SET slot2_mac"))
+        a.restart()
+        assertNull(a.nextCommand()) // the old queue is gone
+        a.scanned(rows, config())
+        a.choose(newMac, "", config())
+        assertEquals("SET slot2_mac=$newMac", a.beginAssign(emptyStatus(), config()))
+        a.receive(ConsoleReply.Status("OK SET slot2_mac"))
+        assertEquals("CONFIG", a.nextCommand())
+    }
 }

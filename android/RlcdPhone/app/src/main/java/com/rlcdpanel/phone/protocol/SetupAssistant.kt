@@ -272,14 +272,14 @@ class SetupAssistant {
         }
     }
 
-    /** Passes when the `SENSOR` line of the slot has the chosen `mac=` and `state=OK`. The third miss stops. */
+    /** Passes when the `SENSOR` line of the slot has the chosen `mac=` and `state=OK` or `BATLOW` (both count as present). The third miss stops. */
     private fun verify(status: StatusReply) {
         val n = slot ?: return
         val mac = chosenMac ?: return
         if (step != Step.VERIFY) return
         val sensor = status.sensors.firstOrNull { it.index == n }
         val seenMac = sensorMac(status, n)
-        if (sensor != null && sensor.state == "OK" && seenMac == mac) {
+        if (sensor != null && (sensor.state == "OK" || sensor.state == "BATLOW") && seenMac == mac) {
             step = Step.CALIBRATE
             return
         }
