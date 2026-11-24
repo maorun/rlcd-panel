@@ -3822,7 +3822,7 @@ void testPreviewScenesCoverAllDisplayModes() {
         frames[i], PREVIEW_SCENES[i].mode, PREVIEW_SCENES[i].low_battery, PREVIEW_SCENES[i].quiet_hours,
         PREVIEW_SCENES[i].long_runtime, PREVIEW_SCENES[i].battery_empty, PREVIEW_SCENES[i].ventilate,
         PREVIEW_SCENES[i].invert, PREVIEW_SCENES[i].tiles, PREVIEW_SCENES[i].stats_page, PREVIEW_SCENES[i].dry,
-        PREVIEW_SCENES[i].muted, PREVIEW_SCENES[i].window, PREVIEW_SCENES[i].wall, PREVIEW_SCENES[i].identify);
+        PREVIEW_SCENES[i].muted, PREVIEW_SCENES[i].window, PREVIEW_SCENES[i].wall, PREVIEW_SCENES[i].identify, PREVIEW_SCENES[i].weak);
     size_t ink = 0;
     for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
       for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
@@ -3851,7 +3851,7 @@ void testPreviewScenesCoverAllDisplayModes() {
   for (uint8_t i = 0; i < PREVIEW_SCENE_COUNT; ++i) {
     if (PREVIEW_SCENES[i].mode == DisplayMode::DASHBOARD && !PREVIEW_SCENES[i].quiet_hours &&
         !PREVIEW_SCENES[i].battery_empty && !PREVIEW_SCENES[i].ventilate && !PREVIEW_SCENES[i].invert && !PREVIEW_SCENES[i].dry &&
-        !PREVIEW_SCENES[i].muted && !PREVIEW_SCENES[i].window && !PREVIEW_SCENES[i].wall && !PREVIEW_SCENES[i].identify) {
+        !PREVIEW_SCENES[i].muted && !PREVIEW_SCENES[i].window && !PREVIEW_SCENES[i].wall && !PREVIEW_SCENES[i].identify && !PREVIEW_SCENES[i].weak) {
       (PREVIEW_SCENES[i].low_battery ? low_index : dash_index) = i;
     }
   }
@@ -7540,7 +7540,7 @@ void testDiagnosticsNtpLine() {
           scene, preview::PREVIEW_SCENES[i].mode, preview::PREVIEW_SCENES[i].low_battery, preview::PREVIEW_SCENES[i].quiet_hours,
           preview::PREVIEW_SCENES[i].long_runtime, preview::PREVIEW_SCENES[i].battery_empty, preview::PREVIEW_SCENES[i].ventilate,
           preview::PREVIEW_SCENES[i].invert, preview::PREVIEW_SCENES[i].tiles, preview::PREVIEW_SCENES[i].stats_page, preview::PREVIEW_SCENES[i].dry,
-          preview::PREVIEW_SCENES[i].muted, preview::PREVIEW_SCENES[i].window, preview::PREVIEW_SCENES[i].wall, preview::PREVIEW_SCENES[i].identify);
+          preview::PREVIEW_SCENES[i].muted, preview::PREVIEW_SCENES[i].window, preview::PREVIEW_SCENES[i].wall, preview::PREVIEW_SCENES[i].identify, preview::PREVIEW_SCENES[i].weak);
     }
   }
   assert(scene.crc32() == 0x02727b14u);
@@ -21774,6 +21774,183 @@ void testWallTilesRtcAndPreview() {
   assert(sa.crc32() == sb.crc32());
 }
 
+// Bounding box of the pixels that differ between two framebuffers (x0 > x1 when equal).
+struct DiffBox {
+  int x0 = 1000, y0 = 1000, x1 = -1, y1 = -1;
+  size_t count = 0;
+};
+
+DiffBox diffBox(const St7305Framebuffer& a, const St7305Framebuffer& b) {
+  DiffBox box;
+  for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      if (a.getPixel(x, y) != b.getPixel(x, y)) {
+        box.x0 = std::min<int>(box.x0, x);
+        box.y0 = std::min<int>(box.y0, y);
+        box.x1 = std::max<int>(box.x1, x);
+        box.y1 = std::max<int>(box.y1, y);
+        ++box.count;
+      }
+    }
+  }
+  return box;
+}
+
+void renderWeakPair(St7305Framebuffer& a, St7305Framebuffer& b, uint16_t w, uint16_t h, bool stale, const char* age,
+                    bool wall, bool ventilate = false) {
+  DashboardView::renderTile(a, 6, 36, w, h, "T", true, 20.0f, 50.0f, 80, -1.0f, stale, nullptr, ventilate, nullptr,
+                            false, 'C', false, age, nullptr, false, wall, true);
+  DashboardView::renderTile(b, 6, 36, w, h, "T", true, 20.0f, 50.0f, 80, -1.0f, stale, nullptr, ventilate, nullptr,
+                            false, 'C', false, age, nullptr, false, wall, false);
+}
+
+void testWeakSignalBadge() {
+  using namespace rlcd_panel::preview;
+  const int S = DashboardView::VENT_BADGE_SIZE;
+  const int x = 6, y = 36;
+  struct Case {
+    uint16_t w, h;
+    int bx, by;
+  };
+  // STANDARD 190x124 and 388x124: x + 108, y + 56. COMPACT 190x80: x + 92, y + 50. COMPACT 124x124: x + w - 22.
+  const Case cases[] = {
+      {190, 124, x + DashboardView::VENT_BADGE_X_OFFSET, y + DashboardView::VENT_BADGE_Y_OFFSET},
+      {388, 124, x + DashboardView::VENT_BADGE_X_OFFSET, y + DashboardView::VENT_BADGE_Y_OFFSET},
+      {190, 80, x + 92, y + 50},
+      {124, 124, x + 124 - 22, y + 50},
+  };
+  for (const Case& c : cases) {
+    St7305Framebuffer a, b;
+    renderWeakPair(a, b, c.w, c.h, false, nullptr, false);
+    const DiffBox box = diffBox(a, b);
+    assert(box.count > 0);
+    assert(box.x0 >= c.bx && box.y0 >= c.by && box.x1 < c.bx + S && box.y1 < c.by + S);
+    assert(a.getPixel(c.bx, c.by) && a.getPixel(c.bx + S - 1, c.by + S - 1)); // inverted corners are black
+  }
+  // LARGE 190x256 and 388x256: after the humidity text, the trend mark gap and the badge gap
+  for (uint16_t w : {static_cast<uint16_t>(190), static_cast<uint16_t>(388)}) {
+    St7305Framebuffer a, b;
+    renderWeakPair(a, b, w, 256, false, nullptr, false);
+    const int ts = w >= 300 ? 4 : 3;
+    const int text_h = 7 * ts;
+    const int fixed = 24 + 2 * text_h + 7 + 14 + 7 * 6;
+    int spark_h = (256 - fixed) / 2;
+    if (spark_h > 60) spark_h = 60;
+    const int cy = y + 24 + 6 + text_h + 6 + spark_h + 6;
+    const int bx = x + 12 + 4 * 6 * ts + 4 * DashboardView::TREND_MARK_GAP + DashboardView::TREND_MARK_SIZE;
+    const int by = cy + (text_h - S) / 2;
+    const DiffBox box = diffBox(a, b);
+    assert(box.count > 0);
+    assert(box.x0 >= bx && box.y0 >= by && box.x1 < bx + S && box.y1 < by + S);
+    assert(a.getPixel(bx, by) && a.getPixel(bx + S - 1, by + S - 1));
+  }
+  // The badge follows the V badge in the row: one step further (right, or left in the narrow tile) in each style
+  {
+    const int step = DashboardView::DRY_BADGE_STEP;
+    struct Shift {
+      uint16_t w, h;
+      int bx, by;
+    };
+    const int large_text_h = 21;
+    const int large_fixed = 24 + 2 * large_text_h + 7 + 14 + 7 * 6;
+    int large_spark = (256 - large_fixed) / 2;
+    if (large_spark > 60) large_spark = 60;
+    const int large_cy = y + 24 + 6 + large_text_h + 6 + large_spark + 6;
+    const Shift shifts[] = {
+        {190, 124, x + DashboardView::VENT_BADGE_X_OFFSET + step, y + DashboardView::VENT_BADGE_Y_OFFSET},
+        {190, 80, x + 92 + step, y + 50},
+        {124, 124, x + 124 - 22 - step, y + 50},
+        {190, 256, x + 12 + 4 * 6 * 3 + 4 * DashboardView::TREND_MARK_GAP + DashboardView::TREND_MARK_SIZE + step,
+         large_cy + (large_text_h - S) / 2},
+    };
+    for (const Shift& sh : shifts) {
+      St7305Framebuffer a, b;
+      renderWeakPair(a, b, sh.w, sh.h, false, nullptr, false, true);
+      const DiffBox box = diffBox(a, b);
+      assert(box.count > 0);
+      assert(box.x0 >= sh.bx && box.y0 >= sh.by && box.x1 < sh.bx + S && box.y1 < sh.by + S);
+      assert(a.getPixel(sh.bx, sh.by) && a.getPixel(sh.bx + S - 1, sh.by + S - 1));
+    }
+    // The badge follows the C badge in the STANDARD style
+    St7305Framebuffer a, b;
+    renderWeakPair(a, b, 190, 124, false, nullptr, true);
+    const DiffBox box = diffBox(a, b);
+    const int bx = x + DashboardView::VENT_BADGE_X_OFFSET + step;
+    assert(box.count > 0 && box.x0 >= bx && box.x1 < bx + S);
+  }
+  // Stale and weak: no R badge in any style, the STALE badge stays readable
+  {
+    const uint16_t stale_sizes[][2] = {{190, 124}, {190, 80}, {124, 124}, {190, 256}};
+    for (const auto& sz : stale_sizes) {
+      St7305Framebuffer a, b;
+      renderWeakPair(a, b, sz[0], sz[1], true, "3H", false);
+      assert(a.crc32() == b.crc32());
+      const int bw = DashboardView::badgeWidth("STALE 3H");
+      assert(a.getPixel(x + sz[0] - bw - 4, y + 4)); // STALE badge corner is black
+    }
+  }
+  // Mask 0 keeps the frames of master (CRC-32 of the sample scenes before the change)
+  const uint8_t tiles[] = {0, 2, 6};
+  const uint32_t expected[] = {0x35f3b3beu, 0x76879f77u, 0x9b4c4cf3u};
+  for (size_t i = 0; i < 3; ++i) {
+    St7305Framebuffer fb;
+    renderScene(fb, DisplayMode::DASHBOARD, false, false, false, false, false, false, tiles[i]);
+    assert(fb.crc32() == expected[i]);
+  }
+  // The weak scene differs from the classic scene and only slot 1 changes, never the onboard tile
+  St7305Framebuffer weak, plain;
+  renderScene(weak, DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, false, false, false, false,
+              false, true);
+  renderScene(plain, DisplayMode::DASHBOARD, false, false, false, false, false, false, 0);
+  assert(weak.crc32() != plain.crc32());
+  const DiffBox wbox = diffBox(weak, plain);
+  assert(wbox.x0 >= 6 + 190 + 8 && wbox.y1 < 36 + 124); // tile 1: top right
+  assert(SystemInfo().reception_low == 0);
+  // Bit i marks slot i + 1: tile i + 1 in the 4-tile layout. Bit 0 never marks the onboard tile.
+  {
+    Shtc3Reading onboard;
+    onboard.valid = true;
+    onboard.temperature_c = 21.0f;
+    onboard.humidity_pct = 45.0f;
+    BatteryReading battery;
+    battery.valid = true;
+    battery.voltage_v = 3.9f;
+    battery.percentage = 70;
+    SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+    for (size_t i = 0; i < 3; ++i) {
+      slots[i].valid = true;
+      slots[i].temperature_c = 19.0f + static_cast<float>(i);
+      slots[i].humidity_pct = 50;
+      slots[i].battery_pct = 80;
+      slots[i].updated_ms = 1000;
+      slots[i].packet_count = 1;
+    }
+    St7305Framebuffer base;
+    DashboardView::render(base, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", 2000);
+    const struct {
+      uint16_t mask;
+      int x_min, x_max, y_min, y_max;
+    } marks[] = {
+        {0x1, 204, 399, 36, 159},  // slot 1: top right
+        {0x2, 6, 199, 160, 299},   // slot 2: bottom left
+        {0x4, 204, 399, 160, 299}, // slot 3: bottom right
+    };
+    for (const auto& m : marks) {
+      St7305Framebuffer fb;
+      DashboardView::render(fb, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", 2000, nullptr, false, nullptr,
+                            false, 0, 0, 0, 0, false, 0, 0, m.mask);
+      const DiffBox box = diffBox(fb, base);
+      assert(box.count > 0);
+      assert(box.x0 >= m.x_min && box.x1 <= m.x_max && box.y0 >= m.y_min && box.y1 <= m.y_max);
+    }
+    // A bit of an unused slot or beyond the tiles changes nothing
+    St7305Framebuffer unused;
+    DashboardView::render(unused, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", 2000, nullptr, false, nullptr,
+                          false, 0, 0, 0, 0, false, 0, 0, 0x3F8);
+    assert(unused.crc32() == base.crc32());
+  }
+}
+
 void testScanFaultEvents() {
   assert(static_cast<uint8_t>(EventCode::SCAN_FAULT) == 21 && EventRing::MAX_CODE == 25);
   assert(PowerManager::STATE_VERSION == 75);
@@ -25557,6 +25734,7 @@ int main() {
   testWindowBadgeAndPreviewScene();
   testWallLatchLogic();
   testWallTilesRtcAndPreview();
+  testWeakSignalBadge();
   testCycleTrackerPartialDischarges();
   testCycleTrackerMilestoneWrite();
   testCycleTrackerChargeDetection();
