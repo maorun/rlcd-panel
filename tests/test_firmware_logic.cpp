@@ -11850,9 +11850,9 @@ void testSerialStatusEmptyAndMissingValues() {
   StatusFixture f;
   const std::vector<std::string> lines = statusLines(f.run());
   assert(lines.size() == 29);
-  assert(lines[0] == "SENSOR 0 onboard temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=SHTC3 mac=-- mold_h=--");
-  assert(lines[1] == "SENSOR 1 slot1 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=-- mac=-- mold_h=--");
-  assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=-- mac=-- mold_h=--");
+  assert(lines[0] == "SENSOR 0 onboard temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=SHTC3 mac=-- mold_h=-- temp_trend=-- rh_trend=--");
+  assert(lines[1] == "SENSOR 1 slot1 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=-- mac=-- mold_h=-- temp_trend=-- rh_trend=--");
+  assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=-- mac=-- mold_h=-- temp_trend=-- rh_trend=--");
   assert(lines[12] == "RESET reason=UNKNOWN abnormal=--");
   assert(lines[18] == "POWER src=USB v=4.10 pct=90 alerts=00 muted=0 acked=00");
   assert(lines[28].rfind("CRC32 ", 0) == 0);
@@ -11869,10 +11869,10 @@ void testSerialStatusStates() {
   f.snap.sensor_battery_latch = 0b110; // slot 3 is stale and latched: STALE wins
   f.history.record(f.snap.now_ms - 300000, true, 44.6f, f.registry, 22.34f);
   const std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[0] == "SENSOR 0 onboard temp=22.3 rh=45 bat=-- rssi=-- age=300 state=OK format=SHTC3 mac=-- mold_h=--");
-  assert(lines[1] == "SENSOR 1 LIVING_ROOM temp=-5.4 rh=61 bat=80 rssi=-70 age=120 state=OK format=WOIO mac=00:00:00:00:00:01 mold_h=--");
-  assert(lines[2] == "SENSOR 2 slot2 temp=21.5 rh=45 bat=8 rssi=-85 age=60 state=BATLOW format=WOIO mac=00:00:00:00:00:02 mold_h=--");
-  assert(lines[3] == "SENSOR 3 slot3 temp=19.0 rh=50 bat=-- rssi=-90 age=1801 state=STALE format=WOIO mac=00:00:00:00:00:03 mold_h=--");
+  assert(lines[0] == "SENSOR 0 onboard temp=22.3 rh=45 bat=-- rssi=-- age=300 state=OK format=SHTC3 mac=-- mold_h=-- temp_trend=-- rh_trend=--");
+  assert(lines[1] == "SENSOR 1 LIVING_ROOM temp=-5.4 rh=61 bat=80 rssi=-70 age=120 state=OK format=WOIO mac=00:00:00:00:00:01 mold_h=-- temp_trend=-- rh_trend=--");
+  assert(lines[2] == "SENSOR 2 slot2 temp=21.5 rh=45 bat=8 rssi=-85 age=60 state=BATLOW format=WOIO mac=00:00:00:00:00:02 mold_h=-- temp_trend=-- rh_trend=--");
+  assert(lines[3] == "SENSOR 3 slot3 temp=19.0 rh=50 bat=-- rssi=-90 age=1801 state=STALE format=WOIO mac=00:00:00:00:00:03 mold_h=-- temp_trend=-- rh_trend=--");
 }
 
 void testSensorNamesFollowMac() {
@@ -12003,15 +12003,15 @@ void testSerialStatusMoldHours() {
     f.history.slots[0].push(750);
   }
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[0].find(" state=OK ") != std::string::npos && lines[0].find(" mold_h=24") == lines[0].size() - 10);
-  assert(lines[1].find(" mold_h=3") == lines[1].size() - 9);
-  assert(lines[2].find(" mold_h=0") == lines[2].size() - 9);
-  assert(lines[3].find("state=DISABLED") != std::string::npos && lines[3].find(" mold_h=--") == lines[3].size() - 10);
-  assert(lines[4].find("state=STALE") != std::string::npos && lines[4].find(" mold_h=--") == lines[4].size() - 10);
-  assert(lines[5].find("state=EMPTY") != std::string::npos && lines[5].find(" mold_h=--") == lines[5].size() - 10);
+  assert(lines[0].find(" state=OK ") != std::string::npos && lines[0].find(" mold_h=24 temp_trend=") != std::string::npos);
+  assert(lines[1].find(" mold_h=3 temp_trend=") != std::string::npos);
+  assert(lines[2].find(" mold_h=0 temp_trend=") != std::string::npos);
+  assert(lines[3].find("state=DISABLED") != std::string::npos && lines[3].find(" mold_h=-- temp_trend=") != std::string::npos);
+  assert(lines[4].find("state=STALE") != std::string::npos && lines[4].find(" mold_h=-- temp_trend=") != std::string::npos);
+  assert(lines[5].find("state=EMPTY") != std::string::npos && lines[5].find(" mold_h=-- temp_trend=") != std::string::npos);
   f.config.mold_alert_limit_rh = 60;
   lines = statusLines(f.run());
-  assert(lines[2].find(" mold_h=24") == lines[2].size() - 10); // the limit comes from the config
+  assert(lines[2].find(" mold_h=24 temp_trend=") != std::string::npos); // the limit comes from the config
 }
 
 void testSerialStatusOnboardStaleAndOffset() {
@@ -12021,10 +12021,10 @@ void testSerialStatusOnboardStaleAndOffset() {
   const uint32_t hour_ms = ClimateHistory::SAMPLE_INTERVAL_MS;
   f.history.record(f.snap.now_ms - hour_ms - 1000000, true, 40.0f, f.registry, -0.04f); // 1000 s past the hour
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[0] == "SENSOR 0 onboard temp=0.0 rh=40 bat=-- rssi=-- age=4600 state=OK format=SHTC3 mac=-- mold_h=--"); // hourly sample is no stale
+  assert(lines[0] == "SENSOR 0 onboard temp=0.0 rh=40 bat=-- rssi=-- age=4600 state=OK format=SHTC3 mac=-- mold_h=-- temp_trend=-- rh_trend=--"); // hourly sample is no stale
   f.snap.now_ms += SENSOR_STALE_TIMEOUT_MS;
   lines = statusLines(f.run());
-  assert(lines[0] == "SENSOR 0 onboard temp=0.0 rh=40 bat=-- rssi=-- age=6400 state=STALE format=SHTC3 mac=-- mold_h=--");
+  assert(lines[0] == "SENSOR 0 onboard temp=0.0 rh=40 bat=-- rssi=-- age=6400 state=STALE format=SHTC3 mac=-- mold_h=-- temp_trend=-- rh_trend=--");
   // Boundary: age equal to one interval plus the timeout is OK, one millisecond more is STALE.
   StatusFixture g;
   g.history.record(g.snap.now_ms - hour_ms - SENSOR_STALE_TIMEOUT_MS, true, 40.0f, g.registry, 20.0f);
@@ -12032,6 +12032,45 @@ void testSerialStatusOnboardStaleAndOffset() {
   g.snap.now_ms += 1;
   assert(statusLines(g.run())[0].find("state=STALE") != std::string::npos);
   assert(lines[1].find("temp=21.5 ") != std::string::npos);
+}
+
+void testSerialStatusTrendFields() {
+  StatusFixture f;
+  const uint32_t fresh_ms = f.snap.now_ms - 60000;
+  f.addSlot(1, 20.0f, 60, 80, -60, fresh_ms);
+  f.addSlot(2, 20.0f, 60, 80, -60, fresh_ms);
+  f.addSlot(3, 20.0f, 60, 80, -60, fresh_ms);
+  f.addSlot(4, 20.0f, 60, 80, -60, fresh_ms);
+  f.addSlot(5, 20.0f, 60, 80, -60, f.snap.now_ms - SENSOR_STALE_TIMEOUT_MS - 1000); // stale
+  // Slot 6 has no reading but a full history: an empty slot gives no trend.
+  const int16_t temp_end[ClimateHistory::SLOT_COUNT] = {200, 205, 195, 204, 205, 205, 205, 200, 200, 200, 200};
+  const int16_t rh_end[ClimateHistory::SLOT_COUNT] = {500, 530, 470, 529, 530, 530, 530, 500, 500, 500, 500};
+  for (size_t i = 1; i < ClimateHistory::SLOT_COUNT; ++i) {
+    const size_t samples = i == 4 ? 3 : 4; // slot 4 has only 3 samples
+    for (size_t n = 0; n < samples; ++n) {
+      const bool last = n + 1 == samples;
+      f.history.temperatures[i].push(last ? temp_end[i] : 200);
+      f.history.slots[i].push(last ? rh_end[i] : 500);
+    }
+  }
+  f.history.record(f.snap.now_ms - 300000, true, 50.0f, f.registry, 20.0f); // fresh onboard sample: 20.0 C, 50 %RH
+  for (int n = 0; n < 3; ++n) {
+    const bool last = n == 2;
+    f.history.temperatures[0].push(last ? 205 : 200);
+    f.history.slots[0].push(last ? 530 : 500);
+  }
+  const std::vector<std::string> lines = statusLines(f.run());
+  assert(lines[0].find("state=OK") != std::string::npos);
+  assert(lines[0].find(" temp_trend=RISE rh_trend=RISE") == lines[0].size() - 30); // onboard sensor
+  assert(lines[1].find(" temp_trend=RISE rh_trend=RISE") == lines[1].size() - 30); // exactly +0.5 C and +3.0 %RH
+  assert(lines[2].find(" temp_trend=FALL rh_trend=FALL") == lines[2].size() - 30); // exactly -0.5 C and -3.0 %RH
+  assert(lines[3].find(" temp_trend=STEADY rh_trend=STEADY") == lines[3].size() - 34); // +0.4 C and +2.9 %RH
+  assert(lines[4].find(" temp_trend=-- rh_trend=--") == lines[4].size() - 26);         // 3 samples
+  assert(lines[5].find("state=STALE") != std::string::npos);
+  assert(lines[5].find(" temp_trend=-- rh_trend=--") == lines[5].size() - 26);         // stale slot
+  assert(lines[6].find("state=EMPTY") != std::string::npos);
+  assert(lines[6].find(" mold_h=-- temp_trend=-- rh_trend=--") == lines[6].size() - 36); // empty slot
+  assert(lines[1] == "SENSOR 1 slot1 temp=20.0 rh=60 bat=80 rssi=-60 age=60 state=OK format=WOIO mac=00:00:00:00:00:01 mold_h=0 temp_trend=RISE rh_trend=RISE");
 }
 
 void testSerialStatusFullSizeWithMoldHours() {
@@ -12042,14 +12081,16 @@ void testSerialStatusFullSizeWithMoldHours() {
     f.addSlot(static_cast<uint8_t>(i + 1), -99.9f, 100, 100, -128, f.snap.now_ms);
   }
   for (int n = 0; n < 24; ++n) {
-    for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) f.history.slots[i].push(1000);
+    for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) { f.history.slots[i].push(1000); f.history.temperatures[i].push(200); }
   }
   f.history.record(f.snap.now_ms - 1000, true, 100.0f, f.registry, -99.9f);
   const std::string out = f.run();
   assert(!out.empty() && out.size() < 2560); // a longer frame is not sent
   const std::vector<std::string> lines = statusLines(out);
   for (size_t i = 0; i < 11; ++i) {
-    assert(lines[i].find(" mold_h=24") == lines[i].size() - 10);
+    // The onboard sample of -99.9 C falls 300 degrees below the earlier samples; all other histories stay flat.
+    const std::string tail = i == 0 ? " mold_h=24 temp_trend=FALL rh_trend=STEADY" : " mold_h=24 temp_trend=STEADY rh_trend=STEADY";
+    assert(lines[i].size() > tail.size() && lines[i].compare(lines[i].size() - tail.size(), tail.size(), tail) == 0);
   }
 }
 
@@ -12064,6 +12105,10 @@ void testSerialStatusWorstCaseLineLength() {
   }
   f.snap.now_ms = 0xFFFFFFF0u; // the largest age
   f.history.record(f.snap.now_ms - 1000, true, 100.0f, f.registry, -99.9f);
+  for (int n = 0; n < 3; ++n) { // 4 samples in each history: the onboard line shows the longest trend text
+    f.history.temperatures[0].push(-999);
+    f.history.slots[0].push(1000);
+  }
   f.snap.alert_mask = 0x7f;
   f.snap.muted = true;
   f.snap.reset_reason = ResetReasonCodec::text(ResetReason::TASK_WDT); // the longest text
@@ -12090,6 +12135,7 @@ void testSerialStatusWorstCaseLineLength() {
     assert(lines[i].rfind("SENSOR ", 0) == 0 && lines[i].find(" state=") != std::string::npos);
   }
   assert(lines[3].find("age=4294967 state=STALE") != std::string::npos);
+  assert(lines[0].find(" temp_trend=STEADY rh_trend=STEADY") == lines[0].size() - 34);
 }
 
 SwitchBotReading rejectReading(uint8_t id) {
@@ -22091,14 +22137,14 @@ void testTempUnitSerial() {
   f.addSlot(2, 37.0f, 45, 8, -85, f.snap.now_ms - 60000);
   f.history.record(f.snap.now_ms - 300000, true, 44.6f, f.registry, 22.34f);
   std::vector<std::string> lines = statusLines(f.run());
-  assert(lines[0] == "SENSOR 0 onboard temp=22.3 rh=45 bat=-- rssi=-- age=300 state=OK format=SHTC3 mac=-- mold_h=--");
-  assert(lines[1] == "SENSOR 1 slot1 temp=-5.4 rh=61 bat=80 rssi=-70 age=120 state=OK format=WOIO mac=00:00:00:00:00:01 mold_h=--");
+  assert(lines[0] == "SENSOR 0 onboard temp=22.3 rh=45 bat=-- rssi=-- age=300 state=OK format=SHTC3 mac=-- mold_h=-- temp_trend=-- rh_trend=--");
+  assert(lines[1] == "SENSOR 1 slot1 temp=-5.4 rh=61 bat=80 rssi=-70 age=120 state=OK format=WOIO mac=00:00:00:00:00:01 mold_h=-- temp_trend=-- rh_trend=--");
   f.config.temp_unit = 'F';
   lines = statusLines(f.run());
-  assert(lines[0] == "SENSOR 0 onboard temp=72.1F rh=45 bat=-- rssi=-- age=300 state=OK format=SHTC3 mac=-- mold_h=--");
-  assert(lines[1] == "SENSOR 1 slot1 temp=22.3F rh=61 bat=80 rssi=-70 age=120 state=OK format=WOIO mac=00:00:00:00:00:01 mold_h=--");
-  assert(lines[2] == "SENSOR 2 slot2 temp=98.6F rh=45 bat=8 rssi=-85 age=60 state=OK format=WOIO mac=00:00:00:00:00:02 mold_h=--");
-  assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=-- mac=-- mold_h=--");
+  assert(lines[0] == "SENSOR 0 onboard temp=72.1F rh=45 bat=-- rssi=-- age=300 state=OK format=SHTC3 mac=-- mold_h=-- temp_trend=-- rh_trend=--");
+  assert(lines[1] == "SENSOR 1 slot1 temp=22.3F rh=61 bat=80 rssi=-70 age=120 state=OK format=WOIO mac=00:00:00:00:00:01 mold_h=-- temp_trend=-- rh_trend=--");
+  assert(lines[2] == "SENSOR 2 slot2 temp=98.6F rh=45 bat=8 rssi=-85 age=60 state=OK format=WOIO mac=00:00:00:00:00:02 mold_h=-- temp_trend=-- rh_trend=--");
+  assert(lines[3] == "SENSOR 3 slot3 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=-- mac=-- mold_h=-- temp_trend=-- rh_trend=--");
 }
 
 void testTempUnitRtcRoundTrip() {
@@ -25164,8 +25210,8 @@ void testSlotEnabledFeature() {
   snap.battery.percentage = 75;
   snap.now_ms = 10000;
   TestRunner::showStatus(sink, snap);
-  assert(sink.out.find("SENSOR 1 slot1 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=-- mac=-- mold_h=--") != std::string::npos);
-  assert(sink.out.find("SENSOR 2 slot2 temp=-- rh=-- bat=-- rssi=-- age=-- state=DISABLED format=-- mac=-- mold_h=--") != std::string::npos);
+  assert(sink.out.find("SENSOR 1 slot1 temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY format=-- mac=-- mold_h=-- temp_trend=-- rh_trend=--") != std::string::npos);
+  assert(sink.out.find("SENSOR 2 slot2 temp=-- rh=-- bat=-- rssi=-- age=-- state=DISABLED format=-- mac=-- mold_h=-- temp_trend=-- rh_trend=--") != std::string::npos);
 
   // 7. DeviceConfigText::format with disabled slots round-trip
   DeviceConfig fmt_cfg;
@@ -25687,6 +25733,7 @@ testBleReceptionHistory();
 testSerialStatusStates();
 testSerialStatusOnboardStaleAndOffset();
 testSerialStatusMoldHours();
+testSerialStatusTrendFields();
 testSerialStatusFullSizeWithMoldHours();
 testSerialStatusWorstCaseLineLength();
 testSerialStatusPowerLine();
