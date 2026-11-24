@@ -37,6 +37,7 @@ import com.rlcdpanel.phone.protocol.PanelHistoryRow
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryHistory
+import com.rlcdpanel.phone.protocol.value
 import java.util.Locale
 
 /** State of the panel history read. `rows` hold the `HISTORY` reply; `readAtMillis` is the time of age 0. */
