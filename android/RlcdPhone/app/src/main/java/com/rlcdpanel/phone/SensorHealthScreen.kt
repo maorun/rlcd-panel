@@ -152,6 +152,7 @@ fun SensorHealthScreen(
     nowMillis: Long = 0L,
     onReadConfig: () -> Unit = {},
     onOpenCalibration: () -> Unit = {},
+    onOpenBackup: () -> Unit = {},
     onOpenFinder: () -> Unit = {},
     onOpenChime: () -> Unit = {},
     onOpenSlots: () -> Unit = {},
@@ -190,6 +191,9 @@ fun SensorHealthScreen(
             }
             item {
                 OutlinedButton(onClick = onOpenCalibration) { Text("Calibration proposals") }
+            }
+            item {
+                OutlinedButton(onClick = onOpenBackup) { Text("Config backup and restore") }
             }
             item {
                 OutlinedButton(onClick = onOpenFinder) { Text("Find nearby sensors") }
