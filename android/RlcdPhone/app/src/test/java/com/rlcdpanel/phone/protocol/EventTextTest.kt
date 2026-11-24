@@ -18,6 +18,14 @@ class EventTextTest {
     }
 
     @Test
+    fun receptionLowGivesWeakAndGood() {
+        assertEquals("Slot 3 weak signal", EventText.describe(row("RECEPTION_LOW", 0x0103)))
+        assertEquals("Slot 3 signal good", EventText.describe(row("RECEPTION_LOW", 0x0003)))
+        assertEquals("RECEPTION_LOW,256", EventText.describe(row("RECEPTION_LOW", 0x0100)))
+        assertEquals("RECEPTION_LOW,523", EventText.describe(row("RECEPTION_LOW", 0x020B)))
+    }
+
+    @Test
     fun scanFaultGivesFailedAndBack() {
         assertEquals("BLE scan start failed", EventText.describe(row("SCAN_FAULT", 1)))
         assertEquals("BLE scan works again", EventText.describe(row("SCAN_FAULT", 0)))

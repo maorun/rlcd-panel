@@ -189,6 +189,14 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("WINDOW_OPEN", 523)) == "WINDOW_OPEN,523")
     }
 
+    @Test func receptionLowGivesWeakAndGood() {
+        #expect(EventText.describe(row("RECEPTION_LOW", 0x0103)) == "Slot 3 weak signal")
+        #expect(EventText.describe(row("RECEPTION_LOW", 0x0003)) == "Slot 3 signal good")
+        #expect(EventText.describe(row("RECEPTION_LOW", 0x0100)) == "RECEPTION_LOW,256")
+        #expect(EventText.describe(row("RECEPTION_LOW", 0x020B)) == "RECEPTION_LOW,523")
+        #expect(EventFilter.category(of: "RECEPTION_LOW") == .sensors)
+    }
+
     @Test func slotStaleGivesLostAndBack() {
         #expect(EventText.describe(row("SLOT_STALE", 0x0002)) == "Slot 2 lost")
         #expect(EventText.describe(row("SLOT_STALE", 0x0102)) == "Slot 2 back")

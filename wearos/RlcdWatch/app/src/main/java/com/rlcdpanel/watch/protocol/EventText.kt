@@ -88,6 +88,12 @@ object EventText {
                 val back = d shr 8
                 if (d !in 0..0xFFFF || slot !in 1..10 || back > 1) raw else if (back == 1) "Slot $slot back" else "Slot $slot lost"
             }
+            "RECEPTION_LOW" -> {
+                // Low byte is the slot; the high byte 1 marks a weak signal, 0 a good signal again.
+                val slot = d and 0xFF
+                val low = d shr 8
+                if (d !in 0..0xFFFF || slot !in 1..10 || low > 1) raw else if (low == 1) "Slot $slot weak signal" else "Slot $slot signal good"
+            }
             "JUMP_DROP" -> if (d in 1..10) "Slot $d reading jump dropped" else raw
             "CONFIG_SET" -> {
                 val index = d and 0xFF

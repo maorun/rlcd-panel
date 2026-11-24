@@ -61,6 +61,11 @@ public enum EventText {
             let slot = d & 0xFF, back = d >> 8
             guard (0...0xFFFF).contains(d), (1...10).contains(slot), back <= 1 else { return raw }
             return back == 1 ? "Slot \(slot) back" : "Slot \(slot) lost"
+        case "RECEPTION_LOW":
+            // Low byte is the slot; the high byte 1 marks a weak signal, 0 a good signal again.
+            let slot = d & 0xFF, low = d >> 8
+            guard (0...0xFFFF).contains(d), (1...10).contains(slot), low <= 1 else { return raw }
+            return low == 1 ? "Slot \(slot) weak signal" : "Slot \(slot) signal good"
         case "JUMP_DROP":
             guard (1...10).contains(d) else { return raw }
             return "Slot \(d) reading jump dropped"
