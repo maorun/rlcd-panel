@@ -564,6 +564,21 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Host tests cover `wallFactor` for fixed values and NaN, the parser, each reply and error of `showFrsi` with a fixed `ClimateHistory`, the clamp to 50 and 95, the BLE gate, `execute()` and one reply against `tests/fixtures/frsi_reply_sample.txt`.
 - Validation on the board: send `FRSI 0 2` over USB and check the reply and the `CRC32` line.
 
+## Serial console command SELFTEST for the onboard hardware
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/selftest_reply_sample.txt`.
+- The console command `SELFTEST` (`SerialCommandKind::SELFTEST`) runs each onboard check once and replies `BEGIN SELFTEST`, one line `CHECK <name> <OK|FAIL|SKIP> <detail>` for each check, `END SELFTEST pass=<N> fail=<N>` and the `CRC32` line. `SKIP` counts as neither pass nor fail. Extra text gives `ERR BAD_ARG`.
+- The fixed order is `shtc3`, `rtc`, `sd`, `battery`, `mic`, `ble`. `SelfTestChecks` holds the verdicts; the sketch reads the hardware and passes the result in.
+  - `shtc3`: one read with the retry of `readShtc3WithRetry` on a local `Shtc3Health` copy. Detail `READ`, `RETRIED`, `NACK`, `SHORT` or `CRC`.
+  - `rtc`: `PCF85063A` read and oscillator stop flag. Detail `RUNNING`, `NO_RTC`, `OSC_STOPPED` or `READ_FAILED`. The check only reads.
+  - `sd`: the card mounts and unmounts. Detail `free_mb=<N>`, `NO_CARD` or `SIZE_UNKNOWN`.
+  - `battery`: ADC voltage from 2500 to 4400 mV (inclusive). Detail `mv=<N>`.
+  - `mic`: one 1 s `StereoAnalyzer` window through `NoiseSampler::measure`, which powers the ADC and the I2S bus down on each path. Detail `L=<status>,R=<status>` or `IMBALANCE=<N>dB` above 10 dB. While muted (snooze included) the check gives `SKIP MUTED`, in quiet hours `SKIP QUIET`.
+  - `ble`: one 1 s BLE scan start and stop. Detail `SCAN` or `START_FAILED`. On BLE the check gives `SKIP CONSOLE`, because the BLE console holds the radio.
+- On USB the BLE console stops for the command and starts again. The command runs on USB and on BLE at each `ble_console` level, also at level 1 (read command). The RTC state, the RTC layout and `STATE_VERSION` do not change.
+- Host tests cover the parser, the BLE gate, `execute()`, each verdict and limit (2499, 2500, 4400, 4401 mV), the reply for all checks `OK`, each single `FAIL`, the `SKIP` paths (muted, quiet hours, BLE), a short write without `CRC32` and one reply against `tests/fixtures/selftest_reply_sample.txt`.
+- Validation on the board: send `SELFTEST` over USB with and without a MicroSD card and verify `CHECK sd FAIL NO_CARD` without a card. Send `SELFTEST` over BLE and verify `CHECK ble SKIP CONSOLE`. These board checks did not run in this delivery.
+
 ## High-humidity ventilation badge on the sensor tiles
 
 - **Code:** `rlcd_panel/ventilate_latch.h`, `rlcd_panel/device_config.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.

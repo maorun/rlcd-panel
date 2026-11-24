@@ -866,7 +866,7 @@ private:
 // The wake cycle stopped BLE after its own scan, or skipped it, so this function starts BLE and stops it again.
 // BLEDevice::deinit() runs before the collector is released: no late callback reaches the registry.
 constexpr uint32_t CONSOLE_SCAN_S = 4;
-bool consoleScanOnce(ScanCollector& collector) {
+bool scanForSeconds(ScanCollector& collector, uint32_t scan_s) {
   initBle();
   if (g_ble_scan == nullptr) {
     BLEDevice::deinit(false);
@@ -876,12 +876,12 @@ bool consoleScanOnce(ScanCollector& collector) {
   g_scan_collector = &collector;
   portEXIT_CRITICAL(&g_registry_mux);
   g_scan_running = true;
-  const bool started = g_ble_scan->start(CONSOLE_SCAN_S, onScanComplete, false);
+  const bool started = g_ble_scan->start(scan_s, onScanComplete, false);
   if (!started) {
     g_scan_running = false;
   }
   const uint32_t begin = millis();
-  while (g_scan_running && millis() - begin < CONSOLE_SCAN_S * 1000 + SCAN_WATCHDOG_MARGIN_MS) {
+  while (g_scan_running && millis() - begin < scan_s * 1000 + SCAN_WATCHDOG_MARGIN_MS) {
     delay(10);
   }
   if (g_scan_running) {
@@ -895,6 +895,9 @@ bool consoleScanOnce(ScanCollector& collector) {
   g_scan_collector = nullptr;
   portEXIT_CRITICAL(&g_registry_mux);
   return started;
+}
+bool consoleScanOnce(ScanCollector& collector) {
+  return scanForSeconds(collector, CONSOLE_SCAN_S);
 }
 
 // Adds the discharge of this wake cycle. NVS is written only when update() reports a charge event
@@ -1624,6 +1627,45 @@ void setup() {
       ble_console.stop();
       Runner::scan(sink, scan_registry, consoleScanOnce);
       ble_console.start(); // the scan stopped the BLE stack
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SELFTEST) {
+      // One run of each onboard check. Reads only: a local SHTC3 health copy and a local RTC time keep the RTC state. The
+      // card check mounts and unmounts the card itself. On USB the BLE console stops for the scan check and the card
+      // and starts again; on BLE the radio stays with the console and the scan check is skipped.
+      const bool over_ble = transport != 0;
+      if (!over_ble) {
+        ble_console.stop();
+      }
+      Runner::selfTest(
+          console_storage, sink, over_ble, effectiveMuted(), quietHours().isActive(g_rtc_time),
+          [&]() {
+            Shtc3Health health; // local copy: the RTC counters stay as they are
+            Shtc3Reading reading;
+            const Shtc3Result result = readOnboardShtc3(reading, g_state.battery.usb_powered, health);
+            return SelfTestChecks::shtc3(result, health.retried > 0);
+          },
+          [&]() {
+            if (!g_rtc.present()) {
+              g_rtc.begin(Wire); // retry a failed boot probe, like updateRtc()
+            }
+            RtcTime probe;
+            const bool read_ok = g_rtc.readTime(probe);
+            return SelfTestChecks::rtc(g_rtc.present(), read_ok, probe.oscillator_stopped);
+          },
+          []() {
+            const BatteryReading reading = BatteryMonitor::readAveraged(config().battery_offset_mv); // like the protection check
+            return SelfTestChecks::battery(static_cast<int32_t>(lroundf(reading.voltage_v * 1000.0f)));
+          },
+          []() {
+            Es7210Hal hal;
+            return SelfTestChecks::microphoneWindow(hal); // powers the ADC and the bus down on each path
+          },
+          []() {
+            ScanCollector collector;
+            return SelfTestChecks::bleScan(scanForSeconds(collector, 1));
+          });
+      if (!over_ble) {
+        ble_console.start(); // the scan check stopped the BLE stack
+      }
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::NTP_SYNC) {
       // One sync on request, USB only (BleConsoleBridge::gate). No card access. The radio runs only inside the call
       // (about 14 s); the save of this wake cycle writes the NTP state.

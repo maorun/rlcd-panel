@@ -8,6 +8,7 @@
 #include "audio_alert.h"
 #include "battery_monitor.h"
 #include "device_config.h"
+#include "es7210_mic.h"
 #include "frame_refresh.h"
 #include "pcf85063_rtc.h"
 #include "sd_logger.h"
@@ -36,14 +37,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, or with extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
+  BAD_ARG,  // CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, or with extra text; SELFTEST with extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '='); CONFIG <key> with an unknown key
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv, daily_v4_YYYY.csv or events_v1_YYYY.csv
@@ -74,7 +75,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "CONFIG <key>", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "CONFIG <key>", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -285,6 +286,13 @@ public:
         return SerialParseStatus::BAD_ARG; // SCAN takes no argument
       }
       out.kind = SerialCommandKind::SCAN;
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "SELFTEST")) {
+      if (cmd_len != len) {
+        return SerialParseStatus::BAD_ARG; // SELFTEST takes no argument
+      }
+      out.kind = SerialCommandKind::SELFTEST;
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "SCREEN")) {
@@ -656,6 +664,105 @@ private:
   size_t used_ = 0;
   bool failed_ = false;
   uint8_t buffer_[BUFFER_SIZE] = {0};
+};
+
+// One check of the console command SELFTEST: a status and one detail word (no space, at most 23 characters).
+struct SelfTestOutcome {
+  enum class Status : uint8_t { OK = 0, FAIL, SKIP };
+  Status status = Status::FAIL;
+  char detail[24] = {0};
+
+  static SelfTestOutcome of(Status status, const char* detail) {
+    SelfTestOutcome o;
+    o.status = status;
+    snprintf(o.detail, sizeof(o.detail), "%s", detail);
+    return o;
+  }
+  static const char* label(Status status) {
+    return status == Status::OK ? "OK" : (status == Status::FAIL ? "FAIL" : "SKIP");
+  }
+};
+
+// Pure verdicts of the SELFTEST checks. The sketch reads the hardware and passes the result in; the host tests pass fixed values.
+struct SelfTestChecks {
+  static constexpr int32_t BATTERY_MIN_MV = 2500;
+  static constexpr int32_t BATTERY_MAX_MV = 4400;
+  static constexpr uint32_t MIC_WINDOW_MS = 1000;
+
+  // `retried` is true when the first read failed and the retry ran (readShtc3WithRetry).
+  static SelfTestOutcome shtc3(Shtc3Result result, bool retried) {
+    switch (result) {
+      case Shtc3Result::OK:
+        return SelfTestOutcome::of(SelfTestOutcome::Status::OK, retried ? "RETRIED" : "READ");
+      case Shtc3Result::NACK: return SelfTestOutcome::of(SelfTestOutcome::Status::FAIL, "NACK");
+      case Shtc3Result::SHORT: return SelfTestOutcome::of(SelfTestOutcome::Status::FAIL, "SHORT");
+      case Shtc3Result::CRC:
+      default: return SelfTestOutcome::of(SelfTestOutcome::Status::FAIL, "CRC");
+    }
+  }
+
+  // `readTime` result and the oscillator stop flag of the PCF85063A; the check reads only.
+  static SelfTestOutcome rtc(bool present, bool read_ok, bool oscillator_stopped) {
+    if (!present) {
+      return SelfTestOutcome::of(SelfTestOutcome::Status::FAIL, "NO_RTC");
+    }
+    if (oscillator_stopped) {
+      return SelfTestOutcome::of(SelfTestOutcome::Status::FAIL, "OSC_STOPPED");
+    }
+    if (!read_ok) {
+      return SelfTestOutcome::of(SelfTestOutcome::Status::FAIL, "READ_FAILED");
+    }
+    return SelfTestOutcome::of(SelfTestOutcome::Status::OK, "RUNNING");
+  }
+
+  // `free_mb` is -1 for an unknown size.
+  static SelfTestOutcome card(bool mounted, int32_t free_mb) {
+    if (!mounted) {
+      return SelfTestOutcome::of(SelfTestOutcome::Status::FAIL, "NO_CARD");
+    }
+    if (free_mb < 0) {
+      return SelfTestOutcome::of(SelfTestOutcome::Status::FAIL, "SIZE_UNKNOWN");
+    }
+    char detail[24];
+    snprintf(detail, sizeof(detail), "free_mb=%ld", static_cast<long>(free_mb));
+    return SelfTestOutcome::of(SelfTestOutcome::Status::OK, detail);
+  }
+
+  static SelfTestOutcome battery(int32_t millivolts) {
+    char detail[24];
+    snprintf(detail, sizeof(detail), "mv=%ld", static_cast<long>(millivolts));
+    const bool ok = millivolts >= BATTERY_MIN_MV && millivolts <= BATTERY_MAX_MV;
+    return SelfTestOutcome::of(ok ? SelfTestOutcome::Status::OK : SelfTestOutcome::Status::FAIL, detail);
+  }
+
+  // One window of the StereoAnalyzer: both channels must be OK and within the imbalance limit.
+  static SelfTestOutcome microphone(const NoiseReading& reading) {
+    if (!reading.mic.valid) {
+      return SelfTestOutcome::of(SelfTestOutcome::Status::FAIL, "NO_DATA");
+    }
+    char detail[24];
+    snprintf(detail, sizeof(detail), "L=%s,R=%s", MicSelfTest::label(reading.mic.channel[0]),
+             MicSelfTest::label(reading.mic.channel[1]));
+    if (!reading.mic.channelOk(0) || !reading.mic.channelOk(1)) {
+      return SelfTestOutcome::of(SelfTestOutcome::Status::FAIL, detail);
+    }
+    if (reading.mic.imbalanced()) {
+      snprintf(detail, sizeof(detail), "IMBALANCE=%udB", static_cast<unsigned>(reading.mic.imbalance_db));
+      return SelfTestOutcome::of(SelfTestOutcome::Status::FAIL, detail);
+    }
+    return SelfTestOutcome::of(SelfTestOutcome::Status::OK, detail);
+  }
+
+  // One window with the injected ADC. NoiseSampler::measure powers the ADC and the bus down on each path.
+  template <typename Hal>
+  static SelfTestOutcome microphoneWindow(Hal& hal) {
+    return microphone(NoiseSampler::measure(hal, NoiseBand::QUIET, MIC_WINDOW_MS));
+  }
+
+  static SelfTestOutcome bleScan(bool started) {
+    return started ? SelfTestOutcome::of(SelfTestOutcome::Status::OK, "SCAN")
+                   : SelfTestOutcome::of(SelfTestOutcome::Status::FAIL, "START_FAILED");
+  }
 };
 
 // Line side of the BLE console. The RX characteristic feeds feed(); a complete line goes through
@@ -1196,6 +1303,70 @@ public:
     SerialCrc32 crc;
     crc.update(reinterpret_cast<const uint8_t*>(text), len);
     if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+      return;
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
+  // SELFTEST: runs each check once in the fixed order shtc3, rtc, sd, battery, mic, ble and replies
+  // "BEGIN SELFTEST", one "CHECK <name> <OK|FAIL|SKIP> <detail>" line per check, "END SELFTEST pass=<N> fail=<N>" and the
+  // CRC32 line (SKIP counts as neither). `shtc3`, `rtc`, `battery`, `mic` and `ble` are injected and return a SelfTestOutcome;
+  // the card check mounts `storage` itself and unmounts it. The mic check is skipped while `muted` (MUTED) or in `quiet_hours`
+  // (QUIET). On BLE (`over_ble`) the scan check is skipped with CONSOLE, because the BLE console holds the radio, and
+  // `ble` does not run. No state change, no RTC write.
+  template <typename Shtc3Fn, typename RtcFn, typename BatteryFn, typename MicFn, typename BleFn>
+  static void selfTest(Storage& storage, Sink& sink, bool over_ble, bool muted, bool quiet_hours, Shtc3Fn shtc3, RtcFn rtc,
+                       BatteryFn battery, MicFn mic, BleFn ble) {
+    using Status = SelfTestOutcome::Status;
+    struct Row {
+      const char* name;
+      SelfTestOutcome outcome;
+    };
+    Row rows[6];
+    rows[0] = {"shtc3", shtc3()};
+    rows[1] = {"rtc", rtc()};
+    if (storage.mount()) {
+      const int32_t free_mb = SdLogCodec::freeMegabytes(storage.totalBytes(), storage.usedBytes());
+      rows[2] = {"sd", SelfTestChecks::card(true, free_mb)};
+      storage.unmount();
+    } else {
+      rows[2] = {"sd", SelfTestChecks::card(false, -1)};
+    }
+    rows[3] = {"battery", battery()};
+    if (muted || quiet_hours) {
+      rows[4] = {"mic", SelfTestOutcome::of(Status::SKIP, muted ? "MUTED" : "QUIET")};
+    } else {
+      rows[4] = {"mic", mic()};
+    }
+    rows[5] = {"ble", over_ble ? SelfTestOutcome::of(Status::SKIP, "CONSOLE") : ble()};
+    SerialCrc32 crc;
+    auto emit = [&](const char* text) {
+      const size_t len = strlen(text);
+      if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+        return false;
+      }
+      crc.update(reinterpret_cast<const uint8_t*>(text), len);
+      return true;
+    };
+    if (!emit("BEGIN SELFTEST\n")) {
+      return;
+    }
+    unsigned pass = 0;
+    unsigned fail = 0;
+    for (const Row& row : rows) {
+      pass += row.outcome.status == Status::OK ? 1U : 0U;
+      fail += row.outcome.status == Status::FAIL ? 1U : 0U;
+      char line[64];
+      snprintf(line, sizeof(line), "CHECK %s %s %s\n", row.name, SelfTestOutcome::label(row.outcome.status), row.outcome.detail);
+      if (!emit(line)) {
+        return;
+      }
+    }
+    char end[48];
+    snprintf(end, sizeof(end), "END SELFTEST pass=%u fail=%u\n", pass, fail);
+    if (!emit(end)) {
       return;
     }
     char line[24];
@@ -2349,7 +2520,8 @@ public:
         command.kind == SerialCommandKind::SLOT_CLEAR || command.kind == SerialCommandKind::SLOT_SWAP ||
         command.kind == SerialCommandKind::REJECTS || command.kind == SerialCommandKind::ACK ||
         command.kind == SerialCommandKind::IDENTIFY || command.kind == SerialCommandKind::SNOOZE ||
-        command.kind == SerialCommandKind::NTP_SYNC || command.kind == SerialCommandKind::FRSI) {
+        command.kind == SerialCommandKind::NTP_SYNC || command.kind == SerialCommandKind::FRSI ||
+        command.kind == SerialCommandKind::SELFTEST) {
       return;
     }
     if (!storage.mount()) {
@@ -2383,6 +2555,7 @@ public:
       case SerialCommandKind::SNOOZE:
       case SerialCommandKind::NTP_SYNC:
       case SerialCommandKind::FRSI:
+      case SerialCommandKind::SELFTEST:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;
