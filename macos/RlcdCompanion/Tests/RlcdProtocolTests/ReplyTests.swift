@@ -157,6 +157,25 @@ struct ReplyAssemblerTests {
         #expect(throws: ParseError.badLine(bad[1])) { try StatusReply.parse(lines: bad) }
     }
 
+    @Test func trendsOfSharedFixtureAndBadFields() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let data = try Data(contentsOf: url.appendingPathComponent("tests/fixtures/status_reply_sample.txt"))
+        var a = ReplyAssembler()
+        guard case .frame(let lines)? = a.append(data).first else { Issue.record("fixture is not a frame"); return }
+        let s = try StatusReply.parse(lines: lines)
+        #expect(s.sensors.map(\.temperatureTrend) == [.rise, .steady, nil, nil, .fall, nil])
+        #expect(s.sensors.map(\.humidityTrend) == [.fall, .steady, nil, nil, .rise, nil])
+        #expect([SensorTrend.rise, .fall, .steady].map(\.symbol) == ["↑", "↓", "–"])
+        let without = lines.map { $0.replacingOccurrences(of: #" (temp|rh)_trend=\S+"#, with: "", options: .regularExpression) }
+        let old = try StatusReply.parse(lines: without).sensors
+        #expect(old.allSatisfy { $0.temperatureTrend == nil && $0.humidityTrend == nil })
+        let badTemp = lines.map { $0.hasPrefix("SENSOR 4 ") ? $0.replacingOccurrences(of: "temp_trend=FALL", with: "temp_trend=up") : $0 }
+        #expect(throws: ParseError.badLine(badTemp[4])) { try StatusReply.parse(lines: badTemp) }
+        let bad = lines.map { $0.hasPrefix("SENSOR 1 ") ? $0.replacingOccurrences(of: "rh_trend=STEADY", with: "rh_trend=UP") : $0 }
+        #expect(throws: ParseError.badLine(bad[1])) { try StatusReply.parse(lines: bad) }
+    }
+
     @Test func ackedMaskParsing() throws {
         let acked = try StatusReply.parse(lines: statusLines(power: "POWER src=USB v=4.05 pct=88 alerts=0A muted=0 acked=02"))
         #expect(acked.ackedMask == 2)

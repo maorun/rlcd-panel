@@ -303,6 +303,11 @@ struct DiagnosticsView: View {
                 HStack(spacing: 8) {
                     Text("\(r.slot) \(r.name)\(r.badge.map { " \($0)" } ?? "")").frame(width: 140, alignment: .leading)
                     Text(r.mac ?? "--").frame(width: 130, alignment: .leading).foregroundStyle(.secondary)
+                    let live = status.sensors.first { $0.index == r.slot }
+                    Text("\(live?.temperature.map { String(format: "%.1f °\(model.config?.temperatureUnit ?? "?")", $0) } ?? "--")\(live?.temperatureTrend?.symbol ?? "")")
+                        .help("Temperature trend over 3 hours")
+                    Text("\(live?.humidity.map { String(format: "%.1f %%RH", $0) } ?? "--")\(live?.humidityTrend?.symbol ?? "")")
+                        .help("Humidity trend over 3 hours")
                     Text("RSSI \(r.rssi.map { String(format: "%.0f", $0) } ?? "--")")
                     Text("bat \(r.battery.map { String(format: "%.0f %%", $0) } ?? "--")")
                     Text("age \(r.ageSeconds.map { String(format: "%.0f s", $0) } ?? "--")")

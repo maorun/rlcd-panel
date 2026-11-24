@@ -3021,7 +3021,7 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - Each `SENSOR` line of the console command `STATUS` now ends with ` temp_trend=<RISE|FALL|STEADY|-->` and ` rh_trend=<RISE|FALL|STEADY|-->` after `mold_h=`.
 - The fields use `TrendClassifier::temperature` and `TrendClassifier::humidity` of the 24-hour histories. These are the same rules as the trend marks of the tiles. The new helper `TrendClassifier::statusText` gives the text.
 - The fields show `--` for `Trend::UNKNOWN`, for example with 3 samples, and for each slot that is empty, disabled or stale.
-- The firmware calculates the fields on each `STATUS`. It adds no RTC state. The line count, the RTC layout and `STATE_VERSION` do not change. The macOS, Android and Wear OS `StatusReply` parsers ignore the new fields.
+- The firmware calculates the fields on each `STATUS`. It adds no RTC state. The line count, the RTC layout and `STATE_VERSION` do not change. The Android and Wear OS `StatusReply` parsers ignore the new fields. The macOS parser reads them (see the next section).
 - Tests: host tests assert `RISE`, `FALL` and `STEADY` at the exact thresholds (0.5 C, 3.0 %RH), `--` for 3 samples, an empty slot and a stale slot, and one full `SENSOR` line. `tests/fixtures/status_reply_sample.txt` holds the fields with a new CRC-32.
 
 ## Serial console command TODAY for the minimum and maximum of the current day
@@ -3045,3 +3045,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The main screen has the entry `Heute`. `MainActivity.readToday` sends `TODAY` over the BLE console only after a tap on `Read today` (with the Bluetooth permission check). It stops the scan during the read, and `closeToday` restarts it. The panel needs USB power and `ble_console` 1 or 2.
 - `TodayReplyTest` reads `tests/fixtures/today_reply_sample.txt` and covers each row, `null` for empty fields, `ParseException` for 8 columns, for `temp_min_c=x` and for a wrong header, and the `ERR NO_TIME` text. The shared protocol files stay unchanged, so `scripts/check-protocol-sync.sh` passes.
 - Validation: the local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.
+
+## Trend arrows in the macOS sensor list
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift`
+- The new enum `SensorTrend` (`rise`, `fall`, `steady`) reads `RISE`, `FALL` and `STEADY`. `SensorTrend.symbol` gives an arrow up, an arrow down or a dash.
+- `StatusSensor.temperatureTrend` and `StatusSensor.humidityTrend` (`SensorTrend?`) come from the `temp_trend=` and `rh_trend=` fields of the `SENSOR` lines. They are `nil` for `--` and for a missing field (older firmware). Another text throws `ParseError.badLine`.
+- The status list of the menu bar shows the symbol directly after the temperature and after the humidity of each sensor. The `Sensor health` rows of `DiagnosticsView` show the temperature and the humidity of the slot, each with its symbol and a tooltip.
+- The app sends no new command. It uses the `STATUS` reply that it already reads.
+- Tests: `ReplyTests` read `tests/fixtures/status_reply_sample.txt` and assert each trend value of the 6 sensors, `nil` for `--` and for a line without the fields, the symbols, and `ParseError.badLine` for `rh_trend=UP`.
+- Validation: `swift build -c release` and `swift test` (637 tests) passed on the local host. `./scripts/check-protocol-sync.sh` exited with 0.

@@ -250,8 +250,8 @@ struct MainView: View {
                 ForEach(s.sensors, id: \.index) { x in
                     let mac = x.mac ?? model.config?.mac(forSlot: x.index)
                     let macText = mac.map { " (\($0))" } ?? ""
-                    Text("\(x.name)\(x.badge.map { " \($0)" } ?? "")\(macText): \(x.temperature.map { String(format: "%.1f °\(unit)", $0) } ?? "--") "
-                         + "\(x.humidity.map { String(format: "%.1f %%RH", $0) } ?? "--") [\(x.state)]")
+                    Text("\(x.name)\(x.badge.map { " \($0)" } ?? "")\(macText): \(x.temperature.map { String(format: "%.1f °\(unit)", $0) } ?? "--")\(x.temperature != nil ? x.temperatureTrend?.symbol ?? "" : "") "
+                         + "\(x.humidity.map { String(format: "%.1f %%RH", $0) } ?? "--")\(x.humidity != nil ? x.humidityTrend?.symbol ?? "" : "") [\(x.state)]")
                 }
                 Text("Power: \(s.powerSource ?? "?") \(s.cellVolts.map { String(format: "%.2f V", $0) } ?? "")")
                 Text("Reset: \(s.resetReason ?? "--"), SD: \(s.sdStatus ?? "--")")
