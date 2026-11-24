@@ -2738,3 +2738,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SensorHealthText.bleRejects` (`SensorHealthScreen.kt`) shows `BLE abgelehnt <N>, Sprünge <N>` (`--` for a missing `jumps` field) in the panel section. The screen adds `⚠` and the warning colour when `unassigned` is above 0.
 - Tests: `StatusReplyTest` (`parsesBleRejectLine`, `badBleRejectLineThrows`) and `SensorHealthTextTest.bleRejectText`.
 - Validation: `check-protocol-sync.sh` and `--self-test` pass locally. The Gradle tests did not run locally (no Android SDK on this host); the CI jobs run them.
+
+## Guided sensor setup assistant in the Android app
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SetupAssistant.kt`, `SetupAssistantScreen.kt`, `MainActivity.kt`, `PhoneDashboardScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/SetupAssistantTest.kt`.
+- `SetupAssistant` is a pure Kotlin state machine with the step order of `SetupAssistant.swift`: `SCAN`, `CHOOSE`, `ASSIGN`, `VERIFY`, `CALIBRATE`, `DONE`. The phone scan (`SensorFinderScanner`) replaces the `SCAN` console command, so the step needs no command.
+- Commands: `SET slotN_mac=<MAC>`, `SET slotN_name=<NAME>` and `CONFIG` (from `SlotAssignment.batch`), `STATUS` for each check of the verify step, `SALT <N>` and `SET <key>=<value>` plus `CONFIG` for the calibrate step. The app sends each command only after a user tap, over the BLE console. The assign tap reads `STATUS` and `CONFIG` first, then the assistant picks the first free slot.
+- The assistant stops with a text for `ERR READ_ONLY` (`Set ble_console=2 to apply`, also before the first `SET` when `ble_console` is not 2), `ERR FIXED_MAC`, each other `ERR` reply, a lost link or timeout, and a sensor that stays absent in `STATUS` after 3 checks (`Stop.Absent`). A stopped assistant sends no command. `restart()` and the button `Neu starten` begin again at `SCAN`.
+- The main screen has the button `Sensor einrichten`.
+- Tests: `SetupAssistantTest` (step order, command texts, each stop reason, restart after a stop and after `DONE`).
+- Validation: the host has no Java and no Android SDK, so Gradle did not run locally. The CI job `Android phone companion tests and APK` runs the tests.

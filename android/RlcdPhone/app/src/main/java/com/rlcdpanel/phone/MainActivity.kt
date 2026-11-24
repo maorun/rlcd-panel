@@ -29,7 +29,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.rlcdpanel.phone.console.BleConsoleClient
+import com.rlcdpanel.phone.finder.FoundSensor
 import com.rlcdpanel.phone.finder.SensorFinderList
+import com.rlcdpanel.phone.protocol.SetupAssistant
 import com.rlcdpanel.phone.finder.SensorFinderScanner
 import com.rlcdpanel.phone.finder.SlotAssignment
 import com.rlcdpanel.phone.protocol.AckCommand
@@ -123,6 +125,11 @@ class MainActivity : ComponentActivity() {
     private var showEvents by mutableStateOf(false)
     private var eventState by mutableStateOf(EventLogState())
     private var showFinder by mutableStateOf(false)
+    private var showSetup by mutableStateOf(false)
+    private var setupState by mutableStateOf(SetupState())
+    private val setupAssistant = SetupAssistant()
+    /** Counts up on restart, close and stop. A callback of an older session does nothing. */
+    private var setupSession = 0
     private var showChime by mutableStateOf(false)
     private var showSlots by mutableStateOf(false)
     private var showAlertLimits by mutableStateOf(false)
@@ -267,6 +274,23 @@ class MainActivity : ComponentActivity() {
                     onBack = { closeCalibration() }
                 )
                 BackHandler { closeCalibration() }
+                return@setContent
+            }
+            if (showSetup) {
+                SetupAssistantScreen(
+                    state = setupState,
+                    onScan = { toggleSetupScan() },
+                    onUseScan = { useSetupScan() },
+                    onChoose = { mac, name -> chooseSetupSensor(mac, name) },
+                    onAssign = { withConsolePermission { setupAssign() } },
+                    onCheck = { withConsolePermission { setupSend { setupAssistant.checkReception() } } },
+                    onSalt = { withConsolePermission { setupSend { setupAssistant.beginCalibrate() } } },
+                    onApply = { withConsolePermission { setupSend { setupAssistant.beginApply() } } },
+                    onFinish = { setupAssistant.finish(); refreshSetup() },
+                    onRestart = { restartSetup() },
+                    onBack = { closeSetup() }
+                )
+                BackHandler { closeSetup() }
                 return@setContent
             }
             if (showFinder) {
@@ -457,6 +481,7 @@ class MainActivity : ComponentActivity() {
                 onOpenHistory = { showHistory = true },
                 onOpenWeek = { showWeek = true },
                 onOpenEvents = { showEvents = true },
+                onOpenSetup = { restartSetup(); showSetup = true },
                 sourceBadges = sourceBadges,
                 outdoorLocation = outdoorLocation,
                 showLocationDialog = showLocationDialog,
@@ -479,6 +504,7 @@ class MainActivity : ComponentActivity() {
         val consoleWasRunning = consoleClient.isRunning
         consoleClient.cancel()
         stopFinderScan()
+        if (showSetup) onSetupStop(consoleWasRunning)
         if (finderState.isBusy) {
             finderState = finderState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, CONFIG lesen")
         }
@@ -513,6 +539,7 @@ class MainActivity : ComponentActivity() {
             else if (showRejects) rejectsState = RejectsState(message = "Bluetooth-Berechtigung fehlt")
             else if (showHistory) panelHistory = PanelHistoryState(message = "Bluetooth-Berechtigung fehlt")
             else if (showWeek) weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
+            else if (showSetup) setupState = setupState.copy(isBusy = false, message = "Bluetooth-Berechtigung fehlt")
             else if (showFinder) finderState = finderState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else if (showAlertLimits) alertLimitState = alertLimitState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else if (showSlots) slotState = slotState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
@@ -734,6 +761,175 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    // MARK: Setup assistant
+
+    private fun refreshSetup(message: String? = setupState.message, busy: Boolean = false) {
+        val a = setupAssistant
+        setupState = SetupState(
+            step = a.step,
+            stopText = a.stop?.text,
+            notice = a.notice,
+            candidates = a.candidates(panelConfig),
+            chosenMac = a.chosenMac,
+            slot = a.slot,
+            verifyTries = a.verifyTries,
+            proposalText = a.proposal?.let { "${it.key} = ${it.value}" },
+            isScanning = setupState.isScanning,
+            isBusy = busy,
+            message = message
+        )
+    }
+
+    private fun restartSetup() {
+        setupSession++
+        stopFinderScan()
+        consoleClient.cancel()
+        pendingConsoleAction = null
+        setupAssistant.restart()
+        finderList.clear()
+        setupState = SetupState()
+    }
+
+    private fun closeSetup() {
+        restartSetup()
+        showSetup = false
+    }
+
+    /** `onStop` ends a running console command and drops each callback of the old session. The assistant stops. */
+    private fun onSetupStop(consoleWasRunning: Boolean) {
+        setupSession++
+        setupState = setupState.copy(isScanning = false, isBusy = false)
+        if (consoleWasRunning || setupAssistant.pending != null) {
+            setupAssistant.linkLost("App im Hintergrund")
+        }
+        refreshSetup()
+    }
+
+    private fun toggleSetupScan() {
+        if (setupState.isScanning) {
+            finderScanner?.stop()
+            setupState = setupState.copy(isScanning = false)
+            return
+        }
+        showFinderForScan()
+    }
+
+    /** Starts the phone scan for the assistant. The rows land in [finderList]; the user takes them with a tap. */
+    private fun showFinderForScan() {
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            listOf(Manifest.permission.ACCESS_FINE_LOCATION)
+        }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isNotEmpty()) {
+            setupState = setupState.copy(message = "Bluetooth-Berechtigung fehlt. Erst Sensor-Status öffnen und erlauben.")
+            return
+        }
+        stopBleScan()
+        finderList.clear()
+        val scanner = finderScanner ?: SensorFinderScanner(
+            this,
+            onResult = { ad, rssi ->
+                if (showFinder && finderState.isScanning) {
+                    finderList.add(ad, rssi, System.currentTimeMillis())
+                    finderState = finderState.copy(rows = finderList.sorted())
+                } else if (showSetup && setupState.isScanning) {
+                    finderList.add(ad, rssi, System.currentTimeMillis())
+                }
+            },
+            onError = { text ->
+                finderState = finderState.copy(isScanning = false, isError = true, message = text)
+                setupState = setupState.copy(isScanning = false, message = text)
+            }
+        ).also { finderScanner = it }
+        val started = scanner.start()
+        setupState = setupState.copy(isScanning = started, message = if (started) "Suche läuft…" else setupState.message)
+    }
+
+    private fun useSetupScan() {
+        finderScanner?.stop()
+        setupState = setupState.copy(isScanning = false)
+        setupAssistant.scanned(finderList.sorted(), panelConfig)
+        refreshSetup(message = null)
+    }
+
+    private fun chooseSetupSensor(mac: String, name: String) {
+        setupAssistant.choose(mac, name, panelConfig)
+        refreshSetup(message = null)
+    }
+
+    /** Sends [command] for the current session. A busy console ends the assistant with a stop text. */
+    private fun setupConsole(command: String, session: Int, onReply: (ConsoleReply) -> Unit) {
+        if (consoleClient.isRunning) {
+            setupAssistant.commandNotSent()
+            refreshSetup()
+            return
+        }
+        consoleClient.send(command) { reply -> if (session == setupSession) onReply(reply) }
+    }
+
+    /** One tap: read `STATUS` and `CONFIG` (read only), then the assistant gives the first `SET`. */
+    private fun setupAssign() {
+        stopBleScan()
+        stopFinderScan()
+        val session = setupSession
+        refreshSetup(message = null, busy = true)
+        setupConsole(CONSOLE_STATUS, session) { statusReply ->
+            val status = (statusReply as? ConsoleReply.Frame)?.let {
+                try { StatusReply.parse(it.lines) } catch (_: ParseException) { null }
+            }
+            if (status == null) {
+                setupAssistant.failure(statusReply)
+                refreshSetup()
+                return@setupConsole
+            }
+            setupConsole(CONSOLE_CONFIG, session) { configReply ->
+                lifecycleScope.launch {
+                    val info = withContext(Dispatchers.IO) { ConfigCache.store(filesDir, configReply, System.currentTimeMillis()) }
+                    if (session != setupSession) return@launch
+                    if (info == null) {
+                        setupAssistant.failure(configReply)
+                        refreshSetup()
+                        return@launch
+                    }
+                    val loaded = withContext(Dispatchers.IO) { PanelConfig.load(this@MainActivity) }
+                    if (session != setupSession) return@launch
+                    panelConfig = loaded
+                    configState = ConfigReadState(info = info)
+                    setupSend { setupAssistant.beginAssign(status, panelConfig) }
+                }
+            }
+        }
+    }
+
+    /** Sends the command that [next] gives, then each following command of the same tap. */
+    private fun setupSend(next: () -> String?) {
+        stopBleScan()
+        stopFinderScan()
+        val session = setupSession
+        val command = next()
+        if (command == null) { refreshSetup(); return }
+        refreshSetup(message = null, busy = true)
+        setupConsole(command, session) { reply ->
+            setupAssistant.receive(reply)
+            if (command == CONSOLE_CONFIG && reply is ConsoleReply.Frame) {
+                lifecycleScope.launch {
+                    val info = withContext(Dispatchers.IO) { ConfigCache.store(filesDir, reply, System.currentTimeMillis()) }
+                    if (session != setupSession) return@launch
+                    if (info != null) {
+                        val loaded = withContext(Dispatchers.IO) { PanelConfig.load(this@MainActivity) }
+                        if (session != setupSession) return@launch
+                        panelConfig = loaded
+                        configState = ConfigReadState(info = info)
+                    }
+                    setupSend { setupAssistant.nextCommand() }
+                }
+            } else {
+                setupSend { setupAssistant.nextCommand() }
+            }
+        }
+    }
+
     private fun closeRejects() {
         consoleClient.cancel()
         pendingConsoleAction = null
@@ -947,7 +1143,7 @@ class MainActivity : ComponentActivity() {
 
     /** Runs [action] after the Bluetooth permissions; the action sends console commands. */
     private fun withConsolePermission(action: () -> Unit) {
-        if (calibState.isBusy || chimeState.isBusy || weekState.isReading || panelHistory.isReading || eventState.isReading || rejectsState.isReading || finderState.isBusy || slotState.isBusy || alertLimitState.isBusy || consoleClient.isRunning) return
+        if (calibState.isBusy || chimeState.isBusy || weekState.isReading || panelHistory.isReading || eventState.isReading || rejectsState.isReading || finderState.isBusy || setupState.isBusy || slotState.isBusy || alertLimitState.isBusy || consoleClient.isRunning) return
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
@@ -959,6 +1155,7 @@ class MainActivity : ComponentActivity() {
             else if (showRejects) rejectsState = RejectsState(isReading = true)
             else if (showHistory) panelHistory = PanelHistoryState(isReading = true)
             else if (showWeek) weekState = WeekState(isReading = true)
+            else if (showSetup) setupState = setupState.copy(isBusy = true, message = null)
             else if (showFinder) finderState = finderState.copy(isBusy = true, message = null)
             else if (showAlertLimits) alertLimitState = alertLimitState.copy(isBusy = true, message = null)
             else if (showSlots) slotState = slotState.copy(isBusy = true, message = null)
