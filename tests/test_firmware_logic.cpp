@@ -7,6 +7,7 @@
 #include <string.h>
 #include <fstream>
 #include <sstream>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -10427,6 +10428,38 @@ struct FakeConsoleStorage {
   size_t max_read = 1000;
   bool fail_read = false;
   // SET: config.ini, config.tmp and one failing step
+  // TAIL: files by name (no leading slash); a failing name gives a read error
+  std::map<std::string, std::string> tail_files;
+  std::string tail_fail_name;
+  std::string fail_second_read_name;      // a second read of this file fails
+  std::string swap_after_first_read_name; // after the first read of this file its text becomes swap_text
+  std::string swap_text;
+  std::map<std::string, int> tail_read_count;
+  int tail_reads = 0;
+  int readTail(const char* name, char* buf, size_t capacity, size_t& len, bool& whole) {
+    ++tail_reads;
+    len = 0;
+    whole = false;
+    if (name == tail_fail_name) {
+      return 2;
+    }
+    const auto it = tail_files.find(name);
+    if (it == tail_files.end()) {
+      return 1;
+    }
+    const int nth = ++tail_read_count[name];
+    if (nth == 2 && name == fail_second_read_name) {
+      return 2;
+    }
+    if (nth == 2 && name == swap_after_first_read_name) {
+      it->second = swap_text;
+    }
+    const std::string& text = it->second;
+    len = std::min(capacity, text.size());
+    memcpy(buf, text.data() + (text.size() - len), len);
+    whole = len == text.size();
+    return 0;
+  }
   bool has_config = false;
   std::string config_text;
   bool has_tmp = false;
@@ -15734,6 +15767,308 @@ std::string spreadOutput(const ClimateHistory& h) {
   return sink.out;
 }
 } // namespace
+
+namespace {
+std::string tailRow(int day, int hour) {
+  char t[40];
+  snprintf(t, sizeof(t), "2026-03-%02d %02d:00:00", day, hour);
+  return std::string(t) + std::string(41, ',') + "\n";
+}
+// A row with values: panel 87 %, 4.00 V, USB, onboard 21.5 C 45.0 %RH, slot 1 -3.5 C 80.0 %RH 90 %
+std::string tailFixtureRow(int day, int hour) {
+  char t[40];
+  snprintf(t, sizeof(t), "2026-03-%02d %02d:00:00", day, hour);
+  return std::string(t) + ",87,4.00,1,21.5,45.0,-3.5,80.0,90" + std::string(27, ',') + ",,,,,,\n";
+}
+std::string tailHeader() {
+  char h[512];
+  SdLogCodec::formatHeader(h, sizeof(h));
+  return h;
+}
+RtcTime tailNow(uint8_t month) {
+  RtcTime t;
+  t.valid = true;
+  t.year = 2026;
+  t.month = month;
+  t.day = 15;
+  return t;
+}
+std::string tailOutput(FakeConsoleStorage& storage, uint8_t n, const RtcTime& now, int* mounts = nullptr) {
+  FakeSink sink;
+  TestRunner::showTail(storage, sink, n, now);
+  if (mounts != nullptr) {
+    *mounts = storage.mounts - storage.unmounts;
+  }
+  return sink.out;
+}
+std::string crcLine(const std::string& body) {
+  SerialCrc32 crc;
+  crc.update(reinterpret_cast<const uint8_t*>(body.data()), body.size());
+  char line[24];
+  snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+  return line;
+}
+} // namespace
+
+void testSerialTailParserAndGate() {
+  SerialCommand cmd;
+  assert(parseText("TAIL 1", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::TAIL && cmd.reference == 1);
+  assert(parseText("TAIL 9", cmd) == SerialParseStatus::OK && cmd.reference == 9);
+  assert(parseText("TAIL 10", cmd) == SerialParseStatus::OK && cmd.reference == 10);
+  assert(parseText("TAIL 72\r\n", cmd) == SerialParseStatus::OK && cmd.reference == 72);
+  const char* bad[] = {"TAIL", "TAIL ", "TAIL 0", "TAIL 73", "TAIL 99", "TAIL 100", "TAIL 01", "TAIL 1x", "TAIL x", "TAIL -1",
+                       "TAIL +1", "TAIL 1 2", "TAIL  1", "TAIL1"};
+  for (const char* line : bad) {
+    const SerialParseStatus st = parseText(line, cmd);
+    assert(st == SerialParseStatus::BAD_ARG || st == SerialParseStatus::UNKNOWN);
+    assert(cmd.kind == SerialCommandKind::NONE);
+  }
+  assert(parseText("TAIL 0", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TAIL 73", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TAIL 1x", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TAIL 1 2", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TAIL", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TAILS 1", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("TAIL 3", cmd) == SerialParseStatus::OK);
+  for (uint8_t level = 0; level <= 2; ++level) {
+    assert(std::string(BleConsoleBridge::gate(cmd, level)).empty()); // a read command: allowed at each level
+  }
+  FakeConsoleStorage storage;
+  FakeSink sink;
+  TestRunner::execute(storage, sink, cmd); // execute() ignores TAIL; the sketch calls showTail
+  assert(sink.out.empty() && storage.mounts == 0 && storage.unmounts == 0);
+}
+
+void testSerialTailRows() {
+  const std::string header = tailHeader();
+  // Newest rows, oldest first, header first, CRC over all bytes before it
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["climate_v6_202603.csv"] = header + tailRow(1, 1) + tailRow(1, 2) + tailRow(1, 3) + tailRow(1, 4);
+    int open_mounts = -1;
+    const std::string out = tailOutput(storage, 2, tailNow(3), &open_mounts);
+    const std::string body = "BEGIN TAIL 2\n" + header + tailRow(1, 3) + tailRow(1, 4);
+    assert(out == body + crcLine(body));
+    assert(open_mounts == 0 && storage.mounts == 1);
+  }
+  // Fewer rows than N and no previous file: the reply holds what exists
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["climate_v6_202603.csv"] = header + tailRow(1, 1) + tailRow(1, 2);
+    const std::string out = tailOutput(storage, 5, tailNow(3));
+    const std::string body = "BEGIN TAIL 2\n" + header + tailRow(1, 1) + tailRow(1, 2);
+    assert(out == body + crcLine(body));
+  }
+  // Over the month limit: the missing rows come from the previous month file, oldest first
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["climate_v6_202603.csv"] = header + tailRow(1, 0);
+    storage.tail_files["climate_v6_202602.csv"] = header + tailRow(27, 22) + tailRow(28, 23);
+    const std::string out = tailOutput(storage, 3, tailNow(3));
+    // the previous file uses the February name but the row text keeps its own date
+    const std::string expect = "BEGIN TAIL 3\n" + header + tailRow(27, 22) + tailRow(28, 23) + tailRow(1, 0);
+    assert(out == expect + crcLine(expect));
+  }
+  // The previous file holds more rows than needed: only its newest rows join
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["climate_v6_202603.csv"] = header + tailRow(1, 0);
+    storage.tail_files["climate_v6_202602.csv"] =
+        header + tailRow(26, 1) + tailRow(26, 2) + tailRow(27, 3) + tailRow(28, 4);
+    const std::string out = tailOutput(storage, 3, tailNow(3));
+    const std::string expect = "BEGIN TAIL 3\n" + header + tailRow(27, 3) + tailRow(28, 4) + tailRow(1, 0);
+    assert(out == expect + crcLine(expect));
+  }
+  // Year change: January reads December of the year before
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["climate_v6_202601.csv"] = header + tailRow(1, 5);
+    storage.tail_files["climate_v6_202512.csv"] = header + tailRow(2, 6);
+    const std::string out = tailOutput(storage, 2, tailNow(1));
+    const std::string expect = "BEGIN TAIL 2\n" + header + tailRow(2, 6) + tailRow(1, 5);
+    assert(out == expect + crcLine(expect));
+  }
+  // A full current file never touches the previous file
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["climate_v6_202603.csv"] = header + tailRow(1, 1) + tailRow(1, 2);
+    storage.tail_files["climate_v6_202602.csv"] = "x";
+    tailOutput(storage, 2, tailNow(3));
+    assert(storage.tail_reads == 2); // current file twice (count, output), previous file never
+  }
+  // Only the previous month exists
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["climate_v6_202602.csv"] = header + tailRow(27, 1);
+    const std::string out = tailOutput(storage, 4, tailNow(3));
+    const std::string expect = "BEGIN TAIL 1\n" + header + tailRow(27, 1);
+    assert(out == expect + crcLine(expect));
+  }
+  // Bad lines, a partial last line and CR LF line ends
+  {
+    FakeConsoleStorage storage;
+    std::string crlf = tailRow(1, 3);
+    crlf.insert(crlf.size() - 1, "\r");
+    storage.tail_files["climate_v6_202603.csv"] = header + tailRow(1, 1) + "garbage,1,2\n" + crlf + tailRow(1, 4).substr(0, 30);
+    const std::string out = tailOutput(storage, 5, tailNow(3));
+    const std::string expect = "BEGIN TAIL 2\n" + header + tailRow(1, 1) + tailRow(1, 3);
+    assert(out == expect + crcLine(expect));
+  }
+}
+
+void testSerialTailFixture() {
+  // The reply equals the shared fixture that the Android TailReplyTest parses (set GENERATE_TAIL_FIXTURE to rewrite it)
+  FakeConsoleStorage storage;
+  storage.tail_files["climate_v6_202603.csv"] = tailHeader() + tailFixtureRow(1, 3) + tailFixtureRow(1, 4);
+  storage.tail_files["climate_v6_202602.csv"] = tailHeader() + tailFixtureRow(28, 23);
+  const std::string out = tailOutput(storage, 3, tailNow(3));
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  std::ifstream in(root + "tests/fixtures/tail_reply_sample.txt");
+  assert(in.good());
+  const std::string fixture((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  assert(out == fixture);
+}
+
+void testSerialTailByteLimit() {
+  const std::string header = tailHeader();
+  const std::string row = tailRow(1, 1);
+  // A file above 16384 bytes: only the last 16384 bytes count; the partial first line is skipped
+  FakeConsoleStorage storage;
+  std::string big = header;
+  size_t index = 0;
+  while (big.size() < SdLogCodec::TAIL_BYTES * 2) {
+    big += tailRow(1 + static_cast<int>(index / 24) % 28, static_cast<int>(index % 24));
+    ++index;
+  }
+  storage.tail_files["climate_v6_202603.csv"] = big;
+  storage.tail_files["climate_v6_202602.csv"] = header + tailRow(27, 1);
+  const std::string out = tailOutput(storage, 72, tailNow(3));
+  const size_t row_size = row.size();
+  const size_t fit = SdLogCodec::TAIL_BYTES / row_size; // whole rows in the window, one partial row at the start
+  assert(fit > 72); // 72 rows always fit in 16384 bytes of 85-byte rows
+  const std::string newest = big.substr(big.size() - 72 * row_size);
+  const std::string expect = "BEGIN TAIL 72\n" + header + newest;
+  assert(out == expect + crcLine(expect));
+  assert(storage.tail_files["climate_v6_202602.csv"].size() > 0);
+  // A window that does not reach the file start never adds the previous month (it would join with a gap)
+  FakeConsoleStorage far;
+  std::string pad = header + tailRow(1, 1) + std::string(SdLogCodec::TAIL_BYTES + 100, 'x') + "\n" + tailRow(1, 2);
+  far.tail_files["climate_v6_202603.csv"] = pad;
+  far.tail_files["climate_v6_202602.csv"] = header + tailRow(27, 5);
+  const std::string far_out = tailOutput(far, 3, tailNow(3));
+  const std::string far_expect = "BEGIN TAIL 1\n" + header + tailRow(1, 2);
+  assert(far_out == far_expect + crcLine(far_expect));
+  assert(far.tail_reads == 2); // the previous file stays closed
+  // The same file with a window that reaches the start does use the previous month
+  FakeConsoleStorage near;
+  near.tail_files["climate_v6_202603.csv"] = header + tailRow(1, 2);
+  near.tail_files["climate_v6_202602.csv"] = header + tailRow(27, 5);
+  const std::string near_expect = "BEGIN TAIL 2\n" + header + tailRow(27, 5) + tailRow(1, 2);
+  assert(tailOutput(near, 3, tailNow(3)) == near_expect + crcLine(near_expect));
+  // Fully populated rows (every slot, noise columns set): 72 of them fit in the window
+  std::string full_row = "2026-03-01 00:00:00,100,4.20,1,-99.9,100.0";
+  for (int i = 0; i < 10; ++i) {
+    full_row += ",-99.9,100.0,100";
+  }
+  full_row += ",12345,99,2,255,99,99\n";
+  assert(std::count(full_row.begin(), full_row.end(), ',') == 41);
+  FakeConsoleStorage wide;
+  std::string wide_file = header;
+  for (int i = 0; i < 100; ++i) {
+    wide_file += full_row;
+  }
+  wide.tail_files["climate_v6_202603.csv"] = wide_file;
+  const std::string wide_out = tailOutput(wide, 72, tailNow(3));
+  assert(wide_out.rfind("BEGIN TAIL 72\n", 0) == 0);
+  assert(full_row.size() * 72 < SdLogCodec::TAIL_BYTES); // the widest row still lets 72 rows fit
+}
+
+// A read error of the output read comes after the BEGIN line and the header; ERR READ_FAILED takes the place of the CRC32 line
+std::string lateFailure(unsigned rows) {
+  (void)rows;
+  return "BEGIN TAIL " + std::to_string(rows) + "\n" + tailHeader() + "ERR READ_FAILED\n";
+}
+
+void testSerialTailErrors() {
+  const std::string header = tailHeader();
+  {
+    FakeConsoleStorage storage;
+    storage.card = false;
+    assert(tailOutput(storage, 3, tailNow(3)) == "ERR NO_CARD\n");
+    assert(storage.mounts == 1 && storage.unmounts == 0); // a failed mount needs no unmount
+  }
+  {
+    FakeConsoleStorage storage;
+    int open_mounts = -1;
+    assert(tailOutput(storage, 3, tailNow(3), &open_mounts) == "ERR NO_FILE\n");
+    assert(open_mounts == 0);
+  }
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["climate_v6_202603.csv"] = header + tailRow(1, 1);
+    RtcTime invalid = tailNow(3);
+    invalid.valid = false;
+    int open_mounts = -1;
+    assert(tailOutput(storage, 3, invalid, &open_mounts) == "ERR NO_FILE\n");
+    assert(open_mounts == 0);
+  }
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["climate_v6_202603.csv"] = header + tailRow(1, 1);
+    storage.tail_fail_name = "climate_v6_202603.csv";
+    int open_mounts = -1;
+    assert(tailOutput(storage, 3, tailNow(3), &open_mounts) == "ERR READ_FAILED\n");
+    assert(open_mounts == 0);
+  }
+  {
+    // A read error of the previous file gives ERR READ_FAILED and no rows
+    FakeConsoleStorage storage;
+    storage.tail_files["climate_v6_202603.csv"] = header + tailRow(1, 1);
+    storage.tail_files["climate_v6_202602.csv"] = header + tailRow(27, 1);
+    storage.tail_fail_name = "climate_v6_202602.csv";
+    int open_mounts = -1;
+    assert(tailOutput(storage, 3, tailNow(3), &open_mounts) == "ERR READ_FAILED\n");
+    assert(open_mounts == 0);
+  }
+  {
+    // The current file changes between the count read and the output read
+    FakeConsoleStorage storage;
+    storage.tail_files["climate_v6_202603.csv"] = header + tailRow(1, 1);
+    storage.fail_second_read_name = "climate_v6_202603.csv";
+    int open_mounts = -1;
+    assert(tailOutput(storage, 1, tailNow(3), &open_mounts) == lateFailure(1));
+    assert(open_mounts == 0);
+  }
+  {
+    // The current file shrinks between the two reads: the row count differs
+    FakeConsoleStorage storage;
+    storage.tail_files["climate_v6_202603.csv"] = header + tailRow(1, 1) + tailRow(1, 2);
+    storage.swap_after_first_read_name = "climate_v6_202603.csv";
+    storage.swap_text = header + tailRow(1, 1);
+    int open_mounts = -1;
+    assert(tailOutput(storage, 2, tailNow(3), &open_mounts) == lateFailure(2));
+    assert(open_mounts == 0);
+  }
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["climate_v6_202603.csv"] = header + tailRow(1, 1);
+    assert(tailOutput(storage, 0, tailNow(3)) == "ERR BAD_ARG\n");
+    assert(tailOutput(storage, 73, tailNow(3)) == "ERR BAD_ARG\n");
+    assert(storage.mounts == 0);
+  }
+  {
+    // A short write ends the reply without a CRC32 line and the card is unmounted
+    FakeConsoleStorage storage;
+    storage.tail_files["climate_v6_202603.csv"] = header + tailRow(1, 1) + tailRow(1, 2);
+    FakeSink sink;
+    sink.limit = 40;
+    TestRunner::showTail(storage, sink, 2, tailNow(3));
+    assert(sink.out.find("CRC32") == std::string::npos);
+    assert(storage.mounts == storage.unmounts);
+  }
+}
 
 void testSerialSpread() {
   SerialCommand cmd;
@@ -25289,6 +25624,11 @@ testSerialConfigNegativeSmallOffset();
   testSerialFrsiReply();
   testSerialSelfTestParser();
   testSerialSpread();
+  testSerialTailParserAndGate();
+  testSerialTailRows();
+  testSerialTailFixture();
+  testSerialTailByteLimit();
+  testSerialTailErrors();
   testSerialSelfTestChecks();
   testSerialSelfTestReply();
   testSerialFrsiErrorsAndShortReplies();

@@ -1506,6 +1506,13 @@ void setup() {
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SPREAD) {
       // The RTC histories answer: no card access, no state change, so the console keeps running.
       Runner::showSpread(sink, g_state.history);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::TAIL) {
+      // The card answers: showTail mounts and unmounts it. The BLE scan has stopped while a console command runs. No state change.
+      RtcTime tail_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again
+      if (!g_rtc.readTime(tail_now)) {
+        tail_now = g_rtc_time;
+      }
+      Runner::showTail(console_storage, sink, command.reference, tail_now);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::WEEK) {
       // The RTC week history answers: no card access, so the console keeps running.
       Runner::showWeek(sink, g_state.week);

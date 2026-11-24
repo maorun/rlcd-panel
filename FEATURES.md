@@ -564,6 +564,17 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Host tests cover `wallFactor` for fixed values and NaN, the parser, each reply and error of `showFrsi` with a fixed `ClimateHistory`, the clamp to 50 and 95, the BLE gate, `execute()` and one reply against `tests/fixtures/frsi_reply_sample.txt`.
 - Validation on the board: send `FRSI 0 2` over USB and check the reply and the `CRC32` line.
 
+## Serial console command TAIL for the newest climate rows
+
+- **Code:** `rlcd_panel/serial_console.h` (`SerialCommandKind::TAIL`, `SerialConsoleRunner::showTail`, `SdLogStorage::readTail`), `rlcd_panel/sd_logger.h` (`SdLogCodec::collectTailRows`, `TAIL_MAX_ROWS`, `TAIL_BYTES`), `rlcd_panel/rlcd_panel.ino`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TailReply.kt`.
+- The console command `TAIL <N>` (N 1 to 72) sends the newest N rows of the hourly climate log. It reads the last 16384 bytes of the current `climate_v6_YYYYMM.csv`. With fewer than N rows it reads the last 16384 bytes of the previous month file too (also across a year change).
+- Only complete rows with the 42 columns count. A partial first line, a last line without a newline and a bad line are skipped, like in the history restore.
+- Reply: `BEGIN TAIL <n>` (`n` is the row count sent, at most N), the `climate_v6` header, the rows oldest first and the `CRC32` line. Errors: `ERR NO_CARD`, `ERR NO_FILE` (no valid RTC time or no file), `ERR READ_FAILED`, and `ERR BAD_ARG` for 0, 73, a non-digit, a leading zero, a missing number or extra text.
+- The command mounts and unmounts the card itself. It changes no state and runs on USB and on BLE at each `ble_console` level. The `BleConsoleBridge` gate does not block it.
+- The Android `TailReply.parse` gives `TailRow` values (timestamp, panel battery, USB flag, onboard sensor and 10 slots). It checks the header, the row count, the date and every value range, and throws `ParseException` for a wrong column count.
+- Validation: the host tests (235 suites) cover the parser, the gate, the row selection over the month limit and the year change, the 16384 byte limit, every error reply, a short write and the shared fixture `tests/fixtures/tail_reply_sample.txt`. `arduino-cli compile rlcd_panel` passed. `TailReplyTest` runs in CI only (no Android SDK on the local host).
+- Validation on the board: send `TAIL 3` over BLE and verify the `CRC32` line.
+
 ## Serial console command SPREAD for a co-location check of all sensors
 
 - **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/spread_reply_sample.txt`

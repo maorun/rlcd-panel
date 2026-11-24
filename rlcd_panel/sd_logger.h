@@ -934,14 +934,14 @@ public:
     return true;
   }
 
-  // Parses the rows of a file tail. `from_start` is true when the buffer starts at the file start, else the
-  // first line is partial and skipped. A line without a newline at the end is partial and skipped. A bad
-  // line (also the header) is skipped, so a gap of hours ends the restore at the gap. Returns the rows added.
-  static size_t parseClimateTail(const char* buf, size_t len, bool from_start, ClimateRowBuffer& out) {
+  // Walks the complete lines of a file tail and calls `visit(start, end)` for each (`end` is the newline position). `from_start` is
+  // true when the buffer starts at the file start, else the first line is partial and skipped. A line without a newline at the
+  // end is partial and skipped. One walker serves the history restore and the console command TAIL, so both apply the same rules.
+  template <typename Visit>
+  static void forEachTailLine(const char* buf, size_t len, bool from_start, Visit visit) {
     if (buf == nullptr) {
-      return 0;
+      return;
     }
-    size_t added = 0;
     size_t pos = 0;
     if (!from_start) {
       while (pos < len && buf[pos] != '\n') {
@@ -959,14 +959,61 @@ public:
       if (eol == len) {
         break; // no newline: a partial line
       }
+      visit(pos, eol);
+      pos = eol + 1;
+    }
+  }
+
+  // Parses the rows of a file tail (see forEachTailLine). A bad line (also the header) is skipped, so a gap of hours ends the
+  // restore at the gap. Returns the rows added.
+  static size_t parseClimateTail(const char* buf, size_t len, bool from_start, ClimateRowBuffer& out) {
+    size_t added = 0;
+    forEachTailLine(buf, len, from_start, [&](size_t start, size_t eol) {
       ClimateHistory::RestoreRow row;
-      if (parseClimateRow(buf + pos, eol - pos, row)) {
+      if (parseClimateRow(buf + start, eol - start, row)) {
         out.append(row);
         ++added;
       }
-      pos = eol + 1;
-    }
+    });
     return added;
+  }
+
+  // ---- Console command TAIL: the newest rows of the climate files ----
+
+  static constexpr size_t TAIL_MAX_ROWS = 72;     // largest N of "TAIL <N>"
+  static constexpr size_t TAIL_BYTES = 16384;     // read limit from the end of each file
+
+  // One valid row inside a tail buffer (the line without its line end).
+  struct TailSpan {
+    uint16_t start = 0;
+    uint16_t len = 0;
+  };
+
+  // Finds the valid climate rows of a file tail (same line rules as parseClimateTail, through forEachTailLine) and keeps the
+  // newest `capacity` of them in `spans`, oldest first. The span excludes the line end (LF, CR LF). Returns the count kept.
+  static size_t collectTailRows(const char* buf, size_t len, bool from_start, TailSpan* spans, size_t capacity) {
+    if (spans == nullptr || capacity == 0 || len > 0xFFFF) {
+      return 0;
+    }
+    size_t count = 0;
+    forEachTailLine(buf, len, from_start, [&](size_t start, size_t eol) {
+      size_t end = eol;
+      while (end > start && buf[end - 1] == '\r') {
+        --end;
+      }
+      ClimateHistory::RestoreRow row;
+      if (!parseClimateRow(buf + start, end - start, row)) {
+        return;
+      }
+      if (count == capacity) {
+        memmove(spans, spans + 1, (capacity - 1) * sizeof(spans[0]));
+        --count;
+      }
+      spans[count].start = static_cast<uint16_t>(start);
+      spans[count].len = static_cast<uint16_t>(end - start);
+      ++count;
+    });
+    return count;
   }
 
   // ---- Restore of the seven-day history from the daily rows ----
@@ -1517,24 +1564,47 @@ public:
     return mount();
   }
 
+  // The last `capacity` bytes of /<name> for the console command TAIL (see readFileTail). The card must be mounted.
+  static int readTailBytes(const char* name, char* buf, size_t capacity, size_t& len, bool& whole) {
+    char path[SdLogCodec::MAX_PATH_SIZE];
+    snprintf(path, sizeof(path), "/%s", name);
+    return readFileTail(path, buf, capacity, len, whole);
+  }
+
 private:
-  // Reads the last `capacity` bytes of one file and parses its rows. A missing file or a short read gives 0.
-  static size_t readTail(const char* path, char* buf, size_t capacity, SdLogCodec::ClimateRowBuffer& out) {
-    File file = SD_MMC.open(path + strlen(SdLogCodec::MOUNT_POINT), FILE_READ);
+  // Reads the last `capacity` bytes of the file at `sd_path` (for example "/climate_v6_202611.csv", without the mount point) into
+  // `buf`. Returns 0 for a read, 1 for a missing file or a directory and 2 for a read error. `len` is the byte count read;
+  // `whole` is true when the bytes start at the file start. Mounts nothing: the caller holds the card.
+  static int readFileTail(const char* sd_path, char* buf, size_t capacity, size_t& len, bool& whole) {
+    len = 0;
+    whole = false;
+    File file = SD_MMC.open(sd_path, FILE_READ);
     if (!file || file.isDirectory()) {
-      return 0;
+      return 1;
     }
     const size_t size = file.size();
     const size_t want = size < capacity ? size : capacity;
-    size_t added = 0;
-    if (want > 0 && file.seek(size - want)) {
-      const size_t n = file.read(reinterpret_cast<uint8_t*>(buf), want);
-      if (n == want) {
-        added = SdLogCodec::parseClimateTail(buf, n, want == size, out);
-      }
+    int result = 0;
+    if (want == 0) {
+      whole = true;
+    } else if (!file.seek(size - want) || file.read(reinterpret_cast<uint8_t*>(buf), want) != want) {
+      result = 2;
+    } else {
+      len = want;
+      whole = want == size;
     }
     file.close();
-    return added;
+    return result;
+  }
+
+  // Reads the last `capacity` bytes of one file and parses its rows. A missing file or a short read gives 0.
+  static size_t readTail(const char* path, char* buf, size_t capacity, SdLogCodec::ClimateRowBuffer& out) {
+    size_t n = 0;
+    bool whole = false;
+    if (readFileTail(path + strlen(SdLogCodec::MOUNT_POINT), buf, capacity, n, whole) != 0) {
+      return 0;
+    }
+    return SdLogCodec::parseClimateTail(buf, n, whole, out);
   }
 
   // Reads the last `capacity` bytes of one daily file and parses its rows. A missing file or a short read gives 0.
