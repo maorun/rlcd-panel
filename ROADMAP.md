@@ -57,7 +57,7 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Propose a value for `outdoor_slot` from the `WEEK` reply. Select the slot with the largest mean daily temperature range over at least 3 days. Propose it only when its range is at least twice the range of the next slot and its daily minimum is below the onboard minimum. Show the proposal with the slot name and the ranges in the setup assistant. Apply it on a user action through `ConfigBatch`. Show no proposal when `outdoor_slot` already has this value.
   - Acceptance test: `OutdoorProposalTests` assert a clear proposal, no proposal for two equal ranges, for fewer than 3 days, for a warm slot and for the active value. Run `swift test` and `swift build -c release` in `macos/RlcdCompanion`.
 
-- [ ] Wall factor proposal in the macOS calibration view
+- [x] Wall factor proposal in the macOS calibration view
   - Rank: [Total: 32, Use: 5, Setup: 9, Harmony: 8, Safety: 10, Effort: S]
   - Location: macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift, macos/RlcdCompanion/Sources/RlcdProtocol/ConsoleCommand.swift, macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift, FEATURES.md
   - Goal: Add `FrsiReply.parse` for the `FRSI <R> <W>` reply (`SKIP`, `UNSTABLE`, `ERR LOW_DELTA`, `ERR NO_OUTDOOR`). Add `ConsoleCommand.frsi(room:wall:)`. Add a section to `CalibrationView` with two sensor pickers, the result and an apply button that sends `SET wall_frsi_pct=<N>` through `ConfigBatch`. This entry needs the console command `FRSI`.

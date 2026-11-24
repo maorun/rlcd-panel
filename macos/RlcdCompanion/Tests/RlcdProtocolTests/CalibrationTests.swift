@@ -457,4 +457,102 @@ import Testing
         let ok = try Self.reply("onboard", mean: 70.0, reference: 75.3)
         #expect(throws: TwoPointCalibration.Failure.clampedSample) { try TwoPointCalibration.compute(naCl: ok, mgCl2: low, current: [:]) }
     }
+
+    // MARK: FRSI
+
+    private static func loadFrsiFixture() throws -> Data {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        return try Data(contentsOf: url.appendingPathComponent("tests/fixtures/frsi_reply_sample.txt"))
+    }
+
+    @Test func frsiSharedFixture() throws {
+        var assembler = ReplyAssembler()
+        guard case .frame(let lines)? = assembler.append(try Self.loadFrsiFixture()).first else {
+            Issue.record("fixture is not a valid frame"); return
+        }
+        let r = try FrsiReply.parse(lines: lines)
+        let m = FrsiReply.Measurement(room: "onboard", wall: "slot2", hours: 6, frsi: 0.70, span: 0.0, deltaC: 20.0)
+        #expect(r.outcome == .measured(m, CalibrationReply.Proposal(key: "wall_frsi_pct", value: "70")))
+    }
+
+    @Test func frsiOtherOutcomes() throws {
+        #expect(try FrsiReply.parse(lines: ["SKIP hours=4"]).outcome == .skipped(hours: 4))
+        #expect(try FrsiReply.parse(lines: ["UNSTABLE span=0.15"]).outcome == .unstable(span: 0.15))
+        #expect(try FrsiReply.parse(lines: ["UNSTABLE span=--"]).outcome == .unstable(span: nil))
+        #expect(try FrsiReply.parse(lines: ["ERR LOW_DELTA"]).outcome == .lowDelta)
+        #expect(try FrsiReply.parse(lines: ["ERR NO_OUTDOOR"]).outcome == .noOutdoor)
+        #expect(try FrsiReply.parse(lines: ["SKIP hours=4"]).proposal == nil)
+    }
+
+    @Test func frsiBadNumberThrows() {
+        let bad = "FRSI room=onboard wall=slot2 hours=6 frsi=x span=0.00 delta_c=20.0"
+        #expect(throws: ParseError.badLine(bad)) { try FrsiReply.parse(lines: [bad]) }
+        #expect(throws: ParseError.badLine("SKIP hours=x")) { try FrsiReply.parse(lines: ["SKIP hours=x"]) }
+        #expect(throws: ParseError.missingLine("FRSI")) { try FrsiReply.parse(lines: []) }
+    }
+
+    @Test func frsiIgnoresOutOfRangeProposal() throws {
+        let r = try FrsiReply.parse(lines: ["FRSI room=onboard wall=slot2 hours=6 frsi=0.40 span=0.00 delta_c=20.0", "wall_frsi_pct=40"])
+        #expect(r.proposal == nil)
+    }
+
+    @Test func frsiCommandLine() {
+        #expect(ConsoleCommand.frsi(room: 0, wall: 2).line == "FRSI 0 2")
+        #expect(ConsoleCommand.frsi(room: 10, wall: 1).line == "FRSI 10 1")
+        #expect(ConsoleCommand.frsi(room: 2, wall: 2).line == nil)
+        #expect(ConsoleCommand.frsi(room: 0, wall: 0).line == nil)
+        #expect(ConsoleCommand.frsi(room: 0, wall: 11).line == nil)
+        #expect(ConsoleCommand.frsi(room: 11, wall: 1).line == nil)
+    }
+
+    @Test func frsiBatchText() throws {
+        let r = try FrsiReply.parse(lines: ["FRSI room=onboard wall=slot2 hours=6 frsi=0.70 span=0.00 delta_c=20.0", "wall_frsi_pct=70"])
+        let changes = r.changes(current: nil)
+        #expect(ConfigBatch(changes: changes).pending.map(\.line) == ["SET wall_frsi_pct=70", "CONFIG"])
+        #expect(r.changes(current: ["wall_frsi_pct": "70"]).isEmpty)
+        #expect(r.changes(current: [:]).map(\.key) == ["wall_frsi_pct"])
+    }
+
+    @Test func frsiStrictFieldsThrow() {
+        let head = "FRSI room=onboard wall=slot2 hours=6"
+        for bad in ["\(head) frsi=0.70 span=x delta_c=20.0", "\(head) frsi=0.70 span=0.00 delta_c=x",
+                    "\(head) frsi=0.70 span=0.00 delta_c=20.0 extra=1", "UNSTABLE span=x", "SKIP hours=4 extra"] {
+            #expect(throws: ParseError.badLine(bad)) { try FrsiReply.parse(lines: [bad]) }
+        }
+        #expect(throws: ParseError.missingLine("FRSI")) { try FrsiReply.parse(lines: ["ERR BAD_ARG"]) }
+    }
+
+    @Test func frsiErrorTexts() {
+        #expect(FrsiReply.errorText("ERR LOW_DELTA").contains("10"))
+        #expect(FrsiReply.errorText("ERR NO_OUTDOOR").contains("outdoor_slot"))
+        #expect(FrsiReply.errorText("ERR BAD_ARG").contains("differ"))
+        #expect(FrsiReply.errorText("ERR OTHER") == "ERR OTHER")
+    }
+
+    @Test func frsiFramesWithBeginAndCrc() throws {
+        for (text, outcome) in [("SKIP hours=4\n", FrsiReply.Outcome.skipped(hours: 4)),
+                                ("UNSTABLE span=0.15\n", .unstable(span: 0.15))] {
+            var assembler = ReplyAssembler()
+            let body = "BEGIN FRSI\n" + text
+            let crc = String(format: "%08x", Checksums.crc32(Data(body.utf8)))
+            guard case .frame(let lines)? = assembler.append(Data((body + "CRC32 \(crc)\n").utf8)).first else {
+                Issue.record("not a frame"); return
+            }
+            #expect(try FrsiReply.parse(lines: lines).outcome == outcome)
+        }
+    }
+
+    @Test func frsiStatusResult() {
+        let low = FrsiReply.statusResult("ERR LOW_DELTA")
+        #expect(low.reply?.outcome == .lowDelta)
+        #expect(low.message == nil)
+        let out = FrsiReply.statusResult("ERR NO_OUTDOOR")
+        #expect(out.reply?.outcome == .noOutdoor)
+        #expect(out.message == nil)
+        let bad = FrsiReply.statusResult("ERR BAD_ARG")
+        #expect(bad.reply == nil)
+        #expect(bad.message == FrsiReply.errorText("ERR BAD_ARG"))
+        #expect(FrsiReply.statusResult("ERR OTHER").message == "ERR OTHER")
+    }
 }

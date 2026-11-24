@@ -546,6 +546,8 @@ public enum ConsoleCommand: Equatable {
     case salt(Int)
     /// `SALT N MGCL2`: the same check against saturated magnesium chloride.
     case saltMagnesium(Int)
+    /// `FRSI R W` (R 0 to 10 room sensor, W 1 to 10 wall slot, different): the temperature factor of a wall.
+    case frsi(room: Int, wall: Int)
 
     public static func beep(bit: Int) -> ConsoleCommand { .beep(bit) }
     public static func pattern(n: Int) -> ConsoleCommand { .pattern(n) }
@@ -685,6 +687,9 @@ public enum ConsoleCommand: Equatable {
         case let .saltMagnesium(reference):
             guard (0...10).contains(reference) else { return nil }
             return "SALT \(reference) MGCL2"
+        case let .frsi(room, wall):
+            guard (0...10).contains(room), (1...10).contains(wall), room != wall else { return nil }
+            return "FRSI \(room) \(wall)"
         case let .set(key, value):
             let text = "SET \(key)=\(value)"
             let bad = CharacterSet.whitespacesAndNewlines.union(.controlCharacters)

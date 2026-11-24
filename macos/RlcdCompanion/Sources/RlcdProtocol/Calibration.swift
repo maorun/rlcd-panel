@@ -220,6 +220,100 @@ public struct SaltReply: Equatable, Sendable {
     private static func decimal(_ s: String?) -> Double? { CalibrationReply.decimal(s) }
 }
 
+/// Reply of `FRSI R W`: the temperature factor of a wall from the last 6 hourly samples of a room sensor,
+/// a wall slot and the outdoor slot.
+public struct FrsiReply: Equatable, Sendable {
+    public struct Measurement: Equatable, Sendable {
+        public let room: String
+        public let wall: String
+        public let hours: Int
+        public let frsi: Double
+        public let span: Double
+        /// Mean temperature difference of room and outdoor in C.
+        public let deltaC: Double
+    }
+
+    public enum Outcome: Equatable, Sendable {
+        case measured(Measurement, CalibrationReply.Proposal?)
+        case skipped(hours: Int)
+        /// `span` is `nil` for `span=--` (an hour without a usable factor).
+        case unstable(span: Double?)
+        case lowDelta
+        case noOutdoor
+    }
+
+    public let outcome: Outcome
+
+    /// The proposal of a measured reply, or `nil`.
+    public var proposal: CalibrationReply.Proposal? {
+        if case let .measured(_, proposal) = outcome { return proposal }
+        return nil
+    }
+
+    /// Parses the lines of an `FRSI` frame (a `BEGIN` line is allowed) or the one line `ERR LOW_DELTA` or
+    /// `ERR NO_OUTDOOR`. The first line decides the outcome. Only the key `wall_frsi_pct` is kept, and only with a
+    /// value that `ConfigSchema.validate` accepts.
+    public static func parse(lines: [String]) throws -> FrsiReply {
+        let body = lines.filter { !$0.hasPrefix("BEGIN ") }
+        guard let first = body.first else { throw ParseError.missingLine("FRSI") }
+        if first == "ERR LOW_DELTA" { return FrsiReply(outcome: .lowDelta) }
+        if first == "ERR NO_OUTDOOR" { return FrsiReply(outcome: .noOutdoor) }
+        let words = first.split(separator: " ")
+        let f = CalibrationReply.fields(first)
+        if first.hasPrefix("SKIP ") {
+            guard words.count == 2, let h = CalibrationReply.hours(f["hours"]) else { throw ParseError.badLine(first) }
+            return FrsiReply(outcome: .skipped(hours: h))
+        }
+        if first.hasPrefix("UNSTABLE ") {
+            guard words.count == 2, let text = f["span"] else { throw ParseError.badLine(first) }
+            if text == "--" { return FrsiReply(outcome: .unstable(span: nil)) }
+            guard let span = CalibrationReply.decimal(text) else { throw ParseError.badLine(first) }
+            return FrsiReply(outcome: .unstable(span: span))
+        }
+        guard first.hasPrefix("FRSI ") else { throw ParseError.missingLine("FRSI") }
+        guard words.count == 7, let room = f["room"], let wall = f["wall"], let h = CalibrationReply.hours(f["hours"]),
+              let frsi = CalibrationReply.decimal(f["frsi"]), let span = CalibrationReply.decimal(f["span"]),
+              let delta = CalibrationReply.decimal(f["delta_c"]) else { throw ParseError.badLine(first) }
+        var proposal: CalibrationReply.Proposal?
+        for line in body.dropFirst() {
+            guard let eq = line.firstIndex(of: "="), !line.contains(" ") else { continue }
+            let key = String(line[..<eq]), value = String(line[line.index(after: eq)...])
+            if key == "wall_frsi_pct", ConfigSchema.validate(key: key, value: value) == nil {
+                proposal = CalibrationReply.Proposal(key: key, value: value)
+            }
+        }
+        let m = Measurement(room: room, wall: wall, hours: h, frsi: frsi, span: span, deltaC: delta)
+        return FrsiReply(outcome: .measured(m, proposal))
+    }
+
+    /// Config changes for the proposal against the active values (`current`); `nil` without a `CONFIG` reply
+    /// makes the proposal a change. A proposal that equals the active value gives no change.
+    public func changes(current: [String: String]?) -> [ConfigChange] {
+        guard let proposal else { return [] }
+        guard let current else { return [ConfigChange(key: proposal.key, old: "", new: proposal.value)] }
+        var merged = current
+        merged[proposal.key] = proposal.value
+        return ConfigSchema.diff(old: current, new: merged)
+    }
+
+    /// Result of a one-line reply (`.status`): `ERR LOW_DELTA` and `ERR NO_OUTDOOR` give a reply for the view and no
+    /// message; any other line gives no reply and the message text (`errorText`).
+    public static func statusResult(_ text: String) -> (reply: FrsiReply?, message: String?) {
+        if let reply = try? parse(lines: [text]) { return (reply, nil) }
+        return (nil, errorText(text))
+    }
+
+    /// Text for the one-line error replies of `FRSI`; other text stays as it is.
+    public static func errorText(_ reply: String) -> String {
+        switch reply {
+        case "ERR LOW_DELTA": return "Room and outdoor differ by less than 10 °C, measure on a colder day"
+        case "ERR NO_OUTDOOR": return "No fresh outdoor reading: set outdoor_slot and wait for the outdoor sensor"
+        case "ERR BAD_ARG": return "The two sensors must differ, the wall must be a slot and neither may be the outdoor slot"
+        default: return reply
+        }
+    }
+}
+
 /// Two-point humidity calibration of one sensor: the `SALT` results of saturated sodium chloride and of saturated
 /// magnesium chloride give a new gain and a new offset (`rh = raw * gain + offset`).
 public enum TwoPointCalibration {
