@@ -3125,3 +3125,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `DiagnosticsView` shows a slashed antenna symbol beside each flagged slot in the `Sensor health` rows and `RX LOW` in the `Panel badges` group. `DiagnosticsReport` lists `RX LOW` in the line `Panel badges`.
 - Tests: `DiagnosticsTests.parsesReceptionLowFromSharedFixture` (fixture value `202`), `receptionLowIsNilForOlderFirmware`, `receptionLowAloneSetsHasBadges`, `receptionLowRejectsBadFields`; `DiagnosticsReportTests.weakSignalSlotsAreInTheReport`.
 - Validation: `swift build` and host unit tests pass locally; `swift test` did not run locally (no TestingMacros in the Command Line Tools); CI `macOS companion tests` runs it.
+
+## Open window notification on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/WindowWatch.kt`, `MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/WindowWatchTest.kt`, `scripts/check-protocol-sync.sh`
+- `WindowWatch.kt` is a copy of the phone file; only the `package` line differs. `scripts/check-protocol-sync.sh` checks it. `update(mask)` takes the `window` field of the `STATUS` line `LATCH` (bit 0 onboard tile, bits 1 to 10 slots) and returns the tiles whose bit rose since the previous read. The first read, an equal mask, a falling bit and a `null` mask give no tile.
+- `MainActivity.parseStatusReply` parses each `STATUS` reply of the sensor health read and of the mute read, then calls `checkWindowNotifications`. It posts one notification `Window open: <name>` for each rising tile (name from `PanelConfig.tileName`, id `WindowWatch.notificationId`, 2100 plus the tile) and one short vibration (`vibrateNotice`) for each read. Without the notification permission (Android 13 and later), nothing is posted. A reply that does not parse changes nothing.
+- A window that opens while the notification permission is missing is not replayed after a grant (same rule as the phone and `checkWallNotifications`). The badge `Fenster` in `SensorHealthScreen` still shows the open tiles.
+- Validation: `WindowWatchTest` (8 tests) covers the first read, a rising bit, an equal mask, a falling bit, a missing field, a bit above tile 10 and the message and notification id. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.

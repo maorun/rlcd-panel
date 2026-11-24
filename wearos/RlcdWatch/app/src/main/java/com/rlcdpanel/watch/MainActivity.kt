@@ -54,6 +54,7 @@ import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.protocol.TelemetryFrame
 import com.rlcdpanel.watch.protocol.WallText
 import com.rlcdpanel.watch.protocol.WallWatch
+import com.rlcdpanel.watch.protocol.WindowWatch
 import com.rlcdpanel.watch.tile.ClimateTileService
 import com.rlcdpanel.watch.ventilation.OutdoorClimate
 import com.rlcdpanel.watch.ventilation.OutdoorSource
@@ -82,6 +83,7 @@ class MainActivity : ComponentActivity() {
     private val lastObservedAktionen = mutableMapOf<Int, VentilationAction>()
     private var panelConfig by mutableStateOf(PanelConfig())
     private val wallWatch = WallWatch()
+    private val windowWatch = WindowWatch()
 
     private var configStatus by mutableStateOf<String?>(null)
     private var isReadingConfig by mutableStateOf(false)
@@ -1188,7 +1190,7 @@ class MainActivity : ComponentActivity() {
         }
         consoleClient.send("STATUS") { reply ->
             healthState = try {
-                SensorHealthState(status = StatusReply.parseReply(reply))
+                SensorHealthState(status = parseStatusReply(reply))
             } catch (e: Exception) {
                 val reason = if (reply is ConsoleReply.Frame) "Antwort nicht lesbar" else BleConsoleClient.errorText(reply)
                 healthState.copy(isReading = false, message = reason)
@@ -1218,7 +1220,7 @@ class MainActivity : ComponentActivity() {
             } else {
                 consoleClient.send(ChimeCommand.STATUS) { status ->
                     healthState = try {
-                        SensorHealthState(status = StatusReply.parseReply(status))
+                        SensorHealthState(status = parseStatusReply(status))
                     } catch (e: Exception) {
                         val reason = if (status is ConsoleReply.Frame) "Antwort nicht lesbar" else SensorHealthText.muteFallback(status)
                         healthState.copy(isMuting = false, message = "Mute gesendet, Stand unbestätigt. $reason")
@@ -1387,6 +1389,35 @@ class MainActivity : ComponentActivity() {
                 vibrateNotice()
             }
         }
+    }
+
+    /**
+     * Parses one `STATUS` reply and feeds its window mask to [WindowWatch]. A reply that does not parse throws and
+     * does not reach the watch. A failed notification or vibration does not turn a good reply into a read error.
+     */
+    private fun parseStatusReply(reply: ConsoleReply): StatusReply {
+        val status = StatusReply.parseReply(reply)
+        runCatching { checkWindowNotifications(status) }
+        return status
+    }
+
+    /** Posts one notification with a short vibration for each window bit of `LATCH` that rose since the previous read. */
+    private fun checkWindowNotifications(status: StatusReply) {
+        val rising = windowWatch.update(status.latch?.window)
+        if (rising.isEmpty()) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        for (tileIndex in rising) {
+            postVentilationNotification(
+                title = "RLCD Alarm",
+                message = WindowWatch.message(panelConfig.tileName(tileIndex)),
+                notificationId = WindowWatch.notificationId(tileIndex)
+            )
+        }
+        vibrateNotice()
     }
 
     private fun postVentilationNotification(title: String, message: String, notificationId: Int) {
