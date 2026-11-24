@@ -38,6 +38,7 @@ import com.rlcdpanel.watch.protocol.NtpState
 import com.rlcdpanel.watch.protocol.ReceptionRate
 import com.rlcdpanel.watch.protocol.ReplyError
 import com.rlcdpanel.watch.protocol.ResetState
+import com.rlcdpanel.watch.protocol.SensorTrend
 import com.rlcdpanel.watch.protocol.RuntimeState
 import com.rlcdpanel.watch.protocol.Shtc3State
 import com.rlcdpanel.watch.protocol.StatusReply
@@ -96,6 +97,13 @@ object SensorHealthText {
     /** Hours above `mold_alert_limit_rh` in the last 24 hours; the warning mark shows above 0 hours. */
     fun mold(sensor: StatusSensor): String =
         sensor.moldHours?.let { (if (it > 0) "$WARNING " else "") + "Schimmel $it h" } ?: "Schimmel --"
+    fun trendSymbol(trend: SensorTrend?): String = trend?.symbol ?: "–"
+
+    /** `T <value> <arrow>  RH <value> <arrow>`; `↑` rise, `↓` fall, `–` steady and unknown. */
+    fun trend(sensor: StatusSensor): String =
+        "T ${sensor.temperature?.let { "%.1f °C".format(java.util.Locale.ROOT, it) } ?: "--"} ${trendSymbol(sensor.temperatureTrend)}  " +
+            "RH ${sensor.humidity?.let { "%.1f %%".format(java.util.Locale.ROOT, it) } ?: "--"} ${trendSymbol(sensor.humidityTrend)}"
+
     fun isMold(sensor: StatusSensor): Boolean = (sensor.moldHours ?: 0) > 0
 
     /** Panel badges of one sensor row, for example `V · STALE`; null without a `LATCH` line or without a badge. */
@@ -518,6 +526,7 @@ fun SensorHealthScreen(
                                     fontSize = 10.sp,
                                     color = if (SensorHealthText.isRateWeak(rate)) Color(0xFFFFB74D) else Color.Unspecified
                                 )
+                                Text(SensorHealthText.trend(sensor), fontSize = 10.sp)
                                 Text(
                                     SensorHealthText.mold(sensor),
                                     fontSize = 10.sp,

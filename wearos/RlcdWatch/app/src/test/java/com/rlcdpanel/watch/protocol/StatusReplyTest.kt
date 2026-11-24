@@ -231,6 +231,28 @@ class StatusReplyTest {
     }
 
     @Test
+    fun trendsOfFixtureAndBadFields() {
+        val sensors = StatusReply.parse(fixtureLines()).sensors
+        assertEquals(SensorTrend.RISE, sensors[0].temperatureTrend)
+        assertEquals(SensorTrend.FALL, sensors[0].humidityTrend)
+        assertEquals(SensorTrend.STEADY, sensors[1].temperatureTrend)
+        assertEquals(SensorTrend.STEADY, sensors[1].humidityTrend)
+        assertNull(sensors[2].temperatureTrend)
+        assertNull(sensors[2].humidityTrend)
+        assertEquals(SensorTrend.FALL, sensors[4].temperatureTrend)
+        assertEquals(SensorTrend.RISE, sensors[4].humidityTrend)
+        val without = fixtureLines().map { it.replace(Regex(" (temp|rh)_trend=\\S+"), "") }
+        assertNull(StatusReply.parse(without).sensors[0].temperatureTrend)
+        assertNull(StatusReply.parse(without).sensors[0].humidityTrend)
+        val bad = fixtureLines().map { if (it.startsWith("SENSOR 1 ")) it.replace("rh_trend=STEADY", "rh_trend=UP") else it }
+        try {
+            StatusReply.parse(bad)
+            fail("expected ParseException")
+        } catch (e: ParseException) {
+        }
+    }
+
+    @Test
     fun moldHoursOfFixtureAndBadFields() {
         val sensors = StatusReply.parse(fixtureLines()).sensors
         assertEquals(24, sensors[0].moldHours)
