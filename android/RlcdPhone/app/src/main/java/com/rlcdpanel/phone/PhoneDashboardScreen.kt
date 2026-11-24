@@ -26,10 +26,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.input.KeyboardType
+import com.rlcdpanel.phone.protocol.EventText
 import com.rlcdpanel.phone.ventilation.OutdoorLocation
 import com.rlcdpanel.phone.ventilation.OutdoorLocationStore
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -59,6 +61,9 @@ import com.rlcdpanel.phone.ventilation.OutdoorSource
 import com.rlcdpanel.phone.ventilation.VentilationAction
 import com.rlcdpanel.phone.ventilation.VentilationEmpfehlung
 import java.util.Locale
+
+/** The card `Recent events` shows this many events. */
+const val RECENT_EVENT_COUNT: Int = 3
 
 /** A tile counts as stale when no packet arrived for this long. */
 const val STALE_AFTER_MILLIS: Long = OutdoorResolver.MAX_FRAME_AGE_MS
@@ -93,6 +98,9 @@ fun PhoneDashboardScreen(
     onOpenWeek: () -> Unit = {},
     onOpenTail: () -> Unit = {},
     onOpenEvents: () -> Unit = {},
+    /** Result of the last `EVENTS 3` read of the card `Recent events`. */
+    recentEvents: EventLogState = EventLogState(),
+    onReadRecentEvents: () -> Unit = {},
     onOpenSetup: () -> Unit = {},
     /** Protocol source badge of each tile index, from the last sensor health read; tile 0 is always the onboard sensor. */
     sourceBadges: Map<Int, String> = emptyMap(),
@@ -166,6 +174,14 @@ fun PhoneDashboardScreen(
                             onToggleVentilation = onToggleVentilation
                         )
                     }
+                }
+
+                item {
+                    RecentEventsCard(
+                        state = recentEvents,
+                        onRead = onReadRecentEvents,
+                        onOpenEvents = onOpenEvents
+                    )
                 }
 
                 if (snapshot != null) {
@@ -401,6 +417,46 @@ private fun OutdoorLocationDialog(
         },
         dismissButton = { TextButton(onClick = onDismiss) { Text("Abbrechen") } }
     )
+}
+
+/** Shows the newest [RECENT_EVENT_COUNT] events. The panel is read only after a tap on `Lesen`. */
+@Composable
+private fun RecentEventsCard(
+    state: EventLogState,
+    onRead: () -> Unit,
+    onOpenEvents: () -> Unit
+) {
+    Card(modifier = Modifier.fillMaxWidth()) {
+        Column(modifier = Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(
+                text = "LETZTE EREIGNISSE",
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold,
+                color = Color.LightGray
+            )
+            state.message?.let { Text(it, fontSize = 13.sp, color = MaterialTheme.colorScheme.error) }
+            if (state.loaded && state.rows.isEmpty()) {
+                Text("Keine Ereignisse.", fontSize = 13.sp)
+            }
+            for (row in state.newest(RECENT_EVENT_COUNT)) {
+                Text(row.time.ifEmpty { "Zeit unbekannt" }, fontSize = 11.sp, color = Color.Gray)
+                Text(
+                    text = EventText.describe(row),
+                    fontSize = 13.sp,
+                    color = if (EventText.isAbnormal(row)) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                )
+            }
+            if (state.dropped > 0) {
+                Text("Ereignisse gingen verloren.", fontSize = 11.sp, color = Color.Gray)
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onRead) {
+                    Text(if (state.isReading) "Lese…" else "Lesen")
+                }
+                OutlinedButton(onClick = onOpenEvents) { Text("Alle Ereignisse") }
+            }
+        }
+    }
 }
 
 @Composable

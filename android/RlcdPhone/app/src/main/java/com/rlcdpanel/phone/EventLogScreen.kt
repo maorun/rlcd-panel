@@ -41,6 +41,9 @@ data class EventLogState(
 ) {
     /** The rows for the screen, newest first. */
     val newestFirst: List<EventRow> get() = rows.asReversed()
+
+    /** The newest [count] rows, newest first. A [count] below 0 gives no rows. */
+    fun newest(count: Int): List<EventRow> = newestFirst.take(count.coerceAtLeast(0))
 }
 
 @Composable

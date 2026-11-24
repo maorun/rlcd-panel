@@ -142,6 +142,7 @@ class MainActivity : ComponentActivity() {
     private var showPanelHistory by mutableStateOf(false)
     private var showEvents by mutableStateOf(false)
     private var eventState by mutableStateOf(EventLogState())
+    private var recentEventState by mutableStateOf(EventLogState())
     private var showFinder by mutableStateOf(false)
     private var showSetup by mutableStateOf(false)
     private var setupState by mutableStateOf(SetupState())
@@ -540,6 +541,11 @@ class MainActivity : ComponentActivity() {
                 onOpenWeek = { showWeek = true },
                 onOpenTail = { showTail = true },
                 onOpenEvents = { showEvents = true },
+                recentEvents = recentEventState,
+                // A second tap while the permission dialog waits does nothing.
+                onReadRecentEvents = {
+                    if (pendingConsoleAction == null) withConsolePermission { readRecentEvents() }
+                },
                 onOpenSetup = { restartSetup(); showSetup = true },
                 sourceBadges = sourceBadges,
                 outdoorLocation = outdoorLocation,
@@ -573,6 +579,7 @@ class MainActivity : ComponentActivity() {
         if (tailState.isReading) tailState = TailState(message = "Abgebrochen. Erneut lesen.")
         if (panelHistory.isReading) panelHistory = PanelHistoryState(message = "Abgebrochen. Erneut lesen.")
         if (eventState.isReading) eventState = EventLogState(message = "Abgebrochen. Erneut lesen.")
+        if (recentEventState.isReading) recentEventState = EventLogState(message = "Abgebrochen. Erneut lesen.")
         if (rejectsState.isReading) rejectsState = RejectsState(message = "Abgebrochen. Erneut lesen.")
         if (versionState.isBusy) versionState = VersionState(message = "Abgebrochen. Erneut lesen.")
         if (selfTestState.isBusy) selfTestState = SelfTestRunState(message = "Abgebrochen. Erneut starten.")
@@ -604,6 +611,7 @@ class MainActivity : ComponentActivity() {
             pendingConsoleAction = null
             if (grants.isNotEmpty() && grants.values.all { it }) action()
             else if (showEvents) eventState = EventLogState(message = "Bluetooth-Berechtigung fehlt")
+            else if (!hasOpenConsoleScreen()) recentEventState = EventLogState(message = "Bluetooth-Berechtigung fehlt")
             else if (showRejects) rejectsState = RejectsState(message = "Bluetooth-Berechtigung fehlt")
             else if (showHistory) panelHistory = PanelHistoryState(message = "Bluetooth-Berechtigung fehlt")
             else if (showWeek) weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
@@ -677,6 +685,8 @@ class MainActivity : ComponentActivity() {
         consoleClient.cancel()
         pendingConsoleAction = null
         eventState = EventLogState()
+        // The cancel drops the callback of a running card read, so the card must not stay on "Lese…".
+        if (recentEventState.isReading) recentEventState = EventLogState(message = "Abgebrochen. Erneut lesen.")
         showEvents = false
         if (!scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
     }
@@ -685,16 +695,33 @@ class MainActivity : ComponentActivity() {
     private fun readEvents() {
         stopBleScan()
         eventState = EventLogState(isReading = true)
-        consoleClient.send("EVENTS") { reply ->
-            eventState = when (reply) {
-                is ConsoleReply.Frame -> try {
-                    val log = EventsReply.parse(reply.lines)
-                    EventLogState(rows = log.rows, dropped = log.dropped, loaded = true)
-                } catch (e: ParseException) {
-                    EventLogState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
-                }
-                else -> EventLogState(message = BleConsoleClient.errorText(reply))
-            }
+        consoleClient.send("EVENTS") { reply -> eventState = eventLogStateOf(reply) }
+    }
+
+    /** Turns one console reply to `EVENTS` or `EVENTS <N>` into the state of a screen or a card. */
+    private fun eventLogStateOf(reply: ConsoleReply): EventLogState = when (reply) {
+        is ConsoleReply.Frame -> try {
+            val log = EventsReply.parse(reply.lines)
+            EventLogState(rows = log.rows, dropped = log.dropped, loaded = true)
+        } catch (e: ParseException) {
+            EventLogState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
+        }
+        else -> EventLogState(message = BleConsoleClient.errorText(reply))
+    }
+
+    /** True while a full-screen console screen replaces the dashboard. */
+    private fun hasOpenConsoleScreen(): Boolean =
+        showEvents || showRejects || showHistory || showWeek || showTail || showSetup || showFinder ||
+            showAlertLimits || showSlots || showChime || showBackup || showCalib || showHealth
+
+    /** Sends `EVENTS 3` after a tap on the dashboard card. The scan restarts after the reply when it ran before. */
+    private fun readRecentEvents() {
+        val wasScanning = BleScanService.isScanning.value
+        stopBleScan()
+        recentEventState = EventLogState(isReading = true)
+        consoleClient.send(EventsReply.newestCommand(RECENT_EVENT_COUNT)) { reply ->
+            recentEventState = eventLogStateOf(reply)
+            if (wasScanning && !hasOpenConsoleScreen() && !scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
         }
     }
 
@@ -1410,6 +1437,7 @@ class MainActivity : ComponentActivity() {
         if (needed.isNotEmpty()) {
             pendingConsoleAction = action
             if (showEvents) eventState = EventLogState(isReading = true)
+            else if (!hasOpenConsoleScreen()) recentEventState = EventLogState(isReading = true)
             else if (showRejects) rejectsState = RejectsState(isReading = true)
             else if (showHistory) panelHistory = PanelHistoryState(isReading = true)
             else if (showWeek) weekState = WeekState(isReading = true)
