@@ -19,11 +19,52 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
+- [ ] Offset proposals in the console command SPREAD
+  - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/climate_math.h`, `tests/test_firmware_logic.cpp`, `tests/fixtures/spread_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
+  - **Goal:** Let the user align each co-located sensor in one step. Add one proposal line for each `OUTLIER` sensor after its `SENSOR` line. The line is `<temp_key>=<x> <rh_key>=<x>`. Each value is the active offset plus the median minus the sensor mean, clamped to the key range. Use `temp_offset_c` and `rh_offset_pct` for the onboard sensor and `slotN_temp_offset_c` and `slotN_rh_offset_pct` for slots 1 to 10. Keep `OK` sensors without a proposal line.
+  - **Acceptance:** A host test with three sensors and one sensor 1.0 C and 5.0 %RH above the median gives one proposal line with the corrected keys and values. A host test with a proposal beyond the key range gives the clamped limit. A host test with only `OK` sensors gives the old reply bytes and the old `CRC32` line. The updated fixture parses in `tests/test_firmware_logic.cpp`.
+  - **Rank:** [Total: 35, Use: 8, Setup: 10, Harmony: 8, Safety: 9, Effort: S]
+- [ ] Apply the SPREAD offset proposals in the macOS calibration view
+  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift`, `FEATURES.md`
+  - **Goal:** Let the user correct an outlier sensor from the co-location check without manual typing. Parse the proposal lines of the `SPREAD` reply into `SpreadReply.proposals`. Show one checkbox for each proposal in `CalibrationView`. Send the selected values through `ConfigBatch`, then send `SPREAD` again. Requires "Offset proposals in the console command SPREAD".
+  - **Acceptance:** `CalibrationTests` parse the updated `tests/fixtures/spread_reply_sample.txt` into one proposal with two keys. A reply without proposal lines gives an empty list. A bad number throws `ParseError.badLine`. A test checks that `ConfigBatch` holds the selected `SET` commands in schema order. `swift test` passes.
+  - **Rank:** [Total: 34, Use: 8, Setup: 10, Harmony: 8, Safety: 8, Effort: M]
+
 ## Priority 2: Configuration and Control (Score 28–33)
 
-
+- [ ] Apply the SPREAD offset proposals in the Android calibration screen
+  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SpreadReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/CalibrationScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/SpreadReplyTest.kt`, `FEATURES.md`
+  - **Goal:** Let the user correct an outlier sensor from the phone. Parse the proposal lines of the `SPREAD` reply. Show an `Apply` button for each proposal in the co-location card of `CalibrationScreen`. Send the `SET` commands over the BLE console, then send `SPREAD` again. Show `ERR READ_ONLY` as a clear text for `ble_console` 1. Requires "Offset proposals in the console command SPREAD".
+  - **Acceptance:** `SpreadReplyTest` reads `tests/fixtures/spread_reply_sample.txt` and gives one proposal with two keys. A reply without proposal lines gives an empty list. A bad number throws `ParseException`. `gradle testDebugUnitTest` passes in `android/RlcdPhone`.
+  - **Rank:** [Total: 33, Use: 8, Setup: 9, Harmony: 8, Safety: 8, Effort: M]
+- [ ] Today summary in the macOS diagnostics view
+  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift`, `FEATURES.md`
+  - **Goal:** Show the minimum, maximum and mean of each sensor since local midnight on the Mac. Add `TodayReply.parse` and `ConsoleCommand.today`. Add a `Today` group with one row for each sensor to `DiagnosticsView`. Send `TODAY` only on a user action.
+  - **Acceptance:** `ReplyTests` parse `tests/fixtures/today_reply_sample.txt` with the same row count as the Android `TodayReplyTest`. An empty field gives `nil`. A wrong column count throws `ParseError.badLine`. `ERR NO_TIME` gives a clear error text. `swift test` passes.
+  - **Rank:** [Total: 30, Use: 7, Setup: 5, Harmony: 8, Safety: 10, Effort: S]
+- [ ] Today summary screen on the Wear OS watch
+  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/TodayReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/TodayScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/TodayReplyTest.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
+  - **Goal:** Show the daily range of the focused room on the wrist. Copy `TodayReply.kt` from `android/RlcdPhone` without a change except the `package` line. Add it to `scripts/check-protocol-sync.sh`. Add `TodayScreen` with one card for each sensor that holds a sample. Send `TODAY` over the BLE console only on a user action.
+  - **Acceptance:** `TodayReplyTest` reads `tests/fixtures/today_reply_sample.txt`. `scripts/check-protocol-sync.sh` exits 0, and `--self-test` passes. A sensor with hours 0 shows `--`. `gradle testDebugUnitTest assembleDebug` passes in `wearos/RlcdWatch`.
+  - **Rank:** [Total: 30, Use: 7, Setup: 4, Harmony: 9, Safety: 10, Effort: M]
+- [ ] Low reception mask in the STATUS line LATCH
+  - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/status_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
+  - **Goal:** Show which slots have a weak BLE signal without the event log. Append ` rxlow=<3 hex digits>` to the `LATCH` line of `STATUS`. Fill it from the RTC copy of `PersistentState::reception_low`, bits 0 to 9 for slots 1 to 10. Keep the line count, the RTC layout and `STATE_VERSION`.
+  - **Acceptance:** A host test with slots 2 and 10 low gives `rxlow=202`. A host test with no low slot gives `rxlow=000`. The updated `tests/fixtures/status_reply_sample.txt` still parses in `ReplyTests`, `StatusReplyTest` of `android/RlcdPhone` and `StatusReplyTest` of `wearos/RlcdWatch`.
+  - **Rank:** [Total: 29, Use: 5, Setup: 7, Harmony: 7, Safety: 10, Effort: S]
 
 ## Priority 3: Display and Logging (Score 22–27)
+
+- [ ] Trend arrows in the Android sensor health screen
+  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/StatusReplyTest.kt`, `FEATURES.md`
+  - **Goal:** Show the 3-hour direction of temperature and humidity for each sensor on the phone. Parse `temp_trend` and `rh_trend` of each `SENSOR` line into `StatusSensor.temperatureTrend` and `StatusSensor.humidityTrend`. Show an arrow up, an arrow down or a dash beside each value in `SensorHealthScreen`.
+  - **Acceptance:** `StatusReplyTest` reads `tests/fixtures/status_reply_sample.txt` and gives the trend values of the fixture. `--` and a missing field give `null`. Another text throws `ParseException`. `gradle testDebugUnitTest` passes in `android/RlcdPhone`.
+  - **Rank:** [Total: 27, Use: 7, Setup: 4, Harmony: 7, Safety: 9, Effort: S]
+- [ ] Trend arrows in the Wear OS sensor health screen
+  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/StatusReplyTest.kt`, `FEATURES.md`
+  - **Goal:** Show the 3-hour direction of temperature and humidity for each sensor on the wrist. Parse `temp_trend` and `rh_trend` with the same rules as the Android parser. Show the arrow beside each value in the Wear OS `SensorHealthScreen`.
+  - **Acceptance:** `StatusReplyTest` reads `tests/fixtures/status_reply_sample.txt` and gives the trend values of the fixture. `--` and a missing field give `null`. Another text throws `ParseException`. `gradle testDebugUnitTest assembleDebug` passes in `wearos/RlcdWatch`.
+  - **Rank:** [Total: 27, Use: 7, Setup: 4, Harmony: 7, Safety: 9, Effort: S]
 
 ## Rules for ranking
 
