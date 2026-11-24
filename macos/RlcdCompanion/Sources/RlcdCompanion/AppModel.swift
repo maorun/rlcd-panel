@@ -82,6 +82,7 @@ final class AppModel: ConsoleLinkDelegate {
     var frsiWall = 1
     var frsi: FrsiReply?
     var spread: SpreadReply?
+    var today: [TodayRow]?
     /// Reply of the last `TAIL` command, `nil` before a user read and after an error.
     var tailResult: TailReply?
     /// Row count of the picker in the `Newest log rows` group (one of `TailReply.rowChoices`).
@@ -449,7 +450,7 @@ final class AppModel: ConsoleLinkDelegate {
         diagnostics = nil
         diagnosticsConfig = nil
         version = nil
-        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; selfTestResult = nil; selfTestLines = []
+        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         panelTime = nil
@@ -468,7 +469,7 @@ final class AppModel: ConsoleLinkDelegate {
     func disconnectConsole() {
         stopRepeatScan(.user)
         stopSaltWatch(.user)
-        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; selfTestResult = nil; selfTestLines = []
+        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         panelTime = nil
@@ -484,7 +485,7 @@ final class AppModel: ConsoleLinkDelegate {
     func selectTransport(_ t: Transport) {
         stopRepeatScan(.user)
         stopSaltWatch(.user)
-        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; selfTestResult = nil; selfTestLines = []
+        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         transport = t
@@ -1165,6 +1166,16 @@ final class AppModel: ConsoleLinkDelegate {
     }
 
     /// Reads the co-location check of `SPREAD`. Runs only on the user's button press; the firmware reads the RTC copy.
+    /// Reads the range since local midnight with `TODAY`. Runs only on the user's button, on USB and on BLE.
+    func readToday() {
+        guard consoleConnected else { message = "Console not connected"; return }
+        guard pendingCommand == nil, queue.isEmpty, batch == nil, !reportRunning else { message = "Wait for the running command"; return }
+        message = nil
+        today = nil
+        queue = [.today]
+        sendNext()
+    }
+
     func spreadCheck() {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
         message = nil
@@ -1343,6 +1354,7 @@ final class AppModel: ConsoleLinkDelegate {
             if cmd == .screen { panelImage = nil }
             if cmd == .rejects { rejectsResult = nil }
             if case .tail = cmd { tailResult = nil }
+            if cmd == .today { today = nil }
             if case .eventsNewest = cmd { recentEvents = .empty }
             if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
             pendingCommand = nil
@@ -1395,6 +1407,7 @@ final class AppModel: ConsoleLinkDelegate {
                 panelImage = nil
                 rejectsResult = nil
                 tailResult = nil
+                today = nil
                 config = nil // the ble_console level of a lost link must not gate SET on the next link
                 diagnosticsConfig = nil // the runtime preview needs the schedule of the same link
                 draft = [:]
@@ -1429,6 +1442,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if cmd == .screen { panelImage = nil } // a rejected frame must not stay next to the error
                 if cmd == .rejects { rejectsResult = nil }
                 if case .tail = cmd { tailResult = nil }
+                if cmd == .today { today = nil }
                 if case .eventsNewest = cmd { recentEvents = .empty }
                 if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
                 if cmd == .scan { stopRepeatScan(.scanFailed) }
@@ -1461,6 +1475,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if case .salt = cmd { salt = nil }
                 if case .saltMagnesium = cmd { saltMagnesium = nil }
                 if cmd == .spread { spread = nil }
+                if cmd == .today { today = nil; message = TodayReply.message(text) }
                 if case .frsi = cmd {
                     let result = FrsiReply.statusResult(text) // ERR LOW_DELTA and ERR NO_OUTDOOR are results
                     frsi = result.reply
@@ -1555,6 +1570,10 @@ final class AppModel: ConsoleLinkDelegate {
             case let (.saltMagnesium, .frame(lines)):
                 saltMagnesium = nil
                 saltMagnesium = try SaltReply.parse(lines: lines)
+            case let (.today, .frame(lines)):
+                today = nil // a reply that fails to parse must not leave the old rows
+                today = try TodayReply.parse(lines: lines)
+            case (.today, .file): message = "Unexpected file reply"
             case let (.spread, .frame(lines)):
                 spread = nil
                 spread = try SpreadReply.parse(lines: lines)

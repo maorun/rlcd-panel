@@ -337,6 +337,53 @@ public enum WeekReply {
     }
 }
 
+/// One `TODAY` row: the range of one sensor since local midnight. An empty field gives `nil`.
+public struct TodayRow: Hashable {
+    public let sensor: Int
+    public let name: String
+    /// Hourly samples since midnight (0 to 24). 0 means no data.
+    public let hours: Int
+    public let temperatureMinC: Double?
+    public let temperatureMaxC: Double?
+    public let temperatureMeanC: Double?
+    public let humidityMinPct: Double?
+    public let humidityMaxPct: Double?
+    public let humidityMeanPct: Double?
+}
+
+public enum TodayReply {
+    public static let header = "sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct"
+
+    /// `lines` hold `BEGIN TODAY`, the header and the rows (without the `CRC32` line).
+    public static func parse(lines: [String]) throws -> [TodayRow] {
+        guard lines.first == "BEGIN TODAY" else { throw ParseError.missingLine("BEGIN TODAY") }
+        guard lines.count >= 2, lines[1] == header else { throw ParseError.missingLine(header) }
+        var seen = Set<Int>()
+        return try lines.dropFirst(2).map { line in
+            let c = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
+            guard c.count == 9, let s = plainInt(c[0]), (0...10).contains(s), let h = plainInt(c[2]), (0...24).contains(h),
+                  seen.insert(s).inserted else { throw ParseError.badLine(line) }
+            let values = try c[3...8].map { field -> Double? in
+                if field.isEmpty { return nil }
+                guard let d = plainDecimal(field) else { throw ParseError.badLine(line) }
+                return d
+            }
+            return TodayRow(sensor: s, name: c[1], hours: h,
+                            temperatureMinC: values[0], temperatureMaxC: values[1], temperatureMeanC: values[2],
+                            humidityMinPct: values[3], humidityMaxPct: values[4], humidityMeanPct: values[5])
+        }
+    }
+
+    /// Clear text for the error replies of `TODAY`; other text stays as it is.
+    public static func message(_ reply: String) -> String {
+        switch reply {
+        case "ERR NO_TIME": return "Panel clock not set"
+        case "ERR BAD_ARG": return "The panel rejected the command"
+        default: return reply
+        }
+    }
+}
+
 /// One `EVENTS` row. `time` is empty when the RTC time was invalid.
 public struct EventRow: Equatable {
     public let time: String
@@ -591,6 +638,8 @@ public enum ConsoleCommand: Equatable {
     case spread
     /// `TAIL N` (N 1 to 72): the newest N hourly climate rows from the MicroSD card (USB and BLE).
     case tail(Int)
+    /// `TODAY`: minimum, maximum and mean of each sensor since local midnight (RTC copy only, USB and BLE).
+    case today
 
     public static func beep(bit: Int) -> ConsoleCommand { .beep(bit) }
     public static func pattern(n: Int) -> ConsoleCommand { .pattern(n) }
@@ -690,6 +739,7 @@ public enum ConsoleCommand: Equatable {
         case let .eventsNewest(n): return (1...16).contains(n) ? "EVENTS \(n)" : nil
         case .week: return "WEEK"
         case .spread: return "SPREAD"
+        case .today: return "TODAY"
         case let .tail(rows): return (1...72).contains(rows) ? "TAIL \(rows)" : nil
         case .config: return "CONFIG"
         case .version: return "VERSION"

@@ -520,3 +520,56 @@ struct ReplyParserTests {
         #expect(ConsoleCommand.snooze(-1).line == nil)
     }
 }
+
+
+@Suite struct TodayReplyTests {
+    private func frame(_ body: String) -> [String] { body.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) }
+    private let head = "BEGIN TODAY\n" + TodayReply.header
+
+    /// Reads tests/fixtures/today_reply_sample.txt, the file of the Android phone tests (2 rows).
+    @Test func parsesSharedFixture() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let data = try Data(contentsOf: url.appendingPathComponent("tests/fixtures/today_reply_sample.txt"))
+        var assembler = ReplyAssembler()
+        guard case .frame(let lines)? = assembler.append(data).first else { Issue.record("fixture is not a valid frame"); return }
+        let rows = try TodayReply.parse(lines: lines)
+        #expect(rows.count == 2)
+        #expect(rows[0] == TodayRow(sensor: 0, name: "onboard", hours: 5, temperatureMinC: 13.0, temperatureMaxC: 17.0,
+                                    temperatureMeanC: 15.0, humidityMinPct: 43.0, humidityMaxPct: 47.0, humidityMeanPct: 45.0))
+        #expect(rows[1].temperatureMinC == -3.5)
+        #expect(rows[1].humidityMeanPct == 80.5)
+    }
+
+    @Test func emptyFieldGivesNil() throws {
+        let rows = try TodayReply.parse(lines: frame(head + "\n3,slot3,0,,,,,,\n4,slot4,2,1.0,,1.5,40.0,41.0,"))
+        #expect(rows[0].hours == 0)
+        #expect(rows[0].temperatureMinC == nil && rows[0].humidityMeanPct == nil)
+        #expect(rows[1].temperatureMaxC == nil && rows[1].humidityMeanPct == nil)
+        #expect(rows[1].temperatureMinC == 1.0)
+    }
+
+    @Test func badRowsThrow() {
+        for body in ["0,onboard,5,1.0,2.0", "0,onboard,5,1.0,2.0,1.5,40,41,42,9", "0,onboard,x,1.0,2.0,1.5,40,41,42",
+                     "0,onboard,25,1.0,2.0,1.5,40,41,42", "11,x,1,1.0,2.0,1.5,40,41,42", "0,onboard,1,a,2.0,1.5,40,41,42"] {
+            #expect(throws: ParseError.self) { try TodayReply.parse(lines: frame(head + "\n" + body)) }
+        }
+        #expect(throws: ParseError.self) {
+            try TodayReply.parse(lines: frame(head + "\n0,a,1,1,1,1,1,1,1\n0,b,1,1,1,1,1,1,1"))
+        }
+    }
+
+    @Test func badHeaderThrows() {
+        #expect(throws: ParseError.self) { try TodayReply.parse(lines: ["BEGIN WEEK"]) }
+        #expect(throws: ParseError.self) { try TodayReply.parse(lines: ["BEGIN TODAY", "sensor,name"]) }
+    }
+
+    @Test func noTimeHasClearText() {
+        #expect(TodayReply.message("ERR NO_TIME") == "Panel clock not set")
+        #expect(TodayReply.message("ERR OTHER") == "ERR OTHER")
+    }
+
+    @Test func commandLine() {
+        #expect(ConsoleCommand.today.line == "TODAY")
+    }
+}

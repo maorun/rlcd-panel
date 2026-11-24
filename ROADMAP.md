@@ -32,12 +32,7 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Goal:** Let the user correct an outlier sensor from the phone. Parse the proposal lines of the `SPREAD` reply. Show an `Apply` button for each proposal in the co-location card of `CalibrationScreen`. Send the `SET` commands over the BLE console, then send `SPREAD` again. Show `ERR READ_ONLY` as a clear text for `ble_console` 1. Requires "Offset proposals in the console command SPREAD".
   - **Acceptance:** `SpreadReplyTest` reads `tests/fixtures/spread_reply_sample.txt` and gives one proposal with two keys. A reply without proposal lines gives an empty list. A bad number throws `ParseException`. `gradle testDebugUnitTest` passes in `android/RlcdPhone`.
   - **Rank:** [Total: 33, Use: 8, Setup: 9, Harmony: 8, Safety: 8, Effort: M]
-- [ ] Today summary in the macOS diagnostics view
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyTests.swift`, `FEATURES.md`
-  - **Goal:** Show the minimum, maximum and mean of each sensor since local midnight on the Mac. Add `TodayReply.parse` and `ConsoleCommand.today`. Add a `Today` group with one row for each sensor to `DiagnosticsView`. Send `TODAY` only on a user action.
-  - **Acceptance:** `ReplyTests` parse `tests/fixtures/today_reply_sample.txt` with the same row count as the Android `TodayReplyTest`. An empty field gives `nil`. A wrong column count throws `ParseError.badLine`. `ERR NO_TIME` gives a clear error text. `swift test` passes.
-  - **Rank:** [Total: 30, Use: 7, Setup: 5, Harmony: 8, Safety: 10, Effort: S]
-- [ ] Low reception mask in the STATUS line LATCH
+  - [ ] Low reception mask in the STATUS line LATCH
   - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/status_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
   - **Goal:** Show which slots have a weak BLE signal without the event log. Append ` rxlow=<3 hex digits>` to the `LATCH` line of `STATUS`. Fill it from the RTC copy of `PersistentState::reception_low`, bits 0 to 9 for slots 1 to 10. Keep the line count, the RTC layout and `STATE_VERSION`.
   - **Acceptance:** A host test with slots 2 and 10 low gives `rxlow=202`. A host test with no low slot gives `rxlow=000`. The updated `tests/fixtures/status_reply_sample.txt` still parses in `ReplyTests`, `StatusReplyTest` of `android/RlcdPhone` and `StatusReplyTest` of `wearos/RlcdWatch`.
