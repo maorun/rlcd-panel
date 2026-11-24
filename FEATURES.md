@@ -2009,6 +2009,17 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - `tests/fixtures/events_reply_sample.txt` holds 15 rows and the `CRC32` line. `EventsReplyTest`, `EventTextTest` and the macOS `EventTextTests.sharedEventsFixtureGivesTheTexts` read it.
 - The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`. `swift test` and `scripts/check-protocol-sync.sh` pass locally.
 
+## Recent events card on the Android dashboard
+
+- **Code:** `android/RlcdPhone/.../protocol/EventsReply.kt`, `PhoneDashboardScreen.kt`, `MainActivity.kt`, `EventsReplyTest.kt`.
+- The dashboard has the card `Letzte Ereignisse`. It shows the newest 3 events as `EventText` lines, newest first, with `Zeit unbekannt` for an empty time and the error colour for an abnormal event.
+- The button `Lesen` sends `EVENTS 3` over the BLE console. The app sends the command only after a tap, never on its own. The card shows `Ereignisse gingen verloren.` when the reply has the `EVENTS_DROPPED` row.
+- The button `Alle Ereignisse` opens `EventLogScreen`. `EventLogScreen` keeps its full `EVENTS` read.
+- `EventsReply.newestCommand(n)` returns `EVENTS <n>` for n 1 to 16. It throws `IllegalArgumentException` for another value.
+- The BLE scan stops during the read. It starts again after the reply when it ran before and no console screen is open. A cancelled read (`onStop` or closing the event log) shows `Abgebrochen. Erneut lesen.`
+- Tests: `EventsReplyTest` asserts `EVENTS 3`, `IllegalArgumentException` for 0, 17 and -1, and the parse of a 3-row reply with and without the `EVENTS_DROPPED` row. `EventLogStateTest` asserts the newest-first order and the limit of the card rows.
+- The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.
+
 ## Rejected packet list over the BLE console in the Android app
 
 - **Code:** `android/RlcdPhone/.../protocol/RejectsReply.kt`, `RejectsScreen.kt`, `SensorHealthScreen.kt`, `MainActivity.kt`, `tests/fixtures/rejects_reply_sample.txt`.

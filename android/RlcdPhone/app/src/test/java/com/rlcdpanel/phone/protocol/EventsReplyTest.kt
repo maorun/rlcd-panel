@@ -70,16 +70,18 @@ class EventsReplyTest {
     }
 
     @Test
-    fun newestCommandGivesEventsAndCount() {
+    fun newestCommandGivesCommandText() {
+        assertEquals("EVENTS 3", EventsReply.newestCommand(3))
         assertEquals("EVENTS 8", EventsReply.newestCommand(8))
         assertEquals("EVENTS 1", EventsReply.newestCommand(1))
         assertEquals("EVENTS 16", EventsReply.newestCommand(16))
     }
 
     @Test
-    fun newestCommandRejectsCountOutsideOneToSixteen() {
+    fun newestCommandRejectsOutOfRange() {
         assertThrows(IllegalArgumentException::class.java) { EventsReply.newestCommand(0) }
         assertThrows(IllegalArgumentException::class.java) { EventsReply.newestCommand(17) }
+        assertThrows(IllegalArgumentException::class.java) { EventsReply.newestCommand(-1) }
     }
 
     private fun eightRows(): List<String> =
@@ -102,5 +104,43 @@ class EventsReplyTest {
         assertEquals(5, log.dropped)
         assertEquals(1, log.rows.first().detail)
         assertEquals(8, log.rows.last().detail)
+    }
+
+    @Test
+    fun threeRowReplyParses() {
+        val log = EventsReply.parse(
+            listOf(
+                "BEGIN EVENTS", EventsReply.HEADER,
+                "2026-11-18 09:20:00,RESET,4",
+                "2026-11-18 09:21:00,SCAN_FAULT,1",
+                "2026-11-18 09:22:00,WINDOW_OPEN,257"
+            )
+        )
+        assertEquals(3, log.rows.size)
+        assertEquals(0, log.dropped)
+        assertEquals(
+            listOf(
+                EventRow("2026-11-18 09:20:00", "RESET", 4),
+                EventRow("2026-11-18 09:21:00", "SCAN_FAULT", 1),
+                EventRow("2026-11-18 09:22:00", "WINDOW_OPEN", 257)
+            ),
+            log.rows
+        )
+    }
+
+    @Test
+    fun threeRowReplyWithDroppedRowParses() {
+        val log = EventsReply.parse(
+            listOf(
+                "BEGIN EVENTS", EventsReply.HEADER,
+                "2026-11-18 09:23:00,EVENTS_DROPPED,5",
+                "2026-11-18 09:20:00,RESET,4",
+                "2026-11-18 09:21:00,SCAN_FAULT,1",
+                "2026-11-18 09:22:00,WINDOW_OPEN,257"
+            )
+        )
+        assertEquals(3, log.rows.size)
+        assertEquals(5, log.dropped)
+        assertEquals("RESET", log.rows.first().event)
     }
 }

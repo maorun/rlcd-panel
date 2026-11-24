@@ -51,11 +51,7 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Add `TodayReply.parse` for the `TODAY` reply: one `TodayRow` (sensor, name, hours, minimum, maximum and mean of temperature and humidity; `null` for an empty field) for each row. Throw `ParseException` for a wrong header, a wrong column count and a bad number. Add `TodayScreen` with one card for each sensor. Open it from one entry on the main screen. Send `TODAY` over the BLE console only on a user action. Show `ERR NO_TIME` as the text `Panel clock not set`.
   - Acceptance test: `TodayReplyTest` reads `tests/fixtures/today_reply_sample.txt` and asserts each row, `null` for empty fields, `ParseException` for 8 columns, for `temp_min_c=x` and for a wrong header. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`.
 
-- [ ] Recent events card on the Android dashboard
-  - Rank: [Total: 28, Use: 6, Setup: 4, Harmony: 8, Safety: 10, Effort: S]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/PhoneDashboardScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/EventsReply.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/EventsReplyTest.kt, FEATURES.md
-  - Goal: Add `EventsReply.newestCommand(n)` for `EVENTS <N>` (N 1 to 16, `IllegalArgumentException` for another value). Add a card `Recent events` to `PhoneDashboardScreen` with the newest 3 events as `EventText` lines, newest first, and a button that opens `EventLogScreen`. Read the card with `EVENTS 3` over the BLE console only on a user action. Keep the full `EVENTS` read of `EventLogScreen`.
-  - Acceptance test: `EventsReplyTest` asserts the command text `EVENTS 3`, `IllegalArgumentException` for 0 and 17, and the parse of a 3-row reply with and without the `EVENTS_DROPPED` row. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`.
+
 
 ## Priority 3: Display and Logging (Score 22–27)
 
