@@ -607,6 +607,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Host tests read `tests/fixtures/spread_reply_sample.txt` and cover the `SKIP` reply, the outlier flag and the bad lines.
 - Validation: `swift test` and `swift build -c release` in `macos/RlcdCompanion`. The view needs a check on the real panel.
 
+## Apply the SPREAD offset proposals in the macOS calibration view
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift`
+- `SpreadReply.proposals` holds one `SpreadProposal` (sensor, temperature key and value, humidity key and value) for each proposal line `<temp_key>=<x> <rh_key>=<x>` after an `OUTLIER` row. A reply without proposal lines gives an empty list. `ParseError.badLine` covers a bad number, a key with a wrong suffix, keys of another sensor and a proposal line without an `OUTLIER` row.
+- `SpreadReply.changes(selecting:current:)` gives the `ConfigChange` list of the selected sensors against the last `CONFIG` reply; a value that equals the active one gives no change.
+- `CalibrationView` shows one checkbox for each proposal in the section `Co-location check` and the button `Apply selected offsets`. `AppModel.applySpread` sends the selected values through `ConfigBatch` (`SET` commands in schema order, then `CONFIG`) and then sends `SPREAD` again. The batch result stays visible.
+- Host tests cover the shared fixture (one proposal with two keys), the empty list, the bad number and the `SET` order of `ConfigBatch`.
+- Validation: `swift build` in `macos/RlcdCompanion`. `swift test` did not run here: the Command Line Tools have no `Testing` macro plugin. The view needs a check on the real panel.
+
 ## Co-location check in the Android calibration screen
 
 - **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SpreadReply.kt`, `CalibrationScreen.kt`, `MainActivity.kt`, `SpreadReplyTest.kt`

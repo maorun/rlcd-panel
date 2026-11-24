@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Apply the SPREAD offset proposals in the macOS calibration view
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift`, `FEATURES.md`
-  - **Goal:** Let the user correct an outlier sensor from the co-location check without manual typing. Parse the proposal lines of the `SPREAD` reply into `SpreadReply.proposals`. Show one checkbox for each proposal in `CalibrationView`. Send the selected values through `ConfigBatch`, then send `SPREAD` again. Requires "Offset proposals in the console command SPREAD".
-  - **Acceptance:** `CalibrationTests` parse the updated `tests/fixtures/spread_reply_sample.txt` into one proposal with two keys. A reply without proposal lines gives an empty list. A bad number throws `ParseError.badLine`. A test checks that `ConfigBatch` holds the selected `SET` commands in schema order. `swift test` passes.
-  - **Rank:** [Total: 34, Use: 8, Setup: 10, Harmony: 8, Safety: 8, Effort: M]
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 
