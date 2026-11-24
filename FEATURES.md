@@ -3063,3 +3063,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The week screen reads only the 7 rows of one sensor with `WEEK <N>` instead of the 42 rows of `WEEK`. The sensor starts as the focused room of `TelemetryCache` when the user opens the screen. The parse stays `WeekReply.parse`.
 - The chip `Next sensor` selects the next sensor (wrap 5 to 0), clears the old rows and reads its 7 rows. The title shows the name of the selected sensor. The chip is off while a read runs. The command runs only after a user tap.
 - Tests: `WeekReplyTest` (watch and phone) asserts `WEEK 0` and `WEEK 5`, `IllegalArgumentException` for -1 and 6, and the parse of a 7-row reply of one sensor with and without the `mold_h` column.
+
+## Today summary screen on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/TodayReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/TodayScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/TodayReplyTest.kt`, `scripts/check-protocol-sync.sh`
+- `TodayReply.kt` is a copy of the phone file; only the `package` line differs. `scripts/check-protocol-sync.sh` now compares it.
+- `TodayScreen` shows one card for each row of the `TODAY` reply: the name, the hours, and the minimum, maximum and mean of temperature and humidity. A sensor with 0 hours shows `--`; an empty value shows `--`.
+- The sensor health screen has the chip `Today`. `MainActivity.readToday` sends `TODAY` over the BLE console only after a tap on `Read today` (with the Bluetooth permission check). `ERR NO_TIME` shows `Panel clock not set`. The panel needs USB power and `ble_console` 1 or 2.
+- `TodayReplyTest` reads `tests/fixtures/today_reply_sample.txt` and covers the rows, `null` for empty fields, `ParseException` cases, the `--` texts for a sensor with 0 hours and the `ERR NO_TIME` text.
+- Validation: `./scripts/check-protocol-sync.sh` and `--self-test` pass. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.

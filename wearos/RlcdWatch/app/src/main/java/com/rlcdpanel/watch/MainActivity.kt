@@ -43,6 +43,7 @@ import com.rlcdpanel.watch.protocol.RejectsReply
 import com.rlcdpanel.watch.protocol.SelfTestReply
 import com.rlcdpanel.watch.protocol.SpreadCommand
 import com.rlcdpanel.watch.protocol.SpreadReply
+import com.rlcdpanel.watch.protocol.TodayReply
 import com.rlcdpanel.watch.protocol.HistoryReply
 import com.rlcdpanel.watch.protocol.SaltCommand
 import com.rlcdpanel.watch.protocol.SaltReply
@@ -125,6 +126,9 @@ class MainActivity : ComponentActivity() {
     private var showSpread by mutableStateOf(false)
     private var spreadState by mutableStateOf(SpreadState())
     private var pendingSpreadRead = false
+    private var showToday by mutableStateOf(false)
+    private var todayState by mutableStateOf(TodayState())
+    private var pendingTodayRead = false
 
     private var scanPermissionDenied = false
     private var notificationPermissionAsked = false
@@ -156,6 +160,7 @@ class MainActivity : ComponentActivity() {
         val rejects = pendingRejectsRead
         val selfTest = pendingSelfTestRead
         val spread = pendingSpreadRead
+        val today = pendingTodayRead
         val history = pendingHistoryRead
         val clock = pendingClockRead
         val version = pendingVersionRead
@@ -166,6 +171,7 @@ class MainActivity : ComponentActivity() {
         pendingRejectsRead = false
         pendingSelfTestRead = false
         pendingSpreadRead = false
+        pendingTodayRead = false
         pendingHistoryRead = false
         pendingClockRead = false
         pendingVersionRead = false
@@ -186,6 +192,8 @@ class MainActivity : ComponentActivity() {
                 startSelfTest()
             } else if (spread) {
                 startSpreadRead()
+            } else if (today) {
+                startTodayRead()
             } else if (events) {
                 startEventsRead(pendingEventsAll)
             } else if (health) {
@@ -210,6 +218,8 @@ class MainActivity : ComponentActivity() {
             selfTestState = SelfTestUiState(message = "Bluetooth-Berechtigung fehlt")
         } else if (spread) {
             spreadState = SpreadState(message = "Bluetooth-Berechtigung fehlt")
+        } else if (today) {
+            todayState = TodayState(message = "Bluetooth-Berechtigung fehlt")
         } else if (events) {
             eventState = eventState.copy(isReading = false, message = "Bluetooth-Berechtigung fehlt")
         } else if (health) {
@@ -382,6 +392,12 @@ class MainActivity : ComponentActivity() {
                 return@setContent
             }
 
+            if (showSensorHealth && showToday) {
+                BackHandler { closeToday() }
+                TodayScreen(state = todayState, onRead = { readToday() })
+                return@setContent
+            }
+
             if (showSensorHealth && showSelfTest) {
                 BackHandler { closeSelfTest() }
                 SelfTestScreen(
@@ -425,6 +441,7 @@ class MainActivity : ComponentActivity() {
                     onOpenRejects = { showRejects = true },
                     onOpenSelfTest = { showSelfTest = true },
                     onOpenSpread = { showSpread = true },
+                    onOpenToday = { showToday = true },
                     onOpenSalt = {
                         saltRoom = focusedRoomIndex
                         showSalt = true
@@ -514,6 +531,8 @@ class MainActivity : ComponentActivity() {
         pendingSelfTestRead = false
         spreadState = SpreadState()
         pendingSpreadRead = false
+        todayState = TodayState()
+        pendingTodayRead = false
         // An open permission dialog keeps pendingClockRead, so its result still starts the tapped TIME read.
         clockState = ClockReadState()
         versionState = VersionReadState()
@@ -999,6 +1018,54 @@ class MainActivity : ComponentActivity() {
                     SpreadState(message = "Antwort nicht lesbar")
                 }
                 else -> SpreadState(message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
+    private fun closeToday() {
+        consoleClient.cancel()
+        pendingTodayRead = false
+        todayState = TodayState()
+        showToday = false
+    }
+
+    /** Asks for the console permissions, then sends `TODAY` once. Only a tap in the today screen calls it. */
+    private fun readToday() {
+        if (todayState.isReading || pendingTodayRead) return
+        if (spreadState.isReading || pendingSpreadRead || selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSelfTestRead || pendingRejectsRead || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || consoleClient.isRunning) {
+            todayState = TodayState(message = "Panel-Verbindung ist belegt")
+            return
+        }
+        todayState = TodayState(isReading = true)
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            emptyList()
+        }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isNotEmpty()) {
+            pendingTodayRead = true
+            consolePermissionLauncher.launch(needed.toTypedArray())
+            return
+        }
+        startTodayRead()
+    }
+
+    /** A failed CRC-32, a timeout or an `ERR` reply gives one error text. The command is not repeated. */
+    private fun startTodayRead() {
+        if (consoleClient.isRunning) {
+            todayState = TodayState(message = "Panel-Verbindung ist belegt")
+            return
+        }
+        consoleClient.send("TODAY") { reply ->
+            todayState = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    TodayState(rows = TodayReply.parse(reply.lines), hasRead = true)
+                } catch (e: ParseException) {
+                    TodayState(message = "Antwort nicht lesbar")
+                }
+                else -> TodayState(message = reply.let { r ->
+                    (r as? ConsoleReply.Status)?.let { TodayReply.statusText(it.line) } ?: BleConsoleClient.errorText(r)
+                })
             }
         }
     }
