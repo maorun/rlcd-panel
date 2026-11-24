@@ -24,6 +24,15 @@ object WeekReply {
     /** Header of a firmware without the `mold_h` column. */
     const val LEGACY_HEADER = "sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct"
 
+    /** Highest sensor number of `WEEK <N>`: 0 is the onboard sensor, 1 to 5 are the slots. */
+    const val MAX_SENSOR = 5
+
+    /** The command `WEEK <N>` for one sensor. A number outside 0 to 5 throws [IllegalArgumentException]. */
+    fun sensorCommand(n: Int): String {
+        require(n in 0..MAX_SENSOR) { "sensor $n is outside 0 to $MAX_SENSOR" }
+        return "WEEK $n"
+    }
+
     private val DATE = Regex("^[0-9]{4}-[0-9]{2}-[0-9]{2}$")
 
     private val DECIMAL = Regex("^-?[0-9]+(\\.[0-9]+)?$")

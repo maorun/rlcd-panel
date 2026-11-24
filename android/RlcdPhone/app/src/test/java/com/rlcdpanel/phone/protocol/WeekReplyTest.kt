@@ -130,4 +130,35 @@ class WeekReplyTest {
         assertNull(WeekSeries(listOf(null), listOf(null)).scale(2.0))
         assertFalse(WeekSeries(listOf(null), listOf(null)).hasData)
     }
+
+    @Test
+    fun sensorCommandGivesWeekWithNumber() {
+        assertEquals("WEEK 0", WeekReply.sensorCommand(0))
+        assertEquals("WEEK 5", WeekReply.sensorCommand(5))
+    }
+
+    @Test
+    fun sensorCommandRejectsOtherNumbers() {
+        for (n in listOf(-1, 6)) {
+            try {
+                WeekReply.sensorCommand(n)
+                fail("expected IllegalArgumentException for $n")
+            } catch (_: IllegalArgumentException) {
+            }
+        }
+    }
+
+    @Test
+    fun oneSensorReplyOfSevenRowsParsesWithAndWithoutMoldColumn() {
+        val withMold = (0..6).map { "2,$it,2026-11-${17 - it},15.0,19.5,40.0,55.0,$it" }
+        val rows = WeekReply.parse(listOf("BEGIN WEEK", WeekReply.HEADER) + withMold)
+        assertEquals(7, rows.size)
+        assertEquals((0..6).toList(), rows.map { it.day })
+        assertTrue(rows.all { it.sensor == 2 })
+        assertEquals(6, rows[6].moldHours)
+        val legacy = (0..6).map { "2,$it,2026-11-${17 - it},15.0,19.5,40.0,55.0" }
+        val old = WeekReply.parse(listOf("BEGIN WEEK", WeekReply.LEGACY_HEADER) + legacy)
+        assertEquals(7, old.size)
+        assertTrue(old.all { it.moldHours == null })
+    }
 }
