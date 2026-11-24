@@ -17,11 +17,16 @@ struct DiagnosticsView: View {
                             .disabled(!model.canCopyReport)
                         Toggle("Include names and MACs", isOn: $model.reportIncludeNames)
                             .toggleStyle(.checkbox)
+                        Button("Run self-test") { model.runSelfTest() }
+                            .disabled(!model.canCopyReport)
                         Spacer()
                     }
                     if let v = model.version {
                         Text("Firmware \(v.firmware) (git \(v.git), core \(v.core), state \(v.state), built \(v.built))")
                             .font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let t = model.selfTestResult {
+                        group("Self-test (\(t.pass) ok, \(t.fail) failed)") { selfTest(t) }
                     }
                     if let d = model.diagnostics {
                         group("Sensor health") { sensorHealth() }
@@ -397,4 +402,17 @@ struct DiagnosticsView: View {
 
     private var unknown: some View { Text("not reported by this firmware").foregroundStyle(.secondary) }
     private func n(_ v: Int?) -> String { v.map(String.init) ?? "--" }
+
+    @ViewBuilder
+    private func selfTest(_ t: SelfTestReply) -> some View {
+        ForEach(t.checks) { c in
+            HStack(spacing: 6) {
+                Image(systemName: c.state == .ok ? "checkmark.circle.fill" : c.state == .fail ? "xmark.octagon.fill" : "minus.circle")
+                    .foregroundStyle(c.state == .ok ? Color.green : c.state == .fail ? Color.red : Color.secondary)
+                Text(c.name).bold()
+                Text(c.state.rawValue)
+                Text(c.detail).foregroundStyle(.secondary)
+            }.font(.caption)
+        }
+    }
 }

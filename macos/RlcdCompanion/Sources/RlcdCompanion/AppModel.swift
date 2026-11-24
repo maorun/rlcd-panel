@@ -51,6 +51,9 @@ final class AppModel: ConsoleLinkDelegate {
     var scanResult: ScanReply?
     /// Reply of the last `REJECTS` command, `nil` before a user read.
     var rejectsResult: RejectsReply?
+    /// Last `SELFTEST` result and its verified lines (for the diagnostics report). Cleared on a new run and on a link change.
+    var selfTestResult: SelfTestReply?
+    private var selfTestLines: [String] = []
     /// The guided setup of one new sensor, `nil` while the assistant is closed.
     var setup: SetupAssistant?
     /// Entries of the assistant view: the MAC under choice, its name and the calibration reference.
@@ -438,7 +441,7 @@ final class AppModel: ConsoleLinkDelegate {
         diagnostics = nil
         diagnosticsConfig = nil
         version = nil
-        scanResult = nil; panelImage = nil; rejectsResult = nil
+        scanResult = nil; panelImage = nil; rejectsResult = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         panelTime = nil
@@ -457,7 +460,7 @@ final class AppModel: ConsoleLinkDelegate {
     func disconnectConsole() {
         stopRepeatScan(.user)
         stopSaltWatch(.user)
-        scanResult = nil; panelImage = nil; rejectsResult = nil
+        scanResult = nil; panelImage = nil; rejectsResult = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         panelTime = nil
@@ -473,7 +476,7 @@ final class AppModel: ConsoleLinkDelegate {
     func selectTransport(_ t: Transport) {
         stopRepeatScan(.user)
         stopSaltWatch(.user)
-        scanResult = nil; panelImage = nil; rejectsResult = nil
+        scanResult = nil; panelImage = nil; rejectsResult = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         transport = t
@@ -607,7 +610,8 @@ final class AppModel: ConsoleLinkDelegate {
         let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
         let text = DiagnosticsReport.build(
             appVersion: version, link: reportLink,
-            includeNames: reportIncludeNamesAtStart, sections: reportSections)
+            includeNames: reportIncludeNamesAtStart,
+            sections: reportSections + (selfTestResult == nil ? [] : [.init(command: ConsoleCommand.selfTest.line ?? "SELFTEST", result: .success(selfTestLines))]))
         reportSections = []
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
@@ -881,6 +885,17 @@ final class AppModel: ConsoleLinkDelegate {
         guard pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
         message = nil
         queue = [.rejects]
+        sendNext()
+    }
+
+    /// Runs the onboard hardware checks with `SELFTEST`. Runs only on the user's button, on USB and on BLE.
+    func runSelfTest() {
+        guard consoleConnected else { message = "Console not connected"; return }
+        guard pendingCommand == nil, queue.isEmpty, batch == nil, !reportRunning else { message = "Wait for the running command"; return }
+        message = nil
+        selfTestResult = nil
+        selfTestLines = []
+        queue = [.selfTest]
         sendNext()
     }
 
@@ -1288,6 +1303,7 @@ final class AppModel: ConsoleLinkDelegate {
             if case .historySensor = cmd { stopSaltWatch(.replyFailed) }
             if cmd == .screen { panelImage = nil }
             if cmd == .rejects { rejectsResult = nil }
+            if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
             pendingCommand = nil
             queue.removeAll()
             endBatchAfterLoss()
@@ -1370,6 +1386,7 @@ final class AppModel: ConsoleLinkDelegate {
                 message = "Reply rejected: \(e)"
                 if cmd == .screen { panelImage = nil } // a rejected frame must not stay next to the error
                 if cmd == .rejects { rejectsResult = nil }
+                if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
                 if cmd == .scan { stopRepeatScan(.scanFailed) }
                 if case .historySensor = cmd { stopSaltWatch(.replyFailed) }
                 // A wrong CRC-32 follows a complete frame, so the stream stays in step and the next file may follow.
@@ -1406,6 +1423,7 @@ final class AppModel: ConsoleLinkDelegate {
                 }
                 if cmd == .screen { panelImage = nil } // ERR NO_FRAME must not leave an old image
                 if cmd == .rejects { rejectsResult = nil }
+                if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
                 if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
                 if cmd == .scan, text.hasPrefix("ERR") { stopRepeatScan(.scanFailed) }
                 if case .historySensor = cmd, text.hasPrefix("ERR") { stopSaltWatch(.replyFailed) }
@@ -1456,6 +1474,11 @@ final class AppModel: ConsoleLinkDelegate {
                 rejectsResult = nil // a reply that fails to parse must not leave the old rows
                 rejectsResult = try RejectsReply.parse(lines: lines)
             case (.rejects, .file): message = "Unexpected file reply"
+            case let (.selfTest, .frame(lines)):
+                selfTestResult = nil // a reply that fails to parse must not leave an old result
+                selfTestLines = []
+                selfTestResult = try SelfTestReply.parse(lines: lines)
+                selfTestLines = lines
             case let (.scan, .frame(lines)):
                 scanResult = nil // a reply that fails to parse must not leave the old rows
                 scanResult = try ScanReply.parse(lines: lines)

@@ -563,3 +563,49 @@ public struct DiagnosticsReply: Equatable {
         try parse(otherLines: status.otherLines)
     }
 }
+
+/// Verdict of one `SELFTEST` check.
+public enum SelfTestState: String, Equatable, Sendable {
+    case ok = "OK", fail = "FAIL", skip = "SKIP"
+}
+
+/// One `CHECK <name> <OK|FAIL|SKIP> <detail>` line of the `SELFTEST` reply.
+public struct SelfTestCheck: Equatable, Identifiable, Sendable {
+    public var id: String { name }
+    public let name: String
+    public let state: SelfTestState
+    public let detail: String
+}
+
+/// Parsed `SELFTEST` reply (`BEGIN SELFTEST`, the `CHECK` lines, `END SELFTEST pass=<N> fail=<N>`).
+public struct SelfTestReply: Equatable, Sendable {
+    public let checks: [SelfTestCheck]
+    public let pass: Int
+    public let fail: Int
+
+    /// True when no check failed and at least one check passed.
+    public var passed: Bool { fail == 0 && pass > 0 }
+
+    /// `lines` hold `BEGIN SELFTEST`, the checks and the `END SELFTEST` line, without the `CRC32` line.
+    /// An unknown state, a bad line or counts that differ from the checks throw `ParseError.badLine`.
+    public static func parse(lines: [String]) throws -> SelfTestReply {
+        guard lines.first == "BEGIN SELFTEST" else { throw ParseError.missingLine("BEGIN SELFTEST") }
+        var checks: [SelfTestCheck] = []
+        var end: String?
+        for line in lines.dropFirst() where !line.hasPrefix("CRC32") {
+            if end != nil { throw ParseError.badLine(line) }
+            if line.hasPrefix("END SELFTEST") { end = line; continue }
+            let p = line.split(separator: " ", maxSplits: 3, omittingEmptySubsequences: false).map(String.init)
+            guard p.count >= 3, p[0] == "CHECK", !p[1].isEmpty, let state = SelfTestState(rawValue: p[2]),
+                  !checks.contains(where: { $0.name == p[1] }) else { throw ParseError.badLine(line) }
+            checks.append(SelfTestCheck(name: p[1], state: state, detail: p.count == 4 ? p[3] : ""))
+        }
+        guard let end else { throw ParseError.missingLine("END SELFTEST") }
+        let f = end.split(separator: " ").map(String.init)
+        guard f.count == 4, f[1] == "SELFTEST", f[2].hasPrefix("pass="), f[3].hasPrefix("fail="),
+              let pass = plainInt(String(f[2].dropFirst(5))), let fail = plainInt(String(f[3].dropFirst(5))),
+              pass == checks.filter({ $0.state == .ok }).count, fail == checks.filter({ $0.state == .fail }).count
+        else { throw ParseError.badLine(end) }
+        return SelfTestReply(checks: checks, pass: pass, fail: fail)
+    }
+}

@@ -168,6 +168,11 @@ import Testing
         #expect(throws: ParseError.self) { try ScanReply.parse(lines: ["BEGIN SCAN", ScanReply.header, "DROPPED,1", "DROPPED,2"]) }
     }
 
+    @Test func selfTestHasItsCommandLineAndALongTimeout() {
+        #expect(SlotAssignment.timeoutSeconds(for: .selfTest) == 20) // above the 1 s mic window, the 1 s scan and the card mount
+        #expect(ConsoleCommand.selfTest.line == "SELFTEST")
+    }
+
     @Test func scanTimeoutCoversTheFourSecondScan() {
         #expect(SlotAssignment.timeoutSeconds(for: .scan) == 10) // above the 4 s scan
         #expect(SlotAssignment.timeoutSeconds(for: .status) == 10)

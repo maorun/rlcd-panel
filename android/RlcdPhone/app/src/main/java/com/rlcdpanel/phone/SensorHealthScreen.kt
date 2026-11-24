@@ -36,6 +36,8 @@ import com.rlcdpanel.phone.protocol.TimeReply
 import com.rlcdpanel.phone.protocol.VersionReply
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.SensorHealth
+import com.rlcdpanel.phone.protocol.SelfTestReply
+import com.rlcdpanel.phone.protocol.SelfTestState as CheckState
 
 /** Result of one `STATUS` read: the rows, or a text that tells why there are none. */
 data class SensorHealthState(
@@ -77,6 +79,13 @@ data class RtcTrimState(val isBusy: Boolean = false, val message: String? = null
 data class VersionState(
     val isBusy: Boolean = false,
     val reply: VersionReply? = null,
+    val message: String? = null
+)
+
+/** Result of one `SELFTEST` run: [reply], or a [message] that tells why there is none. */
+data class SelfTestRunState(
+    val isBusy: Boolean = false,
+    val reply: SelfTestReply? = null,
     val message: String? = null
 )
 
@@ -156,6 +165,8 @@ fun SensorHealthScreen(
     rtcTrimState: RtcTrimState = RtcTrimState(),
     onTrimRtc: () -> Unit = {},
     onShareReport: () -> Unit = {},
+    selfTestState: SelfTestRunState = SelfTestRunState(),
+    onRunSelfTest: () -> Unit = {},
     onBack: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -222,6 +233,28 @@ fun SensorHealthScreen(
             item {
                 OutlinedButton(onClick = onShareReport, enabled = !state.isReading && !versionState.isBusy) { Text("Bericht teilen") }
             }
+            item {
+                Button(onClick = onRunSelfTest, enabled = !selfTestState.isBusy && !state.isReading && !versionState.isBusy) {
+                    Text(if (selfTestState.isBusy) "Teste…" else "Run self-test")
+                }
+            }
+            selfTestState.reply?.let { r ->
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            Text("Self-test: ${r.pass} ok, ${r.fail} failed", style = MaterialTheme.typography.titleMedium)
+                            for (c in r.checks) {
+                                Text(
+                                    "${c.mark} ${c.name} ${c.detail}".trimEnd(),
+                                    color = if (c.state == CheckState.FAIL) MaterialTheme.colorScheme.error
+                                    else MaterialTheme.colorScheme.onBackground
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            selfTestState.message?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
             versionState.reply?.let { v -> item { Text(SensorHealthText.firmware(v)) } }
             versionState.message?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
             item {

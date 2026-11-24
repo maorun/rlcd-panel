@@ -440,4 +440,54 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         let same = ConfigReply(values: ["night_wake_interval_s": "600", "wake_interval_s": "600"])
         #expect(!day.isNightInterval(config: same))
     }
+
+    private func selfTestFixture() throws -> [String] {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let text = try String(contentsOf: url.appendingPathComponent("tests/fixtures/selftest_reply_sample.txt"), encoding: .utf8)
+        return lines(text).filter { !$0.hasPrefix("CRC32") }
+    }
+
+    @Test func parsesSelfTestFromSharedFixture() throws {
+        let r = try SelfTestReply.parse(lines: try selfTestFixture())
+        #expect(r.checks.map(\.name) == ["shtc3", "rtc", "sd", "battery", "mic", "ble"])
+        #expect(r.checks.allSatisfy { $0.state == .ok })
+        #expect(r.checks[3].detail == "mv=3900")
+        #expect(r.checks[4].detail == "L=OK,R=OK")
+        #expect(r.pass == 6 && r.fail == 0 && r.passed)
+    }
+
+    @Test func selfTestCountsFailAndSkip() throws {
+        let r = try SelfTestReply.parse(lines: [
+            "BEGIN SELFTEST", "CHECK shtc3 OK READ", "CHECK sd FAIL NO_CARD", "CHECK ble SKIP CONSOLE", "END SELFTEST pass=1 fail=1"])
+        #expect(r.checks[1].state == .fail && r.checks[2].state == .skip)
+        #expect(!r.passed)
+    }
+
+    @Test func selfTestRejectsUnknownStateAndBadCounts() throws {
+        var bad = try selfTestFixture()
+        bad[1] = "CHECK shtc3 MAYBE READ"
+        #expect(throws: ParseError.badLine("CHECK shtc3 MAYBE READ")) { try SelfTestReply.parse(lines: bad) }
+        var counts = try selfTestFixture()
+        counts[counts.count - 1] = "END SELFTEST pass=5 fail=1"
+        #expect(throws: ParseError.badLine("END SELFTEST pass=5 fail=1")) { try SelfTestReply.parse(lines: counts) }
+        #expect(throws: ParseError.missingLine("END SELFTEST")) { try SelfTestReply.parse(lines: ["BEGIN SELFTEST"]) }
+    }
+
+    @Test func reportSummarizesSelfTest() throws {
+        let fixture = try selfTestFixture()
+        let text = DiagnosticsReport.build(appVersion: "1", link: .usb, includeNames: false,
+            sections: [.init(command: "SELFTEST", result: .success(fixture + ["CRC32 232110fc"]))])
+        #expect(text.contains("Self-test: passed, 6 ok, 0 failed"))
+        #expect(!text.contains("CRC32"))
+    }
+
+    @Test func reportMarksFailedSelfTest() throws {
+        let text = DiagnosticsReport.build(appVersion: "1", link: .usb, includeNames: false,
+            sections: [.init(command: "SELFTEST", result: .success([
+                "BEGIN SELFTEST", "CHECK shtc3 OK READ", "CHECK sd FAIL NO_CARD", "CHECK ble SKIP CONSOLE",
+                "END SELFTEST pass=1 fail=1", "CRC32 00000000"]))])
+        #expect(text.contains("Self-test: FAILED, 1 ok, 1 failed"))
+        #expect(!text.contains("CRC32"))
+    }
 }

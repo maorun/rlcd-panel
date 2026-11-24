@@ -61,6 +61,7 @@ class DiagnosticsReportTest {
         val l = lines(DiagnosticsReport.build(null, null, null))
         assertTrue(l.contains("Sensors: --"))
         assertTrue(l.contains("SD: --"))
-        assertEquals("--", l.last())
+        assertEquals("Self-test: --", l.last())
+        assertTrue(l.contains("--"))
     }
 }

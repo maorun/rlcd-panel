@@ -2,7 +2,7 @@ package com.rlcdpanel.phone.protocol
 
 import java.util.Locale
 
-/** One text report of the last `VERSION`, `STATUS` and `REJECTS` replies for a fault report. A missing reply gives `--`. */
+/** One text report of the last `VERSION`, `STATUS`, `REJECTS` and `SELFTEST` replies for a fault report. A missing reply gives `--`. */
 object DiagnosticsReport {
     const val HIDDEN = "<hidden>"
 
@@ -10,7 +10,7 @@ object DiagnosticsReport {
      * Joins the summary lines. The report holds no Wi-Fi or `NTP` data. Sensor names and foreign MACs
      * show as `<hidden>` in the rows, unless [includeNames] is true.
      */
-    fun build(version: VersionReply?, status: StatusReply?, rejects: RejectsLog?, includeNames: Boolean = false): String {
+    fun build(version: VersionReply?, status: StatusReply?, rejects: RejectsLog?, includeNames: Boolean = false, selfTest: SelfTestReply? = null): String {
         val out = ArrayList<String>()
         out.add("RLCD Phone Diagnostics")
         out.add(
@@ -44,6 +44,14 @@ object DiagnosticsReport {
                 out.add("${if (includeNames) r.mac else HIDDEN},${r.format},${r.reason.wire},${r.count}")
             }
             if (rejects.dropped > 0) out.add("DROPPED,${rejects.dropped}")
+        }
+        out.add("")
+        out.add("## SELFTEST")
+        if (selfTest == null) {
+            out.add("Self-test: --")
+        } else {
+            for (c in selfTest.checks) out.add("CHECK ${c.name} ${c.state.wire} ${c.detail}".trimEnd())
+            out.add("Self-test: ${if (selfTest.passed) "passed" else "FAILED"}, ${selfTest.pass} ok, ${selfTest.fail} failed")
         }
         return out.joinToString("\n") + "\n"
     }
