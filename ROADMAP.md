@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Structured config editor in the Android app
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigSchema.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/ConfigEditorScreen.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/ConfigSchemaTest.kt`, `FEATURES.md`
-  - **Goal:** Let the user change each `config.ini` key from the phone, not only the alert limits and the slots. Add `ConfigSchema.kt` with one entry for each key of `DeviceConfigParser::KEYS` (type, range, default, unit, description), the same data as the macOS `ConfigSchema.entries`. Add `validate(key, value)`, `diff` and `batch` (fixed schema order, `ble_console` last). Add `ConfigEditorScreen` with one field for each key, grouped like the macOS `ConfigEditorView`. Read the values with `CONFIG`. Send only the changed keys with `SET` over the BLE console, stop at the first `ERR` line, then send `CONFIG` again. Show `ERR READ_ONLY` as a clear text for `ble_console` 1. Refuse a `SET` line above the 40-byte limit before the send.
-  - **Acceptance:** `ConfigSchemaTest` reads `docs/config.example.ini` and finds each template key once in the schema, with the template default. A test compares the ranges with the macOS `ConfigSchema` values for 5 sample keys. A value outside the range gives an error text and no command. A test checks that `batch` puts `ble_console` last and keeps the schema order. A test checks that the first `ERR` reply stops the batch. `gradle testDebugUnitTest` passes in `android/RlcdPhone`.
-  - **Rank:** [Total: 34, Use: 7, Setup: 10, Harmony: 9, Safety: 8, Effort: L]
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 

@@ -3142,3 +3142,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SystemInfo::reception_low` carries the RTC copy to `DashboardView::render`; `rlcd_panel.ino` fills it from `g_state.reception_low`. The RTC layout and `STATE_VERSION` do not change. A mask of 0 gives the same frames as before.
 - **Preview:** `docs/display_preview_weak_signal.png` shows the badge on slot 1.
 - Host test `testWeakSignalBadge` asserts the badge pixels in each tile style, the shift beside the `C` badge, the stale tile, the CRC-32 of the sample scenes with mask 0 and the preview scene.
+
+## Structured config editor in the Android app
+
+- **Code:** `android/RlcdPhone/.../protocol/ConfigSchema.kt`, `ConfigEditorScreen.kt`, `MainActivity.kt`, `SensorHealthScreen.kt`, `ConfigSchemaTest.kt`.
+- `ConfigSchema.entries` has one `SchemaEntry` for each key of `DeviceConfigParser::KEYS` (category, value rule, default, unit, description). The texts equal the macOS `ConfigSchema.entries`. The value rules, the order and the checks come from `ConfigKeys` (`ConfigBackup.kt`), so backup and editor share one rule set.
+- `validate(key, value)` gives an error text or `null`. `diff(old, new)` lists the changes in schema order. `batch(changes)` gives the `SET key=value` lines in schema order; `ble_console` comes last. `problems` adds the duplicate MAC check and the 40-byte limit of a `SET` line.
+- `plan(edits, current)` refuses the whole input when one value has a problem, so no `SET` reaches the panel. An edit that equals the current value gives no command.
+- `ConfigSchema.run` sends the `SET` lines one by one over the BLE console. The first `ERR` reply drops the remaining `SET` lines; `CONFIG` is still sent, so the form shows the real panel state. A line above 40 bytes is refused before the send. `ERR READ_ONLY` shows a clear text for `ble_console=1`.
+- `ConfigEditorScreen` shows one field for each key in the groups Climate, Alerts, Power, Sensors and BLE, with the problem text or the description under the field. The fields need `ble_console=2`. The `Config editor` button sits in the sensor health screen. A `CONFIG` read refreshes the config cache and clears the input.
+- Tests: `ConfigSchemaTest` reads `docs/config.example.ini` (each template key once, template default), compares the ranges with the macOS values for 5 sample keys, checks the range error without a command, the batch order with `ble_console` last, the first `ERR` stop, `ERR READ_ONLY` and the 40-byte refusal.
+- Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
