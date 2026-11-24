@@ -1388,6 +1388,16 @@ The Wear OS app shows the radio signal of one sensor. The sensor health screen s
 - `DiagnosticsView` shows the rate of each slot and a warning symbol (`exclamationmark.triangle.fill`) when the rate is below 50 %.
 - Host tests cover 12/24 for each second scan, N/3 for a young slot, `resetSlot`, the old `STATE_VERSION` and a count above 24. `DiagnosticsTests` cover the parser.
 
+## BLE reception rate in the sensor stats view
+
+- `DashboardView::formatReception(out, capacity, reception, slot)` gives `RX <N>%` for a slot with 6 or more counted scans in `ReceptionHistory`. `<N>` is the number of received scans divided by the counted scans, rounded. It gives `RX --` for an empty slot, for fewer than 6 counted scans and for no history.
+- `DashboardView::drawReception` draws the text at scale 1, right-aligned to x = 392, at `y + 11` on the RSSI line, below the `FEELS` text and above the `MOLD` text. It draws the text for each live slot. An empty slot has no RSSI line and shows no `RX` text.
+- A rate below 50 % (exact compare of the counts, `DashboardView::receptionLow`) shows the text inverted. A rate of exactly 50 % stays normal.
+- `drawReception` does not draw the text when the gap to the RSSI line is below `RX_GAP_PX` (4 px). The widest RSSI line ends at x = 322 and the widest `RX` text starts at x = 350, so the text fits in each normal case.
+- `SystemInfo::reception` points to `PersistentState::reception`. The view calculates the text on each render. There is no new RTC state and `STATE_VERSION` does not change.
+- `tools/preview_scenes.h` fills sample rates (24 of 24, 11 of 24, 5 scans). `docs/display_preview_stats.png` shows `RX 100%`, the inverted `RX 46%` and `RX --`.
+- Host tests (`testReceptionStats`) cover 24 of 24, 11 of 24, 12 of 24, 5 scans, an empty slot, a missing history, the inverted pixels below 50 %, the gap rule and the render of the stats view.
+
 ## Hourly climate charts in the macOS app
 
 - **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/ClimateLog.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ArchiveView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ClimateLogTests.swift`.

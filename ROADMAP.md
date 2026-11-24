@@ -45,7 +45,7 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] BLE reception rate in the panel stats view
+- [x] BLE reception rate in the panel stats view
   - Rank: [Total: 33, Use: 6, Setup: 9, Harmony: 8, Safety: 10, Effort: S]
   - Location: rlcd_panel/dashboard_view.h, rlcd_panel/switchbot_ble.h, tools/preview_scenes.h, tools/render_display_preview.cpp, scripts/generate-display-preview.sh, tests/test_firmware_logic.cpp, docs/display_preview_stats.png, FEATURES.md
   - Goal: Show the `ReceptionHistory` rate of each slot as `RX <N>%` in the stats view (`DashboardView::formatReception`, scale 1, right-aligned to x = 392, on the RSSI line). Show `RX --` for an empty slot and for fewer than 6 counted scans. Invert the text below 50 %. Do not draw the text when the gap to the next text is below 4 px. Calculate it on each render. Do not add RTC state.

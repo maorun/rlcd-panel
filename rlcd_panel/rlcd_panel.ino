@@ -508,6 +508,7 @@ void renderDashboard() {
   info.sd_status = g_state.sd_status;
   info.cycle_tenths = g_cycles.cycleTenths();
   info.shtc3 = g_state.shtc3;
+  info.reception = &g_state.reception;
 
   DashboardView::renderMode(
       g_framebuffer,
