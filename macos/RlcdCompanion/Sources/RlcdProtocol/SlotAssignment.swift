@@ -69,6 +69,8 @@ public enum SlotAssignment {
     /// The scan takes about 4 s. The 10 s reply timeout leaves room for it; each received chunk restarts the timer.
     public static let scanTimeoutSeconds = 10
     public static let defaultTimeoutSeconds = 10
+    /// `SELFTEST` runs a 1 s microphone window, a 1 s BLE scan and a card mount.
+    public static let selfTestTimeoutSeconds = 20
     /// `NTP SYNC` blocks the panel for about 14 s.
     public static let ntpSyncTimeoutSeconds = 30
     /// `NTP SYNC` answers `ERR NOT_OVER_BLE` on BLE: send it on the USB serial link only.
@@ -79,6 +81,7 @@ public enum SlotAssignment {
         switch command {
         case .scan: return scanTimeoutSeconds
         case .ntpSync: return ntpSyncTimeoutSeconds
+        case .selfTest: return selfTestTimeoutSeconds
         default: return defaultTimeoutSeconds
         }
     }

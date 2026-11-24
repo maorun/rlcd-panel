@@ -521,6 +521,8 @@ public enum ConsoleCommand: Equatable {
     case historySensor(Int)
     /// `REJECTS`: the packets that the last BLE scan rejected (works on USB and on BLE).
     case rejects
+    /// `SELFTEST`: runs each onboard hardware check once (USB and BLE; the BLE scan check skips on BLE).
+    case selfTest
     case list
     case dump(String)
     case time
@@ -651,6 +653,7 @@ public enum ConsoleCommand: Equatable {
         case .version: return "VERSION"
         case .scan: return "SCAN"
         case .rejects: return "REJECTS"
+        case .selfTest: return "SELFTEST"
         case .screen: return "SCREEN"
         case .list: return "LIST"
         case let .dump(name): return LogArchive.isValidName(name) ? "DUMP \(name)" : nil

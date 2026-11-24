@@ -1,6 +1,7 @@
 import Foundation
 
 /// One text report of `VERSION`, `STATUS`, `CONFIG`, `EVENTS` and `REJECTS` for a fault report.
+/// A section `SELFTEST` holds the last self-test result when the user ran one.
 public enum DiagnosticsReport {
     public enum Link: String, Equatable, Sendable { case usb = "USB", ble = "BLE" }
 
@@ -38,6 +39,9 @@ public enum DiagnosticsReport {
                     else if s.command == ConsoleCommand.rejects.line { out.append(redactReject(line)) }
                     else { out.append(redact(line)) }
                     // A malformed WAKE line stays in the report as raw text; only the summary line is skipped.
+                    if s.command == ConsoleCommand.selfTest.line, line.hasPrefix("END SELFTEST"), let r = try? SelfTestReply.parse(lines: lines) {
+                        out.append("Self-test: " + (r.passed ? "passed" : "FAILED") + ", \(r.pass) ok, \(r.fail) failed")
+                    }
                     if s.command == ConsoleCommand.status.line, let m = try? WakeMetrics.parse(line: line), line.hasPrefix("WAKE ") {
                         out.append("Wake cycle: \(m.cause), boots \(m.boots), battery interval \(m.batteryIntervalS) s")
                     }
