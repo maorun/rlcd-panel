@@ -239,6 +239,15 @@ inline void renderScene(
   info.quiet_hours = quiet_hours;
   info.muted = muted;
   info.stats_page = stats_page;
+  // Sample reception rates of the stats view: slot 1 24 of 24, slot 2 11 of 24 (inverted below 50 %), slot 3 only 5 scans ("RX --"),
+  // slot 4 20 of 24, slot 5 24 of 24.
+  ReceptionHistory reception;
+  reception.restore(0, 0xFFFFFFu, 24);
+  reception.restore(1, 0x0B5A5Au, 24); // 11 bits set
+  reception.restore(2, 0x1Bu, 5);
+  reception.restore(3, 0xFFFFF0u, 24);
+  reception.restore(4, 0xFFFFFFu, 24);
+  info.reception = &reception;
   info.chart_sensor = 1; // the climate chart view shows the garden sensor
   info.ventilate = ventilate;
   // Tile badges from the default limit (60 %RH): the humid sensor 2 shows the "V" badge.

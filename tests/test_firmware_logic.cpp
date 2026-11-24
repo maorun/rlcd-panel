@@ -1631,6 +1631,124 @@ void testFeelsLikeStats() {
   assert(PowerManager::STATE_VERSION == 74); // no RTC state change
 }
 
+void testReceptionStats() {
+  ReceptionHistory rx;
+  char text[16];
+  assert(rx.restore(0, 0xFFFFFFu, 24));
+  DashboardView::formatReception(text, sizeof(text), &rx, 0);
+  assert(strcmp(text, "RX 100%") == 0);
+  assert(!DashboardView::receptionLow(&rx, 0));
+  assert(rx.restore(1, 0x0B5A5Au, 24)); // 11 of 24 = 45.8 %
+  DashboardView::formatReception(text, sizeof(text), &rx, 1);
+  assert(strcmp(text, "RX 46%") == 0);
+  assert(DashboardView::receptionLow(&rx, 1));
+  assert(rx.restore(2, 0x1Bu, 5)); // 5 scans: too few
+  DashboardView::formatReception(text, sizeof(text), &rx, 2);
+  assert(strcmp(text, "RX --") == 0);
+  assert(!DashboardView::receptionLow(&rx, 2));
+  DashboardView::formatReception(text, sizeof(text), &rx, 3); // empty slot
+  assert(strcmp(text, "RX --") == 0);
+  DashboardView::formatReception(text, sizeof(text), nullptr, 0);
+  assert(strcmp(text, "RX --") == 0);
+  DashboardView::formatReception(text, sizeof(text), &rx, MAX_SWITCHBOT_SENSORS); // bad index
+  assert(strcmp(text, "RX --") == 0);
+  assert(rx.restore(3, 0x3Fu, 6)); // 6 of 6 counts
+  DashboardView::formatReception(text, sizeof(text), &rx, 3);
+  assert(strcmp(text, "RX 100%") == 0);
+  assert(rx.restore(4, 0xFFFu, 24)); // 12 of 24 = 50 %: not low
+  DashboardView::formatReception(text, sizeof(text), &rx, 4);
+  assert(strcmp(text, "RX 50%") == 0);
+  assert(!DashboardView::receptionLow(&rx, 4));
+
+  // Pixels: right-aligned to x = 392, y + 11; inverted box only below 50 %
+  const uint16_t y0 = 34;
+  auto ink = [&](size_t slot, size_t left_chars, bool& corner) {
+    St7305Framebuffer fb;
+    fb.clear(false);
+    DashboardView::drawReception(fb, y0, &rx, slot, left_chars);
+    char t2[16];
+    DashboardView::formatReception(t2, sizeof(t2), &rx, slot);
+    const uint16_t x = static_cast<uint16_t>(DashboardView::COMFORT_RIGHT_X - strlen(t2) * 6);
+    corner = fb.getPixel(static_cast<uint16_t>(x - 2), static_cast<uint16_t>(y0 + DashboardView::RX_Y_OFFSET - 1));
+    bool any = false;
+    for (uint16_t yy = 0; yy < 300; ++yy) {
+      for (uint16_t xx = 0; xx < RLCD_WIDTH; ++xx) {
+        if (fb.getPixel(xx, yy)) {
+          any = true;
+          assert(xx >= x - 2 && xx < DashboardView::COMFORT_RIGHT_X + 1);
+          assert(yy >= y0 + DashboardView::RX_Y_OFFSET - 1 && yy < y0 + DashboardView::RX_Y_OFFSET + 8);
+        }
+      }
+    }
+    return any;
+  };
+  bool corner = false;
+  assert(ink(0, 20, corner) && !corner);   // 100 %: black text, no box
+  assert(ink(1, 20, corner) && corner);    // 46 %: inverted box
+  assert(ink(2, 20, corner) && !corner);   // "RX --": plain
+  assert(ink(4, 20, corner) && !corner);   // 50 %: plain
+  // Gap rule: the widest RSSI line ends at x = 322, "RX 100%" starts at x = 350
+  assert(ink(0, 26, corner));
+  assert(!ink(0, 29, corner));             // line reaches x = 358 + gap: not drawn
+  assert(!ink(1, 29, corner));
+
+  // The stats view draws it on the RSSI line of live slots only
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  const uint32_t now = 10000000;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < 2; ++i) {
+    slots[i].valid = true;
+    slots[i].temperature_c = 21.0f;
+    slots[i].humidity_pct = 50;
+    slots[i].updated_ms = now - 1000;
+  }
+  St7305Framebuffer with_rx;
+  St7305Framebuffer without_rx;
+  DashboardView::renderSensorStats(with_rx, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
+                                   nullptr, nullptr, 0, false, &rx);
+  DashboardView::renderSensorStats(without_rx, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now);
+  const uint16_t x1 = static_cast<uint16_t>(DashboardView::COMFORT_RIGHT_X - strlen("RX 46%") * 6);
+  const uint16_t y1 = static_cast<uint16_t>(34 + DashboardView::SENSOR_BLOCK_PITCH);
+  assert(with_rx.getPixel(static_cast<uint16_t>(x1 - 2), static_cast<uint16_t>(y1 + DashboardView::RX_Y_OFFSET - 1)));
+  assert(!without_rx.getPixel(static_cast<uint16_t>(x1 - 2), static_cast<uint16_t>(y1 + DashboardView::RX_Y_OFFSET - 1)));
+  // A live slot with only 5 scans (the state after a power-on) shows a plain "RX --" without a box
+  ReceptionHistory young;
+  assert(young.restore(0, 0x1Bu, 5));
+  St7305Framebuffer young_fb;
+  DashboardView::renderSensorStats(young_fb, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
+                                   nullptr, nullptr, 0, false, &young);
+  const uint16_t xy = static_cast<uint16_t>(DashboardView::COMFORT_RIGHT_X - strlen("RX --") * 6);
+  assert(!young_fb.getPixel(static_cast<uint16_t>(xy - 2), static_cast<uint16_t>(34 + DashboardView::RX_Y_OFFSET - 1)));
+  bool young_ink = false;
+  for (uint16_t yy = 34 + DashboardView::RX_Y_OFFSET; yy < 34 + DashboardView::RX_Y_OFFSET + 7; ++yy) {
+    for (uint16_t xx = xy; xx < DashboardView::COMFORT_RIGHT_X; ++xx) {
+      young_ink = young_ink || young_fb.getPixel(xx, yy);
+    }
+  }
+  assert(young_ink);
+  // The same text arrives through renderMode and SystemInfo::reception
+  SystemInfo sys;
+  sys.reception = &rx;
+  Shtc3Reading onboard;
+  St7305Framebuffer via_mode;
+  DashboardView::renderMode(via_mode, DisplayMode::SENSOR_STATS, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, sys,
+                            "12:00", now);
+  assert(via_mode.getPixel(static_cast<uint16_t>(x1 - 2), static_cast<uint16_t>(y1 + DashboardView::RX_Y_OFFSET - 1)));
+  // Empty slot 3 (index 2) shows no RX text, also with a full history
+  assert(rx.restore(2, 0xFFFFFFu, 24));
+  DashboardView::renderSensorStats(with_rx, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
+                                   nullptr, nullptr, 0, false, &rx);
+  const uint16_t y2 = static_cast<uint16_t>(34 + 2 * DashboardView::SENSOR_BLOCK_PITCH);
+  for (uint16_t yy = y2 + DashboardView::RX_Y_OFFSET - 1; yy < y2 + DashboardView::RX_Y_OFFSET + 8; ++yy) {
+    for (uint16_t xx = 0; xx < RLCD_WIDTH; ++xx) {
+      assert(with_rx.getPixel(xx, yy) == without_rx.getPixel(xx, yy));
+    }
+  }
+}
+
 void testMoldHoursStats() {
   // countAbove: strictly above the limit
   HumidityHistory h;
@@ -2091,7 +2209,7 @@ void testBleSignalStrength() {
       assert(max_x < width_fresh); // "RSSI --" is shorter than "RSSI -100 DBM"
     }
     for (uint16_t y = y0 + 14; y < y0 + 18; ++y) {
-      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      for (uint16_t x = 0; x < 326; ++x) { // right of x = 326 the RX text (y + 11 to y + 17) may draw
         assert(!fb.getPixel(x, y));
       }
     }
@@ -25064,6 +25182,7 @@ testSerialConfigNegativeSmallOffset();
   testClimateRestoreNoChange();
   testClimateRestoreTailParsing();
   testSlotEnabledFeature();
-  printf("All 234 firmware logic test suites passed.\n");
+  testReceptionStats();
+  printf("All 235 firmware logic test suites passed.\n");
   return 0;
 }

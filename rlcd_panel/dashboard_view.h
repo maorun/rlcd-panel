@@ -57,6 +57,7 @@ struct SystemInfo {
   NtpSyncState ntp;            // RTC copy of the NTP attempt state for the "NTP:" line
   bool ntp_credentials = false; // Wi-Fi credentials exist; without them the line shows "NTP: --"
   uint32_t now_ms = 0;         // RTC-backed clock (nowMs()) for the age of the last sync
+  const ReceptionHistory* reception = nullptr; // BLE reception rate of each slot for the stats view; null shows "RX --"
 };
 
 class DashboardView {
@@ -136,6 +137,13 @@ public:
   // (scale 2, y + 18 to y + 32) is the next text on the left; WALL is drawn only when WALL_GAP_PX stay free.
   static constexpr uint16_t WALL_Y_OFFSET = 30;
   static constexpr uint16_t WALL_GAP_PX = 4;
+  // Reception text (scale 1, right-aligned to COMFORT_RIGHT_X) at y + 11 on the RSSI line, below the FEELS text
+  // (y + 3 to y + 9) and above the MOLD text (y + 21). "RX 100%" = 7 glyphs = 42 px, x = 350. The inverted box
+  // (2 px padding left and right, y + 10 to y + 18) marks a rate below 50 %. The RSSI line (scale 2, up to x = 322)
+  // is the next text on the left; RX is drawn only when RX_GAP_PX stay free.
+  static constexpr uint16_t RX_Y_OFFSET = 11;
+  static constexpr uint16_t RX_GAP_PX = 4;
+  static constexpr uint8_t RX_MIN_SCANS = 6;
   static constexpr uint16_t NOISE_TREND_Y = 248;
   static constexpr uint16_t NOISE_SPARKLINE_X = 216;
   static constexpr uint16_t NOISE_SPARKLINE_Y = 246;
@@ -1219,6 +1227,47 @@ public:
     fb.drawText(x, static_cast<uint16_t>(y + MOLD_Y_OFFSET), text, 1, true);
   }
 
+  // "RX 92%" (share of the last counted BLE scans with a packet of the slot, rounded) for a slot with at least
+  // RX_MIN_SCANS counted scans, "RX --" for an empty slot, fewer scans or no history. Computed on each render;
+  // nothing is stored. Widest: "RX 100%" = 7 glyphs.
+  static void formatReception(char* out, size_t capacity, const ReceptionHistory* reception, size_t slot) {
+    const unsigned scans = reception != nullptr ? reception->scans(slot) : 0;
+    if (scans < RX_MIN_SCANS) {
+      snprintf(out, capacity, "RX --");
+      return;
+    }
+    const unsigned got = reception->received(slot);
+    snprintf(out, capacity, "RX %u%%", (got * 100u + scans / 2u) / scans);
+  }
+
+  // True when the slot has a rate and it is below 50 % (exact count compare, no rounding).
+  static bool receptionLow(const ReceptionHistory* reception, size_t slot) {
+    return reception != nullptr && reception->scans(slot) >= RX_MIN_SCANS &&
+           static_cast<unsigned>(reception->received(slot)) * 2u < reception->scans(slot);
+  }
+
+  // Draws the RX text unless it would come closer than RX_GAP_PX to the RSSI line of left_chars scale-2 glyphs.
+  // A rate below 50 % is drawn inverted.
+  static void drawReception(
+      St7305Framebuffer& fb, uint16_t y, const ReceptionHistory* reception, size_t slot, size_t left_chars) {
+    char text[12];
+    formatReception(text, sizeof(text), reception, slot);
+    const uint16_t w = static_cast<uint16_t>(strlen(text) * 6);
+    const uint16_t x = static_cast<uint16_t>(COMFORT_RIGHT_X - w);
+    const bool low = receptionLow(reception, slot);
+    const uint16_t pad = low ? 2 : 0; // the inverted box reaches 2 px left of the text
+    if (left_chars > 0 && x < 10 + left_chars * 12 + RX_GAP_PX + pad) {
+      return;
+    }
+    if (low) {
+      fb.fillRect(static_cast<uint16_t>(x - 2), static_cast<uint16_t>(y + RX_Y_OFFSET - 1),
+                  static_cast<uint16_t>(w + 3), 9, true);
+      fb.drawText(x, static_cast<uint16_t>(y + RX_Y_OFFSET), text, 1, false);
+    } else {
+      fb.drawText(x, static_cast<uint16_t>(y + RX_Y_OFFSET), text, 1, true);
+    }
+  }
+
   // "MAC ..:EE:FF" style line: the last three MAC bytes. The full address stays in config.ini.
   static void formatMac(char* out, size_t capacity, const uint8_t* mac) {
     snprintf(out, capacity, "MAC ..:%02X:%02X:%02X", mac[3], mac[4], mac[5]);
@@ -1283,7 +1332,8 @@ public:
       const ClimateHistory* history = nullptr,
       const DeviceConfig* config = nullptr,
       uint8_t page = 0,
-      bool muted = false) {
+      bool muted = false,
+      const ReceptionHistory* reception = nullptr) {
     const uint8_t total_pages = statsTotalPages(switchbot_slots, switchbot_count, config);
     const uint8_t shown_page = (total_pages > 1 && page < total_pages) ? page : 0;
     char header_title[32];
@@ -1335,6 +1385,7 @@ public:
       formatRssi(rssi, sizeof(rssi), sb, now_ms, staleTimeoutMs(config));
       snprintf(line, sizeof(line), "%s %s", label, rssi);
       drawLine(fb, 10, y, line);
+      drawReception(fb, y, reception, i, strlen(line));
 
       char mac[20];
       formatMac(mac, sizeof(mac), sb.mac);
@@ -1861,7 +1912,7 @@ public:
     }
     switch (mode) {
       case DisplayMode::SENSOR_STATS:
-        renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms, info.quiet_hours, noise_history, history, config, info.stats_page, info.muted);
+        renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms, info.quiet_hours, noise_history, history, config, info.stats_page, info.muted, info.reception);
         break;
       case DisplayMode::SYSTEM_DIAGNOSTICS:
         renderDiagnostics(fb, battery, info, clock_text);
