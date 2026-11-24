@@ -207,6 +207,17 @@ class SetupAssistant {
         clearWork()
     }
 
+    /** A reply to a read outside the command queue (`STATUS` or `CONFIG` before the assign step) did not help. */
+    fun failure(reply: ConsoleReply) {
+        if (stop != null) return
+        when (reply) {
+            is ConsoleReply.Status -> failErr(reply.line)
+            is ConsoleReply.Corrupt ->
+                if (reply.error == ReplyError.Timeout) linkLost("Keine Antwort in 10 s") else fail("Antwort verworfen: ${reply.error}")
+            is ConsoleReply.Frame -> fail("Antwort nicht lesbar")
+        }
+    }
+
     /** The command could not go out. Ends the assistant, so it does not wait for a reply. */
     fun commandNotSent() = linkLost("Befehl nicht gesendet")
 

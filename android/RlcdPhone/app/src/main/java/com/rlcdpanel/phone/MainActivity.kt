@@ -128,6 +128,8 @@ class MainActivity : ComponentActivity() {
     private var showSetup by mutableStateOf(false)
     private var setupState by mutableStateOf(SetupState())
     private val setupAssistant = SetupAssistant()
+    /** Counts up on restart, close and stop. A callback of an older session does nothing. */
+    private var setupSession = 0
     private var setupRows: List<FoundSensor> = emptyList()
     private var showChime by mutableStateOf(false)
     private var showSlots by mutableStateOf(false)
@@ -780,6 +782,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun restartSetup() {
+        setupSession++
         stopFinderScan()
         consoleClient.cancel()
         pendingConsoleAction = null
@@ -794,13 +797,14 @@ class MainActivity : ComponentActivity() {
         showSetup = false
     }
 
-    /** `onStop` ends a running console command, so the assistant stops with a lost link text. */
+    /** `onStop` ends a running console command and drops each callback of the old session. The assistant stops. */
     private fun onSetupStop(consoleWasRunning: Boolean) {
-        setupState = setupState.copy(isScanning = false)
-        if (consoleWasRunning) {
+        setupSession++
+        setupState = setupState.copy(isScanning = false, isBusy = false)
+        if (consoleWasRunning || setupAssistant.pending != null) {
             setupAssistant.linkLost("App im Hintergrund")
-            refreshSetup()
         }
+        refreshSetup()
     }
 
     private fun toggleSetupScan() {
@@ -857,29 +861,43 @@ class MainActivity : ComponentActivity() {
         refreshSetup(message = null)
     }
 
+    /** Sends [command] for the current session. A busy console ends the assistant with a stop text. */
+    private fun setupConsole(command: String, session: Int, onReply: (ConsoleReply) -> Unit) {
+        if (consoleClient.isRunning) {
+            setupAssistant.commandNotSent()
+            refreshSetup()
+            return
+        }
+        consoleClient.send(command) { reply -> if (session == setupSession) onReply(reply) }
+    }
+
     /** One tap: read `STATUS` and `CONFIG` (read only), then the assistant gives the first `SET`. */
     private fun setupAssign() {
         stopBleScan()
         stopFinderScan()
+        val session = setupSession
         refreshSetup(message = null, busy = true)
-        consoleClient.send(CONSOLE_STATUS) { statusReply ->
+        setupConsole(CONSOLE_STATUS, session) { statusReply ->
             val status = (statusReply as? ConsoleReply.Frame)?.let {
                 try { StatusReply.parse(it.lines) } catch (_: ParseException) { null }
             }
             if (status == null) {
-                setupAssistant.linkLost(BleConsoleClient.errorText(statusReply).ifEmpty { "STATUS nicht lesbar" })
+                setupAssistant.failure(statusReply)
                 refreshSetup()
-                return@send
+                return@setupConsole
             }
-            consoleClient.send(CONSOLE_CONFIG) { configReply ->
+            setupConsole(CONSOLE_CONFIG, session) { configReply ->
                 lifecycleScope.launch {
                     val info = withContext(Dispatchers.IO) { ConfigCache.store(filesDir, configReply, System.currentTimeMillis()) }
+                    if (session != setupSession) return@launch
                     if (info == null) {
-                        setupAssistant.linkLost(BleConsoleClient.errorText(configReply).ifEmpty { "CONFIG nicht lesbar" })
+                        setupAssistant.failure(configReply)
                         refreshSetup()
                         return@launch
                     }
-                    panelConfig = withContext(Dispatchers.IO) { PanelConfig.load(this@MainActivity) }
+                    val loaded = withContext(Dispatchers.IO) { PanelConfig.load(this@MainActivity) }
+                    if (session != setupSession) return@launch
+                    panelConfig = loaded
                     configState = ConfigReadState(info = info)
                     setupSend { setupAssistant.beginAssign(status, panelConfig) }
                 }
@@ -891,16 +909,20 @@ class MainActivity : ComponentActivity() {
     private fun setupSend(next: () -> String?) {
         stopBleScan()
         stopFinderScan()
+        val session = setupSession
         val command = next()
         if (command == null) { refreshSetup(); return }
         refreshSetup(message = null, busy = true)
-        consoleClient.send(command) { reply ->
+        setupConsole(command, session) { reply ->
             setupAssistant.receive(reply)
             if (command == CONSOLE_CONFIG && reply is ConsoleReply.Frame) {
                 lifecycleScope.launch {
                     val info = withContext(Dispatchers.IO) { ConfigCache.store(filesDir, reply, System.currentTimeMillis()) }
+                    if (session != setupSession) return@launch
                     if (info != null) {
-                        panelConfig = withContext(Dispatchers.IO) { PanelConfig.load(this@MainActivity) }
+                        val loaded = withContext(Dispatchers.IO) { PanelConfig.load(this@MainActivity) }
+                        if (session != setupSession) return@launch
+                        panelConfig = loaded
                         configState = ConfigReadState(info = info)
                     }
                     setupSend { setupAssistant.nextCommand() }

@@ -366,4 +366,29 @@ class SetupAssistantTest {
         assertEquals("STATUS", a.checkReception())
         assertNull(a.checkReception()) // reply is pending
     }
+
+    @Test
+    fun failureMapsReadErrorsToStopReasons() {
+        val a = chosen()
+        a.failure(ConsoleReply.Status("ERR READ_ONLY"))
+        assertEquals(SetupAssistant.Stop.ReadOnly, a.stop)
+        a.restart()
+        a.failure(ConsoleReply.Corrupt(ReplyError.Timeout))
+        assertTrue(a.stop is SetupAssistant.Stop.LinkLost)
+        a.restart()
+        a.failure(ConsoleReply.Status("ERR NOT_OVER_BLE"))
+        assertEquals("ERR NOT_OVER_BLE", a.stop?.text)
+    }
+
+    @Test
+    fun busyConsoleEndsAssistantWithoutHang() {
+        val a = assigned()
+        assertEquals("STATUS", a.checkReception())
+        a.commandNotSent() // the activity calls this when the console already runs a command
+        assertEquals("Verbindung verloren: Befehl nicht gesendet", a.stop?.text)
+        assertNull(a.pending)
+        a.restart()
+        assertNull(a.stop)
+        assertEquals(Step.SCAN, a.step)
+    }
 }
