@@ -11,7 +11,16 @@ object EventsReply {
     const val HEADER = "time,event,detail"
     const val DROPPED_EVENT = "EVENTS_DROPPED"
 
+    /** The firmware ring holds 16 events, so `EVENTS <N>` accepts N 1 to 16. */
+    const val MAX_NEWEST = 16
+
     private val INT = Regex("^-?[0-9]+$")
+
+    /** Gives the console command `EVENTS <N>` for the newest [n] events. [n] outside 1 to 16 throws [IllegalArgumentException]. */
+    fun newestCommand(n: Int): String {
+        require(n in 1..MAX_NEWEST) { "EVENTS count must be 1 to $MAX_NEWEST: $n" }
+        return "EVENTS $n"
+    }
 
     /** [lines] hold `BEGIN EVENTS`, the header and the rows. A bad line throws [ParseException]. */
     fun parse(lines: List<String>): EventsLog {

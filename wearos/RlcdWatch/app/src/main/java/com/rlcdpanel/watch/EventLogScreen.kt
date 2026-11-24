@@ -39,17 +39,24 @@ data class EventLogState(
     val dropped: Int = 0,
     /** True after a successful read, so an empty ring shows its own text. */
     val loaded: Boolean = false,
-    val message: String? = null
+    val message: String? = null,
+    /** True after the `EVENTS` read of `Show all`; the list then keeps every row. */
+    val all: Boolean = false
 ) {
     /** The newest [MAX_ROWS] rows for the small screen, newest first. */
     val visibleRows: List<EventRow> get() = visibleRows(null)
 
-    /** The newest [MAX_ROWS] rows of [category] (`null` keeps each row), newest first. */
-    fun visibleRows(category: EventFilter.Category?): List<EventRow> =
-        EventFilter.apply(rows, setOfNotNull(category)).takeLast(MAX_ROWS).asReversed()
+    /** The newest [MAX_ROWS] rows of [category] (`null` keeps each row), newest first. After `Show all` the list keeps every row. */
+    fun visibleRows(category: EventFilter.Category?): List<EventRow> {
+        val filtered = EventFilter.apply(rows, setOfNotNull(category))
+        return (if (all) filtered else filtered.takeLast(MAX_ROWS)).asReversed()
+    }
 
     companion object {
         const val MAX_ROWS = 8
+
+        /** The first read asks for [SHORT_COUNT] events, because a short reply needs less BLE time. */
+        const val SHORT_COUNT = MAX_ROWS
         const val UNKNOWN_TIME = "--:--"
 
         /** `HH:mm` of `YYYY-MM-DDTHH:mm:ss` or `YYYY-MM-DD HH:mm:ss`; an empty or short time gives [UNKNOWN_TIME]. */
@@ -64,7 +71,8 @@ data class EventLogState(
 @Composable
 fun EventLogScreen(
     state: EventLogState,
-    onRead: () -> Unit
+    onRead: () -> Unit,
+    onReadAll: () -> Unit
 ) {
     val listState = rememberScalingLazyListState()
     var category by remember { mutableStateOf<EventFilter.Category?>(null) }
@@ -96,6 +104,17 @@ fun EventLogScreen(
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text(if (state.isReading) "Lese Panel ..." else "Read events", fontSize = 12.sp, maxLines = 1) }
                     )
+                }
+                if (!state.all) {
+                    item {
+                        Chip(
+                            onClick = onReadAll,
+                            enabled = !state.isReading,
+                            modifier = Modifier.fillMaxWidth(0.85f),
+                            colors = ChipDefaults.secondaryChipColors(),
+                            label = { Text("Show all", fontSize = 12.sp, maxLines = 1) }
+                        )
+                    }
                 }
                 state.message?.let { message ->
                     item {

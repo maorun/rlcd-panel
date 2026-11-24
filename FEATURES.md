@@ -2982,3 +2982,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `DiagnosticsView` shows the group `Newest log rows` above `Maintenance and tests`: a picker for 6, 24 or 72 rows, the button `Read log rows` and a table (time, panel cell, USB, onboard values and each slot with a reading, newest row first). `AppModel.readTail(rows:)` sends `TAIL` only after the button, on USB and on BLE. A lost link, a timeout, a rejected reply and an `ERR` reply clear the old rows.
 - Tests: `TailReplyTests` read `tests/fixtures/tail_reply_sample.txt` and assert the row count, the first and the last time stamp, each empty field, the bad forms and `ConsoleCommand.tail`.
 - Validation: `swift build -c release` passed. `swift test` did not run on the local host (no `TestingMacros` plugin without Xcode), so the CI job `macOS companion tests` runs it. A standalone harness of `Sources/RlcdProtocol/*.swift` checked the same assertions against the fixture and passed.
+
+## Short event log read on the Wear OS watch
+
+- `EventsReply.newestCommand(n)` gives `EVENTS <N>` for N 1 to 16. Another value throws `IllegalArgumentException`. The phone copy of `protocol/EventsReply.kt` has the same function, so `scripts/check-protocol-sync.sh` stays green.
+- The chip `Read events` of `EventLogScreen` sends `EVENTS 8` (`EventLogState.SHORT_COUNT`), because a short reply needs less BLE time on the watch. The app sends no command without a tap.
+- The chip `Show all` sends `EVENTS` once and sets `EventLogState.all`. The list then keeps every row (up to 16) instead of the newest 8. The chip disappears after this read.
+- The `EventFilterChip` works on both lists.
+- `EVENTS <N>` needs the panel firmware with this command (PR #380). An older firmware answers `ERR BAD_ARG`; the app shows the error text and `Show all` still reads the full ring.
+- A failed read keeps the rows of the last good read and shows only the error text.
+- Tests: `EventsReplyTest` asserts `EVENTS 8`, `IllegalArgumentException` for 0 and 17, the parse of an 8-row reply with and without the `EVENTS_DROPPED` row and the row count of the short and the full list.

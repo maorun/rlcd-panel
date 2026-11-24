@@ -68,4 +68,39 @@ class EventsReplyTest {
         assertThrows(ParseException::class.java) { EventsReply.parse(listOf("BEGIN EVENTS", "a,b,c")) }
         assertThrows(ParseException::class.java) { EventsReply.parse(emptyList()) }
     }
+
+    @Test
+    fun newestCommandGivesEventsAndCount() {
+        assertEquals("EVENTS 8", EventsReply.newestCommand(8))
+        assertEquals("EVENTS 1", EventsReply.newestCommand(1))
+        assertEquals("EVENTS 16", EventsReply.newestCommand(16))
+    }
+
+    @Test
+    fun newestCommandRejectsCountOutsideOneToSixteen() {
+        assertThrows(IllegalArgumentException::class.java) { EventsReply.newestCommand(0) }
+        assertThrows(IllegalArgumentException::class.java) { EventsReply.newestCommand(17) }
+    }
+
+    private fun eightRows(): List<String> =
+        (1..8).map { "2026-11-18 09:0$it:00,SLOT_STALE,$it" }
+
+    @Test
+    fun parsesEightRowReplyWithoutDroppedRow() {
+        val log = EventsReply.parse(listOf("BEGIN EVENTS", EventsReply.HEADER) + eightRows())
+        assertEquals(8, log.rows.size)
+        assertEquals(0, log.dropped)
+        assertEquals(1, log.rows.first().detail)
+        assertEquals(8, log.rows.last().detail)
+    }
+
+    @Test
+    fun parsesEightRowReplyWithDroppedRow() {
+        val lines = listOf("BEGIN EVENTS", EventsReply.HEADER, "2026-11-18 09:00:00,EVENTS_DROPPED,5") + eightRows()
+        val log = EventsReply.parse(lines)
+        assertEquals(8, log.rows.size)
+        assertEquals(5, log.dropped)
+        assertEquals(1, log.rows.first().detail)
+        assertEquals(8, log.rows.last().detail)
+    }
 }
