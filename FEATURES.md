@@ -3117,3 +3117,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SpreadReply.parse` reads each proposal line `<temp_key>=<x> <rh_key>=<x>` into `SpreadReply.Proposal` (temperature key and value, humidity key and value) in `Outcome.Measured.proposals`. A reply without proposal lines gives an empty list. A bad number throws `ParseException`. The Wear OS copy of `SpreadReply.kt` differs only in the `package` line; `scripts/check-protocol-sync.sh` checks it.
 - The co-location card of `CalibrationScreen` shows one card with both keys and an `Apply` button for each proposal. A tap sends `SET <temp_key>=<x>` and `SET <rh_key>=<x>` over the BLE console, then `SPREAD` again. The first `ERR` reply stops the chain. `ERR READ_ONLY` shows `Set ble_console=2 to apply`.
 - Host tests read `tests/fixtures/spread_reply_sample.txt` (one proposal with two keys) and cover a reply without proposal lines and bad numbers. They run in CI only when no Android SDK exists on the host.
+
+## Low reception mask in the macOS diagnostics view
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift`, `DiagnosticsReport.swift`, `Sources/RlcdCompanion/DiagnosticsView.swift`, `Tests/RlcdProtocolTests/DiagnosticsTests.swift`, `DiagnosticsReportTests.swift`
+- `LatchMetrics.receptionLow` (`Int?`) parses `rxlow=` of the `STATUS` line `LATCH` (3 hex digits, at most `3ff`; bits 0 to 9 are slots 1 to 10). A missing field of older firmware gives `nil`. A bad field such as `rxlow=400` or `rxlow=0x1` throws `ParseError.badLine`. `hasBadges` includes it. `LatchMetrics.hasWeakSignal(slot:)` tests one slot; `badges(forSensor:)` adds `RX LOW` after `STALE` for slots 1 to 10.
+- `DiagnosticsView` shows a slashed antenna symbol beside each flagged slot in the `Sensor health` rows and `RX LOW` in the `Panel badges` group. `DiagnosticsReport` lists `RX LOW` in the line `Panel badges`.
+- Tests: `DiagnosticsTests.parsesReceptionLowFromSharedFixture` (fixture value `202`), `receptionLowIsNilForOlderFirmware`, `receptionLowAloneSetsHasBadges`, `receptionLowRejectsBadFields`; `DiagnosticsReportTests.weakSignalSlotsAreInTheReport`.
+- Validation: `swift build` and host unit tests pass locally; `swift test` did not run locally (no TestingMacros in the Command Line Tools); CI `macOS companion tests` runs it.

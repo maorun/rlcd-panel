@@ -53,6 +53,13 @@ private func sections(
         #expect(lines(text).contains("Wake cycle: TIMER, boots 1234, battery interval 600 s"))
     }
 
+    @Test func weakSignalSlotsAreInTheReport() {
+        let text = DiagnosticsReport.build(
+            appVersion: "1.2", link: .usb, includeNames: false,
+            sections: [.init(command: "STATUS", result: .success(["LATCH vent=000 dry=000 batlow=000 stale=000 wall=000 window=000 rxlow=202"]))])
+        #expect(lines(text).contains("Panel badges: 2 RX LOW; 10 RX LOW"))
+    }
+
     @Test func panelBadgesLineIsInTheReport() {
         let text = DiagnosticsReport.build(
             appVersion: "1.2", link: .usb, includeNames: false,
