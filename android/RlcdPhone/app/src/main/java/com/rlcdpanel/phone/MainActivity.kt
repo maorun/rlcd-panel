@@ -76,6 +76,7 @@ import com.rlcdpanel.phone.protocol.VersionReply
 import com.rlcdpanel.phone.protocol.SelfTestReply
 import com.rlcdpanel.phone.protocol.TailCommand
 import com.rlcdpanel.phone.protocol.TailReply
+import com.rlcdpanel.phone.protocol.TodayReply
 import com.rlcdpanel.phone.protocol.WeekCsv
 import com.rlcdpanel.phone.protocol.WeekReply
 import com.rlcdpanel.phone.protocol.WeekRow
@@ -137,6 +138,8 @@ class MainActivity : ComponentActivity() {
     private var backupState by mutableStateOf(ConfigBackupState())
     private var backupLoadJob: Job? = null
     private var showWeek by mutableStateOf(false)
+    private var showToday by mutableStateOf(false)
+    private var todayState by mutableStateOf(TodayState())
     private var showTail by mutableStateOf(false)
     private var panelHistory by mutableStateOf(PanelHistoryState())
     private var showPanelHistory by mutableStateOf(false)
@@ -278,6 +281,15 @@ class MainActivity : ComponentActivity() {
                     onBack = { closeWeek() }
                 )
                 BackHandler { closeWeek() }
+                return@setContent
+            }
+            if (showToday) {
+                TodayScreen(
+                    state = todayState,
+                    onRead = { withConsolePermission { readToday() } },
+                    onBack = { closeToday() }
+                )
+                BackHandler { closeToday() }
                 return@setContent
             }
             if (showTail) {
@@ -539,6 +551,7 @@ class MainActivity : ComponentActivity() {
                 onOpenSensorHealth = { showHealth = true },
                 onOpenHistory = { showHistory = true },
                 onOpenWeek = { showWeek = true },
+                onOpenToday = { showToday = true },
                 onOpenTail = { showTail = true },
                 onOpenEvents = { showEvents = true },
                 recentEvents = recentEventState,
@@ -576,6 +589,7 @@ class MainActivity : ComponentActivity() {
         healthState = healthState.copy(isReading = false)
         configState = configState.copy(isReading = false)
         if (weekState.isReading) weekState = WeekState(message = "Abgebrochen. Erneut lesen.")
+        if (todayState.isReading) todayState = TodayState(message = "Abgebrochen. Erneut lesen.")
         if (tailState.isReading) tailState = TailState(message = "Abgebrochen. Erneut lesen.")
         if (panelHistory.isReading) panelHistory = PanelHistoryState(message = "Abgebrochen. Erneut lesen.")
         if (eventState.isReading) eventState = EventLogState(message = "Abgebrochen. Erneut lesen.")
@@ -615,6 +629,7 @@ class MainActivity : ComponentActivity() {
             else if (showRejects) rejectsState = RejectsState(message = "Bluetooth-Berechtigung fehlt")
             else if (showHistory) panelHistory = PanelHistoryState(message = "Bluetooth-Berechtigung fehlt")
             else if (showWeek) weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
+            else if (showToday) todayState = TodayState(message = "Bluetooth-Berechtigung fehlt")
             else if (showTail) tailState = TailState(message = "Bluetooth-Berechtigung fehlt")
             else if (showSetup) setupState = setupState.copy(isBusy = false, message = "Bluetooth-Berechtigung fehlt")
             else if (showFinder) finderState = finderState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
@@ -711,7 +726,7 @@ class MainActivity : ComponentActivity() {
 
     /** True while a full-screen console screen replaces the dashboard. */
     private fun hasOpenConsoleScreen(): Boolean =
-        showEvents || showRejects || showHistory || showWeek || showTail || showSetup || showFinder ||
+        showEvents || showRejects || showHistory || showWeek || showToday || showTail || showSetup || showFinder ||
             showAlertLimits || showSlots || showChime || showBackup || showCalib || showHealth
 
     /** Sends `EVENTS 3` after a tap on the dashboard card. The scan restarts after the reply when it ran before. */
@@ -788,6 +803,32 @@ class MainActivity : ComponentActivity() {
                     WeekState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
                 }
                 else -> WeekState(message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
+    private fun closeToday() {
+        consoleClient.cancel()
+        pendingConsoleAction = null
+        todayState = TodayState()
+        showToday = false
+        if (!scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
+    }
+
+    /** Sends `TODAY` after a tap. */
+    private fun readToday() {
+        stopBleScan()
+        todayState = TodayState(isReading = true)
+        consoleClient.send("TODAY") { reply ->
+            todayState = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    TodayState(rows = TodayReply.parse(reply.lines), hasRead = true)
+                } catch (e: ParseException) {
+                    TodayState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
+                }
+                is ConsoleReply.Status ->
+                    TodayState(message = TodayReply.statusText(reply.line) ?: BleConsoleClient.errorText(reply))
+                else -> TodayState(message = BleConsoleClient.errorText(reply))
             }
         }
     }

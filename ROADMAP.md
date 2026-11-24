@@ -27,14 +27,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - Goal: Add `StatusSensor.temperatureTrend` and `StatusSensor.humidityTrend` (`SensorTrend?` with `rise`, `fall`, `steady`) from the `temp_trend=` and `rh_trend=` fields of the `SENSOR` lines. Give `nil` for `--` and for a missing field. Throw `ParseError.badLine` for another text. Show an arrow up, an arrow down or a dash beside the temperature and the humidity of each sensor row in the menu bar list and in `DiagnosticsView`. Do not send a new command.
   - Acceptance test: `ReplyTests` read `tests/fixtures/status_reply_sample.txt` and assert each trend value of each sensor, `nil` for `--` and for a line without the fields, and `ParseError.badLine` for `rh_trend=UP`. Run `cd macos/RlcdCompanion && swift test && swift build -c release`.
 
-- [ ] Today summary screen in the Android app
-  - Rank: [Total: 29, Use: 7, Setup: 3, Harmony: 9, Safety: 10, Effort: M]
-  - Location: android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TodayReply.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/TodayScreen.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt, android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/PhoneDashboardScreen.kt, android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/TodayReplyTest.kt, FEATURES.md
-  - Goal: Add `TodayReply.parse` for the `TODAY` reply: one `TodayRow` (sensor, name, hours, minimum, maximum and mean of temperature and humidity; `null` for an empty field) for each row. Throw `ParseException` for a wrong header, a wrong column count and a bad number. Add `TodayScreen` with one card for each sensor. Open it from one entry on the main screen. Send `TODAY` over the BLE console only on a user action. Show `ERR NO_TIME` as the text `Panel clock not set`.
-  - Acceptance test: `TodayReplyTest` reads `tests/fixtures/today_reply_sample.txt` and asserts each row, `null` for empty fields, `ParseException` for 8 columns, for `temp_min_c=x` and for a wrong header. Run `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone`.
-
-
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Week screen for one room on the Wear OS watch
