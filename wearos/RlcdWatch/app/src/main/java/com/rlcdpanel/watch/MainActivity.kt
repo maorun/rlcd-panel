@@ -430,6 +430,7 @@ class MainActivity : ComponentActivity() {
                     focusedRoomIndex = index
                     telemetryCache.saveFocusedRoom(index)
                     ClimateTileService.requestUpdate(this@MainActivity)
+                    ClimateComplicationService.requestUpdate(this@MainActivity)
                 },
                 onToggleVentilation = {
                     toggleVentilationForFocusedRoom()
@@ -483,6 +484,7 @@ class MainActivity : ComponentActivity() {
                     openMeteoClimate = weather
                     telemetryCache.saveOpenMeteoReading(weather.tempC, weather.rhPct, weather.timestampMillis)
                     ClimateTileService.requestUpdate(this@MainActivity)
+                    ClimateComplicationService.requestUpdate(this@MainActivity)
                 }
             }
         }
@@ -547,6 +549,7 @@ class MainActivity : ComponentActivity() {
             is OutdoorSource.OpenMeteo -> telemetryCache.saveOutdoorOpenMeteo()
         }
         ClimateTileService.requestUpdate(this)
+        ClimateComplicationService.requestUpdate(this)
         fetchWeatherIfNeeded()
     }
 
