@@ -71,5 +71,6 @@ public enum BatteryForecast {
         return f
     }()
 
-    private static func parse(_ timestamp: String) -> Date? { parser.date(from: timestamp) }
+    /// Local panel time (Europe/Berlin) of a log timestamp `YYYY-MM-DD HH:MM:SS`; shared with `PanelBatterySeries`.
+    static func parse(_ timestamp: String) -> Date? { parser.date(from: timestamp) }
 }

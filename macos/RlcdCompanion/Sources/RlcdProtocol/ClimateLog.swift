@@ -188,3 +188,83 @@ public struct ClimateLog: Equatable {
         return ClimateFolder(rows: byTime.values.sorted { $0.timestamp < $1.timestamp }, failedFiles: failed)
     }
 }
+
+/// Panel cell voltage of the rows of one month and the hours on USB power. Built from the `battery_v` and `usb`
+/// columns of `climate_v2` to `climate_v6` rows; sends no console command.
+public struct PanelBatterySeries: Equatable {
+    public struct Point: Equatable {
+        public let timestamp: String
+        public let volts: Double
+    }
+
+    /// Consecutive rows with `usb` 1. `start` and `end` are the first and last row timestamp of the run, so a run
+    /// of one row has equal values. A row with `usb` 0 or an empty `usb` field ends a run, and so does a time
+    /// step above `maxStepSeconds` between two rows.
+    public struct UsbRange: Equatable {
+        public let start: String
+        public let end: String
+
+        /// Start of the first row hour (local time of the panel).
+        public var startDate: Date? { PanelBatterySeries.date(start) }
+        /// End of the last row hour: the log has one row each hour, so the last USB row covers the hour after it.
+        public var endDate: Date? { PanelBatterySeries.date(end)?.addingTimeInterval(PanelBatterySeries.hourSeconds) }
+    }
+
+    public static let hourSeconds: TimeInterval = 3600
+    /// The largest step between two rows of one run: 90 minutes, like the log gap rule of `ClimateHistory::restore`.
+    public static let maxStepSeconds: TimeInterval = 5400
+
+    /// The same timestamp read as wall-clock time in UTC, to measure a step without a DST jump.
+    private static let wallParser: DateFormatter = {
+        let f = DateFormatter()
+        f.calendar = Calendar(identifier: .gregorian)
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone(identifier: "UTC")
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f
+    }()
+
+    /// Local panel time (Europe/Berlin) of a row timestamp. The chart view uses it for the voltage line too, so the
+    /// line and the USB band share one time zone.
+    public static func date(_ timestamp: String) -> Date? { BatteryForecast.parse(timestamp) }
+
+    /// Seconds between two row timestamps: the smaller of the real step and the wall-clock step, so the hour that
+    /// the DST change skips or repeats does not count as a gap. `nil` when a timestamp does not parse.
+    static func step(from a: String, to b: String) -> TimeInterval? {
+        guard let ra = date(a), let rb = date(b),
+              let wa = wallParser.date(from: a), let wb = wallParser.date(from: b) else { return nil }
+        return min(rb.timeIntervalSince(ra), wb.timeIntervalSince(wa))
+    }
+
+    /// Rows with a voltage, in row order. An empty field gives no point.
+    public let points: [Point]
+    public let usbRanges: [UsbRange]
+
+    /// `true` when no row has a voltage; the view then shows `No battery data`.
+    public var isEmpty: Bool { points.isEmpty }
+
+    public init(rows: [ClimateRow]) {
+        points = rows.compactMap { row in row.batteryV.map { Point(timestamp: row.timestamp, volts: $0) } }
+        var ranges: [UsbRange] = []
+        var open: (start: String, end: String)?
+        var previous: String?
+        for row in rows {
+            if let run = open, row.usb == true, let a = previous {
+                // A log gap, or a timestamp that does not parse, closes the run.
+                if let step = Self.step(from: a, to: row.timestamp), step <= Self.maxStepSeconds {} else {
+                    ranges.append(UsbRange(start: run.start, end: run.end))
+                    open = nil
+                }
+            }
+            if row.usb == true {
+                open = (open?.start ?? row.timestamp, row.timestamp)
+            } else if let run = open {
+                ranges.append(UsbRange(start: run.start, end: run.end))
+                open = nil
+            }
+            previous = row.timestamp
+        }
+        if let run = open { ranges.append(UsbRange(start: run.start, end: run.end)) }
+        usbRanges = ranges
+    }
+}
