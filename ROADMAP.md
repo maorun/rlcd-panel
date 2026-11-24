@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Newest climate rows in the macOS diagnostics view
-  - Rank: [Total: 31, Use: 6, Setup: 7, Harmony: 8, Safety: 10, Effort: S]
-  - Location: macos/RlcdCompanion/Sources/RlcdProtocol/TailReply.swift, macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift, macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift, macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift, macos/RlcdCompanion/Tests/RlcdProtocolTests/TailReplyTests.swift, FEATURES.md
-  - Goal: Add `TailReply.parse` for the `TAIL <N>` reply with the column layout of the `climate_v6` header (`ClimateLog` row type, `nil` for an empty field). Add `ConsoleCommand.tail(_ rows: Int)`, which accepts only 1 to 72. Add a group `Newest log rows` to `DiagnosticsView` with a row count picker (6, 24, 72), a read button and a table. Show `ERR NO_CARD`, `ERR NO_FILE` and `ERR READ_FAILED` as clear texts. Send `TAIL` only on a user action, on USB and on BLE.
-  - Acceptance test: `TailReplyTests` read `tests/fixtures/tail_reply_sample.txt` and assert the row count, the first and the last time stamp and each empty field. Assert `ParseError.badLine` for a wrong column count and for `BEGIN TAIL x`, and `nil` from `ConsoleCommand.tail(0)` and `ConsoleCommand.tail(73)`. Run `cd macos/RlcdCompanion && swift test && swift build -c release`.
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 ## Rules for ranking

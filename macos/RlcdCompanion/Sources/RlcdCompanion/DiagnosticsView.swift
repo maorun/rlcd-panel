@@ -55,6 +55,10 @@ struct DiagnosticsView: View {
                 alertTimeline().frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            GroupBox("Newest log rows") {
+                tailBox.frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             GroupBox("Maintenance and tests") {
                 VStack(alignment: .leading, spacing: 8) {
                     group("Panel clock") {
@@ -148,6 +152,58 @@ struct DiagnosticsView: View {
         } message: {
             Text("The panel will show this test pattern until the next wake cycle.")
         }
+    }
+
+    /// Row count picker, read button and the newest climate rows. Sends `TAIL` only on the button.
+    private var tailBox: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: 8) {
+                Picker("Rows", selection: $model.tailRows) {
+                    ForEach(TailReply.rowChoices, id: \.self) { Text("\($0)").tag($0) }
+                }
+                .pickerStyle(.segmented).frame(maxWidth: 160)
+                Button("Read log rows") { model.readTail(rows: model.tailRows) }
+                    .disabled(!model.canCopyReport)
+            }
+            if let tail = model.tailResult {
+                if tail.rows.isEmpty {
+                    Text("No rows in the log.").font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ScrollView(.vertical) {
+                        Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 2) {
+                            GridRow {
+                                Text("Time"); Text("Cell"); Text("USB"); Text("Onboard"); Text("Slots")
+                            }.font(.caption.bold())
+                            ForEach(Array(tail.rows.reversed().enumerated()), id: \.offset) { _, row in tailRow(row) }
+                        }
+                        .font(.system(.caption, design: .monospaced))
+                    }
+                    .frame(maxHeight: 220)
+                }
+            } else {
+                Text("not read yet").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    private func tailRow(_ row: ClimateRow) -> some View {
+        let slots = row.sensors.enumerated().dropFirst().compactMap { index, reading -> String? in
+            guard reading.tempC != nil || reading.rh != nil else { return nil }
+            return "s\(index) \(tailValue(reading))"
+        }
+        return GridRow {
+            Text(row.timestamp)
+            Text(row.batteryPct.map { "\($0)%" } ?? "--")
+            Text(row.usb.map { $0 ? "yes" : "no" } ?? "--")
+            Text(row.sensors.first.map(tailValue) ?? "--")
+            Text(slots.isEmpty ? "--" : slots.joined(separator: "  "))
+        }
+    }
+
+    private func tailValue(_ reading: ClimateSensorReading) -> String {
+        let t = reading.tempC.map { String(format: "%.1f°C", $0) } ?? "--"
+        let h = reading.rh.map { String(format: "%.0f%%", $0) } ?? "--"
+        return "\(t) \(h)"
     }
 
     private func confirmPattern(_ n: Int) {

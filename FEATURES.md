@@ -2972,3 +2972,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SpreadScreen` (`ScalingLazyColumn`) shows the temperature median, the humidity median and one chip for each sensor with both deviations. A `⚠` mark shows each `OUTLIER` row. `SKIP` shows `Put 3 or more sensors at one place for 6 hours`.
 - `SensorHealthScreen` has the chip `Co-location check`, which opens the screen. The watch sends `SPREAD` over the BLE console only after a tap on `Read SPREAD`. A lost link or a timeout shows the text of `BleConsoleClient.errorText`.
 - Validation: `SpreadReplyTest` reads `tests/fixtures/spread_reply_sample.txt` and asserts the same values as the phone test. It runs in CI only (no Android SDK on the local host).
+
+## Newest climate rows in the macOS diagnostics view
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/TailReply.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/TailReplyTests.swift`, `tests/fixtures/tail_reply_sample.txt`
+- `ConsoleCommand.tail(_ rows: Int)` sends `TAIL <N>` for N 1 to 72. For 0, 73 and negative values `line` is `nil`, so the app sends nothing.
+- `TailReply.parse(lines:)` reads `BEGIN TAIL <n>`, the `climate_v6` header and the rows through `ClimateLog.parse`. It returns `ClimateRow` values and `nil` for each empty field. It throws `ParseError.badLine` for `BEGIN TAIL x`, a count above 72, a row count that differs from `n`, a wrong column count and a bad value. It throws `ParseError.missingLine` for a wrong header.
+- `TailReply.message` turns `ERR NO_CARD`, `ERR NO_FILE` and `ERR READ_FAILED` into clear texts. Other text stays as it is.
+- `DiagnosticsView` shows the group `Newest log rows` above `Maintenance and tests`: a picker for 6, 24 or 72 rows, the button `Read log rows` and a table (time, panel cell, USB, onboard values and each slot with a reading, newest row first). `AppModel.readTail(rows:)` sends `TAIL` only after the button, on USB and on BLE. A lost link, a timeout, a rejected reply and an `ERR` reply clear the old rows.
+- Tests: `TailReplyTests` read `tests/fixtures/tail_reply_sample.txt` and assert the row count, the first and the last time stamp, each empty field, the bad forms and `ConsoleCommand.tail`.
+- Validation: `swift build -c release` passed. `swift test` did not run on the local host (no `TestingMacros` plugin without Xcode), so the CI job `macOS companion tests` runs it. A standalone harness of `Sources/RlcdProtocol/*.swift` checked the same assertions against the fixture and passed.

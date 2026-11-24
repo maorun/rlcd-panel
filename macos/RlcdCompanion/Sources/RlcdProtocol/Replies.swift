@@ -554,6 +554,8 @@ public enum ConsoleCommand: Equatable {
     case frsi(room: Int, wall: Int)
     /// `SPREAD`: the co-location check of all sensors (RTC copy only).
     case spread
+    /// `TAIL N` (N 1 to 72): the newest N hourly climate rows from the MicroSD card (USB and BLE).
+    case tail(Int)
 
     public static func beep(bit: Int) -> ConsoleCommand { .beep(bit) }
     public static func pattern(n: Int) -> ConsoleCommand { .pattern(n) }
@@ -652,6 +654,7 @@ public enum ConsoleCommand: Equatable {
         case .events: return "EVENTS"
         case .week: return "WEEK"
         case .spread: return "SPREAD"
+        case let .tail(rows): return (1...72).contains(rows) ? "TAIL \(rows)" : nil
         case .config: return "CONFIG"
         case .version: return "VERSION"
         case .scan: return "SCAN"
