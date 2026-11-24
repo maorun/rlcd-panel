@@ -260,7 +260,7 @@ With value 1, only the read commands run; `SET` gives `ERR READ_ONLY`. With valu
 
 ### BLE telemetry broadcast
 
-With `ble_broadcast_enabled=1`, the wake cycle advertises the four climate tiles after each scan. The advertisement is non-connectable, lasts 100 ms (interval 20 ms) and stops before the deep sleep. A low battery alert and the empty battery protection skip it. The key is 0 by default.
+With `ble_broadcast_enabled=1`, the wake cycle advertises the four climate tiles after each scan. The advertisement is non-connectable, lasts 1500 ms on battery power (750 ms for each of the 2 pages) and 2000 ms on USB power (interval 20 ms) and stops before the deep sleep. A low battery alert and the empty battery protection skip it. The key is 0 by default.
 
 The Manufacturer Data field has 20 bytes: the company ID `0xFFFF` (`FF FF`) and an 18-byte payload. With the 3-byte flags field and the 2-byte AD header, the advertising data has 25 of 31 bytes.
 
