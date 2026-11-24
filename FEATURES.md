@@ -715,6 +715,19 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - No card access, no state change, no RTC layout change. The command runs on USB and on BLE at each `ble_console` level.
 - Host tests cover the parser, the rows of sensors 3, 10 and 0, an empty sensor, the full reply, the fixture, the CRC-32 line of the one-sensor replies, the BLE gate at each `ble_console` level and no card mount.
 
+## Signal meter for one sensor on the Wear OS watch
+
+The Wear OS app shows the radio signal of one sensor. The sensor health screen shows a `Signal <name>` chip below each slot sensor whose `STATUS` `SENSOR` line holds a `mac=` field. A tap opens `SignalMeterScreen`.
+
+- `SignalMeterScanner` runs a foreground BLE scan with a `ScanFilter` on this address (`SCAN_MODE_LOW_LATENCY`). It counts only packets that `SensorAdvertisement.decode` accepts.
+- The screen shows in large text the newest RSSI, the mean of the last 10 packets and the age of the last packet.
+- The watch vibrates once when the mean moves 10 dB or more from the first mean or from the last vibration (`SignalMeter.onPacket`).
+- The scan stops when the screen closes, in `onStop` and after 5 minutes (`SignalMeter.check`). The button `Scan neu starten` starts a new run.
+- `SignalMeter.kt` (pure, injected clock) is in `scripts/check-protocol-sync.sh` `FILES`. The watch copy `protocol/SensorAdvertisement.kt` equals `finder/SensorAdvertisement.kt` of the phone without the `package` line; the script checks the pair.
+- The filter uses the BLE address from `mac=`. A sensor with a random BLE address (some ATC or pvvx slots) shows `--` until a packet matches. The vibration is one pulse of 200 ms; the 5 minute limit uses `SystemClock.elapsedRealtime()`.
+- `StatusSensor.mac` (upper case `AA:BB:CC:DD:EE:FF`; `null` for `--`, a missing field and a bad text) is new in both apps.
+- Tests: `SignalMeterTest` (mean, vibration edge, stop after 5 minutes with a fake clock) and `StatusSensorMacTest`. Gradle runs in the CI job `Wear OS companion tests and APK`; the host has no Android SDK.
+
 ## Room history on the Wear OS watch
 
 - **Code:** `wearos/RlcdWatch/.../protocol/HistoryReply.kt`, `HistoryScreen.kt`, `MainActivity.kt`, `WatchDashboardScreen.kt`, `scripts/check-protocol-sync.sh`

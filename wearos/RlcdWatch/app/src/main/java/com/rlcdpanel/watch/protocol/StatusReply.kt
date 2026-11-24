@@ -15,7 +15,9 @@ data class StatusSensor(
     /** `format=` of the `SENSOR` line (`SHTC3`, `WOIO`, ...); null for a missing field or `--`. */
     val format: String? = null,
     /** `mold_h=` of the `SENSOR` line: hourly samples above `mold_alert_limit_rh`; null for `--` and a missing field. */
-    val moldHours: Int? = null
+    val moldHours: Int? = null,
+    /** `mac=` of the `SENSOR` line as `AA:BB:CC:DD:EE:FF`; null for `--`, a missing field and a bad text. */
+    val mac: String? = null
 ) {
     /** The protocol source badge of [format]; null without a known format. */
     val badge: String? get() = SensorHealth.badgeFor(format)
@@ -224,6 +226,11 @@ data class StatusReply(
         /** `--` and an empty text give null. */
         fun format(s: String?): String? = if (s == null || s == "--" || s.isEmpty()) null else s
 
+        private val MAC_PATTERN = Regex("[0-9A-Fa-f]{2}(:[0-9A-Fa-f]{2}){5}")
+
+        /** Upper-case `AA:BB:CC:DD:EE:FF`; `--`, an empty text and a bad text give null. */
+        private fun macText(s: String?): String? = s?.takeIf { MAC_PATTERN.matches(it) }?.uppercase()
+
         /** `--` and an empty text give null; a non-numeric text gives null here. */
         private fun number(s: String?): Double? =
             if (s == null || s == "--" || s.isEmpty()) null else s.toDoubleOrNull()
@@ -273,7 +280,7 @@ data class StatusReply(
                         sensors.add(
                             StatusSensor(
                                 idx, words[2], number(f["temp"]), number(f["rh"]), number(f["bat"]),
-                                number(f["rssi"]), number(f["age"]), f["state"], format(f["format"]), moldHours
+                                number(f["rssi"]), number(f["age"]), f["state"], format(f["format"]), moldHours, macText(f["mac"])
                             )
                         )
                     }

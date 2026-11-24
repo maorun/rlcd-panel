@@ -31,6 +31,7 @@ import com.rlcdpanel.watch.protocol.ChimeCommand
 import com.rlcdpanel.watch.protocol.AlertMask
 import com.rlcdpanel.watch.protocol.AlertTransitions
 import com.rlcdpanel.watch.protocol.AlertVibration
+import com.rlcdpanel.watch.protocol.SignalMeter
 import com.rlcdpanel.watch.protocol.ConfigCache
 import com.rlcdpanel.watch.protocol.PanelClock
 import com.rlcdpanel.watch.protocol.VersionReply
@@ -92,6 +93,11 @@ class MainActivity : ComponentActivity() {
     private var showEvents by mutableStateOf(false)
     private var eventState by mutableStateOf(EventLogState())
     private var pendingEventsRead = false
+    private var showSignal by mutableStateOf(false)
+    private var signalState by mutableStateOf(SignalMeterState())
+    /** Elapsed time does not jump with a clock change, so the 5 minute limit holds. */
+    private val signalMeter = SignalMeter { android.os.SystemClock.elapsedRealtime() }
+    private var signalScanner: SignalMeterScanner? = null
     private var showWeek by mutableStateOf(false)
     private var weekState by mutableStateOf(WeekState())
     private var pendingWeekRead = false
@@ -315,6 +321,16 @@ class MainActivity : ComponentActivity() {
                 return@setContent
             }
 
+            if (showSensorHealth && showSignal) {
+                BackHandler { closeSignal() }
+                SignalMeterScreen(
+                    state = signalState,
+                    onTick = { tickSignal() },
+                    onRestart = { startSignal() }
+                )
+                return@setContent
+            }
+
             if (showSensorHealth && showWeek) {
                 BackHandler { closeWeek() }
                 WeekScreen(
@@ -356,6 +372,12 @@ class MainActivity : ComponentActivity() {
                     onSetMute = { setMute(it) },
                     onOpenEvents = { showEvents = true },
                     onOpenWeek = { showWeek = true },
+                    onOpenSignal = { sensor ->
+                        val mac = sensor.mac ?: return@SensorHealthScreen
+                        signalState = SignalMeterState(name = sensor.name, mac = mac)
+                        showSignal = true
+                        startSignal()
+                    },
                     onOpenRejects = { showRejects = true },
                     onOpenSalt = {
                         saltRoom = focusedRoomIndex
@@ -425,6 +447,7 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onStop() {
+        closeSignal()
         consoleClient.cancel()
         isReadingConfig = false
         // An open permission dialog keeps pendingHealthRead, so its result still starts the tapped STATUS read.
@@ -668,6 +691,69 @@ class MainActivity : ComponentActivity() {
             HistoryState(message = "Antwort nicht lesbar")
         }
         else -> HistoryState(message = HistoryText.failure(reply))
+    }
+
+    /** Starts the filtered scan of the open signal meter. A missing permission or a failed start shows a text. */
+    private fun startSignal() {
+        val mac = signalState.mac
+        stopSignalScan()
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Manifest.permission.BLUETOOTH_SCAN else null
+        if (needed != null && ContextCompat.checkSelfPermission(this, needed) != PackageManager.PERMISSION_GRANTED) {
+            signalState = signalState.copy(running = false, message = "Bluetooth-Berechtigung fehlt")
+            return
+        }
+        signalMeter.start()
+        // A queued callback of an old scanner must not act on a new run.
+        val scannerRef = arrayOfNulls<SignalMeterScanner>(1)
+        val scanner = SignalMeterScanner(
+            this,
+            onPacket = { rssi -> runOnUiThread { if (signalScanner === scannerRef[0]) onSignalPacket(rssi) } },
+            onError = { text ->
+                runOnUiThread {
+                    if (showSignal && signalScanner === scannerRef[0]) {
+                        stopSignalScan()
+                        signalMeter.stop()
+                        signalState = signalState.copy(running = false, message = text)
+                    }
+                }
+            }
+        )
+        scannerRef[0] = scanner
+        signalScanner = scanner
+        if (scanner.start(mac)) {
+            signalState = signalState.copy(reading = signalMeter.reading(), running = true, message = null)
+        } else {
+            signalMeter.stop()
+        }
+    }
+
+    private fun onSignalPacket(rssi: Int) {
+        if (!showSignal) return
+        if (signalMeter.onPacket(rssi)) vibrateOnce()
+        signalState = signalState.copy(reading = signalMeter.reading())
+    }
+
+    /** One tick each second: moves the age and stops the scan after 5 minutes. */
+    private fun tickSignal() {
+        if (!showSignal) return
+        if (signalMeter.check()) {
+            stopSignalScan()
+            signalState = signalState.copy(reading = signalMeter.reading(), running = false, message = SignalMeterText.STOPPED_AFTER_LIMIT)
+        } else {
+            signalState = signalState.copy(reading = signalMeter.reading())
+        }
+    }
+
+    private fun stopSignalScan() {
+        signalScanner?.stop()
+        signalScanner = null
+    }
+
+    private fun closeSignal() {
+        stopSignalScan()
+        signalMeter.stop()
+        signalState = SignalMeterState()
+        showSignal = false
     }
 
     private fun closeWeek() {
@@ -1022,6 +1108,10 @@ class MainActivity : ComponentActivity() {
         val timings = AlertVibration.pattern(alerts)
         if (timings.isEmpty()) return
         getVibrator()?.vibrate(VibrationEffect.createWaveform(timings, -1))
+    }
+
+    private fun vibrateOnce() {
+        getVibrator()?.vibrate(VibrationEffect.createOneShot(200L, VibrationEffect.DEFAULT_AMPLITUDE))
     }
 
     private fun vibrateNotice() {

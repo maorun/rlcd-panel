@@ -102,6 +102,9 @@ object SensorHealthText {
     fun badges(latch: LatchState?, sensor: StatusSensor): String? =
         latch?.badges(sensor.index)?.takeIf { it.isNotEmpty() }?.joinToString(" · ")
 
+    /** True for a slot sensor (index 1 to 10) with a MAC in the `STATUS` reply; the onboard sensor has no BLE packets. */
+    fun canMeter(sensor: StatusSensor): Boolean = sensor.index in 1..10 && sensor.mac != null
+
     const val CLOCK_WARN_SECONDS = 120L
 
     /** True for an offset above 120 s in either direction, for `valid=0` and for `osf=1`. */
@@ -183,6 +186,7 @@ fun SensorHealthScreen(
     onSetMute: (Boolean) -> Unit = {},
     onOpenEvents: () -> Unit = {},
     onOpenWeek: () -> Unit = {},
+    onOpenSignal: (StatusSensor) -> Unit = {},
     onOpenRejects: () -> Unit = {},
     onOpenSalt: () -> Unit = {},
     clockState: ClockReadState = ClockReadState(),
@@ -473,6 +477,7 @@ fun SensorHealthScreen(
                     }
                     items(status.sensors) { sensor ->
                         val rate = SensorHealthText.rateOf(status, sensor)
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         Card(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth(0.95f)) {
                             Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                                 Text(
@@ -495,6 +500,15 @@ fun SensorHealthScreen(
                                     Text("Badges $badges", fontSize = 10.sp, color = Color(0xFFFFB74D))
                                 }
                             }
+                        }
+                        if (SensorHealthText.canMeter(sensor)) {
+                            Chip(
+                                onClick = { onOpenSignal(sensor) },
+                                modifier = Modifier.fillMaxWidth(0.85f),
+                                colors = ChipDefaults.secondaryChipColors(),
+                                label = { Text("Signal ${sensor.name}", fontSize = 12.sp, maxLines = 1) }
+                            )
+                        }
                         }
                     }
                 }
