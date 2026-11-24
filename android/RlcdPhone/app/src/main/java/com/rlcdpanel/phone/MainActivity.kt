@@ -74,6 +74,8 @@ import com.rlcdpanel.phone.protocol.EventsReply
 import com.rlcdpanel.phone.protocol.RejectsReply
 import com.rlcdpanel.phone.protocol.VersionReply
 import com.rlcdpanel.phone.protocol.SelfTestReply
+import com.rlcdpanel.phone.protocol.TailCommand
+import com.rlcdpanel.phone.protocol.TailReply
 import com.rlcdpanel.phone.protocol.WeekCsv
 import com.rlcdpanel.phone.protocol.WeekReply
 import com.rlcdpanel.phone.protocol.WeekRow
@@ -135,6 +137,7 @@ class MainActivity : ComponentActivity() {
     private var backupState by mutableStateOf(ConfigBackupState())
     private var backupLoadJob: Job? = null
     private var showWeek by mutableStateOf(false)
+    private var showTail by mutableStateOf(false)
     private var panelHistory by mutableStateOf(PanelHistoryState())
     private var showPanelHistory by mutableStateOf(false)
     private var showEvents by mutableStateOf(false)
@@ -165,6 +168,8 @@ class MainActivity : ComponentActivity() {
     private val finderSeries = SignalSeries { android.os.SystemClock.elapsedRealtime() }
     private var finderTicker: Job? = null
     private var weekState by mutableStateOf(WeekState())
+    private var tailState by mutableStateOf(TailState())
+    private var tailRows by mutableStateOf(TailCommand.CHOICES.first())
     private var calibState by mutableStateOf(CalibrationState())
     private var pendingConsoleAction: (() -> Unit)? = null
     private var healthState by mutableStateOf(SensorHealthState())
@@ -272,6 +277,18 @@ class MainActivity : ComponentActivity() {
                     onBack = { closeWeek() }
                 )
                 BackHandler { closeWeek() }
+                return@setContent
+            }
+            if (showTail) {
+                TailScreen(
+                    state = tailState,
+                    selectedRows = tailRows,
+                    panelConfig = panelConfig,
+                    onSelectRows = { tailRows = it },
+                    onRead = { withConsolePermission { readTail() } },
+                    onBack = { closeTail() }
+                )
+                BackHandler { closeTail() }
                 return@setContent
             }
             if (showBackup) {
@@ -521,6 +538,7 @@ class MainActivity : ComponentActivity() {
                 onOpenSensorHealth = { showHealth = true },
                 onOpenHistory = { showHistory = true },
                 onOpenWeek = { showWeek = true },
+                onOpenTail = { showTail = true },
                 onOpenEvents = { showEvents = true },
                 onOpenSetup = { restartSetup(); showSetup = true },
                 sourceBadges = sourceBadges,
@@ -552,6 +570,7 @@ class MainActivity : ComponentActivity() {
         healthState = healthState.copy(isReading = false)
         configState = configState.copy(isReading = false)
         if (weekState.isReading) weekState = WeekState(message = "Abgebrochen. Erneut lesen.")
+        if (tailState.isReading) tailState = TailState(message = "Abgebrochen. Erneut lesen.")
         if (panelHistory.isReading) panelHistory = PanelHistoryState(message = "Abgebrochen. Erneut lesen.")
         if (eventState.isReading) eventState = EventLogState(message = "Abgebrochen. Erneut lesen.")
         if (rejectsState.isReading) rejectsState = RejectsState(message = "Abgebrochen. Erneut lesen.")
@@ -588,6 +607,7 @@ class MainActivity : ComponentActivity() {
             else if (showRejects) rejectsState = RejectsState(message = "Bluetooth-Berechtigung fehlt")
             else if (showHistory) panelHistory = PanelHistoryState(message = "Bluetooth-Berechtigung fehlt")
             else if (showWeek) weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
+            else if (showTail) tailState = TailState(message = "Bluetooth-Berechtigung fehlt")
             else if (showSetup) setupState = setupState.copy(isBusy = false, message = "Bluetooth-Berechtigung fehlt")
             else if (showFinder) finderState = finderState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else if (showAlertLimits) alertLimitState = alertLimitState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
@@ -741,6 +761,36 @@ class MainActivity : ComponentActivity() {
                     WeekState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
                 }
                 else -> WeekState(message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
+    private fun closeTail() {
+        consoleClient.cancel()
+        pendingConsoleAction = null
+        tailState = TailState()
+        showTail = false
+        if (!scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
+    }
+
+    /** Sends `TAIL <N>` after a tap. */
+    private fun readTail() {
+        val command = TailCommand.text(tailRows)
+        if (command == null) {
+            tailState = TailState(message = "Ungültige Zeilenzahl")
+            return
+        }
+        stopBleScan()
+        tailState = TailState(isReading = true)
+        consoleClient.send(command) { reply ->
+            tailState = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    TailState(rows = TailReply.parse(reply.lines))
+                } catch (e: ParseException) {
+                    TailState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
+                }
+                is ConsoleReply.Status -> TailState(message = TailCommand.errorText(reply.line) ?: BleConsoleClient.errorText(reply))
+                else -> TailState(message = BleConsoleClient.errorText(reply))
             }
         }
     }
@@ -1351,7 +1401,7 @@ class MainActivity : ComponentActivity() {
 
     /** Runs [action] after the Bluetooth permissions; the action sends console commands. */
     private fun withConsolePermission(action: () -> Unit) {
-        if (backupState.isBusy || calibState.isBusy || chimeState.isBusy || weekState.isReading || panelHistory.isReading || eventState.isReading || rejectsState.isReading || finderState.isBusy || setupState.isBusy || slotState.isBusy || alertLimitState.isBusy || consoleClient.isRunning) return
+        if (backupState.isBusy || calibState.isBusy || chimeState.isBusy || weekState.isReading || tailState.isReading || panelHistory.isReading || eventState.isReading || rejectsState.isReading || finderState.isBusy || setupState.isBusy || slotState.isBusy || alertLimitState.isBusy || consoleClient.isRunning) return
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
@@ -1363,6 +1413,7 @@ class MainActivity : ComponentActivity() {
             else if (showRejects) rejectsState = RejectsState(isReading = true)
             else if (showHistory) panelHistory = PanelHistoryState(isReading = true)
             else if (showWeek) weekState = WeekState(isReading = true)
+            else if (showTail) tailState = TailState(isReading = true)
             else if (showSetup) setupState = setupState.copy(isBusy = true, message = null)
             else if (showFinder) finderState = finderState.copy(isBusy = true, message = null)
             else if (showAlertLimits) alertLimitState = alertLimitState.copy(isBusy = true, message = null)

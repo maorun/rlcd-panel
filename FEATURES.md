@@ -575,6 +575,15 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Validation: the host tests (235 suites) cover the parser, the gate, the row selection over the month limit and the year change, the 16384 byte limit, every error reply, a short write and the shared fixture `tests/fixtures/tail_reply_sample.txt`. `arduino-cli compile rlcd_panel` passed. `TailReplyTest` runs in CI only (no Android SDK on the local host).
 - Validation on the board: send `TAIL 3` over BLE and verify the `CRC32` line.
 
+## Android newest climate rows screen
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/TailScreen.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TailCommand.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/PhoneDashboardScreen.kt`.
+- The main screen has the button `Neueste Logzeilen`. It opens `TailScreen`. The user selects 6, 24 or 72 rows (`TailCommand.CHOICES`) and taps `Neueste Zeilen lesen`. The app sends `TAIL <N>` over the BLE console on this tap only.
+- `TailCommand.text(rows)` is pure. It gives `TAIL <N>` for N 1 to 72 and null for each other value; the app sends nothing for null.
+- The screen shows one card for each hour, newest first: the local panel time (`MM-DD hh:mm`), the onboard values and the values of each slot with a name (`slotN_name` or the name bound to the fixed MAC `slotN_mac`). `TailCommand.valueText` shows `<T> °C  <H> %` and `--` for an empty field.
+- `ERR NO_CARD`, `ERR NO_FILE` and `ERR READ_FAILED` show as clear texts (`TailCommand.errorText`). Other errors use `BleConsoleClient.errorText`. The panel needs USB power and `ble_console` 1 or 2.
+- The tests `TailCommandTest` (command, error texts, value and time text) and `TailReplyTest` (row count and empty fields of `tests/fixtures/tail_reply_sample.txt`) run in CI only (no Android SDK on the local host).
+
 ## Serial console command SPREAD for a co-location check of all sensors
 
 - **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/spread_reply_sample.txt`

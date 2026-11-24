@@ -99,6 +99,17 @@ class TailReplyTest {
     }
 
     @Test
+    fun sharedFixtureHasThreeRowsAndEmptyFields() {
+        val rows = TailReply.parse(fixtureLines())
+        assertEquals(3, rows.size)
+        rows.forEach { r ->
+            assertEquals(TailSensor(21.5, 45.0, null), r.onboard)
+            assertEquals(9, r.slots.drop(1).size)
+            r.slots.drop(1).forEach { assertEquals(TailSensor(null, null, null), it) }
+        }
+    }
+
+    @Test
     fun sharedFixtureCrcMatches() {
         val text = Fixtures.file("tail_reply_sample.txt").readText()
         assertEquals(ConsoleReply.Frame(fixtureLines()), ReplyAssembler().append(text.toByteArray()))
