@@ -577,6 +577,8 @@ private func loadSpreadFixture() throws -> Data {
         SensorSpread(name: "slot2", tempDev: 1.0, rhDev: 5.0, isOutlier: true),
     ]
     #expect(r.outcome == .measured(sensors: 3, tempMedian: 20.0, rhMedian: 50.0, rows: rows))
+    #expect(r.proposals == [SpreadProposal(sensor: "slot2", tempKey: "slot2_temp_offset_c", tempValue: "-1.0",
+                                           rhKey: "slot2_rh_offset_pct", rhValue: "-5.0")])
     #expect(r.rows.count == 3)
     #expect(r.rows[1].slot == 1)
     #expect(r.rows[0].slot == nil)
@@ -629,4 +631,49 @@ private func loadSpreadFixture() throws -> Data {
     #expect(slot("slot11") == nil)
     #expect(slot("slotx") == nil)
     #expect(slot("onboard") == nil)
+}
+
+@Test func spreadWithoutProposalLinesHasNone() throws {
+    let r = try SpreadReply.parse(lines: [
+        "SPREAD sensors=3 temp_median=20.0 rh_median=50.0",
+        "SENSOR onboard temp_dev=0.0 rh_dev=0.0 OK",
+        "SENSOR slot1 temp_dev=0.0 rh_dev=0.0 OK",
+        "SENSOR slot2 temp_dev=0.1 rh_dev=0.0 OK"])
+    #expect(r.proposals.isEmpty)
+    #expect(try SpreadReply.parse(lines: ["SKIP sensors=2"]).proposals.isEmpty)
+}
+
+@Test func spreadOnboardProposalAndBadNumber() throws {
+    let head = ["SPREAD sensors=1 temp_median=20.0 rh_median=50.0",
+                "SENSOR onboard temp_dev=0.6 rh_dev=0.0 OUTLIER"]
+    let r = try SpreadReply.parse(lines: head + ["temp_offset_c=-0.6 rh_offset_pct=0.0"])
+    #expect(r.proposals.first?.tempKey == "temp_offset_c")
+    let bad = "temp_offset_c=x rh_offset_pct=0.0"
+    #expect(throws: ParseError.badLine(bad)) { try SpreadReply.parse(lines: head + [bad]) }
+    let wrongOwner = "slot1_temp_offset_c=-0.6 slot1_rh_offset_pct=0.0"
+    #expect(throws: ParseError.badLine(wrongOwner)) { try SpreadReply.parse(lines: head + [wrongOwner]) }
+}
+
+@Test func spreadSelectedChangesFollowSchemaOrder() throws {
+    let r = try SpreadReply.parse(lines: [
+        "SPREAD sensors=3 temp_median=20.0 rh_median=50.0",
+        "SENSOR onboard temp_dev=0.6 rh_dev=0.0 OUTLIER",
+        "temp_offset_c=-0.6 rh_offset_pct=0.0",
+        "SENSOR slot1 temp_dev=1.0 rh_dev=5.0 OUTLIER",
+        "slot1_temp_offset_c=-1.0 slot1_rh_offset_pct=-5.0",
+        "SENSOR slot2 temp_dev=0.0 rh_dev=0.0 OK"])
+    #expect(r.proposals.count == 2)
+    let changes = r.changes(selecting: ["slot1", "onboard"], current: nil)
+    var batch = ConfigBatch(changes: changes)
+    var sent: [ConsoleCommand] = []
+    while let c = batch.next() {
+        sent.append(c)
+        if case let .set(k, _) = c { batch.receive(status: "OK SET \(k)") } else { batch.receive(status: "OK CONFIG") }
+    }
+    let keys = sent.compactMap { c -> String? in if case let .set(k, _) = c { return k } else { return nil } }
+    let order = ConfigSchema.entries.map(\.key)
+    #expect(keys == keys.sorted { order.firstIndex(of: $0)! < order.firstIndex(of: $1)! })
+    #expect(Set(keys) == ["temp_offset_c", "rh_offset_pct", "slot1_temp_offset_c", "slot1_rh_offset_pct"])
+    #expect(sent.last == .config)
+    #expect(r.changes(selecting: [], current: nil).isEmpty)
 }

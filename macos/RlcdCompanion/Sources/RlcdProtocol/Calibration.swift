@@ -427,6 +427,24 @@ public struct SensorSpread: Equatable, Sendable {
     }
 }
 
+/// The proposal line after an `OUTLIER` row of `SPREAD`: `<temp_key>=<x> <rh_key>=<x>`.
+public struct SpreadProposal: Equatable, Sendable {
+    /// The sensor name of the `OUTLIER` row (`onboard` or `slot<N>`).
+    public let sensor: String
+    public let tempKey: String
+    public let tempValue: String
+    public let rhKey: String
+    public let rhValue: String
+
+    public init(sensor: String, tempKey: String, tempValue: String, rhKey: String, rhValue: String) {
+        self.sensor = sensor
+        self.tempKey = tempKey
+        self.tempValue = tempValue
+        self.rhKey = rhKey
+        self.rhValue = rhValue
+    }
+}
+
 /// Reply of the console command `SPREAD`: the co-location check of all sensors.
 public struct SpreadReply: Equatable, Sendable {
     public enum Outcome: Equatable, Sendable {
@@ -436,6 +454,24 @@ public struct SpreadReply: Equatable, Sendable {
     }
 
     public let outcome: Outcome
+    /// One proposal for each `OUTLIER` row, in reply order. Empty for a reply without proposal lines.
+    public let proposals: [SpreadProposal]
+
+    public init(outcome: Outcome, proposals: [SpreadProposal] = []) {
+        self.outcome = outcome
+        self.proposals = proposals
+    }
+
+    /// Config changes of the proposals of the selected sensors against the active values (`current`); a value
+    /// that equals the active one gives no change. Without a `CONFIG` reply each selected value is a change.
+    public func changes(selecting sensors: Set<String>, current: [String: String]?) -> [ConfigChange] {
+        let chosen = proposals.filter { sensors.contains($0.sensor) }
+        let pairs = chosen.flatMap { [($0.tempKey, $0.tempValue), ($0.rhKey, $0.rhValue)] }
+        guard let current else { return pairs.map { ConfigChange(key: $0.0, old: "", new: $0.1) } }
+        var merged = current
+        for (k, v) in pairs { merged[k] = v }
+        return ConfigSchema.diff(old: current, new: merged)
+    }
 
     /// The sensors of a measured reply, else an empty list.
     public var rows: [SensorSpread] {
@@ -460,7 +496,19 @@ public struct SpreadReply: Equatable, Sendable {
               let temp = CalibrationReply.decimal(f["temp_median"]), let rh = CalibrationReply.decimal(f["rh_median"])
         else { throw ParseError.badLine(first) }
         var rows: [SensorSpread] = []
-        for line in body.dropFirst() where line.hasPrefix("SENSOR ") {
+        var proposals: [SpreadProposal] = []
+        for line in body.dropFirst() where !line.isEmpty && !line.hasPrefix("CRC32") {
+            if !line.hasPrefix("SENSOR ") {
+                guard let owner = rows.last, owner.isOutlier else { throw ParseError.badLine(line) }
+                let pw = line.split(separator: " ")
+                guard pw.count == 2, let t = proposalPair(pw[0], suffix: "temp_offset_c"),
+                      let h = proposalPair(pw[1], suffix: "rh_offset_pct"),
+                      t.prefix == h.prefix, t.prefix == (owner.name == "onboard" ? "" : owner.name + "_")
+                else { throw ParseError.badLine(line) }
+                proposals.append(SpreadProposal(sensor: owner.name, tempKey: t.key, tempValue: t.value,
+                                                rhKey: h.key, rhValue: h.value))
+                continue
+            }
             let w = line.split(separator: " ")
             let lf = CalibrationReply.fields(line)
             guard w.count == 5, let t = CalibrationReply.decimal(lf["temp_dev"]),
@@ -469,6 +517,16 @@ public struct SpreadReply: Equatable, Sendable {
             rows.append(SensorSpread(name: String(w[1]), tempDev: t, rhDev: h, isOutlier: w[4] == "OUTLIER"))
         }
         guard rows.count == n else { throw ParseError.badLine(first) }
-        return SpreadReply(outcome: .measured(sensors: n, tempMedian: temp, rhMedian: rh, rows: rows))
+        return SpreadReply(outcome: .measured(sensors: n, tempMedian: temp, rhMedian: rh, rows: rows),
+                           proposals: proposals)
+    }
+
+    /// Splits `<prefix><suffix>=<number>`; `nil` for another suffix or a bad number.
+    private static func proposalPair(_ word: Substring, suffix: String)
+        -> (key: String, prefix: String, value: String)? {
+        let parts = word.split(separator: "=", omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0].hasSuffix(suffix), CalibrationReply.decimal(String(parts[1])) != nil
+        else { return nil }
+        return (String(parts[0]), String(parts[0].dropLast(suffix.count)), String(parts[1]))
     }
 }

@@ -70,11 +70,27 @@ struct CalibrationView: View {
                         }.font(.caption).foregroundStyle(.secondary)
                         ForEach(Array(rows.enumerated()), id: \.offset) { _, row in spreadRow(row) }
                     }
+                    ForEach(reply.proposals, id: \.sensor) { p in spreadProposalRow(p) }
+                    if !reply.proposals.isEmpty {
+                        Button("Apply selected offsets") { model.applySpread() }
+                            .disabled(model.spreadChanges.isEmpty || !model.isIdle)
+                    }
                 case let .skipped(sensors):
                     Text("\(sensors) sensors have 6 hours of data (3 needed). Put 3 or more sensors at one place for 6 hours.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
+        }
+    }
+
+    private func spreadProposalRow(_ p: SpreadProposal) -> some View {
+        Toggle(isOn: Binding(
+            get: { model.spreadSelection.contains(p.sensor) },
+            set: { on in
+                if on { model.spreadSelection.insert(p.sensor) } else { model.spreadSelection.remove(p.sensor) }
+            })) {
+            Text("\(p.tempKey) = \(p.tempValue), \(p.rhKey) = \(p.rhValue)")
+                .font(.system(.caption, design: .monospaced))
         }
     }
 

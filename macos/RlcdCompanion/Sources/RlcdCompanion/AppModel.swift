@@ -83,6 +83,9 @@ final class AppModel: ConsoleLinkDelegate {
     var frsi: FrsiReply?
     var spread: SpreadReply?
     var today: [TodayRow]?
+    /// Sensor names of the `SPREAD` proposals that the user ticked.
+    var spreadSelection: Set<String> = []
+    private var respreadAfterBatch = false
     /// Reply of the last `TAIL` command, `nil` before a user read and after an error.
     var tailResult: TailReply?
     /// Row count of the picker in the `Newest log rows` group (one of `TailReply.rowChoices`).
@@ -1165,7 +1168,23 @@ final class AppModel: ConsoleLinkDelegate {
         frsi?.changes(current: config?.values) ?? []
     }
 
-    /// Reads the co-location check of `SPREAD`. Runs only on the user's button press; the firmware reads the RTC copy.
+    /// Config changes of the selected `SPREAD` proposals against the last `CONFIG` reply.
+    var spreadChanges: [ConfigChange] {
+        spread?.changes(selecting: spreadSelection, current: config?.values) ?? []
+    }
+
+    /// Sends the selected `SPREAD` proposals through `ConfigBatch` (`SET` commands, then `CONFIG`), then `SPREAD` again.
+    func applySpread() {
+        let changes = spreadChanges
+        guard !changes.isEmpty else { message = "No proposal selected"; return }
+        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        message = nil
+        batchSummary = nil
+        respreadAfterBatch = true
+        batch = ConfigBatch(changes: changes)
+        sendNextBatchCommand()
+    }
+
     /// Reads the range since local midnight with `TODAY`. Runs only on the user's button, on USB and on BLE.
     func readToday() {
         guard consoleConnected else { message = "Console not connected"; return }
@@ -1176,11 +1195,13 @@ final class AppModel: ConsoleLinkDelegate {
         sendNext()
     }
 
+    /// Reads the co-location check of `SPREAD`. Runs only on the user's button press; the firmware reads the RTC copy.
     func spreadCheck() {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
         message = nil
         batchSummary = nil
         spread = nil
+        spreadSelection = []
         queue = [.spread]
         sendNext()
     }
@@ -1371,6 +1392,12 @@ final class AppModel: ConsoleLinkDelegate {
             batchSummary = b.summary
             batch = nil
             clearCalibration() // the stored hours hold the old offsets, so a new CALIB must follow
+            if respreadAfterBatch {
+                respreadAfterBatch = false
+                let summary = batchSummary
+                spreadCheck()
+                batchSummary = summary // spreadCheck clears the batch result
+            }
             if let mac = assigningMac {
                 assigningMac = nil
                 if b.failure == nil { scanNames[mac] = nil } // the SET commands applied, even if CONFIG failed
@@ -1385,6 +1412,7 @@ final class AppModel: ConsoleLinkDelegate {
             b = batch ?? b
             batchSummary = b.summary + " (link lost)"
             batch = nil
+            respreadAfterBatch = false
             assigningMac = nil
             clearCalibration()
         }
