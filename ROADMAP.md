@@ -41,12 +41,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Console command EVENTS <N> for the newest events
-  - Rank: [Total: 27, Use: 3, Setup: 7, Harmony: 7, Safety: 10, Effort: S]
-  - Location: rlcd_panel/serial_console.h, tests/test_firmware_logic.cpp, tests/fixtures/events_reply_sample.txt, AGENTS.md, FEATURES.md
-  - Goal: Add the optional argument `EVENTS <N>` (N 1 to 16, no leading zero, `SerialCommand::events_newest`). Send the header and the newest N rows of the `EventRing` oldest first, then the `CRC32` line. Send the `EVENTS_DROPPED` row only when the ring lost events and N covers all stored events. Reply `ERR BAD_ARG` for 0, 17, a leading zero, a non-digit and extra text. Keep the reply of `EVENTS` without an argument. Do not clear the ring. Do not access the card. Run the command on USB and on BLE at each `ble_console` level.
-  - Acceptance test: Host tests assert `EVENTS 1` with the newest row only, `EVENTS 16` equal to `EVENTS` for a full ring, the `EVENTS_DROPPED` rule, each `ERR BAD_ARG` form and the `CRC32` line. Assert that `EVENTS` without an argument still matches `tests/fixtures/events_reply_sample.txt`. Run the host test command from `AGENTS.md` and `arduino-cli compile rlcd_panel`.
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

@@ -2946,3 +2946,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `WEEK 6`, `WEEK 1x`, `WEEK ` and extra text give `ERR BAD_ARG`. `WEEK` without an argument keeps its reply of 42 rows.
 - The command uses only the RTC copy. It needs no card and changes no state. It runs on USB and on BLE at each `ble_console` level, so the watch and the phone read one sensor with fewer BLE notifications.
 - Host tests cover the parse of `WEEK 0` and `WEEK 5`, each bad form, the 7 rows of sensor 2, the `CRC32` line, the short write, an unchanged state and the reply of `WEEK` against `tests/fixtures/week_reply_sample.txt`.
+
+## Console command EVENTS <N> for the newest events
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/events_reply_sample.txt`
+- The console command `EVENTS <N>` (N 1 to 16, no leading zero, `SerialCommand::events_newest`, count in `SerialCommand::reference`) sends the header and only the newest N rows of the `EventRing`, oldest first, then the `CRC32` line.
+- The `EVENTS_DROPPED` row appears only when the ring lost events and N covers all stored events.
+- `EVENTS 0`, `EVENTS 17`, a leading zero, a non-digit and extra text give `ERR BAD_ARG`. `EVENTS` without an argument keeps its reply.
+- The command uses only the RTC copy. It does not clear the ring and needs no card. It runs on USB and on BLE at each `ble_console` level, so the apps read a few events with fewer BLE notifications.
+- Host tests cover each parse form, `EVENTS 1`, `EVENTS 16` against `EVENTS` for a full ring, the `EVENTS_DROPPED` rule, the `CRC32` line, the unchanged ring and the format of `tests/fixtures/events_reply_sample.txt`.
