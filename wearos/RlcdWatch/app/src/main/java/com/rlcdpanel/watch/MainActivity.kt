@@ -40,6 +40,7 @@ import com.rlcdpanel.watch.protocol.StatusReply
 import com.rlcdpanel.watch.protocol.ConsoleReply
 import com.rlcdpanel.watch.protocol.EventsReply
 import com.rlcdpanel.watch.protocol.ConfigChangedReply
+import com.rlcdpanel.watch.protocol.ConfigReset
 import com.rlcdpanel.watch.protocol.RejectsReply
 import com.rlcdpanel.watch.protocol.SelfTestReply
 import com.rlcdpanel.watch.protocol.SpreadApply
@@ -451,7 +452,13 @@ onApply = { applySpread(it) }
 
             if (showSensorHealth && showConfigChanged) {
                 BackHandler { closeConfigChanged() }
-                ConfigChangedScreen(state = configChangedState, onRead = { readConfigChanged() })
+                ConfigChangedScreen(
+                    state = configChangedState,
+                    onRead = { readConfigChanged() },
+                    onAsk = { configChangedState = configChangedState.copy(confirming = it) },
+                    onCancel = { configChangedState = configChangedState.copy(confirming = null) },
+                    onReset = { resetConfigKey(it) }
+                )
                 return@setContent
             }
 
@@ -1024,6 +1031,35 @@ onApply = { applySpread(it) }
                     RejectsState(message = "Antwort nicht lesbar")
                 }
                 else -> RejectsState(message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
+    /** Sends the shared reset `SET` of one key, then `CONFIG CHANGED`. The first `ERR` stops and shows its text. */
+    private fun resetConfigKey(key: String) {
+        val entry = configChangedState.entries.firstOrNull { it.key == key } ?: return
+        val plan = ConfigReset.planFor(entry) as? ConfigReset.RowPlan.Sendable ?: return
+        if (configChangedState.isApplying || configChangedState.isReading) return
+        if (consoleClient.isRunning) {
+            configChangedState = configChangedState.copy(confirming = null, message = "Panel-Verbindung ist belegt")
+            return
+        }
+        val before = configChangedState
+        configChangedState = before.copy(confirming = null, isApplying = true, message = null)
+        ConfigReset.run(listOf(plan.command), consoleClient::send) { result ->
+            if (result.failure == null) {
+                configChangedState = ConfigChangedState(isReading = true)
+                startConfigChangedRead()
+            } else if (result.unknownState) {
+                // The SET may have applied, so the old list is stale. Only the text stays.
+                configChangedState = ConfigChangedState(message = result.failure)
+            } else {
+                configChangedState = before.copy(
+                    confirming = null,
+                    isApplying = false,
+                    readOnly = result.readOnly,
+                    message = result.failure
+                )
             }
         }
     }
