@@ -1,0 +1,5 @@
+temp_offset_c=2.25
+mold_alert_limit_rh=65
+slot1_name=Bad
+END CHANGED 3
+CRC32 9bc3df29
