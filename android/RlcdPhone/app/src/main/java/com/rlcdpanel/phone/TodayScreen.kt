@@ -44,6 +44,12 @@ object TodayText {
 
     fun humidity(row: TodayRow): String =
         "Feuchte: min ${value(row.humidityMinPct, "%rF")} • max ${value(row.humidityMaxPct, "%rF")} • Ø ${value(row.humidityMeanPct, "%rF")}"
+
+    private fun hours(label: String, v: Int?): String = if (v == null) "$label --" else "$label $v h" + if (v > 0) " ⚠" else ""
+
+    fun mold(row: TodayRow): String = hours("Schimmel", row.moldHours)
+
+    fun dry(row: TodayRow): String = hours("Trocken", row.dryHours)
 }
 
 @Composable
@@ -108,6 +114,8 @@ fun TodayScreen(
                             Text("${row.hours} h", style = MaterialTheme.typography.labelMedium)
                             Text(TodayText.temperature(row), style = MaterialTheme.typography.bodyMedium)
                             Text(TodayText.humidity(row), style = MaterialTheme.typography.bodyMedium)
+                            Text(TodayText.mold(row), style = MaterialTheme.typography.bodyMedium)
+                            Text(TodayText.dry(row), style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }

@@ -83,4 +83,52 @@ class TodayReplyTest {
         assertEquals("Panel clock not set", TodayReply.statusText("ERR NO_TIME"))
         assertNull(TodayReply.statusText("ERR BAD_ARG"))
     }
+
+    private val h2 = TodayReply.HEADER_V2
+
+    @Test
+    fun oldHeaderGivesNullHours() {
+        val rows = TodayReply.parse(fixtureLines())
+        assertNull(rows[0].moldHours)
+        assertNull(rows[0].dryHours)
+        assertNull(rows[1].moldHours)
+        assertNull(rows[1].dryHours)
+    }
+
+    @Test
+    fun newHeaderGivesHours() {
+        val rows = TodayReply.parse(listOf("BEGIN TODAY", h2, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,3,0"))
+        assertEquals(3, rows[0].moldHours)
+        assertEquals(0, rows[0].dryHours)
+    }
+
+    @Test
+    fun emptyHourFieldsGiveNull() {
+        val rows = TodayReply.parse(listOf("BEGIN TODAY", h2, "2,slot2,0,,,,,,,,", "3,slot3,4,10.0,12.0,11.0,,,,,2"))
+        assertNull(rows[0].moldHours)
+        assertNull(rows[0].dryHours)
+        assertNull(rows[1].moldHours)
+        assertEquals(2, rows[1].dryHours)
+    }
+
+    @Test
+    fun badHourColumnsThrow() {
+        bad("BEGIN TODAY", h2, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,3")
+        bad("BEGIN TODAY", h2, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0")
+        bad("BEGIN TODAY", h, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,3,0")
+        bad("BEGIN TODAY", h2, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,3,7")
+        bad("BEGIN TODAY", h2, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,6,0")
+        bad("BEGIN TODAY", h2, "0,onboard,24,13.0,17.0,15.0,43.0,47.0,45.0,25,0")
+        bad("BEGIN TODAY", h2, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,x,0")
+        bad("BEGIN TODAY", h2, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,-1,0")
+    }
+
+    @Test
+    fun hourTextShowsWarningAboveZero() {
+        val row = TodayRow(0, "onboard", 5, 1.0, 2.0, 1.5, 1.0, 2.0, 1.5, 3, 0)
+        assertEquals("Schimmel 3 h ⚠", com.rlcdpanel.phone.TodayText.mold(row))
+        assertEquals("Trocken 0 h", com.rlcdpanel.phone.TodayText.dry(row))
+        assertEquals("Schimmel --", com.rlcdpanel.phone.TodayText.mold(row.copy(moldHours = null)))
+        assertEquals("Trocken 2 h ⚠", com.rlcdpanel.phone.TodayText.dry(row.copy(dryHours = 2)))
+    }
 }
