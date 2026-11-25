@@ -3685,3 +3685,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `scripts/check-protocol-sync.sh` compares both files with the phone copies.
 - Tests: `TailReplyTest` parses `tests/fixtures/tail_reply_sample.txt`. `LogGapsTest` checks that a step of 3 hours gives one gap with 2 missing hours and that hourly rows give no gap. `TailScreenTextTest` covers the room lines and the error texts.
 - Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
+
+## Room picker for the macOS today view
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/TodayReplyTests.swift`
+- `ConsoleCommand.todaySensor(N)` sends `TODAY <N>` for N 0 to 10. Another number gives no line. The short reply holds only the row of one room and saves BLE bytes.
+- The group `Today` of `DiagnosticsView` has a picker `Room` with `All` and the 11 tile names (`config.ini` names, else `Onboard` and `Slot <N>`). `All` sends `TODAY`. A room sends `TODAY <N>`. The command runs only after the button `Read today`.
+- An older firmware answers `ERR BAD_ARG` for `TODAY <N>`. `TodayReply.retryAfterError` then gives `TODAY`. `AppModel` sends it once and shows `Older firmware: reading all rooms`. `TodayReply.keepOnly` keeps only the row of the selected room.
+- A room without a sample in the fallback reply gives an empty list and the text `No sensor holds a sample.`
+- Tests cover the lines `TODAY 3` and `TODAY`, the numbers 11 and -1, the fallback decision for `ERR BAD_ARG`, `keepOnly` and `tests/fixtures/today_one_reply_sample.txt`.
+- Validation: `swift test` (764 tests) and `swift build -c release` pass in `macos/RlcdCompanion`.

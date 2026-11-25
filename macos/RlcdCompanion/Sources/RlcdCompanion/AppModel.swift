@@ -86,6 +86,10 @@ final class AppModel: ConsoleLinkDelegate {
     private(set) var frsiReplyHours = ConsoleCommand.frsiDefaultHours
     var spread: SpreadReply?
     var today: [TodayRow]?
+    /// Room of the `Today` picker: `nil` is `All` (`TODAY`), 0 to 10 sends `TODAY N`.
+    var todayRoom: Int?
+    /// Sensor whose row stays after the fallback `TODAY` of a firmware without the argument; `nil` keeps all rows.
+    private var todayKeepOnly: Int?
     /// Sensor names of the `SPREAD` proposals that the user ticked.
     var spreadSelection: Set<String> = []
     /// Window of the co-location check in hours (6, 12 or 24); sent with each read and after each applied proposal.
@@ -1316,13 +1320,23 @@ final class AppModel: ConsoleLinkDelegate {
         sendNextBatchCommand()
     }
 
+    private static func isToday(_ cmd: ConsoleCommand) -> Bool {
+        if case .todaySensor = cmd { return true }
+        return cmd == .today
+    }
+
     /// Reads the range since local midnight with `TODAY`. Runs only on the user's button, on USB and on BLE.
     func readToday() {
         guard consoleConnected else { message = "Console not connected"; return }
         guard pendingCommand == nil, queue.isEmpty, batch == nil, !reportRunning else { message = "Wait for the running command"; return }
         message = nil
         today = nil
-        queue = [.today]
+        todayKeepOnly = nil
+        if let room = todayRoom, ConsoleCommand.todaySensor(room).line != nil {
+            queue = [.todaySensor(room)]
+        } else {
+            queue = [.today]
+        }
         sendNext()
     }
 
@@ -1524,7 +1538,8 @@ final class AppModel: ConsoleLinkDelegate {
             if cmd == .configChanged { configChanged = nil }
             if case .tail = cmd { tailResult = nil }
             if case .days = cmd { daysResult = nil }
-            if cmd == .today { today = nil }
+            if Self.isToday(cmd) { today = nil }
+            if cmd == .today { todayKeepOnly = nil } // a timed-out fallback must not filter the next read
             if case .eventsNewest = cmd { recentEvents = .empty }
             if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
             pendingCommand = nil
@@ -1632,7 +1647,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if cmd == .configChanged { configChanged = nil }
                 if case .tail = cmd { tailResult = nil }
                 if case .days = cmd { daysResult = nil }
-                if cmd == .today { today = nil }
+                if Self.isToday(cmd) { today = nil }
                 if case .eventsNewest = cmd { recentEvents = .empty }
                 if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
                 if cmd == .scan { stopRepeatScan(.scanFailed) }
@@ -1655,6 +1670,7 @@ final class AppModel: ConsoleLinkDelegate {
                 // A file that the card no longer holds (log retention) does not stop the other files.
                 var keepQueue = false
                 var saltRetry: ConsoleCommand?
+                var todayRetry: ConsoleCommand?
                 if case .dump = cmd {
                     // ERR READ_FAILED follows a complete frame of padded bytes, so the stream stays in step too.
                     keepQueue = text == "ERR NOT_FOUND" || text == "ERR READ_FAILED"
@@ -1669,7 +1685,13 @@ final class AppModel: ConsoleLinkDelegate {
                     spread = nil
                     if let text = ConsoleCommand.spreadErrorMessage(hours: hours, text: text) { message = text }
                 }
-                if cmd == .today { today = nil; message = TodayReply.message(text) }
+                if Self.isToday(cmd) { today = nil; message = TodayReply.message(text) }
+                if cmd == .today { todayKeepOnly = nil } // a failed fallback read ends the filter
+                if let retry = TodayReply.retryAfterError(cmd, text: text), case let .todaySensor(n) = cmd {
+                    todayRetry = retry // older firmware: send TODAY and keep only the row of the room
+                    todayKeepOnly = n
+                    message = "Older firmware: reading all rooms"
+                }
                 if case let .frsi(_, _, hours) = cmd {
                     let result = FrsiReply.statusResult(text, hours: hours) // ERR LOW_DELTA and ERR NO_OUTDOOR are results
                     frsi = result.reply
@@ -1691,6 +1713,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if case .set = cmd { configChanged = nil } // any SET (form, assistant, calibration) makes the list old
                 batch?.receive(status: text)
                 if text.hasPrefix("ERR"), !keepQueue { queue.removeAll() }
+                if let retry = todayRetry { queue = [retry] }
                 if let retry = saltRetry { queue = [retry] } // like the other ERR paths, the queue holds only the retry
                 // A failed ACK still reads STATUS, so the row follows the panel (the alert may have cleared).
                 if case .ack = cmd, text.hasPrefix("ERR") { queue = [.status] }
@@ -1783,10 +1806,11 @@ final class AppModel: ConsoleLinkDelegate {
             case let (.saltMagnesium, .frame(lines)):
                 saltMagnesium = nil
                 saltMagnesium = try SaltReply.parse(lines: lines)
-            case let (.today, .frame(lines)):
+            case let (.today, .frame(lines)), let (.todaySensor, .frame(lines)):
                 today = nil // a reply that fails to parse must not leave the old rows
-                today = try TodayReply.parse(lines: lines)
-            case (.today, .file): message = "Unexpected file reply"
+                today = TodayReply.keepOnly(try TodayReply.parse(lines: lines), sensor: todayKeepOnly)
+                if todayKeepOnly != nil { message = nil } // the fallback notice is no error after a good read
+            case (.today, .file), (.todaySensor, .file): message = "Unexpected file reply"
             case let (.spread, .frame(lines)):
                 spread = nil
                 spread = try SpreadReply.parse(lines: lines)
