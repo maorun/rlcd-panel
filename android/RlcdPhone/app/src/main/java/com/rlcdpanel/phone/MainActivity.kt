@@ -79,6 +79,7 @@ import com.rlcdpanel.phone.protocol.EventRow
 import com.rlcdpanel.phone.protocol.EventsReply
 import com.rlcdpanel.phone.protocol.JumpAdvice
 import com.rlcdpanel.phone.protocol.RejectsReply
+import com.rlcdpanel.phone.protocol.RtcTrimReply
 import com.rlcdpanel.phone.protocol.VersionReply
 import com.rlcdpanel.phone.protocol.SelfTestReply
 import com.rlcdpanel.phone.protocol.DaysReply
@@ -2064,7 +2065,7 @@ class MainActivity : ComponentActivity() {
     private fun trimRtc() {
         stopBleScan()
         rtcTrimState = RtcTrimState(isBusy = true)
-        consoleClient.send(CONSOLE_RTC_TRIM) { reply ->
+        consoleClient.send(RtcTrimReply.COMMAND) { reply ->
             if (reply is ConsoleReply.Status) {
                 rtcTrimState = RtcTrimState(message = SensorHealthText.trimResult(reply.line))
                 if (reply.line.startsWith("OK")) readSensorHealth()
@@ -2490,7 +2491,7 @@ private const val CONSOLE_STATUS = "STATUS"
 private const val CONSOLE_VERSION = "VERSION"
 private const val CONSOLE_SELFTEST = "SELFTEST"
 private const val CONSOLE_TIME = "TIME"
-private const val CONSOLE_RTC_TRIM = "RTC TRIM"
+private const val CONSOLE_RTC_TRIM = RtcTrimReply.COMMAND
 private const val CONSOLE_TIME_SET = "TIME SET"
 private const val CONSOLE_CONFIG = "CONFIG"
 
