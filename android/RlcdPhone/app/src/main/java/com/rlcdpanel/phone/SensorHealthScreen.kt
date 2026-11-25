@@ -1,6 +1,9 @@
 package com.rlcdpanel.phone
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -40,6 +43,7 @@ import com.rlcdpanel.phone.protocol.VersionReply
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.SensorHealth
 import com.rlcdpanel.phone.protocol.SensorTrend
+import com.rlcdpanel.phone.protocol.ReceptionRow
 import com.rlcdpanel.phone.protocol.SelfTestReply
 import com.rlcdpanel.phone.protocol.SelfTestState as CheckState
 
@@ -99,7 +103,15 @@ data class SelfTestRunState(
     val message: String? = null
 )
 
+/** Result of one `RECEPTION` read: the [rows] by slot number, or a [message] that tells why there are none. */
+data class ReceptionStripState(
+    val isBusy: Boolean = false,
+    val rows: List<ReceptionRow> = emptyList(),
+    val message: String? = null
+)
+
 /** One-line texts of the card fields. */
+
 object SensorHealthText {
     fun rssi(row: SensorHealth): String = row.rssi?.let { "RSSI ${it.toInt()} dBm" } ?: "RSSI --"
     fun rate(row: SensorHealth): String = row.reception?.let { "Empfang ${it.received}/${it.scans} (${it.percent} %)" } ?: "Empfang --"
@@ -149,6 +161,9 @@ object SensorHealthText {
             "Feuchte ${humidity?.let { "%.1f %%".format(it) } ?: "--"} ${trendSymbol(row.humidityTrend)}"
     fun isMold(row: SensorHealth): Boolean = (row.moldHours ?: 0) > 0
     fun firmware(v: VersionReply): String = "Firmware ${v.firmware} (${v.git}), Zustand ${v.state}, gebaut ${v.built}"
+    /** Text of one reception strip: the counts and a warning below 50 %. */
+    fun strip(row: ReceptionRow): String =
+        (if (row.isLow) "⚠ " else "") + "Scan-Muster ${row.received}/${row.scans}" + (row.percent?.let { " ($it %)" } ?: "")
     fun battery(row: SensorHealth): String = row.battery?.let { "Batterie ${it.toInt()} %" } ?: "Batterie --"
 }
 
@@ -178,6 +193,8 @@ fun SensorHealthScreen(
     onShareReport: () -> Unit = {},
     selfTestState: SelfTestRunState = SelfTestRunState(),
     onRunSelfTest: () -> Unit = {},
+    receptionState: ReceptionStripState = ReceptionStripState(),
+    onReadReception: () -> Unit = {},
     onApplyJumpAdvice: (JumpAdvice) -> Unit = {},
     onBack: () -> Unit
 ) {
@@ -251,6 +268,13 @@ fun SensorHealthScreen(
             item {
                 OutlinedButton(onClick = onShareReport, enabled = !state.isReading && !versionState.isBusy) { Text("Bericht teilen") }
             }
+            item {
+                Button(onClick = onReadReception, enabled = !receptionState.isBusy && !state.isReading && !configState.isReading &&
+                    !selfTestState.isBusy && !versionState.isBusy && !clockState.isBusy && !rtcTrimState.isBusy) {
+                    Text(if (receptionState.isBusy) "Lese…" else "Read reception")
+                }
+            }
+            receptionState.message?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
             item {
                 Button(onClick = onRunSelfTest, enabled = !selfTestState.isBusy && !state.isReading && !versionState.isBusy) {
                     Text(if (selfTestState.isBusy) "Teste…" else "Run self-test")
@@ -398,10 +422,30 @@ fun SensorHealthScreen(
                             else MaterialTheme.colorScheme.onBackground
                         )
                         Text("${row.verdict.name}: ${row.verdict.advice}", style = MaterialTheme.typography.bodyMedium)
+                        receptionState.rows.firstOrNull { it.slot == row.slot }?.let { ReceptionStrip(it) }
                     }
                 }
             }
             item { Spacer(modifier = Modifier.height(24.dp)) }
+        }
+    }
+}
+
+/** One strip of up to 24 cells, oldest scan left; a filled cell is a scan with a packet. */
+@Composable
+fun ReceptionStrip(row: ReceptionRow) {
+    val fill = if (row.isLow) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+    val empty = MaterialTheme.colorScheme.surfaceVariant
+    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(
+            SensorHealthText.strip(row),
+            style = MaterialTheme.typography.bodySmall,
+            color = if (row.isLow) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground
+        )
+        Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            for (cell in row.cells) {
+                Box(modifier = Modifier.size(width = 9.dp, height = 14.dp).background(if (cell) fill else empty))
+            }
         }
     }
 }

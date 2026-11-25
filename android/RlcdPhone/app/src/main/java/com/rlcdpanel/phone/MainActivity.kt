@@ -81,6 +81,7 @@ import com.rlcdpanel.phone.protocol.JumpAdvice
 import com.rlcdpanel.phone.protocol.RejectsReply
 import com.rlcdpanel.phone.protocol.RtcTrimReply
 import com.rlcdpanel.phone.protocol.VersionReply
+import com.rlcdpanel.phone.protocol.ReceptionReply
 import com.rlcdpanel.phone.protocol.SelfTestReply
 import com.rlcdpanel.phone.protocol.DaysReply
 import com.rlcdpanel.phone.protocol.DaysRow
@@ -176,6 +177,7 @@ class MainActivity : ComponentActivity() {
     private var rtcTrimState by mutableStateOf(RtcTrimState())
     private var versionState by mutableStateOf(VersionState())
     private var selfTestState by mutableStateOf(SelfTestRunState())
+    private var receptionState by mutableStateOf(ReceptionStripState())
     private var rejectsState by mutableStateOf(RejectsState())
     /** The last good `REJECTS` reply; stays after the rejects screen closes. */
     private var lastRejects: RejectsLog? = null
@@ -502,6 +504,8 @@ class MainActivity : ComponentActivity() {
                     onShareReport = { shareDiagnosticsReport() },
                     selfTestState = selfTestState,
                     onRunSelfTest = { ensureConsolePermissionAndRead(CONSOLE_SELFTEST) },
+                    receptionState = receptionState,
+                    onReadReception = { ensureConsolePermissionAndRead(CONSOLE_RECEPTION) },
                     onApplyJumpAdvice = { applyJumpAdvice(it) },
                     onBack = { closeSensorHealth() }
                 )
@@ -664,6 +668,7 @@ class MainActivity : ComponentActivity() {
         }
         if (versionState.isBusy) versionState = VersionState(message = "Abgebrochen. Erneut lesen.")
         if (selfTestState.isBusy) selfTestState = SelfTestRunState(message = "Abgebrochen. Erneut starten.")
+        if (receptionState.isBusy) receptionState = ReceptionStripState(message = "Abgebrochen. Erneut lesen.")
         if (clockState.isBusy) clockState = ClockState(message = "Abgebrochen. Zustand der Panel-Uhr unbekannt, Read clock tippen")
         if (chimeState.isBusy) chimeState = chimeState.copy(isBusy = false, isError = consoleWasRunning, message = if (!consoleWasRunning) null else "Abgebrochen. Zustand des Panels unbekannt, STATUS lesen")
         if (alertLimitState.isBusy) {
@@ -718,6 +723,8 @@ class MainActivity : ComponentActivity() {
             runConsoleCommand(command)
         } else if (command == CONSOLE_VERSION) {
             versionState = VersionState(message = "Bluetooth-Berechtigung fehlt")
+        } else if (command == CONSOLE_RECEPTION) {
+            receptionState = ReceptionStripState(message = "Bluetooth-Berechtigung fehlt")
         } else if (command == CONSOLE_SELFTEST) {
             selfTestState = SelfTestRunState(message = "Bluetooth-Berechtigung fehlt")
         } else if (command == CONSOLE_RTC_TRIM) {
@@ -1978,6 +1985,7 @@ class MainActivity : ComponentActivity() {
         rtcTrimState = RtcTrimState()
         versionState = VersionState()
         selfTestState = SelfTestRunState()
+        receptionState = ReceptionStripState()
         configState = configState.copy(isReading = false, message = null)
         showHealth = false
         if (!scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
@@ -1985,7 +1993,7 @@ class MainActivity : ComponentActivity() {
 
     /** Sends [command] (`STATUS` or `CONFIG`) only after a tap on a button. */
     private fun ensureConsolePermissionAndRead(command: String) {
-        if (healthState.isReading || configState.isReading || clockState.isBusy || rtcTrimState.isBusy || versionState.isBusy || selfTestState.isBusy || consoleClient.isRunning) return
+        if (healthState.isReading || configState.isReading || clockState.isBusy || rtcTrimState.isBusy || versionState.isBusy || selfTestState.isBusy || receptionState.isBusy || consoleClient.isRunning) return
         pendingConsoleCommand = command
         if (command == CONSOLE_STATUS) rtcTrimState = RtcTrimState()
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -2004,6 +2012,8 @@ class MainActivity : ComponentActivity() {
     private fun markConsoleReading(command: String) {
         if (command == CONSOLE_VERSION) {
             versionState = VersionState(isBusy = true)
+        } else if (command == CONSOLE_RECEPTION) {
+            receptionState = ReceptionStripState(isBusy = true)
         } else if (command == CONSOLE_SELFTEST) {
             selfTestState = SelfTestRunState(isBusy = true)
         } else if (command == CONSOLE_RTC_TRIM) {
@@ -2022,6 +2032,7 @@ class MainActivity : ComponentActivity() {
             CONSOLE_CONFIG -> readPanelConfig()
             CONSOLE_VERSION -> readVersion()
             CONSOLE_SELFTEST -> runSelfTest()
+            CONSOLE_RECEPTION -> readReception()
             CONSOLE_RTC_TRIM -> trimRtc()
             CONSOLE_TIME -> readClock()
             CONSOLE_TIME_SET -> syncClock()
@@ -2041,6 +2052,22 @@ class MainActivity : ComponentActivity() {
                     VersionState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
                 }
                 else -> VersionState(message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
+    /** Sends `RECEPTION` after a tap. A failed command is not repeated. */
+    private fun readReception() {
+        stopBleScan()
+        receptionState = ReceptionStripState(isBusy = true)
+        consoleClient.send(CONSOLE_RECEPTION) { reply ->
+            receptionState = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    ReceptionStripState(rows = ReceptionReply.parse(reply.lines))
+                } catch (e: ParseException) {
+                    ReceptionStripState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
+                }
+                else -> ReceptionStripState(message = BleConsoleClient.errorText(reply))
             }
         }
     }
@@ -2142,6 +2169,7 @@ class MainActivity : ComponentActivity() {
         // The telemetry scan stops, so the console scan and connection have the radio.
         stopBleScan()
         healthState = SensorHealthState(isReading = true)
+        receptionState = ReceptionStripState()
         consoleClient.send(CONSOLE_STATUS) { reply ->
             applyStatusReply(reply)
             if (reply is ConsoleReply.Frame && healthState.rows.isNotEmpty() && showHealth) readJumpAdvice()
@@ -2490,6 +2518,7 @@ class MainActivity : ComponentActivity() {
 private const val CONSOLE_STATUS = "STATUS"
 private const val CONSOLE_VERSION = "VERSION"
 private const val CONSOLE_SELFTEST = "SELFTEST"
+private const val CONSOLE_RECEPTION = ReceptionReply.COMMAND
 private const val CONSOLE_TIME = "TIME"
 private const val CONSOLE_RTC_TRIM = RtcTrimReply.COMMAND
 private const val CONSOLE_TIME_SET = "TIME SET"
