@@ -1528,7 +1528,8 @@ void setup() {
       if (!g_rtc.readTime(today_now)) {
         today_now.valid = false; // an old time can sit on the wrong day: reply ERR NO_TIME
       }
-      Runner::showToday(sink, g_state.history, today_now, nowMs());
+      Runner::showToday(sink, g_state.history, today_now, nowMs(),
+                        command.today_one ? static_cast<int>(command.reference) : -1);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::TAIL) {
       // The card answers: showTail mounts and unmounts it. The BLE scan has stopped while a console command runs. No state change.
       RtcTime tail_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again

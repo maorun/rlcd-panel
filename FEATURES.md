@@ -3526,3 +3526,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `StatusSensor.dryHours` (`Int?`) reads `dry_h=` of each `SENSOR` line. It gives `null` for `--` and for a missing field (older firmware). A bad number or a negative number throws `ParseException`. The Wear OS copy of `StatusReply.kt` and `SensorHealth.kt` stays equal to the phone copy (`scripts/check-protocol-sync.sh`), so the watch parses the field too but does not show it.
 - `SensorHealth.dryHours` follows the slot. `SensorHealthText.dry` gives `Trocken <N> h` (`Trocken --` for `null`) with the prefix `⚠ ` above 0 hours. `SensorHealthScreen` shows the line after `Schimmel <N> h`, in the error colour above 0 hours (`SensorHealthText.isDry`).
 - Tests: `StatusReplyTest.dryHoursOfFixtureAndBadFields` (fixture value 2, `dry_h=5`, `--`, missing field, `x` and `-1`), `SensorHealthTest.dryHoursFollowTheSlot` and `SensorHealthTextTest.dryTextAndWarning`. They run in CI (the local host has no Android SDK).
+
+## Sensor argument for the console command TODAY
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/today_one_reply_sample.txt`
+- The console command `TODAY <N>` (N 0 to 10, no leading zero, `SerialCommand::today_one`) sends the header and only the row of sensor N, then the `CRC32` line over the filtered bytes. The reply is short for one room over BLE.
+- A sensor without a sample gets the header and no row. `TODAY` without an argument keeps its reply. `ERR NO_TIME` stays.
+- `ERR BAD_ARG` for `TODAY 11`, `TODAY 01`, `TODAY x`, `TODAY 1 2` and other extra text. `TODAY 1` was a `BAD_ARG` before and now selects slot 1.
+- The RTC layout and `STATE_VERSION` do not change. `showToday` takes the new parameter `only_sensor` (-1 sends every row).
+- Tests: host tests cover the parser, the row of sensor 2 or 1 with a correct CRC-32 (and the new fixture), a sensor without a sample, `ERR NO_TIME`, and the unchanged full reply.
