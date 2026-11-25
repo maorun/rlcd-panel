@@ -26,13 +26,15 @@ Options:
   RLCD_WATCH_TARGET sets HOST:PORT when TARGET is missing.
   -p and --host override the matching part of TARGET.
   A single argument that ends in .apk is the APK path.
+  Before adb connect, a TCP check stops after RLCD_WATCH_PROBE_TIMEOUT seconds
+  (default 3, 0 is off, at most 60) and names a VPN route to the watch.
 
 Examples:
   $(basename "$0") 41234
   $(basename "$0") -p 41234 path/to/app.apk
   $(basename "$0") 192.168.2.50:41234
 
-Exit codes: 0 ok, 1 no adb, 2 no APK, 3 connect failed, 4 bad argument.
+Exit codes: 0 ok, 1 no adb, 2 no APK, 3 watch not reachable or connect failed, 4 bad argument.
 A failed adb install or app start returns the exit code of adb.
 EOF
 }
@@ -69,8 +71,90 @@ resolve_target() {
   echo "${host}:$((10#${port}))"
 }
 
+# probe_tcp HOST PORT TIMEOUT_S -> returns 0 when HOST:PORT accepts a TCP connection within the timeout.
+probe_tcp() {
+  local host="$1" port="$2" timeout_s="$3" pid ticks=0
+  ( exec 3<>"/dev/tcp/${host}/${port}" ) >/dev/null 2>&1 &
+  pid=$!
+  while kill -0 "${pid}" 2>/dev/null; do
+    if (( ticks >= timeout_s * 10 )); then
+      kill "${pid}" 2>/dev/null || true
+      wait "${pid}" 2>/dev/null || true
+      return 1
+    fi
+    sleep 0.1
+    ticks=$((ticks + 1))
+  done
+  wait "${pid}"
+}
+
+# route_interface HOST -> prints the route interface of HOST on macOS. It prints nothing and returns 0
+# when `route` is absent or does not support `-n get` (for example on Linux).
+route_interface() {
+  command -v route >/dev/null 2>&1 || return 0
+  route -n get "$1" 2>/dev/null | awk '/interface:/ { print $2 }' || true
+}
+
+# route_hint HOST IFACE -> prints one hint line about the route interface, or nothing for an empty IFACE.
+route_hint() {
+  local host="$1" iface="$2"
+  case "${iface}" in
+    "") ;;
+    utun*|ppp*|ipsec*|tun*|wg*)
+      echo "  The route to ${host} uses ${iface} (VPN). Disconnect the VPN or allow local network access." ;;
+    *) echo "  The route to ${host} uses ${iface}." ;;
+  esac
+}
+
+self_test_probe() {
+  local failures=0 port_file listener start hint
+  hint="$(route_hint 10.0.0.5 utun4)"
+  if [[ "${hint}" != "  The route to 10.0.0.5 uses utun4 (VPN). Disconnect the VPN or allow local network access." ]]; then
+    echo "FAIL route_hint utun4 gave '${hint}'"; failures=$((failures + 1))
+  fi
+  hint="$(route_hint 10.0.0.5 en0)"
+  if [[ "${hint}" != "  The route to 10.0.0.5 uses en0." ]]; then
+    echo "FAIL route_hint en0 gave '${hint}'"; failures=$((failures + 1))
+  fi
+  hint="$(route_hint 10.0.0.5 "")"
+  if [[ -n "${hint}" ]]; then
+    echo "FAIL route_hint without interface gave '${hint}'"; failures=$((failures + 1))
+  fi
+  if probe_tcp 127.0.0.1 1 2; then
+    echo "FAIL probe_tcp accepted the closed port 127.0.0.1:1"; failures=$((failures + 1))
+  fi
+  # 192.0.2.1 is TEST-NET-1: it drops or rejects the connection, so the probe must end within the timeout.
+  start=${SECONDS}
+  if probe_tcp 192.0.2.1 9 1; then
+    echo "FAIL probe_tcp accepted 192.0.2.1:9"; failures=$((failures + 1))
+  fi
+  if (( SECONDS - start > 3 )); then
+    echo "FAIL probe_tcp ignored the timeout ($((SECONDS - start)) s)"; failures=$((failures + 1))
+  fi
+  if command -v python3 >/dev/null 2>&1; then
+    port_file="$(mktemp)"
+    python3 -c 'import socket,sys
+s=socket.socket(); s.bind(("127.0.0.1",0)); s.listen(1)
+open(sys.argv[1],"w").write(str(s.getsockname()[1])); s.settimeout(10)
+try: s.accept()
+except Exception: pass' "${port_file}" &
+    listener=$!
+    while [[ ! -s "${port_file}" ]] && kill -0 "${listener}" 2>/dev/null; do sleep 0.1; done
+    if ! probe_tcp 127.0.0.1 "$(cat "${port_file}")" 3; then
+      echo "FAIL probe_tcp rejected an open port"; failures=$((failures + 1))
+    fi
+    kill "${listener}" 2>/dev/null || true
+    wait "${listener}" 2>/dev/null || true
+    rm -f "${port_file}"
+  else
+    echo "SKIP open-port probe: python3 not found"
+  fi
+  return ${failures}
+}
+
 self_test() {
   local failures=0
+  self_test_probe || failures=$((failures + $?))
   check() {
     local expected="$1"; shift
     local actual status=0
@@ -148,6 +232,12 @@ if ! TARGET="$(resolve_target "${TARGET_ARG}" "${HOST_OPT}" "${PORT_OPT}")"; the
   exit 4
 fi
 APK_PATH="${APK_ARG:-${DEFAULT_APK}}"
+PROBE_TIMEOUT="${RLCD_WATCH_PROBE_TIMEOUT:-3}"
+if ! [[ "${PROBE_TIMEOUT}" =~ ^[0-9]+$ ]] || (( 10#${PROBE_TIMEOUT} > 60 )); then
+  echo "Error: RLCD_WATCH_PROBE_TIMEOUT must be 0 to 60 seconds." >&2
+  exit 4
+fi
+PROBE_TIMEOUT=$((10#${PROBE_TIMEOUT}))
 
 if ! command -v adb >/dev/null 2>&1; then
   echo "Error: 'adb' not found in PATH. Install via: brew install --cask android-platform-tools" >&2
@@ -157,6 +247,19 @@ fi
 if [[ ! -f "${APK_PATH}" ]]; then
   echo "Error: APK not found at ${APK_PATH}" >&2
   exit 2
+fi
+
+TARGET_HOST="${TARGET%:*}"
+TARGET_PORT="${TARGET##*:}"
+if (( PROBE_TIMEOUT > 0 )); then
+  echo "Checking ${TARGET} (timeout ${PROBE_TIMEOUT} s)..."
+  if ! probe_tcp "${TARGET_HOST}" "${TARGET_PORT}" "${PROBE_TIMEOUT}"; then
+    echo "Error: ${TARGET} does not accept a TCP connection." >&2
+    echo "  Check on the watch: Wi-Fi is connected and Wireless debugging is on." >&2
+    echo "  Read IP and port again under Developer options > Wireless debugging; both change often." >&2
+    route_hint "${TARGET_HOST}" "$(route_interface "${TARGET_HOST}")" >&2
+    exit 3
+  fi
 fi
 
 echo "Connecting to Galaxy Watch at ${TARGET}..."
