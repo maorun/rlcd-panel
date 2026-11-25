@@ -3835,7 +3835,7 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SdLogCodec::parseDailyRow` accepts 94 columns and 83 columns. A `daily_v5` row leaves the dry hours as gaps. A count above 24 or a bad character in a `dry_h` field rejects the row.
 - `WeekHistory::RestoreRow` has the field `dry_h`. After a power-on `SdLogger::restoreWeek` reads the `daily_v5` file and then the `daily_v6` file of the current year (and of the previous year in the first week of January). A later row of a day wins, so the dry hours fill the week history.
 - The console command `DAYS <N>` sends the header of `daily_v6`. It reads the sources from the newest to the oldest: `daily_v6_YYYY.csv` and `daily_v5_YYYY.csv` of the current year, then `daily_v6` and `daily_v5` of the previous year. It reads the next source only while it has fewer than N rows and the window of the last file reaches its start. A missing file is skipped. Each `daily_v5` row gets 11 empty fields. A read error of any file gives `ERR READ_FAILED`.
-- The companion apps do not read the `daily_v6` header of `DAYS` yet. The fixture `tests/fixtures/days_reply_sample.txt` keeps the `daily_v5` format for the app parsers. The fixture `tests/fixtures/days_reply_v6_sample.txt` holds the `daily_v6` reply. The macOS `DailyLog` skips `daily_v6` files until its own item reads them.
+- The macOS, Android and Wear OS apps read the `daily_v6` header of `DAYS`. The fixture `tests/fixtures/days_reply_sample.txt` keeps the `daily_v5` format for the app parsers. The fixture `tests/fixtures/days_reply_v6_sample.txt` holds the `daily_v6` reply. The macOS `DailyLog` reads `daily_v6` files (see the section "Dry hours in the macOS daily charts").
 - Tests: host tests check the 94-column header, a row with 5 dry hours, empty dry fields for limit 0, the restore of 3 days from `daily_v6` rows, the restore of a `daily_v5` row with dry gaps, and the `DAYS 2` reply with the `daily_v6` header and its `CRC32` line. `scripts/dump-logs.sh --self-test` accepts `daily_v6_2026.csv`.
 
 ## Dry hours in the Android days screen
@@ -3848,3 +3848,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `DaysMoldCards.dryLine(rows, sensor)` gives `Trocken <N> h` (the sum of the dry hours of the room over the rows), or `null` without a dry value. `DaysScreen` shows the line under the mold lines of each room card. A room without a mold value has no card, so it shows no dry line.
 - Tests: `DaysReplyTest` (phone and watch) covers a row with dry hours, an empty field, a `daily_v5` reply, a row with 93 columns, bad dry values, the CSV column and `tests/fixtures/days_reply_v6_sample.txt` with its CRC-32. `DaysMoldCardsTest` covers `dryLine`.
 - Validation: `./scripts/check-protocol-sync.sh` and `--self-test` pass. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.
+
+## Dry hours in the macOS daily charts
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/DailyLog.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/DaysReply.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DailyChartView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/DailyLogTests.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/DaysReplyTests.swift`
+- `DailyLog.parse(text:)` reads `daily_v6` (94 columns, 11 sensors). A row with 93 columns throws `ParseError.badLine`. `DailyLog.isDailyFileName` and `DailyLog.load(from:)` accept `daily_v6_YYYY.csv`. A row of a newer format replaces a row of the same date.
+- `DailyRow.dryHours` holds one `Int?` for each sensor. An empty field gives `nil`. A `daily_v1` to `daily_v5` row gives `[]`.
+- `DaysReply.parse` accepts the `daily_v6` header and the `daily_v5` header of the `DAYS <N>` reply. Another header throws `ParseError.missingLine`.
+- `DailyChartView` shows the dry hours (0 to 24 h) as a second bar series beside the mold hours of each sensor. Each series has its own color. The chart appears when a sensor has a mold value or a dry value.
+- Tests: `DailyLogTests` parse a `daily_v6` row with 5 dry hours for sensor 2, check `nil` for an empty field, check `[]` for a `daily_v5` file and check `ParseError.badLine` for a row with 93 columns. `DaysReplyTests` parse the `daily_v6` fixture.

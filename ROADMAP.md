@@ -20,20 +20,10 @@ Do the work in priority order, unless the maintainer gives a different order.
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
 
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 
-
 ## Priority 3: Display and Logging (Score 22–27)
-
-- [ ] Dry hours in the macOS daily charts
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/DailyLog.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DailyChartView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/DailyLogTests.swift`, `FEATURES.md`
-  - **Goal:** Show in the macOS daily charts how many hours each room was too dry on each day. This item needs the firmware item "Dry hours columns in the daily log". Let `DailyLog` parse `daily_v6` with 11 sensors. Add `DailyRow.dryHours` (one `Int?` for each sensor, `[]` for older files). Show the dry hours as a second bar series beside the mold hours in `DailyChartView`.
-  - **Acceptance:** A unit test parses a `daily_v6` row with 5 dry hours for sensor 2. A unit test checks `nil` for an empty field. A unit test checks `[]` for a `daily_v5` file. A unit test checks `ParseError.badLine` for a `daily_v6` row with 93 columns. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-  - **Rank:** [Total: 25, Use: 6, Setup: 2, Harmony: 7, Safety: 10, Effort: S]
-
-
 
 
 ## Rules for ranking

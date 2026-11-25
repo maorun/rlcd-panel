@@ -24,6 +24,21 @@ import Testing
         #expect(row.sensors[0].rhMin == 40.0)
         #expect(row.sensors[0].rhMax == 55.5)
         #expect(row.sensors[0].rhMean == 47.8)
+        #expect(reply.rows.allSatisfy { $0.dryHours.isEmpty }) // a daily_v5 reply holds no dry hours
+    }
+
+    /// The `daily_v6` reply of the firmware: 94 columns, the dry hours stay empty in the sample.
+    @Test func parsesDailyV6Fixture() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("tests/fixtures/days_reply_v6_sample.txt")
+        let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
+            .filter { !$0.hasPrefix("CRC32") }
+        let reply = try DaysReply.parse(lines: lines)
+        #expect(reply.rows.count == 3)
+        #expect(reply.rows.allSatisfy { $0.dryHours.count == 11 })
+        #expect(reply.rows.allSatisfy { $0.dryHours.allSatisfy { $0 == nil } }) // the sample leaves the dry fields empty
     }
 
     @Test func emptyPairGivesNil() throws {
