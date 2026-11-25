@@ -1,5 +1,6 @@
 package com.rlcdpanel.phone.protocol
 
+import com.rlcdpanel.phone.CalibrationState
 import java.util.Locale
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -165,5 +166,90 @@ class TwoPointCalibrationTest {
         )
         val ok = TwoPointCalibration.evaluate(na, reply("slot1", 30.0, 32.8), emptyMap())
         assertTrue(ok.result != null && ok.error == null)
+    }
+
+    private fun salt(name: String, mean: Double, temp: Double, reference: Double): SaltReply = SaltReply.parse(
+        listOf(
+            "SALT $name hours=6 rh_mean=${String.format(Locale.ROOT, "%.1f", mean)} rh_span=0.2 " +
+                "temp_mean=${String.format(Locale.ROOT, "%.1f", temp)} reference=${String.format(Locale.ROOT, "%.1f", reference)}"
+        )
+    )
+
+    @Test
+    fun saltPickerSendsTheNaClAndTheMgCl2Line() {
+        assertEquals("SALT 3", SaltCommand.line(3, false))
+        assertEquals("SALT 3 MGCL2", SaltCommand.line(3, true))
+    }
+
+    @Test
+    fun nacl73AndMgcl235At20CGiveTheGainErrorAndNoSet() {
+        // The acceptance inputs give the error path; the macOS values below cover the positive path.
+        // References at 20 C: NaCl 75.5, MgCl2 33.1. Slope (75.5 - 33.1) / (73.0 - 35.0) = 1.116.
+        val na = salt("onboard", 73.0, 20.0, 75.5)
+        val mg = salt("onboard", 35.0, 20.0, 33.1)
+        val e = TwoPointCalibration.evaluate(na, mg, emptyMap())
+        assertEquals("Gain 1.116 is outside 0.90 to 1.10, no SET sent", e.error)
+        assertEquals(null, e.result)
+    }
+
+    @Test
+    fun macOsValuesGiveGainAndOffsetThroughTheBatch() {
+        val e = TwoPointCalibration.evaluate(
+            salt("onboard", 70.0, 20.0, 75.4), salt("onboard", 30.0, 20.0, 32.8), emptyMap()
+        )
+        val r = e.result!!
+        assertEquals("1.066", r.gain)
+        assertEquals("0.8", r.offset)
+        val sent = mutableListOf<String>()
+        CalibrationBatch(r.proposals).run(
+            { command, callback -> sent.add(command); callback(ConsoleReply.Status("OK")) },
+            {}
+        )
+        assertEquals(listOf("SET rh_gain=1.066", "SET rh_offset_pct=0.8", "CONFIG"), sent)
+    }
+
+    @Test
+    fun gainOf115GivesTheErrorTextAndNoSet() {
+        // raw means 60 and 30, references 75.0 and 40.5: slope 1.15
+        val e = TwoPointCalibration.evaluate(
+            salt("slot1", 60.0, 20.0, 75.0), salt("slot1", 30.0, 20.0, 40.5), emptyMap()
+        )
+        assertEquals("Gain 1.150 is outside 0.90 to 1.10, no SET sent", e.error)
+        assertEquals(null, e.result)
+    }
+
+    @Test
+    fun readOnlyReplyMapsToTheConsoleLevelHint() {
+        val r = TwoPointCalibration.compute(salt("slot2", 70.0, 20.0, 75.4), salt("slot2", 30.0, 20.0, 32.8), emptyMap())
+        val sent = mutableListOf<String>()
+        var result: CalibrationBatch.Result? = null
+        CalibrationBatch(r.proposals).run(
+            { command, callback -> sent.add(command); callback(ConsoleReply.Status("ERR READ_ONLY")) },
+            { result = it }
+        )
+        assertEquals(listOf("SET slot2_rh_gain=1.066"), sent)
+        assertTrue(result!!.summary.startsWith("Set ble_console=2 to apply"))
+    }
+
+    @Test
+    fun selectingAnotherSensorClearsBothStoredReplies() {
+        val state = CalibrationState(
+            reference = 1,
+            naCl = salt("slot1", 70.0, 20.0, 75.4),
+            mgCl2 = salt("slot1", 30.0, 20.0, 32.8),
+            selected = setOf("slot1_rh_offset_pct"),
+            message = "old",
+            isError = true,
+            magnesium = true
+        )
+        assertEquals(state, state.selectReference(1))
+        val other = state.selectReference(2)
+        assertEquals(2, other.reference)
+        assertEquals(null, other.naCl)
+        assertEquals(null, other.mgCl2)
+        assertEquals(emptySet<String>(), other.selected)
+        assertEquals(null, other.message)
+        assertEquals(false, other.isError)
+        assertEquals(true, other.magnesium)
     }
 }

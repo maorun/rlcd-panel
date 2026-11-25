@@ -363,7 +363,7 @@ class MainActivity : ComponentActivity() {
                     sensors = CalibrationSensors.selectable(healthState.rows, calibState.reference),
                     frsiSensors = (CalibrationSensors.selectable(healthState.rows, calibState.frsiRoom) +
                         CalibrationSensors.selectable(healthState.rows, calibState.frsiWall)).distinct().sorted(),
-                    onPickReference = { stopSaltWatch(SaltProgress.StopReason.USER); calibState = calibState.copy(reference = it, reply = null, selected = emptySet(), message = null, isError = false, naCl = null, mgCl2 = null) },
+                    onPickReference = { stopSaltWatch(SaltProgress.StopReason.USER); calibState = calibState.selectReference(it) },
                     onRead = { withConsolePermission { readCalibration() } },
                     onToggle = { key ->
                         calibState = calibState.copy(
@@ -371,6 +371,7 @@ class MainActivity : ComponentActivity() {
                         )
                     },
                     onApply = { withConsolePermission { applyCalibration() } },
+                    onPickSalt = { calibState = calibState.copy(magnesium = it) },
                     onSalt = { magnesium -> withConsolePermission { readSalt(magnesium) } },
                     onWatchSalt = { magnesium -> withConsolePermission { startSaltWatch(magnesium) } },
                     onStopWatch = { stopSaltWatch(SaltProgress.StopReason.USER) },
@@ -1841,7 +1842,9 @@ class MainActivity : ComponentActivity() {
                         is SaltReply.Outcome.Skipped -> o.name
                         is SaltReply.Outcome.Unstable -> o.name
                     }
-                    if (name != expected) {
+                    if (calibState.reference != n) {
+                        calibState.copy(isBusy = false) // another sensor was picked meanwhile: drop the late reply
+                    } else if (name != expected) {
                         calibState.copy(isBusy = false, isError = true, message = "Antwort gehört zu $name, nicht zu $expected")
                     } else if (magnesium) {
                         calibState.copy(isBusy = false, mgCl2 = salt)
