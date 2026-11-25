@@ -113,9 +113,10 @@ public struct DailyLog: Equatable {
         return DailyLog(format: format, rows: rows)
     }
 
-    /// True for `daily_v1_YYYY.csv` to `daily_v4_YYYY.csv`; the check of `LogArchive` decides the name.
+    /// True for `daily_v1_YYYY.csv` to `daily_v5_YYYY.csv`; the check of `LogArchive` decides the name.
+    /// `daily_v6` files are downloaded by `LogArchive`, but this parser does not read them yet.
     public static func isDailyFileName(_ name: String) -> Bool {
-        LogArchive.isValidName(name) && name.hasPrefix("daily_")
+        LogArchive.isValidName(name) && name.hasPrefix("daily_") && !name.hasPrefix("daily_v6_")
     }
 
     private static func isDate(_ text: String) -> Bool {

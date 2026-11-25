@@ -27,12 +27,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Dry hours columns in the daily log
-  - **Location:** `rlcd_panel/sd_logger.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/days_reply_sample.txt`, `scripts/dump-logs.sh`, `macos/RlcdCompanion/Sources/RlcdProtocol/LogArchive.swift`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Keep the dry hours of each day on the card and restore them after a power-on. Write the daily row to `/sdcard/daily_v6_YYYY.csv`. Append the columns `dry_h_0` to `dry_h_10` after `mold_h_10` (94 columns). Write `HumidityHistory::countAtOrBelow` with `dry_alert_limit_rh`, and an empty field for limit 0 and for an empty or stale slot. Keep the `daily_v5_YYYY.csv` files unchanged. Let `LIST`, `DUMP`, `DAYS`, the retention and `SdLogger::restoreWeek` accept `daily_v6`, with the `daily_v5` file of the same year as fallback. Add `dry_h` to `WeekHistory::RestoreRow`, so the restore fills the dry hours. Add `daily_v6` to the name pattern of `scripts/dump-logs.sh` and `LogArchive`.
-  - **Acceptance:** A host test checks the 94-column header and a row with 5 dry hours. A host test checks empty dry fields for limit 0. A host test restores the dry hours of 3 days from `daily_v6` rows. A host test restores a `daily_v5` row with dry gaps. A host test checks the `DAYS 2` reply with the `daily_v6` header and its `CRC32` line. `scripts/dump-logs.sh --self-test` accepts `daily_v6_2026.csv`. The host unit tests, `arduino-cli compile rlcd_panel` and `swift test` in `macos/RlcdCompanion` pass.
-  - **Rank:** [Total: 26, Use: 6, Setup: 3, Harmony: 9, Safety: 8, Effort: M]
-
 - [ ] Dry hours in the macOS daily charts
   - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/DailyLog.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DailyChartView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/DailyLogTests.swift`, `FEATURES.md`
   - **Goal:** Show in the macOS daily charts how many hours each room was too dry on each day. This item needs the firmware item "Dry hours columns in the daily log". Let `DailyLog` parse `daily_v6` with 11 sensors. Add `DailyRow.dryHours` (one `Int?` for each sensor, `[]` for older files). Show the dry hours as a second bar series beside the mold hours in `DailyChartView`.

@@ -48,7 +48,7 @@ enum class SerialParseStatus : uint8_t {
   BAD_ARG,  // CONFIG CHANGED with extra text (CHANGEDX, CHANGED 1); DAYS with 0, above 31, a leading zero, a non-digit, no number or extra text; CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, with a window outside 3 to 24, a leading zero, a non-digit or extra text; SELFTEST with extra text; TODAY with a sensor above 10, a leading zero, a non-digit or extra text; SPREAD with a number outside 6 to 24, a leading zero, a non-digit or extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '='); CONFIG <key> with an unknown key
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
-  BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv, daily_v4_YYYY.csv or events_v1_YYYY.csv
+  BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv to daily_v6_YYYY.csv or events_v1_YYYY.csv
 };
 
 constexpr size_t SET_KEY_SIZE = 41;
@@ -82,7 +82,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "CONFIG <key>", "CONFIG CHANGED", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "FRSI 0..10 0..10 3..24", "SPREAD", "SPREAD 6..24", "TODAY", "TODAY 0..10", "TAIL 1..72", "DAYS 1..31", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "CONFIG <key>", "CONFIG CHANGED", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "FRSI 0..10 0..10 3..24", "SPREAD", "SPREAD 6..24", "TODAY", "TODAY 0..10", "TAIL 1..72", "DAYS 1..31", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv|daily_v5_YYYY.csv|daily_v6_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -1283,8 +1283,9 @@ struct SerialStatusSnapshot {
 //   newline and a bad line are skipped). "ERR NO_CARD" without a card, "ERR NO_FILE" without a valid RTC time or without both files,
 //   "ERR READ_FAILED" for a read error (after the BEGIN line it takes the place of the CRC32 line, like DUMP), "ERR BAD_ARG" for 0, a number above 72, a non-digit, a leading zero, no number or extra text.
 //   showTail() mounts and unmounts the card itself, so execute() ignores TAIL. No state change. USB and BLE at each ble_console level.
-//   DAYS <N> -> "BEGIN DAYS <n>", the CSV header of daily_v5, the newest rows (N 1 to 31) oldest first and "CRC32 <8 hex digits>". <n> is
-//   the row count sent. The rows come from the last 16384 bytes of the current year file daily_v5_YYYY.csv; fewer than N rows there add
+//   DAYS <N> -> "BEGIN DAYS <n>", the CSV header of daily_v6 (94 columns), the newest rows (N 1 to 31) oldest first and "CRC32 <8 hex digits>". <n> is
+//   the row count sent. The rows come from the last 16384 bytes of the current year file daily_v6_YYYY.csv (a missing file falls back to
+//   daily_v5_YYYY.csv of the same year; each daily_v5 row gets 11 empty dry_h fields); fewer than N rows there add
 //   the rows of the last 16384 bytes of the previous year file, but only when the window of the current file reaches its start. Only
 //   complete rows that SdLogCodec::parseDailyRow accepts count (a partial first line, a line without newline and a bad line are
 //   skipped). Same errors as TAIL: "ERR NO_CARD", "ERR NO_FILE", "ERR READ_FAILED", "ERR BAD_ARG" (0, above 31, a non-digit, a leading
@@ -2119,11 +2120,13 @@ public:
     send(sink, line);
   }
 
-  // Sends the newest `count` rows (1 to 31) of the daily files as CSV (see DAYS above). Same read rules as showTail: one file in the
-  // buffer at a time, the previous year file only when the current one has fewer than `count` rows and its window reaches the start.
+  // Sends the newest `count` rows (1 to 31) of the daily files as CSV (see DAYS above). The sources run from the newest to the
+  // oldest: daily_v6 and daily_v5 of the current year, then daily_v6 and daily_v5 of the previous year. The next source is read
+  // only while fewer than `count` rows are found and the window of the last file that exists reaches its start (no gap). A missing
+  // file is skipped; a read error ends the command. One file sits in the buffer at a time, so the rows are sent oldest source first
+  // and each source except the last read one is read again. A daily_v5 row (83 columns) gets 11 empty dry_h fields.
   static void showDays(Storage& storage, Sink& sink, uint8_t count, const RtcTime& now) {
-    char path[SdLogCodec::MAX_PATH_SIZE];
-    char older_path[SdLogCodec::MAX_PATH_SIZE];
+    constexpr size_t SOURCE_COUNT = 4;
     if (count < 1 || count > SdLogCodec::DAYS_MAX_ROWS) {
       send(sink, "ERR BAD_ARG\n");
       return;
@@ -2132,40 +2135,64 @@ public:
       send(sink, "ERR NO_CARD\n");
       return;
     }
-    static char buf[SdLogCodec::DAYS_BYTES]; // static: the buffer would use the whole loop task stack
-    SdLogCodec::TailSpan newer[SdLogCodec::DAYS_MAX_ROWS];
-    SdLogCodec::TailSpan older[SdLogCodec::DAYS_MAX_ROWS];
-    size_t newer_count = 0;
-    size_t older_count = 0;
-    size_t len = 0;
-    bool whole = false;
-    if (!now.valid || SdLogCodec::formatDailyFilename(now.year, path, sizeof(path)) == 0) {
+    static const char V5_PADDING[] = ",,,,,,,,,,,";
+    auto rowFields = [](const char* text, size_t n) {
+      size_t commas = 0;
+      for (size_t i = 0; i < n; ++i) {
+        commas += text[i] == ',' ? 1 : 0;
+      }
+      return commas + 1;
+    };
+    // static: the buffers would use the whole loop task stack
+    static char buf[SdLogCodec::DAYS_BYTES];
+    struct Source {
+      char path[SdLogCodec::MAX_PATH_SIZE];
+      SdLogCodec::TailSpan spans[SdLogCodec::DAYS_MAX_ROWS];
+      size_t rows;
+      bool read;
+    };
+    Source sources[SOURCE_COUNT]; // about 0.7 KB of stack; only the 16 KB read buffer is static
+    for (size_t i = 0; i < SOURCE_COUNT; ++i) {
+      const uint16_t year = static_cast<uint16_t>(now.year - (i / 2));
+      const size_t n = (i % 2 == 0) ? SdLogCodec::formatDailyFilename(year, sources[i].path, sizeof(sources[i].path))
+                                    : SdLogCodec::formatDailyFilenameV5(year, sources[i].path, sizeof(sources[i].path));
+      if (n == 0) {
+        sources[i].path[0] = '\0';
+      }
+      sources[i].rows = 0;
+      sources[i].read = false;
+    }
+    if (!now.valid || sources[0].path[0] == '\0') {
       storage.unmount();
       send(sink, "ERR NO_FILE\n");
       return;
     }
-    const char* name = path + strlen(SdLogCodec::MOUNT_POINT) + 1; // without the slash
-    int status = storage.readTail(name, buf, sizeof(buf), len, whole);
-    bool have_file = status == 0;
-    bool read_failed = status == 2;
-    const bool current_whole = whole;
-    if (have_file) {
-      newer_count = SdLogCodec::collectDailyTailRows(buf, len, whole, newer, count);
-    }
-    bool older_ok = false;
-    if (!read_failed && newer_count < count && (!have_file || current_whole) &&
-        SdLogCodec::formatDailyFilename(static_cast<uint16_t>(now.year - 1), older_path, sizeof(older_path)) != 0) {
-      const char* older_name = older_path + strlen(SdLogCodec::MOUNT_POINT) + 1;
-      status = storage.readTail(older_name, buf, sizeof(buf), len, whole);
-      if (status == 0) {
-        have_file = true;
-        older_ok = true;
-        older_count = SdLogCodec::collectDailyTailRows(buf, len, whole, older, count - newer_count);
-      } else if (status == 2) {
+    auto nameOf = [](const Source& s) { return s.path + strlen(SdLogCodec::MOUNT_POINT) + 1; }; // without the slash
+    size_t total = 0;
+    size_t read_count = 0;
+    size_t last_read = 0;
+    bool read_failed = false;
+    for (size_t i = 0; i < SOURCE_COUNT && total < count && !read_failed; ++i) {
+      if (sources[i].path[0] == '\0') {
+        continue;
+      }
+      size_t len = 0;
+      bool whole = false;
+      const int status = storage.readTail(nameOf(sources[i]), buf, sizeof(buf), len, whole);
+      if (status == 2) {
         read_failed = true;
+      } else if (status == 0) {
+        sources[i].read = true;
+        sources[i].rows = SdLogCodec::collectDailyTailRows(buf, len, whole, sources[i].spans, count - total);
+        total += sources[i].rows;
+        ++read_count;
+        last_read = i;
+        if (!whole) {
+          break; // the window does not reach the file start: older rows would leave a gap
+        }
       }
     }
-    if (read_failed || !have_file) {
+    if (read_failed || read_count == 0) {
       storage.unmount();
       send(sink, read_failed ? "ERR READ_FAILED\n" : "ERR NO_FILE\n");
       return;
@@ -2179,31 +2206,33 @@ public:
       return true;
     };
     char head[32];
-    snprintf(head, sizeof(head), "BEGIN DAYS %u\n", static_cast<unsigned>(newer_count + older_count));
+    snprintf(head, sizeof(head), "BEGIN DAYS %u\n", static_cast<unsigned>(total));
     char header[SdLogCodec::DAILY_HEADER_SIZE];
     const size_t header_len = SdLogCodec::formatDailyHeader(header, sizeof(header));
     bool ok = emit(head, strlen(head)) && header_len > 0 && emit(header, header_len);
-    // The previous file rows first: the buffer still holds that file when it was read last.
-    if (ok && older_ok) {
-      for (size_t i = 0; ok && i < older_count; ++i) {
-        ok = emit(buf + older[i].start, older[i].len) && emit("\n", 1);
+    for (size_t k = SOURCE_COUNT; ok && k-- > 0;) {
+      Source& s = sources[k];
+      if (!s.read || s.rows == 0) {
+        continue;
       }
-    }
-    if (ok && newer_count > 0) {
-      status = storage.readTail(name, buf, sizeof(buf), len, whole);
-      if (status != 0) {
-        storage.unmount();
-        send(sink, "ERR READ_FAILED\n");
-        return;
+      if (!(k == last_read && read_count > 1)) {
+        // The buffer holds another file: read this one again and check that the rows did not change.
+        size_t len = 0;
+        bool whole = false;
+        SdLogCodec::TailSpan again[SdLogCodec::DAYS_MAX_ROWS];
+        if (storage.readTail(nameOf(s), buf, sizeof(buf), len, whole) != 0 ||
+            SdLogCodec::collectDailyTailRows(buf, len, whole, again, s.rows) != s.rows) {
+          storage.unmount();
+          send(sink, "ERR READ_FAILED\n");
+          return;
+        }
+        memcpy(s.spans, again, s.rows * sizeof(again[0]));
       }
-      const size_t again = SdLogCodec::collectDailyTailRows(buf, len, whole, newer, count);
-      if (again != newer_count) {
-        storage.unmount();
-        send(sink, "ERR READ_FAILED\n");
-        return;
-      }
-      for (size_t i = 0; ok && i < newer_count; ++i) {
-        ok = emit(buf + newer[i].start, newer[i].len) && emit("\n", 1);
+      for (size_t i = 0; ok && i < s.rows; ++i) {
+        ok = emit(buf + s.spans[i].start, s.spans[i].len) &&
+             (rowFields(buf + s.spans[i].start, s.spans[i].len) == SdLogCodec::DAILY_COLUMNS ||
+              emit(V5_PADDING, sizeof(V5_PADDING) - 1)) &&
+             emit("\n", 1);
       }
     }
     storage.unmount();
