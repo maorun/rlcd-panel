@@ -4061,3 +4061,11 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `ReceptionReply.kt` is in the `FILES` list of `scripts/check-protocol-sync.sh`. The screen texts do not change.
 - Both `ReceptionReplyTest.kt` files hold the same cases, apart from the package line.
 - Validation: `bash scripts/check-protocol-sync.sh` and `bash scripts/check-protocol-sync.sh --self-test` pass. The local host has no Android SDK, so the Gradle tests run in CI.
+
+## Alert limits screen on the Wear OS watch
+
+- The chip `Alert limits` of the sensor health screen opens `AlertLimitScreen`. One chip for each key of `AlertLimits.LIMITS` shows the cached value (`Aus` for a zero delay or an off value); without `ble_console=2` the chips are disabled and the text `Set ble_console=2 to apply` shows.
+- A tap opens a stepper (`AlertLimitStepper`): 1 %RH, 1 h, 1 % or 0.5 C steps from the minimum to the maximum, the off value first (`dry_alert_limit_rh`, `heat_alert_limit_c`, `sensor_battery_limit_pct`). `Senden` sends one `SET <key>=<value>` and then `CONFIG` through `AlertLimits.run`; the first `ERR` stops the batch, `ERR READ_ONLY` shows `Set ble_console=2 to apply`. `Senden` stays off for an unchanged value.
+- `AlertLimits.kt` is shared with the phone (`scripts/check-protocol-sync.sh` lists it). `AlertLimits.Result`, `READ_ONLY_TEXT` and `failureText` moved into it, so the protocol package no longer depends on the phone `finder` package.
+- Tests: `AlertLimitsTest` covers ranges, plan, batch, the stepper grid, the ends, off-grid snapping and `ERR READ_ONLY`.
+- Validation: the host has no Android SDK, so Gradle runs in CI (`Wear OS companion tests and APK`).

@@ -227,7 +227,7 @@ class AlertLimitsTest {
     @Test
     fun errBadValueStopsBeforeTheNextSetAndConfig() {
         val sent = mutableListOf<String>()
-        var result: com.rlcdpanel.phone.finder.SlotAssignment.Result? = null
+        var result: AlertLimits.Result? = null
         AlertLimits.run(
             listOf("SET mold_alert_limit_rh=80", "SET ventilate_limit_rh=70", "SET heat_alert_limit_c=30"),
             { command, cb ->

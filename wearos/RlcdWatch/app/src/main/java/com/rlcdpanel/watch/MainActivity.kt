@@ -33,6 +33,8 @@ import com.rlcdpanel.watch.protocol.AlertMask
 import com.rlcdpanel.watch.protocol.AlertTransitions
 import com.rlcdpanel.watch.protocol.AlertVibration
 import com.rlcdpanel.watch.protocol.SignalMeter
+import com.rlcdpanel.watch.protocol.AlertLimitStepper
+import com.rlcdpanel.watch.protocol.AlertLimits
 import com.rlcdpanel.watch.protocol.CalibrationBatch
 import com.rlcdpanel.watch.protocol.ConfigCache
 import com.rlcdpanel.watch.protocol.PanelClock
@@ -179,6 +181,8 @@ class MainActivity : ComponentActivity() {
     private var showCalib by mutableStateOf(false)
     private var calibState by mutableStateOf(CalibrationState())
     private var pendingCalibRead = false
+    private var showAlertLimits by mutableStateOf(false)
+    private var alertLimitState by mutableStateOf(AlertLimitState())
     private var showFrsi by mutableStateOf(false)
     private var frsiState by mutableStateOf(FrsiState())
     private var pendingFrsiRead = false
@@ -491,6 +495,22 @@ class MainActivity : ComponentActivity() {
                 return@setContent
             }
 
+            if (showSensorHealth && showAlertLimits) {
+                BackHandler { if (alertLimitState.editing != null && !alertLimitState.isBusy) alertLimitState = AlertLimitState() else closeAlertLimits() }
+                AlertLimitScreen(
+                    state = alertLimitState,
+                    config = panelConfig,
+                    onOpen = { limit -> alertLimitState = AlertLimitState(editing = limit.key, value = AlertLimitStepper.startText(limit, panelConfig)) },
+                    onStep = { dir ->
+                        val limit = AlertLimits.LIMITS.firstOrNull { it.key == alertLimitState.editing }
+                        if (limit != null) alertLimitState = alertLimitState.copy(value = AlertLimitStepper.move(limit, alertLimitState.value, dir), message = null)
+                    },
+                    onConfirm = { applyAlertLimit() },
+                    onCancel = { alertLimitState = AlertLimitState() }
+                )
+                return@setContent
+            }
+
             if (showSensorHealth && showFrsi) {
                 BackHandler { closeFrsi() }
                 FrsiScreen(
@@ -625,6 +645,7 @@ onApply = { applySpread(it) }
                     onOpenCalib = { showCalib = true },
                     onApplyJumpAdvice = { applyJumpAdvice(it) },
                     onOpenFrsi = { showFrsi = true },
+                    onOpenAlertLimits = { showAlertLimits = true },
                     onOpenToday = { showToday = true },
                     onOpenTail = { showTail = true },
                     onOpenMold = { showMold = true },
@@ -747,6 +768,8 @@ onApply = { applySpread(it) }
         frsiState = FrsiState()
         pendingFrsiRead = false
         showFrsi = false
+        alertLimitState = AlertLimitState()
+        showAlertLimits = false
         todayState = TodayState()
         pendingTodayRead = false
         tailState = TailState()
@@ -1602,6 +1625,38 @@ onApply = { applySpread(it) }
                     startConfigRead()
                 }
             }
+        }
+    }
+
+    private fun closeAlertLimits() {
+        val wasBusy = alertLimitState.isBusy
+        consoleClient.cancel()
+        alertLimitState = AlertLimitState()
+        showAlertLimits = false
+        // A cancelled batch never delivers its CONFIG reply, and a SET may already run: read the config again.
+        if (wasBusy && !isReadingConfig) startConfigRead()
+    }
+
+    /**
+     * Sends `SET <key>=<value>` of the open stepper, then `CONFIG`. Only the `Senden` chip calls it. The batch needs
+     * a free link and the console level 2; `ERR READ_ONLY` shows `Set ble_console=2 to apply`. No command is retried.
+     */
+    private fun applyAlertLimit() {
+        val before = alertLimitState
+        val key = before.editing ?: return
+        if (before.isBusy || isReadingConfig || consoleClient.isRunning) return
+        val commands = AlertLimitScreenText.commands(key, before.value, panelConfig)
+        if (commands.isEmpty() || AlertLimits.LIMITS.firstOrNull { it.key == key }?.let { AlertLimits.error(it, before.value) } != null) return
+        alertLimitState = before.copy(isBusy = true, message = null, isError = false)
+        AlertLimits.run(commands, consoleClient::send) { result ->
+            result.config?.let { frame ->
+                isReadingConfig = true
+                handleConfigReply(frame)
+            }
+            // cancel() drops the callback; this guard covers a callback that the main thread already queued.
+            if (!showAlertLimits) return@run
+            alertLimitState = if (result.ok) AlertLimitState(message = result.summary)
+            else before.copy(isBusy = false, isError = true, message = result.summary)
         }
     }
 

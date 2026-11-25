@@ -23,7 +23,6 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.rlcdpanel.phone.finder.SlotAssignment
 import com.rlcdpanel.phone.protocol.AlertLimits
 import com.rlcdpanel.phone.protocol.PanelConfig
 
@@ -59,7 +58,7 @@ fun AlertLimitScreen(
                 OutlinedButton(onClick = onRead, enabled = !state.isBusy) { Text("CONFIG lesen") }
             }
             if (!AlertLimits.canEdit(panelConfig)) {
-                item { Text(SlotAssignment.READ_ONLY_TEXT, color = MaterialTheme.colorScheme.error) }
+                item { Text(AlertLimits.READ_ONLY_TEXT, color = MaterialTheme.colorScheme.error) }
             }
             state.message?.let {
                 item { Text(it, color = if (state.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground) }

@@ -1,6 +1,5 @@
 package com.rlcdpanel.phone.protocol
 
-import com.rlcdpanel.phone.finder.SlotAssignment
 import java.util.Locale
 
 /** The nine alert limit keys of `config.ini` with the ranges of `DeviceConfigParser` (`device_config.h`). */
@@ -107,7 +106,52 @@ object AlertLimits {
         return Plan.Commands(commands)
     }
 
-    /** Sends [commands] one by one, then `CONFIG`. The first `ERR` stops the batch before `CONFIG`. */
-    fun run(commands: List<String>, send: (String, (ConsoleReply) -> Unit) -> Unit, done: (SlotAssignment.Result) -> Unit) =
-        SlotAssignment.run(commands, send, done)
+    /** `ERR READ_ONLY` needs the console level 2. */
+    const val READ_ONLY_TEXT = "Set ble_console=2 to apply"
+
+    /** Result of [run]: [applied] holds the `SET` commands with an `OK`, [failure] the first `ERR` text. */
+    data class Result(
+        val applied: List<String>,
+        val failure: String?,
+        val config: ConsoleReply.Frame?,
+        val configFailed: Boolean
+    ) {
+        val ok: Boolean get() = failure == null && !configFailed
+        val summary: String
+            get() = when {
+                failure != null && applied.isNotEmpty() -> "$failure. Übernommen: ${applied.size}. Zustand des Panels unbekannt, CONFIG lesen"
+                failure != null -> "$failure. Übernommen: 0"
+                configFailed -> "Übernommen: ${applied.size}. CONFIG lesen fehlgeschlagen"
+                else -> "Übernommen: ${applied.size}"
+            }
+    }
+
+    /** Text of a failed reply. `ERR READ_ONLY` needs the console level 2. */
+    fun failureText(reply: ConsoleReply): String = when {
+        reply is ConsoleReply.Status && reply.line.startsWith("ERR READ_ONLY") -> READ_ONLY_TEXT
+        reply is ConsoleReply.Status -> reply.line.take(80)
+        else -> "Keine gültige Antwort vom Panel"
+    }
+
+    /** Sends [commands] one by one, then `CONFIG`. The first `ERR` or unusable reply stops the batch before `CONFIG`. */
+    fun run(commands: List<String>, send: (String, (ConsoleReply) -> Unit) -> Unit, done: (Result) -> Unit) {
+        val applied = mutableListOf<String>()
+        fun config() {
+            send("CONFIG") { reply ->
+                done(Result(applied, null, reply as? ConsoleReply.Frame, reply !is ConsoleReply.Frame))
+            }
+        }
+        fun step(i: Int) {
+            if (i >= commands.size) return config()
+            send(commands[i]) { reply ->
+                if (reply is ConsoleReply.Status && reply.line.startsWith("OK")) {
+                    applied.add(commands[i])
+                    step(i + 1)
+                } else {
+                    done(Result(applied, failureText(reply), null, false))
+                }
+            }
+        }
+        step(0)
+    }
 }
