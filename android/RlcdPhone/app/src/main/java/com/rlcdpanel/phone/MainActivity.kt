@@ -77,6 +77,7 @@ import com.rlcdpanel.phone.protocol.ReceptionNotice
 import com.rlcdpanel.phone.protocol.RejectsLog
 import com.rlcdpanel.phone.protocol.EventRow
 import com.rlcdpanel.phone.protocol.EventsReply
+import com.rlcdpanel.phone.protocol.JumpAdvice
 import com.rlcdpanel.phone.protocol.RejectsReply
 import com.rlcdpanel.phone.protocol.VersionReply
 import com.rlcdpanel.phone.protocol.SelfTestReply
@@ -500,6 +501,7 @@ class MainActivity : ComponentActivity() {
                     onShareReport = { shareDiagnosticsReport() },
                     selfTestState = selfTestState,
                     onRunSelfTest = { ensureConsolePermissionAndRead(CONSOLE_SELFTEST) },
+                    onApplyJumpAdvice = { applyJumpAdvice(it) },
                     onBack = { closeSensorHealth() }
                 )
                 BackHandler { closeSensorHealth() }
@@ -2139,7 +2141,43 @@ class MainActivity : ComponentActivity() {
         // The telemetry scan stops, so the console scan and connection have the radio.
         stopBleScan()
         healthState = SensorHealthState(isReading = true)
-        consoleClient.send(CONSOLE_STATUS) { reply -> applyStatusReply(reply) }
+        consoleClient.send(CONSOLE_STATUS) { reply ->
+            applyStatusReply(reply)
+            if (reply is ConsoleReply.Frame && healthState.rows.isNotEmpty() && showHealth) readJumpAdvice()
+        }
+    }
+
+    /** Sends `EVENTS` after a good `STATUS` read and shows the jump guard advice. A failed read gives no advice. */
+    private fun readJumpAdvice() {
+        consoleClient.send("EVENTS") { reply ->
+            if (!showHealth || healthState.isReading || reply !is ConsoleReply.Frame) return@send
+            val log = try { EventsReply.parse(reply.lines) } catch (e: ParseException) { return@send }
+            healthState = healthState.copy(jumpAdvice = JumpAdvice.evaluate(log.rows, panelConfig, System.currentTimeMillis()))
+        }
+    }
+
+    /** Sends `SET jump_limit_c=<value>`, then `CONFIG`, only after the tap on `Anwenden`. The first `ERR` stops it. */
+    private fun applyJumpAdvice(advice: JumpAdvice) {
+        if (!panelConfig.canWrite || healthState.jumpBusy || healthState.isReading || consoleClient.isRunning) return
+        stopBleScan()
+        healthState = healthState.copy(jumpBusy = true, jumpMessage = null)
+        CalibrationBatch(listOf(advice.proposal)).run(consoleClient::send) { result ->
+            result.config?.let { frame ->
+                lifecycleScope.launch {
+                    val info = withContext(Dispatchers.IO) { ConfigCache.store(filesDir, frame, System.currentTimeMillis()) }
+                    if (info != null) {
+                        panelConfig = withContext(Dispatchers.IO) { PanelConfig.load(this@MainActivity) }
+                        configState = ConfigReadState(info = info)
+                    }
+                }
+            }
+            val ok = result.failure == null && !result.configFailed
+            // The limit changed or is unknown, so the old advice is stale. A new read gives a fresh one.
+            healthState = healthState.copy(
+                jumpBusy = false, jumpMessage = result.summary,
+                jumpAdvice = if (result.applied.isNotEmpty() || ok) emptyList() else healthState.jumpAdvice
+            )
+        }
     }
 
     /** Stores the `STATUS` [reply] in the health state and refreshes the slot format badges. */
