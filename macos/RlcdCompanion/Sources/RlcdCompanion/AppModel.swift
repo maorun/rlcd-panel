@@ -1527,7 +1527,10 @@ final class AppModel: ConsoleLinkDelegate {
     func setSlotEnabled(slot: Int, enabled: Bool) {
         guard canSet else { message = "SET needs ble_console=2 or the USB serial link"; return }
         guard pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
-        guard let cmd = SlotAssignment.enableCommand(slot: slot, enabled: enabled, config: config), cmd.line != nil else { return }
+        guard let cmd = SlotAssignment.enableCommand(slot: slot, enabled: enabled, config: config), cmd.line != nil else {
+            message = config == nil ? "Read CONFIG first" : "Slot \(slot) already has this value"
+            return
+        }
         message = nil
         rejectsResult = nil; receptionResult = nil // a disabled slot changes the reject reasons
         queue = [cmd, .config]
