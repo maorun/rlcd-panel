@@ -3864,3 +3864,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `TodayReply.parse` accepts the old header with 9 columns and the new header with `mold_h,dry_h` (11 columns, `HEADER_V2`). The header selects the column count. `TodayRow.moldHours` and `TodayRow.dryHours` (`Int?`) are null for an empty field and for the old header. `ParseException` for a wrong column count, a bad number and a value above `hours`.
 - `TodayScreen` shows the line `Mold <N> h · Dry <N> h` (`TodayScreenText.moldDry`, `--` for null) below the humidity line of each result card.
 - Tests: `TodayReplyTest` parses the old fixture with null values, a row with `mold_h` 3 and `dry_h` 0, an empty field, 10 columns, a value above `hours` and the line text `Mold 3 h · Dry -- h`.
+
+## Mold and dry hours of the day in the Android today screen
+
+- `TodayReply.parse` (`protocol/TodayReply.kt`) accepts the old header (9 columns) and the new header `HEADER_V2` with `mold_h` and `dry_h` (11 columns). The header selects the column count.
+- `TodayRow.moldHours` and `TodayRow.dryHours` (`Int?`) are `null` for an empty field and for the old header.
+- `ParseException` covers a count with the wrong column count for the header, a non-digit or signed value, a value above 24 and a value above `hours` (for example `dry_h` 7 with hours 5).
+- `TodayScreen` shows `Schimmel <N> h` and `Trocken <N> h` on each card with data, with `⚠` above 0 and `--` for `null` (`TodayText.mold`, `TodayText.dry`).
+- `TodayReplyTest` parses `tests/fixtures/today_reply_sample.txt` (old header) with `null` hours, a new row with `mold_h` 3 and `dry_h` 0, `null` for empty fields, and `ParseException` for 10 columns and for `dry_h` 7 with hours 5.
+- Validation: the local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.
