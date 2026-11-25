@@ -1747,6 +1747,7 @@ public:
         "slot6_", "slot7_", "slot8_", "slot9_", "slot10_"};
     SpreadMath::Result r;
     SpreadMath::compute(history, r, SpreadMath::freshMask(registry, now_ms, config.staleTimeoutMs()), hours);
+    const SpreadMath::Limits limits = SpreadMath::Limits::fromConfig(config);
     const size_t count = r.count;
     const int32_t hours2 = 2 * static_cast<int32_t>(r.hours);
     char text[1024];
@@ -1762,7 +1763,7 @@ public:
       for (size_t k = 0; k < count; ++k) {
         const int32_t t_dev2 = r.t_dev2[k];
         const int32_t rh_dev2 = r.rh_dev2[k];
-        const bool outlier = SpreadMath::isOutlier(r, k);
+        const bool outlier = SpreadMath::isOutlier(r, k, limits);
         formatTenths(f[0], sizeof(f[0]), divRound(t_dev2, hours2));
         formatTenths(f[1], sizeof(f[1]), divRound(rh_dev2, hours2));
         len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "SENSOR %s temp_dev=%s rh_dev=%s %s\n",

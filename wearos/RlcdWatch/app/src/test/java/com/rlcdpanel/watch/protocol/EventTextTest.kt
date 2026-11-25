@@ -25,6 +25,8 @@ class EventTextTest {
     fun jumpLimitKeysGiveConfigSetTexts() {
         assertEquals("Config set: jump_limit_c (USB)", EventText.describe(row("CONFIG_SET", 99)))
         assertEquals("Config set: jump_limit_rh (BLE)", EventText.describe(row("CONFIG_SET", 0x0100 or 100)))
+        assertEquals("Config set: drift_limit_c (USB)", EventText.describe(row("CONFIG_SET", 101)))
+        assertEquals("Config set: drift_limit_rh (BLE)", EventText.describe(row("CONFIG_SET", 0x0100 or 102)))
     }
 
     @Test

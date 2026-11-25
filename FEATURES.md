@@ -3781,3 +3781,16 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - A failed `EVENTS` read gives no advice and no error text.
 - Tests: unit tests check one advice for 3 drops of slot 4, no advice for 2 drops and for drops older than 24 hours, the proposal and the clamp at 20.0, no advice for `jump_limit_c=0`, the 24-hour boundary, slot details 0 and 11, a missing limit, and no advice for `tests/fixtures/events_reply_sample.txt`.
 - Validation: `scripts/check-protocol-sync.sh` and `scripts/check-protocol-sync.sh --self-test` exit 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
+
+
+## Config keys for the drift check limits
+
+- **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/drift_latch.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `docs/config.example.ini`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigSchema.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigBackup.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigSchema.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigBackup.kt`
+- The user can set the limits of the `SPREAD` check and of the `S` drift badge. This helps for sensors of a lower class, because their readings differ more from the median.
+- `drift_limit_c` sets the temperature limit. The range is 0.3 to 2.0 C in 0.1 C steps. The default is 0.5 C. There is no off value. A value such as 0.2, 2.1 or 0.55 gives a rejected line.
+- `drift_limit_rh` sets the humidity limit. The range is 2.0 to 10.0 %RH in 0.5 %RH steps. The default is 3.0 %RH. There is no off value. A value such as 2.3 gives a rejected line.
+- A sensor is an `OUTLIER` in `SPREAD`, and its `S` badge sets, when its deviation is above one of the two limits. `SpreadMath::Limits` holds both limits in tenths. `SpreadMath::isOutlier` and `SpreadMath::isSettled` take it.
+- The badge releases when both deviations are at or below the limits minus 0.2 C and minus 1.0 %RH. The defaults keep the old release limits 0.3 C and 2.0 %RH. Between the two limits the badge keeps its state.
+- The RTC state holds two bytes at the end of the config trailer, after `jump_limit_rh`: the temperature limit in tenths of a degree (3 to 20) and the humidity limit in tenths of a percent (20 to 100 in steps of 5). The RTC restore rejects any other byte. `KEY_COUNT` is 103 and `STATE_VERSION` is 81.
+- The three `ConfigSchema` copies and the two Kotlin `ConfigBackup` copies list both keys. The Kotlin `EventText` shows both names for `CONFIG_SET`.
+- Tests: host tests check that a deviation of 0.8 C gives `OK` with `drift_limit_c=1.0` and `OUTLIER` with the default. They check that a deviation of 4.0 %RH sets the drift bit with `drift_limit_rh=3.5` and that 2.5 %RH releases it. They check that the defaults give the old set and release results. They reject `drift_limit_c=0.2`, `drift_limit_c=2.1` and `drift_limit_rh=2.3`, and a trailer byte outside the range in the RTC restore. `testConfigExampleTemplateInSync` passes. The schema tests of the three apps cover both keys.

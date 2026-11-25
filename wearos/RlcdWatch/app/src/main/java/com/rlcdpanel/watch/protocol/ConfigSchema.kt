@@ -87,6 +87,8 @@ object ConfigSchema {
         add(e("dry_alert_delay_h", c, "h", "Set the dry air badge only when the newest hourly samples of the tile are also at or below the dry limit. 0 is off. A short dry spell gives no badge."))
         add(e("jump_limit_c", c, "°C", "Hold a packet in the jump guard when it differs by more than this temperature from a stored reading younger than 10 minutes. 0 turns this check off. Raise it for a sensor in the sun or near a heater."))
         add(e("jump_limit_rh", c, "%RH", "Hold a packet in the jump guard when it differs by more than this humidity from a stored reading younger than 10 minutes. 0 turns this check off. With both jump limits 0 the guard is off."))
+        add(e("drift_limit_c", c, "°C", "Set a sensor as drifting (OUTLIER in SPREAD and the S badge) when it deviates by more than this temperature from the median of all sensors. The badge releases 0.2 °C below it. Raise it for sensors of a lower class."))
+        add(e("drift_limit_rh", c, "%RH", "Set a sensor as drifting (OUTLIER in SPREAD and the S badge) when it deviates by more than this humidity from the median of all sensors. The badge releases 1.0 %RH below it. Raise it for sensors of a lower class."))
         add(e("heat_alert_limit_c", c, "°C", "Start the heat alert at this feels-like temperature. 0 is off."))
         add(e("dry_alert_limit_rh", c, "%RH", "Show the dry air badge at or below this humidity. 0 is off."))
         add(e("window_drop_c", c, "°C", "Show the W badge on a tile that falls by this temperature within 15 minutes. 0 is off. The badge ends when the tile rises by half the limit or after 2 hours."))

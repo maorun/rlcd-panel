@@ -98,6 +98,16 @@ class ConfigSchemaTest {
     }
 
     @Test
+    fun driftLimitsHaveNoOffValueAndTheirRanges() {
+        for (ok in listOf("0.3", "0.5", "1.0", "2.0")) assertNull(ok, ConfigSchema.validate("drift_limit_c", ok))
+        for (bad in listOf("0", "0.2", "2.1", "x", "-1")) assertNotNull(bad, ConfigSchema.validate("drift_limit_c", bad))
+        for (ok in listOf("2.0", "3.0", "3.5", "10.0")) assertNull(ok, ConfigSchema.validate("drift_limit_rh", ok))
+        for (bad in listOf("0", "1.9", "10.1", "x", "-1")) assertNotNull(bad, ConfigSchema.validate("drift_limit_rh", bad))
+        assertEquals("0.5", ConfigSchema.entry("drift_limit_c")!!.defaultValue)
+        assertEquals("3.0", ConfigSchema.entry("drift_limit_rh")!!.defaultValue)
+    }
+
+    @Test
     fun valueOutsideTheRangeGivesErrorTextAndNoCommand() {
         assertNotNull(ConfigSchema.validate("wake_interval_s", "29"))
         assertNull(ConfigSchema.validate("wake_interval_s", "30"))

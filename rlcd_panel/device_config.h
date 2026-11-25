@@ -100,6 +100,12 @@ struct DeviceConfig {
   static constexpr uint8_t DEFAULT_JUMP_LIMIT_RH = 25; // same for %RH
   static constexpr uint8_t MIN_JUMP_LIMIT_RH = 10;
   static constexpr uint8_t MAX_JUMP_LIMIT_RH = 50;
+  static constexpr float DEFAULT_DRIFT_LIMIT_C = 0.5f; // SPREAD OUTLIER and the S badge set above this many C of deviation (release 0.2 C below)
+  static constexpr float MIN_DRIFT_LIMIT_C = 0.3f;
+  static constexpr float MAX_DRIFT_LIMIT_C = 2.0f;
+  static constexpr float DEFAULT_DRIFT_LIMIT_RH = 3.0f; // same for %RH (release 1.0 %RH below)
+  static constexpr float MIN_DRIFT_LIMIT_RH = 2.0f;
+  static constexpr float MAX_DRIFT_LIMIT_RH = 10.0f;
   static constexpr uint8_t DEFAULT_WALL_FRSI_PCT = 0; // 0 switches the wall humidity text off
   static constexpr uint8_t MIN_WALL_FRSI_PCT = 50;
   static constexpr uint8_t MAX_WALL_FRSI_PCT = 95;
@@ -195,6 +201,8 @@ struct DeviceConfig {
   uint8_t dry_alert_delay_h = DEFAULT_DRY_ALERT_DELAY_H; // the D badge sets only when the newest N hourly samples of the tile are also at or below dry_alert_limit_rh, 0 = off, else 1..12
   float jump_limit_c = DEFAULT_JUMP_LIMIT_C; // JumpGuard temperature limit in C, 0 = check off, else 3.0..20.0, 0.5 C steps
   uint8_t jump_limit_rh = DEFAULT_JUMP_LIMIT_RH; // JumpGuard humidity limit in %RH, 0 = check off, else 10..50 (both 0 = guard off)
+  float drift_limit_c = DEFAULT_DRIFT_LIMIT_C; // SPREAD OUTLIER and drift badge limit in C, 0.3..2.0 in 0.1 C steps (no off value)
+  float drift_limit_rh = DEFAULT_DRIFT_LIMIT_RH; // same in %RH, 2.0..10.0 in 0.5 %RH steps
   uint8_t mold_alert_delay_h = DEFAULT_MOLD_ALERT_DELAY_H; // ALERT_HUMIDITY rises only when the newest N hourly samples of the tile are also above mold_alert_limit_rh, 0 = off, else 1..12
   int8_t auto_assign_min_rssi = DEFAULT_AUTO_ASSIGN_MIN_RSSI; // a new MAC with a weaker RSSI in dBm gets no free slot, 0 = off, else -100..-40
   uint8_t slot_auto_assign = DEFAULT_SLOT_AUTO_ASSIGN; // 1 = a new MAC takes the first free slot, 0 = only a slot with a fixed MAC (slotN_mac) takes a reading
@@ -248,6 +256,20 @@ struct DeviceConfig {
 
   static bool inRange(float v, float lo, float hi) {
     return v >= lo && v <= hi; // false for NaN
+  }
+
+  // drift_limit_c in tenths of a degree (3 to 20) and drift_limit_rh in tenths of a percent (20 to 100, steps of 5).
+  // The RTC trailer, SpreadMath::Limits and the validity checks share these two conversions.
+  static int driftLimitTenths(float v) { return static_cast<int>(lroundf(v * 10.0f)); }
+  static bool driftLimitCValid(float v) {
+    const int t = driftLimitTenths(v);
+    return inRange(v, MIN_DRIFT_LIMIT_C - 0.001f, MAX_DRIFT_LIMIT_C + 0.001f) && t >= 3 && t <= 20 &&
+           fabsf(v * 10.0f - static_cast<float>(t)) <= 0.001f;
+  }
+  static bool driftLimitRhValid(float v) {
+    const int t = driftLimitTenths(v);
+    return inRange(v, MIN_DRIFT_LIMIT_RH - 0.001f, MAX_DRIFT_LIMIT_RH + 0.001f) && t >= 20 && t <= 100 && t % 5 == 0 &&
+           fabsf(v * 10.0f - static_cast<float>(t)) <= 0.001f;
   }
 
   // True for 1 to 12 characters of A-Z, 0-9, space and '-'.
@@ -344,6 +366,7 @@ struct DeviceConfig {
            (window_drop_c == 0.0f || inRange(window_drop_c, MIN_WINDOW_DROP_C, MAX_WINDOW_DROP_C)) &&
            (jump_limit_c == 0.0f || (inRange(jump_limit_c, MIN_JUMP_LIMIT_C, MAX_JUMP_LIMIT_C) && lroundf(jump_limit_c * 2.0f) == jump_limit_c * 2.0f)) &&
            (jump_limit_rh == 0 || (jump_limit_rh >= MIN_JUMP_LIMIT_RH && jump_limit_rh <= MAX_JUMP_LIMIT_RH)) &&
+           driftLimitCValid(drift_limit_c) && driftLimitRhValid(drift_limit_rh) &&
            inRange(usb_temp_offset_c, MIN_USB_TEMP_OFFSET_C, MAX_USB_TEMP_OFFSET_C) &&
            inRange(rh_offset_pct, MIN_RH_OFFSET_PCT, MAX_RH_OFFSET_PCT) &&
            inRange(rh_gain, MIN_RH_GAIN, MAX_RH_GAIN) &&
@@ -409,6 +432,7 @@ struct DeviceConfig {
            ble_console == d.ble_console && slot_auto_assign == d.slot_auto_assign &&
            auto_assign_min_rssi == d.auto_assign_min_rssi && mold_alert_delay_h == d.mold_alert_delay_h && reception_low_pct == d.reception_low_pct && dry_alert_delay_h == d.dry_alert_delay_h &&
            jump_limit_c == d.jump_limit_c && jump_limit_rh == d.jump_limit_rh &&
+           drift_limit_c == d.drift_limit_c && drift_limit_rh == d.drift_limit_rh &&
            slot_enabled_mask == d.slot_enabled_mask;
   }
 };
@@ -457,7 +481,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 8192;
-  static constexpr size_t KEY_COUNT = 101;
+  static constexpr size_t KEY_COUNT = 103;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -492,6 +516,7 @@ public:
       "slot6_enabled", "slot7_enabled", "slot8_enabled", "slot9_enabled", "slot10_enabled",
       "auto_assign_min_rssi", "window_drop_c", "mold_alert_delay_h",
       "reception_low_pct", "dry_alert_delay_h", "jump_limit_c", "jump_limit_rh",
+      "drift_limit_c", "drift_limit_rh",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -722,6 +747,43 @@ private:
     uint8_t v = 0;
     if (!parseIntIn(s, n, 0, DeviceConfig::MAX_JUMP_LIMIT_RH, v) ||
         (v != 0 && v < DeviceConfig::MIN_JUMP_LIMIT_RH)) {
+      return false;
+    }
+    out = v;
+    return true;
+  }
+
+  // A number on a grid of `steps_per_unit` steps per unit (10 gives 0.1 steps, 2 gives 0.5 steps) inside [lo, hi].
+  // The result sits exactly on the grid. The caller checks it again with the matching DeviceConfig::driftLimit*Valid.
+  static bool parseSteppedIn(const char* s, size_t n, float lo, float hi, float steps_per_unit, float& out) {
+    float v = 0.0f;
+    if (!parseFloatIn(s, n, lo - 0.001f, hi + 0.001f, v)) {
+      return false;
+    }
+    const float steps = static_cast<float>(lroundf(v * steps_per_unit));
+    if (fabsf(v * steps_per_unit - steps) > 0.001f) {
+      return false;
+    }
+    out = steps / steps_per_unit;
+    return true;
+  }
+
+  // drift_limit_c: 0.3 to 2.0 C in 0.1 C steps (the RTC byte holds tenths). No off value.
+  static bool parseDriftLimitC(const char* s, size_t n, float& out) {
+    float v = 0.0f;
+    if (!parseSteppedIn(s, n, DeviceConfig::MIN_DRIFT_LIMIT_C, DeviceConfig::MAX_DRIFT_LIMIT_C, 10.0f, v) ||
+        !DeviceConfig::driftLimitCValid(v)) {
+      return false;
+    }
+    out = v;
+    return true;
+  }
+
+  // drift_limit_rh: 2.0 to 10.0 %RH in 0.5 %RH steps (the RTC byte holds tenths). No off value.
+  static bool parseDriftLimitRh(const char* s, size_t n, float& out) {
+    float v = 0.0f;
+    if (!parseSteppedIn(s, n, DeviceConfig::MIN_DRIFT_LIMIT_RH, DeviceConfig::MAX_DRIFT_LIMIT_RH, 2.0f, v) ||
+        !DeviceConfig::driftLimitRhValid(v)) {
       return false;
     }
     out = v;
@@ -1106,6 +1168,12 @@ private:
     } else if (keyIs(key, key_len, "jump_limit_rh")) {
       index = 100;
       ok = parseJumpLimitRh(val, val_len, cfg.jump_limit_rh);
+    } else if (keyIs(key, key_len, "drift_limit_c")) {
+      index = 101;
+      ok = parseDriftLimitC(val, val_len, cfg.drift_limit_c);
+    } else if (keyIs(key, key_len, "drift_limit_rh")) {
+      index = 102;
+      ok = parseDriftLimitRh(val, val_len, cfg.drift_limit_rh);
     } else if (keyIs(key, key_len, "ble_console")) {
       index = 39;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_BLE_CONSOLE, cfg.ble_console);
@@ -1195,6 +1263,8 @@ public:
     ok = ok && putInt(out, cap, pos, "dry_alert_delay_h", cfg.dry_alert_delay_h);
     ok = ok && putFloat(out, cap, pos, "jump_limit_c", cfg.jump_limit_c);
     ok = ok && putInt(out, cap, pos, "jump_limit_rh", cfg.jump_limit_rh);
+    ok = ok && putFloat(out, cap, pos, "drift_limit_c", cfg.drift_limit_c);
+    ok = ok && putFloat(out, cap, pos, "drift_limit_rh", cfg.drift_limit_rh);
     ok = ok && putInt(out, cap, pos, "ble_broadcast_enabled", cfg.ble_broadcast_enabled);
     ok = ok && putInt(out, cap, pos, "ble_console", cfg.ble_console);
     ok = ok && putInt(out, cap, pos, "slot_auto_assign", cfg.slot_auto_assign);
