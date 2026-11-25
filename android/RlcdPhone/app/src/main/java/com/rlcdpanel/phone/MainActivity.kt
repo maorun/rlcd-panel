@@ -404,7 +404,9 @@ class MainActivity : ComponentActivity() {
             if (showRejects) {
                 RejectsScreen(
                     state = rejectsState,
+                    panelConfig = panelConfig,
                     onRead = { withConsolePermission { readRejects() } },
+                    onFix = { commands -> withConsolePermission { fixReject(commands) } },
                     onBack = { closeRejects() }
                 )
                 BackHandler { closeRejects() }
@@ -638,7 +640,11 @@ class MainActivity : ComponentActivity() {
         if (panelHistory.isReading) panelHistory = PanelHistoryState(message = "Abgebrochen. Erneut lesen.")
         if (eventState.isReading) eventState = EventLogState(message = "Abgebrochen. Erneut lesen.")
         if (recentEventState.isReading) recentEventState = EventLogState(message = "Abgebrochen. Erneut lesen.")
-        if (rejectsState.isReading) rejectsState = RejectsState(message = "Abgebrochen. Erneut lesen.")
+        if (rejectsState.isBusy) {
+            rejectsState = RejectsState(
+                message = if (rejectsState.isFixing) "Abgebrochen. Zustand des Panels unbekannt, erneut lesen." else "Abgebrochen. Erneut lesen."
+            )
+        }
         if (versionState.isBusy) versionState = VersionState(message = "Abgebrochen. Erneut lesen.")
         if (selfTestState.isBusy) selfTestState = SelfTestRunState(message = "Abgebrochen. Erneut starten.")
         if (clockState.isBusy) clockState = ClockState(message = "Abgebrochen. Zustand der Panel-Uhr unbekannt, Read clock tippen")
@@ -1241,20 +1247,49 @@ class MainActivity : ComponentActivity() {
     }
 
     /** Sends `REJECTS` after a tap. A failed CRC-32 or a timeout gives one error text; the command is not repeated. */
-    private fun readRejects() {
+    private fun readRejects(info: String? = null, error: String? = null) {
         stopBleScan()
         lastRejects = null
-        rejectsState = RejectsState(isReading = true)
+        rejectsState = RejectsState(isReading = true, info = info, message = error)
         consoleClient.send("REJECTS") { reply ->
             rejectsState = when (reply) {
                 is ConsoleReply.Frame -> try {
                     val log = RejectsReply.parse(reply.lines)
                     lastRejects = log
-                    RejectsState(rows = log.rows, dropped = log.dropped, loaded = true)
+                    RejectsState(rows = log.rows, dropped = log.dropped, loaded = true, info = info, message = error)
                 } catch (e: ParseException) {
-                    RejectsState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
+                    RejectsState(message = joinTexts(error, "Antwort nicht lesbar: ${e.line.take(80)}"), info = info)
                 }
-                else -> RejectsState(message = BleConsoleClient.errorText(reply))
+                else -> RejectsState(message = joinTexts(error, BleConsoleClient.errorText(reply)), info = info)
+            }
+        }
+    }
+
+    private fun joinTexts(first: String?, second: String): String = if (first == null) second else "$first. $second"
+
+    /** Sends the slot [commands] (`SET slotN_mac=` or `SLOT CLEAR <N>`), then `CONFIG` and `REJECTS` again. */
+    private fun fixReject(commands: List<String>) {
+        stopBleScan()
+        rejectsState = rejectsState.copy(isFixing = true, message = null, info = null)
+        SlotAssignment.run(commands, consoleClient::send) { result ->
+            fun reread() {
+                // A reply that arrives after closeRejects must not open the list again.
+                if (!showRejects) return
+                if (result.ok) readRejects(info = result.summary)
+                else readRejects(error = result.summary)
+            }
+            val frame = result.config
+            if (frame == null) {
+                reread()
+            } else {
+                lifecycleScope.launch {
+                    val info = withContext(Dispatchers.IO) { ConfigCache.store(filesDir, frame, System.currentTimeMillis()) }
+                    if (info != null) {
+                        panelConfig = withContext(Dispatchers.IO) { PanelConfig.load(this@MainActivity) }
+                        configState = ConfigReadState(info = info)
+                    }
+                    reread()
+                }
             }
         }
     }
@@ -1622,7 +1657,7 @@ class MainActivity : ComponentActivity() {
 
     /** Runs [action] after the Bluetooth permissions; the action sends console commands. */
     private fun withConsolePermission(action: () -> Unit) {
-        if (backupState.isBusy || calibState.isBusy || chimeState.isBusy || weekState.isReading || tailState.isReading || daysState.isReading || panelHistory.isReading || eventState.isReading || rejectsState.isReading || finderState.isBusy || setupState.isBusy || slotState.isBusy || alertLimitState.isBusy || configEditorState.isBusy || consoleClient.isRunning) return
+        if (backupState.isBusy || calibState.isBusy || chimeState.isBusy || weekState.isReading || tailState.isReading || daysState.isReading || panelHistory.isReading || eventState.isReading || rejectsState.isBusy || finderState.isBusy || setupState.isBusy || slotState.isBusy || alertLimitState.isBusy || configEditorState.isBusy || consoleClient.isRunning) return
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {

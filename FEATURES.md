@@ -3270,3 +3270,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `ConfigSchema.resetPlan` builds one `SET <key>=<default>` for each changed key through `batch` (fixed schema order, `ble_console` last). A key whose default the console cannot send (an empty name) goes to `skipped` with the reason; the other keys still reset.
 - A dialog lists the commands and asks for a confirmation before the send. `applyConfigEditor` sends `CONFIG` after the batch, then `CONFIG CHANGED` again, so the list is current. A batch that sets `ble_console` or whose closing `CONFIG` fails after a `SET` was sent drops the list instead (the console can end); the user reads it again.
 - Validation: `scripts/check-protocol-sync.sh` passes. The Gradle tests run in GitHub Actions CI (no Android SDK on the local host). The behavior on the phone is not tested.
+
+## Assign and free slots from the Android rejects screen
+
+- `RejectRow.action` gives `RejectAction.ASSIGN` for the reason `UNASSIGNED`, `RejectAction.FREE` for `FULL` and null for `DISABLED`, `JUMP` and `WEAK`. The Wear OS copy of `RejectsReply.kt` has the same code.
+- `SlotConfig.assignRejected(slot, mac, config)` builds `SET slotN_mac=<MAC>` through `SlotConfig.define`. A slot with a fixed MAC, a disabled slot and a MAC that another slot holds give `Plan.Invalid`. `SlotConfig.clearRejected(slot, config)` builds `SLOT CLEAR <N>` and refuses a slot with a fixed MAC. `SlotConfig.freeableSlots(config)` lists the slots without a fixed MAC.
+- `RejectsScreen` shows the menu `Slot zuweisen` (slots 1 to 10; a slot with a fixed MAC shows `feste MAC <MAC>` and a disabled slot shows `deaktiviert`; both cannot be picked; a MAC that a slot holds already switches the menu off) for an `UNASSIGNED` row, and one button `Slot <N> freigeben` for each slot without a fixed MAC for a `FULL` row.
+- `MainActivity.fixReject` sends the commands, then `CONFIG` (the cached config is renewed) and `REJECTS` again. The controls stay off while a command or a read runs and when the cached `ble_console` is not 2.
+- Validation: `scripts/check-protocol-sync.sh` passes. The Gradle tests run in GitHub Actions CI (no Android SDK on the local host). The behavior on the phone is not tested.
