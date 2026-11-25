@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.DriftWatch
+import com.rlcdpanel.phone.protocol.JumpAdvice
 import com.rlcdpanel.phone.protocol.ConfigCache
 import com.rlcdpanel.phone.protocol.ConfigCacheInfo
 import com.rlcdpanel.phone.protocol.AwakeState
@@ -58,7 +59,11 @@ data class SensorHealthState(
     /** The last good `STATUS` reply, for the shared diagnostics report. */
     val status: StatusReply? = null,
     /** `CONFIG` values of the cache when `STATUS` was read: the schedule that `RUNTIME h` was measured with. */
-    val measuredConfig: Map<String, String> = emptyMap()
+    val measuredConfig: Map<String, String> = emptyMap(),
+    /** Advice from the `JUMP_DROP` rows of the event ring; empty without a read or without a need. */
+    val jumpAdvice: List<JumpAdvice> = emptyList(),
+    val jumpBusy: Boolean = false,
+    val jumpMessage: String? = null
 )
 
 /** Cache of the last `CONFIG` read: [info] is null without a cache; [message] tells a failed read. */
@@ -180,6 +185,7 @@ fun SensorHealthScreen(
     onShareReport: () -> Unit = {},
     selfTestState: SelfTestRunState = SelfTestRunState(),
     onRunSelfTest: () -> Unit = {},
+    onApplyJumpAdvice: (JumpAdvice) -> Unit = {},
     onBack: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -319,6 +325,20 @@ fun SensorHealthScreen(
                 }
             }
             rtcTrimState.message?.let { item { Text(it) } }
+            items(state.jumpAdvice, key = { "jump-${it.slot}" }) { advice ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("⚠ ${advice.text(panelConfig.tileName(advice.slot))}", color = MaterialTheme.colorScheme.error)
+                        Button(onClick = { onApplyJumpAdvice(advice) }, enabled = panelConfig.canWrite && !state.jumpBusy) {
+                            Text(if (state.jumpBusy) "Sende…" else "Anwenden")
+                        }
+                        if (!panelConfig.canWrite) {
+                            Text("Set ble_console=2 to apply", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+            }
+            state.jumpMessage?.let { item { Text(it) } }
             if (state.rows.isNotEmpty()) {
                 item {
                     val low = SensorHealthText.isSdLow(state.sdFreeMb)

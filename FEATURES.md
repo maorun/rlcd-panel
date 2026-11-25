@@ -3767,3 +3767,17 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The macOS and Kotlin `WeekReply.parse` accept 7, 8 or 9 columns. The header selects the format: `WeekReply.header` has 9 columns, `moldHeader` (`MOLD_HEADER` in Kotlin) has 8 and `legacyHeader` has 7. `WeekRow.dryHours` is `nil` or `null` for 7 or 8 columns and for an empty field. A value outside 0 to 24, a sign or a non-digit is a bad line.
 - `CsvExport.week` and the Android `WeekCsv` write the new column.
 - Tests: host tests check the field `5` for a day with 5 dry hours, an empty field for a gap day and for limit 0, and the `CRC32` line of `WEEK 2`. A unit test in each app parses `tests/fixtures/week_reply_sample.txt` with the new column. A unit test in each app parses a 7-column and an 8-column reply with `dryHours` empty.
+
+## Jump guard advice in the Android sensor health screen
+
+- **Code:** `android/RlcdPhone/.../protocol/JumpAdvice.kt`, `android/RlcdPhone/.../SensorHealthScreen.kt`, `android/RlcdPhone/.../MainActivity.kt`, `android/RlcdPhone/.../protocol/JumpAdviceTest.kt`.
+- The phone tells the user when the jump guard drops many good readings of one sensor. The advice appears in the sensor health screen.
+- `JumpAdvice.evaluate(rows, config, nowMs)` counts the `JUMP_DROP` rows of each slot in the newest 24 hours of the `EVENTS` reply. A slot with 3 or more drops gives one advice. The detail of the row is the slot number 1 to 10. A row without a valid time does not count.
+- The proposal is `jump_limit_c=<active value + 2.0>`, clamped to 20.0. The active value comes from the cached `CONFIG`. Without a cached value, no advice appears.
+- The panel event ring holds 16 events, and the hourly card write clears it. Only drops since the last write count, so the 24-hour window is an upper bound.
+- No advice appears for `jump_limit_c=0`, for a value that is not a number and for a limit that already is 20.0.
+- After each good `STATUS` read, the screen sends `EVENTS` and shows one card for each advice with the room name and the button `Anwenden`.
+- The app sends `SET jump_limit_c=<value>` and then `CONFIG` only after the tap. The first `ERR` stops the batch. The button is off without `ble_console` 2. The card shows `Set ble_console=2 to apply`.
+- A failed `EVENTS` read gives no advice and no error text.
+- Tests: unit tests check one advice for 3 drops of slot 4, no advice for 2 drops and for drops older than 24 hours, the proposal and the clamp at 20.0, no advice for `jump_limit_c=0`, the 24-hour boundary, slot details 0 and 11, a missing limit, and no advice for `tests/fixtures/events_reply_sample.txt`.
+- Validation: `scripts/check-protocol-sync.sh` and `scripts/check-protocol-sync.sh --self-test` exit 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
