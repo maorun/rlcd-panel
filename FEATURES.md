@@ -3182,3 +3182,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `ArchiveView` shows the coverage and the gap list of the selected climate month above the climate charts. It reads only the rows of the downloaded files and sends no console command.
 - Tests: `LogGapsTests` (11 tests) cover hourly rows, a 3-hour step, the exact 90-minute step, 91 minutes, an empty month, unsorted rows, an unreadable timestamp both daylight saving change nights the rounding of the missing hours and the limit clamp.
 - Validation: `swift build` passes locally; `swift test` does not run locally (no TestingMacros in the Command Line Tools); CI `macOS companion tests` runs it.
+
+## Android daily history screen
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/DaysReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/DaysScreen.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/PhoneDashboardScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/DaysReplyTest.kt`
+- The dashboard button `Tagesverlauf` opens `DaysScreen`. The button `Tage lesen` sends `DAYS <N>` over the BLE console (7, 14 or 31 days) only after a tap. The panel needs USB power, `ble_console` 1 or 2 and a MicroSD card.
+- `DaysReply.parse` reads the reply with the column layout of `SdLogCodec::parseDailyRow` (83 columns: the date, six values for each of 11 sensors, five noise columns, 11 mold hour columns). An empty field gives `null`. A half pair, a bad date, a value outside its range, mold hours above 24, a wrong header, a wrong row count and a wrong column count throw `ParseException`. The mean and noise columns are not read.
+- The room selector shows the sensors that hold a value. One card shows one bar for each day: the temperature range, the humidity range and the mold hours (0 to 24). A day without a value is an empty outline.
+- `ERR NO_CARD`, `ERR NO_FILE` and `ERR READ_FAILED` give a clear German text. The button `CSV teilen` shares one line for each day and sensor with data (`date,sensor,name,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h`).
+- `DaysReply` exists in the phone app only; `scripts/check-protocol-sync.sh` passes.
+- Validation: `DaysReplyTest` reads `tests/fixtures/days_reply_sample.txt` (3 rows) and covers the values, an empty pair, a wrong column count, bad values and framing, the error texts, the CSV and the `CRC32` line. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.

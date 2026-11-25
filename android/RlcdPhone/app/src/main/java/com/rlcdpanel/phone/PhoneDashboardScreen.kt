@@ -98,6 +98,7 @@ fun PhoneDashboardScreen(
     onOpenWeek: () -> Unit = {},
     onOpenToday: () -> Unit = {},
     onOpenTail: () -> Unit = {},
+    onOpenDays: () -> Unit = {},
     onOpenEvents: () -> Unit = {},
     /** Result of the last `EVENTS 3` read of the card `Recent events`. */
     recentEvents: EventLogState = EventLogState(),
@@ -137,6 +138,7 @@ fun PhoneDashboardScreen(
                         onOpenWeek = onOpenWeek,
                         onOpenToday = onOpenToday,
                         onOpenTail = onOpenTail,
+                        onOpenDays = onOpenDays,
                         onOpenEvents = onOpenEvents,
                         onOpenSetup = onOpenSetup
                     )
@@ -226,6 +228,7 @@ private fun StatusHeader(
     onOpenWeek: () -> Unit,
     onOpenToday: () -> Unit,
     onOpenTail: () -> Unit,
+    onOpenDays: () -> Unit,
     onOpenEvents: () -> Unit,
     onOpenSetup: () -> Unit
 ) {
@@ -303,6 +306,14 @@ private fun StatusHeader(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F), contentColor = Color.White)
             ) {
                 Text("Neueste Logzeilen")
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Button(
+                onClick = onOpenDays,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F), contentColor = Color.White)
+            ) {
+                Text("Tagesverlauf")
             }
             Spacer(modifier = Modifier.height(6.dp))
             Button(
