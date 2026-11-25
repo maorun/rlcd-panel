@@ -58,11 +58,12 @@ class ConfigSchemaTest {
     }
 
     @Test
-    fun commentedTemplateKeysHaveAnEmptyDefaultOrAValidOne() {
+    fun commentedTemplateKeysHaveAnEmptyDefault() {
+        assertTrue(commented().isNotEmpty())
         for (key in commented()) {
             val entry = ConfigSchema.entry(key)
             assertNotNull("$key missing in the schema", entry)
-            assertTrue("$key default not valid", entry!!.defaultValue.isEmpty() || ConfigSchema.validate(key, entry.defaultValue) == null)
+            assertEquals("$key default", "", entry!!.defaultValue)
         }
     }
 
@@ -72,6 +73,29 @@ class ConfigSchemaTest {
         assertEquals(macKeys, ConfigSchema.keys)
         assertEquals(ConfigKeys.keys, ConfigSchema.keys)
         assertTrue(ConfigSchema.entries.all { it.description.isNotBlank() })
+    }
+
+    @Test
+    fun rangesMatchTheMacOsSchema() {
+        // Read the ranges from the macOS source, so a change on one side fails this test.
+        val swift = root.resolve("macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift").readText()
+        fun mac(key: String): String = Regex("""e\("$key", \.\w+, (\.[^"]*?), "[^"]*", "[^"]*", "[^"]*"\)""")
+            .find(swift)?.groupValues?.get(1) ?: throw AssertionError("$key not found in ConfigSchema.swift")
+        val samples = listOf(
+            "wake_interval_s", "chime_volume_pct", "mold_alert_limit_rh", "battery_offset_mv", "night_wake_interval_s",
+            "heat_alert_delay_h", "dry_alert_delay_h", "mold_alert_delay_h", "reception_low_pct", "jump_limit_rh"
+        )
+        for (key in samples) {
+            val k = ConfigSchema.entry(key)!!.kind as ConfigKind.Integer
+            val text = mac(key)
+            val range = Regex("""min: (-?\d+), max: (-?\d+)""").find(text)!!.groupValues
+            assertEquals("$key min", range[1].toInt(), k.min)
+            assertEquals("$key max", range[2].toInt(), k.max)
+            assertEquals("$key off", Regex("""off: (-?\d+)""").find(text)?.groupValues?.get(1)?.toInt(), k.off)
+        }
+        val tiles = ConfigSchema.entry("climate_alert_tiles")!!.kind as ConfigKind.BitMask
+        assertEquals(11, tiles.bits)
+        assertTrue(mac("climate_alert_tiles").contains("bitMask(bits: 11)"))
     }
 
     @Test

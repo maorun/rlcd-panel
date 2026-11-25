@@ -365,6 +365,7 @@ struct ConfigSchemaTests {
         for key in ["heat_alert_delay_h", "dry_alert_delay_h", "mold_alert_delay_h"] {
             for ok in ["0", "1", "12"] { #expect(ConfigSchema.validate(key: key, value: ok) == nil, "\(key)=\(ok)") }
             for bad in ["13", "-1", "x"] { #expect(ConfigSchema.validate(key: key, value: bad) != nil, "\(key)=\(bad)") }
+            #expect(ConfigSchema.entries.first { $0.key == key }?.defaultValue == "0", "\(key) default")
         }
     }
 }
