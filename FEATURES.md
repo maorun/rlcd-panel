@@ -3791,6 +3791,17 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - Validation: `scripts/check-protocol-sync.sh` and `scripts/check-protocol-sync.sh --self-test` exit 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
 
 
+## Jump guard advice on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/.../protocol/JumpAdvice.kt`, `wearos/RlcdWatch/.../SensorHealthScreen.kt`, `wearos/RlcdWatch/.../MainActivity.kt`, `wearos/RlcdWatch/.../protocol/JumpAdviceTest.kt`, `scripts/check-protocol-sync.sh`.
+- The watch tells the user when the jump guard drops the readings of one slot. `JumpAdvice` is a port of the Android class with the same rules: key `jump_limit_c`, event `JUMP_DROP`, `MIN_DROPS` 3, `WINDOW_MS` 24 h, `STEP_C` 2.0 and `MAX_C` 20.0. The file is in the shared list of `scripts/check-protocol-sync.sh`.
+- `JumpAdvice.evaluate(rows, config, nowMs)` gives one advice for each slot with 3 or more `JUMP_DROP` rows of the `EVENTS` reply in the newest 24 hours, in slot order. The proposal is `jump_limit_c=<active value + 2.0>`, clamped to 20.0.
+- No advice appears for `jump_limit_c=0`, for a limit at 20.0 C, for a missing or unreadable `jump_limit_c` in the cached `PanelConfig`, for a row without a valid time and for a detail outside slot 1 to 10.
+- After each good `STATUS` read, the sensor health screen sends `EVENTS` and shows one short line for each advice (`advice.text(room)`) and the chip `Anwenden`. The chip is off without `ble_console` 2 and the screen shows `Set ble_console=2 to apply`.
+- The watch sends `SET jump_limit_c=<value>` and then `CONFIG` only after the tap. The first `ERR` stops the batch. The watch sends no automatic command.
+- Tests: unit tests check one advice for 3 drops, none for 2 drops, none for `jump_limit_c=0` and `20.0`, none without a cached limit, an empty time field and detail 11, the proposal `10.0` for a limit of 8.0, and the line text.
+- Validation: `scripts/check-protocol-sync.sh` and `--self-test` exit 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
+
 ## Config keys for the drift check limits
 
 - **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/drift_latch.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `docs/config.example.ini`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigSchema.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigBackup.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigSchema.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigBackup.kt`
