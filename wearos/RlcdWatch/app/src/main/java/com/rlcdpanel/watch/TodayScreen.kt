@@ -1,10 +1,13 @@
 package com.rlcdpanel.watch
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -18,6 +21,7 @@ import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.Card
 import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.ChipDefaults
+import androidx.wear.compose.material.CompactChip
 import androidx.wear.compose.material.MaterialTheme
 import androidx.wear.compose.material.PositionIndicator
 import androidx.wear.compose.material.Scaffold
@@ -32,7 +36,9 @@ data class TodayState(
     val rows: List<TodayRow> = emptyList(),
     val message: String? = null,
     /** True after a reply that parsed; an empty [rows] list then means the panel holds no sensor. */
-    val hasRead: Boolean = false
+    val hasRead: Boolean = false,
+    /** Selected room 0 to 10, or null for all rooms (`Alle`). */
+    val sensor: Int? = null
 )
 
 /** Texts of the today screen. A sensor without a sample since midnight shows `--`. */
@@ -55,6 +61,8 @@ object TodayScreenText {
 @Composable
 fun TodayScreen(
     state: TodayState,
+    roomNames: List<String>,
+    onSelect: (Int?) -> Unit,
     onRead: () -> Unit
 ) {
     val listState = rememberScalingLazyListState()
@@ -69,6 +77,23 @@ fun TodayScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        val options: List<Pair<Int?, String>> = listOf<Pair<Int?, String>>(null to "Alle") +
+                            roomNames.mapIndexed { index, name -> index to name }
+                        options.forEach { (sensor, name) ->
+                            CompactChip(
+                                onClick = { onSelect(sensor) },
+                                enabled = !state.isReading,
+                                colors = if (state.sensor == sensor) ChipDefaults.primaryChipColors() else ChipDefaults.secondaryChipColors(),
+                                label = { Text(name, fontSize = 10.sp, maxLines = 1) }
+                            )
+                        }
+                    }
+                }
                 item {
                     Chip(
                         onClick = onRead,
@@ -101,7 +126,7 @@ fun TodayScreen(
                     }
                 }
                 if (state.hasRead && state.rows.isEmpty() && state.message == null) {
-                    item { Text("Keine Sensoren", fontSize = 11.sp, color = Color(0xFFB0BEC5)) }
+                    item { Text(if (state.sensor == null) "Keine Sensoren" else "Keine Daten für den Raum", fontSize = 11.sp, color = Color(0xFFB0BEC5)) }
                 }
                 items(state.rows) { row ->
                     Card(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth(0.95f)) {

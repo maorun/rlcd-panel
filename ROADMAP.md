@@ -38,12 +38,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test checks the line `HISTORY 4 6`. A unit test checks that sensor 11, hours 0 and hours 25 give no line. A unit test checks that 6 stable rows give `Stable 6/6 h`. A unit test checks the fallback to `HISTORY 4` after `ERR BAD_ARG`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
   - **Rank:** [Total: 25, Use: 3, Setup: 5, Harmony: 7, Safety: 10, Effort: S]
 
-- [ ] Room picker for the Wear OS today screen
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/TodayCommand.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/TodayScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/TodayCommandTest.kt`, `FEATURES.md`
-  - **Goal:** Read the day range of one room with a short BLE reply. Add `TodayCommand.line(sensor: Int?)`. Give `TODAY <N>` for 0 to 10 and `TODAY` for `null`. Throw `IllegalArgumentException` for another number. Add a room chip row to `TodayScreen` with `Alle` and the names from `PanelConfig.tileName`. Send `TODAY` again after `ERR BAD_ARG` from an older firmware. Then keep only the row of the selected room.
-  - **Acceptance:** A unit test checks `TODAY 3` and `TODAY`. A unit test checks that 11 and -1 throw `IllegalArgumentException`. A unit test checks the fallback decision for `ERR BAD_ARG`. A unit test parses `tests/fixtures/today_one_reply_sample.txt`. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 25, Use: 5, Setup: 3, Harmony: 7, Safety: 10, Effort: S]
-
 
 ## Rules for ranking
 
