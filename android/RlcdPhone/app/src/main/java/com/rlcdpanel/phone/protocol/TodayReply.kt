@@ -11,13 +11,19 @@ data class TodayRow(
     val temperatureMeanC: Double?,
     val humidityMinPct: Double?,
     val humidityMaxPct: Double?,
-    val humidityMeanPct: Double?
+    val humidityMeanPct: Double?,
+    /** Hours of the day above the mold limit; null for an empty field and for the old header. */
+    val moldHours: Int? = null,
+    /** Hours of the day at or below the dry limit; null for an empty field and for the old header. */
+    val dryHours: Int? = null
 )
 
 /** Reply of the console command `TODAY`. */
 object TodayReply {
     const val HEADER = "sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct"
+    const val HEADER_V2 = "$HEADER,mold_h,dry_h"
     const val COLUMNS = 9
+    const val COLUMNS_V2 = 11
 
     /** Text of `ERR NO_TIME` (invalid, stopped or untrusted RTC time). */
     const val NO_TIME_TEXT = "Panel clock not set"
@@ -33,23 +39,35 @@ object TodayReply {
     /** Plain digits only; a sign, padding and an empty text give null. */
     private fun unsigned(s: String): Int? = s.takeIf { t -> t.isNotEmpty() && t.all { it in '0'..'9' } }?.toIntOrNull()
 
+    /** Empty gives null; else plain digits not above [hours] (and so not above 24). */
+    private fun hourCount(s: String, hours: Int, line: String): Int? {
+        if (s.isEmpty()) return null
+        val n = unsigned(s) ?: throw ParseException(line)
+        if (n > hours) throw ParseException(line)
+        return n
+    }
+
     /** Text for a status line, or null when the line needs no special text. */
     fun statusText(line: String): String? = if (line.trim() == "ERR NO_TIME") NO_TIME_TEXT else null
 
     /** [lines] hold `BEGIN TODAY`, the header and the rows. A bad line throws [ParseException]. */
     fun parse(lines: List<String>): List<TodayRow> {
         if (lines.firstOrNull() != "BEGIN TODAY") throw ParseException("BEGIN TODAY")
-        if (lines.size < 2 || lines[1] != HEADER) throw ParseException(HEADER)
+        val header = lines.getOrNull(1)
+        if (header != HEADER && header != HEADER_V2) throw ParseException(HEADER)
+        val columns = if (header == HEADER_V2) COLUMNS_V2 else COLUMNS
         val seen = HashSet<Int>()
         return lines.drop(2).map { line ->
             val c = line.split(",")
             val s = c.getOrNull(0)?.let(::unsigned)
             val h = c.getOrNull(2)?.let(::unsigned)
-            if (c.size != COLUMNS || s == null || s !in 0..10 || h == null || h > 24 || !seen.add(s)) throw ParseException(line)
+            if (c.size != columns || s == null || s !in 0..10 || h == null || h > 24 || !seen.add(s)) throw ParseException(line)
             val row = TodayRow(
                 s, c[1], h,
                 number(c[3], line), number(c[4], line), number(c[5], line),
-                number(c[6], line), number(c[7], line), number(c[8], line)
+                number(c[6], line), number(c[7], line), number(c[8], line),
+                if (columns == COLUMNS_V2) hourCount(c[9], h, line) else null,
+                if (columns == COLUMNS_V2) hourCount(c[10], h, line) else null
             )
             val tLo = row.temperatureMinC
             val tHi = row.temperatureMaxC

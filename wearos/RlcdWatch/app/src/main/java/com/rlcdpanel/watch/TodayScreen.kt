@@ -49,6 +49,11 @@ object TodayScreenText {
 
     fun hours(row: TodayRow): String = if (row.hours == 0) "--" else "${row.hours} h"
 
+    /** Mold and dry hours of the day, for example `Mold 3 h · Dry -- h`. */
+    fun moldDry(row: TodayRow): String = "Mold ${count(row.moldHours)} · Dry ${count(row.dryHours)}"
+
+    private fun count(v: Int?): String = if (v == null) "-- h" else "$v h"
+
     /** Minimum, maximum and mean of the temperature, for example `T 13.0 / 17.0 / Ø 15.0 °C`. */
     fun temperature(row: TodayRow): String =
         if (row.hours == 0) "--" else "T ${value(row.temperatureMinC)} / ${value(row.temperatureMaxC)} / Ø ${value(row.temperatureMeanC)} °C"
@@ -133,6 +138,7 @@ fun TodayScreen(
                         Text("${row.name}  ${TodayScreenText.hours(row)}", fontSize = 12.sp, maxLines = 1, color = Color.White)
                         Text(TodayScreenText.temperature(row), fontSize = 10.sp, maxLines = 1)
                         Text(TodayScreenText.humidity(row), fontSize = 10.sp, maxLines = 1)
+                        Text(TodayScreenText.moldDry(row), fontSize = 10.sp, maxLines = 1)
                     }
                 }
             }

@@ -3857,3 +3857,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `DaysReply.parse` accepts the `daily_v6` header and the `daily_v5` header of the `DAYS <N>` reply. Another header throws `ParseError.missingLine`.
 - `DailyChartView` shows the dry hours (0 to 24 h) as a second bar series beside the mold hours of each sensor. Each series has its own color. The chart appears when a sensor has a mold value or a dry value.
 - Tests: `DailyLogTests` parse a `daily_v6` row with 5 dry hours for sensor 2, check `nil` for an empty field, check `[]` for a `daily_v5` file and check `ParseError.badLine` for a row with 93 columns. `DaysReplyTests` parse the `daily_v6` fixture.
+
+## Mold and dry hours of the day on the Wear OS today screen
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/TodayReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/TodayScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/TodayReplyTest.kt`
+- `TodayReply.parse` accepts the old header with 9 columns and the new header with `mold_h,dry_h` (11 columns, `HEADER_V2`). The header selects the column count. `TodayRow.moldHours` and `TodayRow.dryHours` (`Int?`) are null for an empty field and for the old header. `ParseException` for a wrong column count, a bad number and a value above `hours`.
+- `TodayScreen` shows the line `Mold <N> h · Dry <N> h` (`TodayScreenText.moldDry`, `--` for null) below the humidity line of each result card.
+- Tests: `TodayReplyTest` parses the old fixture with null values, a row with `mold_h` 3 and `dry_h` 0, an empty field, 10 columns, a value above `hours` and the line text `Mold 3 h · Dry -- h`.
