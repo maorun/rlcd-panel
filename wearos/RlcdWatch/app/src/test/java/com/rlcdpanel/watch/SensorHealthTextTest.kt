@@ -42,6 +42,18 @@ class SensorHealthTextTest {
     }
 
     @Test
+    fun driftMark() {
+        val latch = StatusReply.parse(fixtureLines()).latch
+        fun row(index: Int) = StatusSensor(index, "A", 20.0, 50.0, 80.0, -60.0, 10.0, "OK", "WOIO", null)
+        assertEquals("${SensorHealthText.WARNING} Sensor drift", SensorHealthText.driftMark(latch, row(1)))
+        assertNull(SensorHealthText.driftMark(latch, row(0)))
+        assertNull(SensorHealthText.driftMark(latch, row(2)))
+        assertNull(SensorHealthText.driftMark(null, row(1)))
+        assertNull(SensorHealthText.driftMark(LatchState(0, 0, 0, 0), row(1)))
+        assertNull(SensorHealthText.driftMark(LatchState(0, 0, 0, 0, drift = 0x7FF), row(11)))
+    }
+
+    @Test
     fun badgeText() {
         val latch = StatusReply.parse(fixtureLines()).latch
         fun row(index: Int) = StatusSensor(index, "A", 20.0, 50.0, 80.0, -60.0, 10.0, "OK", "WOIO", null)

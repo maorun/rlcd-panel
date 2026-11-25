@@ -30,12 +30,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Sensor drift notification on the Wear OS watch
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/DriftWatch.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/DriftWatchTest.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
-  - **Goal:** Tell the user on the wrist which sensor drifts. Copy `DriftWatch.kt` from `android/RlcdPhone` without a change except the `package` line, and add it to `scripts/check-protocol-sync.sh`. Parse the field `drift=` of the `STATUS` line `LATCH` (`null` for older firmware). Show one notification with a short vibration for each rising bit with the sensor name. Show a drift mark beside each flagged sensor in `SensorHealthScreen`. Requires "Sensor drift notification and calibration shortcut in the Android app".
-  - **Acceptance:** `StatusReplyTest` reads `tests/fixtures/status_reply_sample.txt` and gives the `drift` value of the fixture. A missing field gives `null`, and a bad hex value throws `ParseException`. `DriftWatchTest` checks the first read, a rising bit and a falling bit. `scripts/check-protocol-sync.sh` exits 0, and `--self-test` passes. `gradle testDebugUnitTest assembleDebug` passes in `wearos/RlcdWatch`.
-  - **Rank:** [Total: 27, Use: 5, Setup: 6, Harmony: 7, Safety: 9, Effort: S]
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.
