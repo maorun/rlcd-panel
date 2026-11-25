@@ -204,6 +204,7 @@ fun SensorHealthScreen(
     onOpenSalt: () -> Unit = {},
     onOpenSpread: () -> Unit = {},
     onOpenToday: () -> Unit = {},
+    onOpenMold: () -> Unit = {},
     clockState: ClockReadState = ClockReadState(),
     onReadClock: () -> Unit = {},
     chimeState: ChimeTestState = ChimeTestState(),
@@ -272,6 +273,14 @@ fun SensorHealthScreen(
                         modifier = Modifier.fillMaxWidth(0.85f),
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text("Today", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                item {
+                    Chip(
+                        onClick = onOpenMold,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text("Mold (31 days)", fontSize = 12.sp, maxLines = 1) }
                     )
                 }
                 item {
