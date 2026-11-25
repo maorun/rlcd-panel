@@ -46,6 +46,9 @@ jobs:
       - name: Self-test the dump-logs file name pattern
         run: ./scripts/dump-logs.sh --self-test
 
+      - name: Self-test the install-watch-apk target resolution
+        run: ./scripts/install-watch-apk.sh --self-test
+
       - name: Check the protocol sync of the Wear OS and Android sources
         run: |
           ./scripts/check-protocol-sync.sh
