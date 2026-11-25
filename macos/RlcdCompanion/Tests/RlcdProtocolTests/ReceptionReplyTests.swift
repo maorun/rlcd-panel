@@ -56,6 +56,11 @@ import Testing
             "1,\(Self.mac1),,4,2,101101",              // mask longer than scans
             "x,\(Self.mac1),,6,4,101101",              // non-numeric slot
             "-1,\(Self.mac1),,6,4,101101",             // negative slot
+            "01,\(Self.mac1),,6,4,101101",             // leading zero
+            "1,\(Self.mac1),,-0,0,",                   // signed zero
+            "1,\(Self.mac1),,-1,0,",                   // negative scans
+            "1,\(Self.mac1),,6,7,101101",              // received above scans
+            "1,\(Self.mac1),,6,4",                     // short column count
         ]
         for line in bad {
             #expect(throws: ParseError.badLine(line)) { try ReceptionReply.parse(lines: Self.head + [line]) }

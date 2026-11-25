@@ -37,10 +37,10 @@ public struct ReceptionReply: Equatable {
         var seen = Set<Int>()
         for line in lines.dropFirst(2) {
             let c = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
-            guard c.count == 6, let slot = plainInt(c[0]), (1...ReceptionMetrics.slotCount).contains(slot),
+            guard c.count == 6, let slot = strictInt(c[0]), (1...ReceptionMetrics.slotCount).contains(slot),
                   SlotAssignment.isValidMac(c[1]),
-                  let scans = plainInt(c[3]), (0...maxScans).contains(scans),
-                  let received = plainInt(c[4]), (0...scans).contains(received),
+                  let scans = strictInt(c[3]), (0...maxScans).contains(scans),
+                  let received = strictInt(c[4]), (0...scans).contains(received),
                   c[5].utf8.count == scans, c[5].utf8.allSatisfy({ $0 == 0x30 || $0 == 0x31 }) else {
                 throw ParseError.badLine(line)
             }
@@ -50,5 +50,11 @@ public struct ReceptionReply: Equatable {
             rows.append(ReceptionRow(slot: slot, mac: c[1].uppercased(), name: c[2], scans: scans, received: received, cells: cells))
         }
         return ReceptionReply(rows: rows)
+    }
+
+    /// Plain decimal digits without sign or leading zero, like the firmware prints them.
+    private static func strictInt(_ s: String) -> Int? {
+        guard !s.isEmpty, s.utf8.allSatisfy({ $0 >= 0x30 && $0 <= 0x39 }), s == "0" || !s.hasPrefix("0") else { return nil }
+        return Int(s)
     }
 }
