@@ -16125,9 +16125,10 @@ void fillSpread(ClimateHistory& h, size_t sensor, int hours, float temp, float r
   }
 }
 
-std::string spreadOutput(const ClimateHistory& h, const DeviceConfig& cfg = DeviceConfig{}) {
+std::string spreadOutput(const ClimateHistory& h, const DeviceConfig& cfg = DeviceConfig{},
+                         const SwitchBotRegistry& reg = SwitchBotRegistry{}, uint32_t now_ms = 0) {
   FakeSink sink;
-  TestRunner::showSpread(sink, h, cfg);
+  TestRunner::showSpread(sink, h, cfg, reg, now_ms);
   return sink.out;
 }
 } // namespace
@@ -21892,14 +21893,101 @@ void testSensorDriftLatch() {
   assert(ud.drift_tiles == 0x0004 && ud.events.size() == 1 && ud.events.at(0).detail == 0x0102);
   ud.updateDrift(all, t1);
   assert(ud.events.size() == 1);
-  // A tile mask without the flagged tile clears the bit with one event
+  // A tile mask without the flagged tile clears the bit without an event (only 2 sensors count)
   ud.updateDrift(0x0003, t1);
-  assert(ud.drift_tiles == 0 && ud.events.size() == 2 && ud.events.at(1).detail == 0x0002);
+  assert(ud.drift_tiles == 0 && ud.events.size() == 1);
   ud.updateDrift(all, t1);
-  assert(ud.drift_tiles == 0x0004 && ud.events.size() == 3);
+  assert(ud.drift_tiles == 0x0004 && ud.events.size() == 2);
   ud.history = two;
   ud.updateDrift(all, t1);
-  assert(ud.drift_tiles == 0 && ud.events.size() == 3);
+  assert(ud.drift_tiles == 0 && ud.events.size() == 2);
+
+  // A stale slot leaves the check: it does not count in the median and its bit clears without an event
+  {
+    ClimateHistory four;
+    fillSpread(four, 0, 6, 20.0f, 50.0f);
+    fillSpread(four, 1, 6, 20.0f, 50.0f);
+    fillSpread(four, 2, 6, 20.0f, 50.0f);
+    fillSpread(four, 3, 6, 22.0f, 50.0f); // 2.0 C above the others
+    PersistentState sd;
+    sd.history = four;
+    sd.updateDrift(0x000F, t1);
+    assert(sd.drift_tiles == 0x0008 && sd.events.size() == 1 && sd.events.at(0).detail == 0x0103);
+    sd.updateDrift(0x0007, t1); // slot 3 turned stale: no event, bit clear
+    assert(sd.drift_tiles == 0 && sd.events.size() == 1);
+    // the stale slot does not move the median of the three others
+    SpreadMath::Result with_all;
+    SpreadMath::compute(four, with_all, 0x000F);
+    SpreadMath::Result without;
+    SpreadMath::compute(four, without, 0x0007);
+    assert(with_all.count == 4 && without.count == 3 && without.t_med2 == 2 * 6 * 200);
+    // fresh slots keep the old behaviour: the mask only gates the bit as long as the sensor counts
+    PersistentState fresh;
+    fresh.history = four;
+    fresh.updateDrift(0x000F, t1);
+    fresh.updateDrift(0x000F, t1);
+    assert(fresh.drift_tiles == 0x0008 && fresh.events.size() == 1);
+    assert(DriftLatch::update(0, four, 0x000F) == DriftLatch::update(0, four));
+    // a counted tile that converges clears its bit with one event
+    fillSpread(fresh.history, 3, 6, 20.0f, 50.0f);
+    fresh.updateDrift(0x000F, t1);
+    assert(fresh.drift_tiles == 0 && fresh.events.size() == 2 && fresh.events.at(1).detail == 0x0003);
+  }
+
+  // SPREAD skips a stale slot: sensors=3, no SENSOR line, the median stays
+  {
+    ClimateHistory four;
+    fillSpread(four, 0, 6, 20.0f, 50.0f);
+    fillSpread(four, 1, 6, 20.0f, 50.0f);
+    fillSpread(four, 2, 6, 20.0f, 50.0f);
+    fillSpread(four, 3, 6, 22.0f, 50.0f);
+    SwitchBotRegistry reg;
+    for (uint8_t i = 1; i <= 3; ++i) {
+      SwitchBotReading x;
+      x.valid = true;
+      x.mac[5] = i;
+      x.temperature_c = 20.0f;
+      x.humidity_pct = 50;
+      x.updated_ms = i == 3 ? 0 : 3000000;
+      assert(reg.upsert(x));
+    }
+    const DeviceConfig cfg;
+    const uint32_t now = 3000000; // slot 3 is 3000 s old, the limit is 1800 s
+    const std::string stale_out = spreadOutput(four, cfg, reg, now);
+    assert(stale_out.find("SPREAD sensors=3 temp_median=20.0 rh_median=50.0\n") == 0);
+    assert(stale_out.find("slot3") == std::string::npos);
+    assert(stale_out.find("OUTLIER") == std::string::npos);
+    // freshMask: the onboard bit stays, an empty slot counts as fresh (its history is cleared by resetSlot), a stale slot leaves
+    assert((SpreadMath::freshMask(SwitchBotRegistry{}, now, cfg.staleTimeoutMs()) & 1u) != 0);
+    assert(SpreadMath::freshMask(SwitchBotRegistry{}, now, cfg.staleTimeoutMs()) == 0x07FF);
+    assert(SpreadMath::freshMask(reg, now, cfg.staleTimeoutMs()) == 0x07F7); // slot 3 (bit 3) is stale: bits 0 to 10 except bit 3
+    // a clock wrap (updated_ms ahead of now_ms) reads as old, like isStale: slots 1 and 2 leave, slot 3 (updated_ms 0) stays
+    assert(SpreadMath::freshMask(reg, 1000, cfg.staleTimeoutMs()) == 0x07F9);
+    // boundary: a slot exactly at the timeout counts, one millisecond more drops it
+    SwitchBotRegistry edge = reg;
+    SwitchBotReading e3 = reg.slot(2);
+    e3.updated_ms = now - cfg.staleTimeoutMs();
+    assert(edge.upsert(e3));
+    assert(spreadOutput(four, cfg, edge, now).find("SPREAD sensors=4 ") == 0);
+    e3.updated_ms = now - cfg.staleTimeoutMs() - 1;
+    assert(edge.upsert(e3));
+    assert(spreadOutput(four, cfg, edge, now).find("SPREAD sensors=3 ") == 0);
+    // two stale slots of four leave 2 sensors: SKIP
+    SwitchBotReading e2 = reg.slot(1);
+    e2.updated_ms = 0;
+    assert(edge.upsert(e2));
+    assert(spreadOutput(four, cfg, edge, now).find("SKIP sensors=2\n") == 0);
+    // a fresh slot keeps the old behaviour
+    SwitchBotRegistry fresh_reg;
+    for (uint8_t i = 1; i <= 3; ++i) {
+      SwitchBotReading x = reg.slot(i - 1);
+      x.updated_ms = 3000000;
+      assert(fresh_reg.upsert(x));
+    }
+    const std::string fresh_out = spreadOutput(four, cfg, fresh_reg, now);
+    assert(fresh_out.find("SPREAD sensors=4 ") == 0);
+    assert(fresh_out.find("SENSOR slot3 temp_dev=2.0 rh_dev=0.0 OUTLIER\n") != std::string::npos);
+  }
 
   // RTC: round trip and reject rules
   auto reading = [](uint8_t last) {

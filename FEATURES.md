@@ -598,14 +598,24 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 
 - **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/spread_reply_sample.txt`
 - The console command `SPREAD` checks that all sensors read the same values. Put all sensors at one location for 6 hours, then send `SPREAD`.
-- `ClimateHistory::recentSums` adds the newest 6 hourly temperature and humidity samples of one sensor (onboard and slots 1 to 10). A sensor with fewer than 6 samples in one of the two histories does not count. The command does not check the age of the samples: a sensor that stopped sending keeps its old hours and can show as `OUTLIER`.
+- `ClimateHistory::recentSums` adds the newest 6 hourly temperature and humidity samples of one sensor (onboard and slots 1 to 10). A sensor with fewer than 6 samples in one of the two histories does not count. A slot that `SwitchBotRegistry::isStale` reports with `DeviceConfig::staleTimeoutMs()` does not count, because it keeps its old hours: it has no `SENSOR` line and is not in `sensors=` and in the median (`SpreadMath::freshMask`). `SerialConsoleRunner::showSpread` takes the registry and the time.
 - The command calculates the median of the means of the counted sensors for temperature and humidity (the mean of the two middle means for an even count). Integer maths keep the limit checks exact.
 - Reply: `SPREAD sensors=<n> temp_median=<x> rh_median=<x>`, one line `SENSOR <name> temp_dev=<x> rh_dev=<x> <OK|OUTLIER>` for each counted sensor, and the `CRC32` line. `OUTLIER` means a deviation above 0.5 C or above 3.0 %RH; the exact limit is `OK`. The check uses the exact deviation and the printed value rounds to 0.1, so a line with `0.5` can show `OUTLIER`.
 - Each `OUTLIER` line is followed by one proposal line `<temp_key>=<x> <rh_key>=<x>`. The keys are `temp_offset_c` and `rh_offset_pct` for the onboard sensor and `slotN_temp_offset_c` and `slotN_rh_offset_pct` for slots 1 to 10. Each value is the active offset plus the median minus the sensor mean, rounded to 0.1 and clamped to the key range. `OK` sensors have no proposal line, so a reply with only `OK` sensors stays byte-equal to the old reply. The Android and Wear OS parsers read the proposal lines into `SpreadReply.Outcome.Measured.proposals` (see "Apply the SPREAD offset proposals in the Android calibration screen").
 - Fewer than 3 counted sensors give `SKIP sensors=<n>` and the `CRC32` line. Extra text gives `ERR BAD_ARG`.
 - The command reads the RTC copy only. It does not access the card and does not change the state. It runs on USB and on BLE at each `ble_console` level. The RTC layout and `STATE_VERSION` do not change.
 - Host tests cover the parser, the median for an odd and an even count, the limits at the exact value and above it for both quantities, the `SKIP` reply, a sensor with 5 samples, and one reply against `tests/fixtures/spread_reply_sample.txt` (one proposal), the proposal with an active offset, the clamped limits for the onboard and a slot sensor, and the old bytes and `CRC32` line for only `OK` sensors.
+- Host tests also cover four sensors with one stale slot 2.0 C above the others (`sensors=3`, no `SENSOR` line, median unchanged) and a fresh slot with the old reply.
 - Validation on the board: put the sensors together for 6 hours, send `SPREAD` over USB and check the reply and the `CRC32` line.
+
+## Skip stale slots in the console command SPREAD and in the drift latch
+
+- **Code:** `rlcd_panel/drift_latch.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- `SpreadMath::compute` takes one sensor mask (bit 0 onboard, bits 1 to 10 the slots). A sensor outside the mask does not count in `count`, in the medians and in the entries. `SpreadMath::freshMask(registry, now_ms, stale_timeout_ms)` leaves out each slot that `isStale` reports.
+- `SerialConsoleRunner::showSpread` uses the mask: a stale slot has no `SENSOR` line and is not in `sensors=` and in the median. The reply format does not change.
+- `rlcd_panel.ino` removes the stale slots from `drift_tile_mask` before `PersistentState::updateDrift`. `DriftLatch::update` and `updateDrift` count only the tiles in the mask; the bit of a stale tile clears without a `SENSOR_DRIFT` event. A drift that ends this way leaves a set event without a clearing event.
+- The RTC layout and `STATE_VERSION` do not change.
+- Host tests cover four sensors with one stale slot 2.0 C above the others, an unchanged median, a drift bit that clears without an event and a fresh slot with the old behavior.
 
 ## Co-location check in the macOS calibration view
 

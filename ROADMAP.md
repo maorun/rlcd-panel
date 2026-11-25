@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Skip stale slots in the console command SPREAD and in the drift latch
-  - **Location:** `rlcd_panel/drift_latch.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/spread_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Stop false drift reports from a lost sensor. A stale slot keeps its old hourly samples. Thus `SPREAD` and `DriftLatch` mark it as `OUTLIER`. Give `SpreadMath` one sensor mask. Exclude each slot that `SwitchBotRegistry::isStale` reports with `DeviceConfig::staleTimeoutMs()`. Pass the registry and the time to `SerialConsoleRunner::showSpread`. In `rlcd_panel.ino`, remove the stale slots from `drift_tile_mask` before `PersistentState::updateDrift`. A stale slot clears its drift bit without an event. The excluded slot does not count in `sensors=` and in the median. Keep the reply format. Do not change the RTC layout or `STATE_VERSION`.
-  - **Acceptance:** A host test uses four sensors and one stale slot 2.0 C above the others. The reply has `sensors=3` and no `SENSOR` line for the stale slot. A host test checks that the stale slot does not move the median. A host test makes a slot with a drift bit stale. The bit clears without a `SENSOR_DRIFT` event. A host test checks that a fresh slot keeps the old behavior. The host unit tests pass and `arduino-cli compile rlcd_panel` passes.
-  - **Rank:** [Total: 34, Use: 6, Setup: 10, Harmony: 8, Safety: 10, Effort: M]
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 - [ ] Sensor drift badge in the climate tiles
