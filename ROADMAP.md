@@ -19,11 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Hour window argument for the console command SPREAD
-  - **Location:** `rlcd_panel/drift_latch.h`, `rlcd_panel/serial_console.h`, `tests/test_firmware_logic.cpp`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Let the user run a longer co-location check, so short climate changes have less effect on the offset proposals. Add the optional argument `SPREAD <H>` with H from 6 to 24 and no leading zero. Give `SpreadMath::compute` the hour count. Use `2 * H` as the integer scale of the deviation checks. A sensor with fewer than H samples in one history does not count. `SPREAD` without an argument keeps 6 hours. `DriftLatch` keeps 6 hours. Keep the reply format and the stale slot rule. Give `ERR BAD_ARG` for 5, 25, a leading zero, a non-digit and extra text. Do not change the RTC layout or `STATE_VERSION`.
-  - **Acceptance:** A host test fills 24 hourly samples and checks that `SPREAD 24` gives the medians of all 24 hours. A host test checks that `SPREAD` and `SPREAD 6` give the same bytes. A host test checks that a sensor with 12 samples does not count in `SPREAD 24`. A host test checks `ERR BAD_ARG` for `SPREAD 5`, `SPREAD 25`, `SPREAD 06`, `SPREAD 1x` and `SPREAD 6 1`. A host test checks that `DriftLatch` still uses 6 hours. The host unit tests pass and `arduino-cli compile rlcd_panel` passes.
-  - **Rank:** [Total: 34, Use: 6, Setup: 10, Harmony: 8, Safety: 10, Effort: M]
 
 ## Priority 2: Configuration and Control (Score 28–33)
 

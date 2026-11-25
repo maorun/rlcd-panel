@@ -11,7 +11,8 @@ namespace rlcd_panel {
 // Co-location maths shared by the console command SPREAD and DriftLatch, so that both give the same result.
 // All maths run in integers: the sum of the last HOURS tenth samples and its doubled median keep the limit checks exact.
 struct SpreadMath {
-  static constexpr size_t HOURS = 6;
+  static constexpr size_t HOURS = 6;      // default window of SPREAD and the fixed window of DriftLatch
+  static constexpr size_t MAX_HOURS = 24; // longest window of SPREAD <H>
   static constexpr size_t MIN_SENSORS = 3;
   static constexpr int32_t MAX_TEMP_TENTHS = 5;       // OUTLIER above 0.5 C
   static constexpr int32_t MAX_RH_TENTHS = 30;        // OUTLIER above 3.0 %RH
@@ -20,13 +21,14 @@ struct SpreadMath {
   static constexpr size_t MAX_COUNT = ClimateHistory::SLOT_COUNT;
 
   struct Result {
-    size_t count = 0;                 // sensors with HOURS temperature and HOURS humidity samples
+    size_t hours = HOURS;             // window of this result (6 to 24)
+    size_t count = 0;                 // sensors with `hours` temperature and `hours` humidity samples
     size_t sensor_of[MAX_COUNT] = {}; // sensor (0 onboard, 1 to 10 a slot) of each entry
     int32_t t_sum[MAX_COUNT] = {};
     int32_t rh_sum[MAX_COUNT] = {};
     int32_t t_med2 = 0;               // twice the median of t_sum
     int32_t rh_med2 = 0;
-    int32_t t_dev2[MAX_COUNT] = {};   // 2 * sum - median2, in sixths of 0.1 units doubled (divide by 2 * HOURS)
+    int32_t t_dev2[MAX_COUNT] = {};   // 2 * sum - median2, in units of 0.1 / (2 * hours) (divide by 2 * hours)
     int32_t rh_dev2[MAX_COUNT] = {};
     bool enough() const { return count >= MIN_SENSORS; }
   };
@@ -65,15 +67,21 @@ struct SpreadMath {
     return mask;
   }
 
-  // Fills `out` from the RTC histories. The medians and deviations exist only with enough() sensors. A sensor outside
-  // `sensor_mask` does not count: not in `count`, not in the medians, no entry.
-  static void compute(const ClimateHistory& history, Result& out, uint16_t sensor_mask = ALL_SENSORS) {
+  // Fills `out` from the RTC histories over the newest `hours` samples (6 to 24, else 6). The medians and deviations exist
+  // only with enough() sensors. A sensor outside `sensor_mask` or with fewer than `hours` samples in one history does not
+  // count: not in `count`, not in the medians, no entry.
+  static void compute(const ClimateHistory& history, Result& out, uint16_t sensor_mask = ALL_SENSORS,
+                      size_t hours = HOURS) {
     out = Result();
+    if (hours < HOURS || hours > MAX_HOURS) {
+      hours = HOURS;
+    }
+    out.hours = hours;
     for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
       if ((sensor_mask & (1u << i)) == 0) {
         continue;
       }
-      if (history.recentSums(i, HOURS, out.t_sum[out.count], out.rh_sum[out.count])) {
+      if (history.recentSums(i, hours, out.t_sum[out.count], out.rh_sum[out.count])) {
         out.sensor_of[out.count++] = i;
       }
     }
@@ -102,7 +110,7 @@ private:
   static bool exceeds(const Result& r, size_t k, int32_t temp_tenths, int32_t rh_tenths) {
     const int32_t t_abs = r.t_dev2[k] < 0 ? -r.t_dev2[k] : r.t_dev2[k];
     const int32_t rh_abs = r.rh_dev2[k] < 0 ? -r.rh_dev2[k] : r.rh_dev2[k];
-    const int32_t scale = 2 * static_cast<int32_t>(HOURS);
+    const int32_t scale = 2 * static_cast<int32_t>(r.hours);
     return t_abs > temp_tenths * scale || rh_abs > rh_tenths * scale;
   }
 };
