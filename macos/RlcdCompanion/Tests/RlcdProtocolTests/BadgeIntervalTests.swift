@@ -103,12 +103,7 @@ private func date(_ time: String) -> Date { AlertTimeline.parse(time: time)! }
     }
 
     @Test func parsesEventsReplySample() throws {
-        let url = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
-            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
-            .appendingPathComponent("tests/fixtures/events_reply_sample.txt")
-        let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
-            .filter { !$0.hasPrefix("CRC32") }
-        let rows = try EventsReply.parse(lines: lines)
+        let rows = try loadEventsFixture(named: "events_reply_sample.txt")
         let intervals = AlertTimeline.badges(rows: rows, now: now)
         // The sample holds one WINDOW_OPEN set row (0x0101, tile 1) and no clear row. The dropped row precedes
         // the set row, so the start is known.
@@ -118,6 +113,54 @@ private func date(_ time: String) -> Date { AlertTimeline.parse(time: time)! }
         #expect(intervals.first?.isOpen == true)
         #expect(intervals.first?.startUnknown == false)
         #expect(intervals.first?.start == date("2026-11-18 09:22:00"))
+    }
+
+    /// Reads tests/fixtures/badge_events_sample.txt through the `ReplyAssembler`.
+    private func badgeFixtureRows() throws -> [EventRow] { try loadEventsFixture(named: "badge_events_sample.txt") }
+
+    @Test func badgeFixtureIsAcceptedWithItsCrcLine() throws {
+        #expect(try badgeFixtureRows().count == 13)
+    }
+
+    @Test func badgeFixtureWithChangedByteFailsTheCrcCheck() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        var data = try Data(contentsOf: url.appendingPathComponent("tests/fixtures/badge_events_sample.txt"))
+        let index = try #require(data.firstIndex(of: UInt8(ascii: "9")))
+        data[index] = UInt8(ascii: "8")
+        var assembler = ReplyAssembler()
+        let replies = assembler.append(data)
+        #expect(replies.count == 1)
+        if case .frame? = replies.first { Issue.record("a changed byte passed the CRC check") }
+    }
+
+    @Test func badgeFixtureGivesSevenIntervalsWithTilesAndStartFlags() throws {
+        let fixtureNow = date("2026-11-18 12:00:00")
+        let intervals = AlertTimeline.badges(rows: try badgeFixtureRows(), now: fixtureNow)
+        #expect(intervals.map { "\($0.event)\($0.tile)" } == [
+            "SENSOR_DRIFT0", "WINDOW_OPEN1", "WALL_DAMP2", "DRY_AIR3", "DRY_AIR4", "SENSOR_DRIFT6", "SENSOR_DRIFT5"])
+        #expect(intervals.map(\.startUnknown) == [true, false, false, false, false, false, false])
+        #expect(intervals.map(\.isOpen) == [false, false, false, false, false, false, true])
+        // The clear row without a set row starts at the first row with a valid time.
+        #expect(intervals[0].start == date("2026-11-18 09:00:00"))
+        #expect(intervals[0].end == date("2026-11-18 09:45:00"))
+        #expect(intervals.map(\.badge) == ["S", "W", "C", "D", "D", "S", "S"])
+        // Two tiles of the badge D.
+        #expect(intervals.filter { $0.event == "DRY_AIR" }.map(\.tile) == [3, 4])
+    }
+
+    @Test func badgeFixtureOpenIntervalEndsAtInjectedNow() throws {
+        let rows = try badgeFixtureRows()
+        let early = date("2026-11-18 10:30:00")
+        let late = date("2026-11-18 15:00:00")
+        let open1 = AlertTimeline.badges(rows: rows, now: early).filter(\.isOpen)
+        let open2 = AlertTimeline.badges(rows: rows, now: late).filter(\.isOpen)
+        #expect(open1.count == 1)
+        #expect(open1.first?.event == "SENSOR_DRIFT")
+        #expect(open1.first?.tile == 5)
+        #expect(open1.first?.start == date("2026-11-18 10:00:00"))
+        #expect(open1.first?.end == early)
+        #expect(open2.first?.end == late)
     }
 
     @Test func lineShowsBadgeRoomStartEndAndDuration() {
