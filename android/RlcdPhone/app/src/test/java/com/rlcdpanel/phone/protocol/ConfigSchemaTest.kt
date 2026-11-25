@@ -66,6 +66,17 @@ class ConfigSchemaTest {
     }
 
     @Test
+    fun receptionLowPctAcceptsOffAndThirtyToEighty() {
+        assertNull(ConfigSchema.validate("reception_low_pct", "0"))
+        assertNull(ConfigSchema.validate("reception_low_pct", "30"))
+        assertNull(ConfigSchema.validate("reception_low_pct", "80"))
+        assertNotNull(ConfigSchema.validate("reception_low_pct", "29"))
+        assertNotNull(ConfigSchema.validate("reception_low_pct", "81"))
+        assertNotNull(ConfigSchema.validate("reception_low_pct", "x"))
+        assertEquals("50", ConfigSchema.entry("reception_low_pct")!!.defaultValue)
+    }
+
+    @Test
     fun valueOutsideTheRangeGivesErrorTextAndNoCommand() {
         assertNotNull(ConfigSchema.validate("wake_interval_s", "29"))
         assertNull(ConfigSchema.validate("wake_interval_s", "30"))

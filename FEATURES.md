@@ -3398,3 +3398,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The watch stops after 8 hours (`StopReason.TIMEOUT`, checked at each tick), on a lost link or a reply timeout, on an `ERR` reply or an unreadable reply, when the user taps `Beobachtung beenden` or picks another sensor, when the app goes to the background and when the user leaves the screen. The first stop reason stays; a stopped watch ignores later replies.
 - Tests: `SaltProgressTest` reads `tests/fixtures/history_reply_sample.txt` and gives the stable hours of the macOS `SaltProgressTests` rules (sensor 0: 1, sensor 1: 2, sensor 3: 1). It also covers the reset by a span above 1.0 %RH, the inclusive limit, a gap, the stop after 8 hours with the injected clock and the stop by a reply error.
 - Validation: `scripts/check-protocol-sync.sh` passes (`SaltProgress.kt` is phone only). The Gradle tests run in GitHub Actions CI (no Android SDK on the local host). The behavior on a device is not tested.
+
+## Config key reception_low_pct for the weak signal limit
+
+- **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `docs/config.example.ini`, `tests/test_firmware_logic.cpp`, the three `ConfigSchema` files
+- The user sets the reception rate that sets the `R` badge. A far sensor has a low rate and sets a false badge, so the user lowers the limit.
+- The key `reception_low_pct` is 0 (off) or 30 to 80 %, default 50. It is 1 byte at the end of the config trailer, after `mold_alert_delay_h`. `KEY_COUNT` is 98 and `STATE_VERSION` is 77.
+- `PersistentState::recordReceptionChanges(now, limit_pct)` sets the bit of a slot below the limit and releases it at the limit plus 20 %. The default gives the old 50 % and 70 % rules. Value 0 clears each bit without a `RECEPTION_LOW` event.
+- Tests: `testReceptionLowPctConfig` (default, 30, 80, 0, reject of 29, 81 and `x`, RTC round trip), `testReceptionLowPctLatch` (limit 30, default rules, limit 0), `ConfigSchemaTests.rangesMatchFirmwareConstants` and `ConfigSchemaTest.receptionLowPctAcceptsOffAndThirtyToEighty`.

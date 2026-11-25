@@ -255,9 +255,16 @@ struct PersistentState {
   }
 
   // Low reception latch after ReceptionHistory::recordScan. A slot with at least 12 counted scans sets its bit below
-  // 50 % and releases it at 70 % or more; between the two the bit holds. One RECEPTION_LOW event for each change: slot
+  // limit_pct (reception_low_pct, default 50) and releases it at limit_pct + 20 or more; between the two the bit holds.
+  // limit_pct 0 clears each bit without an event. One RECEPTION_LOW event for each change: slot
   // number 1 to 10 in the low byte, high byte 1 low, 0 good again. A slot without a reading loses its bit silently.
-  void recordReceptionChanges(const RtcTime& now) {
+  // The firmware always passes config().reception_low_pct; the default argument only serves the host tests.
+  void recordReceptionChanges(const RtcTime& now, uint8_t limit_pct = DeviceConfig::DEFAULT_RECEPTION_LOW_PCT) {
+    if (limit_pct == 0) {
+      reception_low = 0;
+      return;
+    }
+    const unsigned release_pct = static_cast<unsigned>(limit_pct) + DeviceConfig::RECEPTION_RELEASE_MARGIN_PCT;
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       const uint16_t bit = static_cast<uint16_t>(1u << i);
       if (!registry.slot(i).valid) {
@@ -269,9 +276,9 @@ struct PersistentState {
       bool low = was;
       if (scans >= RECEPTION_LOW_MIN_SCANS) {
         const unsigned got = reception.received(i);
-        if (got * 100u < 50u * scans) {
+        if (got * 100u < static_cast<unsigned>(limit_pct) * scans) {
           low = true;
-        } else if (got * 100u >= 70u * scans) {
+        } else if (got * 100u >= release_pct * scans) {
           low = false;
         }
       }
@@ -634,7 +641,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 76;
+  static constexpr uint8_t STATE_VERSION = 77;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -667,8 +674,8 @@ public:
   static constexpr size_t REJECTS_SIZE = 1 + ConfigRejects::MAX_LINES * 2;
   // The offset arrays keep one entry for each of the slots. Each slot has offset keys.
   // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
-  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, door ref slot, ventilate limit, sensor battery limit, display invert, climate alert tiles (uint16), battery offset (int16), slot release hours, night wake interval (uint16), temperature unit (one byte, 'C' or 'F'), chime repeat hours, heat alert limit, dry alert limit, wall FRSI percent, BLE broadcast enabled, BLE console, USB temperature offset (int8), RH gain and one RH gain for each slot (int8 in 0.002 steps around 1.00), RH offset (float), one temperature offset and one RH offset for each slot (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), slot enabled mask (uint16), the rejected line count and the line numbers of the first four rejected lines (uint16 each), auto assign minimum RSSI (int8).
-  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + (1 + DeviceConfig::SLOT_COUNT) + 2 * DeviceConfig::SLOT_COUNT * 4 + NAMES_SIZE + MACS_SIZE + 1 + 2 + REJECTS_SIZE + 1 + 1;
+  // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, door ref slot, ventilate limit, sensor battery limit, display invert, climate alert tiles (uint16), battery offset (int16), slot release hours, night wake interval (uint16), temperature unit (one byte, 'C' or 'F'), chime repeat hours, heat alert limit, dry alert limit, wall FRSI percent, BLE broadcast enabled, BLE console, USB temperature offset (int8), RH gain and one RH gain for each slot (int8 in 0.002 steps around 1.00), RH offset (float), one temperature offset and one RH offset for each slot (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), slot enabled mask (uint16), the rejected line count and the line numbers of the first four rejected lines (uint16 each), auto assign minimum RSSI (int8), mold alert delay hours, reception low percent.
+  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + (1 + DeviceConfig::SLOT_COUNT) + 2 * DeviceConfig::SLOT_COUNT * 4 + NAMES_SIZE + MACS_SIZE + 1 + 2 + REJECTS_SIZE + 1 + 1 + 1;
   // Header: magic, version, mode, chart sensor, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -1009,6 +1016,7 @@ public:
     }
     out[pos++] = static_cast<uint8_t>(state.config.auto_assign_min_rssi);
     out[pos++] = state.config.mold_alert_delay_h;
+    out[pos++] = state.config.reception_low_pct;
     out[pos++] = static_cast<uint8_t>(state.events.size());
     out[pos++] = static_cast<uint8_t>(state.events.dropped() & 0xFF);
     out[pos++] = static_cast<uint8_t>(state.events.dropped() >> 8);
@@ -1409,6 +1417,7 @@ public:
     }
     s.config.auto_assign_min_rssi = static_cast<int8_t>(data[pos++]);
     s.config.mold_alert_delay_h = data[pos++];
+    s.config.reception_low_pct = data[pos++];
     if ((config_flags & ~1u) != 0 || !s.config.valid() || !rejectsValid(s.config_rejects)) {
       return false; // a corrupt record never reaches the alert limits
     }
