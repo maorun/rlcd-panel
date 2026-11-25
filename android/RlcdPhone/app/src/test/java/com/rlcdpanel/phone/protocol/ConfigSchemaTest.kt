@@ -77,6 +77,17 @@ class ConfigSchemaTest {
     }
 
     @Test
+    fun dryAlertDelayAcceptsOffAndOneToTwelve() {
+        assertNull(ConfigSchema.validate("dry_alert_delay_h", "0"))
+        assertNull(ConfigSchema.validate("dry_alert_delay_h", "1"))
+        assertNull(ConfigSchema.validate("dry_alert_delay_h", "12"))
+        assertNotNull(ConfigSchema.validate("dry_alert_delay_h", "13"))
+        assertNotNull(ConfigSchema.validate("dry_alert_delay_h", "-1"))
+        assertNotNull(ConfigSchema.validate("dry_alert_delay_h", "x"))
+        assertEquals("0", ConfigSchema.entry("dry_alert_delay_h")!!.defaultValue)
+    }
+
+    @Test
     fun valueOutsideTheRangeGivesErrorTextAndNoCommand() {
         assertNotNull(ConfigSchema.validate("wake_interval_s", "29"))
         assertNull(ConfigSchema.validate("wake_interval_s", "30"))
