@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.rlcdpanel.phone.protocol.DriftWatch
 import com.rlcdpanel.phone.protocol.ConfigCache
 import com.rlcdpanel.phone.protocol.ConfigCacheInfo
 import com.rlcdpanel.phone.protocol.AwakeState
@@ -340,6 +341,9 @@ fun SensorHealthScreen(
                                 false to SensorHealthText.nightInterval(state.status?.quiet),
                                 false to SensorHealthText.wakeCause(state.status?.wake)
                             )
+                            if (DriftWatch.isDrifting(state.status?.latch?.drift, 0)) {
+                                Text("⚠ ${DriftWatch.TEXT}: ${panelConfig.tileName(0)}", color = MaterialTheme.colorScheme.error)
+                            }
                             for ((warn, text) in lines) {
                                 Text(
                                     (if (warn) "⚠ " else "") + text,
@@ -357,6 +361,9 @@ fun SensorHealthScreen(
                             "Slot ${row.slot}: ${panelConfig.tileName(row.slot)}${row.badge?.let { " $it" } ?: ""}",
                             style = MaterialTheme.typography.titleMedium
                         )
+                        if (DriftWatch.isDrifting(state.status?.latch?.drift, row.slot)) {
+                            Text("⚠ ${DriftWatch.TEXT}", color = MaterialTheme.colorScheme.error)
+                        }
                         Text(SensorHealthText.rssi(row))
                         Text(SensorHealthText.rate(row))
                         Text(SensorHealthText.battery(row))

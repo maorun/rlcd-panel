@@ -413,6 +413,21 @@ class StatusReplyTest {
     }
 
     @Test
+    fun parsesDriftMask() {
+        val latch = StatusReply.parse(fixtureLines()).latch!!
+        assertEquals(0x002, latch.drift)
+        val old = replace("LATCH ", "LATCH vent=002 dry=000 batlow=008 stale=004").latch!!
+        assertNull(old.drift)
+        for (extra in listOf("drift=800", "drift=", "drift=00g", "drift=1")) {
+            try {
+                replace("LATCH ", "LATCH vent=002 dry=000 batlow=008 stale=004 $extra")
+                fail("expected ParseException for $extra")
+            } catch (e: ParseException) {
+            }
+        }
+    }
+
+    @Test
     fun badWallAndWindowThrow() {
         for (extra in listOf("wall=800", "window=800", "wall=", "window=00g", "wall=1")) {
             try {

@@ -66,6 +66,7 @@ import com.rlcdpanel.phone.protocol.ConfigRestorePlan
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryHistory
+import com.rlcdpanel.phone.protocol.DriftWatch
 import com.rlcdpanel.phone.protocol.WallText
 import com.rlcdpanel.phone.protocol.DiagnosticsReport
 import com.rlcdpanel.phone.protocol.EventCsv
@@ -126,6 +127,7 @@ class MainActivity : ComponentActivity() {
     private val lastObservedAktionen = mutableMapOf<Int, VentilationAction>()
     private val wallWatch = WallWatch()
     private val windowWatch = WindowWatch()
+    private val driftWatch = DriftWatch()
     private var panelConfig by mutableStateOf(PanelConfig())
 
     private var pendingConsoleCommand = CONSOLE_STATUS
@@ -606,6 +608,7 @@ class MainActivity : ComponentActivity() {
                 onSaveLocation = { lat, lon, name -> saveOutdoorLocation(lat, lon, name) }
             )
         }
+        handleCalibrationIntent(intent)
     }
 
     override fun onStart() {
@@ -1405,6 +1408,7 @@ class MainActivity : ComponentActivity() {
         return try {
             val status = StatusReply.parse(reply.lines)
             checkWindowNotifications(status)
+            checkDriftNotifications(status)
             chimeState.copy(
                 isBusy = false, isError = false, muted = status.muted ?: expected,
                 reminder = status.chime?.let { ChimeText.reminder(it) },
@@ -1969,6 +1973,7 @@ class MainActivity : ComponentActivity() {
             is ConsoleReply.Frame -> try {
                 val status = StatusReply.parse(reply.lines)
                 checkWindowNotifications(status)
+                checkDriftNotifications(status)
                 val limit = panelConfig.values["sensor_battery_limit_pct"]?.toDoubleOrNull()
                 SensorHealthState(rows = SensorHealth.rows(status, limit), ntp = status.ntp, sdFreeMb = status.sdFreeMb, reset = status.reset, shtc3 = status.shtc3, memory = status.memory, rtc = status.rtc, noise = status.noise, runtime = status.runtime, awake = status.awake, status = status).also { s ->
                     sourceBadges = s.rows.mapNotNull { r -> r.badge?.let { r.slot to it } }.toMap()
@@ -2183,7 +2188,34 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun postVentilationNotification(title: String, message: String, notificationId: Int) {
+    /** Posts one notification for each drift bit of `LATCH` that rose since the previous `STATUS` read. A tap opens the calibration. */
+    private fun checkDriftNotifications(status: StatusReply) {
+        for (tileIndex in driftWatch.update(status.latch?.drift)) {
+            postVentilationNotification(
+                title = "RLCD Alarm",
+                message = DriftWatch.message(panelConfig.tileName(tileIndex)),
+                notificationId = DriftWatch.notificationId(tileIndex),
+                openCalibration = true
+            )
+        }
+    }
+
+    /** Opens the calibration screen and sends `SPREAD` after a tap on a drift notification. */
+    private fun handleCalibrationIntent(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_CALIBRATION, false) != true) return
+        intent.removeExtra(EXTRA_OPEN_CALIBRATION)
+        showHealth = false
+        showCalib = true
+        withConsolePermission { readSpread() }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleCalibrationIntent(intent)
+    }
+
+    private fun postVentilationNotification(title: String, message: String, notificationId: Int, openCalibration: Boolean = false) {
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -2192,8 +2224,9 @@ class MainActivity : ComponentActivity() {
         }
         val openApp = PendingIntent.getActivity(
             this,
-            0,
-            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
+            notificationId,
+            Intent(this, MainActivity::class.java).addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP)
+                .apply { if (openCalibration) putExtra(EXTRA_OPEN_CALIBRATION, true) },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
@@ -2211,6 +2244,7 @@ class MainActivity : ComponentActivity() {
         const val CHANNEL_ID = "rlcd_ventilation_channel"
         const val MAX_RESTORED_VENTILATION_MS = 6 * 60 * 60 * 1000L
         const val NOTIFICATION_ID_WALL_BASE = 2000
+        const val EXTRA_OPEN_CALIBRATION = "open_calibration"
     }
 }
 

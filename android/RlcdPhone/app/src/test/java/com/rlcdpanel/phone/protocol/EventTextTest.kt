@@ -18,6 +18,16 @@ class EventTextTest {
     }
 
     @Test
+    fun sensorDriftGivesTexts() {
+        assertEquals("Sensor drift (tile 3)", EventText.describe(row("SENSOR_DRIFT", 0x0103)))
+        assertEquals("Sensor drift gone (Onboard)", EventText.describe(row("SENSOR_DRIFT", 0x0000)))
+        assertEquals("SENSOR_DRIFT,523", EventText.describe(row("SENSOR_DRIFT", 0x020B)))
+        assertEquals("Sensor drift (Onboard)", EventText.describe(row("SENSOR_DRIFT", 0x0100)))
+        assertEquals("Sensor drift gone (tile 2)", EventText.describe(row("SENSOR_DRIFT", 2)))
+        assertEquals(EventFilter.Category.SENSORS, EventFilter.category("SENSOR_DRIFT"))
+    }
+
+    @Test
     fun receptionLowGivesWeakAndGood() {
         assertEquals("Slot 3 weak signal", EventText.describe(row("RECEPTION_LOW", 0x0103)))
         assertEquals("Slot 3 signal good", EventText.describe(row("RECEPTION_LOW", 0x0003)))
