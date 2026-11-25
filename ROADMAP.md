@@ -40,11 +40,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Clearing drift event for a stale slot
-  - **Location:** `rlcd_panel/power_manager.h`, `rlcd_panel/drift_latch.h`, `tests/test_firmware_logic.cpp`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Close each `SENSOR_DRIFT` event pair in the event log. Now a drifting slot that goes stale loses its bit without an event. The log then shows an open drift without an end. Change `PersistentState::updateDrift` to record one `SENSOR_DRIFT` event with high byte 0 for this case. Record nothing for a stale slot without a drift bit. Keep the rules for `resetSlot`, a power-on and fewer than 3 sensors. Do not change the RTC layout or `STATE_VERSION`.
-  - **Acceptance:** A host test checks that a drifting slot that goes stale records one event with detail `0x00<slot>`. A host test checks that a stale slot without a drift bit records nothing. A host test checks that `resetSlot` still records nothing. A host test checks that fewer than 3 sensors still clear each bit without an event. The host unit tests and `arduino-cli compile rlcd_panel` pass.
-  - **Rank:** [Total: 27, Use: 4, Setup: 6, Harmony: 8, Safety: 9, Effort: S]
 
 ## Rules for ranking
 

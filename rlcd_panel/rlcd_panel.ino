@@ -1000,7 +1000,7 @@ void refreshSensors() {
       drift_tile_mask = static_cast<uint16_t>(drift_tile_mask | (2u << i));
     }
   }
-  // A stale slot keeps its old hourly samples: it leaves the drift check and its bit clears without an event.
+  // A stale slot keeps its old hourly samples: it leaves the drift check and its bit clears; `updateDrift` records the closing event.
   // SPREAD uses the same rule (SpreadMath::freshMask).
   drift_tile_mask = static_cast<uint16_t>(drift_tile_mask & SpreadMath::freshMask(calibrated, nowMs(), config().staleTimeoutMs()));
   g_state.updateDrift(drift_tile_mask, g_rtc_time);
