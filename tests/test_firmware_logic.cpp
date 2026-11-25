@@ -912,7 +912,7 @@ void testBatteryOffsetMv() {
   bad[pos] = 0xD3; bad[pos + 1] = 0xFE; // -301 mV
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 33; // old state version without the offset
   seal();
@@ -1352,7 +1352,7 @@ void testComfortZone() {
   assert(memcmp(ok_fb.data(), cold_fb.data(), RLCD_BUFFER_SIZE) != 0);
 
   // No RTC state change
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
 }
 
 void testAbsHumidityStats() {
@@ -1381,7 +1381,7 @@ void testAbsHumidityStats() {
   assert(strcmp(text, "AH 8.6G") == 0);
   DashboardView::formatAbsHumidity(text, sizeof(text), SwitchBotReading{}, now);
   assert(strcmp(text, "AH --") == 0);
-  assert(PowerManager::STATE_VERSION == 78); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 79); // no RTC state change
 
   // Rendering: right edge at x = 392, line y + 54, no overlap with the widest record text
   BatteryReading battery;
@@ -1629,7 +1629,7 @@ void testFeelsLikeStats() {
   DashboardView::renderSensorStats(dashed, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
                                    nullptr, &config);
   assert(memcmp(fb.data(), dashed.data(), RLCD_BUFFER_SIZE) != 0);
-  assert(PowerManager::STATE_VERSION == 78); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 79); // no RTC state change
 }
 
 void testReceptionStats() {
@@ -1868,7 +1868,7 @@ void testMoldHoursStats() {
     }
     assert(i == 2 ? !differs : differs); // empty slot shows "MOLD --" in both renders
   }
-  assert(PowerManager::STATE_VERSION == 78); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 79); // no RTC state change
 }
 
 void testDashboardStatsDryHours() {
@@ -1989,7 +1989,7 @@ void testDashboardStatsDryHours() {
       assert(plain.getPixel(x, y) == plain_off.getPixel(x, y)); // nullptr config and limit 0 draw no DRY text
     }
   }
-  assert(PowerManager::STATE_VERSION == 78); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 79); // no RTC state change
 }
 
 void testDashboardClimateLine() {
@@ -2345,7 +2345,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -3243,7 +3243,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -3886,7 +3886,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -5818,7 +5818,7 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6645,7 +6645,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6852,7 +6852,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -7042,7 +7042,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -9076,7 +9076,7 @@ void testStatsPageRenderAndState() {
   assert(memcmp(a.data(), base.data(), St7305Framebuffer::BYTE_COUNT) != 0);
 
   // RTC state: the page byte round-trips, 2 is rejected, and the old version 50 is rejected
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   PersistentState st;
   st.stats_page = 1;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -9144,7 +9144,7 @@ void testClimateChartKeyHandling() {
 }
 
 void testClimateChartRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   PersistentState s;
   s.mode = DisplayMode::CLIMATE_CHART;
   s.chart_sensor = 5;
@@ -9309,7 +9309,7 @@ void testWeekHistoryStoresPreviousDayAtMidnight() {
   assert(WeekHistory::decodeTemperature(WeekHistory::encodeTemperature(-35)) == -35);
   assert(WeekHistory::encodeTemperature(-5000) != WeekHistory::GAP && WeekHistory::encodeTemperature(5000) != WeekHistory::GAP);
   assert(WeekHistory::encodeHumidity(605) == 121 && WeekHistory::encodeHumidity(2000) == 200);
-  assert(WeekHistory::SERIALIZED_SIZE == 11 * 7 * 5 + 5);
+  assert(WeekHistory::SERIALIZED_SIZE == 11 * 7 * 6 + 5);
 
   const ClimateHistory history = weekKnownHistory();
   WeekHistory week;
@@ -9355,6 +9355,110 @@ void testWeekHistoryStoresMoldHours() {
   // clear() resets the counts of a sensor
   week.clear(1);
   assert(!week.hasMoldHours(1, 1));
+}
+
+// A 24-hour history for sensor 2 with 5 samples at 30.0 and 19 samples at 50.0 %RH.
+ClimateHistory weekDryHistory() {
+  ClimateHistory h;
+  for (int i = 0; i < 24; ++i) {
+    h.slots[2].pushPercent(i < 5 ? 30.0f : 50.0f);
+  }
+  return h;
+}
+
+void testWeekHistoryStoresDryHours() {
+  assert(WeekHistory::SERIALIZED_SIZE == 11 * 7 * 6 + 5);
+  const ClimateHistory history = weekDryHistory();
+  WeekHistory week;
+  assert(week.advance(weekTime(2026, 11, 14), history, true, WeekHistory::ALL_SENSORS, 70, 35));
+  assert(week.advance(weekTime(2026, 11, 15), history, true, WeekHistory::ALL_SENSORS, 70, 35));
+  // 5 samples at or below 35 %RH give 5 hours
+  assert(week.hasDryHours(2, 0) && week.dryHours(2, 0) == 5);
+  // A sensor without samples (gap day) stores the gap marker
+  assert(!week.hasDryHours(0, 0) && week.dryHours(0, 0) == 0);
+  assert(!week.hasDryHours(1, 0));
+  // The limit counts at or below: 30.0 %RH at limit 30 gives 5 hours, limit 29 gives 0 hours
+  assert(week.advance(weekTime(2026, 11, 16), history, true, WeekHistory::ALL_SENSORS, 70, 30));
+  assert(week.hasDryHours(2, 0) && week.dryHours(2, 0) == 5);
+  assert(week.advance(weekTime(2026, 11, 17), history, true, WeekHistory::ALL_SENSORS, 70, 29));
+  assert(week.hasDryHours(2, 0) && week.dryHours(2, 0) == 0);
+  // The shift moves the count with the day
+  assert(week.dryHours(2, 1) == 5 && week.dryHours(2, 2) == 5);
+  // Limit 0 (off) stores the gap marker, while the mold hours stay
+  WeekHistory off;
+  assert(off.advance(weekTime(2026, 11, 14), history, true, WeekHistory::ALL_SENSORS, 70, 0));
+  assert(off.advance(weekTime(2026, 11, 15), history, true, WeekHistory::ALL_SENSORS, 70, 0));
+  assert(!off.hasDryHours(2, 0) && off.hasMoldHours(2, 0));
+  // The default argument is the off state
+  WeekHistory defaulted;
+  assert(defaulted.advance(weekTime(2026, 11, 14), history, true));
+  assert(defaulted.advance(weekTime(2026, 11, 15), history, true));
+  assert(!defaulted.hasDryHours(2, 0));
+  // A day without a humidity pair keeps no dry hours
+  WeekHistory manual;
+  manual.setDay(3, 0, true, 100, 200, false, 0, 0, WeekHistory::GAP, 7);
+  assert(!manual.hasDryHours(3, 0));
+  manual.setDay(3, 1, true, 100, 200, true, 400, 600, WeekHistory::GAP, 25);
+  assert(!manual.hasDryHours(3, 1)); // above 24 is the gap marker
+  manual.setDay(3, 2, true, 100, 200, true, 400, 600, 2, 24);
+  assert(manual.hasDryHours(3, 2) && manual.dryHours(3, 2) == 24 && manual.moldHours(3, 2) == 2);
+  // The count survives the serialization
+  uint8_t block[WeekHistory::SERIALIZED_SIZE];
+  week.serialize(block);
+  WeekHistory back;
+  assert(back.restore(block) && back.dryHours(2, 1) == 5 && !back.hasDryHours(0, 0));
+  // swapSensors swaps the dry bytes with the mold bytes
+  week.swapSensors(2, 4);
+  assert(week.hasDryHours(4, 1) && week.dryHours(4, 1) == 5 && !week.hasDryHours(2, 1));
+  // clear() resets the counts of a sensor
+  week.clear(4);
+  assert(!week.hasDryHours(4, 1));
+}
+
+void testWeekHistoryRestoreChecksDryHours() {
+  const ClimateHistory history = weekDryHistory();
+  WeekHistory week;
+  assert(week.advance(weekTime(2026, 11, 14), history, true, WeekHistory::ALL_SENSORS, 70, 35));
+  assert(week.advance(weekTime(2026, 11, 15), history, true, WeekHistory::ALL_SENSORS, 70, 35));
+  uint8_t good[WeekHistory::SERIALIZED_SIZE];
+  week.serialize(good);
+  const size_t dry_base = WeekHistory::SENSORS * WeekHistory::DAYS * (WeekHistory::DAY_SIZE + 1);
+  WeekHistory out;
+  uint8_t bad[WeekHistory::SERIALIZED_SIZE];
+  // 25 hours are rejected
+  memcpy(bad, good, sizeof(bad));
+  bad[dry_base + 2 * WeekHistory::DAYS + 0] = 25;
+  assert(!out.restore(bad));
+  // 24 hours are accepted
+  bad[dry_base + 2 * WeekHistory::DAYS + 0] = 24;
+  assert(out.restore(bad) && out.dryHours(2, 0) == 24);
+  // A value beside a gap humidity pair (sensor 0, day 0) is rejected
+  memcpy(bad, good, sizeof(bad));
+  assert(bad[(0 * WeekHistory::DAYS + 0) * WeekHistory::DAY_SIZE + 2] == WeekHistory::GAP);
+  bad[dry_base + 0] = 3;
+  assert(!out.restore(bad));
+  // Without a stamp a day with a dry byte is rejected too
+  memcpy(bad, good, sizeof(bad));
+  for (size_t i = WeekHistory::SERIALIZED_SIZE - WeekHistory::STAMP_SIZE; i < WeekHistory::SERIALIZED_SIZE; ++i) {
+    bad[i] = 0;
+  }
+  assert(!out.restore(bad));
+  // A fresh week round-trips with all dry bytes as gaps
+  WeekHistory fresh;
+  uint8_t stampless[WeekHistory::SERIALIZED_SIZE];
+  fresh.serialize(stampless);
+  assert(out.restore(stampless) && !out.hasDryHours(2, 0));
+  // The RTC restore from daily rows keeps the dry hours as gaps (the daily file has no column)
+  WeekHistory from_rows;
+  WeekHistory::RestoreRow row;
+  row.day = NtpTime::daysFromCivil(2026, 11, 14);
+  row.temp_mask = row.rh_mask = 1;
+  row.temp_min[0] = 100;
+  row.temp_max[0] = 200;
+  row.rh_min[0] = 400;
+  row.rh_max[0] = 600;
+  assert(from_rows.restore(&row, 1, weekTime(2026, 11, 15)) == 1);
+  assert(from_rows.hasHumidity(0, 0) && !from_rows.hasDryHours(0, 0));
 }
 
 void testWeekHistoryShiftsAndKeepsGaps() {
@@ -9481,7 +9585,7 @@ void testWeekHistoryInvalidTimeSkipsShift() {
 }
 
 void testWeekChartRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   const ClimateHistory history = weekKnownHistory();
   PersistentState s;
   s.mode = DisplayMode::WEEK_CHART;
@@ -9717,6 +9821,90 @@ void testWeekChartMoldSum() {
     DashboardView::renderMode(c2, mode, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info,
                               "12:00", 0, nullptr, nullptr, nullptr, &without_mold);
     assert(memcmp(c1.data(), c2.data(), St7305Framebuffer::BYTE_COUNT) == 0);
+  }
+}
+
+void testWeekChartDrySum() {
+  char out[16];
+  WeekHistory w;
+  DashboardView::formatWeekDry(w, 1, out, sizeof(out));
+  assert(out[0] == '\0');
+  // Days of 3, 4 and 5 h give 12 h; a gap day adds nothing
+  w.setDay(1, 0, true, 100, 200, true, 400, 600, WeekHistory::GAP, 3);
+  w.setDay(1, 1, true, 100, 200, true, 400, 600, WeekHistory::GAP, 4);
+  w.setDay(1, 2, true, 100, 200, true, 400, 600, WeekHistory::GAP, 5);
+  w.setDay(1, 3, true, 100, 200, true, 400, 600);
+  DashboardView::formatWeekDry(w, 1, out, sizeof(out));
+  assert(strcmp(out, "DRY 12H") == 0);
+  WeekHistory full;
+  for (size_t d = 0; d < WeekHistory::DAYS; ++d) {
+    full.setDay(1, d, true, 100, 200, true, 400, 600, 24, 24);
+  }
+  DashboardView::formatWeekDry(full, 1, out, sizeof(out));
+  assert(strcmp(out, "DRY 168H") == 0);
+  DashboardView::formatWeekDry(full, 0, out, sizeof(out));
+  assert(out[0] == '\0');
+  DashboardView::formatWeekDry(full, 99, out, sizeof(out));
+  assert(out[0] == '\0');
+
+  // Rendered label line: range, mold sum and dry sum, inside CHART_W
+  Shtc3Reading onboard;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  BatteryReading battery;
+  SystemInfo info;
+  info.chart_sensor = 1;
+  WeekHistory without_dry;
+  for (size_t d = 0; d < WeekHistory::DAYS; ++d) {
+    without_dry.setDay(1, d, true, 100, 200, true, 400, 550, 24);
+  }
+  St7305Framebuffer a;
+  St7305Framebuffer b;
+  a.clear(false);
+  b.clear(false);
+  DashboardView::renderMode(a, DisplayMode::WEEK_CHART, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info,
+                            "12:00", 0, nullptr, nullptr, nullptr, &full);
+  DashboardView::renderMode(b, DisplayMode::WEEK_CHART, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info,
+                            "12:00", 0, nullptr, nullptr, nullptr, &without_dry);
+  assert(memcmp(a.data(), b.data(), St7305Framebuffer::BYTE_COUNT) != 0);
+  WeekHistory both;
+  for (size_t d = 0; d < WeekHistory::DAYS; ++d) {
+    both.setDay(1, d, true, 100, 200, true, 400, 550, 24, 24);
+  }
+  St7305Framebuffer c;
+  c.clear(false);
+  DashboardView::renderMode(c, DisplayMode::WEEK_CHART, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info,
+                            "12:00", 0, nullptr, nullptr, nullptr, &both);
+  St7305Framebuffer expected;
+  expected.clear(false);
+  expected.drawText(DashboardView::CHART_X, DashboardView::CHART_HUMIDITY_LABEL_Y,
+                    "HUMIDITY MIN 40.0 MAX 55.0 %  MOLD 168H  DRY 168H", 1, true);
+  size_t right_ink = 0;
+  for (uint16_t y = DashboardView::CHART_HUMIDITY_LABEL_Y; y < DashboardView::CHART_HUMIDITY_LABEL_Y + 7; ++y) {
+    for (uint16_t x = DashboardView::CHART_X; x < DashboardView::CHART_X + DashboardView::CHART_W; ++x) {
+      assert(c.getPixel(x, y) == expected.getPixel(x, y));
+    }
+    for (uint16_t x = DashboardView::CHART_X + DashboardView::CHART_W; x < RLCD_WIDTH; ++x) {
+      right_ink += c.getPixel(x, y) ? 1 : 0;
+    }
+  }
+  assert(right_ink == 0);
+  // The widest label (100.0 %RH range) stays inside the box
+  WeekHistory wide;
+  for (size_t d = 0; d < WeekHistory::DAYS; ++d) {
+    wide.setDay(1, d, true, 100, 200, true, 0, 1000, 24, 24);
+  }
+  St7305Framebuffer w2;
+  w2.clear(false);
+  DashboardView::renderMode(w2, DisplayMode::WEEK_CHART, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info,
+                            "12:00", 0, nullptr, nullptr, nullptr, &wide);
+  St7305Framebuffer expected_wide;
+  expected_wide.clear(false);
+  expected_wide.drawText(DashboardView::CHART_X, DashboardView::CHART_HUMIDITY_LABEL_Y,
+                         "HUMIDITY MIN 0.0 MAX 100.0 %  MOLD 168H  DRY 168H", 1, true);
+  for (uint16_t y = DashboardView::CHART_HUMIDITY_LABEL_Y; y < DashboardView::CHART_HUMIDITY_LABEL_Y + 7; ++y) {
+    for (uint16_t x = DashboardView::CHART_X; x < DashboardView::CHART_X + DashboardView::CHART_W; ++x) {
+      assert(w2.getPixel(x, y) == expected_wide.getPixel(x, y));
+    }
   }
 }
 
@@ -11599,7 +11787,7 @@ void testChimeRepeat() {
   assert(AlertEvaluator::repeatableBits(static_cast<uint8_t>(ALERT_FREEZER | ALERT_CHARGE_FULL)) == ALERT_FREEZER);
 
   // RTC round trip: stamp, key and state version
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   PersistentState st;
   st.last_chime_ms = 0xFFFFFF00u;
   st.config.chime_repeat_h = 24;
@@ -11743,7 +11931,7 @@ void testSlotRelease() {
   bad[pos] = 169;
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 34; // old state version without the key
   seal();
@@ -11854,7 +12042,7 @@ void testNightWakeInterval() {
   bad[pos] = 0x09; bad[pos + 1] = 0x07; // 1801 s: above range
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 35; // old state version without the key
   seal();
@@ -13633,7 +13821,7 @@ void testAwakeStatsStatusLine() {
 }
 
 void testAwakeStatsRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   assert(PowerManager::AWAKE_SIZE == 6);
   PersistentState s;
   for (int i = 0; i < 9; ++i) s.awake.record(4000 + 100 * static_cast<uint32_t>(i));
@@ -13694,7 +13882,7 @@ void testAwakeStatsRtcRoundTrip() {
 }
 
 void testShtc3RtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   PersistentState s;
   s.shtc3.nack = 513;
   s.shtc3.short_reads = 65535;
@@ -15745,7 +15933,7 @@ void testRejectLogState() {
   bad[base + 2 * RejectLog::ENTRY_SIZE] = 1; // unused entry with a stray byte
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
 }
 
 void testRejectLogMixedReasonMerge() {
@@ -19720,7 +19908,7 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
 
   // A valid checksum with the same MAC in two keys is rejected
   const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 1 - 1 - 1 - 1 - PowerManager::REJECTS_SIZE - 2 - 1 - PowerManager::MACS_SIZE;
@@ -20677,7 +20865,7 @@ void testSensorBatteryLatchRtcRoundTrip() {
     }
   }
   // The version is increased
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   // Corrupt records: latch bit above bit 4, flag byte above 7, limit above 50, old version
   st.sensor_battery_latch = 1;
   st.alert_mask = ALERT_NONE;
@@ -20900,7 +21088,7 @@ void testSensorStaleMinConfig() {
 
   // RTC round trip, corrupt values and the version bump
   PersistentState st;
-  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 78);
+  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 79);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(5), uint16_t(30), uint16_t(240)}) {
@@ -20985,7 +21173,7 @@ void testDisplayInvert() {
 
   // RTC round trip, corrupt value and version bump
   PersistentState st;
-  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 78);
+  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 79);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(1)}) {
@@ -21124,7 +21312,7 @@ void testClimateAlertTiles() {
 
   // RTC round trip, corrupt value and the old state version
   PersistentState st;
-  assert(st.config.climate_alert_tiles == 2047 && PowerManager::STATE_VERSION == 78);
+  assert(st.config.climate_alert_tiles == 2047 && PowerManager::STATE_VERSION == 79);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(0), uint16_t(5), uint16_t(63), uint16_t(2047)}) {
@@ -21345,7 +21533,7 @@ void testSdCardStatus() {
   assert(sample.substr(crc_at) == std::string("CRC32 ") + crc_text + "\n");
 
   // RTC round trip, a corrupt status byte and the old state version
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   PersistentState st;
   st.setSdStatus(SdStatus::FULL, 4242);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -21403,7 +21591,7 @@ void testSdCardStatus() {
 }
 
 void testEventLog() {
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   const RtcTime t1 = localTime(2026, 11, 14, 9, 30);
   const RtcTime bad_time{}; // invalid
   // Empty ring and one event
@@ -22150,7 +22338,7 @@ void testWallDryAirEvents() {
 
 void testSensorDriftLatch() {
   static_assert(static_cast<uint8_t>(EventCode::SENSOR_DRIFT) == 26, "SENSOR_DRIFT is event 26");
-  assert(EventRing::MAX_CODE == 26 && PowerManager::STATE_VERSION == 78);
+  assert(EventRing::MAX_CODE == 26 && PowerManager::STATE_VERSION == 79);
   assert(std::string(SdLogCodec::eventName(EventCode::SENSOR_DRIFT)) == "SENSOR_DRIFT");
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 25; t1.hour = 9; t1.minute = 0; t1.second = 0;
@@ -22477,7 +22665,7 @@ void testSensorDriftLatch() {
 
 void testWindowLatchRtcRoundTrip() {
   PersistentState st;
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   assert(st.config.window_drop_c == 0.0f && st.window_tiles == 0 && st.window_anchors.ref[0] == WindowLatch::NO_REF);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState r;
@@ -22751,7 +22939,7 @@ void testWallLatchLogic() {
 }
 
 void testWallTilesRtcAndPreview() {
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   PersistentState st;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   st.wall_tiles = 0x403;
@@ -23170,7 +23358,7 @@ void testDriftBadge() {
 
 void testScanFaultEvents() {
   assert(static_cast<uint8_t>(EventCode::SCAN_FAULT) == 21 && EventRing::MAX_CODE == 26);
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   RtcTime t;
   t.valid = true;
   t.year = 2026;
@@ -23839,7 +24027,7 @@ void testTempUnitRtcRoundTrip() {
   // The unit byte follows the night wake interval in the config trailer
   const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   assert(buf[cfg_pos + 36] == 'C');
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
 }
 
 // ---- BLE telemetry broadcast (BleTelemetryCodec, ble_broadcast_enabled) ----
@@ -24288,7 +24476,7 @@ void testBleBroadcastRtcRoundTrip() {
   bad[4] = 43; // old state version without the key
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
 }
 
 
@@ -24396,7 +24584,7 @@ void testBleConsoleRtcRoundTrip() {
   bad[4] = 44; // old state version without the key
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
 }
 
 void testBleConsoleGate() {
@@ -24753,7 +24941,7 @@ void testStatusChimeSnoozeLine() {
 }
 
 void testSnoozeRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 78 && PowerManager::SNOOZE_SIZE == 6);
+  assert(PowerManager::STATE_VERSION == 79 && PowerManager::SNOOZE_SIZE == 6);
   PersistentState st;
   assert(st.snooze.minutes == 0 && st.snooze.start_ms == 0); // a power-on sets both to 0
   st.snooze.start(0x12345678u, 720);
@@ -25060,7 +25248,8 @@ void testSerialSlotSwapCommand() {
     st.history.slots[sensor].push(static_cast<uint16_t>(300 + 100 * sensor));
     st.history.temperatures[sensor].push(static_cast<int16_t>(180 + 10 * sensor));
     st.week.setDay(sensor, 0, true, static_cast<int16_t>(100 * sensor), static_cast<int16_t>(100 * sensor + 50), true,
-                   static_cast<int16_t>(300 + 10 * sensor), static_cast<int16_t>(500 + 10 * sensor), static_cast<uint8_t>(sensor));
+                   static_cast<int16_t>(300 + 10 * sensor), static_cast<int16_t>(500 + 10 * sensor), static_cast<uint8_t>(sensor),
+                   static_cast<uint8_t>(10 + sensor));
   }
   uint32_t before[MAX_SWITCHBOT_SENSORS] = {};
   st.reception.recordScan(st.registry, before);
@@ -25089,6 +25278,8 @@ void testSerialSlotSwapCommand() {
   assert(st.history.temperatures[1].at(0) == 210 && st.history.temperatures[3].at(0) == 190);
   assert(st.history.slots[2].at(0) == 500);
   assert(st.week.temperatureMin(1, 0) == week_three && st.week.temperatureMin(3, 0) == week_one);
+  assert(st.week.dryHours(1, 0) == 13 && st.week.dryHours(3, 0) == 11 && st.week.dryHours(2, 0) == 12); // dry bytes swap
+  assert(st.week.moldHours(1, 0) == 3 && st.week.moldHours(3, 0) == 1);
   assert(st.week.moldHours(1, 0) == 3 && st.week.moldHours(3, 0) == 1 && st.week.moldHours(2, 0) == 2);
   assert(st.reception.mask(0) == mask_one && st.reception.scans(2) == scans_one);
   assert(st.stale_slots == 0b0000000100);
@@ -25544,7 +25735,7 @@ void testFrameRefreshPatternInvalidates() {
 }
 
 void testFrameRefreshRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   assert(PowerManager::FRAME_SIZE == 5);
   PersistentState s;
   s.frame.recordFlush(0xDEADBEEFU);
@@ -25883,7 +26074,7 @@ void testFiveSlotRegistryAndFixedMac() {
 }
 
 void testFiveSlotRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 78);
+  assert(PowerManager::STATE_VERSION == 79);
   PersistentState s;
   DeviceConfig cfg;
   strcpy(cfg.slot_name[3], "GARAGE");
@@ -27274,11 +27465,14 @@ int main() {
   testWeekChartKeyHandling();
   testWeekChartRendering();
   testWeekChartMoldSum();
+  testWeekChartDrySum();
   testWeekHistoryResetSlotClearsSensor();
   testParseDailyRow();
   testWeekRestoreFromDailyRows();
   testWeekRestoreMoldHours();
   testWeekHistoryStoresMoldHours();
+  testWeekHistoryStoresDryHours();
+  testWeekHistoryRestoreChecksDryHours();
   testWeekRestoreYearChange();
   testWeekRestoreTailAndBuffer();
   testWeekRestoreNoChange();
