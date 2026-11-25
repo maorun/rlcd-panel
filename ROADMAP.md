@@ -23,7 +23,7 @@ Do the work in priority order, unless the maintainer gives a different order.
 ## Priority 2: Configuration and Control (Score 28–33)
 
 
-- [ ] Reception strip in the macOS diagnostics view
+- [x] Reception strip in the macOS diagnostics view
   - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/ReceptionReply.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ReceptionReplyTests.swift`, `FEATURES.md`
   - **Goal:** Show the scan pattern of each slot as a strip of 24 cells in the macOS diagnostics view. This item needs the firmware item "Console command RECEPTION with the scan mask of each slot". Add `ConsoleCommand.reception` and `ReceptionReply.parse` (`ReceptionRow` with slot, MAC, name, scans, received and `[Bool]` cells). Throw `ParseError.badLine` for a wrong column count, a mask character other than `0` or `1`, a mask length other than `scans`, a `received` value that does not match the mask, or a repeated slot. Show one strip for each row in the group `BLE reception`, oldest scan left, a filled cell for a received packet. Show a warning symbol below 50 %. Send `RECEPTION` only on a user action.
   - **Acceptance:** A unit test parses `tests/fixtures/reception_reply_sample.txt`. A unit test checks the cells of the mask `101101`. Unit tests check `ParseError.badLine` for the mask `10a1`, for a mask of 5 characters with `scans` 6, for `received` 3 with the mask `101101` and for a repeated slot. A unit test checks an empty reply with zero rows. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.

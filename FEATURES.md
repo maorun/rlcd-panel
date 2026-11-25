@@ -3920,3 +3920,13 @@ The `RX <N>%` value and the `RECEPTION` line of `STATUS` show only a rate. The u
 - Empty fields: both for a sensor without a humidity sample since midnight; `dry_h` also for `dry_alert_limit_rh` 0.
 - The old samples `today_reply_sample.txt` and `today_one_reply_sample.txt` stay unchanged for the app parsers. The RTC layout and `STATE_VERSION` do not change.
 - Host tests cover 5 samples with `mold_h` 2 and `dry_h` 1, the mold limit, a sample before midnight, limit 0, a sensor without a sample, `TODAY 2` and both new fixtures. Validation: host tests and `arduino-cli compile rlcd_panel` pass.
+
+## Reception strip in the macOS diagnostics view
+
+The `BLE reception` group of the diagnostics view showed only a rate for each slot. The new strip shows the scan pattern, so the user sees a gap pattern at once. It uses the console command `RECEPTION`.
+
+- `ConsoleCommand.reception` sends `RECEPTION`. `ReceptionReply.parse` (`ReceptionReply.swift`) reads `BEGIN RECEPTION`, the header `slot,mac,name,scans,received,mask` and the rows into `ReceptionRow` (slot, MAC, name, scans, received and `[Bool]` cells, oldest scan first, `true` for a received packet). `percent` and `isWeak` use the exact compare of `ReceptionMetrics.Rate` (weak below 50 %).
+- `ParseError.badLine` for a wrong column count, a slot outside 1 to 10, a bad MAC, scans above 24, a mask character other than `0` or `1`, a mask length other than `scans`, a `received` value that differs from the count of `1` characters and a repeated slot. A wrong first line or header gives `ParseError.missingLine`. An empty reply gives zero rows.
+- `DiagnosticsView` shows the button `Read scan pattern` in the group `BLE reception (last 24 scans)` and one strip of 24 cells for each row (filled cell for a received packet, light cell for a missed scan, no cell beyond `scans`), the count `N/M` and a warning symbol below 50 %. `AppModel.readReception` sends `RECEPTION` only on this button, on USB and on BLE, and `AppModel.receptionResult` is cleared on a link change, an error reply, a parse failure and a missing reply.
+- `tests/fixtures/reception_reply_sample.txt` is parsed by `ReceptionReplyTests`. The tests also cover the cells of the mask `101101`, the weak rule, an empty reply, `ParseError.badLine` for the mask `10a1`, a mask of 5 characters with `scans` 6, `received` 3 with the mask `101101` and a repeated slot.
+- Validation: `swift build -c release` passes locally. The local Command Line Tools lack TestingMacros, so `swift test` runs in CI.
