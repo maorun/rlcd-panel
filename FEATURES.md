@@ -3278,3 +3278,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `RejectsScreen` shows the menu `Slot zuweisen` (slots 1 to 10; a slot with a fixed MAC shows `feste MAC <MAC>` and a disabled slot shows `deaktiviert`; both cannot be picked; a MAC that a slot holds already switches the menu off) for an `UNASSIGNED` row, and one button `Slot <N> freigeben` for each slot without a fixed MAC for a `FULL` row.
 - `MainActivity.fixReject` sends the commands, then `CONFIG` (the cached config is renewed) and `REJECTS` again. The controls stay off while a command or a read runs and when the cached `ble_console` is not 2.
 - Validation: `scripts/check-protocol-sync.sh` passes. The Gradle tests run in GitHub Actions CI (no Android SDK on the local host). The behavior on the phone is not tested.
+
+## Changed settings list on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigChangedReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigSchema.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/ConfigChangedScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `scripts/check-protocol-sync.sh`.
+- The user checks the panel settings on the wrist during troubleshooting. The chip `Changed settings` in the sensor health screen opens `ConfigChangedScreen`.
+- `ConfigChangedReply.kt` and `ConfigSchema.kt` are copies of the phone files with another `package` line. Both are in the `FILES` list of `scripts/check-protocol-sync.sh`. The parser needs `ConfigSchema.entry` to reject unknown keys.
+- The button `Read settings` sends `CONFIG CHANGED` once over the BLE console. The screen shows one card for each changed key with key and value. A count of 0 shows `Alle Werte Standard`. A bad reply shows `Antwort nicht lesbar`.
+- The screen sends no `SET`.
+- Tests: `ConfigChangedReplyTest` reads `tests/fixtures/config_changed_reply_sample.txt` and checks keys and values, the CRC-32, a count of 0, a bad count and bad lines.
+- Validation: `scripts/check-protocol-sync.sh` passes. The Gradle tests run in GitHub Actions CI (no Android SDK on the local host). The behavior on the watch is not tested.
