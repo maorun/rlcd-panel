@@ -197,7 +197,7 @@ struct DiagnosticsView: View {
                 } else {
                     Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 2) {
                         GridRow {
-                            Text("Sensor"); Text("Hours"); Text("Temp min / max / mean"); Text("RH min / max / mean")
+                            Text("Sensor"); Text("Hours"); Text("Temp min / max / mean"); Text("RH min / max / mean"); Text("Mold / Dry")
                         }.font(.caption.bold())
                         ForEach(rows, id: \.sensor) { row in
                             GridRow {
@@ -205,6 +205,7 @@ struct DiagnosticsView: View {
                                 Text("\(row.hours)")
                                 Text(row.hours == 0 ? "--" : todayTriple(row.temperatureMinC, row.temperatureMaxC, row.temperatureMeanC, unit: "°C"))
                                 Text(row.hours == 0 ? "--" : todayTriple(row.humidityMinPct, row.humidityMaxPct, row.humidityMeanPct, unit: "%"))
+                                Text(todayHours(row))
                             }
                         }
                     }
@@ -214,6 +215,15 @@ struct DiagnosticsView: View {
                 Text("not read yet").font(.caption).foregroundStyle(.secondary)
             }
         }
+    }
+
+    /// `Mold <N> h  Dry <N> h` with a warning symbol above 0; `--` without values.
+    private func todayHours(_ row: TodayRow) -> String {
+        func part(_ label: String, _ n: Int?) -> String? {
+            n.map { "\(label) \($0) h" + ($0 > 0 ? " ⚠" : "") }
+        }
+        let text = [part("Mold", row.moldHours), part("Dry", row.dryHours)].compactMap { $0 }.joined(separator: "  ")
+        return text.isEmpty ? "--" : text
     }
 
     private func todayTriple(_ lo: Double?, _ hi: Double?, _ mean: Double?, unit: String) -> String {

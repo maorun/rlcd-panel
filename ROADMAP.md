@@ -48,7 +48,7 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Mold and dry hours of the day in the macOS today view
+- [x] Mold and dry hours of the day in the macOS today view
   - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/TodayReplyTests.swift`, `FEATURES.md`
   - **Goal:** Show for each room how many hours of the current day were too damp or too dry. Let `TodayReply.parse` accept the old header with 9 columns and the new header `sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct,mold_h,dry_h` with 11 columns. The header selects the column count. Add `TodayRow.moldHours` and `TodayRow.dryHours` (`Int?`, `nil` for an empty field and for the old header). Throw `ParseError.badLine` for a value above 24 or above `hours`. Show `Mold <N> h` and `Dry <N> h` in the today view with a warning symbol above 0. Merge this item before the firmware item "Mold and dry hours columns in the console command TODAY".
   - **Acceptance:** A unit test parses `tests/fixtures/today_reply_sample.txt` (old header) with `nil` values. A unit test parses a new row with `mold_h` 3 and `dry_h` 0. A unit test checks `nil` for an empty `dry_h` field. Unit tests check `ParseError.badLine` for a new row with 10 columns and for `mold_h` 7 with `hours` 5. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.

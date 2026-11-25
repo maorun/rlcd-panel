@@ -49,3 +49,44 @@ import Foundation
                                   temperatureMeanC: -3.0, humidityMinPct: 80.0, humidityMaxPct: 81.0, humidityMeanPct: 80.5)])
     }
 }
+
+@Suite struct TodayHoursTests {
+    private func frame(_ body: String) -> [String] { body.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) }
+    private let head = "BEGIN TODAY\n" + TodayReply.headerWithHours
+
+    @Test func oldHeaderGivesNil() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let data = try Data(contentsOf: url.appendingPathComponent("tests/fixtures/today_reply_sample.txt"))
+        var assembler = ReplyAssembler()
+        guard case .frame(let lines)? = assembler.append(data).first else { Issue.record("bad fixture"); return }
+        let rows = try TodayReply.parse(lines: lines)
+        #expect(rows.count == 2)
+        #expect(rows.allSatisfy { $0.moldHours == nil && $0.dryHours == nil })
+    }
+
+    @Test func parsesNewRow() throws {
+        let rows = try TodayReply.parse(lines: frame(head + "\n0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,3,0"))
+        #expect(rows[0].moldHours == 3)
+        #expect(rows[0].dryHours == 0)
+    }
+
+    @Test func emptyDryFieldGivesNil() throws {
+        let rows = try TodayReply.parse(lines: frame(head + "\n0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,2,"))
+        #expect(rows[0].moldHours == 2)
+        #expect(rows[0].dryHours == nil)
+    }
+
+    @Test func headerSelectsColumnCount() {
+        let old = "BEGIN TODAY\n" + TodayReply.header
+        #expect(throws: ParseError.self) { try TodayReply.parse(lines: frame(old + "\n0,onboard,5,1,2,1.5,40,41,42,1,0")) }
+        #expect(throws: ParseError.self) { try TodayReply.parse(lines: frame(head + "\n0,onboard,5,1,2,1.5,40,41,42")) }
+    }
+
+    @Test func badNewRowsThrow() {
+        for body in ["0,onboard,5,1,2,1.5,40,41,42,1", "0,onboard,5,1,2,1.5,40,41,42,7,0",
+                     "0,onboard,24,1,2,1.5,40,41,42,25,0", "0,onboard,5,1,2,1.5,40,41,42,0,6", "0,onboard,5,1,2,1.5,40,41,42,x,0"] {
+            #expect(throws: ParseError.self) { try TodayReply.parse(lines: frame(head + "\n" + body)) }
+        }
+    }
+}

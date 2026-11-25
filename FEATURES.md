@@ -3085,6 +3085,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - Host tests cover the parser, a sensor with 5 samples since midnight, the exclusion of samples before midnight (also the exact limit), a sensor without a sample, a half-empty pair, `ERR NO_TIME`, `ERR BAD_ARG`, the BLE gate, and one reply against `tests/fixtures/today_reply_sample.txt`.
 - Validation on the board: send `TODAY` over USB and check the reply and the `CRC32` line.
 
+## Mold and dry hours of the day in the macOS today view
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/TodayReplyTests.swift`
+- `TodayReply.parse` accepts the old header with 9 columns and the new header `TodayReply.headerWithHours` (`...,rh_mean_pct,mold_h,dry_h`) with 11 columns. The header selects the column count.
+- `TodayRow.moldHours` and `TodayRow.dryHours` are `Int?`: `nil` for an empty field and for the old header. A value above 24 or above `hours` throws `ParseError.badLine`.
+- The today view of `DiagnosticsView` shows `Mold <N> h` and `Dry <N> h` with a warning symbol above 0; the old header shows nothing.
+- The firmware `TODAY` command does not send the new columns yet; the firmware item follows this one.
+
 ## Today summary screen in the Android app
 
 - `TodayReply.parse` (`protocol/TodayReply.kt`) parses the reply of the console command `TODAY`: `BEGIN TODAY`, the header `sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct` and one `TodayRow` for each row (sensor 0 to 10, name, hours 0 to 24, minimum, maximum and mean of temperature and humidity). An empty field gives `null`.
