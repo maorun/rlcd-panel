@@ -3651,3 +3651,15 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The label is `Verzögerung Trockenalarm (h)`. `AlertLimitScreen` shows the field below `dry_alert_limit_rh`.
 - The `SET` batch and the stop rules equal those of `mold_alert_delay_h`. The first `ERR` line stops the batch before `CONFIG`.
 - Unit tests check the valid values 0, 1 and 12, the invalid values 13, -1 and 1.5, the line `SET dry_alert_delay_h=4` and the range against the `ConfigSchema` entry.
+
+## Dry hours in the week chart
+
+- **Code:** `rlcd_panel/sparkline.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `docs/display_preview_chart_week.png`
+- The week chart now shows how many hours of the week a room was too dry. The humidity label line shows `DRY <N>H` after the `MOLD <N>H` text, separated by two spaces.
+- `WeekHistory` stores one dry hour byte for each day and sensor, after the mold bytes. `WeekHistory::advance` counts the hours with `HumidityHistory::countAtOrBelow` and the key `dry_alert_limit_rh`. A sample at the limit counts as dry.
+- A gap day and the limit 0 store `0xFF`. The shift, `SLOT SWAP` and `SLOT CLEAR` move, swap and clear the dry bytes with the mold bytes.
+- `DashboardView::formatWeekDry` adds the hours of the days with a value (0 to 168 h). It gives an empty text when no day has a value.
+- The RTC restore rejects a value above 24 and a value beside a gap humidity pair. The restore from the `daily_v5` file leaves the dry hours as gaps, because the file has no dry column.
+- Each day keeps the count of the limit at the time of its write. After a change of `dry_alert_limit_rh`, the sum mixes limits for up to 7 days.
+- The `WEEK` reply and the daily file do not change. The week block grows from 390 to 467 bytes. `STATE_VERSION` is 79.
+- Host tests cover 5 dry hours for 5 dry samples, `0xFF` for limit 0 and for a gap day, the RTC restore checks for 25 and for a gap humidity pair, the text `DRY 12H`, the rendered label line, and the swap of the dry bytes by `SLOT SWAP`.

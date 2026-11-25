@@ -1863,6 +1863,25 @@ public:
     }
   }
 
+  // Sum of the dry hours over the days with a value: "DRY <N>H" (0 to 168); empty text without such a day.
+  static void formatWeekDry(const WeekHistory& week, size_t sensor, char* out, size_t capacity) {
+    if (out == nullptr || capacity == 0) {
+      return;
+    }
+    out[0] = '\0';
+    uint16_t sum = 0;
+    bool found = false;
+    for (size_t k = 0; k < WeekHistory::DAYS; ++k) {
+      if (week.hasDryHours(sensor, k)) {
+        sum = static_cast<uint16_t>(sum + week.dryHours(sensor, k));
+        found = true;
+      }
+    }
+    if (found) {
+      snprintf(out, capacity, "DRY %uH", static_cast<unsigned>(sum));
+    }
+  }
+
   // Seven bars (daily minimum to maximum) of the temperature and of the humidity of one sensor. It
   // reads only the RTC copy. A day without samples leaves a gap; with no valid day the box shows NO DATA.
   static void renderWeekChart(
@@ -1891,7 +1910,7 @@ public:
       const uint16_t label_y = humidity ? CHART_HUMIDITY_LABEL_Y : CHART_TEMP_LABEL_Y;
       Sparkline::Scale scale;
       const bool ok = Sparkline::computeWeekScale(w, sensor, humidity, scale);
-      char range_text[40] = "";
+      char range_text[48] = "";
       if (ok) {
         const float lo = weekExtreme(w, sensor, humidity, false) / 10.0f;
         const float hi = weekExtreme(w, sensor, humidity, true) / 10.0f;
@@ -1899,11 +1918,17 @@ public:
           snprintf(range_text, sizeof(range_text), "MIN %.1f MAX %.1f %%", static_cast<double>(lo),
                    static_cast<double>(hi));
           char mold[16];
+          char dry[16];
           formatWeekMold(w, sensor, mold, sizeof(mold));
-          // Defensive bound: range_text holds at most 32 bytes (with drawChartFrame prefix 41 glyphs, inside CHART_W).
-          const size_t used = strlen(range_text);
+          formatWeekDry(w, sensor, dry, sizeof(dry));
+          // Defensive bound: range_text holds at most 42 bytes (with drawChartFrame prefix 51 glyphs, inside CHART_W).
+          size_t used = strlen(range_text);
           if (mold[0] != '\0' && used + 2 + strlen(mold) < sizeof(range_text)) {
             snprintf(range_text + used, sizeof(range_text) - used, "  %s", mold);
+            used = strlen(range_text);
+          }
+          if (dry[0] != '\0' && used + 2 + strlen(dry) < sizeof(range_text)) {
+            snprintf(range_text + used, sizeof(range_text) - used, "  %s", dry);
           }
         } else {
           snprintf(range_text, sizeof(range_text), "MIN %.1f MAX %.1f %c",

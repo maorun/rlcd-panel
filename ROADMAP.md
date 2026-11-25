@@ -42,12 +42,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test checks the lines `TODAY 3` and `TODAY`. A unit test checks that 11 and -1 give no line. A unit test checks the fallback decision for `ERR BAD_ARG`. A unit test parses `tests/fixtures/today_one_reply_sample.txt`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
   - **Rank:** [Total: 25, Use: 5, Setup: 3, Harmony: 7, Safety: 10, Effort: S]
 
-- [ ] Dry hours in the week chart
-  - **Location:** `rlcd_panel/sparkline.h`, `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`, `docs/display_preview_chart_week.png`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Show on the panel how many hours of the week each room was too dry. Add one dry hour byte for each day and sensor to `WeekHistory`, after the mold bytes. Store the hours from `HumidityHistory::countAtOrBelow` with `dry_alert_limit_rh` in `WeekHistory::advance`. Store `0xFF` for a gap day and for limit 0. Shift, swap and clear the bytes with the mold bytes. Add `DashboardView::formatWeekDry`. Append `  DRY <N>H` after the `MOLD <N>H` text of the humidity label line. Keep the `WEEK` reply and the daily file unchanged. Raise `STATE_VERSION` by one.
-  - **Acceptance:** A host test checks that `advance` stores 5 hours for 5 dry samples. A host test checks `0xFF` for limit 0 and for a gap day. A host test checks that the RTC restore rejects 25 and a value beside a gap humidity pair. A host test checks `DRY 12H` for a sum of 12 hours. A host test checks that `SLOT SWAP` swaps the dry bytes. The host unit tests pass. `./scripts/generate-display-preview.sh` updates `docs/display_preview_chart_week.png`. `arduino-cli compile rlcd_panel` passes.
-  - **Rank:** [Total: 23, Use: 5, Setup: 2, Harmony: 8, Safety: 8, Effort: M]
-
 
 
 ## Rules for ranking

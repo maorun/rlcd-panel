@@ -205,7 +205,8 @@ inline void renderScene(
         }
       }
       today.day = static_cast<uint8_t>(8 + d);
-      week.advance(today, day_history, true);
+      // Mold limit 60 %RH and dry limit 45 %RH, so the week chart shows both sums
+      week.advance(today, day_history, true, WeekHistory::ALL_SENSORS, 60, 45);
     }
   }
 
