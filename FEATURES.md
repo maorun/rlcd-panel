@@ -4026,3 +4026,11 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `CalibrationText` is watch only, so `scripts/check-protocol-sync.sh` keeps its file list.
 - Tests: `CalibrationReplyTest` parses `tests/fixtures/calib_reply_sample.txt` and checks the row texts, the `-- h` text of a `SKIP` line, the picker for slots 1 and 4, the `USB` text, the `CALIB <N>` line, the `SET` order of the batch and the `READ_ONLY` text.
 - Validation: the host has no Android SDK, so Gradle runs in CI (`Wear OS companion tests and APK`).
+
+## Alert limits view in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/AlertLimits.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AlertLimitsView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/AlertLimitsViewTests.swift`
+- `AlertLimits.limits` lists nine keys in a fixed order: `mold_alert_limit_rh`, `mold_alert_delay_h`, `dry_alert_limit_rh`, `dry_alert_delay_h`, `freeze_alert_limit_c`, `heat_alert_limit_c`, `heat_alert_delay_h`, `ventilate_limit_rh`, `sensor_battery_limit_pct`. `AlertLimits.error` checks one input with `ConfigSchema.validate` (so the ranges and off values equal the firmware); a comma counts as a decimal point and only `freeze_alert_limit_c` takes one decimal.
+- `AlertLimits.plan` gives one `SET <key>=<value>` for each changed key in the fixed order, no command for an unchanged value, and refuses the whole list when one value is invalid. `AppModel.applyAlertLimits` sends the commands through `ConfigBatch`, then `CONFIG`; the first `ERR` stops the remaining `SET` commands.
+- `AlertLimitsView` shows the cached value (else the firmware default) of each key. The edit fields and `Apply` need a console that takes `SET` (USB, or BLE with `ble_console=2`); otherwise the view is read-only with a hint. A bad field shows a warning symbol and `Apply` stays off. The view sends commands only on the `Apply` click.
+- No firmware change, no RTC layout change. Tests: `AlertLimitsViewTests` (order, ranges, plan, unchanged value, invalid value, comma, batch order with `CONFIG` last, stop after `ERR`, edit gate).
