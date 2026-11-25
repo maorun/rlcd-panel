@@ -3987,3 +3987,12 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `WeekScreen` shows a second bar row `Trockenstunden (h)` below the mold bars (the `HourBars` canvas shared with the mold row, drawn in the tertiary color, scale 0 to 24 h, an outline for a `null` day). The row stays hidden when each value is `null`. The screen sends no new console command.
 - Tests: `WeekChartModelTest` (fixture `tests/fixtures/week_reply_sample.txt`).
 - Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
+
+## Heat alert delay in the Android alert limits screen
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertLimits.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/AlertLimitScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertLimitsTest.kt`.
+- `AlertLimits.LIMITS` holds the new `Limit` for `heat_alert_delay_h` directly below `heat_alert_limit_c`. The label is `Verzögerung Hitzealarm (h)`. The value is a whole number of hours from 0 to 12. The value 0 is off.
+- `AlertLimits.valueText` gives `Aus` for the value 0 of an hour field and else the value with the unit `h`. `AlertLimitScreen` uses it in the read-only view and in the hint under the field.
+- `AlertLimits.plan` refuses 13 and a non-numeric value before any `SET` is sent. The `SET` order follows `LIMITS`. The first `ERR` line stops the batch before `CONFIG`.
+- Unit tests check the values 0, 1 and 12, the rejected values 13, `x`, an empty text, 1.5 and -1, the line `SET heat_alert_delay_h=2`, the order of heat limit before heat delay, the text `Aus` and the range against the `ConfigSchema` entry.
+- Validation: the host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.

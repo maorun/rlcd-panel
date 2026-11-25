@@ -66,6 +66,53 @@ class AlertLimitsTest {
     }
 
     @Test
+    fun heatDelayAcceptsZeroOneAndTwelve() {
+        for (ok in listOf("0", "1", "12")) assertNull(ok, error("heat_alert_delay_h", ok))
+    }
+
+    @Test
+    fun heatDelayRejectsThirteenAndNonNumeric() {
+        for (bad in listOf("13", "x", "", "1.5", "-1")) assertNotNull(bad, error("heat_alert_delay_h", bad))
+        val plan = AlertLimits.plan(mapOf("heat_alert_delay_h" to "13", "mold_alert_limit_rh" to "75"), PanelConfig())
+        assertTrue(plan is AlertLimits.Plan.Invalid)
+        assertTrue(AlertLimits.plan(mapOf("heat_alert_delay_h" to "x"), PanelConfig()) is AlertLimits.Plan.Invalid)
+    }
+
+    @Test
+    fun heatDelayWireTextAndSchemaOrderBelowHeatLimit() {
+        assertEquals(
+            listOf("SET heat_alert_delay_h=2"),
+            commands(AlertLimits.plan(mapOf("heat_alert_delay_h" to "2"), PanelConfig()))
+        )
+        val keys = AlertLimits.LIMITS.map { it.key }
+        assertEquals(keys.indexOf("heat_alert_limit_c") + 1, keys.indexOf("heat_alert_delay_h"))
+        assertEquals(
+            listOf("SET heat_alert_limit_c=30", "SET heat_alert_delay_h=2"),
+            commands(AlertLimits.plan(mapOf("heat_alert_delay_h" to "2", "heat_alert_limit_c" to "30"), PanelConfig()))
+        )
+    }
+
+    @Test
+    fun heatDelayShowsAusForZeroAndUnitHours() {
+        val l = limit("heat_alert_delay_h")
+        assertEquals("h", l.unit)
+        assertEquals("Aus", AlertLimits.valueText(l, "0"))
+        assertEquals("3 h", AlertLimits.valueText(l, "3"))
+        assertEquals("Aus", AlertLimits.valueText(limit("dry_alert_delay_h"), "0"))
+        assertEquals("Aus", AlertLimits.valueText(limit("mold_alert_delay_h"), "0"))
+    }
+
+    @Test
+    fun heatDelayRangeEqualsConfigSchemaEntry() {
+        val entry = ConfigSchema.entry("heat_alert_delay_h")!!
+        val l = limit("heat_alert_delay_h")
+        val kind = entry.kind as ConfigKind.Integer
+        assertEquals(kind.off, l.min.toInt())
+        assertEquals(kind.max, l.max.toInt())
+        assertEquals(entry.defaultValue, l.default.toInt().toString())
+    }
+
+    @Test
     fun heatAcceptsZeroOffAndRange27To45() {
         assertNull(error("heat_alert_limit_c", "0"))
         assertNotNull(error("heat_alert_limit_c", "26"))
@@ -159,7 +206,7 @@ class AlertLimitsTest {
     fun shownValueFallsBackToFirmwareDefaults() {
         val expected = mapOf(
             "mold_alert_limit_rh" to 70.0, "mold_alert_delay_h" to 0.0, "dry_alert_limit_rh" to 0.0, "dry_alert_delay_h" to 0.0, "freeze_alert_limit_c" to 0.0,
-            "heat_alert_limit_c" to 0.0, "ventilate_limit_rh" to 60.0, "sensor_battery_limit_pct" to 10.0
+            "heat_alert_limit_c" to 0.0, "heat_alert_delay_h" to 0.0, "ventilate_limit_rh" to 60.0, "sensor_battery_limit_pct" to 10.0
         )
         for (limit in AlertLimits.LIMITS) assertEquals(limit.key, expected[limit.key]!!, AlertLimits.shown(limit, PanelConfig()), 0.0)
     }
