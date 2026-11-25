@@ -27,8 +27,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
+import com.rlcdpanel.phone.protocol.ChartLimit
+import com.rlcdpanel.phone.protocol.ChartLimits
 import com.rlcdpanel.phone.protocol.ComparePoints
 import com.rlcdpanel.phone.protocol.HistoryCurve
 import com.rlcdpanel.phone.protocol.HistoryMetric
@@ -118,6 +121,21 @@ object HistoryChartGeometry {
     }
 }
 
+/** Y position (0 top, 1 bottom) of a limit line, with the same scale as [HistoryChartGeometry.segments]. */
+object LimitLineGeometry {
+    fun y(value: Double, minValue: Double, maxValue: Double): Float {
+        val flat = maxValue - minValue < 1e-6
+        val low = if (flat) minValue - 0.5 else minValue
+        val span = if (flat) 1.0 else maxValue - minValue
+        return 1f - ((value - low) / span).toFloat().coerceIn(0f, 1f)
+    }
+
+    fun legend(limits: List<ChartLimit>, unit: String): String =
+        limits.joinToString(", ") { String.format(Locale.ROOT, "%s %.1f %s", it.label, it.value, unit) }
+}
+
+private val LIMIT_COLOR = Color(0xFFE53935)
+
 @Composable
 fun HistoryScreen(
     history: TelemetryHistory,
@@ -154,6 +172,9 @@ fun HistoryScreen(
             val shownNow = if (panelView) panel.readAtMillis else windowNow
             val maxGap = if (panelView) PanelHistoryChart.MAX_GAP_MILLIS else HistoryChartGeometry.MAX_GAP_MILLIS
             val tiles = shown.keys.toList()
+            val limits = remember(panelConfig) { ChartLimits.from(panelConfig) }
+            val tempLimits = ChartLimits.temperature(limits)
+            val rhLimits = ChartLimits.humidity(limits)
             LazyColumn(
                 modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
                 verticalArrangement = Arrangement.spacedBy(10.dp)
@@ -211,10 +232,17 @@ fun HistoryScreen(
                             val (temp, rh) = shown.getValue(index)
                             if (panelView) {
                                 val color = if (curve == HistoryCurve.HUMIDITY || curve == HistoryCurve.ABSOLUTE_HUMIDITY) Color(0xFF4FC3F7) else Color(0xFFFF8A65)
-                                MetricChart(temp, shownNow, curve.label, curve.unit, color, maxGap)
+                                val curveLimits = when (curve) {
+                                    // The heat limit compares with the feels-like value, the freeze limit with the air temperature.
+                                    HistoryCurve.TEMPERATURE -> tempLimits.filter { it.key == "freeze_alert_limit_c" }
+                                    HistoryCurve.FEELS_LIKE -> tempLimits.filter { it.key == "heat_alert_limit_c" }
+                                    HistoryCurve.HUMIDITY -> rhLimits
+                                    HistoryCurve.ABSOLUTE_HUMIDITY -> emptyList()
+                                }
+                                MetricChart(temp, shownNow, curve.label, curve.unit, color, maxGap, curveLimits)
                             } else {
-                                MetricChart(temp, shownNow, "Temperatur", "°C", Color(0xFFFF8A65), maxGap)
-                                MetricChart(rh, shownNow, "Feuchte", "%RH", Color(0xFF4FC3F7), maxGap)
+                                MetricChart(temp, shownNow, "Temperatur", "°C", Color(0xFFFF8A65), maxGap, tempLimits)
+                                MetricChart(rh, shownNow, "Feuchte", "%RH", Color(0xFF4FC3F7), maxGap, rhLimits)
                             }
                         }
                     }
@@ -226,15 +254,23 @@ fun HistoryScreen(
 }
 
 @Composable
-private fun MetricChart(points: List<HistoryPoint>, nowMillis: Long, label: String, unit: String, color: Color, maxGapMillis: Long = HistoryChartGeometry.MAX_GAP_MILLIS) {
+private fun MetricChart(points: List<HistoryPoint>, nowMillis: Long, label: String, unit: String, color: Color, maxGapMillis: Long = HistoryChartGeometry.MAX_GAP_MILLIS, limits: List<ChartLimit> = emptyList()) {
     val values = points.mapNotNull { it.value }
-    val lo = values.minOrNull() ?: 0.0
-    val hi = values.maxOrNull() ?: 1.0
+    // A limit line widens the range, so the user sees the distance of the curve to the limit.
+    val lo = (values + limits.map { it.value }).minOrNull() ?: 0.0
+    val hi = (values + limits.map { it.value }).maxOrNull() ?: 1.0
     val from = nowMillis - TelemetryHistory.WINDOW_MILLIS
     val segments = HistoryChartGeometry.segments(points, from, nowMillis, lo, hi, maxGapMillis)
     Text("$label ${HistoryScreenText.range(points, unit)}", style = MaterialTheme.typography.bodySmall)
     Canvas(modifier = Modifier.fillMaxWidth().height(80.dp)) {
         drawLine(Color.Gray, Offset(0f, size.height), Offset(size.width, size.height), strokeWidth = 1f)
+        for (limit in limits) {
+            val y = LimitLineGeometry.y(limit.value, lo, hi) * size.height
+            drawLine(
+                LIMIT_COLOR, Offset(0f, y), Offset(size.width, y), strokeWidth = 2f,
+                pathEffect = PathEffect.dashPathEffect(floatArrayOf(12f, 8f))
+            )
+        }
         for (segment in segments) {
             if (segment.size == 1) {
                 val (x, y) = segment[0]
@@ -247,6 +283,9 @@ private fun MetricChart(points: List<HistoryPoint>, nowMillis: Long, label: Stri
             }
             drawPath(path, color, style = Stroke(width = 3f))
         }
+    }
+    if (limits.isNotEmpty()) {
+        Text("- - - ${LimitLineGeometry.legend(limits, unit)}", style = MaterialTheme.typography.labelSmall, color = LIMIT_COLOR)
     }
 }
 

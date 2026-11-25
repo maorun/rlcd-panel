@@ -22,11 +22,5 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Alert limit lines in the Android history chart
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ChartLimits.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/HistoryScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/ChartLimitsTest.kt`, `FEATURES.md`
-  - **Goal:** Show the active alert limits as dashed lines in the Android history charts, so the user sees how near a room is to an alert. Port `ChartLimits.from(config:)` of the macOS app with the same four definitions: `mold_alert_limit_rh` (humidity), `dry_alert_limit_rh` (humidity, 0 is off), `freeze_alert_limit_c` (temperature, 0 is a valid limit) and `heat_alert_limit_c` (temperature, 0 is off). Give no line for a value outside the `ConfigSchema` range, for a missing key and for a missing `CONFIG` reply. Add `humidity(limits)` and `temperature(limits)`. Draw each line with its label in the matching chart. Send no console command.
-  - **Acceptance:** A unit test gives four lines for four active limits. A unit test gives no line for `dry_alert_limit_rh=0` and one line for `freeze_alert_limit_c=0`. A unit test gives no line for a value outside the range. A unit test gives an empty list without a `CONFIG` reply. A unit test checks the split into humidity and temperature lines. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
-  - **Rank:** [Total: 29, Use: 7, Setup: 5, Harmony: 7, Safety: 10, Effort: S]
-
 ## Priority 3: Display and Logging (Score 22–27)
 

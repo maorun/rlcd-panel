@@ -4007,3 +4007,11 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The salt screen shows the chip `Salztest beobachten` (only a tap starts the watch), the text `<N> von 6 Stunden stabil` and `Bereit` at 6 stable hours. The watch sends no `SALT` and no `SET`; the user taps `NaCl` or `MgCl2`. `MainActivity` stops the watch on `USER`, on closing the screen or `onStop` (`VIEW_CLOSED`), on a lost link, on a failed reply and after the timeout.
 - Tests: `SaltProgressTest` covers six stable samples, an unstable span, the text `3 von 6 Stunden stabil`, `COMPLETED`, the single fallback after `ERR BAD_ARG` and `TIMEOUT`.
 - Validation: the host has no Android SDK, so Gradle runs in CI (`Wear OS companion tests and APK`).
+
+## Alert limit lines in the Android history chart
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ChartLimits.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/HistoryScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/ChartLimitsTest.kt`
+- `ChartLimits.from(config)` reads the cached `PanelConfig` values and gives one `ChartLimit` for each active limit: `mold_alert_limit_rh` (`Mold`) and `dry_alert_limit_rh` (`Dry`) for humidity, `freeze_alert_limit_c` (`Freeze`) and `heat_alert_limit_c` (`Heat (feels-like)`) for temperature. `humidity(limits)` and `temperature(limits)` split the list.
+- A value of 0 for `dry_alert_limit_rh` and `heat_alert_limit_c` (off), a missing key, a value outside the `ConfigSchema` range and a missing config give no line. `freeze_alert_limit_c` has no off value, so 0.0 gives a line.
+- `HistoryScreen` draws each line as a dashed red line in the matching chart (temperature: `Freeze`; feels-like: `Heat`, because the heat limit compares with the feels-like value; humidity: `Mold` and `Dry`; absolute humidity: none) with a legend of labels and values. A line widens the Y range, so the user sees the distance of the curve to the limit. The app sends no new command.
+- `ChartLimitsTest` covers four lines, the value 0, the out-of-range value, the missing config and the split. `LimitLineGeometryTest` checks that a limit line uses the same Y scale as the curve.
