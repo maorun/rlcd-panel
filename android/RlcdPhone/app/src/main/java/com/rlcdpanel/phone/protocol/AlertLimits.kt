@@ -3,7 +3,7 @@ package com.rlcdpanel.phone.protocol
 import com.rlcdpanel.phone.finder.SlotAssignment
 import java.util.Locale
 
-/** The seven alert limit keys of `config.ini` with the ranges of `DeviceConfigParser` (`device_config.h`). */
+/** The eight alert limit keys of `config.ini` with the ranges of `DeviceConfigParser` (`device_config.h`). */
 object AlertLimits {
     /** One key. [offValue] is the value that switches the limit off outside [min]..[max], null without one. */
     data class Limit(
@@ -29,6 +29,7 @@ object AlertLimits {
         Limit("mold_alert_limit_rh", "Schimmel-Alarm", "%RH", 40.0, 95.0, 70.0),
         Limit("mold_alert_delay_h", "Verzögerung Schimmelalarm (h)", "h", 0.0, 12.0, 0.0),
         Limit("dry_alert_limit_rh", "Trockene Luft", "%RH", 20.0, 45.0, 0.0, offValue = 0),
+        Limit("dry_alert_delay_h", "Verzögerung Trockenalarm (h)", "h", 0.0, 12.0, 0.0),
         Limit("freeze_alert_limit_c", "Frost-Alarm", "°C", -20.0, 15.0, 0.0, decimal = true),
         Limit("heat_alert_limit_c", "Hitze-Alarm", "°C", 27.0, 45.0, 0.0, offValue = 0),
         Limit("ventilate_limit_rh", "Lüften-Grenze", "%RH", 50.0, 80.0, 60.0),

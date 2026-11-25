@@ -2617,7 +2617,7 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 ## Alert limit editor in the Android app
 
 - **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertLimits.kt`, `AlertLimitScreen.kt`, `MainActivity.kt`, `SensorHealthScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertLimitsTest.kt`.
-- The button `Alert limits` of the sensor health screen opens `AlertLimitScreen`. It edits `mold_alert_limit_rh` (40 to 95), `mold_alert_delay_h` (whole hours, 0 to 12, 0 is off; label `Verzögerung Schimmelalarm (h)`, shown below the mold limit; same `SET` batch and stop rules), `dry_alert_limit_rh` (0 or 20 to 45), `freeze_alert_limit_c` (-20.0 to 15.0), `heat_alert_limit_c` (0 or 27 to 45), `ventilate_limit_rh` (50 to 80) and `sensor_battery_limit_pct` (0 to 50). The ranges equal the firmware limits in `device_config.h`.
+- The button `Alert limits` of the sensor health screen opens `AlertLimitScreen`. It edits `mold_alert_limit_rh` (40 to 95), `mold_alert_delay_h` (whole hours, 0 to 12, 0 is off; label `Verzögerung Schimmelalarm (h)`, shown below the mold limit; same `SET` batch and stop rules), `dry_alert_limit_rh` (0 or 20 to 45), `dry_alert_delay_h` (whole hours, 0 to 12, 0 is off; label `Verzögerung Trockenalarm (h)`, shown below the dry limit; same `SET` batch and stop rules), `freeze_alert_limit_c` (-20.0 to 15.0), `heat_alert_limit_c` (0 or 27 to 45), `ventilate_limit_rh` (50 to 80) and `sensor_battery_limit_pct` (0 to 50). The ranges equal the firmware limits in `device_config.h`.
 - `AlertLimits.error` checks one input against the range and the number form (a comma counts as decimal point; only `freeze_alert_limit_c` takes one decimal). `AlertLimits.plan` gives one `SET <key>=<value>` for each changed key in the fixed order of `AlertLimits.LIMITS`, no command for an unchanged value, and refuses the whole list when one value is invalid.
 - `AlertLimits.run` sends the commands one by one, then `CONFIG` (same batch as `SlotAssignment.run`). The first `ERR` line stops the batch before `CONFIG`; the summary names the failed reply and the count of applied keys.
 - The edit fields and the `Anwenden` button show only when `PanelConfig.canWrite` is true (`ble_console=2`). Otherwise the screen shows the cached values read-only with the `ble_console=2` hint. The button `CONFIG lesen` refreshes the cache.
@@ -3643,3 +3643,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The firmware stores the key as 1 byte at the end of the config trailer, after `reception_low_pct`. `KEY_COUNT` is 99. `STATE_VERSION` is 78.
 - The three `ConfigSchema` files (macOS, Android, Wear OS) hold the new key. The Android and Wear OS `ConfigBackup` and `EventText` lists hold it too.
 - Host tests cover the default 0, the values 1 and 12, the rejected values 13, -1 and `x`, the RTC round trip of the trailer byte, a delay of 3 with 2 and with 3 dry samples, and the unchanged rules for delay 0.
+
+## Dry air delay in the Android alert limits screen
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertLimits.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertLimitsTest.kt`.
+- `AlertLimits.LIMITS` holds the new `Limit` for `dry_alert_delay_h`. The value is a whole number of hours from 0 to 12. The value 0 is off.
+- The label is `Verzögerung Trockenalarm (h)`. `AlertLimitScreen` shows the field below `dry_alert_limit_rh`.
+- The `SET` batch and the stop rules equal those of `mold_alert_delay_h`. The first `ERR` line stops the batch before `CONFIG`.
+- Unit tests check the valid values 0, 1 and 12, the invalid values 13, -1 and 1.5, the line `SET dry_alert_delay_h=4` and the range against the `ConfigSchema` entry.

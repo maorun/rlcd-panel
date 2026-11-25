@@ -39,6 +39,33 @@ class AlertLimitsTest {
     }
 
     @Test
+    fun dryDelayRangeIs0To12WholeHours() {
+        for (ok in listOf("0", "1", "12")) assertNull(ok, error("dry_alert_delay_h", ok))
+        for (bad in listOf("13", "-1", "1.5")) assertNotNull(bad, error("dry_alert_delay_h", bad))
+    }
+
+    @Test
+    fun dryDelayWireTextAndOrderBelowDryLimit() {
+        assertEquals(
+            listOf("SET dry_alert_delay_h=4"),
+            commands(AlertLimits.plan(mapOf("dry_alert_delay_h" to "4"), PanelConfig()))
+        )
+        val keys = AlertLimits.LIMITS.map { it.key }
+        assertEquals(keys.indexOf("dry_alert_limit_rh") + 1, keys.indexOf("dry_alert_delay_h"))
+        assertEquals("Verzögerung Trockenalarm (h)", limit("dry_alert_delay_h").label)
+    }
+
+    @Test
+    fun dryDelayRangeEqualsConfigSchemaEntry() {
+        val entry = ConfigSchema.entry("dry_alert_delay_h")!!
+        val l = limit("dry_alert_delay_h")
+        val kind = entry.kind as ConfigKind.Integer
+        assertEquals(kind.off, l.min.toInt())
+        assertEquals(kind.max, l.max.toInt())
+        assertEquals(entry.defaultValue, l.default.toInt().toString())
+    }
+
+    @Test
     fun heatAcceptsZeroOffAndRange27To45() {
         assertNull(error("heat_alert_limit_c", "0"))
         assertNotNull(error("heat_alert_limit_c", "26"))
@@ -131,7 +158,7 @@ class AlertLimitsTest {
     @Test
     fun shownValueFallsBackToFirmwareDefaults() {
         val expected = mapOf(
-            "mold_alert_limit_rh" to 70.0, "mold_alert_delay_h" to 0.0, "dry_alert_limit_rh" to 0.0, "freeze_alert_limit_c" to 0.0,
+            "mold_alert_limit_rh" to 70.0, "mold_alert_delay_h" to 0.0, "dry_alert_limit_rh" to 0.0, "dry_alert_delay_h" to 0.0, "freeze_alert_limit_c" to 0.0,
             "heat_alert_limit_c" to 0.0, "ventilate_limit_rh" to 60.0, "sensor_battery_limit_pct" to 10.0
         )
         for (limit in AlertLimits.LIMITS) assertEquals(limit.key, expected[limit.key]!!, AlertLimits.shown(limit, PanelConfig()), 0.0)
