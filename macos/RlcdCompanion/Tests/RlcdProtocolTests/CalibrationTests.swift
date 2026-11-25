@@ -609,7 +609,42 @@ private func loadSpreadFixture() throws -> Data {
 }
 
 @Test func spreadCommandLine() {
-    #expect(ConsoleCommand.spread.line == "SPREAD")
+    #expect(ConsoleCommand.spread(hours: 6).line == "SPREAD")
+    #expect(ConsoleCommand.spread(hours: 7).line == "SPREAD 7")
+    #expect(ConsoleCommand.spread(hours: 12).line == "SPREAD 12")
+    #expect(ConsoleCommand.spread(hours: 24).line == "SPREAD 24")
+    #expect(ConsoleCommand.spreadWindows == [6, 12, 24])
+}
+
+@Test func spreadCommandRejectsOutsideWindow() {
+    #expect(ConsoleCommand.spread(hours: 5).line == nil)
+    #expect(ConsoleCommand.spread(hours: 25).line == nil)
+    #expect(ConsoleCommand.spread(hours: 0).line == nil)
+    #expect(ConsoleCommand.spread(hours: -1).line == nil)
+}
+
+@Test func spreadFixtureParsesForEachWindow() throws {
+    // The reply has no hour field, so each window reads the same fixture the same way.
+    var results: [SpreadReply] = []
+    for h in ConsoleCommand.spreadWindows {
+        #expect(ConsoleCommand.spread(hours: h).line != nil)
+        var assembler = ReplyAssembler()
+        guard case .frame(let lines)? = assembler.append(try loadSpreadFixture()).first else {
+            Issue.record("fixture is not a valid frame"); return
+        }
+        results.append(try SpreadReply.parse(lines: lines))
+    }
+    #expect(results.count == ConsoleCommand.spreadWindows.count)
+    #expect(results.allSatisfy { $0 == results[0] })
+    #expect(results[0].rows.count == 3)
+    #expect(results[0].proposals.map(\.sensor) == ["slot2"])
+}
+
+@Test func spreadBadArgNeedsFirmwareUpdateOnlyForLongWindows() {
+    #expect(ConsoleCommand.spreadErrorMessage(hours: 12, text: "ERR BAD_ARG") == "Firmware update needed")
+    #expect(ConsoleCommand.spreadErrorMessage(hours: 24, text: "ERR BAD_ARG") == "Firmware update needed")
+    #expect(ConsoleCommand.spreadErrorMessage(hours: 6, text: "ERR BAD_ARG") == nil)
+    #expect(ConsoleCommand.spreadErrorMessage(hours: 12, text: "ERR NO_TIME") == nil)
 }
 
 @Test func spreadCountMustMatchSensorLines() {
