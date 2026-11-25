@@ -3350,3 +3350,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `MainActivity.checkReceptionNotifications` runs after each `STATUS` parse (next to `checkWindowNotifications` and `checkDriftNotifications`) with `panelConfig.tileNames`. It posts through `postVentilationNotification`, which posts nothing without the `POST_NOTIFICATIONS` permission (SDK 33 and later).
 - A bit that rises while the permission is missing gives no notification later, because the watch has already stored the mask.
 - Validation: `scripts/check-protocol-sync.sh` passes. `ReceptionNoticeTest` (7 tests) covers the fixture mask `202` (slots 2 and 10, IDs 2202 and 2210), the first reply, a missing `rxlow` that keeps the stored mask, an unknown sensor, the default titles of `PanelConfig.tileNames`, an equal mask and a falling bit. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only; it did not run locally.
+
+## Reset changed settings to the default on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigReset.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/ConfigChangedScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ConfigChangedReplyTest.kt`
+- The user undoes a wrong setting from the wrist. Each row of `ConfigChangedScreen` has a `Zurücksetzen` chip. A tap shows the key and the default value (`<key> auf <default> setzen?`; an empty default reads `leer`) with the chips `Senden` and `Abbrechen`.
+- `Senden` sends the `SET` command of the shared `ConfigSchema.resetPlan` for this key (`MainActivity.resetConfigKey`), then `CONFIG CHANGED`, so the list is current. The first `ERR` stops the run and shows its text. `ERR READ_ONLY` shows `Nur lesen` and hides all chips.
+- A reply that is no `ERR` status (timeout, bad frame) leaves the panel state unknown: the list clears and only the error text stays.
+- A key without a sendable default (an empty name) has no chip. The screen shows the skip reason of `ConfigResetPlan.skipped`.
+- `ConfigReset.kt` is watch-only (not in the `FILES` list). The shared files do not change.
+- Tests: `ConfigChangedReplyTest` gives one reset command for each fixture key with the `ConfigSchema` default, puts a key with an empty default in `skipped`, and checks that `ERR READ_ONLY` and another `ERR` stop the run after the first command.
+- Validation: `scripts/check-protocol-sync.sh` passes. The Gradle tests run in GitHub Actions CI (no Android SDK on the local host). The behavior on the watch is not tested.
