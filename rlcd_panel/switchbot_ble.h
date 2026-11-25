@@ -330,15 +330,16 @@ struct RejectLog {
 };
 
 // Confirmation of a large reading jump. A packet that differs from a stored reading younger than 10 minutes
-// by more than 8.0 C or more than 25 %RH stays pending. A second packet of the same MAC within 1.0 C and
+// by more than the limits (default 8.0 C and 25 %RH, keys jump_limit_c and jump_limit_rh; a limit of 0 turns
+// its check off, both 0 turn the guard off) stays pending. A second packet of the same MAC within 1.0 C and
 // 5 %RH of the pending packet confirms the change. A packet near the stored reading drops the pending
 // packet. No persistent state: SwitchBotRegistry::endScan() drops each pending packet. A held packet keeps
 // updated_ms unchanged, so a jump that lasts across scans passes only after the stored reading is 10 minutes
 // old: a wake interval above 600 s turns the guard off.
 struct JumpGuard {
   static constexpr uint32_t MAX_AGE_MS = 600000;
-  static constexpr float JUMP_TEMP_C = 8.0f;
-  static constexpr int JUMP_RH_PCT = 25;
+  static constexpr float JUMP_TEMP_C = 8.0f;  // default limit
+  static constexpr int JUMP_RH_PCT = 25;      // default limit
   static constexpr float CONFIRM_TEMP_C = 1.0f;
   static constexpr int CONFIRM_RH_PCT = 5;
 
@@ -351,12 +352,14 @@ struct JumpGuard {
   }
 
   // True when `fresh` is a large jump from the stored reading `stored`.
-  static bool isJump(const SwitchBotReading& stored, const SwitchBotReading& fresh) {
+  // A limit of 0 turns its check off.
+  static bool isJump(const SwitchBotReading& stored, const SwitchBotReading& fresh,
+                     float temp_limit_c = JUMP_TEMP_C, int rh_limit_pct = JUMP_RH_PCT) {
     if (!stored.valid || (fresh.updated_ms - stored.updated_ms) >= MAX_AGE_MS) {
       return false;
     }
-    return absf(fresh.temperature_c - stored.temperature_c) > JUMP_TEMP_C ||
-           absDiff(fresh.humidity_pct, stored.humidity_pct) > JUMP_RH_PCT;
+    return (temp_limit_c > 0.0f && absf(fresh.temperature_c - stored.temperature_c) > temp_limit_c) ||
+           (rh_limit_pct > 0 && absDiff(fresh.humidity_pct, stored.humidity_pct) > rh_limit_pct);
   }
 
   static bool confirms(const SwitchBotReading& pending, const SwitchBotReading& fresh) {
@@ -400,6 +403,13 @@ public:
 
   int8_t minAssignRssi() const {
     return min_assign_rssi_;
+  }
+
+  // JumpGuard limits (keys jump_limit_c and jump_limit_rh). A limit of 0 turns its check off, both 0 turn the
+  // guard off. No persistent state: the config holds the values.
+  void setJumpLimits(float temp_c, uint8_t rh_pct) {
+    jump_temp_c_ = temp_c;
+    jump_rh_pct_ = rh_pct;
   }
 
   bool isFixed(size_t index) const {
@@ -511,7 +521,7 @@ public:
     // 1. Update existing sensor slot with matching MAC
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       if (isSlotEnabled(i) && slots_[i].valid && memcmp(slots_[i].mac, reading.mac, 6) == 0) {
-        if (JumpGuard::isJump(slots_[i], reading)) {
+        if (JumpGuard::isJump(slots_[i], reading, jump_temp_c_, jump_rh_pct_)) {
           if (pending_valid_[i] && JumpGuard::confirms(pending_[i], reading)) {
             pending_valid_[i] = false;
           } else {
@@ -726,6 +736,8 @@ private:
   RejectLog reject_log_;
   bool auto_assign_ = true;
   int8_t min_assign_rssi_ = 0;
+  float jump_temp_c_ = JumpGuard::JUMP_TEMP_C;
+  uint8_t jump_rh_pct_ = JumpGuard::JUMP_RH_PCT;
   uint16_t enabled_mask_ = 0x03FF;
 };
 

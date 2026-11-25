@@ -56,6 +56,8 @@ object ConfigKeys {
         add(int("mold_alert_delay_h", 1, 12, "0", off = 0))
         add(int("reception_low_pct", 30, 80, "50", off = 0))
         add(int("dry_alert_delay_h", 1, 12, "0", off = 0))
+        add(dec("jump_limit_c", 3.0, 20.0, "8.0", off = 0.0))
+        add(int("jump_limit_rh", 10, 50, "25", off = 0))
         add(int("heat_alert_limit_c", 27, 45, "0", off = 0))
         add(int("dry_alert_limit_rh", 20, 45, "0", off = 0))
         add(dec("window_drop_c", 1.0, 5.0, "0", off = 0.0))

@@ -94,6 +94,12 @@ struct DeviceConfig {
   static constexpr float DEFAULT_WINDOW_DROP_C = 0.0f; // 0 switches the open window badge off
   static constexpr float MIN_WINDOW_DROP_C = 1.0f;
   static constexpr float MAX_WINDOW_DROP_C = 5.0f;
+  static constexpr float DEFAULT_JUMP_LIMIT_C = 8.0f; // JumpGuard holds a packet that differs by more than this many C from a young reading
+  static constexpr float MIN_JUMP_LIMIT_C = 3.0f;
+  static constexpr float MAX_JUMP_LIMIT_C = 20.0f;
+  static constexpr uint8_t DEFAULT_JUMP_LIMIT_RH = 25; // same for %RH
+  static constexpr uint8_t MIN_JUMP_LIMIT_RH = 10;
+  static constexpr uint8_t MAX_JUMP_LIMIT_RH = 50;
   static constexpr uint8_t DEFAULT_WALL_FRSI_PCT = 0; // 0 switches the wall humidity text off
   static constexpr uint8_t MIN_WALL_FRSI_PCT = 50;
   static constexpr uint8_t MAX_WALL_FRSI_PCT = 95;
@@ -187,6 +193,8 @@ struct DeviceConfig {
   uint8_t ble_broadcast_enabled = DEFAULT_BLE_BROADCAST_ENABLED; // 1 = advertise the climate tiles after each scan (ble_telemetry.h), 0 = off
   uint8_t reception_low_pct = DEFAULT_RECEPTION_LOW_PCT; // BLE reception rate below which the R badge sets (releases at the limit plus 20 %), 0 = off, else 30..80
   uint8_t dry_alert_delay_h = DEFAULT_DRY_ALERT_DELAY_H; // the D badge sets only when the newest N hourly samples of the tile are also at or below dry_alert_limit_rh, 0 = off, else 1..12
+  float jump_limit_c = DEFAULT_JUMP_LIMIT_C; // JumpGuard temperature limit in C, 0 = check off, else 3.0..20.0, 0.5 C steps
+  uint8_t jump_limit_rh = DEFAULT_JUMP_LIMIT_RH; // JumpGuard humidity limit in %RH, 0 = check off, else 10..50 (both 0 = guard off)
   uint8_t mold_alert_delay_h = DEFAULT_MOLD_ALERT_DELAY_H; // ALERT_HUMIDITY rises only when the newest N hourly samples of the tile are also above mold_alert_limit_rh, 0 = off, else 1..12
   int8_t auto_assign_min_rssi = DEFAULT_AUTO_ASSIGN_MIN_RSSI; // a new MAC with a weaker RSSI in dBm gets no free slot, 0 = off, else -100..-40
   uint8_t slot_auto_assign = DEFAULT_SLOT_AUTO_ASSIGN; // 1 = a new MAC takes the first free slot, 0 = only a slot with a fixed MAC (slotN_mac) takes a reading
@@ -334,6 +342,8 @@ struct DeviceConfig {
     }
     return inRange(temp_offset_c, MIN_TEMP_OFFSET_C, MAX_TEMP_OFFSET_C) &&
            (window_drop_c == 0.0f || inRange(window_drop_c, MIN_WINDOW_DROP_C, MAX_WINDOW_DROP_C)) &&
+           (jump_limit_c == 0.0f || (inRange(jump_limit_c, MIN_JUMP_LIMIT_C, MAX_JUMP_LIMIT_C) && lroundf(jump_limit_c * 2.0f) == jump_limit_c * 2.0f)) &&
+           (jump_limit_rh == 0 || (jump_limit_rh >= MIN_JUMP_LIMIT_RH && jump_limit_rh <= MAX_JUMP_LIMIT_RH)) &&
            inRange(usb_temp_offset_c, MIN_USB_TEMP_OFFSET_C, MAX_USB_TEMP_OFFSET_C) &&
            inRange(rh_offset_pct, MIN_RH_OFFSET_PCT, MAX_RH_OFFSET_PCT) &&
            inRange(rh_gain, MIN_RH_GAIN, MAX_RH_GAIN) &&
@@ -398,6 +408,7 @@ struct DeviceConfig {
            heat_alert_limit_c == d.heat_alert_limit_c && dry_alert_limit_rh == d.dry_alert_limit_rh && wall_frsi_pct == d.wall_frsi_pct && window_drop_c == d.window_drop_c && ble_broadcast_enabled == d.ble_broadcast_enabled &&
            ble_console == d.ble_console && slot_auto_assign == d.slot_auto_assign &&
            auto_assign_min_rssi == d.auto_assign_min_rssi && mold_alert_delay_h == d.mold_alert_delay_h && reception_low_pct == d.reception_low_pct && dry_alert_delay_h == d.dry_alert_delay_h &&
+           jump_limit_c == d.jump_limit_c && jump_limit_rh == d.jump_limit_rh &&
            slot_enabled_mask == d.slot_enabled_mask;
   }
 };
@@ -446,7 +457,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 8192;
-  static constexpr size_t KEY_COUNT = 99;
+  static constexpr size_t KEY_COUNT = 101;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -480,7 +491,7 @@ public:
       "slot1_enabled", "slot2_enabled", "slot3_enabled", "slot4_enabled", "slot5_enabled",
       "slot6_enabled", "slot7_enabled", "slot8_enabled", "slot9_enabled", "slot10_enabled",
       "auto_assign_min_rssi", "window_drop_c", "mold_alert_delay_h",
-      "reception_low_pct", "dry_alert_delay_h",
+      "reception_low_pct", "dry_alert_delay_h", "jump_limit_c", "jump_limit_rh",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -692,6 +703,28 @@ private:
       return false;
     }
     out = static_cast<float>(lroundf(v * 10.0f)) / 10.0f;
+    return true;
+  }
+
+  // jump_limit_c: 0 (off) or 3.0 to 20.0 C in 0.5 C steps (the RTC byte holds tenths).
+  static bool parseJumpLimitC(const char* s, size_t n, float& out) {
+    float v = 0.0f;
+    if (!parseFloatIn(s, n, 0.0f, DeviceConfig::MAX_JUMP_LIMIT_C, v) ||
+        (v != 0.0f && v < DeviceConfig::MIN_JUMP_LIMIT_C) || lroundf(v * 2.0f) != v * 2.0f) {
+      return false;
+    }
+    out = v;
+    return true;
+  }
+
+  // jump_limit_rh: 0 (off) or 10 to 50 %RH.
+  static bool parseJumpLimitRh(const char* s, size_t n, uint8_t& out) {
+    uint8_t v = 0;
+    if (!parseIntIn(s, n, 0, DeviceConfig::MAX_JUMP_LIMIT_RH, v) ||
+        (v != 0 && v < DeviceConfig::MIN_JUMP_LIMIT_RH)) {
+      return false;
+    }
+    out = v;
     return true;
   }
 
@@ -1067,6 +1100,12 @@ private:
     } else if (keyIs(key, key_len, "dry_alert_delay_h")) {
       index = 98;
       ok = parseDryAlertDelay(val, val_len, cfg.dry_alert_delay_h);
+    } else if (keyIs(key, key_len, "jump_limit_c")) {
+      index = 99;
+      ok = parseJumpLimitC(val, val_len, cfg.jump_limit_c);
+    } else if (keyIs(key, key_len, "jump_limit_rh")) {
+      index = 100;
+      ok = parseJumpLimitRh(val, val_len, cfg.jump_limit_rh);
     } else if (keyIs(key, key_len, "ble_console")) {
       index = 39;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_BLE_CONSOLE, cfg.ble_console);
@@ -1154,6 +1193,8 @@ public:
     ok = ok && putInt(out, cap, pos, "mold_alert_delay_h", cfg.mold_alert_delay_h);
     ok = ok && putInt(out, cap, pos, "reception_low_pct", cfg.reception_low_pct);
     ok = ok && putInt(out, cap, pos, "dry_alert_delay_h", cfg.dry_alert_delay_h);
+    ok = ok && putFloat(out, cap, pos, "jump_limit_c", cfg.jump_limit_c);
+    ok = ok && putInt(out, cap, pos, "jump_limit_rh", cfg.jump_limit_rh);
     ok = ok && putInt(out, cap, pos, "ble_broadcast_enabled", cfg.ble_broadcast_enabled);
     ok = ok && putInt(out, cap, pos, "ble_console", cfg.ble_console);
     ok = ok && putInt(out, cap, pos, "slot_auto_assign", cfg.slot_auto_assign);
