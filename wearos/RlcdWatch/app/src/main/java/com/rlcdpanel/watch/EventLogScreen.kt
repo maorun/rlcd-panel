@@ -28,6 +28,7 @@ import androidx.wear.compose.material.PositionIndicator
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
+import com.rlcdpanel.watch.protocol.AlertTimeline
 import com.rlcdpanel.watch.protocol.EventFilter
 import com.rlcdpanel.watch.protocol.EventRow
 import com.rlcdpanel.watch.protocol.EventText
@@ -55,6 +56,9 @@ data class EventLogState(
     companion object {
         const val MAX_ROWS = 8
 
+        /** The timeline shows the newest [MAX_INTERVALS] intervals, so the event rows stay in reach on the small screen. */
+        const val MAX_INTERVALS = 8
+
         /** The first read asks for [SHORT_COUNT] events, because a short reply needs less BLE time. */
         const val SHORT_COUNT = MAX_ROWS
         const val UNKNOWN_TIME = "--:--"
@@ -77,6 +81,8 @@ fun EventLogScreen(
     val listState = rememberScalingLazyListState()
     var category by remember { mutableStateOf<EventFilter.Category?>(null) }
     val shownRows = state.visibleRows(category)
+    // Intervals come from all rows, newest first; the clock is read once per read result.
+    val intervals = remember(state.rows) { AlertTimeline.build(state.rows, System.currentTimeMillis()).asReversed().take(EventLogState.MAX_INTERVALS) }
     MaterialTheme {
         Scaffold(
             timeText = { TimeText() },
@@ -88,6 +94,26 @@ fun EventLogScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                if (state.loaded && intervals.isNotEmpty()) {
+                    item { Text("Alarm-Zeitleiste", fontSize = 10.sp, color = Color(0xFFB0BEC5)) }
+                    if (!state.all && state.rows.size >= EventLogState.SHORT_COUNT) {
+                        // The short read holds only the newest events, so an older rise is missing and its start shows with `~`.
+                        item {
+                            Text(
+                                "Nur die letzten Ereignisse. Alle Ereignisse laden: Show all.",
+                                fontSize = 9.sp,
+                                color = Color(0xFFFFB74D),
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.padding(horizontal = 12.dp)
+                            )
+                        }
+                    }
+                    items(intervals) { interval ->
+                        Card(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth(0.95f)) {
+                            Text(AlertTimeline.lineText(interval), fontSize = 11.sp)
+                        }
+                    }
+                }
                 item {
                     Chip(
                         onClick = { category = EventFilterChip.next(category) },
