@@ -55,6 +55,10 @@ struct DiagnosticsView: View {
                 alertTimeline().frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            GroupBox("Badge intervals") {
+                badgeIntervals().frame(maxWidth: .infinity, alignment: .leading)
+            }
+
             GroupBox("Today") {
                 todayBox.frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -297,6 +301,25 @@ struct DiagnosticsView: View {
             .chartYScale(domain: names)
             .frame(height: CGFloat(names.count) * 28 + 40)
             Text("Dimmed bar: start unknown. Red bar: alert still active.")
+                .font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
+    /// One line for each badge interval (newest first): badge, room, start, end and duration.
+    @ViewBuilder private func badgeIntervals() -> some View {
+        let intervals = AlertTimeline.badges(rows: model.events, now: Date()).sorted { ($0.start, $0.event, $0.tile) > ($1.start, $1.event, $1.tile) }
+        if intervals.isEmpty {
+            Text("No badge events. Read the panel data to load the event ring.")
+                .font(.caption).foregroundStyle(.secondary)
+        } else {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(Array(intervals.enumerated()), id: \.offset) { _, i in
+                    Text(BadgeIntervalText.line(i, config: model.lastConfig))
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(i.isOpen ? Color.red : Color.primary)
+                }
+            }
+            Text("~ marks an unknown start. Red line: badge still set.")
                 .font(.caption).foregroundStyle(.secondary)
         }
     }

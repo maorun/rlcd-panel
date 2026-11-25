@@ -22,11 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Badge intervals in the macOS alert timeline
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/AlertTimeline.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/AlertTimelineTests.swift`, `FEATURES.md`
-  - **Goal:** Show when each badge of a room started and ended. Add `BadgeInterval` and `AlertTimeline.badges(rows:now:)`. Pair each set row of `WINDOW_OPEN`, `WALL_DAMP`, `DRY_AIR` and `SENSOR_DRIFT` with the next clear row of the same tile. Read the tile from the detail low byte and the state from the high byte. Use the injected `now` as the end of an open interval. Mark an interval without a set row as `startUnknown`. Show the intervals in `DiagnosticsView` below the alert intervals. Show the badge, the room name, the start, the end and the duration.
-  - **Acceptance:** A unit test pairs one `DRY_AIR` set row and one clear row to one interval. A unit test checks that a `WINDOW_OPEN` set row without a clear row ends at `now`. A unit test checks that a clear row without a set row gives `startUnknown`. A unit test checks that two tiles of one badge give two intervals. A unit test parses `tests/fixtures/events_reply_sample.txt`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-  - **Rank:** [Total: 28, Use: 6, Setup: 4, Harmony: 8, Safety: 10, Effort: M]
 
 ## Priority 3: Display and Logging (Score 22–27)
 
