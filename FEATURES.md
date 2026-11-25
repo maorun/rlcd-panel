@@ -3899,5 +3899,15 @@ The `RX <N>%` value and the `RECEPTION` line of `STATUS` show only a rate. The u
 - `ReceptionRow.newestCells()` gives the newest 12 scans (`STRIP_CELLS`) of the mask, oldest first. `ReceptionRow.isLow` is true below 50 % of the counted scans; a slot without a counted scan is not low.
 - The `Reception` chip in the sensor health screen opens `ReceptionScreen`. The command `RECEPTION` goes out only after a tap on `Read reception`, with the same permission, busy and cancel rules as `REJECTS`. The screen shows the name (`Slot <N>` for an empty name), `<received>/<scans>` with `⚠` below 50 %, and a strip of the newest 12 cells (`█` packet, `·` gap).
 - Tests: `ReceptionReplyTest` parses `tests/fixtures/reception_reply_sample.txt`, checks the CRC-32, the newest 12 cells of a 24 character mask, the warning below 50 %, and `ParseException` for the mask `10a1`, for a wrong mask length, for a `received` mismatch, for a repeated slot and for a missing header.
-- The Android parser does not exist yet. `ReceptionReply.kt` is not in the protocol sync list, so the Android item must copy these rules.
+- The Android parser `android/RlcdPhone/.../protocol/ReceptionReply.kt` follows the same rules. The file is not in the protocol sync list, so a change needs both copies.
 - Validation: the local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only. `scripts/check-protocol-sync.sh` passes.
+
+## Reception strip in the Android sensor health screen
+
+- **Code:** `android/RlcdPhone/.../protocol/ReceptionReply.kt`, `SensorHealthScreen.kt`, `MainActivity.kt`, `android/RlcdPhone/app/src/test/.../protocol/ReceptionReplyTest.kt`, `tests/fixtures/reception_reply_sample.txt`
+- The phone showed only the reception rate of each slot. The `Read reception` button of the sensor health screen sends `RECEPTION` over the BLE console, only on a tap. The panel needs USB power and `ble_console` 1 or 2.
+- `ReceptionReply.parse` reads `BEGIN RECEPTION`, the header `slot,mac,name,scans,received,mask` and one `ReceptionRow` for each slot with a reading. A wrong column count, a slot outside 1 to 10, a repeated slot, a bad MAC, a scan count above 24, a mask character other than `0` or `1`, a mask length other than `scans` or a `received` value that does not match the mask throws `ParseException`. An empty reply gives no rows.
+- `SensorHealthScreen` shows one strip below the card text of each slot: up to 24 cells, oldest scan left, a filled cell for a scan with a packet. `ReceptionRow.isLow` (below 50 %, `received * 100 < 50 * scans`) draws the strip in the error colour and puts `⚠` before the text `Scan-Muster <received>/<scans> (<N> %)`. A slot without a counted scan shows no cells and no rate.
+- A failed CRC-32, a timeout or an `ERR` reply gives one error text through `BleConsoleClient.errorText`. The command is not repeated. A read that `onStop` aborts gives `Abgebrochen. Erneut lesen.`
+- `ReceptionReplyTest` parses `tests/fixtures/reception_reply_sample.txt` and its CRC-32, checks the cells of the mask `101101`, the low-rate flag, an empty reply and `ParseException` for the mask `10a1`, a wrong mask length, a wrong `received` value, a repeated slot, a wrong column count and a scan count above 24.
+- The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.
