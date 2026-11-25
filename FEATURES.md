@@ -3220,3 +3220,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `EventCode::SENSOR_DRIFT` 26 records each changed bit (detail low byte the tile 0 to 10, high byte 1 drift, 0 good again). `EventRing::MAX_CODE` is 26.
 - The `STATUS` line `LATCH` ends with ` drift=<3 hex digits>`. `tests/fixtures/status_reply_sample.txt` holds the field.
 - Validation: host tests (`testSensorDriftLatch`) pass; `arduino-cli compile rlcd_panel` passes; `scripts/check-protocol-sync.sh` passes. The behavior on the board is not tested.
+
+## Console command CONFIG CHANGED
+
+- **Code:** `rlcd_panel/serial_console.h` (`SerialConsole::parse`, `SerialCommand::config_changed`, `SerialConsoleRunner::showConfigChanged`), `rlcd_panel/rlcd_panel.ino` (`run_console`), `tests/test_firmware_logic.cpp`, `tests/fixtures/config_changed_reply_sample.txt`.
+- `CONFIG CHANGED` shows only the settings that differ from the default, so the user finds a wrong setting fast. The reply holds one line `<key>=<value>` for each key of `DeviceConfigParser::KEYS` whose value differs from a default `DeviceConfig`, in `KEYS` order, then `END CHANGED <N>` and the `CRC32` line over all lines before it.
+- The line text equals the `CONFIG` and `CONFIG <key>` text (`DeviceConfigText::format`). An empty slot name and an empty MAC count as default and give no line. The default config holds no name and no MAC and gives `END CHANGED 0`. A change below the print precision of a key (two decimals; a gain step is 0.002) gives the same text and no line.
+- `ERR BAD_ARG` for extra text (`CONFIG CHANGEDX`, `CONFIG CHANGED 1`, `CONFIG CHANGED `). The `CONFIG` and `CONFIG <key>` replies do not change.
+- The command uses the RTC copy (`g_state.config`) and needs no card access (`SerialConsoleRunner::execute` ignores `CONFIG`). It runs on USB and on BLE at each `ble_console` level. RTC layout and `STATE_VERSION` do not change.
+- Tests: `testSerialConfigChanged` (parser, errors, no card, BLE gate, default config, three changed keys in `KEYS` order, restored default) and `testSerialConfigChangedFixture` (byte-equal fixture and CRC-32 check).
+- Validation: `c++ -std=c++17 -Wall -Wextra -Werror tests/test_firmware_logic.cpp` and the runner pass (236 suites, local macOS host); `arduino-cli compile rlcd_panel` and `scripts/check-protocol-sync.sh` pass. The behavior on the board is not tested.

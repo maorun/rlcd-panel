@@ -10933,6 +10933,115 @@ void testSerialConfigKeyReply() {
   assert(full.out == body + crcLineOf(body));
 }
 
+static std::string configChangedOutput(const DeviceConfig& cfg) {
+  FakeSink sink;
+  TestRunner::showConfigChanged(sink, cfg);
+  return sink.out;
+}
+
+static size_t configKeyIndex(const char* key) {
+  for (size_t i = 0; i < DeviceConfigParser::KEY_COUNT; ++i) {
+    if (std::string(DeviceConfigParser::KEYS[i]) == key) {
+      return i;
+    }
+  }
+  return DeviceConfigParser::KEY_COUNT;
+}
+
+void testSerialConfigChanged() {
+  SerialCommand cmd;
+  assert(parseText("CONFIG CHANGED", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::CONFIG &&
+         cmd.config_changed && cmd.set_key[0] == '\0');
+  assert(parseText("CONFIG CHANGED\r\n", cmd) == SerialParseStatus::OK && cmd.config_changed);
+  assert(parseText("CONFIG CHANGEDX", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("CONFIG CHANGED 1", cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  assert(parseText("CONFIG CHANGED ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("CONFIG changed", cmd) == SerialParseStatus::BAD_KEY);
+  assert(parseText("CONFIG mold_alert_limit_rh", cmd) == SerialParseStatus::OK && !cmd.config_changed);
+  // no card access; BLE passes the command at each level
+  assert(parseText("CONFIG CHANGED", cmd) == SerialParseStatus::OK);
+  FakeConsoleStorage storage;
+  FakeSink none;
+  TestRunner::execute(storage, none, cmd);
+  assert(storage.mounts == 0 && none.out.empty());
+  for (uint8_t level = 0; level <= 2; ++level) {
+    assert(std::string(BleConsoleBridge::gate(cmd, level)).empty());
+  }
+
+  // the default configuration has no changed key; empty names and MACs count as default
+  DeviceConfig cfg;
+  assert(configChangedOutput(cfg) == "END CHANGED 0\n" + crcLineOf("END CHANGED 0\n"));
+
+  // three changed keys: same lines as CONFIG <key>, in KEYS order
+  cfg.temp_offset_c = 2.25f;
+  cfg.mold_alert_limit_rh = 65;
+  strcpy(cfg.slot_name[0], "Bad");
+  const std::string out = configChangedOutput(cfg);
+  const char* const changed[] = {"temp_offset_c", "mold_alert_limit_rh", "slot1_name"};
+  for (const char* key : changed) {
+    assert(configKeyIndex(key) != DeviceConfigParser::KEY_COUNT);
+  }
+  // expected lines: the CONFIG <key> text of each key, sorted by KEYS index
+  std::vector<std::pair<size_t, std::string>> ordered;
+  for (const char* key : changed) {
+    FakeSink one;
+    TestRunner::showConfigKey(one, cfg, key);
+    ordered.emplace_back(configKeyIndex(key), one.out.substr(0, one.out.find('\n') + 1));
+  }
+  std::sort(ordered.begin(), ordered.end());
+  std::string body;
+  for (const auto& entry : ordered) {
+    body += entry.second;
+  }
+  assert(body == "temp_offset_c=2.25\nmold_alert_limit_rh=65\nslot1_name=Bad\n"); // KEYS order, one line each
+  body += "END CHANGED 3\n";
+  assert(out == body + crcLineOf(body));
+
+  // a fixed MAC and a gain are changes with the CONFIG text; the other keys stay out
+  DeviceConfig mac;
+  mac.slot_mac[0][0] = 0xAA;
+  mac.slot_mac[0][5] = 0x01;
+  mac.rh_gain = 1.04f;
+  FakeSink mac_line;
+  TestRunner::showConfigKey(mac_line, mac, "slot1_mac");
+  FakeSink gain_line;
+  TestRunner::showConfigKey(gain_line, mac, "rh_gain");
+  const std::string mac_body = (configKeyIndex("rh_gain") < configKeyIndex("slot1_mac") ? gain_line.out.substr(0, gain_line.out.find('\n') + 1) +
+                                                                                           mac_line.out.substr(0, mac_line.out.find('\n') + 1)
+                                                                                     : mac_line.out.substr(0, mac_line.out.find('\n') + 1) +
+                                                                                           gain_line.out.substr(0, gain_line.out.find('\n') + 1));
+  assert(mac_body.find("slot1_mac=AA:") != std::string::npos && mac_body.find("rh_gain=1.0") != std::string::npos);
+  assert(configChangedOutput(mac) == mac_body + "END CHANGED 2\n" + crcLineOf(mac_body + "END CHANGED 2\n"));
+
+  // a default value that is restored is no change
+  DeviceConfig restored;
+  restored.temp_offset_c = 2.25f;
+  assert(configChangedOutput(restored) != configChangedOutput(DeviceConfig{}));
+  restored.temp_offset_c = DeviceConfig{}.temp_offset_c;
+  assert(configChangedOutput(restored) == configChangedOutput(DeviceConfig{}));
+}
+
+void testSerialConfigChangedFixture() {
+  DeviceConfig cfg;
+  cfg.temp_offset_c = 2.25f;
+  cfg.mold_alert_limit_rh = 65;
+  strcpy(cfg.slot_name[0], "Bad");
+  const std::string out = configChangedOutput(cfg);
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  const std::string path = root + "tests/fixtures/config_changed_reply_sample.txt";
+  std::ifstream in(path, std::ios::binary);
+  assert(in.good());
+  const std::string fixture((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  assert(out == fixture);
+  // the CRC32 line covers every line before it
+  const size_t crc_at = fixture.rfind("CRC32 ");
+  assert(crc_at != std::string::npos);
+  assert(fixture.substr(crc_at) == crcLineOf(fixture.substr(0, crc_at)));
+  assert(fixture.find("END CHANGED 3\n") != std::string::npos);
+}
+
 void testSerialConfigLineFormat() {
   DeviceConfig cfg; // defaults
   char buf[DeviceConfigText::MAX_SIZE];
@@ -26483,6 +26592,8 @@ int main() {
 testSerialConfigParser();
 testSerialConfigKeyCommand();
 testSerialConfigKeyReply();
+testSerialConfigChanged();
+testSerialConfigChangedFixture();
 testSerialConfigLineFormat();
 testSerialConfigFrameAndCrc();
 testSerialConfigRunsWithoutMountingCard();

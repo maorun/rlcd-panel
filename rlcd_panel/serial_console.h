@@ -45,7 +45,7 @@ enum class SerialParseStatus : uint8_t {
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // DAYS with 0, above 31, a leading zero, a non-digit, no number or extra text; CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, or with extra text; SELFTEST, SPREAD and TODAY with extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
+  BAD_ARG,  // CONFIG CHANGED with extra text (CHANGEDX, CHANGED 1); DAYS with 0, above 31, a leading zero, a non-digit, no number or extra text; CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, or with extra text; SELFTEST, SPREAD and TODAY with extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '='); CONFIG <key> with an unknown key
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv, daily_v4_YYYY.csv or events_v1_YYYY.csv
@@ -64,6 +64,7 @@ struct SerialCommand {
   bool history_one = false; // HISTORY: true for "HISTORY <N>"; `reference` then holds the sensor 0 to 10
   bool events_newest = false; // EVENTS: true for "EVENTS <N>"; `reference` then holds N 1 to 16
   bool ack_all = false; // ACK: true for "ACK ALL" (every active repeatable alert bit that is not acknowledged)
+  bool config_changed = false; // CONFIG: true for "CONFIG CHANGED" (only the keys that differ from the default)
   bool salt_mgcl2 = false; // SALT: true for "SALT N MGCL2" (magnesium chloride reference, no proposal line)
   bool time_set = false; // TIME: true for "TIME SET <time>"; `time` then holds the parsed local time
   RtcTime time;
@@ -78,7 +79,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "CONFIG <key>", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "SPREAD", "TODAY", "TAIL 1..72", "DAYS 1..31", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "CONFIG <key>", "CONFIG CHANGED", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "SPREAD", "TODAY", "TAIL 1..72", "DAYS 1..31", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -433,6 +434,15 @@ public:
       const size_t key_len = len - cmd_len - 1;
       if (key_len == 0) {
         return SerialParseStatus::UNKNOWN;
+      }
+      if (key_len >= 7 && memcmp(key, "CHANGED", 7) == 0) {
+        // "CONFIG CHANGED": no key starts with CHANGED, so any further text is an argument error
+        if (key_len != 7) {
+          return SerialParseStatus::BAD_ARG;
+        }
+        out.kind = SerialCommandKind::CONFIG;
+        out.config_changed = true;
+        return SerialParseStatus::OK;
       }
       if (memchr(key, ' ', key_len) != nullptr) {
         return SerialParseStatus::BAD_ARG;
@@ -1109,6 +1119,10 @@ struct SerialStatusSnapshot {
 //   so execute() ignores CONFIG.
 //   CONFIG <key> -> the single line "<key>=<value>" of that key (an empty name or MAC gives "<key>=") and "CRC32 <8 hex digits>" over it;
 //   "ERR BAD_KEY" for a key outside DeviceConfigParser::KEYS, "ERR BAD_ARG" for extra text. showConfigKey() works on the RTC copy.
+//   CONFIG CHANGED -> one line "<key>=<value>" (same text as CONFIG; an empty name or MAC gives "<key>=") for each key of
+//   DeviceConfigParser::KEYS whose value differs from the default DeviceConfig, in KEYS order, then "END CHANGED <N>" and "CRC32 <8 hex digits>"
+//   over all lines before it. An empty slot name and an empty MAC equal the default (the default config holds none). "ERR BAD_ARG" for extra text (CHANGEDX, CHANGED 1).
+//   showConfigChanged() works on the RTC copy: no card access, so execute() ignores CONFIG. USB and BLE at each ble_console level.
 //   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW> format=<...> mac=<...> mold_h=<N|--> temp_trend=<RISE|FALL|STEADY|--> rh_trend=<RISE|FALL|STEADY|-->" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 5 (slots, calibrated readings), a missing value gives "--";
 //   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|--> free_mb=<N|-->" (age since the last card result; free card space of the last card read), then "RESET reason=<TEXT> abnormal=<N|-->", then "RTC trim=<N|--> drift_ppm=<N|-->" (offset register of the PCF85063A; the drift rate only for a figure of 24 h or more), then "NTP ok=<0|1|--> failures=<N> age_s=<N|--> next_s=<N|-->" (RTC copy of the NTP state; "--" without an attempt or without Wi-Fi credentials; next_s is the time to the next due attempt; age_s and next_s use the 32-bit clock difference of NtpSchedule::due and wrap like it), then "SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>[ usb_offset=<x>]" (the offset only on USB power), then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N> thermopro=<N> unassigned=<N> jumps=<N>" (packets of the current scan that no slot took; unassigned counts the packets blocked by slot_auto_assign=0; jumps counts the pending packets of a large reading jump that JumpGuard dropped), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1> acked=<hex mask>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "MEMORY free=<N> min=<N> largest=<N> psram=<N>" (heap and PSRAM bytes of the current wake cycle; no RTC state), then "FRAME crc=<8 hex digits|--> skips=<N>" (RTC copy of FrameRefresh: CRC-32 of the last flushed frame, "--" for 0, and the skip counter), then "WAKE cause=<POWER_ON|TIMER|KEY|OTHER> boots=<N> battery_interval_s=<N>" (cause of this wake cycle, RTC copy of boot_count, and the sleep interval that PowerManager::powerConfig gives on battery power at the current RTC time), then "LATCH vent=<3 hex digits> dry=<3 hex digits> batlow=<3 hex digits> stale=<3 hex digits> wall=<3 hex digits> window=<3 hex digits> rxlow=<3 hex digits>" (RTC copy of the badge latches; vent, dry, wall and window: bit 0 onboard, bits 1 to 10 slots; batlow, stale and rxlow: bits 0 to 9 slots), then "NOISE db=<N|--> band=<QUIET|MODERATE|LOUD> peak_db=<N|--> peak_hour=<N|--> events_sum=<N>" (RTC copy: newest hourly noise level, noise band latch, peak of the current day; no microphone access), then "CHIME repeat_h=<N> bits=<2 hex digits> last_s=<N|--> next_s=<N|--> snooze_s=<N|-->" (chime_repeat_h; bits are the repeatable active alerts without the acknowledged ones; seconds since the last chime stamp, "--" for 0; seconds to the next reminder, at least 0, "--" for repeat_h 0 and for bits 0; remaining snooze seconds, "--" without an active snooze), then "CRC32 <8 hex digits>" over all lines
@@ -1246,18 +1260,12 @@ public:
     if (len == 0) {
       return;
     }
-    const size_t key_len = strlen(key);
+    size_t line_len = 0;
+    const char* found = findKeyLine(text, len, key, line_len);
     char reply[96];
-    size_t reply_len = static_cast<size_t>(snprintf(reply, sizeof(reply), "%s=\n", key));
-    for (size_t pos = 0; pos < len;) {
-      const char* nl = static_cast<const char*>(memchr(text + pos, '\n', len - pos));
-      const size_t end = nl == nullptr ? len : static_cast<size_t>(nl - text);
-      if (end - pos > key_len && memcmp(text + pos, key, key_len) == 0 && text[pos + key_len] == '=') {
-        reply_len = static_cast<size_t>(snprintf(reply, sizeof(reply), "%.*s\n", static_cast<int>(end - pos), text + pos));
-        break;
-      }
-      pos = end + 1;
-    }
+    const size_t reply_len = static_cast<size_t>(
+        found == nullptr ? snprintf(reply, sizeof(reply), "%s=\n", key)
+                         : snprintf(reply, sizeof(reply), "%.*s\n", static_cast<int>(line_len), found));
     if (reply_len >= sizeof(reply)) {
       return;
     }
@@ -1269,6 +1277,66 @@ public:
     char line[24];
     snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
     send(sink, line);
+  }
+
+  // Sends the keys whose value differs from the default DeviceConfig as "<key>=<value>" lines in KEYS order,
+  // then "END CHANGED <N>" and the CRC32 line. An empty name or MAC has no text line and equals the default (the default config holds no name and no MAC).
+  static void showConfigChanged(Sink& sink, const DeviceConfig& config) {
+    static char active[DeviceConfigText::MAX_SIZE];
+    static char defaults[DeviceConfigText::MAX_SIZE];
+    static char reply[DeviceConfigText::MAX_SIZE + 40];
+    const size_t active_len = DeviceConfigText::format(config, active, sizeof(active));
+    const size_t default_len = DeviceConfigText::format(DeviceConfig{}, defaults, sizeof(defaults));
+    if (active_len == 0 || default_len == 0) {
+      return;
+    }
+    size_t reply_len = 0;
+    unsigned count = 0;
+    for (size_t i = 0; i < DeviceConfigParser::KEY_COUNT; ++i) {
+      const char* key = DeviceConfigParser::KEYS[i];
+      size_t a_len = 0;
+      size_t d_len = 0;
+      const char* a = findKeyLine(active, active_len, key, a_len);
+      const char* d = findKeyLine(defaults, default_len, key, d_len);
+      if (a_len == d_len && (a_len == 0 || memcmp(a, d, a_len) == 0)) {
+        continue;
+      }
+      // The default config has no name and no MAC, so a differing key always has an active line.
+      if (a == nullptr) {
+        continue;
+      }
+      const int n = snprintf(reply + reply_len, sizeof(reply) - reply_len, "%.*s\n", static_cast<int>(a_len), a);
+      if (n < 0 || reply_len + static_cast<size_t>(n) + 32 > sizeof(reply)) {
+        return;
+      }
+      reply_len += static_cast<size_t>(n);
+      ++count;
+    }
+    reply_len += static_cast<size_t>(snprintf(reply + reply_len, sizeof(reply) - reply_len, "END CHANGED %u\n", count));
+    SerialCrc32 crc;
+    crc.update(reinterpret_cast<const uint8_t*>(reply), reply_len);
+    if (!put(sink, reinterpret_cast<const uint8_t*>(reply), reply_len)) {
+      return;
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
+  // Finds the line "<key>=..." in the config text; `len` is the line length without the LF, 0 when the key has no line.
+  static const char* findKeyLine(const char* text, size_t text_len, const char* key, size_t& len) {
+    const size_t key_len = strlen(key);
+    len = 0;
+    for (size_t pos = 0; pos < text_len;) {
+      const char* nl = static_cast<const char*>(memchr(text + pos, '\n', text_len - pos));
+      const size_t end = nl == nullptr ? text_len : static_cast<size_t>(nl - text);
+      if (end - pos > key_len && memcmp(text + pos, key, key_len) == 0 && text[pos + key_len] == '=') {
+        len = end - pos;
+        return text + pos;
+      }
+      pos = end + 1;
+    }
+    return nullptr;
   }
 
   // Sends the mean differences of every sensor to the reference and the offsets that would remove them.
