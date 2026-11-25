@@ -22,11 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Dry air notification in the macOS app
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/DryWatch.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/DryWatchTests.swift`, `FEATURES.md`
-  - **Goal:** Tell the user when a room becomes too dry. Add the pure state machine `DryWatch` with the rules of `WindowWatch`. Read the `dry=` mask of the `STATUS` line `LATCH`. Bit 0 is the onboard tile, bits 1 to 10 are the slots. The first read only stores the mask. A later read gives each rising bit. `AppModel` posts one `UserNotifications` notification for each rising tile with the text `Dry air: <room>`. Use `EventText.roomName` for the room.
-  - **Acceptance:** A unit test checks that the first mask gives no tile. A unit test checks that a rising bit gives its tile. A unit test checks that an equal mask and a falling bit give no tile. A unit test checks that a `nil` mask keeps the stored mask. A unit test checks the notification text. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-  - **Rank:** [Total: 29, Use: 7, Setup: 4, Harmony: 8, Safety: 10, Effort: S]
 
 
 ## Priority 3: Display and Logging (Score 22–27)
