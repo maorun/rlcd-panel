@@ -92,4 +92,47 @@ class TodayReplyTest {
         assertEquals("Panel clock not set", TodayReply.statusText("ERR NO_TIME"))
         assertNull(TodayReply.statusText("ERR BAD_ARG"))
     }
+
+    private val h2 = TodayReply.HEADER_V2
+
+    @Test
+    fun oldFixtureHasNullMoldAndDry() {
+        TodayReply.parse(fixtureLines()).forEach {
+            assertNull(it.moldHours)
+            assertNull(it.dryHours)
+        }
+    }
+
+    @Test
+    fun newRowGivesMoldAndDry() {
+        val rows = TodayReply.parse(listOf("BEGIN TODAY", h2, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,3,0", "1,slot1,5,1.0,2.0,1.5,40.0,41.0,40.5,,5"))
+        assertEquals(3, rows[0].moldHours)
+        assertEquals(0, rows[0].dryHours)
+        assertNull(rows[1].moldHours)
+        assertEquals(5, rows[1].dryHours)
+    }
+
+    @Test
+    fun newHeaderBadRowsThrow() {
+        bad("BEGIN TODAY", h2, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,3")
+        bad("BEGIN TODAY", h2, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0")
+        bad("BEGIN TODAY", h2, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,7,0")
+        bad("BEGIN TODAY", h2, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,0,7")
+        bad("BEGIN TODAY", h2, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,x,0")
+        bad("BEGIN TODAY", h, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,3,0")
+    }
+
+    @Test
+    fun zeroHoursAllowOnlyZeroOrEmpty() {
+        val rows = TodayReply.parse(listOf("BEGIN TODAY", h2, "2,slot2,0,,,,,,,0,0", "3,slot3,0,,,,,,,,"))
+        assertEquals(0, rows[0].moldHours)
+        assertNull(rows[1].dryHours)
+        bad("BEGIN TODAY", h2, "2,slot2,0,,,,,,,1,0")
+    }
+
+    @Test
+    fun moldDryLineText() {
+        val row = TodayRow(0, "onboard", 5, 1.0, 2.0, 1.5, 1.0, 2.0, 1.5, 3, null)
+        assertEquals("Mold 3 h · Dry -- h", com.rlcdpanel.watch.TodayScreenText.moldDry(row))
+    }
 }
