@@ -17527,6 +17527,77 @@ std::string todayOutput(const ClimateHistory& h, const RtcTime& t, uint32_t now_
 }
 } // namespace
 
+// Mold and dry hours of TODAY: counts since midnight with the strict mold rule and the at-or-below dry rule.
+void testSerialTodayHours() {
+  const uint32_t now_ms = 5000000;
+  const std::string head =
+      "BEGIN TODAY\nsensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct,mold_h,dry_h\n";
+  // 04:30, newest sample 30 min old: the newest 5 samples count; the oldest (30 %RH) lies before midnight.
+  ClimateHistory h;
+  const float rh[6] = {30.0f, 40.0f, 50.0f, 60.0f, 61.0f, 70.0f};
+  for (int i = 0; i < 6; ++i) {
+    h.temperatures[0].pushCelsius(10.0f + static_cast<float>(i));
+    h.slots[0].pushPercent(rh[i]);
+  }
+  h.temperatures[2].pushCelsius(20.0f); // slot 2: no humidity sample
+  h.has_sampled = true;
+  h.last_sample_ms = now_ms - 30UL * 60UL * 1000UL;
+  FakeSink sink;
+  TestRunner::showToday(sink, h, todayTime(4, 30), now_ms, -1, 60, 40);
+  // 5 samples (40, 50, 60, 61, 70): mold_h 2 (61, 70; 60 at the limit does not count), dry_h 1 (40; the 30 before midnight does not count)
+  assert(sink.out.rfind(head + "0,onboard,5,11.0,15.0,13.0,40.0,70.0,56.2,2,1\n", 0) == 0);
+  // a sensor without a humidity sample: empty mold_h and dry_h
+  assert(sink.out.find("2,slot2,1,20.0,20.0,20.0,,,,,\n") != std::string::npos);
+  assert(frsiCrcOk(sink.out));
+  // dry_alert_limit_rh 0: empty dry_h, mold_h stays
+  FakeSink off;
+  TestRunner::showToday(off, h, todayTime(4, 30), now_ms, -1, 60, 0);
+  assert(off.out.find("0,onboard,5,11.0,15.0,13.0,40.0,70.0,56.2,2,\n") != std::string::npos);
+  // a sample exactly at the dry limit counts, at the mold limit it does not
+  FakeSink edge;
+  TestRunner::showToday(edge, h, todayTime(4, 30), now_ms, -1, 70, 60);
+  assert(edge.out.find("0,onboard,5,11.0,15.0,13.0,40.0,70.0,56.2,0,3\n") != std::string::npos);
+  // TODAY 2 with the new header
+  ClimateHistory two = h;
+  two.slots[2].pushPercent(55.0f);
+  FakeSink only2;
+  TestRunner::showToday(only2, two, todayTime(4, 30), now_ms, 2, 50, 56);
+  assert(only2.out.rfind(head + "2,slot2,1,20.0,20.0,20.0,55.0,55.0,55.0,1,1\nCRC32 ", 0) == 0 && frsiCrcOk(only2.out));
+  assert(only2.out.find("onboard") == std::string::npos);
+  // fixtures of the new header: the full reply and TODAY 1
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  // the old samples stay unchanged for the app parsers: old 9-column header
+  const char* const old_names[2] = {"tests/fixtures/today_reply_sample.txt", "tests/fixtures/today_one_reply_sample.txt"};
+  for (int k = 0; k < 2; ++k) {
+    std::ifstream old_in(root + old_names[k]);
+    assert(old_in.good());
+    const std::string old_text((std::istreambuf_iterator<char>(old_in)), std::istreambuf_iterator<char>());
+    assert(old_text.rfind("BEGIN TODAY\nsensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct\n", 0) == 0);
+  }
+  ClimateHistory fx;
+  for (int i = 0; i < 8; ++i) {
+    fx.temperatures[0].pushCelsius(10.0f + static_cast<float>(i));
+    fx.slots[0].pushPercent(40.0f + static_cast<float>(i));
+  }
+  fx.temperatures[1].pushCelsius(-2.5f);
+  fx.temperatures[1].pushCelsius(-3.5f);
+  fx.slots[1].pushPercent(80.0f);
+  fx.slots[1].pushPercent(81.0f);
+  fx.has_sampled = true;
+  fx.last_sample_ms = now_ms - 30UL * 60UL * 1000UL;
+  const char* const names[2] = {"tests/fixtures/today_hours_reply_sample.txt", "tests/fixtures/today_hours_one_reply_sample.txt"};
+  for (int k = 0; k < 2; ++k) {
+    FakeSink fs;
+    TestRunner::showToday(fs, fx, todayTime(4, 30), now_ms, k == 0 ? -1 : 1, 45, 45);
+    std::ifstream in(root + names[k]);
+    assert(in.good());
+    const std::string fixture((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    assert(fs.out == fixture);
+  }
+}
+
 void testSerialToday() {
   SerialCommand cmd;
   assert(parseText("TODAY", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::TODAY);
@@ -17553,10 +17624,10 @@ void testSerialToday() {
   const uint32_t now_ms = 5000000;
   ClimateHistory h = todayHistory(now_ms, 30UL * 60UL * 1000UL);
   std::string out = todayOutput(h, todayTime(4, 30), now_ms);
-  const std::string head = "BEGIN TODAY\nsensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct\n";
-  assert(out.rfind(head + "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0\n", 0) == 0);
+  const std::string head = "BEGIN TODAY\nsensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct,mold_h,dry_h\n";
+  assert(out.rfind(head + "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,0,\n", 0) == 0);
   // slot 1 has 2 samples: both lie after midnight; a sensor without samples has no row
-  assert(out.find("1,slot1,2,-3.5,-2.5,-3.0,80.0,81.0,80.5\n") != std::string::npos);
+  assert(out.find("1,slot1,2,-3.5,-2.5,-3.0,80.0,81.0,80.5,2,\n") != std::string::npos);
   assert(out.find("slot3") == std::string::npos);
   assert(frsiCrcOk(out));
   assert(h.temperatures[0].size() == 8); // no state change
@@ -17568,17 +17639,13 @@ void testSerialToday() {
     const std::string root = cut1 == std::string::npos ? std::string() : here1.substr(0, cut1);
     FakeSink one;
     TestRunner::showToday(one, h, todayTime(4, 30), now_ms, 1);
-    const std::string expected = head + "1,slot1,2,-3.5,-2.5,-3.0,80.0,81.0,80.5\n";
+    const std::string expected = head + "1,slot1,2,-3.5,-2.5,-3.0,80.0,81.0,80.5,2,\n";
     assert(one.out.rfind(expected + "CRC32 ", 0) == 0 && frsiCrcOk(one.out));
     SerialCrc32 crc;
     crc.update(reinterpret_cast<const uint8_t*>(expected.data()), expected.size());
     char want[24];
     snprintf(want, sizeof(want), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
     assert(one.out == expected + want);
-    std::ifstream fin(root + "tests/fixtures/today_one_reply_sample.txt");
-    assert(fin.good());
-    const std::string fixture_one((std::istreambuf_iterator<char>(fin)), std::istreambuf_iterator<char>());
-    assert(one.out == fixture_one);
     // a sensor without a sample: header and CRC32 line only
     FakeSink none;
     TestRunner::showToday(none, h, todayTime(4, 30), now_ms, 3);
@@ -17598,25 +17665,21 @@ void testSerialToday() {
   std::string here = __FILE__;
   const size_t cut = here.rfind("tests/");
   const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
-  std::ifstream in(root + "tests/fixtures/today_reply_sample.txt");
-  assert(in.good());
-  const std::string fixture((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
-  assert(out == fixture);
 
   // exclusion of samples before midnight: at 00:29 with a 29 minute old newest sample only that sample counts
   const uint32_t age29 = 29UL * 60UL * 1000UL;
   ClimateHistory one = todayHistory(now_ms, age29);
   out = todayOutput(one, todayTime(0, 29), now_ms);
-  assert(out.find("0,onboard,1,17.0,17.0,17.0,47.0,47.0,47.0\n") != std::string::npos);
+  assert(out.find("0,onboard,1,17.0,17.0,17.0,47.0,47.0,47.0,0,\n") != std::string::npos);
   // the newest sample is 30 minutes old at 00:29: it lies before midnight, so every sensor has hours 0 and empty fields
   ClimateHistory before = todayHistory(now_ms, 30UL * 60UL * 1000UL);
   out = todayOutput(before, todayTime(0, 29), now_ms);
-  assert(out.find("0,onboard,0,,,,,,\n") != std::string::npos);
-  assert(out.find("1,slot1,0,,,,,,\n") != std::string::npos);
+  assert(out.find("0,onboard,0,,,,,,,,\n") != std::string::npos);
+  assert(out.find("1,slot1,0,,,,,,,,\n") != std::string::npos);
   assert(frsiCrcOk(out));
   // a later time admits more samples; the limit is exact (01:30 with age 30 min: samples at 01:00 and 00:00)
   out = todayOutput(before, todayTime(1, 30), now_ms);
-  assert(out.find("0,onboard,2,16.0,17.0,16.5,46.0,47.0,46.5\n") != std::string::npos);
+  assert(out.find("0,onboard,2,16.0,17.0,16.5,46.0,47.0,46.5,0,\n") != std::string::npos);
   // history without a sample ever: no row, only the header and the CRC32 line
   out = todayOutput(ClimateHistory(), todayTime(12, 0), now_ms);
   assert(out.rfind(head, 0) == 0 && out.find("onboard") == std::string::npos && frsiCrcOk(out));
@@ -17626,7 +17689,7 @@ void testSerialToday() {
   half.has_sampled = true;
   half.last_sample_ms = now_ms;
   out = todayOutput(half, todayTime(3, 0), now_ms);
-  assert(out.find("2,slot2,1,20.0,20.0,20.0,,,\n") != std::string::npos);
+  assert(out.find("2,slot2,1,20.0,20.0,20.0,,,,,\n") != std::string::npos);
   // TODAY 2 sends only the row of sensor 2 (the header, one row, a correct CRC-32)
   {
     ClimateHistory two = todayHistory(now_ms, 0);
@@ -17634,7 +17697,7 @@ void testSerialToday() {
     two.slots[2].pushPercent(55.0f);
     FakeSink only2;
     TestRunner::showToday(only2, two, todayTime(3, 0), now_ms, 2);
-    assert(only2.out.rfind(head + "2,slot2,1,20.0,20.0,20.0,55.0,55.0,55.0\nCRC32 ", 0) == 0);
+    assert(only2.out.rfind(head + "2,slot2,1,20.0,20.0,20.0,55.0,55.0,55.0,0,\nCRC32 ", 0) == 0);
     assert(only2.out.find("onboard") == std::string::npos && only2.out.find("slot1") == std::string::npos);
     assert(frsiCrcOk(only2.out));
   }
@@ -17643,7 +17706,7 @@ void testSerialToday() {
   const uint32_t wrapped_now = 10000;
   ClimateHistory wrapped = todayHistory(wrapped_now, 30UL * 60UL * 1000UL);
   assert(wrapped.last_sample_ms > wrapped_now);
-  assert(todayOutput(wrapped, todayTime(4, 30), wrapped_now).find("0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0\n") !=
+  assert(todayOutput(wrapped, todayTime(4, 30), wrapped_now).find("0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,0,\n") !=
          std::string::npos);
   // 23:59 with a full day of 24 samples and the newest sample 0 minutes old: all 24 count
   ClimateHistory full;
@@ -17656,14 +17719,14 @@ void testSerialToday() {
   full.has_sampled = true;
   full.last_sample_ms = now_ms;
   out = todayOutput(full, todayTime(23, 59), now_ms);
-  assert(out.find("0,onboard,24,-100.0,100.0,0.0,0.0,100.0,50.0\n") != std::string::npos);
-  assert(out.find("10,slot10,24,-100.0,100.0,0.0,0.0,100.0,50.0\n") != std::string::npos);
+  assert(out.find("0,onboard,24,-100.0,100.0,0.0,0.0,100.0,50.0,1,\n") != std::string::npos);
+  assert(out.find("10,slot10,24,-100.0,100.0,0.0,0.0,100.0,50.0,1,\n") != std::string::npos);
   assert(frsiCrcOk(out) && out.rfind("CRC32 ") != std::string::npos);
   // a newest sample ahead of the clock wraps to a huge age: no sample counts, the reply stays complete
   ClimateHistory ahead = todayHistory(now_ms, 0);
   ahead.last_sample_ms = now_ms + 60000UL;
   out = todayOutput(ahead, todayTime(4, 30), now_ms);
-  assert(frsiCrcOk(out) && out.find("0,onboard,0,,,,,,\n") != std::string::npos);
+  assert(frsiCrcOk(out) && out.find("0,onboard,0,,,,,,,,\n") != std::string::npos);
 
   // invalid, stopped and untrusted RTC time
   RtcTime bad = todayTime(4, 30);
@@ -28480,6 +28543,7 @@ testSerialConfigNegativeSmallOffset();
   testSerialSelfTestParser();
   testSerialSpread();
   testSerialToday();
+  testSerialTodayHours();
   testSerialTailParserAndGate();
   testSerialTailRows();
   testSerialDaysCommand();

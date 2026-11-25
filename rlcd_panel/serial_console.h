@@ -1271,7 +1271,7 @@ struct SerialStatusSnapshot {
 //   A stale slot does not count (no SENSOR line, not in sensors= and in the median).
 //   Fewer than 3 such sensors give "SKIP sensors=<n>" and the CRC32 line, a number outside 6 to 24, a leading zero, a non-digit or extra text gives "ERR BAD_ARG". showSpread() works on
 //   the RTC copy and the registry: no card access, no state change, so execute() ignores SPREAD. USB and BLE at each ble_console level.
-//   TODAY -> "BEGIN TODAY", the header "sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct", one row for
+//   TODAY -> "BEGIN TODAY", the header "sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct,mold_h,dry_h" (11 columns), one row for
 //   each sensor (0 onboard, 1 to 10 a slot) that holds at least one hourly sample, and "CRC32 <8 hex digits>". The row covers the hourly
 //   samples of the RTC ClimateHistory since the last local midnight of the RTC time: the newest sample is as old as the time since
 //   ClimateHistory::last_sample_ms, each older sample is one hour older, and a sample counts when its age does not exceed the minutes
@@ -1283,6 +1283,9 @@ struct SerialStatusSnapshot {
 //   without new samples (stale, lost) keeps its old samples and shows them as today's values (like SPREAD); TODAY has no STALE marker.
 //   The day boundary is the local wall clock of the RTC (a plain 24-hour day, also on a DST change day). showToday() works on the
 //   RTC copy: no card access, no state change, so execute() ignores TODAY. USB and BLE at each ble_console level.
+//   mold_h counts the humidity samples since midnight strictly above mold_alert_limit_rh (HumidityHistory::countAbove rule, a sample at the
+//   limit does not count) and dry_h those at or below dry_alert_limit_rh (countAtOrBelow rule); both use the same sample age rule as the
+//   humidity fields and are empty for a sensor without a humidity sample since midnight; dry_h is also empty for dry_alert_limit_rh 0.
 //   TODAY <N> (N 0 to 10, no leading zero) sends the same header and only the row of sensor N (no row without a sample), then the CRC32 line over
 //   the filtered bytes; "ERR BAD_ARG" for 11, a leading zero, a non-digit and extra text; "ERR NO_TIME" stays.
 //   TAIL <N> -> "BEGIN TAIL <n>", the CSV header of climate_v6, the newest rows (N 1 to 72) oldest first and "CRC32 <8 hex digits>". <n> is
@@ -1808,8 +1811,10 @@ public:
   // Minimum, maximum and mean of the hourly samples of each sensor since the last local midnight of `now` (see TODAY above). `now_ms`
   // is the RTC-backed clock of `history.last_sample_ms`. The card and the state stay untouched.
   // `only_sensor` 0 to 10 sends only the row of that sensor (-1 sends every row).
+  // `mold_limit_rh` and `dry_limit_rh` (whole %RH, the config keys mold_alert_limit_rh and dry_alert_limit_rh) feed mold_h and dry_h. The defaults (mold 70, dry 0) only serve host tests; the sketch always passes both config values.
   static void showToday(Sink& sink, const ClimateHistory& history, const RtcTime& now, uint32_t now_ms,
-                        int only_sensor = -1) {
+                        int only_sensor = -1, uint8_t mold_limit_rh = DeviceConfig::DEFAULT_MOLD_ALERT_LIMIT_RH,
+                        uint8_t dry_limit_rh = 0) {
     static const char* const names[ClimateHistory::SLOT_COUNT] = {
         "onboard", "slot1", "slot2", "slot3", "slot4", "slot5",
         "slot6", "slot7", "slot8", "slot9", "slot10"};
@@ -1825,9 +1830,10 @@ public:
     const int64_t fit = history.has_sampled && newest_age_min <= since_midnight_min
                             ? (since_midnight_min - newest_age_min) / 60 + 1
                             : 0;
-    char text[1024];
+    char text[1536];
     size_t len = static_cast<size_t>(snprintf(
-        text, sizeof(text), "BEGIN TODAY\nsensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct\n"));
+        text, sizeof(text),
+        "BEGIN TODAY\nsensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct,mold_h,dry_h\n"));
     for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
       if (only_sensor >= 0 && i != static_cast<size_t>(only_sensor)) {
         continue;
@@ -1869,11 +1875,23 @@ public:
         formatTenths(h_field[1], sizeof(h_field[1]), hi);
         formatTenths(h_field[2], sizeof(h_field[2]), divRound(sum, static_cast<int32_t>(h_n)));
       }
-      const int row = snprintf(text + len, sizeof(text) - len, "%u,%s,%u,%s,%s,%s,%s,%s,%s\n",
+      // Hours above the mold limit (strict) and at or below the dry limit, over the same samples as the humidity fields.
+      char mold_field[8] = "";
+      char dry_field[8] = "";
+      if (h_n > 0) {
+        snprintf(mold_field, sizeof(mold_field), "%u",
+                 static_cast<unsigned>(hh.countAboveNewest(h_n, static_cast<uint16_t>(mold_limit_rh * 10u))));
+        if (dry_limit_rh > 0) {
+          snprintf(dry_field, sizeof(dry_field), "%u",
+                   static_cast<unsigned>(hh.countAtOrBelowNewest(h_n, static_cast<uint16_t>(dry_limit_rh * 10u))));
+        }
+      }
+      const int row = snprintf(text + len, sizeof(text) - len, "%u,%s,%u,%s,%s,%s,%s,%s,%s,%s,%s\n",
                                static_cast<unsigned>(i), names[i], static_cast<unsigned>(t_n > h_n ? t_n : h_n),
-                               t_field[0], t_field[1], t_field[2], h_field[0], h_field[1], h_field[2]);
+                               t_field[0], t_field[1], t_field[2], h_field[0], h_field[1], h_field[2], mold_field,
+                               dry_field);
       if (row < 0 || static_cast<size_t>(row) >= sizeof(text) - len) {
-        break; // cannot happen with 11 rows of at most 70 bytes; never read past the buffer
+        break; // cannot happen with 11 rows of at most 80 bytes; never read past the buffer
       }
       len += static_cast<size_t>(row);
     }

@@ -105,24 +105,36 @@ public:
 
   // Number of stored samples strictly above the limit (0.1 %RH steps). A sample at the limit does not count.
   size_t countAbove(uint16_t limit_tenths) const {
-    size_t n = 0;
-    for (size_t i = 0; i < count_; ++i) {
-      if (at(i) > static_cast<int32_t>(limit_tenths)) {
-        ++n;
-      }
-    }
-    return n;
+    return countAboveNewest(count_, limit_tenths);
   }
 
   // Number of stored samples at or below the limit (0.1 %RH steps). A sample at the limit counts.
   size_t countAtOrBelow(uint16_t limit_tenths) const {
-    size_t n = 0;
-    for (size_t i = 0; i < count_; ++i) {
-      if (at(i) <= static_cast<int32_t>(limit_tenths)) {
-        ++n;
+    return countAtOrBelowNewest(count_, limit_tenths);
+  }
+
+  // Like countAbove, but only over the newest `n` samples (n above size() counts all). Same strict rule.
+  size_t countAboveNewest(size_t n, uint16_t limit_tenths) const {
+    size_t c = 0;
+    const size_t m = n < count_ ? n : count_;
+    for (size_t k = 0; k < m; ++k) {
+      if (at(count_ - 1 - k) > static_cast<int32_t>(limit_tenths)) {
+        ++c;
       }
     }
-    return n;
+    return c;
+  }
+
+  // Like countAtOrBelow, but only over the newest `n` samples (n above size() counts all). A sample at the limit counts.
+  size_t countAtOrBelowNewest(size_t n, uint16_t limit_tenths) const {
+    size_t c = 0;
+    const size_t m = n < count_ ? n : count_;
+    for (size_t k = 0; k < m; ++k) {
+      if (at(count_ - 1 - k) <= static_cast<int32_t>(limit_tenths)) {
+        ++c;
+      }
+    }
+    return c;
   }
 
   // True when the newest `n` samples exist and each one is strictly above the limit (0.1 %RH steps).

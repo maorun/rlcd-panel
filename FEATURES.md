@@ -3911,3 +3911,12 @@ The `RX <N>%` value and the `RECEPTION` line of `STATUS` show only a rate. The u
 - A failed CRC-32, a timeout or an `ERR` reply gives one error text through `BleConsoleClient.errorText`. The command is not repeated. A read that `onStop` aborts gives `Abgebrochen. Erneut lesen.`
 - `ReceptionReplyTest` parses `tests/fixtures/reception_reply_sample.txt` and its CRC-32, checks the cells of the mask `101101`, the low-rate flag, an empty reply and `ParseException` for the mask `10a1`, a wrong mask length, a wrong `received` value, a repeated slot, a wrong column count and a scan count above 24.
 - The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.
+
+## Mold and dry hours columns in the console command TODAY
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/today_hours_reply_sample.txt`, `tests/fixtures/today_hours_one_reply_sample.txt`
+- `TODAY` and `TODAY <N>` send the header `...,rh_mean_pct,mold_h,dry_h` (11 columns). `mold_h` counts the humidity samples since midnight strictly above `mold_alert_limit_rh`; `dry_h` counts those at or below `dry_alert_limit_rh`. Both use the sample age rule of the humidity fields.
+- `HumidityHistory::countAboveNewest` and `countAtOrBelowNewest` apply the rules of `countAbove` and `countAtOrBelow` to the newest N samples. A sample at the mold limit does not count; a sample at the dry limit counts.
+- Empty fields: both for a sensor without a humidity sample since midnight; `dry_h` also for `dry_alert_limit_rh` 0.
+- The old samples `today_reply_sample.txt` and `today_one_reply_sample.txt` stay unchanged for the app parsers. The RTC layout and `STATE_VERSION` do not change.
+- Host tests cover 5 samples with `mold_h` 2 and `dry_h` 1, the mold limit, a sample before midnight, limit 0, a sensor without a sample, `TODAY 2` and both new fixtures. Validation: host tests and `arduino-cli compile rlcd_panel` pass.
