@@ -26,12 +26,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Gap report in the Android tail screen
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/LogGaps.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/TailScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/LogGapsTest.kt`, `FEATURES.md`
-  - **Goal:** Show missing hours of the climate log on the phone. Port the macOS `LogGaps.report` to Kotlin. Give one gap for a step above 90 minutes between two neighbour rows. Skip a row with an unreadable timestamp. Use the smaller of the real and the wall-clock difference, so the October clock change gives no false gap. Show the gap count and one line for each gap in `TailScreen`.
-  - **Acceptance:** A unit test checks that a step of 90 minutes gives no gap. A unit test checks that a step of 3 hours gives one gap with 2 missing hours. A unit test checks that the repeated hour of the October change gives no gap. A unit test parses `tests/fixtures/tail_reply_sample.txt`. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
-  - **Rank:** [Total: 26, Use: 4, Setup: 5, Harmony: 7, Safety: 10, Effort: S]
-
 - [ ] Hour window for the console command HISTORY
   - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/history_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
   - **Goal:** Make the `HISTORY` reply short for one sensor over BLE. Accept the optional argument `HISTORY <N> <H>` (H 1 to 24, no leading zero, `SerialCommand::history_hours`). Send only the rows of sensor N with `age_h` below H. Calculate the `CRC32` line over the filtered bytes. Keep the `HISTORY` and `HISTORY <N>` replies. Give `ERR BAD_ARG` for H 0, H 25, a leading zero, a non-digit and extra text. Do not change the RTC layout or `STATE_VERSION`.

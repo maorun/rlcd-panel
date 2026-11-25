@@ -18,8 +18,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.rlcdpanel.phone.protocol.LogGaps
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TailCommand
 import com.rlcdpanel.phone.protocol.TailRow
@@ -42,6 +44,7 @@ fun TailScreen(
 ) {
     /** Slots with a configured name (`slotN_name` or the name bound to the fixed MAC); the tile index of slot N is N. */
     val namedSlots = (1..10).filter { panelConfig.slotName(it) != null || panelConfig.nameForMac(panelConfig.slotMac(it)) != null }
+    val gapReport = remember(state.rows) { LogGaps.report(state.rows) }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
@@ -75,6 +78,12 @@ fun TailScreen(
                 )
             }
             state.message?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            if (state.rows.isNotEmpty()) {
+                item { Text(LogGaps.summaryText(gapReport), style = MaterialTheme.typography.titleSmall) }
+                gapReport.gaps.asReversed().forEach { gap ->
+                    item { Text(LogGaps.gapLine(gap), style = MaterialTheme.typography.bodySmall) }
+                }
+            }
             // Newest row first. The index is the key: the panel logs local time, so a clock change can repeat a time stamp.
             itemsIndexed(TailCommand.newestFirst(state.rows), key = { index, _ -> index }) { _, row ->
                 val lines = TailCommand.rowLines(
