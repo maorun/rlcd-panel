@@ -3370,3 +3370,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `ConfigReset.kt` is watch-only (not in the `FILES` list). The shared files do not change.
 - Tests: `ConfigChangedReplyTest` gives one reset command for each fixture key with the `ConfigSchema` default, puts a key with an empty default in `skipped`, and checks that `ERR READ_ONLY` and another `ERR` stop the run after the first command.
 - Validation: `scripts/check-protocol-sync.sh` passes. The Gradle tests run in GitHub Actions CI (no Android SDK on the local host). The behavior on the watch is not tested.
+
+## Mold hours in the Wear OS week screen
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/WeekMoldText.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/WeekScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/WeekMoldTextTest.kt`
+- The user sees the mold hours of one room for the week on the wrist, as on the phone and on the panel. `WeekScreen` shows `Schimmel <N> h` below the day rows. `N` is the sum of `WeekRow.moldHours` over the days with a value (`WeekMoldText.summary`).
+- A gap day and a day with an empty field do not add to the sum. `summary` gives `null` when no day has a value (reply with 7 columns, older firmware), and the screen shows no line.
+- Each day row keeps its own line `⚠ Schimmel <N> h` for more than 0 hours (`WeekText.mold`, unchanged).
+- `WeekMoldText.kt` is watch-only (not in the `FILES` list). The shared files do not change.
+- Tests: `WeekMoldTextTest` reads `tests/fixtures/week_reply_sample.txt` (sensor 0 gives 17 h, sensor 1 gives 10 h with one empty day), checks that gap days add nothing, and checks that a 7-column reply gives `null`.
+- Validation: `scripts/check-protocol-sync.sh` passes. The Gradle tests run in GitHub Actions CI (no Android SDK on the local host). The behavior on the watch is not tested.

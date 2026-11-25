@@ -24,6 +24,7 @@ import androidx.wear.compose.material.PositionIndicator
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
+import com.rlcdpanel.watch.protocol.WeekMoldText
 import com.rlcdpanel.watch.protocol.WeekRow
 import java.time.DayOfWeek
 import java.time.LocalDate
@@ -160,6 +161,9 @@ fun WeekScreen(
                             if (mold.isNotEmpty()) Text(mold, fontSize = 10.sp, color = Color(0xFFB0BEC5))
                         }
                     }
+                }
+                WeekMoldText.summary(days)?.let { text ->
+                    item { Text(text, fontSize = 12.sp, textAlign = TextAlign.Center) }
                 }
             }
         }

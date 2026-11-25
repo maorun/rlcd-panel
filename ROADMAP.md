@@ -40,12 +40,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Mold hours in the Wear OS week screen
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/WeekScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/WeekMoldText.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/WeekMoldTextTest.kt`, `FEATURES.md`
-  - **Goal:** Show the weekly mold hours on the watch, as on the phone and on the panel. The shared `WeekReply` gives `moldHours` for each day. Add `WeekMoldText.summary(rows)`. It gives `Schimmel <N> h` with the sum over the days with a value. It gives `null` when no day has a value. Show the text below the week bars of `WeekScreen`. Mark a day with mold hours above 0 with `⚠` in its row.
-  - **Acceptance:** `WeekMoldTextTest` reads `tests/fixtures/week_reply_sample.txt` and gives the sum of the fixture for one sensor. A test checks that gap days do not add to the sum. A test checks that a reply with 7 columns gives `null`. `gradle testDebugUnitTest` passes in `wearos/RlcdWatch`.
-  - **Rank:** [Total: 26, Use: 5, Setup: 3, Harmony: 8, Safety: 10, Effort: S]
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.
