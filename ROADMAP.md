@@ -19,11 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Two-point salt calibration on the Wear OS watch
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/TwoPointCalibration.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SaltScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/TwoPointCalibrationTest.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TwoPointCalibration.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
-  - **Goal:** Let the user calibrate the humidity gain and offset of one sensor on the watch. Copy the phone `TwoPointCalibration.kt` into the watch protocol package. Add `TwoPointCalibration.kt` to the `FILES` list of `scripts/check-protocol-sync.sh`. Add a `NaCl` button and a `MgCl2` button to the salt screen. Send `SALT N` and `SALT N MGCL2` through the shared `SaltCommand`. After both replies, show the gain and the offset. Apply them through `CalibrationBatch` with the `rh_gain` or `slotN_rh_gain` key and the offset key. Show an error text and send no `SET` for a gain outside 0.90 to 1.10.
-  - **Acceptance:** A unit test calculates gain and offset from one NaCl reply and one MgCl2 reply. A unit test checks the `SET` lines for slot 3. A unit test checks that a gain of 1.15 gives the error text and no `SET` line. A unit test checks that one reply only gives no result. `scripts/check-protocol-sync.sh` and `scripts/check-protocol-sync.sh --self-test` exit with 0. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` and `gradle testDebugUnitTest` in `android/RlcdPhone` pass.
-  - **Rank:** [Total: 34, Use: 5, Setup: 10, Harmony: 10, Safety: 9, Effort: M]
 
 
 ## Priority 2: Configuration and Control (Score 28–33)
