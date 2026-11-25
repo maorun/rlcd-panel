@@ -9,10 +9,14 @@ struct ConfigEditorView: View {
         GroupBox("Config editor") {
             VStack(alignment: .leading, spacing: 8) {
                 if let c = model.config {
+                    changedFilter
                     ForEach(ConfigCategory.allCases, id: \.self) { cat in
-                        DisclosureGroup(cat.rawValue) {
-                            ForEach(ConfigSchema.entries(in: cat), id: \.key) { entry in
-                                row(entry, reply: c)
+                        let shown = ConfigSchema.entries(in: cat).filter { !model.changedOnly || changedKeys.contains($0.key) }
+                        if !shown.isEmpty {
+                            DisclosureGroup(cat.rawValue) {
+                                ForEach(shown, id: \.key) { entry in
+                                    row(entry, reply: c)
+                                }
                             }
                         }
                     }
@@ -41,6 +45,29 @@ struct ConfigEditorView: View {
         .onChange(of: model.showRestore) { _, shown in if !shown { model.restore = nil; model.restoreFileName = nil } }
     }
 
+    private var changedKeys: Set<String> { Set((model.configChanged ?? []).map(\.key)) }
+
+    /// `Changed only` filter and the read of `CONFIG CHANGED`. Each changed key gets a `Reset` button in its row.
+    @ViewBuilder private var changedFilter: some View {
+        HStack {
+            Toggle("Changed only", isOn: $model.changedOnly)
+            Button("Read changed") { model.readConfigChanged() }.disabled(!model.isIdle)
+        }
+        if model.changedOnly {
+            if let changed = model.configChanged {
+                if changed.isEmpty { Text("No setting differs from the default.").font(.caption).foregroundStyle(.secondary) }
+            } else {
+                Text("Read changed to list the settings that differ from the default.").font(.caption).foregroundStyle(.secondary)
+            }
+        }
+        if model.consoleLevel == 1 {
+            Text("Reset is off for ble_console=1.").font(.caption).foregroundStyle(.secondary)
+        }
+        if !model.draft.isEmpty, model.configChanged?.isEmpty == false {
+            Text("Reset is off while the form holds unsaved edits. Apply or discard them first.").font(.caption).foregroundStyle(.secondary)
+        }
+    }
+
     private func binding(_ entry: ConfigEntry, _ reply: ConfigReply) -> Binding<String> {
         Binding(
             get: { model.draft[entry.key] ?? reply.values[entry.key] ?? entry.defaultValue },
@@ -65,6 +92,14 @@ struct ConfigEditorView: View {
                         .textFieldStyle(.roundedBorder).frame(width: 170)
                 }
                 Text(entry.unit).font(.caption).foregroundStyle(.secondary)
+                if let item = model.configChanged?.first(where: { $0.key == entry.key }) {
+                    Button("Reset") { model.resetToDefault(item) }
+                        .disabled(!model.canReset(item))
+                        .help("SET \(entry.key)=\(entry.defaultValue.isEmpty ? "(empty)" : entry.defaultValue)")
+                    if ConfigSchema.resetChanges(for: item).isEmpty {
+                        Text("No reset: the default cannot be sent").font(.caption2).foregroundStyle(.secondary)
+                    }
+                }
             }
             Text(problem ?? entry.description).font(.caption2).foregroundStyle(problem == nil ? Color.secondary : Color.red)
             if entry.key == "night_wake_interval_s" { runtimePreview(reply) }
