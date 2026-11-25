@@ -84,6 +84,10 @@ class ConfigSchemaTest {
         assertNotNull(ConfigSchema.validate("heat_alert_delay_h", "13"))
         assertNotNull(ConfigSchema.validate("heat_alert_delay_h", "x"))
         assertEquals("0", ConfigSchema.entry("heat_alert_delay_h")!!.defaultValue)
+        assertNull(ConfigSchema.validate("freeze_alert_delay_h", "0"))
+        assertNull(ConfigSchema.validate("freeze_alert_delay_h", "12"))
+        assertNotNull(ConfigSchema.validate("freeze_alert_delay_h", "13"))
+        assertEquals("0", ConfigSchema.entry("freeze_alert_delay_h")!!.defaultValue)
     }
 
     @Test

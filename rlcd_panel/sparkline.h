@@ -258,6 +258,20 @@ public:
     return samples_[(head_ + CAPACITY - count_ + index) % CAPACITY];
   }
 
+  // True when the newest `n` samples exist and each one is at or below the limit (0.1 degC steps).
+  // Fewer than `n` samples give false. `n` 0 gives true.
+  bool newestAtOrBelow(size_t n, int16_t limit_tenths) const {
+    if (n > count_) {
+      return false;
+    }
+    for (size_t i = 0; i < n; ++i) {
+      if (at(count_ - 1 - i) > limit_tenths) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   // Lowest and highest sample. Returns false for fewer than MIN_RANGE_SAMPLES samples.
   bool range(int16_t& lo, int16_t& hi) const {
     if (count_ < MIN_RANGE_SAMPLES) {

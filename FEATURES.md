@@ -4078,3 +4078,12 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - A panel firmware without `SPREAD <H>` answers `ERR BAD_ARG` to a window above 6 h (`SpreadCommand.isOldFirmware`). The app then shows `Update the panel firmware for longer windows`, sets the window to 6 h and sends `SPREAD` once more.
 - Tests: `SpreadCommandTest` (both apps: command for 6, 7, 12 and 24, exception for 5, 25, 0 and -6, picker values, old firmware detection) runs in CI only (no Android SDK on this host). `scripts/check-protocol-sync.sh` passes.
 - Validation on the device: read the check with 12 h on a panel with the current firmware and on one with an old firmware.
+
+## Config key freeze_alert_delay_h for the freezer alert
+
+- The new `config.ini` key `freeze_alert_delay_h` stops a short cold air stream, for example an open freezer door, from raising `ALERT_FREEZER`. The value 0 is off (default). Else the value is 1 to 12 h. Another value, for example 13, gives a rejected line.
+- `AlertLimits::freeze_delay_h` holds the delay. `AlertEvaluator::Tally::add` raises `ALERT_FREEZER` for a tile only when the live reading is below `freeze_alert_limit_c` and `Tally::freezeDelayPassed` is true. The newest N hourly temperature samples of the tile must each be at or below the limit (`TemperatureHistory::newestAtOrBelow`, new; the limit is rounded down to the 0.1 C sample step).
+- No rise for fewer than N samples and for a delay without a history pointer. `alertLimits()` in `rlcd_panel.ino` sets `freeze_delay_h` and uses the same `history` pointer as the mold and heat delays.
+- The hold rule and the release at the limit plus 1 C do not change. A delay never clears an active alert.
+- The key is the last byte of the config trailer, after `heat_alert_delay_h`. `DeviceConfigParser::KEY_COUNT` is 105 (index 104) and `PowerManager::STATE_VERSION` is 83. `docs/config.example.ini`, `tests/fixtures/config_backup_sample.ini` and the schema tables of the macOS, Android and Wear OS apps list the key.
+- Tests: `testTemperatureHistoryNewestAtOrBelow`, `testFreezeAlertDelay` (delay 0, 2 and 3 cold samples, a warm sample among the newest 3, no history, hold and release, slot tile, delay 12) and `testFreezeAlertDelayConfig` (range 0 to 12, rejection of 13, `SET` check, RTC round trip and a corrupt byte). Older RTC offset tests moved by one byte. `ConfigSchemaTests` and the Kotlin `ConfigSchemaTest` cover the schemas.
