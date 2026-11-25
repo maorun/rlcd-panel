@@ -38,6 +38,7 @@ import com.rlcdpanel.phone.protocol.FrsiReply
 import com.rlcdpanel.phone.protocol.FrsiText
 import com.rlcdpanel.phone.protocol.SaltReply
 import com.rlcdpanel.phone.protocol.SaltText
+import com.rlcdpanel.phone.protocol.SpreadCommand
 import com.rlcdpanel.phone.protocol.SpreadReply
 import com.rlcdpanel.phone.protocol.SpreadText
 import com.rlcdpanel.phone.protocol.TwoPointCalibration
@@ -66,6 +67,10 @@ data class CalibrationState(
     val frsi: FrsiReply? = null,
     /** Last `SPREAD` reply of the co-location check. */
     val spread: SpreadReply? = null,
+    /** Window picked for the next `SPREAD` (6, 12 or 24 hours). */
+    val spreadHours: Int = SpreadCommand.DEFAULT_HOURS,
+    /** Window of the request that produced [spread]; the re-read after an apply uses it. */
+    val spreadReplyHours: Int = SpreadCommand.DEFAULT_HOURS,
     /** True while the salt watch sends `HISTORY N 6` every 10 minutes. */
     val isWatching: Boolean = false,
     /** Progress text or stop reason of the salt watch; null before the first start. */
@@ -123,6 +128,7 @@ fun CalibrationScreen(
     onPickFrsiHours: (Int) -> Unit,
     onFrsi: () -> Unit,
     onApplyFrsi: () -> Unit,
+    onPickSpreadHours: (Int) -> Unit,
     onSpread: () -> Unit,
     onApplySpread: (SpreadReply.Proposal) -> Unit,
     onBack: () -> Unit
@@ -269,14 +275,32 @@ fun CalibrationScreen(
             item { Text("Co-location check", style = MaterialTheme.typography.titleMedium) }
             item {
                 Text(
-                    "Lege alle Sensoren 6 h an einen Ort. Danach vergleicht SPREAD jeden Sensor mit dem Median.",
+                    "Lege alle Sensoren für das gewählte Fenster an einen Ort. Danach vergleicht SPREAD jeden Sensor mit dem Median.",
                     style = MaterialTheme.typography.bodySmall
                 )
+            }
+            item {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Fenster")
+                    for (h in SpreadCommand.PICKER_HOURS) {
+                        FilterChip(
+                            selected = state.spreadHours == h,
+                            onClick = { onPickSpreadHours(h) },
+                            enabled = !state.isBusy,
+                            label = { Text("$h h") }
+                        )
+                    }
+                }
             }
             item { Button(onClick = onSpread, enabled = !state.isBusy) { Text("Read SPREAD") } }
             state.spread?.let { r ->
                 when (val o = r.outcome) {
                     is SpreadReply.Outcome.Measured -> {
+                        item { Text(SpreadCommand.windowText(state.spreadReplyHours)) }
                         item { Text(SpreadText.summary(o)) }
                         items(o.rows) { row ->
                             Text(

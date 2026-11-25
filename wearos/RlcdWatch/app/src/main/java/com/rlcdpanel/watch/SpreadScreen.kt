@@ -3,6 +3,7 @@ package com.rlcdpanel.watch
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -24,6 +25,7 @@ import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
 import com.rlcdpanel.watch.protocol.SpreadApply
+import com.rlcdpanel.watch.protocol.SpreadCommand
 import com.rlcdpanel.watch.protocol.SpreadReply
 import com.rlcdpanel.watch.protocol.SpreadText
 
@@ -31,6 +33,8 @@ import com.rlcdpanel.watch.protocol.SpreadText
 data class SpreadState(
     val isReading: Boolean = false,
     val reply: SpreadReply? = null,
+    /** Window of the request that produced [reply]. */
+    val replyHours: Int = SpreadCommand.DEFAULT_HOURS,
     val message: String? = null,
     /** Row index whose proposal waits for a confirmation, or null. */
     val confirming: Int? = null,
@@ -42,7 +46,7 @@ data class SpreadState(
 
 /** Texts of the co-location check screen. */
 object SpreadScreenText {
-    const val IDLE = "Lege alle Sensoren 6 h an einen Ort. Tippe dann auf Lesen."
+    const val IDLE = "Lege alle Sensoren für das gewählte Fenster an einen Ort. Tippe dann auf Lesen."
 
     /** `temp_dev` and `rh_dev` of one sensor, for example `+0.2 °C / -1.0 %RH`. */
     fun deviations(row: SpreadReply.SensorSpread): String = "${signed(row.tempDev)} °C / ${signed(row.rhDev)} %RH"
@@ -56,6 +60,8 @@ object SpreadScreenText {
 @Composable
 fun SpreadScreen(
     state: SpreadState,
+    hours: Int = SpreadCommand.DEFAULT_HOURS,
+    onPickHours: (Int) -> Unit = {},
     onRead: () -> Unit,
     onAsk: (Int) -> Unit = {},
     onCancel: () -> Unit = {},
@@ -73,6 +79,23 @@ fun SpreadScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                item {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(0.95f),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        for (h in SpreadCommand.PICKER_HOURS) {
+                            Chip(
+                                onClick = { onPickHours(h) },
+                                modifier = Modifier.weight(1f),
+                                enabled = !state.isReading && !state.isApplying,
+                                colors = if (h == hours) ChipDefaults.primaryChipColors() else ChipDefaults.secondaryChipColors(),
+                                label = { Text("$h h", fontSize = 11.sp, maxLines = 1) }
+                            )
+                        }
+                    }
+                }
                 item {
                     Chip(
                         onClick = onRead,
@@ -116,6 +139,7 @@ fun SpreadScreen(
                             )
                         }
                         is SpreadReply.Outcome.Measured -> {
+                            item { Text(SpreadCommand.windowText(state.replyHours), fontSize = 10.sp, color = Color(0xFFB0BEC5)) }
                             item { Text("Median ${outcome.tempMedian} °C", fontSize = 12.sp, color = Color.White) }
                             item { Text("Median ${outcome.rhMedian} %RH", fontSize = 12.sp, color = Color.White) }
                             itemsIndexed(outcome.rows) { index, row ->

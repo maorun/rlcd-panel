@@ -1,10 +1,5 @@
 package com.rlcdpanel.phone.protocol
 
-/** Console command `SPREAD`: it has no argument. */
-object SpreadCommand {
-    const val LINE = "SPREAD"
-}
-
 /** Reply of `SPREAD`: the co-location check of all sensors. */
 data class SpreadReply(val outcome: Outcome) {
     /** One `SENSOR` line: deviations from the median and the outlier flag. */

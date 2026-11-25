@@ -381,6 +381,7 @@ class MainActivity : ComponentActivity() {
                     onPickFrsiHours = { calibState = calibState.copy(frsiHours = it, frsi = null, message = null, isError = false) },
                     onFrsi = { withConsolePermission { readFrsi() } },
                     onApplyFrsi = { withConsolePermission { applyFrsi() } },
+                    onPickSpreadHours = { calibState = calibState.copy(spreadHours = it, spread = null, message = null, isError = false) },
                     onSpread = { withConsolePermission { readSpread() } },
                     onApplySpread = { proposal -> withConsolePermission { applySpread(proposal) } },
                     onBack = { closeCalibration() }
@@ -1689,7 +1690,7 @@ class MainActivity : ComponentActivity() {
         stopSaltWatch(SaltProgress.StopReason.VIEW_CLOSED)
         consoleClient.cancel()
         pendingConsoleAction = null
-        calibState = CalibrationState(reference = calibState.reference, frsiRoom = calibState.frsiRoom, frsiWall = calibState.frsiWall, frsiHours = calibState.frsiHours)
+        calibState = CalibrationState(reference = calibState.reference, frsiRoom = calibState.frsiRoom, frsiWall = calibState.frsiWall, frsiHours = calibState.frsiHours, spreadHours = calibState.spreadHours)
         showCalib = false
         showHealth = true
     }
@@ -1882,18 +1883,25 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Sends `SPREAD` after a tap. A lost link shows the text of [BleConsoleClient.errorText]. */
-    private fun readSpread() {
+    /**
+     * Sends `SPREAD` or `SPREAD <H>` after a tap. A lost link shows the text of [BleConsoleClient.errorText]. A panel
+     * firmware that answers `ERR BAD_ARG` to a window above 6 h gets one more request with 6 h and the update text.
+     */
+    private fun readSpread(hours: Int = calibState.spreadHours, note: String? = null) {
         stopBleScan()
-        calibState = calibState.copy(isBusy = true, isError = false, message = null, spread = null)
-        consoleClient.send(SpreadCommand.LINE) { reply ->
+        calibState = calibState.copy(isBusy = true, isError = false, message = note, spread = null, spreadHours = hours)
+        consoleClient.send(SpreadCommand.line(hours)) { reply ->
+            if (reply is ConsoleReply.Status && SpreadCommand.isOldFirmware(hours, reply.line)) {
+                readSpread(SpreadCommand.DEFAULT_HOURS, SpreadCommand.OLD_FIRMWARE_TEXT)
+                return@send
+            }
             calibState = when (reply) {
                 is ConsoleReply.Frame -> try {
-                    calibState.copy(isBusy = false, spread = SpreadReply.parse(reply.lines))
+                    calibState.copy(isBusy = false, spread = SpreadReply.parse(reply.lines), spreadReplyHours = hours)
                 } catch (e: ParseException) {
                     calibState.copy(isBusy = false, isError = true, message = "Antwort nicht lesbar: ${e.line.take(80)}")
                 }
-                else -> calibState.copy(isBusy = false, isError = true, message = BleConsoleClient.errorText(reply))
+                else -> calibState.copy(isBusy = false, isError = true, message = listOfNotNull(note, BleConsoleClient.errorText(reply)).joinToString(". "))
             }
         }
     }
@@ -1910,7 +1918,8 @@ class MainActivity : ComponentActivity() {
         }
         fun step(commands: List<String>) {
             if (commands.isEmpty()) {
-                consoleClient.send(SpreadCommand.LINE) { reply ->
+                val hours = calibState.spreadReplyHours
+                consoleClient.send(SpreadCommand.line(hours)) { reply ->
                     calibState = when (reply) {
                         is ConsoleReply.Frame -> try {
                             calibState.copy(
