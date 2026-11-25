@@ -22,11 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Console command RECEPTION with the scan mask of each slot
-  - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/reception_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Show which of the last 24 BLE scans received a packet of each slot, so the user finds a sensor with a gap pattern. Add the console command `RECEPTION` (`SerialCommandKind::RECEPTION`, `SerialConsoleRunner::showReception`). Read only the RTC copy of `ReceptionHistory`. Send `BEGIN RECEPTION`, the header `slot,mac,name,scans,received,mask`, one row for each occupied registry slot (1 to `MAX_SWITCHBOT_SENSORS`) and the `CRC32` line. `mask` is a text of `scans` characters, oldest scan first: `1` for a received packet, `0` for a missed scan. `received` is the count of `1` characters. `name` comes from `DeviceConfig::nameForMac`. Give `ERR BAD_ARG` for extra text. Do not access the card. Do not change the state, the RTC layout or `STATE_VERSION`. Run the command on USB and on BLE at each `ble_console` level.
-  - **Acceptance:** A host test sends `RECEPTION` with slot 2 at 6 scans and mask bits `0b101101` and checks the row `2,<mac>,<name>,6,4,101101`. A host test checks that an empty slot gives no row. A host test checks a slot with 24 scans and 24 characters. A host test checks `ERR BAD_ARG` for `RECEPTION 1` and `RECEPTIONX`. A host test checks the reply on the BLE gate at `ble_console` 1. A host test compares one reply with `tests/fixtures/reception_reply_sample.txt`. The host test suite passes. `arduino-cli compile rlcd_panel` passes.
-  - **Rank:** [Total: 32, Use: 5, Setup: 9, Harmony: 8, Safety: 10, Effort: S]
 
 - [ ] Reception strip in the macOS diagnostics view
   - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/ReceptionReply.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ReceptionReplyTests.swift`, `FEATURES.md`

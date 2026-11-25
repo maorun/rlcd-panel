@@ -16031,6 +16031,134 @@ void testSerialRejectsReplyAndFixture() {
   }
 }
 
+// The RECEPTION tests: scan mask of each occupied slot from the RTC copy of ReceptionHistory.
+// Feeds `pattern` (oldest scan first, '1' packet, '0' miss) into the history of slot `id` (1 to 5).
+void feedReceptionPattern(PersistentState& st, uint8_t id, const std::string& pattern) {
+  for (const char c : pattern) {
+    uint32_t before[MAX_SWITCHBOT_SENSORS] = {};
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      before[i] = st.registry.slot(i).packet_count;
+    }
+    if (c == '1') {
+      assert(st.registry.upsert(makeReading(id, 20.0f, 50, 80)));
+    }
+    st.reception.recordScan(st.registry, before);
+  }
+}
+
+std::string receptionReply(PersistentState& st) {
+  FakeSink sink;
+  TestRunner::showReception(sink, st.registry, st.reception, st.config);
+  return sink.out;
+}
+
+void testSerialReceptionParserAndGate() {
+  SerialCommand cmd;
+  assert(parseText("RECEPTION", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::RECEPTION);
+  assert(parseText("RECEPTION 1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("RECEPTION ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("RECEPTIONX", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("RECEPTION", cmd) == SerialParseStatus::OK);
+  for (uint8_t level = 0; level < 3; ++level) {
+    assert(std::string(BleConsoleBridge::gate(cmd, level)).empty()); // read command at each level
+  }
+  FakeConsoleStorage storage;
+  FakeSink sink;
+  TestRunner::execute(storage, sink, cmd);
+  assert(sink.out.empty() && storage.mounts == 0 && storage.unmounts == 0); // no card access
+
+  BleConsoleBridge bridge;
+  bridge.setLevel(1);
+  assert(bridge.onConnect());
+  SerialCommand command;
+  const char* reply = "";
+  BleConsoleBridge::Action action = BleConsoleBridge::Action::NONE;
+  for (const char c : std::string("RECEPTION\n")) {
+    action = bridge.feed(static_cast<uint8_t>(c), command, reply);
+  }
+  assert(action == BleConsoleBridge::Action::RUN && command.kind == SerialCommandKind::RECEPTION);
+  for (const char c : std::string("RECEPTION 1\n")) {
+    action = bridge.feed(static_cast<uint8_t>(c), command, reply);
+  }
+  assert(action == BleConsoleBridge::Action::REPLY && std::string(reply) == "ERR BAD_ARG\n");
+}
+
+void testSerialReceptionRows() {
+  PersistentState st;
+  assert(st.registry.upsert(makeReading(1, 20.0f, 50, 80)));
+  assert(receptionReply(st).find("\n1,A1:A1:A1:A1:A1:A1,,0,0,\n") != std::string::npos);
+  feedReceptionPattern(st, 2, "101101");
+  const std::string reply = receptionReply(st);
+  // slot 1 holds a reading but has no scan yet: one row with 0 scans; slot 2 follows the pattern
+  assert(reply.rfind("BEGIN RECEPTION\nslot,mac,name,scans,received,mask\n", 0) == 0);
+  assert(reply.find("\n2,A2:A2:A2:A2:A2:A2,,6,4,101101\n") != std::string::npos);
+  // an empty slot gives no row
+  assert(reply.find("\n3,") == std::string::npos && reply.find("\n5,") == std::string::npos);
+  // the name comes from the fixed MAC of the slot
+  for (int k = 0; k < 6; ++k) st.config.slot_mac[1][k] = 0xA2;
+  strcpy(st.config.slot_name[1], "Cellar");
+  assert(receptionReply(st).find("\n2,A2:A2:A2:A2:A2:A2,Cellar,6,4,101101\n") != std::string::npos);
+  // the reply changes no state
+  uint8_t before[PowerManager::SERIALIZED_SIZE];
+  uint8_t after[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(st, before, sizeof(before)));
+  (void)receptionReply(st);
+  assert(PowerManager::serialize(st, after, sizeof(after)));
+  assert(memcmp(before, after, sizeof(before)) == 0);
+  // no occupied slot: header and CRC32 line only
+  PersistentState empty;
+  const std::string none = receptionReply(empty);
+  assert(none.rfind("BEGIN RECEPTION\nslot,mac,name,scans,received,mask\nCRC32 ", 0) == 0);
+}
+
+void testSerialReceptionFullWindowAndCrc() {
+  PersistentState st;
+  feedReceptionPattern(st, 1, "110100101101001011010010"); // 24 scans
+  feedReceptionPattern(st, 1, "1"); // a 25th scan: the oldest drops out, the mask keeps 24 characters
+  const std::string reply = receptionReply(st);
+  const std::string expected = std::string("110100101101001011010010").substr(1) + "1";
+  size_t ones = 0;
+  for (const char c : expected) {
+    ones += c == '1' ? 1u : 0u;
+  }
+  assert(reply.find("\n1,A1:A1:A1:A1:A1:A1,,24," + std::to_string(ones) + "," + expected + "\n") != std::string::npos);
+  const size_t crc_at = reply.rfind("CRC32 ");
+  const std::string body = reply.substr(0, crc_at);
+  assert(reply == body + historyCrcLine(body) + "\n");
+  // a short write ends the reply without a CRC32 line
+  for (size_t limit = 0; limit < crc_at; ++limit) {
+    FakeSink cut;
+    cut.limit = limit;
+    TestRunner::showReception(cut, st.registry, st.reception, st.config);
+    assert(cut.out.size() == limit && cut.out.find("CRC32") == std::string::npos);
+  }
+}
+
+void testSerialReceptionFixture() {
+  PersistentState st;
+  // Slot 1 has a gap pattern over 24 scans; slot 2 appears at scan 18 and keeps 6 scans; slot 3 stays empty.
+  const std::string first = "110100101101001011010010";
+  const std::string second = "101101";
+  for (size_t scan = 0; scan < 24; ++scan) {
+    uint32_t before[MAX_SWITCHBOT_SENSORS] = {};
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      before[i] = st.registry.slot(i).packet_count;
+    }
+    if (first[scan] == '1') {
+      assert(st.registry.upsert(makeReading(1, 20.0f, 50, 80)));
+    }
+    if (scan >= 18) {
+      if (second[scan - 18] == '1') {
+        assert(st.registry.upsert(makeReading(2, 21.0f, 50, 80)));
+      }
+    }
+    st.reception.recordScan(st.registry, before);
+  }
+  strcpy(st.config.slot_name[1], "Cellar");
+  for (int k = 0; k < 6; ++k) st.config.slot_mac[1][k] = 0xA2;
+  assert(receptionReply(st) == readRepoFile("tests/fixtures/reception_reply_sample.txt"));
+}
+
 void testSerialWeekOverBleBridge() {
   BleConsoleBridge bridge;
   bridge.setLevel(1);
@@ -28145,6 +28273,10 @@ int main() {
   testRejectLogMixedReasonMerge();
   testSerialRejectsParserAndGate();
   testSerialRejectsReplyAndFixture();
+  testSerialReceptionParserAndGate();
+  testSerialReceptionRows();
+  testSerialReceptionFullWindowAndCrc();
+  testSerialReceptionFixture();
   testSerialScreenReply();
   testScanCompletionStopsWhenAllReported();
   testScanCompletionOneSlotMissing();

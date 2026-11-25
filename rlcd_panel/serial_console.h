@@ -38,14 +38,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST, SPREAD, TAIL, TODAY, DAYS };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST, SPREAD, TAIL, TODAY, DAYS, RECEPTION };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CONFIG CHANGED with extra text (CHANGEDX, CHANGED 1); DAYS with 0, above 31, a leading zero, a non-digit, no number or extra text; CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, with a window outside 3 to 24, a leading zero, a non-digit or extra text; SELFTEST with extra text; TODAY with a sensor above 10, a leading zero, a non-digit or extra text; SPREAD with a number outside 6 to 24, a leading zero, a non-digit or extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
+  BAD_ARG,  // CONFIG CHANGED with extra text (CHANGEDX, CHANGED 1); DAYS with 0, above 31, a leading zero, a non-digit, no number or extra text; CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, with a window outside 3 to 24, a leading zero, a non-digit or extra text; SELFTEST with extra text; RECEPTION with extra text; TODAY with a sensor above 10, a leading zero, a non-digit or extra text; SPREAD with a number outside 6 to 24, a leading zero, a non-digit or extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '='); CONFIG <key> with an unknown key
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv to daily_v6_YYYY.csv or events_v1_YYYY.csv
@@ -82,7 +82,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "CONFIG <key>", "CONFIG CHANGED", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "FRSI 0..10 0..10 3..24", "SPREAD", "SPREAD 6..24", "TODAY", "TODAY 0..10", "TAIL 1..72", "DAYS 1..31", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv|daily_v5_YYYY.csv|daily_v6_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "CONFIG <key>", "CONFIG CHANGED", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "FRSI 0..10 0..10 3..24", "SPREAD", "SPREAD 6..24", "TODAY", "TODAY 0..10", "TAIL 1..72", "DAYS 1..31", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "RECEPTION", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv|daily_v5_YYYY.csv|daily_v6_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -464,6 +464,14 @@ public:
         return SerialParseStatus::BAD_ARG; // REJECTS takes no argument
       }
       out.kind = SerialCommandKind::REJECTS;
+      return SerialParseStatus::OK;
+    }
+    // The word prefix check (not matches()) makes RECEPTIONX a BAD_ARG, as the roadmap item demands.
+    if (cmd_len >= 9 && memcmp(line, "RECEPTION", 9) == 0) {
+      if (cmd_len != 9 || len != 9) { // RECEPTIONX (longer word) and RECEPTION <text> both fail
+        return SerialParseStatus::BAD_ARG; // RECEPTION takes no argument; a longer word gives BAD_ARG, not UNKNOWN
+      }
+      out.kind = SerialCommandKind::RECEPTION;
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "HISTORY")) {
@@ -2287,6 +2295,55 @@ public:
     send(sink, line);
   }
 
+  // Sends the BLE scan mask of each occupied registry slot from the RTC copy of ReceptionHistory: header
+  // slot,mac,name,scans,received,mask, one row per occupied slot (1 to MAX_SWITCHBOT_SENSORS), then the CRC32 line.
+  // mask has `scans` characters, oldest scan first: 1 for a scan with a packet, 0 for a missed scan; received counts the 1
+  // characters. name comes from DeviceConfig::nameForMac (empty for an unknown MAC). No card access, no state change.
+  // A short write ends the reply, so the host sees no CRC32 line.
+  static void showReception(Sink& sink, const SwitchBotRegistry& registry, const ReceptionHistory& reception,
+                            const DeviceConfig& config) {
+    SerialCrc32 crc;
+    auto emit = [&](const char* text) {
+      const size_t len = strlen(text);
+      if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+        return false;
+      }
+      crc.update(reinterpret_cast<const uint8_t*>(text), len);
+      return true;
+    };
+    if (!emit("BEGIN RECEPTION\n") || !emit("slot,mac,name,scans,received,mask\n")) {
+      return;
+    }
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      const SwitchBotReading& r = registry.slot(i);
+      if (!r.valid) {
+        continue;
+      }
+      const uint8_t scans = reception.scans(i) < ReceptionHistory::WINDOW ? reception.scans(i) : ReceptionHistory::WINDOW;
+      const uint32_t mask = reception.mask(i);
+      char bits[ReceptionHistory::WINDOW + 1];
+      unsigned received = 0;
+      for (uint8_t k = 0; k < scans; ++k) {
+        const bool got = ((mask >> (scans - 1 - k)) & 1u) != 0; // bit 0 is the newest scan, the text starts oldest
+        bits[k] = got ? '1' : '0';
+        received += got ? 1u : 0u;
+      }
+      bits[scans] = '\0';
+      const char* name = config.nameForMac(r.mac);
+      char line[96];
+      snprintf(line, sizeof(line), "%u,%02X:%02X:%02X:%02X:%02X:%02X,%s,%u,%u,%s\n", static_cast<unsigned>(i + 1),
+               static_cast<unsigned>(r.mac[0]), static_cast<unsigned>(r.mac[1]), static_cast<unsigned>(r.mac[2]),
+               static_cast<unsigned>(r.mac[3]), static_cast<unsigned>(r.mac[4]), static_cast<unsigned>(r.mac[5]),
+               name != nullptr ? name : "", static_cast<unsigned>(scans), received, bits);
+      if (!emit(line)) {
+        return;
+      }
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
   // Sends the 7-day minimum and maximum of each sensor from the RTC copy as CSV: one row per sensor (0 onboard, 1 to 5 a
   // slot) and day (day 0 is the day before the stamp). The date is empty without a stamp, a gap day gives empty value
   // fields. `only_sensor` 0 to 5 sends only the 7 rows of that sensor, -1 sends all. Values are in 0.5 steps; `mold_h` is the hour count above mold_alert_limit_rh (empty for a gap day); `dry_h` is the hour count at or below dry_alert_limit_rh (empty for a gap day and for limit 0). The card and the state stay untouched. A short write ends the reply, so the host
@@ -3197,7 +3254,7 @@ public:
         command.kind == SerialCommandKind::NTP_SYNC || command.kind == SerialCommandKind::FRSI ||
         command.kind == SerialCommandKind::SELFTEST || command.kind == SerialCommandKind::SPREAD ||
         command.kind == SerialCommandKind::TAIL || command.kind == SerialCommandKind::TODAY ||
-        command.kind == SerialCommandKind::DAYS) {
+        command.kind == SerialCommandKind::DAYS || command.kind == SerialCommandKind::RECEPTION) {
       return;
     }
     if (!storage.mount()) {
@@ -3236,6 +3293,7 @@ public:
       case SerialCommandKind::TAIL:
       case SerialCommandKind::TODAY:
       case SerialCommandKind::DAYS:
+      case SerialCommandKind::RECEPTION:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;

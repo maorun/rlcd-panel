@@ -1552,6 +1552,10 @@ void setup() {
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::REJECTS) {
       // The RTC copy of the reject log answers: no card access, no BLE scan, so the console keeps running.
       Runner::showRejects(sink, g_state.reject_log);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::RECEPTION) {
+      // The RTC copy of the reception history answers: no card access, no state change, so the console keeps running.
+      // The BLE scan has stopped while a console command runs, so the registry needs no lock (like FRSI and SPREAD).
+      Runner::showReception(sink, g_state.registry, g_state.reception, g_state.config);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::HISTORY) {
       // The RTC histories answer: no card access, so the console keeps running.
       Runner::showHistory(sink, g_state.history, g_state.noise_history,
