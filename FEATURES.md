@@ -3315,3 +3315,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `MoldSummary.kt` is a copy of the Wear OS file without the `package` line. `scripts/check-protocol-sync.sh` lists it in `FILES`.
 - `DaysScreen` shows one card for each room above the charts (`DaysMoldCards.cards`, most mold hours first). The card shows the total mold hours, the mold days and the worst day (the newest day on a tie). A room with 0 mold hours shows `Keine Schimmelstunden`. A room without a mold value has no card.
 - Validation: `MoldSummaryTest` (6 tests in each app) reads `tests/fixtures/days_reply_sample.txt`. The fixture holds no mold value, so the tests set the onboard mold column of its rows. `DaysMoldCardsTest` (4 tests) is new. `./scripts/check-protocol-sync.sh` exits 0. `gradle testDebugUnitTest` does not run on the local host (no Android SDK); it runs in CI.
+
+## Monthly mold summary in the macOS daily history
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/MoldSummary.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DailyChartView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/MoldSummaryTests.swift`
+- The user sees one mold line for each room above the daily charts on the Mac.
+- `MoldSummary.summarize(rows:sensor:)` uses the rules of the Wear OS `MoldSummary.kt` on `DailyRow.moldHours`: the total mold hours, the days with at least one mold hour and the worst day. A tie selects the newest day (the rows run oldest first). A row without a value for the sensor does not count; a sensor without any value gives `totalHours` `nil`.
+- `DailyChartView` shows the line `<room>: Mold <N> h, <D> days, worst <MM-DD> <H> h` for each room with a value, and `<room>: No mold hours` for a room whose total is 0. A room without a mold value (rows of a `daily_v1` to `daily_v3` file, empty or stale sensor) has no line. The source is the archive folder or the `DAYS` reply, whichever the chart shows.
+- Tests: `MoldSummaryTests` read `tests/fixtures/days_reply_sample.txt` (no mold values, so each total is `nil`), and check the sum, the day count, the worst day, the tie rule, the `No mold hours` text and the rows of a `daily_v3` file without mold columns.
+- Validation: `swift build` passes. `swift test` does not run on the local host (no `TestingMacros`); it runs in CI. The view is not checked on a screen.

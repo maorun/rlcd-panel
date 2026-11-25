@@ -97,6 +97,20 @@ struct DailyChartView: View {
         }
     }
 
+    /// One line for each room that holds a mold value; none for a room without one (older files, empty sensor).
+    @ViewBuilder private func moldSummary(_ rows: [DailyRow]) -> some View {
+        let lines = MoldSummary.summarize(rows: rows).compactMap { room in
+            MoldSummary.lineText(room).map { (DailyLog.sensorNames[room.sensor], $0) }
+        }
+        if !lines.isEmpty {
+            VStack(alignment: .leading, spacing: 2) {
+                ForEach(lines, id: \.0) { name, text in
+                    Text("\(name): \(text)").font(.caption)
+                }
+            }
+        }
+    }
+
     private var folder: DailyFolder {
         switch model.dailySource {
         case .card: model.dailyFolder ?? DailyFolder(rows: [], failedFiles: [])
@@ -143,6 +157,7 @@ struct DailyChartView: View {
             }
         } else {
             VStack(alignment: .leading, spacing: 8) {
+                moldSummary(folder.rows)
                 ForEach(0..<DailyLog.sensorNames.count, id: \.self) { sensor in
                     let temp = points(sensor) { [("Min", $0.tempMinC), ("Mean", $0.tempMeanC), ("Max", $0.tempMaxC)] }
                     let rh = points(sensor) { [("Min", $0.rhMin), ("Mean", $0.rhMean), ("Max", $0.rhMax)] }

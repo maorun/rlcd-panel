@@ -35,12 +35,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Monthly mold summary in the macOS daily history
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/MoldSummary.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DailyChartView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/MoldSummaryTests.swift`, `FEATURES.md`
-  - **Goal:** Show the user on the Mac a short mold figure for each room above the daily charts. Add `MoldSummary.summarize` with the rules of the Wear OS `MoldSummary.kt`. It gives the total mold hours, the mold days and the worst day. A tie selects the newest day. Use the `DailyRow.moldHours` of the archive folder and of the `DAYS` reply. Show one line for each room in `DailyChartView`. Show `No mold hours` for a room without mold hours. Show no line for a room without a mold value.
-  - **Acceptance:** `MoldSummaryTests` read `tests/fixtures/days_reply_sample.txt` and give the same total, day count and worst day as the Kotlin `MoldSummaryTest`. A test checks the tie rule. A test checks that rows of a `daily_v3` file without mold columns give `nil`. `swift test` passes in `macos/RlcdCompanion`.
-  - **Rank:** [Total: 26, Use: 5, Setup: 3, Harmony: 8, Safety: 10, Effort: S]
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.
