@@ -32,7 +32,10 @@ struct DiagnosticsView: View {
                         group("Sensor health") { sensorHealth() }
                         group("SHTC3 sensor") { shtc3(d.shtc3) }
                         group("BLE rejected packets") { ble(d.ble) }
-                        group("BLE reception (last 24 scans)") { reception(d.reception) }
+                        group("BLE reception (last 24 scans)") {
+                            reception(d.reception)
+                            receptionStrips()
+                        }
                         group("Resets") { reset(d.reset) }
                         group("RTC frequency trim") { rtcTrim(d.rtcTrim) }
                         group("Clock sync (NTP)") { ntp(d.ntp) }
@@ -456,6 +459,40 @@ struct DiagnosticsView: View {
                 }
             }
         } else { unknown }
+    }
+
+    /// One strip of 24 cells for each row of the `RECEPTION` reply, oldest scan left. Sent only by the button.
+    @ViewBuilder private func receptionStrips() -> some View {
+        HStack {
+            Button("Read scan pattern") { model.readReception() }
+                .disabled(!model.canCopyReport)
+            Spacer()
+        }
+        if let r = model.receptionResult {
+            if r.rows.isEmpty {
+                Text("No slot holds a sensor.").font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(r.rows) { row in
+                HStack(spacing: 6) {
+                    Text("slot \(row.slot)\(row.name.isEmpty ? "" : " \(row.name)")").font(.caption)
+                        .frame(width: 110, alignment: .leading)
+                    HStack(spacing: 1) {
+                        ForEach(0..<ReceptionReply.maxScans, id: \.self) { i in
+                            Rectangle()
+                                .fill(i < row.cells.count ? (row.cells[i] ? Color.accentColor : Color.secondary.opacity(0.25)) : Color.clear)
+                                .frame(width: 6, height: 12)
+                        }
+                    }
+                    .accessibilityElement(children: .ignore)
+                    .accessibilityLabel("Slot \(row.slot): \(row.received) of \(row.scans) scans received")
+                    Text(row.scans > 0 ? "\(row.received)/\(row.scans)" : "--").font(.caption.monospacedDigit())
+                    if row.isWeak {
+                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                            .accessibilityLabel("Weak reception")
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder private func reset(_ m: ResetMetrics?) -> some View {
