@@ -53,6 +53,8 @@ import com.rlcdpanel.watch.protocol.FrsiApply
 import com.rlcdpanel.watch.protocol.FrsiCommand
 import com.rlcdpanel.watch.protocol.FrsiReply
 import com.rlcdpanel.watch.protocol.FrsiText
+import com.rlcdpanel.watch.protocol.CalibrationReply
+import com.rlcdpanel.watch.protocol.CalibrationText
 import com.rlcdpanel.watch.protocol.SpreadApply
 import com.rlcdpanel.watch.protocol.SpreadCommand
 import com.rlcdpanel.watch.protocol.SpreadReply
@@ -174,6 +176,9 @@ class MainActivity : ComponentActivity() {
     private var slotClearState by mutableStateOf(SlotClearState())
     private var slotSwapState by mutableStateOf(SlotSwapState())
     private var pendingSpreadRead = false
+    private var showCalib by mutableStateOf(false)
+    private var calibState by mutableStateOf(CalibrationState())
+    private var pendingCalibRead = false
     private var showFrsi by mutableStateOf(false)
     private var frsiState by mutableStateOf(FrsiState())
     private var pendingFrsiRead = false
@@ -219,6 +224,7 @@ class MainActivity : ComponentActivity() {
         val configChanged = pendingConfigChangedRead
         val selfTest = pendingSelfTestRead
         val spread = pendingSpreadRead
+        val calib = pendingCalibRead
         val frsi = pendingFrsiRead
         val today = pendingTodayRead
         val tail = pendingTailRead
@@ -235,6 +241,7 @@ class MainActivity : ComponentActivity() {
         pendingConfigChangedRead = false
         pendingSelfTestRead = false
         pendingSpreadRead = false
+        pendingCalibRead = false
         pendingFrsiRead = false
         pendingTodayRead = false
         pendingTailRead = false
@@ -263,6 +270,8 @@ class MainActivity : ComponentActivity() {
                 startSelfTest()
             } else if (spread) {
                 startSpreadRead()
+            } else if (calib) {
+                startCalibRead()
             } else if (frsi) {
                 startFrsiRead()
             } else if (today) {
@@ -299,6 +308,8 @@ class MainActivity : ComponentActivity() {
             selfTestState = SelfTestUiState(message = "Bluetooth-Berechtigung fehlt")
         } else if (spread) {
             spreadState = SpreadState(message = "Bluetooth-Berechtigung fehlt")
+        } else if (calib) {
+            calibState = calibState.copy(isReading = false, reply = null, isError = true, message = "Bluetooth-Berechtigung fehlt")
         } else if (frsi) {
             frsiState = frsiState.copy(isReading = false, reply = null, confirming = false, message = "Bluetooth-Berechtigung fehlt")
         } else if (today) {
@@ -497,6 +508,18 @@ class MainActivity : ComponentActivity() {
                 return@setContent
             }
 
+            if (showSensorHealth && showCalib) {
+                BackHandler { closeCalib() }
+                CalibrationScreen(
+                    state = calibState,
+                    picker = CalibrationText.picker(panelConfig),
+                    onPick = { calibState = CalibrationState(reference = it) },
+                    onRead = { readCalib() },
+                    onApply = { applyCalib() }
+                )
+                return@setContent
+            }
+
             if (showSensorHealth && showSpread) {
                 BackHandler { closeSpread() }
                 SpreadScreen(
@@ -599,6 +622,7 @@ onApply = { applySpread(it) }
                     onOpenConfigChanged = { showConfigChanged = true },
                     onOpenSelfTest = { showSelfTest = true },
                     onOpenSpread = { showSpread = true },
+                    onOpenCalib = { showCalib = true },
                     onApplyJumpAdvice = { applyJumpAdvice(it) },
                     onOpenFrsi = { showFrsi = true },
                     onOpenToday = { showToday = true },
@@ -718,6 +742,8 @@ onApply = { applySpread(it) }
         pendingSelfTestRead = false
         spreadState = SpreadState()
         pendingSpreadRead = false
+        calibState = CalibrationState()
+        pendingCalibRead = false
         frsiState = FrsiState()
         pendingFrsiRead = false
         showFrsi = false
@@ -1094,9 +1120,10 @@ onApply = { applySpread(it) }
     /**
      * A cancel drops the callback of a running apply batch, and a `SET` may have run. The cached gain and offset
      * are then stale until the next `CONFIG` read, so the salt screen evaluates with no config.
+     * The `CALIB` apply batch sets the same offset keys, so it counts too.
      */
     private fun markSaltConfigStaleWhileApplying() {
-        if (saltState.isApplying) saltConfigStale = true
+        if (saltState.isApplying || calibState.isApplying) saltConfigStale = true
     }
 
     /** Text of the salt watch: the count while it runs, the stop reason after a stop. */
@@ -1485,6 +1512,95 @@ onApply = { applySpread(it) }
                     readOnly = readOnly,
                     message = if (readOnly) SpreadApply.READ_ONLY_TEXT else result.summary
                 )
+            }
+        }
+    }
+
+    private fun closeCalib() {
+        markSaltConfigStaleWhileApplying()
+        consoleClient.cancel()
+        pendingCalibRead = false
+        calibState = CalibrationState(reference = calibState.reference)
+        showCalib = false
+    }
+
+    private fun calibBusy(): Boolean =
+        selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSelfTestRead ||
+            pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading ||
+            pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead ||
+            versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading ||
+            isReadingConfig || pendingSaltRead || saltState.isReading || pendingSpreadRead || spreadState.isReading || spreadState.isApplying ||
+            pendingTodayRead || todayState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning
+
+    /** Asks for the console permissions, then sends `CALIB <N>` once. Only the `Vergleichen` chip calls it. It sends no `SET`. */
+    private fun readCalib() {
+        if (calibState.isReading || calibState.isApplying || pendingCalibRead) return
+        val reference = calibState.reference
+        if (calibBusy()) {
+            calibState = CalibrationState(reference = reference, isError = true, message = "Panel-Verbindung ist belegt")
+            return
+        }
+        calibState = CalibrationState(reference = reference, isReading = true)
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            emptyList()
+        }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isNotEmpty()) {
+            pendingCalibRead = true
+            consolePermissionLauncher.launch(needed.toTypedArray())
+            return
+        }
+        startCalibRead()
+    }
+
+    /** A failed CRC-32, a timeout or an `ERR` reply gives one error text. The command is not repeated. */
+    private fun startCalibRead() {
+        val reference = calibState.reference
+        if (consoleClient.isRunning) {
+            calibState = CalibrationState(reference = reference, isError = true, message = "Panel-Verbindung ist belegt")
+            return
+        }
+        consoleClient.send(CalibrationText.command(reference)) { reply ->
+            calibState = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    CalibrationState(reference = reference, reply = CalibrationReply.parse(reply.lines))
+                } catch (e: ParseException) {
+                    CalibrationState(reference = reference, isError = true, message = "Antwort nicht lesbar")
+                }
+                else -> CalibrationState(reference = reference, isError = true, message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
+    /**
+     * Sends the proposal lines as `SET` commands in reply order, then `CONFIG`. Only the `Übernehmen` chip calls it.
+     * The first `ERR` stops the batch; `ERR READ_ONLY` shows `Set ble_console=2 to apply`.
+     */
+    private fun applyCalib() {
+        val reply = calibState.reply ?: return
+        if (reply.proposals.isEmpty() || calibState.isApplying || calibState.isReading || calibBusy()) return
+        val before = calibState
+        calibState = before.copy(isApplying = true, message = null, isError = false)
+        CalibrationBatch(reply.proposals).run(consoleClient::send) { result ->
+            val outcome = CalibrationText.applyOutcome(result)
+            // A `SET` may have run, so the shown differences are old: the proposals go until the next read.
+            calibState = before.copy(
+                isApplying = false,
+                reply = if (outcome.changed) null else before.reply,
+                isError = outcome.isError,
+                message = outcome.message
+            )
+            if (outcome.changed) {
+                // The cached config holds the old offsets. Use the CONFIG reply of the batch, else read again.
+                saltConfigStale = true
+                val frame = result.config
+                if (frame != null) {
+                    isReadingConfig = true
+                    handleConfigReply(frame)
+                } else {
+                    startConfigRead()
+                }
             }
         }
     }

@@ -266,6 +266,7 @@ fun SensorHealthScreen(
     onOpenSelfTest: () -> Unit = {},
     onOpenSalt: () -> Unit = {},
     onOpenSpread: () -> Unit = {},
+    onOpenCalib: () -> Unit = {},
     onApplyJumpAdvice: (JumpAdvice) -> Unit = {},
     onOpenFrsi: () -> Unit = {},
     onOpenToday: () -> Unit = {},
@@ -342,6 +343,14 @@ fun SensorHealthScreen(
                         modifier = Modifier.fillMaxWidth(0.85f),
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text("Co-location check", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                item {
+                    Chip(
+                        onClick = onOpenCalib,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text("Calibrate", fontSize = 12.sp, maxLines = 1) }
                     )
                 }
                 item {
