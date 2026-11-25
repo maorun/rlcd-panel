@@ -3494,3 +3494,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `MainActivity.parseStatusReply` feeds the `dry` mask of each parsed `STATUS` reply to `checkDryNotifications`. It posts one notification `Dry air: <name>` for each rising tile (name from `PanelConfig.tileName`, id `DryWatch.notificationId`, 2400 plus the tile) and one short vibration (`vibrateNotice`) for each read. Without the notification permission (Android 13 and later), nothing is posted.
 - `DryWatch.kt` is a copy of the phone file; only the `package` line differs. It is in `FILES` of `scripts/check-protocol-sync.sh`.
 - Validation: `DryWatchTest` (9 tests, same as the phone) covers the first read, a rising bit, an equal mask, a falling bit, a missing field, a missing first field, a bit above tile 10 and the message and notification id. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
+
+## Dry air notification in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/DryWatch.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/DryWatchTests.swift`
+- `DryWatch.update(mask:)` follows the rules of `WindowWatch`: the first read only stores the mask, a rising bit gives its tile (0 onboard, 1 to 10 slots), an equal mask and a falling bit give no tile, and a `nil` mask keeps the stored mask. `DryWatch.notificationBody` gives `Dry air: <name>` with `EventText.roomName`.
+- `AppModel.checkDryNotifications` feeds it with `LatchMetrics.dry` after each `STATUS` reply and posts one notification for each rising tile (identifier `rlcd_panel_dry_<tile>`). The watch runs also while notifications are off, so a later switch-on does not replay a rise. `clearPanelData` resets it for a new panel.
+- Tests: `DryWatchTests` (7 tests) cover the first mask, a rising bit once, an equal mask, a falling bit, a `nil` mask, a bit above tile 10 and the body text. They run in CI (the local host lacks TestingMacros). `swift build -c release` passes locally.

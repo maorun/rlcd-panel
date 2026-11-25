@@ -137,6 +137,7 @@ final class AppModel: ConsoleLinkDelegate {
     private var staleWatch = StaleWatch()
     private var windowEventWatch = WindowEventWatch()
     private var windowWatch = WindowWatch()
+    private var dryWatch = DryWatch()
     private var driftWatch = DriftWatch()
     private var receptionWatch = ReceptionWatch()
     private static let silenceNotificationId = "rlcd_panel_silence"
@@ -376,6 +377,20 @@ final class AppModel: ConsoleLinkDelegate {
         }
     }
 
+    /// Feeds `DryWatch` with the `dry=` mask of each `STATUS` reply and posts one notification for each rising bit.
+    /// `DryWatch` runs on each reply, so a rise read while notifications are off does not repeat later.
+    private func checkDryNotifications(_ latch: LatchMetrics?) {
+        let tiles = dryWatch.update(mask: latch?.dry)
+        guard notificationsEnabled, Bundle.main.bundleIdentifier != nil else { return }
+        for tile in tiles {
+            let content = UNMutableNotificationContent()
+            content.title = "RLCD Panel Alert"
+            content.body = DryWatch.notificationBody(tile: tile, config: lastConfig)
+            content.sound = .default
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "rlcd_panel_dry_\(tile)", content: content, trigger: nil))
+        }
+    }
+
     /// Feeds `DriftWatch` with the `drift=` mask of each `STATUS` reply and posts one notification for each rising bit.
     /// `DriftWatch` runs on each reply, so a rise read while notifications are off does not repeat later.
     private func checkDriftNotifications(_ latch: LatchMetrics?) {
@@ -514,6 +529,7 @@ final class AppModel: ConsoleLinkDelegate {
         recentEvents = .empty
         windowEventWatch = WindowEventWatch() // the next list of a panel is a new baseline
         windowWatch = WindowWatch()
+        dryWatch = DryWatch()
         driftWatch = DriftWatch()
         receptionWatch = ReceptionWatch()
         config = nil
@@ -1687,6 +1703,7 @@ final class AppModel: ConsoleLinkDelegate {
                 diagnostics = try DiagnosticsReply.parse(status: parsed)
                 diagnosticsConfig = config?.values
                 checkWindowLatchNotifications(diagnostics?.latch)
+                checkDryNotifications(diagnostics?.latch)
                 checkDriftNotifications(diagnostics?.latch)
                 checkReceptionNotifications(diagnostics?.latch)
             case let (.version, .frame(lines)):
