@@ -4,17 +4,7 @@ import Foundation
 
 @Suite struct EventFilterTests {
     /// Reads tests/fixtures/events_reply_sample.txt, the file of the Android phone tests.
-    private func sampleRows() throws -> [EventRow] {
-        var url = URL(fileURLWithPath: #filePath)
-        for _ in 0..<5 { url.deleteLastPathComponent() }
-        let data = try Data(contentsOf: url.appendingPathComponent("tests/fixtures/events_reply_sample.txt"))
-        var assembler = ReplyAssembler()
-        guard case .frame(let lines)? = assembler.append(data).first else {
-            Issue.record("fixture is not a valid frame")
-            return []
-        }
-        return try EventsReply.parse(lines: lines)
-    }
+    private func sampleRows() throws -> [EventRow] { try loadEventsFixture(named: "events_reply_sample.txt") }
 
     @Test func rowCountOfEachCategory() throws {
         let rows = try sampleRows()

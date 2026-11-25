@@ -60,12 +60,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test checks a sum of 12 hours over three days. A unit test checks `nil` for a reply without a dry value. A unit test checks that an 8-column reply gives `nil`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
   - **Rank:** [Total: 25, Use: 6, Setup: 2, Harmony: 7, Safety: 10, Effort: S]
 
-- [ ] Shared badge event fixture for the macOS alert timeline tests
-  - **Location:** `tests/fixtures/badge_events_sample.txt`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/BadgeIntervalTests.swift`, `FEATURES.md`
-  - **Goal:** Cover the badge interval rules with one shared reply sample. The current `tests/fixtures/events_reply_sample.txt` holds only one badge row. Add `tests/fixtures/badge_events_sample.txt` as a full `EVENTS` reply with a correct `CRC32` line. Include one set and one clear row of `WINDOW_OPEN`, `WALL_DAMP`, `DRY_AIR` and `SENSOR_DRIFT`, one open interval, one clear row without a set row and two tiles of one badge. Keep `events_reply_sample.txt` unchanged.
-  - **Acceptance:** A unit test checks that `ReplyAssembler` accepts the fixture and its `CRC32` line. A unit test checks the interval count, each tile and each `startUnknown` flag of the fixture. A unit test checks that the open interval ends at the injected `now`. `swift test` in `macos/RlcdCompanion` passes.
-  - **Rank:** [Total: 23, Use: 2, Setup: 4, Harmony: 7, Safety: 10, Effort: S]
-
 
 
 ## Rules for ranking

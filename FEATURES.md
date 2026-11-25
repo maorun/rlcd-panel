@@ -3705,3 +3705,7 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - A room without a sample in the fallback reply gives an empty list and the text `No sensor holds a sample.`
 - Tests cover the lines `TODAY 3` and `TODAY`, the numbers 11 and -1, the fallback decision for `ERR BAD_ARG`, `keepOnly` and `tests/fixtures/today_one_reply_sample.txt`.
 - Validation: `swift test` (764 tests) and `swift build -c release` pass in `macos/RlcdCompanion`.
+- The shared fixture `tests/fixtures/badge_events_sample.txt` is a full `EVENTS` reply with a correct `CRC32` line. It holds 13 rows with one set row and one clear row of `WINDOW_OPEN`, `WALL_DAMP`, `DRY_AIR` and `SENSOR_DRIFT`. The first row is an `SD_FAULT` row. It gives the start of the clear row without a set row.
+- The fixture also holds one open interval (`SENSOR_DRIFT`, tile 5), one clear row without a set row (`SENSOR_DRIFT`, tile 0) and two tiles of one badge (`DRY_AIR`, tiles 3 and 4). The file `events_reply_sample.txt` does not change.
+- `BadgeIntervalTests` read the fixture through `ReplyAssembler`. The tests check the `CRC32` line, the 7 intervals with each tile and each `startUnknown` flag, and the end of the open interval at the injected `now`.
+- Validation: `swift test` does not run on the local host, because the Command Line Tools lack the Swift Testing macros. The CI job `macOS companion tests` runs it.
