@@ -34,14 +34,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test pairs one `DRY_AIR` set row and one clear row to one interval. A unit test checks that a `WINDOW_OPEN` set row without a clear row ends at `now`. A unit test checks that a clear row without a set row gives `startUnknown`. A unit test checks that two tiles of one badge give two intervals. A unit test parses `tests/fixtures/events_reply_sample.txt`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
   - **Rank:** [Total: 28, Use: 6, Setup: 4, Harmony: 8, Safety: 10, Effort: M]
 
-- [ ] Alert timeline in the Wear OS event log
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AlertTimeline.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/EventLogScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/AlertTimelineTest.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
-  - **Goal:** Show on the watch when each alert started and ended. Copy the Android `AlertTimeline.kt` into the watch protocol package. Add `AlertTimeline.kt` to the `FILES` list of `scripts/check-protocol-sync.sh`. Show the intervals at the top of `EventLogScreen`. Show the alert name, the start, the end or `läuft` and the duration. Show the newest interval first.
-  - **Acceptance:** A unit test pairs one `ALERT_RISE` row and one `ALERT_FALL` row to one interval. A unit test checks that a rise without a fall ends at `now`. A unit test checks that a fall without a rise gives `startUnknown`. A unit test parses `tests/fixtures/events_reply_sample.txt`. `scripts/check-protocol-sync.sh` and `scripts/check-protocol-sync.sh --self-test` exit with 0. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 28, Use: 6, Setup: 4, Harmony: 8, Safety: 10, Effort: M]
-
-
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Dry air delay in the Android alert limits screen

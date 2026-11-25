@@ -3621,3 +3621,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The salt test watch sends `HISTORY <N> 6` every 10 minutes (`SaltProgress.historyLine`). `SaltProgress.REQUIRED_HOURS` is 6, so 6 rows give the full count and the BLE reply is shorter.
 - After `ERR BAD_ARG` for the short read (older firmware), `SaltProgress.fallBackToFullHistory` switches once to `HISTORY <N>`. `MainActivity` repeats the tick at once and the watch goes on. A new watch tries the short read again. Another error still stops the watch with `REPLY_FAILED`.
 - Unit tests cover the line `HISTORY 4 6`, sensor 11, hours 0 and hours 25 with `IllegalArgumentException`, the full count for 6 stable rows and the fallback decision for `ERR BAD_ARG`.
+
+## Alert timeline in the Wear OS event log
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AlertTimeline.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/EventLogScreen.kt`, `scripts/check-protocol-sync.sh`
+- `AlertTimeline.build(rows, nowMs)` is a copy of the Android `AlertTimeline.kt`. It pairs each `ALERT_RISE` row with the next `ALERT_FALL` row of the same alert bit.
+- A rise without a fall ends at `now` and is open. A fall without a rise gives `startUnknown`.
+- `EventLogScreen` shows the intervals at the top of the list, newest first, at most 8 (`EventLogState.MAX_INTERVALS`). Each line shows the alert name, the start, the end or `läuft` and the duration. A guessed start has a leading `~`.
+- The first read holds only the newest events. The screen then shows the hint `Nur die letzten Ereignisse` (only for 8 or more rows) and a start of an older alert shows with `~`. `Show all` loads each event.
+- `scripts/check-protocol-sync.sh` compares `AlertTimeline.kt` with the phone copy.
+- Tests: `AlertTimelineTest` covers one pair, an open rise, a fall without a rise, a leading `EVENTS_DROPPED` row, the text and `tests/fixtures/events_reply_sample.txt`.
+- Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
