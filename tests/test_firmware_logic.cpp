@@ -16915,8 +16915,21 @@ void testSerialToday() {
   SerialCommand cmd;
   assert(parseText("TODAY", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::TODAY);
   assert(parseText("TODAY\r\n", cmd) == SerialParseStatus::OK);
-  assert(parseText("TODAY 1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(!cmd.today_one);
+  assert(parseText("TODAY 2", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::TODAY && cmd.today_one &&
+         cmd.reference == 2);
+  assert(parseText("TODAY 0", cmd) == SerialParseStatus::OK && cmd.today_one && cmd.reference == 0);
+  assert(parseText("TODAY 10", cmd) == SerialParseStatus::OK && cmd.today_one && cmd.reference == 10);
+  assert(parseText("TODAY 11", cmd) == SerialParseStatus::BAD_ARG);
+  assert(!cmd.today_one && cmd.reference == 0); // a rejected command leaves no flag and no sensor
+  assert(parseText("TODAY  1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TODAY 1\r\n", cmd) == SerialParseStatus::OK && cmd.today_one && cmd.reference == 1);
+  assert(parseText("TODAY 01", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TODAY x", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TODAY 1 2", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TODAY 1x", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("TODAY ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("TODAY -1", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("TODAYX", cmd) == SerialParseStatus::UNKNOWN);
   assert(parseText("today", cmd) == SerialParseStatus::UNKNOWN);
 
@@ -16931,6 +16944,40 @@ void testSerialToday() {
   assert(out.find("slot3") == std::string::npos);
   assert(frsiCrcOk(out));
   assert(h.temperatures[0].size() == 8); // no state change
+
+  // TODAY <N>: header, only the row of sensor N and the CRC-32 over the filtered bytes
+  {
+    std::string here1 = __FILE__;
+    const size_t cut1 = here1.rfind("tests/");
+    const std::string root = cut1 == std::string::npos ? std::string() : here1.substr(0, cut1);
+    FakeSink one;
+    TestRunner::showToday(one, h, todayTime(4, 30), now_ms, 1);
+    const std::string expected = head + "1,slot1,2,-3.5,-2.5,-3.0,80.0,81.0,80.5\n";
+    assert(one.out.rfind(expected + "CRC32 ", 0) == 0 && frsiCrcOk(one.out));
+    SerialCrc32 crc;
+    crc.update(reinterpret_cast<const uint8_t*>(expected.data()), expected.size());
+    char want[24];
+    snprintf(want, sizeof(want), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    assert(one.out == expected + want);
+    std::ifstream fin(root + "tests/fixtures/today_one_reply_sample.txt");
+    assert(fin.good());
+    const std::string fixture_one((std::istreambuf_iterator<char>(fin)), std::istreambuf_iterator<char>());
+    assert(one.out == fixture_one);
+    // a sensor without a sample: header and CRC32 line only
+    FakeSink none;
+    TestRunner::showToday(none, h, todayTime(4, 30), now_ms, 3);
+    assert(none.out.rfind(head + "CRC32 ", 0) == 0 && frsiCrcOk(none.out) && none.out.find("slot3") == std::string::npos);
+    // ERR NO_TIME stays with an argument
+    FakeSink notime;
+    RtcTime bad = todayTime(4, 30);
+    bad.valid = false;
+    TestRunner::showToday(notime, h, bad, now_ms, 2);
+    assert(notime.out == "ERR NO_TIME\n");
+    // -1 keeps the full reply
+    FakeSink all;
+    TestRunner::showToday(all, h, todayTime(4, 30), now_ms, -1);
+    assert(all.out == out);
+  }
 
   std::string here = __FILE__;
   const size_t cut = here.rfind("tests/");
@@ -16964,6 +17011,17 @@ void testSerialToday() {
   half.last_sample_ms = now_ms;
   out = todayOutput(half, todayTime(3, 0), now_ms);
   assert(out.find("2,slot2,1,20.0,20.0,20.0,,,\n") != std::string::npos);
+  // TODAY 2 sends only the row of sensor 2 (the header, one row, a correct CRC-32)
+  {
+    ClimateHistory two = todayHistory(now_ms, 0);
+    two.temperatures[2].pushCelsius(20.0f);
+    two.slots[2].pushPercent(55.0f);
+    FakeSink only2;
+    TestRunner::showToday(only2, two, todayTime(3, 0), now_ms, 2);
+    assert(only2.out.rfind(head + "2,slot2,1,20.0,20.0,20.0,55.0,55.0,55.0\nCRC32 ", 0) == 0);
+    assert(only2.out.find("onboard") == std::string::npos && only2.out.find("slot1") == std::string::npos);
+    assert(frsiCrcOk(only2.out));
+  }
 
   // the 32-bit clock wraps: now_ms 10 s after the wrap, newest sample 30 min old, 04:30 gives the 5-sample row
   const uint32_t wrapped_now = 10000;

@@ -32,11 +32,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test parses `dry_h=5` to 5. A unit test parses `dry_h=--` and a missing field to `nil`. A unit test checks that `dry_h=x` throws `ParseError.badLine`. A unit test parses `tests/fixtures/status_reply_sample.txt`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
   - **Rank:** [Total: 27, Use: 6, Setup: 4, Harmony: 7, Safety: 10, Effort: S]
 
-- [ ] Sensor argument for the console command TODAY
-  - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/today_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Make the `TODAY` reply short for one room over BLE. Accept the optional argument `TODAY <N>` (N 0 to 10, no leading zero, `SerialCommand::today_one`). Send the header and only the row of sensor N, then the `CRC32` line over the filtered bytes. Send the header and no row for a sensor without a sample. Keep the `TODAY` reply without an argument. Give `ERR BAD_ARG` for 11, a leading zero, a non-digit and extra text. Keep `ERR NO_TIME`. Do not change the RTC layout or `STATE_VERSION`.
-  - **Acceptance:** A host test checks that `TODAY 2` sends only the row of sensor 2 with a correct CRC-32. A host test checks that `TODAY` keeps its reply. A host test checks `ERR BAD_ARG` for `TODAY 11`, `TODAY 01`, `TODAY x` and `TODAY 1 2`. The host unit tests pass. `arduino-cli compile rlcd_panel` passes.
-  - **Rank:** [Total: 24, Use: 3, Setup: 4, Harmony: 7, Safety: 10, Effort: S]
 
 
 ## Rules for ranking
