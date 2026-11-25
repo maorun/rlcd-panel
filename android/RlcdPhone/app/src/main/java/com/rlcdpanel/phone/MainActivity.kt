@@ -75,6 +75,8 @@ import com.rlcdpanel.phone.protocol.EventsReply
 import com.rlcdpanel.phone.protocol.RejectsReply
 import com.rlcdpanel.phone.protocol.VersionReply
 import com.rlcdpanel.phone.protocol.SelfTestReply
+import com.rlcdpanel.phone.protocol.DaysReply
+import com.rlcdpanel.phone.protocol.DaysRow
 import com.rlcdpanel.phone.protocol.TailCommand
 import com.rlcdpanel.phone.protocol.TailReply
 import com.rlcdpanel.phone.protocol.TodayReply
@@ -142,6 +144,7 @@ class MainActivity : ComponentActivity() {
     private var showToday by mutableStateOf(false)
     private var todayState by mutableStateOf(TodayState())
     private var showTail by mutableStateOf(false)
+    private var showDays by mutableStateOf(false)
     private var panelHistory by mutableStateOf(PanelHistoryState())
     private var showPanelHistory by mutableStateOf(false)
     private var showEvents by mutableStateOf(false)
@@ -176,6 +179,9 @@ class MainActivity : ComponentActivity() {
     private var finderTicker: Job? = null
     private var weekState by mutableStateOf(WeekState())
     private var tailState by mutableStateOf(TailState())
+    private var daysState by mutableStateOf(DaysState())
+    private var daysRows by mutableStateOf(DaysReply.CHOICES.last())
+    private var daysSensor by mutableStateOf(0)
     private var tailRows by mutableStateOf(TailCommand.CHOICES.first())
     private var calibState by mutableStateOf(CalibrationState())
     private var pendingConsoleAction: (() -> Unit)? = null
@@ -293,6 +299,21 @@ class MainActivity : ComponentActivity() {
                     onBack = { closeToday() }
                 )
                 BackHandler { closeToday() }
+                return@setContent
+            }
+            if (showDays) {
+                DaysScreen(
+                    state = daysState,
+                    selectedRows = daysRows,
+                    selectedSensor = daysSensor,
+                    panelConfig = panelConfig,
+                    onSelectRows = { daysRows = it },
+                    onSelectSensor = { daysSensor = it },
+                    onRead = { withConsolePermission { readDays() } },
+                    onShare = { shareDaysCsv(daysState.rows) },
+                    onBack = { closeDays() }
+                )
+                BackHandler { closeDays() }
                 return@setContent
             }
             if (showTail) {
@@ -569,6 +590,7 @@ class MainActivity : ComponentActivity() {
                 onOpenWeek = { showWeek = true },
                 onOpenToday = { showToday = true },
                 onOpenTail = { showTail = true },
+                onOpenDays = { showDays = true },
                 onOpenEvents = { showEvents = true },
                 recentEvents = recentEventState,
                 // A second tap while the permission dialog waits does nothing.
@@ -607,6 +629,7 @@ class MainActivity : ComponentActivity() {
         if (weekState.isReading) weekState = WeekState(message = "Abgebrochen. Erneut lesen.")
         if (todayState.isReading) todayState = TodayState(message = "Abgebrochen. Erneut lesen.")
         if (tailState.isReading) tailState = TailState(message = "Abgebrochen. Erneut lesen.")
+        if (daysState.isReading) daysState = DaysState(message = "Abgebrochen. Erneut lesen.")
         if (panelHistory.isReading) panelHistory = PanelHistoryState(message = "Abgebrochen. Erneut lesen.")
         if (eventState.isReading) eventState = EventLogState(message = "Abgebrochen. Erneut lesen.")
         if (recentEventState.isReading) recentEventState = EventLogState(message = "Abgebrochen. Erneut lesen.")
@@ -650,6 +673,7 @@ class MainActivity : ComponentActivity() {
             else if (showWeek) weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
             else if (showToday) todayState = TodayState(message = "Bluetooth-Berechtigung fehlt")
             else if (showTail) tailState = TailState(message = "Bluetooth-Berechtigung fehlt")
+            else if (showDays) daysState = DaysState(message = "Bluetooth-Berechtigung fehlt")
             else if (showSetup) setupState = setupState.copy(isBusy = false, message = "Bluetooth-Berechtigung fehlt")
             else if (showFinder) finderState = finderState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
             else if (showAlertLimits) alertLimitState = alertLimitState.copy(isBusy = false, isError = true, message = "Bluetooth-Berechtigung fehlt")
@@ -746,7 +770,7 @@ class MainActivity : ComponentActivity() {
 
     /** True while a full-screen console screen replaces the dashboard. */
     private fun hasOpenConsoleScreen(): Boolean =
-        showEvents || showRejects || showHistory || showWeek || showToday || showTail || showSetup || showFinder ||
+        showEvents || showRejects || showHistory || showWeek || showToday || showTail || showDays || showSetup || showFinder ||
             showAlertLimits || showConfigEditor || showSlots || showChime || showBackup || showCalib || showHealth
 
     /** Sends `EVENTS 3` after a tap on the dashboard card. The scan restarts after the reply when it ran before. */
@@ -881,6 +905,44 @@ class MainActivity : ComponentActivity() {
                 else -> TailState(message = BleConsoleClient.errorText(reply))
             }
         }
+    }
+
+    private fun closeDays() {
+        consoleClient.cancel()
+        pendingConsoleAction = null
+        daysState = DaysState()
+        showDays = false
+        if (!scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
+    }
+
+    /** Sends `DAYS <N>` after a tap. */
+    private fun readDays() {
+        val command = DaysReply.command(daysRows)
+        if (command == null) {
+            daysState = DaysState(message = "Ungültige Tageszahl")
+            return
+        }
+        stopBleScan()
+        daysState = DaysState(isReading = true)
+        consoleClient.send(command) { reply ->
+            daysState = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    DaysState(rows = DaysReply.parse(reply.lines))
+                } catch (e: ParseException) {
+                    DaysState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
+                }
+                is ConsoleReply.Status -> DaysState(message = DaysReply.errorText(reply.line) ?: BleConsoleClient.errorText(reply))
+                else -> DaysState(message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
+    private fun shareDaysCsv(rows: List<DaysRow>) {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/csv"
+            putExtra(Intent.EXTRA_TEXT, DaysReply.csv(rows, panelConfig))
+        }
+        startActivity(Intent.createChooser(send, "Share CSV"))
     }
 
     private fun closeFinder() {
@@ -1520,7 +1582,7 @@ class MainActivity : ComponentActivity() {
 
     /** Runs [action] after the Bluetooth permissions; the action sends console commands. */
     private fun withConsolePermission(action: () -> Unit) {
-        if (backupState.isBusy || calibState.isBusy || chimeState.isBusy || weekState.isReading || tailState.isReading || panelHistory.isReading || eventState.isReading || rejectsState.isReading || finderState.isBusy || setupState.isBusy || slotState.isBusy || alertLimitState.isBusy || configEditorState.isBusy || consoleClient.isRunning) return
+        if (backupState.isBusy || calibState.isBusy || chimeState.isBusy || weekState.isReading || tailState.isReading || daysState.isReading || panelHistory.isReading || eventState.isReading || rejectsState.isReading || finderState.isBusy || setupState.isBusy || slotState.isBusy || alertLimitState.isBusy || configEditorState.isBusy || consoleClient.isRunning) return
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
@@ -1534,6 +1596,7 @@ class MainActivity : ComponentActivity() {
             else if (showHistory) panelHistory = PanelHistoryState(isReading = true)
             else if (showWeek) weekState = WeekState(isReading = true)
             else if (showTail) tailState = TailState(isReading = true)
+            else if (showDays) daysState = DaysState(isReading = true)
             else if (showSetup) setupState = setupState.copy(isBusy = true, message = null)
             else if (showFinder) finderState = finderState.copy(isBusy = true, message = null)
             else if (showAlertLimits) alertLimitState = alertLimitState.copy(isBusy = true, message = null)

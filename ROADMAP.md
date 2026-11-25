@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 ## Priority 2: Configuration and Control (Score 28–33)
 
 
-- [ ] Daily history screen over the BLE console in the Android app
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/DaysReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/DaysScreen.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/DaysReplyTest.kt`, `FEATURES.md`
-  - **Goal:** Show up to 31 days of daily minimum, maximum and mold hours on the phone without a card reader. Add `DaysReply.parse` with the column layout of `SdLogCodec::parseDailyRow`. Add `DaysScreen` with one room selector and one bar for each day (temperature range, humidity range and mold hours). Send `DAYS <N>` over the BLE console only on a user action. Add a CSV share of the rows. Requires "Console command DAYS for the newest daily rows".
-  - **Acceptance:** `DaysReplyTest` reads `tests/fixtures/days_reply_sample.txt` and gives the row count and the values of the fixture. An empty pair gives `null`. A wrong column count throws `ParseException`. `ERR NO_CARD` and `ERR NO_FILE` give a clear text. `gradle testDebugUnitTest` passes in `android/RlcdPhone`.
-  - **Rank:** [Total: 28, Use: 7, Setup: 4, Harmony: 8, Safety: 9, Effort: M]
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 
