@@ -142,6 +142,9 @@ object SensorHealthText {
     }
     fun mold(row: SensorHealth): String =
         row.moldHours?.let { (if (it > 0) "⚠ " else "") + "Schimmel $it h" } ?: "Schimmel --"
+    fun dry(row: SensorHealth): String =
+        row.dryHours?.let { (if (it > 0) "⚠ " else "") + "Trocken $it h" } ?: "Trocken --"
+    fun isDry(row: SensorHealth): Boolean = (row.dryHours ?: 0) > 0
     fun trendSymbol(trend: SensorTrend?): String = trend?.symbol ?: "–"
     fun trend(row: SensorHealth, temperature: Double?, humidity: Double?): String =
         "Temp ${temperature?.let { "%.1f °C".format(it) } ?: "--"} ${trendSymbol(row.temperatureTrend)}  " +
@@ -374,6 +377,11 @@ fun SensorHealthScreen(
                         Text(
                             SensorHealthText.mold(row),
                             color = if (SensorHealthText.isMold(row)) MaterialTheme.colorScheme.error
+                            else MaterialTheme.colorScheme.onBackground
+                        )
+                        Text(
+                            SensorHealthText.dry(row),
+                            color = if (SensorHealthText.isDry(row)) MaterialTheme.colorScheme.error
                             else MaterialTheme.colorScheme.onBackground
                         )
                         Text("${row.verdict.name}: ${row.verdict.advice}", style = MaterialTheme.typography.bodyMedium)
