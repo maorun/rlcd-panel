@@ -1629,9 +1629,12 @@ onApply = { applySpread(it) }
     }
 
     private fun closeAlertLimits() {
+        val wasBusy = alertLimitState.isBusy
         consoleClient.cancel()
         alertLimitState = AlertLimitState()
         showAlertLimits = false
+        // A cancelled batch never delivers its CONFIG reply, and a SET may already run: read the config again.
+        if (wasBusy && !isReadingConfig) startConfigRead()
     }
 
     /**
@@ -1650,7 +1653,7 @@ onApply = { applySpread(it) }
                 isReadingConfig = true
                 handleConfigReply(frame)
             }
-            // A reply that arrives after closeAlertLimits must not reopen the stepper.
+            // cancel() drops the callback; this guard covers a callback that the main thread already queued.
             if (!showAlertLimits) return@run
             alertLimitState = if (result.ok) AlertLimitState(message = result.summary)
             else before.copy(isBusy = false, isError = true, message = result.summary)

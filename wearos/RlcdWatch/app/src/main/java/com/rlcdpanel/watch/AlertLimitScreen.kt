@@ -52,6 +52,7 @@ object AlertLimitScreenText {
 
     /** Value line of one chip: the cached value with its unit, `Aus` for a zero delay. */
     fun valueLine(limit: AlertLimits.Limit, config: PanelConfig): String {
+        if (AlertLimits.cached(limit, config) == null) return "--"
         return stepperLine(limit, AlertLimitStepper.startText(limit, config))
     }
 }
