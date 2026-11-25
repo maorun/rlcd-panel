@@ -44,6 +44,7 @@ import com.rlcdpanel.watch.protocol.SensorTrend
 import com.rlcdpanel.watch.protocol.RuntimeState
 import com.rlcdpanel.watch.protocol.Shtc3State
 import com.rlcdpanel.watch.protocol.SlotClearCommand
+import com.rlcdpanel.watch.protocol.SlotSwapCommand
 import com.rlcdpanel.watch.protocol.StatusReply
 import com.rlcdpanel.watch.protocol.StatusSensor
 import com.rlcdpanel.watch.protocol.TimeReply
@@ -94,6 +95,18 @@ data class ChimeTestState(
  */
 data class SlotClearState(
     val confirming: Int? = null,
+    val isSending: Boolean = false,
+    val message: String? = null,
+    val isError: Boolean = false
+)
+
+/**
+ * State of the `Platz tauschen` flow. [first] is the slot picked first, [second] the slot picked next (the confirmation
+ * waits while both are set); [message] holds the last result text and [isError] marks a failed command.
+ */
+data class SlotSwapState(
+    val first: Int? = null,
+    val second: Int? = null,
     val isSending: Boolean = false,
     val message: String? = null,
     val isError: Boolean = false
@@ -236,6 +249,10 @@ fun SensorHealthScreen(
     onAskClear: (Int) -> Unit = {},
     onCancelClear: () -> Unit = {},
     onClearSlot: (Int) -> Unit = {},
+    slotSwapState: SlotSwapState = SlotSwapState(),
+    onPickSwap: (Int) -> Unit = {},
+    onCancelSwap: () -> Unit = {},
+    onSwapSlots: () -> Unit = {},
     versionState: VersionReadState = VersionReadState(),
     onReadVersion: () -> Unit = {}
 ) {
@@ -494,6 +511,17 @@ fun SensorHealthScreen(
                         )
                     }
                 }
+                slotSwapState.message?.let { message ->
+                    item {
+                        Text(
+                            text = message,
+                            fontSize = 10.sp,
+                            color = if (slotSwapState.isError) Color(0xFFFF8A80) else Color(0xFFB0BEC5),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    }
+                }
                 if (status != null) {
                     SensorHealthText.ntp(status.ntp)?.let { text ->
                         item {
@@ -638,6 +666,59 @@ fun SensorHealthScreen(
                                     modifier = Modifier.fillMaxWidth(0.85f),
                                     colors = ChipDefaults.secondaryChipColors(),
                                     label = { Text("Platz freigeben", fontSize = 12.sp, maxLines = 1) }
+                                )
+                            }
+                        }
+                        if (SlotSwapCommand.canSwap(sensor, panelConfig)) {
+                            val swapBusy = slotSwapState.isSending || slotClearState.isSending || state.isReading || state.isMuting
+                            val first = slotSwapState.first
+                            val second = slotSwapState.second
+                            if (first != null && second != null) {
+                                if (sensor.index == second) {
+                                    Text(
+                                        SlotSwapCommand.confirmText(first, second),
+                                        fontSize = 10.sp,
+                                        color = Color.White,
+                                        textAlign = TextAlign.Center
+                                    )
+                                    Chip(
+                                        onClick = onSwapSlots,
+                                        enabled = !swapBusy,
+                                        modifier = Modifier.fillMaxWidth(0.85f),
+                                        colors = ChipDefaults.primaryChipColors(),
+                                        label = { Text(if (slotSwapState.isSending) "Sende ..." else "Senden", fontSize = 12.sp, maxLines = 1) }
+                                    )
+                                    Chip(
+                                        onClick = onCancelSwap,
+                                        enabled = !slotSwapState.isSending,
+                                        modifier = Modifier.fillMaxWidth(0.85f),
+                                        colors = ChipDefaults.secondaryChipColors(),
+                                        label = { Text("Abbrechen", fontSize = 12.sp, maxLines = 1) }
+                                    )
+                                }
+                            } else if (first == null) {
+                                Chip(
+                                    onClick = { onPickSwap(sensor.index) },
+                                    enabled = !swapBusy,
+                                    modifier = Modifier.fillMaxWidth(0.85f),
+                                    colors = ChipDefaults.secondaryChipColors(),
+                                    label = { Text("Platz tauschen", fontSize = 12.sp, maxLines = 1) }
+                                )
+                            } else if (first == sensor.index) {
+                                Chip(
+                                    onClick = onCancelSwap,
+                                    enabled = !swapBusy,
+                                    modifier = Modifier.fillMaxWidth(0.85f),
+                                    colors = ChipDefaults.secondaryChipColors(),
+                                    label = { Text("Tausch abbrechen", fontSize = 12.sp, maxLines = 1) }
+                                )
+                            } else {
+                                Chip(
+                                    onClick = { onPickSwap(sensor.index) },
+                                    enabled = !swapBusy,
+                                    modifier = Modifier.fillMaxWidth(0.85f),
+                                    colors = ChipDefaults.primaryChipColors(),
+                                    label = { Text("Mit Platz $first tauschen", fontSize = 12.sp, maxLines = 1) }
                                 )
                             }
                         }
