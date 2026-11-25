@@ -42,12 +42,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Dry hours in the Wear OS week screen
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/WeekMoldText.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/WeekScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/WeekMoldTextTest.kt`, `FEATURES.md`
-  - **Goal:** Show the dry hours of the week beside the mold hours on the watch. `WeekReply` parses the column `dry_h` into `WeekRow.dryHours`, but the week screen shows only the mold line. Add `WeekMoldText.dry(rows)`, which gives `Trocken <N> h` with the sum of `dryHours` over the days with a value and `null` when no day has one. Show the line below the mold line of the selected room. Send no new console command.
-  - **Acceptance:** A unit test gives `Trocken 9 h` for three days with 2, 3 and 4 hours. A unit test gives `null` for seven gap days. A unit test gives `null` for a reply with the 8-column header. A unit test ignores a day without a value in the sum. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 27, Use: 6, Setup: 4, Harmony: 7, Safety: 10, Effort: S]
-
 - [ ] Heat alert delay in the Android alert limits screen
   - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertLimits.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/AlertLimitScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertLimitsTest.kt`, `FEATURES.md`
   - **Goal:** Let the user set the heat alert delay on the phone. This item needs the firmware item "Config key `heat_alert_delay_h` for the heat alert". Add the field `heat_alert_delay_h` (0 is off, else 1 to 12 h) below the heat limit field, with the rules of the dry delay field. Show the unit `h` and the text `Aus` for 0. Reject a value above 12 and a non-numeric value before the `SET` batch starts. Keep the schema order of the `SET` commands, and send `CONFIG` after the batch.
