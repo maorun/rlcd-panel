@@ -35,6 +35,7 @@ import com.rlcdpanel.watch.protocol.MemoryState
 import com.rlcdpanel.watch.protocol.NoiseState
 import com.rlcdpanel.watch.protocol.BleRejectState
 import com.rlcdpanel.watch.protocol.NtpState
+import com.rlcdpanel.watch.protocol.DriftWatch
 import com.rlcdpanel.watch.protocol.ReceptionRate
 import com.rlcdpanel.watch.protocol.ReplyError
 import com.rlcdpanel.watch.protocol.ResetState
@@ -107,6 +108,10 @@ object SensorHealthText {
     /** Weak signal mark of one sensor row; null without a `LATCH` line, without `rxlow` and for an unflagged sensor. */
     fun weakSignal(latch: LatchState?, sensor: StatusSensor): String? =
         if (latch?.hasWeakSignal(sensor.index) == true) "$WARNING Weak signal" else null
+
+    /** Drift mark of one sensor row (tile 0 onboard, 1 to 10 slots); null without a `LATCH` line, without `drift` and for an unflagged sensor. */
+    fun driftMark(latch: LatchState?, sensor: StatusSensor): String? =
+        if (DriftWatch.isDrifting(latch?.drift, sensor.index)) "$WARNING ${DriftWatch.TEXT}" else null
 
     fun isMold(sensor: StatusSensor): Boolean = (sensor.moldHours ?: 0) > 0
 
@@ -549,6 +554,9 @@ fun SensorHealthScreen(
                                     Text("Badges $badges", fontSize = 10.sp, color = Color(0xFFFFB74D))
                                 }
                                 SensorHealthText.weakSignal(status.latch, sensor)?.let { mark ->
+                                    Text(mark, fontSize = 10.sp, color = Color(0xFFFFB74D))
+                                }
+                                SensorHealthText.driftMark(status.latch, sensor)?.let { mark ->
                                     Text(mark, fontSize = 10.sp, color = Color(0xFFFFB74D))
                                 }
                             }
