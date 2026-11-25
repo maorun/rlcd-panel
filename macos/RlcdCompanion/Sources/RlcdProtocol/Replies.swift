@@ -346,6 +346,13 @@ public enum WeekReply {
             return row
         }
     }
+
+    /// Sum of the dry hours of `sensor` over the days with a value. `nil` without such a day,
+    /// also for a reply with 7 or 8 columns.
+    public static func drySum(rows: [WeekRow], sensor: Int) -> Int? {
+        let values = rows.filter { $0.sensor == sensor }.compactMap(\.dryHours)
+        return values.isEmpty ? nil : values.reduce(0, +)
+    }
 }
 
 /// One `TODAY` row: the range of one sensor since local midnight. An empty field gives `nil`.

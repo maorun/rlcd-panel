@@ -1610,6 +1610,9 @@ The Wear OS app shows the radio signal of one sensor. The sensor health screen s
 - The command needs no card and changes no state. It runs on USB and on BLE, also with `ble_console` 1.
 - macOS companion: `WeekReply.parse` (`Replies.swift`) gives one `WeekRow` for each row (`nil` for an empty field, `ParseError.badLine` for a wrong column count or an index out of range). `ConsoleCommand.week` sends `WEEK`. The read button of the console section sends `STATUS`, `HISTORY`, `WEEK`, `EVENTS` and `CONFIG`. `WeekChartView` shows the 7 bars (daily minimum to maximum, `Swift Charts`) of each sensor for temperature and humidity.
 - Host tests cover the parser, the header, 42 rows, the dates of day 0 and day 6, the gap day, the missing stamp, the CRC-32, the short write, the BLE gate and an unchanged `PersistentState`. Swift `ReplyTests` parse a sample.
+- The macOS `WeekChartView` shows the dry hours of each day in the week chart. `WeekMoldPoint.dryHours` holds the value of `WeekRow.dryHours`. The second bar series (orange) stands beside the mold hours (blue) in one chart.
+- `WeekReply.drySum(rows:sensor:)` adds the dry hours of the days with a value. It gives `nil` without such a day, also for a reply with 7 or 8 columns. The text `Dry <N> h` stands below the charts of the room.
+- Tests: `WeekMoldTests` check a sum of 12 hours over three days, `nil` for a reply without a dry value and `nil` for a reply with 8 columns.
 
 ## Android phone companion app
 
