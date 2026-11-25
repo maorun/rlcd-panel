@@ -140,6 +140,11 @@ public:
   // (scale 2, y + 18 to y + 32) is the next text on the left; WALL is drawn only when WALL_GAP_PX stay free.
   static constexpr uint16_t WALL_Y_OFFSET = 30;
   static constexpr uint16_t WALL_GAP_PX = 4;
+  // Dry hours text (scale 1) on the MOLD line (y + 21), right-aligned DRY_MOLD_GAP_PX left of the MOLD text.
+  // "DRY 24H" = 7 glyphs = 42 px. The MAC line (scale 2) is the next text on the left; DRY is drawn only when
+  // DRY_GAP_PX stay free.
+  static constexpr uint16_t DRY_MOLD_GAP_PX = 6;
+  static constexpr uint16_t DRY_GAP_PX = 4;
   // Reception text (scale 1, right-aligned to COMFORT_RIGHT_X) at y + 11 on the RSSI line, below the FEELS text
   // (y + 3 to y + 9) and above the MOLD text (y + 21). "RX 100%" = 7 glyphs = 42 px, x = 350. The inverted box
   // (2 px padding left and right, y + 10 to y + 18) marks a rate below 50 %. The RSSI line (scale 2, up to x = 322)
@@ -1277,7 +1282,8 @@ public:
              static_cast<unsigned>(hist->countAbove(static_cast<uint16_t>(limit_rh * 10u))));
   }
 
-  static void drawMold(
+  // Draws the MOLD text and returns its width in px.
+  static uint16_t drawMold(
       St7305Framebuffer& fb, uint16_t y, const SwitchBotReading& sb, uint32_t now_ms,
       const DeviceConfig* config, const ClimateHistory* history, size_t slot) {
     char text[12];
@@ -1285,7 +1291,49 @@ public:
         text, sizeof(text), sb, now_ms, staleTimeoutMs(config),
         history != nullptr ? &history->slots[1 + slot] : nullptr,
         config != nullptr ? config->mold_alert_limit_rh : DeviceConfig::DEFAULT_MOLD_ALERT_LIMIT_RH);
-    const uint16_t x = static_cast<uint16_t>(COMFORT_RIGHT_X - strlen(text) * 6);
+    const uint16_t w = static_cast<uint16_t>(strlen(text) * 6);
+    fb.drawText(static_cast<uint16_t>(COMFORT_RIGHT_X - w), static_cast<uint16_t>(y + MOLD_Y_OFFSET), text, 1, true);
+    return w;
+  }
+
+  // "DRY 5H" (hourly samples at or below the dry limit in the 24 h history, one sample per hour) for a live slot
+  // with at least 2 samples, "DRY --" for an empty or stale slot or fewer samples. Empty text for limit_rh 0.
+  // Computed on each render; nothing is stored. Widest: "DRY 24H" = 7 glyphs, 42 px.
+  static void formatDry(char* out, size_t capacity, const SwitchBotReading& sb, uint32_t now_ms,
+                        uint32_t stale_timeout_ms, const HumidityHistory* hist, uint8_t limit_rh) {
+    if (limit_rh == 0) {
+      snprintf(out, capacity, "%s", "");
+      return;
+    }
+    const bool future = (now_ms - sb.updated_ms) >= 0xFFFF0000u;
+    if (!sb.valid || (!future && sb.isStale(now_ms, stale_timeout_ms)) || hist == nullptr ||
+        hist->size() < HumidityHistory::MIN_RANGE_SAMPLES) {
+      snprintf(out, capacity, "DRY --");
+      return;
+    }
+    snprintf(out, capacity, "DRY %uH",
+             static_cast<unsigned>(hist->countAtOrBelow(static_cast<uint16_t>(limit_rh * 10u))));
+  }
+
+  // Draws the DRY text left of the MOLD text (mold_w px wide) unless dry_alert_limit_rh is 0 or it would come
+  // closer than DRY_GAP_PX to the MAC line of left_chars scale-2 glyphs (0 for none).
+  static void drawDry(
+      St7305Framebuffer& fb, uint16_t y, const SwitchBotReading& sb, uint32_t now_ms,
+      const DeviceConfig* config, const ClimateHistory* history, size_t slot, uint16_t mold_w, size_t left_chars) {
+    if (config == nullptr) {
+      return;
+    }
+    char text[12];
+    formatDry(text, sizeof(text), sb, now_ms, staleTimeoutMs(config),
+              history != nullptr ? &history->slots[1 + slot] : nullptr, config->dry_alert_limit_rh);
+    const size_t len = strlen(text);
+    if (len == 0) {
+      return;
+    }
+    const uint16_t x = static_cast<uint16_t>(COMFORT_RIGHT_X - mold_w - DRY_MOLD_GAP_PX - len * 6);
+    if (left_chars > 0 && x < 10 + left_chars * 12 + DRY_GAP_PX) {
+      return;
+    }
     fb.drawText(x, static_cast<uint16_t>(y + MOLD_Y_OFFSET), text, 1, true);
   }
 
@@ -1431,7 +1479,7 @@ public:
         drawLine(fb, 10, y, line);
         drawComfort(fb, y, COMFORT_EMPTY_Y_OFFSET, sb, now_ms, staleTimeoutMs(config)); // the empty slot has no packet line
         drawFeels(fb, y, sb, now_ms, config);
-        drawMold(fb, y, sb, now_ms, config, history, i);
+        const uint16_t mold_w = drawMold(fb, y, sb, now_ms, config, history, i);
         drawAbsHumidity(fb, y, sb, now_ms, config, 0);
         size_t mac_chars = 0;
         if (config != nullptr && config->hasSlotMac(i)) {
@@ -1439,6 +1487,7 @@ public:
           drawLine(fb, 10, static_cast<uint16_t>(y + 18), line);
           mac_chars = strlen(line);
         }
+        drawDry(fb, y, sb, now_ms, config, history, i, mold_w, mac_chars);
         drawWall(fb, y, switchbot_slots, switchbot_count, i, now_ms, config, mac_chars);
         continue;
       }
@@ -1477,7 +1526,8 @@ public:
       drawLine(fb, 10, static_cast<uint16_t>(y + 36), line);
       drawComfort(fb, y, COMFORT_Y_OFFSET, sb, now_ms, staleTimeoutMs(config));
       drawFeels(fb, y, sb, now_ms, config);
-      drawMold(fb, y, sb, now_ms, config, history, i);
+      const uint16_t mold_w = drawMold(fb, y, sb, now_ms, config, history, i);
+      drawDry(fb, y, sb, now_ms, config, history, i, mold_w, strlen(mac_src));
 
       formatRecords(line, sizeof(line), history, 1 + i, tempUnit(config));
       const bool record_drawn = drawLine(fb, 10, static_cast<uint16_t>(y + 54), line);

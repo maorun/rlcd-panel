@@ -328,6 +328,9 @@ inline void renderScene(
   strcpy(config.slot_name[4], "DACHBODEN");
   config.outdoor_slot = 2;  // GARTEN is the outdoor sensor
   config.wall_frsi_pct = 70; // the stats view shows the WALL text
+  if (mode == DisplayMode::SENSOR_STATS) {
+    config.dry_alert_limit_rh = 45; // the stats view shows the DRY text (other scenes keep the dry limit off)
+  }
   for (size_t i = 0; i < 5; ++i) {
     memcpy(config.slot_mac[i], slots[i].mac, 6); // a name belongs to the MAC of its sensor
   }

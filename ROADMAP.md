@@ -31,12 +31,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Dry hours in the stats view
-  - **Location:** `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`, `docs/display_preview_stats.png`, `docs/display_preview_stats2.png`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Show on the panel how many hours each room was too dry. Add `DashboardView::formatDry`. Draw `DRY <N>H` at scale 1 on the MOLD line (`y + 21`). Right-align it 6 px left of the `MOLD <N>H` text. Count the samples with `HumidityHistory::countAtOrBelow` and `dry_alert_limit_rh`. Draw no text for `dry_alert_limit_rh` 0. Show `DRY --` for an empty or stale slot. Draw the text only when `DRY_GAP_PX` 4 stay free to the MAC line. Calculate the text on each render. Do not change the RTC layout or `STATE_VERSION`.
-  - **Acceptance:** A host test checks `DRY 5H` for 5 samples at or below the limit. A host test checks that limit 0 draws no text. A host test checks `DRY --` for a stale slot. A host test checks that the text does not touch the MAC line and the MOLD text. The host unit tests pass. `./scripts/generate-display-preview.sh` updates the stats images. `arduino-cli compile rlcd_panel` passes.
-  - **Rank:** [Total: 27, Use: 6, Setup: 3, Harmony: 8, Safety: 10, Effort: S]
-
 - [ ] Dry hours in the Wear OS sensor health screen
   - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/StatusReplyTest.kt`, `FEATURES.md`
   - **Goal:** Show the dry hours of each room on the watch. `StatusSensor.dryHours` already holds the `dry_h=` field. Add `SensorHealthText.dryText` and `SensorHealthText.isDry` with the rules of `moldText` and `isMold`. Show `Trocken <N> h` after `Schimmel <N> h`. Show `SensorHealthText.WARNING` above 0 hours. Show `Trocken --` for a `null` value.
