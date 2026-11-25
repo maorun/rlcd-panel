@@ -22,11 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Alert timeline in the Android event log
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertTimeline.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/EventLogScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertTimelineTest.kt`, `FEATURES.md`
-  - **Goal:** Show on the phone when each alert started and ended. Port the macOS `AlertTimeline.build(rows, now)` to Kotlin. Pair each `ALERT_RISE` row with the next `ALERT_FALL` row of the same alert bit. Use the injected `now` as the end of an open interval. Mark an interval without a rise row as `startUnknown`. Show the intervals in `EventLogScreen` with the alert name, the start, the end or `läuft` and the duration.
-  - **Acceptance:** A unit test pairs one rise and one fall to one interval. A unit test checks that a rise without a fall gives an open interval that ends at `now`. A unit test checks that a fall without a rise gives `startUnknown`. A unit test checks that two alert bits give two separate intervals. A unit test parses `tests/fixtures/events_reply_sample.txt`. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
-  - **Rank:** [Total: 28, Use: 6, Setup: 5, Harmony: 7, Safety: 10, Effort: M]
 
 
 ## Priority 3: Display and Logging (Score 22–27)

@@ -26,6 +26,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.rlcdpanel.phone.protocol.AlertTimeline
 import com.rlcdpanel.phone.protocol.EventFilter
 import com.rlcdpanel.phone.protocol.EventRow
 import com.rlcdpanel.phone.protocol.EventText
@@ -55,6 +56,10 @@ fun EventLogScreen(
 ) {
     var selectedCategories by remember { mutableStateOf(emptySet<EventFilter.Category>()) }
     val visibleRows = EventFilter.apply(state.newestFirst, selectedCategories)
+    // The time of the last row load ends an open interval, so its duration ages only on a reload.
+    val intervals = remember(state.rows) {
+        AlertTimeline.build(state.rows, System.currentTimeMillis()).asReversed()
+    }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         LazyColumn(
@@ -102,6 +107,19 @@ fun EventLogScreen(
                                 label = { Text(category.title) }
                             )
                         }
+                    }
+                }
+            }
+            if (intervals.isNotEmpty()) {
+                item { Text("Alarm-Verlauf", style = MaterialTheme.typography.titleSmall) }
+                items(intervals, key = { "${it.alert}-${it.startMs}" }) { interval ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            AlertTimeline.lineText(interval),
+                            modifier = Modifier.padding(10.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (interval.isOpen) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                        )
                     }
                 }
             }
