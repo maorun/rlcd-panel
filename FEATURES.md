@@ -3484,5 +3484,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/DryWatch.kt`, `MainActivity.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/DryWatchTest.kt`
 - `DryWatch.update(mask)` follows the rules of `WindowWatch`: the first read only stores the mask, a rising bit gives its tile (bit 0 onboard tile, bits 1 to 10 slots), an equal mask, a falling bit and a `null` mask give no tile. A `null` mask keeps the stored mask. `DryWatch.message(name)` gives `Dry air: <name>`. `DryWatch.notificationId(tile)` is 2400 plus the tile (free of `WindowWatch` 2100, `ReceptionWatch` 2200 and `DriftWatch` 2300).
 - `MainActivity.checkDryNotifications` runs after each `STATUS` parse (next to `checkDriftNotifications`). It feeds `LatchState.dry` (the field `dry=<3 hex digits>` of the `STATUS` line `LATCH`) to `DryWatch` and posts one notification for each rising tile (name from `PanelConfig.tileName`). No `STATUS` line `LATCH` gives a `null` mask and keeps the state.
-- `DryWatch.kt` is not in the `check-protocol-sync.sh` list; the Wear OS watch has no copy yet.
+- `DryWatch.kt` is in the `check-protocol-sync.sh` list; the Wear OS watch holds a copy.
 - Validation: `scripts/check-protocol-sync.sh` passes. `DryWatchTest` (9 tests) is new. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only; it did not run locally.
+
+## Dry air vibration on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/DryWatch.kt`, `MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/DryWatchTest.kt`
+- `DryWatch` is a pure state machine with the rules of `WindowWatch`. `update(mask)` takes the `dry` field of the `STATUS` line `LATCH` (bit 0 onboard tile, bits 1 to 10 slots) and returns the tiles whose bit rose since the previous read. The first read, an equal mask, a falling bit and a `null` mask give no tile. A `null` mask keeps the stored mask.
+- `MainActivity.parseStatusReply` feeds the `dry` mask of each parsed `STATUS` reply to `checkDryNotifications`. It posts one notification `Dry air: <name>` for each rising tile (name from `PanelConfig.tileName`, id `DryWatch.notificationId`, 2400 plus the tile) and one short vibration (`vibrateNotice`) for each read. Without the notification permission (Android 13 and later), nothing is posted.
+- `DryWatch.kt` is a copy of the phone file; only the `package` line differs. It is in `FILES` of `scripts/check-protocol-sync.sh`.
+- Validation: `DryWatchTest` (9 tests, same as the phone) covers the first read, a rising bit, an equal mask, a falling bit, a missing field, a missing first field, a bit above tile 10 and the message and notification id. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs only in CI.

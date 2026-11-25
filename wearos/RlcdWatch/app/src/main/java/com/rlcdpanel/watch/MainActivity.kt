@@ -65,6 +65,7 @@ import com.rlcdpanel.watch.protocol.TelemetryFrame
 import com.rlcdpanel.watch.protocol.WallText
 import com.rlcdpanel.watch.protocol.WallWatch
 import com.rlcdpanel.watch.protocol.DriftWatch
+import com.rlcdpanel.watch.protocol.DryWatch
 import com.rlcdpanel.watch.protocol.ReceptionWatch
 import com.rlcdpanel.watch.protocol.WindowWatch
 import com.rlcdpanel.watch.tile.ClimateTileService
@@ -98,6 +99,7 @@ class MainActivity : ComponentActivity() {
     private val windowWatch = WindowWatch()
     private val receptionWatch = ReceptionWatch()
     private val driftWatch = DriftWatch()
+    private val dryWatch = DryWatch()
 
     private var configStatus by mutableStateOf<String?>(null)
     private var isReadingConfig by mutableStateOf(false)
@@ -1765,7 +1767,7 @@ onApply = { applySpread(it) }
     }
 
     /**
-     * Parses one `STATUS` reply and feeds its window mask to [WindowWatch] its weak signal mask to [ReceptionWatch] and its drift mask to [DriftWatch]. A reply that does not parse throws and
+     * Parses one `STATUS` reply and feeds its window mask to [WindowWatch] its weak signal mask to [ReceptionWatch] its drift mask to [DriftWatch] and its dry mask to [DryWatch]. A reply that does not parse throws and
      * does not reach the watch. A failed notification or vibration does not turn a good reply into a read error.
      */
     private fun parseStatusReply(reply: ConsoleReply): StatusReply {
@@ -1775,6 +1777,7 @@ onApply = { applySpread(it) }
         runCatching { checkWindowNotifications(status) }
         runCatching { checkWeakSignalNotifications(status) }
         runCatching { checkDriftNotifications(status) }
+        runCatching { checkDryNotifications(status) }
         return status
     }
 
@@ -1830,6 +1833,25 @@ onApply = { applySpread(it) }
                 title = "RLCD Alarm",
                 message = DriftWatch.message(panelConfig.tileName(tile)),
                 notificationId = DriftWatch.notificationId(tile)
+            )
+        }
+        vibrateNotice()
+    }
+
+    /** Posts one notification with a short vibration for each `dry` bit of `LATCH` that rose since the previous read. */
+    private fun checkDryNotifications(status: StatusReply) {
+        val rising = dryWatch.update(status.latch?.dry)
+        if (rising.isEmpty()) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        for (tile in rising) {
+            postVentilationNotification(
+                title = "RLCD Alarm",
+                message = DryWatch.message(panelConfig.tileName(tile)),
+                notificationId = DryWatch.notificationId(tile)
             )
         }
         vibrateNotice()

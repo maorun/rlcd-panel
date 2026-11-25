@@ -49,12 +49,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test parses `dry_h=5` to 5. A unit test parses `dry_h=--` and a missing field to `null`. A unit test checks that `dry_h=x` throws `ParseException`. A unit test checks the row text with and without the warning mark. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
   - **Rank:** [Total: 27, Use: 6, Setup: 4, Harmony: 7, Safety: 10, Effort: S]
 
-- [ ] Dry air vibration on the Wear OS watch
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/DryWatch.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/DryWatchTest.kt`, `FEATURES.md`
-  - **Goal:** Tell the user on the watch when a room becomes too dry. Add `DryWatch` with the rules of the watch `WindowWatch`. Feed the `dry=` mask of each parsed `STATUS` reply to it. `MainActivity` vibrates once and posts one notification for each rising tile with `DryWatch.message(<room>)`. Keep the same code as the Android `DryWatch` without the `package` line.
-  - **Acceptance:** A unit test checks that the first mask gives no tile. A unit test checks that a rising bit gives its tile. A unit test checks that an equal mask and a falling bit give no tile. A unit test checks that a missing `dry=` field keeps the stored mask. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 27, Use: 6, Setup: 3, Harmony: 8, Safety: 10, Effort: S]
-
 - [ ] Slot swap from the Wear OS sensor health screen
   - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/SlotSwapCommand.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/SlotSwapCommandTest.kt`, `FEATURES.md`
   - **Goal:** Let the user swap two slots from the watch. Add `SlotSwapCommand` with the rules of `SlotClearCommand`. `line(a, b)` gives `SLOT SWAP <A> <B>` for two different slots 1 to 10. `canSwap` is false for a slot with a fixed MAC. Show a confirm step `Platz <A> und <B> tauschen?`. Map `OK SLOT SWAP`, `ERR FIXED_MAC`, `ERR SLOT_OFF` and `ERR READ_ONLY` to a result text. Send `STATUS` after a good reply.
