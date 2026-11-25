@@ -421,6 +421,8 @@ class MainActivity : ComponentActivity() {
                 ConfigEditorScreen(
                     state = configEditorState,
                     panelConfig = panelConfig,
+                    status = healthState.status,
+                    measuredConfig = healthState.measuredConfig,
                     onRead = { withConsolePermission { applyConfigEditor(emptyList()) } },
                     onApply = { commands -> withConsolePermission { applyConfigEditor(commands) } },
                     onReadChanged = { withConsolePermission { readConfigChanged() } },
@@ -2127,7 +2129,7 @@ class MainActivity : ComponentActivity() {
                 checkDriftNotifications(status)
                 checkReceptionNotifications(status)
                 val limit = panelConfig.values["sensor_battery_limit_pct"]?.toDoubleOrNull()
-                SensorHealthState(rows = SensorHealth.rows(status, limit), ntp = status.ntp, sdFreeMb = status.sdFreeMb, reset = status.reset, shtc3 = status.shtc3, memory = status.memory, rtc = status.rtc, noise = status.noise, runtime = status.runtime, awake = status.awake, status = status).also { s ->
+                SensorHealthState(rows = SensorHealth.rows(status, limit), ntp = status.ntp, sdFreeMb = status.sdFreeMb, reset = status.reset, shtc3 = status.shtc3, memory = status.memory, rtc = status.rtc, noise = status.noise, runtime = status.runtime, awake = status.awake, status = status, measuredConfig = panelConfig.values).also { s ->
                     sourceBadges = s.rows.mapNotNull { r -> r.badge?.let { r.slot to it } }.toMap()
                 }
             } catch (e: ParseException) {
