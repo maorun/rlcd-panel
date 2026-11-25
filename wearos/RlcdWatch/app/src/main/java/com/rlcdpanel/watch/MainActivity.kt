@@ -1137,7 +1137,9 @@ onApply = { applySpread(it) }
                 startSpreadRead()
             } else {
                 val readOnly = SpreadApply.isReadOnly(result)
+                // After an applied key the shown deviations are old, so the chips go until the next read.
                 spreadState = before.copy(
+                    reply = if (result.applied.isEmpty()) before.reply else null,
                     confirming = null,
                     isApplying = false,
                     readOnly = readOnly,

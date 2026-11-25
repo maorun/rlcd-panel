@@ -84,15 +84,15 @@ class SpreadReplyTest {
         val m = fixtureMeasured()
         assertEquals(
             listOf("SET slot2_temp_offset_c=-1.0", "SET slot2_rh_offset_pct=-5.0"),
-            SpreadApply.commandsFor(m, 2)
+            SpreadApply.proposalFor(m, 2)!!.setCommands
         )
     }
 
     @Test
     fun okSensorGivesNoCommands() {
         val m = fixtureMeasured()
-        assertEquals(emptyList<String>(), SpreadApply.commandsFor(m, 0))
-        assertEquals(emptyList<String>(), SpreadApply.commandsFor(m, 1))
+        assertEquals(null, SpreadApply.proposalFor(m, 0))
+        assertEquals(null, SpreadApply.proposalFor(m, 1))
         assertEquals(null, SpreadApply.proposalFor(m, 9))
     }
 
@@ -150,5 +150,18 @@ class SpreadReplyTest {
         assertEquals(2, sent.size)
         assertEquals("slot2_rh_offset_pct" to "ERR BAD_VALUE", result!!.failure)
         assertFalse(SpreadApply.isReadOnly(result!!))
+    }
+
+    @Test
+    fun foreignKeyOrOutOfRangeValueGivesNoProposal() {
+        fun measured(line: String) = parse(
+            "SPREAD sensors=3 temp_median=20.0 rh_median=50.0",
+            "SENSOR a temp_dev=1.0 rh_dev=0.0 OUTLIER",
+            line
+        ).outcome as SpreadReply.Outcome.Measured
+        assertEquals(null, SpreadApply.proposalFor(measured("wake_interval_s=1 rh_offset_pct=0.0"), 0))
+        assertEquals(null, SpreadApply.proposalFor(measured("slot1_temp_offset_c=9.0 slot1_rh_offset_pct=0.0"), 0))
+        assertEquals(null, SpreadApply.proposalFor(measured("rh_offset_pct=1.0 temp_offset_c=1.0"), 0))
+        assertEquals("slot1_temp_offset_c", SpreadApply.proposalFor(measured("slot1_temp_offset_c=-1.0 slot1_rh_offset_pct=0.0"), 0)?.tempKey)
     }
 }

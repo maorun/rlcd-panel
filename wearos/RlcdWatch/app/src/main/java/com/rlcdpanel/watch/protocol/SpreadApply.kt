@@ -12,12 +12,14 @@ object SpreadApply {
         val row = measured.rows.getOrNull(index) ?: return null
         if (!row.isOutlier) return null
         val outliersBefore = measured.rows.take(index).count { it.isOutlier }
-        return measured.proposals.getOrNull(outliersBefore)
+        return measured.proposals.getOrNull(outliersBefore)?.takeIf { isOffsetProposal(it) }
     }
 
-    /** The `SET` commands of the row at [index], temperature first. Empty without a proposal. */
-    fun commandsFor(measured: SpreadReply.Outcome.Measured, index: Int): List<String> =
-        proposalFor(measured, index)?.setCommands ?: emptyList()
+    /** True when the keys are offset keys of the right kind and both values lie in the firmware range. */
+    fun isOffsetProposal(p: SpreadReply.Proposal): Boolean =
+        p.tempKey.endsWith("temp_offset_c") && p.rhKey.endsWith("rh_offset_pct") &&
+            CalibrationKeys.validate(p.tempKey, p.tempOffset.toString()) &&
+            CalibrationKeys.validate(p.rhKey, p.rhOffset.toString())
 
     /** The batch that sends the commands of [proposal], temperature first. */
     fun batch(proposal: SpreadReply.Proposal): CalibrationBatch = CalibrationBatch(
