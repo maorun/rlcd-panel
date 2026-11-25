@@ -17,7 +17,8 @@ object SpreadApply {
 
     /** True when the keys are offset keys of the right kind and both values lie in the firmware range. */
     fun isOffsetProposal(p: SpreadReply.Proposal): Boolean =
-        p.tempKey.endsWith("temp_offset_c") && p.rhKey.endsWith("rh_offset_pct") &&
+        p.tempKey.removeSuffix("temp_offset_c") == p.rhKey.removeSuffix("rh_offset_pct") &&
+            p.tempKey.endsWith("temp_offset_c") && p.rhKey.endsWith("rh_offset_pct") &&
             CalibrationKeys.validate(p.tempKey, p.tempOffset.toString()) &&
             CalibrationKeys.validate(p.rhKey, p.rhOffset.toString())
 
@@ -32,6 +33,10 @@ object SpreadApply {
     /** Confirmation text with both offsets, for example `Temp -1.0 °C, Feuchte -5.0 %RH`. */
     fun confirmText(proposal: SpreadReply.Proposal): String =
         "Temp ${proposal.tempOffset} °C, Feuchte ${proposal.rhOffset} %RH"
+
+    /** True when the batch left the panel in an unknown state: the old deviations may be stale. */
+    fun isUnknownState(result: CalibrationBatch.Result): Boolean =
+        result.failure?.second == CalibrationBatch.UNKNOWN_STATE
 
     /** True when the failed reply of a batch says that the console level is read-only. */
     fun isReadOnly(result: CalibrationBatch.Result): Boolean =

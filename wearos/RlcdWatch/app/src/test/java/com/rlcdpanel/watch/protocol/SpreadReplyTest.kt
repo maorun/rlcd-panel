@@ -164,4 +164,23 @@ class SpreadReplyTest {
         assertEquals(null, SpreadApply.proposalFor(measured("rh_offset_pct=1.0 temp_offset_c=1.0"), 0))
         assertEquals("slot1_temp_offset_c", SpreadApply.proposalFor(measured("slot1_temp_offset_c=-1.0 slot1_rh_offset_pct=0.0"), 0)?.tempKey)
     }
+
+    @Test
+    fun keysOfDifferentSensorsGiveNoProposal() {
+        val m = parse(
+            "SPREAD sensors=3 temp_median=20.0 rh_median=50.0",
+            "SENSOR a temp_dev=1.0 rh_dev=0.0 OUTLIER",
+            "slot1_temp_offset_c=-1.0 slot2_rh_offset_pct=0.0"
+        ).outcome as SpreadReply.Outcome.Measured
+        assertEquals(null, SpreadApply.proposalFor(m, 0))
+    }
+
+    @Test
+    fun corruptReplyGivesUnknownState() {
+        val proposal = SpreadApply.proposalFor(fixtureMeasured(), 2)!!
+        var result: CalibrationBatch.Result? = null
+        SpreadApply.batch(proposal).run({ _, cb -> cb(ConsoleReply.Corrupt(ReplyError.Timeout)) }) { result = it }
+        assertTrue(SpreadApply.isUnknownState(result!!))
+        assertFalse(SpreadApply.isReadOnly(result!!))
+    }
 }
