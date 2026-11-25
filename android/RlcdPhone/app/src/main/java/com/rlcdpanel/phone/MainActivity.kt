@@ -397,6 +397,8 @@ class MainActivity : ComponentActivity() {
                     onCheck = { withConsolePermission { setupSend { setupAssistant.checkReception() } } },
                     onSalt = { withConsolePermission { setupSend { setupAssistant.beginCalibrate() } } },
                     onApply = { withConsolePermission { setupSend { setupAssistant.beginApply() } } },
+                    onReadWeek = { withConsolePermission { setupSend { setupAssistant.beginReadWeek() } } },
+                    onApplyOutdoor = { withConsolePermission { setupSend { setupAssistant.beginApplyOutdoor(panelConfig) } } },
                     onFinish = { setupAssistant.finish(); refreshSetup() },
                     onRestart = { restartSetup() },
                     onBack = { closeSetup() }
@@ -1114,6 +1116,7 @@ class MainActivity : ComponentActivity() {
             slot = a.slot,
             verifyTries = a.verifyTries,
             proposalText = a.proposal?.let { "${it.key} = ${it.value}" },
+            outdoorText = a.outdoorProposal(panelConfig)?.text,
             isScanning = setupState.isScanning,
             isBusy = busy,
             message = message

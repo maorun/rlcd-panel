@@ -39,6 +39,8 @@ data class SetupState(
     val verifyTries: Int = 0,
     /** Text of the `SALT` proposal, null without one. */
     val proposalText: String? = null,
+    /** Text of the outdoor slot proposal, null without one. */
+    val outdoorText: String? = null,
     val isScanning: Boolean = false,
     val isBusy: Boolean = false,
     val message: String? = null
@@ -66,6 +68,8 @@ fun SetupAssistantScreen(
     onCheck: () -> Unit,
     onSalt: () -> Unit,
     onApply: () -> Unit,
+    onReadWeek: () -> Unit,
+    onApplyOutdoor: () -> Unit,
     onFinish: () -> Unit,
     onRestart: () -> Unit,
     onBack: () -> Unit
@@ -146,6 +150,11 @@ fun SetupAssistantScreen(
                             Button(onClick = onSalt, enabled = !state.isBusy) { Text("Salzprüfung lesen") }
                             if (state.proposalText != null) {
                                 Button(onClick = onApply, enabled = !state.isBusy) { Text("Vorschlag anwenden") }
+                            }
+                            state.outdoorText?.let { Text(it) }
+                            OutlinedButton(onClick = onReadWeek, enabled = !state.isBusy) { Text("Wochendaten lesen (Außensensor)") }
+                            if (state.outdoorText != null) {
+                                Button(onClick = onApplyOutdoor, enabled = !state.isBusy) { Text("Als Außensensor übernehmen") }
                             }
                             OutlinedButton(onClick = onFinish, enabled = !state.isBusy) { Text("Ohne Kalibrierung beenden") }
                         }
