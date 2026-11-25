@@ -75,17 +75,18 @@ fun AlertLimitScreen(
                         if (AlertLimits.canEdit(panelConfig)) {
                             val text = edits[limit.key] ?: shown
                             val error = AlertLimits.error(limit, text)
+                            val hint = if (limit.unit == "h" && error == null) AlertLimits.valueText(limit, text) else null
                             OutlinedTextField(
                                 value = text,
                                 onValueChange = { edits[limit.key] = it },
                                 label = { Text("Wert (${limit.unit})") },
-                                supportingText = { Text(error ?: limit.rangeText) },
+                                supportingText = { Text(error ?: (if (hint == AlertLimits.OFF_TEXT) "${AlertLimits.OFF_TEXT} – ${limit.rangeText}" else limit.rangeText)) },
                                 isError = error != null,
                                 singleLine = true,
                                 enabled = !state.isBusy
                             )
                         } else {
-                            Text("$shown ${limit.unit}")
+                            Text(AlertLimits.valueText(limit, shown))
                         }
                     }
                 }

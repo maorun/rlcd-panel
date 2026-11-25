@@ -3,7 +3,7 @@ package com.rlcdpanel.phone.protocol
 import com.rlcdpanel.phone.finder.SlotAssignment
 import java.util.Locale
 
-/** The eight alert limit keys of `config.ini` with the ranges of `DeviceConfigParser` (`device_config.h`). */
+/** The nine alert limit keys of `config.ini` with the ranges of `DeviceConfigParser` (`device_config.h`). */
 object AlertLimits {
     /** One key. [offValue] is the value that switches the limit off outside [min]..[max], null without one. */
     data class Limit(
@@ -32,6 +32,7 @@ object AlertLimits {
         Limit("dry_alert_delay_h", "Verzögerung Trockenalarm (h)", "h", 0.0, 12.0, 0.0),
         Limit("freeze_alert_limit_c", "Frost-Alarm", "°C", -20.0, 15.0, 0.0, decimal = true),
         Limit("heat_alert_limit_c", "Hitze-Alarm", "°C", 27.0, 45.0, 0.0, offValue = 0),
+        Limit("heat_alert_delay_h", "Verzögerung Hitzealarm (h)", "h", 0.0, 12.0, 0.0),
         Limit("ventilate_limit_rh", "Lüften-Grenze", "%RH", 50.0, 80.0, 60.0),
         Limit("sensor_battery_limit_pct", "Sensor-Batterie", "%", 0.0, 50.0, 10.0, offValue = 0)
     )
@@ -63,6 +64,14 @@ object AlertLimits {
     fun wire(limit: Limit, text: String): String {
         val value = number(limit, text)!!
         return if (limit.decimal) format(value) else value.toInt().toString()
+    }
+
+    const val OFF_TEXT = "Aus"
+
+    /** Display text of a value: `Aus` for 0 of an hour delay, else the value with its unit. */
+    fun valueText(limit: Limit, text: String): String {
+        val t = text.trim()
+        return if (limit.unit == "h" && number(limit, t) == 0.0) OFF_TEXT else "$t ${limit.unit}"
     }
 
     /** Cached value of [limit] in [config]; null when the key is missing or not a number (value unknown). */

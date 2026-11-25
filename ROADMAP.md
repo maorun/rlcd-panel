@@ -36,9 +36,3 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Heat alert delay in the Android alert limits screen
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertLimits.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/AlertLimitScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertLimitsTest.kt`, `FEATURES.md`
-  - **Goal:** Let the user set the heat alert delay on the phone. This item needs the firmware item "Config key `heat_alert_delay_h` for the heat alert". Add the field `heat_alert_delay_h` (0 is off, else 1 to 12 h) below the heat limit field, with the rules of the dry delay field. Show the unit `h` and the text `Aus` for 0. Reject a value above 12 and a non-numeric value before the `SET` batch starts. Keep the schema order of the `SET` commands, and send `CONFIG` after the batch.
-  - **Acceptance:** A unit test accepts the values 0, 1 and 12. A unit test rejects 13 and a non-numeric value. A unit test checks the `SET heat_alert_delay_h=2` line of the batch. A unit test checks the schema order of a batch with the heat limit and the heat delay. A unit test checks the text `Aus` for 0. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
-  - **Rank:** [Total: 26, Use: 7, Setup: 5, Harmony: 4, Safety: 10, Effort: S]
-
