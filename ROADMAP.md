@@ -28,11 +28,11 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Rank:** [Total: 32, Use: 7, Setup: 7, Harmony: 9, Safety: 9, Effort: M]
 
 
-- [ ] Sensor argument 0 to 10 for the console command WEEK
-  - **Location:** `rlcd_panel/serial_console.h`, `tests/test_firmware_logic.cpp`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/WeekScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/WeekScreen.kt`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Let the user read the week of slots 6 to 10. `WeekHistory` holds 11 sensors, but `WEEK <N>` accepts only 0 to 5. Accept N 0 to 10 without a leading zero with `SerialConsole::sensorArgument`, the rule of `TODAY <N>`. Keep the reply of `WEEK` without an argument. Give `ERR BAD_ARG` for `WEEK 11`, `WEEK 01` and extra text. Let the three app pickers offer each occupied slot 1 to 10. Do not change the RTC layout or `STATE_VERSION`.
-  - **Acceptance:** A host test checks 7 rows of sensor 8 for `WEEK 8`. A host test checks `ERR BAD_ARG` for `WEEK 11` and `WEEK 01`. A host test checks that `WEEK 5` keeps its reply. App unit tests check the picker list for an occupied slot 7. The host test suite passes. `arduino-cli compile rlcd_panel` passes. `swift test` passes. `gradle testDebugUnitTest assembleDebug` passes in both Android projects.
-  - **Rank:** [Total: 30, Use: 6, Setup: 5, Harmony: 9, Safety: 10, Effort: S]
+- [ ] Add ReceptionReply.kt to the protocol sync check
+  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ReceptionReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ReceptionReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, the two `ReceptionReplyTest.kt` files, `scripts/check-protocol-sync.sh`, `FEATURES.md`
+  - **Goal:** Remove the only protocol file that the phone and the watch hold in two different versions. The phone `ReceptionRow` has `cells: List<Boolean>` and `percent`; the watch has `mask: String` and `newestCells`. Make one file with `mask`, `cells`, `percent`, `isLow` and `newestCells(count)`. Use it in both apps without a change of the screen texts. Add `ReceptionReply.kt` to the `FILES` list of `scripts/check-protocol-sync.sh`.
+  - **Acceptance:** `scripts/check-protocol-sync.sh` passes with `ReceptionReply.kt` in the list. Both `ReceptionReplyTest.kt` files hold the same test cases and parse `tests/fixtures/reception_reply_sample.txt`. A unit test checks `cells` and `newestCells(12)` of one 24-character mask. `gradle testDebugUnitTest assembleDebug` passes in `android/RlcdPhone` and in `wearos/RlcdWatch`.
+  - **Rank:** [Total: 30, Use: 2, Setup: 8, Harmony: 10, Safety: 10, Effort: S]
 
 - [ ] Hour window picker for SPREAD on Android and Wear OS
   - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SpreadReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/SpreadReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/CalibrationScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SpreadScreen.kt`, the two `SpreadReplyTest.kt` files, `FEATURES.md`
