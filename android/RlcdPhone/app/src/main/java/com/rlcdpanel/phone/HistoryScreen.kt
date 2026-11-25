@@ -233,7 +233,9 @@ fun HistoryScreen(
                             if (panelView) {
                                 val color = if (curve == HistoryCurve.HUMIDITY || curve == HistoryCurve.ABSOLUTE_HUMIDITY) Color(0xFF4FC3F7) else Color(0xFFFF8A65)
                                 val curveLimits = when (curve) {
-                                    HistoryCurve.TEMPERATURE, HistoryCurve.FEELS_LIKE -> tempLimits
+                                    // The heat limit compares with the feels-like value, the freeze limit with the air temperature.
+                                    HistoryCurve.TEMPERATURE -> tempLimits.filter { it.key == "freeze_alert_limit_c" }
+                                    HistoryCurve.FEELS_LIKE -> tempLimits.filter { it.key == "heat_alert_limit_c" }
                                     HistoryCurve.HUMIDITY -> rhLimits
                                     HistoryCurve.ABSOLUTE_HUMIDITY -> emptyList()
                                 }
