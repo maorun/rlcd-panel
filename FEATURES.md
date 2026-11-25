@@ -3501,3 +3501,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `DryWatch.update(mask:)` follows the rules of `WindowWatch`: the first read only stores the mask, a rising bit gives its tile (0 onboard, 1 to 10 slots), an equal mask and a falling bit give no tile, and a `nil` mask keeps the stored mask. `DryWatch.notificationBody` gives `Dry air: <name>` with `EventText.roomName`.
 - `AppModel.checkDryNotifications` feeds it with `LatchMetrics.dry` after each `STATUS` reply and posts one notification for each rising tile (identifier `rlcd_panel_dry_<tile>`). The watch runs also while notifications are off, so a later switch-on does not replay a rise. `clearPanelData` resets it for a new panel.
 - Tests: `DryWatchTests` (7 tests) cover the first mask, a rising bit once, an equal mask, a falling bit, a `nil` mask, a bit above tile 10 and the body text. They run in CI (the local host lacks TestingMacros). `swift build -c release` passes locally.
+
+## Dry hours field in the STATUS SENSOR lines
+
+- **Code:** `rlcd_panel/sparkline.h`, `rlcd_panel/serial_console.h`, `tests/test_firmware_logic.cpp`, `tests/fixtures/status_reply_sample.txt`
+- Each `SENSOR` line of the console command `STATUS` now ends with ` dry_h=<N|-->` after `rh_trend=`. The field shows how many hourly samples of the 24-hour humidity history were too dry.
+- `HumidityHistory::countAtOrBelow(limit_tenths)` counts the samples at or below `dry_alert_limit_rh` (0.1 %RH steps). A sample at the limit counts; a sample above it does not.
+- The field shows `--` for `dry_alert_limit_rh` 0, for fewer than `HumidityHistory::MIN_RANGE_SAMPLES` samples and for an empty, disabled or stale slot.
+- The firmware calculates the field on each `STATUS`. It adds no RTC state. The RTC layout and `STATE_VERSION` do not change. The static `STATUS` text buffer grows from 2560 to 3072 bytes for the longer lines. The Android and Wear OS `StatusReply` parsers ignore the new field.
+- Tests: host tests assert the count at the limit and above it, `dry_h=--` for limit 0, a stale slot, an empty slot and too few samples, and one full `SENSOR` line. `tests/fixtures/status_reply_sample.txt` holds the field (new `CRC32` 94168035).
