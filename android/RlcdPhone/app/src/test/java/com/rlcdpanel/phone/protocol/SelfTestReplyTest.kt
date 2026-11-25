@@ -13,8 +13,10 @@ class SelfTestReplyTest {
     @Test
     fun sharedFixtureParses() {
         val r = SelfTestReply.parse(fixtureLines())
-        assertEquals(listOf("shtc3", "rtc", "sd", "battery", "mic", "ble"), r.checks.map { it.name })
-        assertTrue(r.checks.all { it.state == SelfTestState.OK })
+        assertEquals(listOf("shtc3", "rtc", "sd", "battery", "mic", "ble", "reception"), r.checks.map { it.name })
+        assertTrue(r.checks.dropLast(1).all { it.state == SelfTestState.OK })
+        assertEquals(SelfTestState.SKIP, r.checks[6].state)
+        assertEquals("NO_SLOT", r.checks[6].detail)
         assertEquals("mv=3900", r.checks[3].detail)
         assertEquals("L=OK,R=OK", r.checks[4].detail)
         assertEquals(6, r.pass)

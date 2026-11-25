@@ -1721,7 +1721,8 @@ void setup() {
           []() {
             ScanCollector collector;
             return SelfTestChecks::bleScan(scanForSeconds(collector, 1));
-          });
+          },
+          []() { return SelfTestChecks::reception(g_state.registry, g_state.reception, config().reception_low_pct); });
       if (!over_ble) {
         ble_console.start(); // the scan check stopped the BLE stack
       }

@@ -520,8 +520,9 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
 
     @Test func parsesSelfTestFromSharedFixture() throws {
         let r = try SelfTestReply.parse(lines: try selfTestFixture())
-        #expect(r.checks.map(\.name) == ["shtc3", "rtc", "sd", "battery", "mic", "ble"])
-        #expect(r.checks.allSatisfy { $0.state == .ok })
+        #expect(r.checks.map(\.name) == ["shtc3", "rtc", "sd", "battery", "mic", "ble", "reception"])
+        #expect(r.checks.dropLast().allSatisfy { $0.state == .ok })
+        #expect(r.checks[6].state == .skip && r.checks[6].detail == "NO_SLOT")
         #expect(r.checks[3].detail == "mv=3900")
         #expect(r.checks[4].detail == "L=OK,R=OK")
         #expect(r.pass == 6 && r.fail == 0 && r.passed)

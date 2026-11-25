@@ -17772,6 +17772,7 @@ struct SelfTestFakes {
   SelfTestOutcome battery = SelfTestChecks::battery(3900);
   SelfTestOutcome mic = SelfTestOutcome::of(SelfStatus::OK, "L=OK,R=OK");
   SelfTestOutcome ble = SelfTestChecks::bleScan(true);
+  SelfTestOutcome reception = SelfTestOutcome::of(SelfStatus::SKIP, "NO_SLOT");
   int mic_runs = 0;
   int ble_runs = 0;
 };
@@ -17781,7 +17782,7 @@ std::string selfTestOutput(SelfTestFakes& f, FakeConsoleStorage& storage, bool o
   FakeSink sink;
   TestRunner::selfTest(
       storage, sink, over_ble, muted, quiet, [&]() { return f.shtc3; }, [&]() { return f.rtc; }, [&]() { return f.battery; },
-      [&]() { ++f.mic_runs; return f.mic; }, [&]() { ++f.ble_runs; return f.ble; });
+      [&]() { ++f.mic_runs; return f.mic; }, [&]() { ++f.ble_runs; return f.ble; }, [&]() { return f.reception; });
   return sink.out;
 }
 } // namespace
@@ -17837,12 +17838,72 @@ void testSerialSelfTestChecks() {
   assert(SelfTestChecks::microphone(skew).status == SelfStatus::OK);
 }
 
+void testSerialSelfTestReception() {
+  SwitchBotRegistry empty;
+  ReceptionHistory none;
+  assert(std::string(SelfTestOutcome::label(SelfTestChecks::reception(empty, none, 50).status)) == "SKIP");
+  assert(std::string(SelfTestChecks::reception(empty, none, 0).detail) == "OFF");
+  assert(std::string(SelfTestChecks::reception(empty, none, 50).detail) == "NO_SLOT");
+  SwitchBotRegistry reg;
+  SwitchBotReading r;
+  r.valid = true;
+  for (size_t i = 0; i < 3; ++i) {
+    r.mac[5] = static_cast<uint8_t>(i + 1);
+    assert(reg.restoreSlot(i, r));
+  }
+  ReceptionHistory rx;
+  assert(rx.restore(0, 0x3Fu, 6)); // 6 scans: too few
+  assert(std::string(SelfTestChecks::reception(reg, rx, 50).detail) == "FEW_SCANS");
+  assert(SelfTestChecks::reception(reg, rx, 50).status == SelfStatus::SKIP);
+  assert(std::string(SelfTestChecks::reception(reg, rx, 0).detail) == "OFF"); // the limit 0 wins
+  ReceptionHistory ok;
+  assert(ok.restore(0, 0x3FFu, 12)); // 10 of 12 = 83 %
+  assert(SelfTestChecks::reception(reg, ok, 50).status == SelfStatus::OK);
+  assert(std::string(SelfTestChecks::reception(reg, ok, 50).detail) == "83%");
+  ReceptionHistory low;
+  assert(low.restore(0, 0xFFFu, 12));
+  assert(low.restore(1, 0x01Fu, 12)); // 5 of 12 = 41 %
+  assert(SelfTestChecks::reception(reg, low, 50).status == SelfStatus::FAIL);
+  assert(std::string(SelfTestChecks::reception(reg, low, 50).detail) == "LOW=2");
+  assert(std::string(SelfTestChecks::reception(reg, low, 40).detail) == "41%"); // 41 % is at the limit 40: OK
+  // a slot with 12 scans at exactly the limit is OK; an empty registry slot with stale counts is ignored
+  ReceptionHistory edge;
+  assert(edge.restore(0, 0x03Fu, 12)); // 6 of 12 = 50 %
+  assert(SelfTestChecks::reception(reg, edge, 50).status == SelfStatus::OK);
+  assert(std::string(SelfTestChecks::reception(reg, edge, 50).detail) == "50%");
+  ReceptionHistory ghost;
+  assert(ghost.restore(4, 0u, 12)); // slot 5 is empty in the registry
+  assert(std::string(SelfTestChecks::reception(reg, ghost, 50).detail) == "FEW_SCANS");
+  // the first low slot wins; a slot with 11 scans next to a counted slot does not count
+  ReceptionHistory two;
+  assert(two.restore(0, 0x001u, 12)); // 1 of 12: low
+  assert(two.restore(1, 0xFFFu, 12));
+  assert(two.restore(2, 0x000u, 12)); // 0 of 12: low, but later
+  assert(std::string(SelfTestChecks::reception(reg, two, 50).detail) == "LOW=1");
+  ReceptionHistory eleven;
+  assert(eleven.restore(0, 0x7FFu, 11)); // 11 scans: too few
+  assert(eleven.restore(1, 0xFFFu, 12));
+  assert(std::string(SelfTestChecks::reception(reg, eleven, 50).detail) == "100%");
+  static_assert(SelfTestChecks::MIN_SCANS == PersistentState::RECEPTION_LOW_MIN_SCANS, "SELFTEST and the R badge use one scan minimum");
+  // pass and fail counts with the new row
+  SelfTestFakes f;
+  f.reception = SelfTestChecks::reception(reg, low, 50);
+  FakeConsoleStorage st;
+  std::string out = selfTestOutput(f, st);
+  assert(out.find("CHECK reception FAIL LOW=2\nEND SELFTEST pass=6 fail=1\n") != std::string::npos && calibCrcOk(out));
+  SelfTestFakes g;
+  g.reception = SelfTestChecks::reception(reg, ok, 50);
+  FakeConsoleStorage st2;
+  out = selfTestOutput(g, st2);
+  assert(out.find("CHECK reception OK 83%\nEND SELFTEST pass=7 fail=0\n") != std::string::npos && calibCrcOk(out));
+}
+
 void testSerialSelfTestReply() {
   SelfTestFakes f;
   FakeConsoleStorage storage;
   std::string out = selfTestOutput(f, storage);
   assert(out.rfind("BEGIN SELFTEST\nCHECK shtc3 OK READ\nCHECK rtc OK RUNNING\nCHECK sd OK free_mb=0\n", 0) == 0);
-  assert(out.find("CHECK battery OK mv=3900\nCHECK mic OK L=OK,R=OK\nCHECK ble OK SCAN\nEND SELFTEST pass=6 fail=0\nCRC32 ") != std::string::npos);
+  assert(out.find("CHECK battery OK mv=3900\nCHECK mic OK L=OK,R=OK\nCHECK ble OK SCAN\nCHECK reception SKIP NO_SLOT\nEND SELFTEST pass=6 fail=0\nCRC32 ") != std::string::npos);
   assert(calibCrcOk(out));
   assert(storage.mounts == 1 && storage.unmounts == 1 && f.mic_runs == 1 && f.ble_runs == 1);
   // the reply equals the shared fixture
@@ -17957,7 +18018,7 @@ void testSerialSelfTestReply() {
     cut.limit = 20;
     TestRunner::selfTest(
         st, cut, false, false, false, [&]() { return x.shtc3; }, [&]() { return x.rtc; }, [&]() { return x.battery; },
-        [&]() { return x.mic; }, [&]() { return x.ble; });
+        [&]() { return x.mic; }, [&]() { return x.ble; }, [&]() { return x.reception; });
     assert(cut.out.find("CRC32") == std::string::npos);
   }
 }
@@ -28700,6 +28761,7 @@ testSerialConfigNegativeSmallOffset();
   testSerialTailByteLimit();
   testSerialTailErrors();
   testSerialSelfTestChecks();
+  testSerialSelfTestReception();
   testSerialSelfTestReply();
   testSerialFrsiWindow();
   testSerialFrsiErrorsAndShortReplies();
