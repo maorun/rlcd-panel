@@ -603,6 +603,8 @@ public enum ConsoleCommand: Equatable {
     case eventsNewest(Int)
     /// `REJECTS`: the packets that the last BLE scan rejected (works on USB and on BLE).
     case rejects
+    /// `CONFIG CHANGED`: the keys that differ from the default (USB and BLE at each `ble_console` level).
+    case configChanged
     /// `SELFTEST`: runs each onboard hardware check once (USB and BLE; the BLE scan check skips on BLE).
     case selfTest
     case list
@@ -745,6 +747,7 @@ public enum ConsoleCommand: Equatable {
         case let .tail(rows): return (1...72).contains(rows) ? "TAIL \(rows)" : nil
         case let .days(rows): return (1...31).contains(rows) ? "DAYS \(rows)" : nil
         case .config: return "CONFIG"
+        case .configChanged: return "CONFIG CHANGED"
         case .version: return "VERSION"
         case .scan: return "SCAN"
         case .rejects: return "REJECTS"

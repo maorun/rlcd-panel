@@ -3298,3 +3298,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The screen sends no `SET`.
 - Tests: `ConfigChangedReplyTest` reads `tests/fixtures/config_changed_reply_sample.txt` and checks keys and values, the CRC-32, a count of 0, a bad count and bad lines.
 - Validation: `scripts/check-protocol-sync.sh` passes. The Gradle tests run in GitHub Actions CI (no Android SDK on the local host). The behavior on the watch is not tested.
+
+## Changed settings view and reset to default in the macOS config editor
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigChangedReply.swift`, `Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `ConfigEditorView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ConfigChangedReplyTests.swift`
+- The user sees the settings that differ from the default and resets each one to the default on the Mac.
+- `ConsoleCommand.configChanged` sends `CONFIG CHANGED`. `ConfigChangedReply.parse` reads the lines before `CRC32` into `ConfigChangedEntry` rows. A count in `END CHANGED` that differs from the line count, a missing or malformed `END` line, a line without `=`, an unknown key and a repeated key throw `ParseError`.
+- `ConfigEditorView` has the toggle `Changed only` and the button `Read changed` (`AppModel.readConfigChanged`). The toggle shows only the keys of the reply. Each changed key has a `Reset` button.
+- `Reset` (`AppModel.resetToDefault`) builds one `ConfigChange` to the `ConfigSchema` default (`ConfigSchema.resetChanges`) and sends `SET <key>=<default>` through `ConfigBatch`, then `CONFIG`, then `CONFIG CHANGED`. A key whose default the console cannot send (an empty name) has no reset: `ConfigSchema.resetPlan` reports it in `problems`. The button is off for `ble_console` 1, without a console that takes `SET`, during a running command and while the form holds unsaved edits (the `CONFIG` reply of the batch would drop them). Resetting `ble_console` skips the `CONFIG CHANGED` read (the console can end). Any `SET`, another batch, a failed `CONFIG`, a failed read and a link change drop the list, so no `Reset` button works on an old list.
+- Validation: `ConfigChangedReplyTests` (9 tests, read `tests/fixtures/config_changed_reply_sample.txt`) are new. `swift build` passes. `swift test` does not run on the local host (no `TestingMacros`); it runs in CI. A scratch executable checked the fixture parse, the count and key errors and the reset batch locally. The behavior on a panel is not tested.

@@ -147,6 +147,12 @@ final class AppModel: ConsoleLinkDelegate {
     /// The running or last batch of the config form.
     var batch: ConfigBatch?
     var batchSummary: String?
+    /// Keys that differ from the default, from the last `CONFIG CHANGED` reply; `nil` until it was read.
+    var configChanged: [ConfigChangedEntry]?
+    /// Filter `Changed only` of the config editor.
+    var changedOnly = false
+    /// Set by `resetToDefault`: `CONFIG CHANGED` follows the `CONFIG` that ends the batch.
+    private var rereadChangedAfterBatch = false
     /// Name typed in the scanner for a scanned MAC; sent with the MAC by `assign(slot:mac:name:)`.
     var scanNames: [String: String] = [:]
     /// MAC of a running scanner assignment: its name entry clears and a new `SCAN` runs after a clean batch.
@@ -475,7 +481,7 @@ final class AppModel: ConsoleLinkDelegate {
         diagnostics = nil
         diagnosticsConfig = nil
         version = nil
-        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; daysResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
+        scanResult = nil; panelImage = nil; configChanged = nil; rejectsResult = nil; tailResult = nil; daysResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         panelTime = nil
@@ -494,7 +500,7 @@ final class AppModel: ConsoleLinkDelegate {
     func disconnectConsole() {
         stopRepeatScan(.user)
         stopSaltWatch(.user)
-        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; daysResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
+        scanResult = nil; panelImage = nil; configChanged = nil; rejectsResult = nil; tailResult = nil; daysResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         panelTime = nil
@@ -510,7 +516,7 @@ final class AppModel: ConsoleLinkDelegate {
     func selectTransport(_ t: Transport) {
         stopRepeatScan(.user)
         stopSaltWatch(.user)
-        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; daysResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
+        scanResult = nil; panelImage = nil; configChanged = nil; rejectsResult = nil; tailResult = nil; daysResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         transport = t
@@ -546,6 +552,7 @@ final class AppModel: ConsoleLinkDelegate {
     /// A lost link, a timeout or a reset ends a running batch, so the form unlocks.
     private func endBatchAfterLoss() {
         if setup?.pending != nil { setup?.linkLost("no reply") } // an idle assistant survives an unrelated timeout
+        rereadChangedAfterBatch = false
         guard let b = batch else { return }
         batchSummary = b.summary + " (no reply)"
         batch = nil
@@ -912,6 +919,34 @@ final class AppModel: ConsoleLinkDelegate {
         guard let cmd = batch?.next() else { return }
         queue = [cmd]
         sendNext()
+    }
+
+    /// Reads the keys that differ from the default (`CONFIG CHANGED`, USB and BLE at each `ble_console` level).
+    func readConfigChanged() {
+        guard isIdle else { message = "Wait for the running command"; return }
+        message = nil
+        queue = [.configChanged]
+        sendNext()
+    }
+
+    /// Reset of one changed key: allowed with a console that takes `SET`, not for `ble_console` 1, and only when
+    /// the default is a value that the console can send.
+    func canReset(_ entry: ConfigChangedEntry) -> Bool {
+        canSet && consoleLevel != 1 && isIdle && draft.isEmpty && // the CONFIG reply of the batch drops unsaved edits
+             !ConfigSchema.resetChanges(for: entry).isEmpty
+    }
+
+    /// Sends `SET <key>=<default>` through `ConfigBatch`, then `CONFIG`, then `CONFIG CHANGED`.
+    func resetToDefault(_ entry: ConfigChangedEntry) {
+        let changes = ConfigSchema.resetChanges(for: entry)
+        guard canReset(entry), !changes.isEmpty else { message = "Reset not allowed"; return }
+        message = nil
+        batchSummary = nil
+        if SlotAssignment.isMacKey(entry.key) { scanResult = nil; rejectsResult = nil }
+        // `ble_console` can end the console: the user reads the list again.
+        rereadChangedAfterBatch = entry.key != "ble_console"
+        batch = ConfigBatch(changes: changes)
+        sendNextBatchCommand()
     }
 
     /// Starts one 4 s BLE scan of the panel. USB serial only: the firmware replies `ERR NOT_OVER_BLE` on BLE.
@@ -1419,6 +1454,7 @@ final class AppModel: ConsoleLinkDelegate {
             if case .historySensor = cmd { stopSaltWatch(.replyFailed) }
             if cmd == .screen { panelImage = nil }
             if cmd == .rejects { rejectsResult = nil }
+            if cmd == .configChanged { configChanged = nil }
             if case .tail = cmd { tailResult = nil }
             if case .days = cmd { daysResult = nil }
             if cmd == .today { today = nil }
@@ -1437,6 +1473,14 @@ final class AppModel: ConsoleLinkDelegate {
         if b.isFinished {
             batchSummary = b.summary
             batch = nil
+            if rereadChangedAfterBatch, !b.configFailed {
+                rereadChangedAfterBatch = false
+                queue = [.configChanged] // the form shows the keys that still differ
+                sendNext()
+            } else {
+                rereadChangedAfterBatch = false
+                configChanged = nil // another batch or a failed CONFIG: the old list does not match the panel
+            }
             clearCalibration() // the stored hours hold the old offsets, so a new CALIB must follow
             if respreadAfterBatch {
                 respreadAfterBatch = false
@@ -1458,6 +1502,7 @@ final class AppModel: ConsoleLinkDelegate {
             b = batch ?? b
             batchSummary = b.summary + " (link lost)"
             batch = nil
+            rereadChangedAfterBatch = false
             respreadAfterBatch = false
             assigningMac = nil
             clearCalibration()
@@ -1478,6 +1523,7 @@ final class AppModel: ConsoleLinkDelegate {
                 stopRepeatScan(.linkLost)
                 stopSaltWatch(.linkLost)
                 scanResult = nil // the slot column of a lost link is stale
+                configChanged = nil // the keys of the old panel must not get a Reset button
                 panelImage = nil
                 rejectsResult = nil
                 tailResult = nil
@@ -1516,6 +1562,7 @@ final class AppModel: ConsoleLinkDelegate {
                 message = "Reply rejected: \(e)"
                 if cmd == .screen { panelImage = nil } // a rejected frame must not stay next to the error
                 if cmd == .rejects { rejectsResult = nil }
+                if cmd == .configChanged { configChanged = nil }
                 if case .tail = cmd { tailResult = nil }
                 if case .days = cmd { daysResult = nil }
                 if cmd == .today { today = nil }
@@ -1559,6 +1606,7 @@ final class AppModel: ConsoleLinkDelegate {
                 }
                 if cmd == .screen { panelImage = nil } // ERR NO_FRAME must not leave an old image
                 if cmd == .rejects { rejectsResult = nil }
+                if cmd == .configChanged { configChanged = nil }
                 if case .tail = cmd { tailResult = nil; message = TailReply.message(text) }
                 if case .days = cmd { daysResult = nil; message = DaysReply.message(text) }
                 if case .eventsNewest = cmd { recentEvents = .empty }
@@ -1566,6 +1614,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
                 if cmd == .scan, text.hasPrefix("ERR") { stopRepeatScan(.scanFailed) }
                 if case .historySensor = cmd, text.hasPrefix("ERR") { stopSaltWatch(.replyFailed) }
+                if case .set = cmd { configChanged = nil } // any SET (form, assistant, calibration) makes the list old
                 batch?.receive(status: text)
                 if text.hasPrefix("ERR"), !keepQueue { queue.removeAll() }
                 // A failed ACK still reads STATUS, so the row follows the panel (the alert may have cleared).
@@ -1613,6 +1662,10 @@ final class AppModel: ConsoleLinkDelegate {
                 config = try ConfigReply.parse(lines: lines)
                 lastConfig = config
                 if batch != nil { draft = [:] } // the panel state replaces the edits
+            case let (.configChanged, .frame(lines)):
+                configChanged = nil // a reply that fails to parse must not leave the old keys
+                configChanged = try ConfigChangedReply.parse(lines: lines)
+            case (.configChanged, .file): message = "Unexpected file reply"
             case let (.rejects, .frame(lines)):
                 rejectsResult = nil // a reply that fails to parse must not leave the old rows
                 rejectsResult = try RejectsReply.parse(lines: lines)
