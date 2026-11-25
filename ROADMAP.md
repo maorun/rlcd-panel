@@ -27,11 +27,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Weak signal notification in the macOS app
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/ReceptionWatch.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ReceptionWatchTests.swift`, `FEATURES.md`
-  - **Goal:** Tell the user on the Mac when a sensor has a weak BLE signal. Add `ReceptionWatch` with the rules of the Kotlin `ReceptionWatch.kt`. The first reply only stores the mask. A rising bit of `LatchMetrics.receptionLow` gives its slot number. An equal mask, a falling bit and a `nil` mask give no slot. A `nil` mask keeps the stored mask. Feed it in `AppModel` with each `STATUS` reply, as `DriftWatch`. Post one notification `Weak signal: <name>` for each rising slot. Post nothing while notifications are off.
-  - **Acceptance:** `ReceptionWatchTests` give the same slots as the Kotlin `ReceptionWatchTest` for the same masks. A test checks that the first mask gives no slot. A test checks that a `nil` mask keeps the stored mask. A test reads `tests/fixtures/status_reply_sample.txt` and feeds its `rxlow` mask. `swift test` passes in `macos/RlcdCompanion`.
-  - **Rank:** [Total: 31, Use: 6, Setup: 7, Harmony: 8, Safety: 10, Effort: S]
 - [ ] Hour window selection for SPREAD in the macOS calibration view
   - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift`, `FEATURES.md`
   - **Goal:** Let the user select the window of the co-location check on the Mac. This entry needs the firmware entry "Hour window argument for the console command SPREAD". Add `ConsoleCommand.spread(hours:)`. It sends `SPREAD` for 6 hours and `SPREAD <H>` for 7 to 24 hours. Show a picker with 6, 12 and 24 hours in `CalibrationView`. Send the selected window with each read and after each applied proposal. Show `Firmware update needed` for `ERR BAD_ARG` from an older firmware. Keep `SpreadReply.parse`.

@@ -130,6 +130,7 @@ final class AppModel: ConsoleLinkDelegate {
     private var staleWatch = StaleWatch()
     private var windowWatch = WindowWatch()
     private var driftWatch = DriftWatch()
+    private var receptionWatch = ReceptionWatch()
     private static let silenceNotificationId = "rlcd_panel_silence"
     /// Login item logic; the state comes from `SMAppService` on each refresh.
     private var loginItem = LoginItem(service: MainAppLoginItemService())
@@ -366,6 +367,20 @@ final class AppModel: ConsoleLinkDelegate {
         }
     }
 
+    /// Feeds `ReceptionWatch` with the `rxlow=` mask of each `STATUS` reply and posts one notification for each rising slot.
+    /// `ReceptionWatch` runs on each reply, so a rise read while notifications are off does not repeat later.
+    private func checkReceptionNotifications(_ latch: LatchMetrics?) {
+        let slots = receptionWatch.update(mask: latch?.receptionLow)
+        guard notificationsEnabled, Bundle.main.bundleIdentifier != nil else { return }
+        for slot in slots {
+            let content = UNMutableNotificationContent()
+            content.title = "RLCD Panel Alert"
+            content.body = ReceptionWatch.notificationBody(slot: slot, config: lastConfig)
+            content.sound = .default
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "rlcd_panel_reception_\(slot)", content: content, trigger: nil))
+        }
+    }
+
     private func checkAlertNotifications(previous: TelemetryFrame?, current: TelemetryFrame) {
         guard notificationsEnabled, Bundle.main.bundleIdentifier != nil else { return }
         let rising = AlertTransitions.risingAlerts(previous: previous, current: current)
@@ -476,6 +491,7 @@ final class AppModel: ConsoleLinkDelegate {
         recentEvents = .empty
         windowWatch = WindowWatch() // the next list of a panel is a new baseline
         driftWatch = DriftWatch()
+        receptionWatch = ReceptionWatch()
         config = nil
         lastConfig = nil // names and unit belong to the old panel
         diagnostics = nil
@@ -1640,6 +1656,7 @@ final class AppModel: ConsoleLinkDelegate {
                 diagnostics = try DiagnosticsReply.parse(status: parsed)
                 diagnosticsConfig = config?.values
                 checkDriftNotifications(diagnostics?.latch)
+                checkReceptionNotifications(diagnostics?.latch)
             case let (.version, .frame(lines)):
                 version = nil
                 version = try VersionReply.parse(lines: lines)

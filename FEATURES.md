@@ -3262,6 +3262,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `EventText` shows `Sensor drift (<tile>)` and `Sensor drift gone (<tile>)` for `EventCode::SENSOR_DRIFT` 26. `EventFilter` lists it in the category `sensors`.
 - Validation: `DriftWatchTests`, `DiagnosticsTests` and `EventTextTests` cover the parser, the watch and the texts. `swift build` passes locally; `swift test` runs in CI only, because the local host lacks TestingMacros. `scripts/check-protocol-sync.sh` passes. The notification and the button are not tested on a panel.
 
+## Weak signal notification in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/ReceptionWatch.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ReceptionWatchTests.swift`
+- The Mac app tells the user which sensor has a weak BLE signal.
+- `ReceptionWatch` is a pure state machine with the rules of the Kotlin `ReceptionWatch.kt`: the first read only stores the mask, a rising bit of `LatchMetrics.receptionLow` gives its slot (1 to 10), an equal mask, a falling bit and a `nil` mask give no slot, a `nil` mask keeps the stored mask. Bits above slot 10 are ignored.
+- `AppModel.checkReceptionNotifications` feeds it with each `STATUS` reply (also while notifications are off, so a rise does not repeat later) and posts one `UserNotifications` notification `Weak signal: <name>` for each rising slot (`rlcd_panel_reception_<slot>`; name from the `ConfigReply`, else `Slot <N>`). A panel change resets the baseline. Notifications appear only on `STATUS` reads.
+- Validation: `ReceptionWatchTests` (11 tests, including a read of `tests/fixtures/status_reply_sample.txt` with `rxlow=202`) cover the rules. `swift build` passes locally; `swift test` runs in CI only, because the local host lacks TestingMacros. The notification is not tested on a panel.
+
 ## Sensor drift notification on the Wear OS watch
 
 - **Code:** `wearos/RlcdWatch/.../protocol/StatusReply.kt`, `DriftWatch.kt`, `MainActivity.kt`, `SensorHealthScreen.kt`; tests `DriftWatchTest`, `StatusReplyTest`, `SensorHealthTextTest`.
