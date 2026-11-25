@@ -206,6 +206,7 @@ struct DiagnosticsView: View {
                 if tail.rows.isEmpty {
                     Text("No rows in the log.").font(.caption).foregroundStyle(.secondary)
                 } else {
+                    TailGapSummary(report: LogGaps.report(rows: tail.rows))
                     ScrollView(.vertical) {
                         Grid(alignment: .leading, horizontalSpacing: 10, verticalSpacing: 2) {
                             GridRow {
@@ -535,6 +536,23 @@ struct DiagnosticsView: View {
                 Text(c.state.rawValue)
                 Text(c.detail).foregroundStyle(.secondary)
             }.font(.caption)
+        }
+    }
+}
+
+/// Missing hours between the rows of one `TAIL` reply. Reads only the rows of the reply.
+private struct TailGapSummary: View {
+    let report: LogGaps.Report
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if report.gaps.isEmpty {
+                Text("No gaps").font(.caption).foregroundStyle(.secondary)
+            } else {
+                Text("\(report.missingHours) missing h").font(.caption).foregroundStyle(.orange)
+                ScrollView { GapLines(gaps: report.gaps).frame(maxWidth: .infinity, alignment: .leading) }
+                    .frame(maxHeight: 120)
+            }
         }
     }
 }

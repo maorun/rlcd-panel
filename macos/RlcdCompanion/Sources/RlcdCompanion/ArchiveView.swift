@@ -104,14 +104,6 @@ private struct LogGapSummary: View {
     let month: String
     let failedFiles: [String]
 
-    private static let formatter: DateFormatter = {
-        let f = DateFormatter()
-        f.locale = Locale(identifier: "en_US_POSIX")
-        f.timeZone = PanelClock.timeZone
-        f.dateFormat = "yyyy-MM-dd HH:mm"
-        return f
-    }()
-
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
             Text("Log coverage \(month): \(String(format: "%.1f", report.coveragePct)) % (\(report.rowCount) rows, \(report.missingHours) missing h)")
@@ -125,13 +117,30 @@ private struct LogGapSummary: View {
                     .font(.caption).foregroundStyle(.secondary)
             }
             ScrollView {
-                VStack(alignment: .leading, spacing: 2) {
-                    ForEach(Array(report.gaps.enumerated()), id: \.offset) { _, gap in
-                        Text("\(Self.formatter.string(from: gap.start)) to \(Self.formatter.string(from: gap.end)): \(gap.missingHours) h missing")
-                            .font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
-                    }
-                }.frame(maxWidth: .infinity, alignment: .leading)
+                GapLines(gaps: report.gaps).frame(maxWidth: .infinity, alignment: .leading)
             }.frame(maxHeight: 120)
+        }
+    }
+}
+
+/// One line for each log gap with its start, its end and its missing hours. Shared by the archive and the diagnostics views.
+struct GapLines: View {
+    let gaps: [LogGaps.Gap]
+
+    private static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = PanelClock.timeZone
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        return f
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(Array(gaps.enumerated()), id: \.offset) { _, gap in
+                Text("\(Self.formatter.string(from: gap.start)) to \(Self.formatter.string(from: gap.end)): \(gap.missingHours) h missing")
+                    .font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+            }
         }
     }
 }
