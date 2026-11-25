@@ -48,7 +48,7 @@ public enum SensorTrend: String, Equatable {
     }
 }
 
-/// `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...> format=<...> mac=<...> mold_h=<N|-->`.
+/// `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...> format=<...> mac=<...> mold_h=<N|--> ... dry_h=<N|-->`.
 public struct StatusSensor: Equatable {
     public let index: Int
     public let name: String
@@ -64,6 +64,8 @@ public struct StatusSensor: Equatable {
     public let mac: String?
     /// `mold_h=` of the `SENSOR` line: hourly samples above `mold_alert_limit_rh`; `nil` for `--` and a missing field.
     public let moldHours: Int?
+    /// `dry_h=` of the `SENSOR` line: hourly samples at or below `dry_alert_limit_rh`; `nil` for `--` and a missing field.
+    public let dryHours: Int?
     /// `temp_trend=` of the `SENSOR` line; `nil` for `--` and a missing field.
     public let temperatureTrend: SensorTrend?
     /// `rh_trend=` of the `SENSOR` line; `nil` for `--` and a missing field.
@@ -81,6 +83,7 @@ public struct StatusSensor: Equatable {
         format: String? = nil,
         mac: String? = nil,
         moldHours: Int? = nil,
+        dryHours: Int? = nil,
         temperatureTrend: SensorTrend? = nil,
         humidityTrend: SensorTrend? = nil
     ) {
@@ -95,6 +98,7 @@ public struct StatusSensor: Equatable {
         self.format = format
         self.mac = mac
         self.moldHours = moldHours
+        self.dryHours = dryHours
         self.temperatureTrend = temperatureTrend
         self.humidityTrend = humidityTrend
     }
@@ -145,16 +149,19 @@ public struct StatusReply: Equatable {
             case "SENSOR":
                 sensorLines.append(line)
                 guard words.count >= 3, let idx = Int(words[1]) else { throw ParseError.badLine(line) }
-                var moldHours: Int?
-                if let v = f["mold_h"], v != "--" {
+                // `--` and a missing field give nil; a bad or negative number throws.
+                func hours(_ key: String) throws -> Int? {
+                    guard let v = f[key], v != "--" else { return nil }
                     guard let n = Int(v), n >= 0 else { throw ParseError.badLine(line) }
-                    moldHours = n
+                    return n
                 }
+                let moldHours = try hours("mold_h")
+                let dryHours = try hours("dry_h")
                 sensors.append(StatusSensor(
                     index: idx, name: String(words[2]), temperature: number(f["temp"]),
                     humidity: number(f["rh"]), battery: number(f["bat"]), rssi: number(f["rssi"]),
                     ageSeconds: number(f["age"]), state: f["state"] ?? "", format: sourceFormat(f["format"]),
-                    mac: sourceFormat(f["mac"]), moldHours: moldHours,
+                    mac: sourceFormat(f["mac"]), moldHours: moldHours, dryHours: dryHours,
                     temperatureTrend: try SensorTrend.parse(f["temp_trend"], line: line),
                     humidityTrend: try SensorTrend.parse(f["rh_trend"], line: line)))
             case "SD":

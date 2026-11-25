@@ -3535,3 +3535,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `ERR BAD_ARG` for `TODAY 11`, `TODAY 01`, `TODAY x`, `TODAY 1 2` and other extra text. `TODAY 1` was a `BAD_ARG` before and now selects slot 1.
 - The RTC layout and `STATE_VERSION` do not change. `showToday` takes the new parameter `only_sensor` (-1 sends every row).
 - Tests: host tests cover the parser, the row of sensor 2 or 1 with a correct CRC-32 (and the new fixture), a sensor without a sample, `ERR NO_TIME`, and the unchanged full reply.
+
+## Dry hours in the macOS sensor list
+
+- The user sees the dry hours of each room beside the other sensor data. The macOS app reads the `dry_h=<N|-->` field of each `SENSOR` line of `STATUS`.
+- `StatusSensor.dryHours` (`Int?`) is `nil` for `--` and for a missing field. A bad number or a negative number throws `ParseError.badLine`.
+- The status list of the menu bar window shows ` Dry <N> h` after the state. It adds ` ⚠` above 0 hours.
+- The `Sensor health` rows of `DiagnosticsView` show `Dry <N> h` and an orange warning symbol above 0 hours.
+- Tests: `ReplyTests.dryHoursOfSharedFixtureAndBadFields` parses `tests/fixtures/status_reply_sample.txt`, `dry_h=5`, a missing field and `dry_h=x`.
+- Validation: `swift build -c release` passes locally; `swift test` does not run locally (no TestingMacros in the Command Line Tools) and runs on GitHub Actions CI.

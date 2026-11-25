@@ -345,6 +345,14 @@ struct DiagnosticsView: View {
                         .help("Temperature trend over 3 hours")
                     Text("\(live?.humidity.map { String(format: "%.1f %%RH", $0) } ?? "--")\(live?.humidityTrend?.symbol ?? "")")
                         .help("Humidity trend over 3 hours")
+                    if let dry = live?.dryHours {
+                        Text("Dry \(dry) h")
+                        if dry > 0 {
+                            Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                                .help("Hours at or below dry_alert_limit_rh in the last 24 hours")
+                                .accessibilityLabel("Dry hours")
+                        }
+                    }
                     Text("RSSI \(r.rssi.map { String(format: "%.0f", $0) } ?? "--")")
                     Text("bat \(r.battery.map { String(format: "%.0f %%", $0) } ?? "--")")
                     Text("age \(r.ageSeconds.map { String(format: "%.0f s", $0) } ?? "--")")

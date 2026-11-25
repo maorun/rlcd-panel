@@ -157,6 +157,24 @@ struct ReplyAssemblerTests {
         #expect(throws: ParseError.badLine(bad[1])) { try StatusReply.parse(lines: bad) }
     }
 
+    @Test func dryHoursOfSharedFixtureAndBadFields() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let data = try Data(contentsOf: url.appendingPathComponent("tests/fixtures/status_reply_sample.txt"))
+        var a = ReplyAssembler()
+        guard case .frame(let lines)? = a.append(data).first else { Issue.record("fixture is not a frame"); return }
+        let s = try StatusReply.parse(lines: lines)
+        #expect(s.sensors.map(\.dryHours) == [2, nil, nil, nil, nil, nil])
+        let five = lines.map { $0.replacingOccurrences(of: "dry_h=2", with: "dry_h=5") }
+        #expect(try StatusReply.parse(lines: five).sensors[0].dryHours == 5)
+        let without = lines.map { $0.replacingOccurrences(of: " dry_h=2", with: "") }
+        #expect(try StatusReply.parse(lines: without).sensors[0].dryHours == nil)
+        let bad = lines.map { $0.hasPrefix("SENSOR 0 ") ? $0.replacingOccurrences(of: "dry_h=2", with: "dry_h=x") : $0 }
+        #expect(throws: ParseError.badLine(bad[0])) { try StatusReply.parse(lines: bad) }
+        let negative = lines.map { $0.hasPrefix("SENSOR 0 ") ? $0.replacingOccurrences(of: "dry_h=2", with: "dry_h=-1") : $0 }
+        #expect(throws: ParseError.badLine(negative[0])) { try StatusReply.parse(lines: negative) }
+    }
+
     @Test func trendsOfSharedFixtureAndBadFields() throws {
         var url = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { url.deleteLastPathComponent() }

@@ -26,12 +26,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Dry hours in the macOS sensor list
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/StatusReplyTests.swift`, `FEATURES.md`
-  - **Goal:** Show the dry hours of each room beside the mold hours. This item needs the firmware item "Dry hours field in the STATUS SENSOR lines". Add `StatusSensor.dryHours` (`Int?`). Give `nil` for `--` and for a missing field. Throw `ParseError.badLine` for a bad number. Show `Dry <N> h` in the menu bar status list and in the `Sensor health` rows. Show a warning symbol above 0 hours.
-  - **Acceptance:** A unit test parses `dry_h=5` to 5. A unit test parses `dry_h=--` and a missing field to `nil`. A unit test checks that `dry_h=x` throws `ParseError.badLine`. A unit test parses `tests/fixtures/status_reply_sample.txt`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-  - **Rank:** [Total: 27, Use: 6, Setup: 4, Harmony: 7, Safety: 10, Effort: S]
-
 
 
 ## Rules for ranking
