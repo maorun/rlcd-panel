@@ -2521,7 +2521,7 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 ## Mold hours in the Android week chart
 
 - `WeekChartModel.mold(rows, sensor)` gives seven values of `WeekRow.moldHours` from day 6 (left) to day 0 (right). A gap day, a missing row, an empty field and a reply with the 7-column header give `null`.
-- `WeekScreen` shows a third `Canvas` `Schimmelstunden (h)` below the humidity chart: one bar for each day with hours, a fixed scale of 0 to 24 h (`MOLD_MAX_H`), an outline for a `null` day and the label `0 bis 24, max. <N> h`. The chart stays hidden when each value is `null`.
+- `WeekScreen` shows a third `Canvas` `Schimmelstunden (h)` below the humidity chart: one bar for each day with hours, a fixed scale of 0 to 24 h (`HOURS_MAX_H`), an outline for a `null` day and the label `0 bis 24, max. <N> h`. The chart stays hidden when each value is `null`.
 - Tests: `WeekChartModelTest` (fixture `tests/fixtures/week_reply_sample.txt`).
 - Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
 
@@ -3970,3 +3970,11 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The three `ConfigSchema` tables (macOS, Android, Wear OS), `ConfigBackup.kt` and `EventText.kt` list the key.
 - Host tests cover the rise with delay 2 and two pairs, no rise with one pair, no rise with an older pair below the limit, no rise for a short humidity history and for a missing history pointer, the release 2 C below the limit, the values 12 and 13, the text round trip and the RTC byte with a corrupt value.
 - Validation: host tests (242 suites) and `arduino-cli compile rlcd_panel` pass locally. The local Command Line Tools lack TestingMacros and the Android SDK, so `swift test` and `gradle testDebugUnitTest` run in CI.
+
+## Dry hours in the Android week chart
+
+- `WeekChartModel.dry(rows, sensor)` gives seven values of `WeekRow.dryHours` from day 6 (left) to day 0 (right). A gap day, a missing row, an empty field and a reply with the 7-column or 8-column header give `null`.
+- `WeekChartModel.moldLabel` and `dryLabel` share one `hoursLabel` and give `0 bis 24, max. <N> h` or `null` when each value is `null`.
+- `WeekScreen` shows a second bar row `Trockenstunden (h)` below the mold bars (the `HourBars` canvas shared with the mold row, drawn in the tertiary color, scale 0 to 24 h, an outline for a `null` day). The row stays hidden when each value is `null`. The screen sends no new console command.
+- Tests: `WeekChartModelTest` (fixture `tests/fixtures/week_reply_sample.txt`).
+- Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
