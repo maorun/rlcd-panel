@@ -44,6 +44,7 @@ import com.rlcdpanel.watch.protocol.ConfigReset
 import com.rlcdpanel.watch.protocol.RejectsReply
 import com.rlcdpanel.watch.protocol.SelfTestReply
 import com.rlcdpanel.watch.protocol.SlotClearCommand
+import com.rlcdpanel.watch.protocol.SlotSwapCommand
 import com.rlcdpanel.watch.protocol.FrsiApply
 import com.rlcdpanel.watch.protocol.FrsiCommand
 import com.rlcdpanel.watch.protocol.FrsiReply
@@ -147,6 +148,7 @@ class MainActivity : ComponentActivity() {
     private var showSpread by mutableStateOf(false)
     private var spreadState by mutableStateOf(SpreadState())
     private var slotClearState by mutableStateOf(SlotClearState())
+    private var slotSwapState by mutableStateOf(SlotSwapState())
     private var pendingSpreadRead = false
     private var showFrsi by mutableStateOf(false)
     private var frsiState by mutableStateOf(FrsiState())
@@ -510,6 +512,7 @@ onApply = { applySpread(it) }
             if (showSensorHealth) {
                 BackHandler {
                     if (!slotClearState.isSending) slotClearState = SlotClearState()
+                    if (!slotSwapState.isSending) slotSwapState = SlotSwapState()
                     showSensorHealth = false
                 }
                 SensorHealthScreen(
@@ -546,9 +549,18 @@ onApply = { applySpread(it) }
                     onIdentify = { identifyPanel() },
                     panelConfig = panelConfig,
                     slotClearState = slotClearState,
-                    onAskClear = { if (!slotClearState.isSending) slotClearState = SlotClearState(confirming = it) },
+                    onAskClear = {
+                        if (!slotClearState.isSending && !slotSwapState.isSending) {
+                            slotSwapState = SlotSwapState()
+                            slotClearState = SlotClearState(confirming = it)
+                        }
+                    },
                     onCancelClear = { if (!slotClearState.isSending) slotClearState = SlotClearState() },
                     onClearSlot = { clearSlot(it) },
+                    slotSwapState = slotSwapState,
+                    onPickSwap = { pickSwapSlot(it) },
+                    onCancelSwap = { if (!slotSwapState.isSending) slotSwapState = SlotSwapState() },
+                    onSwapSlots = { swapSlots() },
                     versionState = versionState,
                     onReadVersion = { readVersion() }
                 )
@@ -1503,6 +1515,7 @@ onApply = { applySpread(it) }
         if (healthState.isReading || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingMoldRead || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
         chimeState = chimeState.copy(message = null)
         if (!slotClearState.isSending) slotClearState = SlotClearState()
+        if (!slotSwapState.isSending) slotSwapState = SlotSwapState()
         healthState = healthState.copy(isReading = true, message = null)
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
@@ -1610,7 +1623,7 @@ onApply = { applySpread(it) }
      * An `ERR` reply sends no `STATUS`; a timeout or a corrupt reply still sends it, because the command can have run. No command is retried.
      */
     private fun clearSlot(slot: Int) {
-        if (slotClearState.isSending || slotClearState.confirming != slot || healthState.isReading || healthState.isMuting || chimeState.isTesting || pendingHealthRead ||
+        if (slotClearState.isSending || slotSwapState.isSending || slotClearState.confirming != slot || healthState.isReading || healthState.isMuting || chimeState.isTesting || pendingHealthRead ||
             pendingClockRead || pendingVersionRead || versionState.isReading || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead ||
             pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || clockState.isReadingClock || pendingMoldRead || moldState.isReading ||
             isReadingConfig || pendingSaltRead || saltState.isReading || pendingSpreadRead || spreadState.isReading || spreadState.isApplying ||
@@ -1640,6 +1653,61 @@ onApply = { applySpread(it) }
                 } catch (e: Exception) {
                     val reason = if (status is ConsoleReply.Frame) "Antwort nicht lesbar" else SensorHealthText.muteFallback(status)
                     slotClearState = SlotClearState(message = "$message, Stand unbestätigt. $reason", isError = true)
+                }
+            }
+        }
+    }
+
+    /** The first tap picks a slot, the second tap picks the partner and shows the confirmation. Nothing is sent here. */
+    private fun pickSwapSlot(slot: Int) {
+        if (slotSwapState.isSending || slotClearState.isSending) return
+        if (slotClearState.confirming != null) slotClearState = SlotClearState()
+        val first = slotSwapState.first
+        slotSwapState = when {
+            first == null -> SlotSwapState(first = slot)
+            slotSwapState.second == null && SlotSwapCommand.isValidPair(first, slot) -> slotSwapState.copy(second = slot)
+            else -> slotSwapState
+        }
+    }
+
+    /**
+     * Sends `SLOT SWAP <A> <B>`, then `STATUS`. Only the `Senden` chip after the confirmation calls it.
+     * An `ERR` reply sends no `STATUS`; a timeout or a corrupt reply still sends it, because the command can have run. No command is retried.
+     */
+    private fun swapSlots() {
+        val first = slotSwapState.first ?: return
+        val second = slotSwapState.second ?: return
+        val line = SlotSwapCommand.line(first, second) ?: return
+        if (slotSwapState.isSending || slotClearState.isSending || healthState.isReading || healthState.isMuting || chimeState.isTesting || pendingHealthRead ||
+            pendingClockRead || pendingVersionRead || versionState.isReading || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead ||
+            pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || clockState.isReadingClock || pendingMoldRead || moldState.isReading ||
+            isReadingConfig || pendingSaltRead || saltState.isReading || pendingSpreadRead || spreadState.isReading || spreadState.isApplying ||
+            pendingTodayRead || todayState.isReading || selfTestState.isRunning || rejectsState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning
+        ) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
+        ) {
+            slotSwapState = SlotSwapState(message = "Bluetooth-Berechtigung fehlt", isError = true)
+            return
+        }
+        slotSwapState = SlotSwapState(first = first, second = second, isSending = true)
+        consoleClient.send(line) { reply ->
+            val (text, isError) = SlotSwapCommand.result(first, second, reply)
+            // A timeout or a corrupt reply can follow a command that ran, so STATUS also runs after it.
+            val failure = if (reply is ConsoleReply.Corrupt) SensorHealthText.muteFallback(reply) else text
+            val message = if (isError) failure else text
+            if (isError && reply is ConsoleReply.Status) {
+                slotSwapState = SlotSwapState(message = message, isError = true)
+                return@send
+            }
+            slotSwapState = SlotSwapState(message = message, isError = isError)
+            consoleClient.send(ChimeCommand.STATUS) { status ->
+                try {
+                    healthState = SensorHealthState(status = parseStatusReply(status))
+                } catch (e: Exception) {
+                    val reason = if (status is ConsoleReply.Frame) "Antwort nicht lesbar" else SensorHealthText.muteFallback(status)
+                    slotSwapState = SlotSwapState(message = "$message, Stand unbestätigt. $reason", isError = true)
                 }
             }
         }
@@ -1774,6 +1842,7 @@ onApply = { applySpread(it) }
         val status = StatusReply.parseReply(reply)
         // A fresh status can hide the row, so a waiting confirmation ends.
         if (!slotClearState.isSending && slotClearState.confirming != null) slotClearState = slotClearState.copy(confirming = null)
+        if (!slotSwapState.isSending && slotSwapState.first != null) slotSwapState = SlotSwapState(message = slotSwapState.message, isError = slotSwapState.isError)
         runCatching { checkWindowNotifications(status) }
         runCatching { checkWeakSignalNotifications(status) }
         runCatching { checkDriftNotifications(status) }

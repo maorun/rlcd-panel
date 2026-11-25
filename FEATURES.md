@@ -3454,6 +3454,15 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SlotClearCommand.result` words the reply: `Platz <N> freigegeben`, `Platz hat eine feste MAC` for `ERR FIXED_MAC`, `Nur lesen. Setze ble_console=2, um Plätze freizugeben.` for `ERR READ_ONLY`, and `Antwort nicht lesbar` for each other reply. `SlotClearCommand.kt` exists only on the watch.
 - Tests: `SlotClearCommandTest` (slot 3 gives `SLOT CLEAR 3`, 0 and 11 throw, the three reply texts, an unknown reply, the chip rules including a slot with a fixed MAC).
 
+## Wear OS slot swap
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/SlotSwapCommand.kt`, `SensorHealthScreen.kt`, `MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/SlotSwapCommandTest.kt`
+- The user swaps two sensor slots from the watch. `SensorHealthScreen` shows a `Platz tauschen` chip below each slot row (1 to 10) without a fixed MAC. A tap picks the first slot; the other rows then show `Mit Platz <A> tauschen`, and the first row shows `Tausch abbrechen`.
+- `SlotSwapCommand.canSwap` needs a `CONFIG` reply in the cache and no fixed MAC (`PanelConfig.slotMac`) for the slot. The onboard sensor never swaps.
+- The second pick asks `Platz <A> und <B> tauschen?` with the chips `Senden` and `Abbrechen`. `Senden` calls `MainActivity.swapSlots`: it sends `SLOT SWAP <A> <B>` (`SlotSwapCommand.line`, two different slots 1 to 10, else `null`) and then `STATUS`. An `ERR` reply sends no `STATUS`; a timeout or a corrupt reply still sends it. No command is retried.
+- `SlotSwapCommand.result` words the reply: `Plätze <A> und <B> getauscht`, `Platz hat eine feste MAC` for `ERR FIXED_MAC`, `Platz ist abgeschaltet` for `ERR SLOT_OFF`, `Nur lesen. Setze ble_console=2, um Plätze zu tauschen.` for `ERR READ_ONLY`, `Panel meldet: <line>` for another `ERR` line and `Antwort nicht lesbar` for each other reply. `SlotSwapCommand.kt` exists only on the watch.
+- Tests: `SlotSwapCommandTest` (`SLOT SWAP 1 3`, equal slots, 0 and 11 give no line, a fixed MAC slot gives `canSwap` false, the confirm text, the result text of each reply, an unknown reply).
+
 ## Clearing drift event for a stale slot
 
 - **Code:** `rlcd_panel/power_manager.h`, `tests/test_firmware_logic.cpp`

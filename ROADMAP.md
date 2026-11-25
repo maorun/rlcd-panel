@@ -32,12 +32,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test parses `dry_h=5` to 5. A unit test parses `dry_h=--` and a missing field to `nil`. A unit test checks that `dry_h=x` throws `ParseError.badLine`. A unit test parses `tests/fixtures/status_reply_sample.txt`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
   - **Rank:** [Total: 27, Use: 6, Setup: 4, Harmony: 7, Safety: 10, Effort: S]
 
-- [ ] Slot swap from the Wear OS sensor health screen
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/SlotSwapCommand.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/SlotSwapCommandTest.kt`, `FEATURES.md`
-  - **Goal:** Let the user swap two slots from the watch. Add `SlotSwapCommand` with the rules of `SlotClearCommand`. `line(a, b)` gives `SLOT SWAP <A> <B>` for two different slots 1 to 10. `canSwap` is false for a slot with a fixed MAC. Show a confirm step `Platz <A> und <B> tauschen?`. Map `OK SLOT SWAP`, `ERR FIXED_MAC`, `ERR SLOT_OFF` and `ERR READ_ONLY` to a result text. Send `STATUS` after a good reply.
-  - **Acceptance:** A unit test checks `SLOT SWAP 1 3`. A unit test checks that equal slots, 0 and 11 give no line. A unit test checks that a fixed MAC slot gives `canSwap` false. A unit test checks the result text of each reply. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 26, Use: 3, Setup: 7, Harmony: 7, Safety: 9, Effort: S]
-
 - [ ] Sensor argument for the console command TODAY
   - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/today_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
   - **Goal:** Make the `TODAY` reply short for one room over BLE. Accept the optional argument `TODAY <N>` (N 0 to 10, no leading zero, `SerialCommand::today_one`). Send the header and only the row of sensor N, then the `CRC32` line over the filtered bytes. Send the header and no row for a sensor without a sample. Keep the `TODAY` reply without an argument. Give `ERR BAD_ARG` for 11, a leading zero, a non-digit and extra text. Keep `ERR NO_TIME`. Do not change the RTC layout or `STATE_VERSION`.
