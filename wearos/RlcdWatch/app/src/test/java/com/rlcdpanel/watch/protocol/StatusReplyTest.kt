@@ -289,7 +289,8 @@ class StatusReplyTest {
     @Test
     fun parsesLatchLine() {
         val latch = StatusReply.parse(fixtureLines()).latch!!
-        assertEquals(LatchState(0x002, 0x000, 0x008, 0x004, 0x002, 0x402), latch)
+        assertEquals(LatchState(0x002, 0x000, 0x008, 0x004, 0x002, 0x402, 0x202), latch)
+        assertEquals(0x202, latch.receptionLow)
         assertEquals(0x002, latch.wall)
         assertEquals(0x402, latch.window)
         assertEquals(listOf("V", "Wand", "Fenster"), latch.badges(1))
@@ -324,6 +325,36 @@ class StatusReplyTest {
         assertNull(latch.wall)
         assertNull(latch.window)
         assertEquals(listOf("V"), latch.badges(1))
+    }
+
+    @Test
+    fun parsesRxlowMask() {
+        val latch = StatusReply.parse(fixtureLines()).latch!!
+        assertEquals(0x202, latch.receptionLow)
+        assertEquals(false, latch.hasWeakSignal(0))
+        assertEquals(true, latch.hasWeakSignal(2))
+        assertEquals(true, latch.hasWeakSignal(10))
+        assertEquals(false, latch.hasWeakSignal(3))
+        assertEquals(false, latch.hasWeakSignal(11))
+        assertEquals(0x3ff, replace("LATCH ", "LATCH vent=000 dry=000 batlow=000 stale=000 rxlow=3FF").latch!!.receptionLow)
+    }
+
+    @Test
+    fun missingRxlowGivesNull() {
+        val latch = replace("LATCH ", "LATCH vent=002 dry=000 batlow=008 stale=004 wall=002 window=402").latch!!
+        assertNull(latch.receptionLow)
+        assertEquals(false, latch.hasWeakSignal(2))
+    }
+
+    @Test
+    fun badRxlowThrows() {
+        for (extra in listOf("rxlow=400", "rxlow=", "rxlow=00g", "rxlow=1", "rxlow=0x1")) {
+            try {
+                replace("LATCH ", "LATCH vent=000 dry=000 batlow=000 stale=000 $extra")
+                fail("expected ParseException for $extra")
+            } catch (e: ParseException) {
+            }
+        }
     }
 
     @Test

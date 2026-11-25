@@ -150,10 +150,10 @@ data class WakeState(val cause: String, val boots: Long, val batteryIntervalSeco
 }
 
 /**
- * `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex> [wall=<3 hex>] [window=<3 hex>]`: the badge
+ * `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex> [wall=<3 hex>] [window=<3 hex>] [rxlow=<3 hex>]`: the badge
  * latches of the panel. `vent`, `dry`, `wall` and `window` use bit 0 for the onboard tile and bits 1 to 10
- * for the slots; `batlow` and `stale` use bits 0 to 9 for the slots 1 to 10. `wall` and `window` are null
- * for a panel firmware that does not send them.
+ * for the slots; `batlow`, `stale` and `rxlow` use bits 0 to 9 for the slots 1 to 10. `wall`, `window` and `rxlow` are
+ * null for a panel firmware that does not send them.
  */
 data class LatchState(
     val ventilate: Int,
@@ -161,7 +161,8 @@ data class LatchState(
     val batteryLow: Int,
     val stale: Int,
     val wall: Int? = null,
-    val window: Int? = null
+    val window: Int? = null,
+    val receptionLow: Int? = null
 ) {
     /**
      * Badge texts of sensor 0 (onboard) or 1 to 10 (slot), in the order `V`, `D`, `Wand`, `Fenster`,
@@ -181,6 +182,10 @@ data class LatchState(
         }
         return out
     }
+
+    /** True for a slot 1 to 10 whose `rxlow` bit is set; false for the onboard sensor, an unknown sensor and a missing field. */
+    fun hasWeakSignal(sensor: Int): Boolean =
+        receptionLow != null && sensor in 1 until SENSOR_COUNT && receptionLow shr (sensor - 1) and 1 == 1
 
     companion object {
         const val SENSOR_COUNT = 11
@@ -429,8 +434,8 @@ data class StatusReply(
         }
 
         /**
-         * `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex>` with the optional `wall` and `window`; a value
-         * that is not 3 hex digits or above its limit throws, a missing `wall` or `window` gives null.
+         * `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex>` with the optional `wall`, `window` and `rxlow`; a value
+         * that is not 3 hex digits or above its limit throws, a missing `wall`, `window` or `rxlow` gives null.
          */
         private fun parseLatch(line: String): LatchState {
             val f = fields(line)
@@ -443,7 +448,8 @@ data class StatusReply(
                 mask("vent", LatchState.MAX_TILE_MASK), mask("dry", LatchState.MAX_TILE_MASK),
                 mask("batlow", LatchState.MAX_SLOT_MASK), mask("stale", LatchState.MAX_SLOT_MASK),
                 if (f.containsKey("wall")) mask("wall", LatchState.MAX_TILE_MASK) else null,
-                if (f.containsKey("window")) mask("window", LatchState.MAX_TILE_MASK) else null
+                if (f.containsKey("window")) mask("window", LatchState.MAX_TILE_MASK) else null,
+                if (f.containsKey("rxlow")) mask("rxlow", LatchState.MAX_SLOT_MASK) else null
             )
         }
 

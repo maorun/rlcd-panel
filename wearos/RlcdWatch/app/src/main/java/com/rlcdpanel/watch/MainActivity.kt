@@ -54,6 +54,7 @@ import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.protocol.TelemetryFrame
 import com.rlcdpanel.watch.protocol.WallText
 import com.rlcdpanel.watch.protocol.WallWatch
+import com.rlcdpanel.watch.protocol.ReceptionWatch
 import com.rlcdpanel.watch.protocol.WindowWatch
 import com.rlcdpanel.watch.tile.ClimateTileService
 import com.rlcdpanel.watch.ventilation.OutdoorClimate
@@ -84,6 +85,7 @@ class MainActivity : ComponentActivity() {
     private var panelConfig by mutableStateOf(PanelConfig())
     private val wallWatch = WallWatch()
     private val windowWatch = WindowWatch()
+    private val receptionWatch = ReceptionWatch()
 
     private var configStatus by mutableStateOf<String?>(null)
     private var isReadingConfig by mutableStateOf(false)
@@ -1392,12 +1394,13 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Parses one `STATUS` reply and feeds its window mask to [WindowWatch]. A reply that does not parse throws and
+     * Parses one `STATUS` reply and feeds its window mask to [WindowWatch] and its weak signal mask to [ReceptionWatch]. A reply that does not parse throws and
      * does not reach the watch. A failed notification or vibration does not turn a good reply into a read error.
      */
     private fun parseStatusReply(reply: ConsoleReply): StatusReply {
         val status = StatusReply.parseReply(reply)
         runCatching { checkWindowNotifications(status) }
+        runCatching { checkWeakSignalNotifications(status) }
         return status
     }
 
@@ -1415,6 +1418,25 @@ class MainActivity : ComponentActivity() {
                 title = "RLCD Alarm",
                 message = WindowWatch.message(panelConfig.tileName(tileIndex)),
                 notificationId = WindowWatch.notificationId(tileIndex)
+            )
+        }
+        vibrateNotice()
+    }
+
+    /** Posts one notification with a short vibration for each `rxlow` bit of `LATCH` that rose since the previous read. */
+    private fun checkWeakSignalNotifications(status: StatusReply) {
+        val rising = receptionWatch.update(status.latch?.receptionLow)
+        if (rising.isEmpty()) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        for (slot in rising) {
+            postVentilationNotification(
+                title = "RLCD Alarm",
+                message = ReceptionWatch.message(panelConfig.tileName(slot)),
+                notificationId = ReceptionWatch.notificationId(slot)
             )
         }
         vibrateNotice()

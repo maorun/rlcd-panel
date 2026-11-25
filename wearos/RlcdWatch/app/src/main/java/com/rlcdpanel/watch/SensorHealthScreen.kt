@@ -104,6 +104,10 @@ object SensorHealthText {
         "T ${sensor.temperature?.let { "%.1f °C".format(java.util.Locale.ROOT, it) } ?: "--"} ${trendSymbol(sensor.temperatureTrend)}  " +
             "RH ${sensor.humidity?.let { "%.1f %%".format(java.util.Locale.ROOT, it) } ?: "--"} ${trendSymbol(sensor.humidityTrend)}"
 
+    /** Weak signal mark of one sensor row; null without a `LATCH` line, without `rxlow` and for an unflagged sensor. */
+    fun weakSignal(latch: LatchState?, sensor: StatusSensor): String? =
+        if (latch?.hasWeakSignal(sensor.index) == true) "$WARNING Weak signal" else null
+
     fun isMold(sensor: StatusSensor): Boolean = (sensor.moldHours ?: 0) > 0
 
     /** Panel badges of one sensor row, for example `V · STALE`; null without a `LATCH` line or without a badge. */
@@ -534,6 +538,9 @@ fun SensorHealthScreen(
                                 )
                                 SensorHealthText.badges(status.latch, sensor)?.let { badges ->
                                     Text("Badges $badges", fontSize = 10.sp, color = Color(0xFFFFB74D))
+                                }
+                                SensorHealthText.weakSignal(status.latch, sensor)?.let { mark ->
+                                    Text(mark, fontSize = 10.sp, color = Color(0xFFFFB74D))
                                 }
                             }
                         }

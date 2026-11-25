@@ -30,6 +30,18 @@ class SensorHealthTextTest {
         StatusSensor(1, "A", 20.0, 50.0, 80.0, -60.0, 10.0, "OK", "WOIO", moldHours)
 
     @Test
+    fun weakSignalMark() {
+        val latch = StatusReply.parse(fixtureLines()).latch
+        fun row(index: Int) = StatusSensor(index, "A", 20.0, 50.0, 80.0, -60.0, 10.0, "OK", "WOIO", null)
+        assertEquals("${SensorHealthText.WARNING} Weak signal", SensorHealthText.weakSignal(latch, row(2)))
+        assertEquals("${SensorHealthText.WARNING} Weak signal", SensorHealthText.weakSignal(latch, row(10)))
+        assertNull(SensorHealthText.weakSignal(latch, row(1)))
+        assertNull(SensorHealthText.weakSignal(latch, row(0)))
+        assertNull(SensorHealthText.weakSignal(null, row(2)))
+        assertNull(SensorHealthText.weakSignal(LatchState(0, 0, 0, 0), row(2)))
+    }
+
+    @Test
     fun badgeText() {
         val latch = StatusReply.parse(fixtureLines()).latch
         fun row(index: Int) = StatusSensor(index, "A", 20.0, 50.0, 80.0, -60.0, 10.0, "OK", "WOIO", null)
