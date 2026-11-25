@@ -1506,6 +1506,10 @@ final class AppModel: ConsoleLinkDelegate {
             message = "Slot or MAC not valid"
             return
         }
+        if mac != nil, let warning = SlotAssignment.disabledWarning(slot: slot, config: config) {
+            message = warning
+            return
+        }
         if let mac, let warning = SlotAssignment.warning(slot: slot, mac: mac, config: config) {
             message = warning // the firmware rejects a MAC that another slot holds as fixed MAC
             return
@@ -1518,6 +1522,18 @@ final class AppModel: ConsoleLinkDelegate {
         sendNext()
     }
 
+    /// Turns one slot off or on (`SET slotN_enabled=<0|1>`), then reads `CONFIG`. Sends nothing without a cached
+    /// `CONFIG` reply or when the slot already holds the value.
+    func setSlotEnabled(slot: Int, enabled: Bool) {
+        guard canSet else { message = "SET needs ble_console=2 or the USB serial link"; return }
+        guard pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        guard let cmd = SlotAssignment.enableCommand(slot: slot, enabled: enabled, config: config), cmd.line != nil else { return }
+        message = nil
+        rejectsResult = nil; receptionResult = nil // a disabled slot changes the reject reasons
+        queue = [cmd, .config]
+        sendNext()
+    }
+
     /// Binds a name to a sensor: `SET slotN_mac`, then `SET slotN_name` for a name that is not empty, through
     /// `ConfigBatch` (the first `ERR` stops it, then `CONFIG`).
     func assign(slot: Int, mac: String, name: String) {
@@ -1525,6 +1541,10 @@ final class AppModel: ConsoleLinkDelegate {
         guard pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
         guard let commands = SlotAssignment.batch(slot: slot, mac: mac, name: name) else {
             message = "Slot, MAC or name not valid (up to \(SlotAssignment.maxNameChars) characters: A-Z, 0-9, -)"
+            return
+        }
+        if let warning = SlotAssignment.disabledWarning(slot: slot, config: config) {
+            message = warning
             return
         }
         if let warning = SlotAssignment.warning(slot: slot, mac: mac, config: config) {

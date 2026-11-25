@@ -91,4 +91,44 @@ struct SlotAssignmentTests {
         #expect(SlotAssignment.warning(slot: 1, mac: mac, config: config) != nil)
         #expect(SlotAssignment.conflicts(slot: 3, mac: mac, config: config).isEmpty)
     }
+
+    @Test func enableCommandBuildsSetForDisabling() throws {
+        let config = try ConfigReply.parse(lines: ["slot2_enabled=1"])
+        #expect(SlotAssignment.enableCommand(slot: 2, enabled: false, config: config)?.line == "SET slot2_enabled=0")
+        let off = try ConfigReply.parse(lines: ["slot10_enabled=0"])
+        #expect(SlotAssignment.enableCommand(slot: 10, enabled: true, config: off)?.line == "SET slot10_enabled=1")
+    }
+
+    @Test func enableCommandGivesNilForSlotThatHoldsTheValue() throws {
+        let config = try ConfigReply.parse(lines: ["slot2_enabled=0", "slot3_enabled=1"])
+        #expect(SlotAssignment.enableCommand(slot: 2, enabled: false, config: config) == nil)
+        #expect(SlotAssignment.enableCommand(slot: 3, enabled: true, config: config) == nil)
+        // A missing key means the default 1: enabling is a no-op, disabling is a change.
+        #expect(SlotAssignment.enableCommand(slot: 4, enabled: true, config: config) == nil)
+        #expect(SlotAssignment.enableCommand(slot: 4, enabled: false, config: config)?.line == "SET slot4_enabled=0")
+    }
+
+    @Test func enableCommandGivesNilWithoutConfigAndForBadSlot() throws {
+        #expect(SlotAssignment.enableCommand(slot: 2, enabled: false, config: nil) == nil)
+        let config = try ConfigReply.parse(lines: ["slot2_enabled=1"])
+        #expect(SlotAssignment.enableCommand(slot: 0, enabled: false, config: config) == nil)
+        #expect(SlotAssignment.enableCommand(slot: 11, enabled: false, config: config) == nil)
+    }
+
+    @Test func isEnabledDefaultsToOneForMissingKey() throws {
+        #expect(SlotAssignment.isEnabled(slot: 1, config: nil))
+        let config = try ConfigReply.parse(lines: ["slot2_enabled=0", "slot3_enabled=1"])
+        #expect(SlotAssignment.isEnabled(slot: 1, config: config))
+        #expect(!SlotAssignment.isEnabled(slot: 2, config: config))
+        #expect(SlotAssignment.isEnabled(slot: 3, config: config))
+    }
+
+    @Test func disabledSlotBlocksMacAssignment() throws {
+        let config = try ConfigReply.parse(lines: ["slot2_enabled=0"])
+        #expect(SlotAssignment.disabledWarning(slot: 2, config: config) != nil)
+        #expect(SlotAssignment.disabledWarning(slot: 1, config: config) == nil)
+        #expect(SlotAssignment.disabledWarning(slot: 2, config: nil) == nil)
+        #expect(SlotAssignment.menuTitle(slot: 2, config: config) == "Slot 2 (Off)")
+        #expect(SlotAssignment.menuTitle(slot: 1, config: config) == "Slot 1")
+    }
 }

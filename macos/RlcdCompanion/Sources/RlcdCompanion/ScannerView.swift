@@ -34,6 +34,14 @@ struct ScannerView: View {
                         }
                         .disabled(!model.canSet || !model.isIdle)
                     }
+                    Menu("Slot on/off") {
+                        ForEach(Array(SlotAssignment.slots), id: \.self) { n in
+                            Toggle("Slot \(n)", isOn: Binding(
+                                get: { SlotAssignment.isEnabled(slot: n, config: model.config) },
+                                set: { model.setSlotEnabled(slot: n, enabled: $0) }))
+                        }
+                    }
+                    .disabled(!model.canSet || !model.isIdle || model.config == nil)
                     if model.transport != .usb {
                         Text("SCAN needs the USB serial link.").font(.caption).foregroundStyle(.secondary)
                     }
@@ -104,7 +112,7 @@ struct ScannerView: View {
             case .unassigned:
                 Menu("Assign to slot") {
                     ForEach(Array(SlotAssignment.slots), id: \.self) { n in
-                        Button("Slot \(n)" + (SlotAssignment.warning(slot: n, mac: r.mac, config: model.config) != nil ? " (MAC in use)" : "")) {
+                        Button(SlotAssignment.menuTitle(slot: n, config: model.config) + (SlotAssignment.warning(slot: n, mac: r.mac, config: model.config) != nil ? " (MAC in use)" : "")) {
                             model.assign(slot: n, mac: r.mac, name: model.scanNames[r.mac] ?? "")
                         }
                     }
@@ -147,7 +155,7 @@ struct ScannerView: View {
                 .help("Optional, up to \(SlotAssignment.maxNameChars) characters: A-Z, 0-9, -. The name belongs to the MAC.")
             Menu("Assign") {
                 ForEach(Array(SlotAssignment.slots), id: \.self) { n in
-                    Button("Slot \(n)" + (SlotAssignment.warning(slot: n, mac: r.mac, config: model.config) != nil ? " (MAC in use)" : "")) {
+                    Button(SlotAssignment.menuTitle(slot: n, config: model.config) + (SlotAssignment.warning(slot: n, mac: r.mac, config: model.config) != nil ? " (MAC in use)" : "")) {
                         model.assign(slot: n, mac: r.mac, name: model.scanNames[r.mac] ?? "")
                     }
                 }

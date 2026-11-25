@@ -72,19 +72,3 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test accepts the values 0, 1 and 12. A unit test rejects 13 and a non-numeric value. A unit test checks the `SET heat_alert_delay_h=2` line of the batch. A unit test checks the schema order of a batch with the heat limit and the heat delay. A unit test checks the text `Aus` for 0. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
   - **Rank:** [Total: 26, Use: 7, Setup: 5, Harmony: 4, Safety: 10, Effort: S]
 
-- [ ] Slot enable toggle in the macOS scanner view
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/SlotAssignment.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ScannerView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/SlotAssignmentTests.swift`, `FEATURES.md`
-  - **Goal:** Turn one sensor slot off and on in the macOS scanner view, as the Android slot configuration screen does. Read the value of `slot<N>_enabled` from the cached `CONFIG` reply, and show one toggle for each slot. Build the command `SET slot<N>_enabled=<0|1>` in `SlotAssignment`, and send `CONFIG` after it. Show the text `Off` for a disabled slot in the slot menu, and block the MAC assignment of a disabled slot. Give no command for a missing `CONFIG` reply and for a slot that already holds the value.
-  - **Acceptance:** A unit test builds `SET slot2_enabled=0`. A unit test gives no command for a slot that already holds the value. A unit test gives no command without a `CONFIG` reply. A unit test reports the blocked MAC assignment of a disabled slot. A unit test checks the default value 1 for a missing key. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-  - **Rank:** [Total: 26, Use: 4, Setup: 8, Harmony: 5, Safety: 9, Effort: S]
-
-## Rules for ranking
-
-Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.
-Effort does not add to the total. Give the effort as a size: S (one small pull request), M (one large pull request), L (several pull requests).
-
-**Feature model:**
-1. **Use:** How much does the feature help the user in daily climate monitoring? (0–10)
-2. **Setup:** How much does it help the user configure, calibrate, or troubleshoot the device? (0–10)
-3. **Harmony:** How many existing hardware components, firmware modules, and companion app modules (`macos/RlcdCompanion`, `wearos/RlcdWatch`, `android/RlcdPhone`) does it use or extend? (0–10)
-4. **Safety:** How small is the risk of power drain, corruption, hardware wear, or data loss? 10 means no risk. (0–10)

@@ -62,6 +62,29 @@ public enum SlotAssignment {
         return "Slot \(other.map(String.init).joined(separator: ", ")) already holds \(mac.uppercased()). The firmware rejects a duplicate MAC."
     }
 
+    /// True unless the cached `CONFIG` holds `slot<N>_enabled=0`. A missing key or reply is the firmware default 1.
+    public static func isEnabled(slot: Int, config: ConfigReply?) -> Bool {
+        config?.values["slot\(slot)_enabled"] != "0"
+    }
+
+    /// `SET slot<N>_enabled=<0|1>`. `nil` for a bad slot, without a `CONFIG` reply (the current value is unknown)
+    /// and for a slot that already holds the value.
+    public static func enableCommand(slot: Int, enabled: Bool, config: ConfigReply?) -> ConsoleCommand? {
+        guard slots.contains(slot), let config, isEnabled(slot: slot, config: config) != enabled else { return nil }
+        return .set(key: "slot\(slot)_enabled", value: enabled ? "1" : "0")
+    }
+
+    /// Text for a MAC assignment to a disabled slot, `nil` for an enabled slot. The firmware accepts the `SET`
+    /// but never shows the slot (`RejectReason.disabled`).
+    public static func disabledWarning(slot: Int, config: ConfigReply?) -> String? {
+        isEnabled(slot: slot, config: config) ? nil : "Slot \(slot) is Off. Turn it on before you assign a MAC."
+    }
+
+    /// Menu title of a slot: `Slot N`, with ` (Off)` for a disabled slot.
+    public static func menuTitle(slot: Int, config: ConfigReply?) -> String {
+        "Slot \(slot)" + (isEnabled(slot: slot, config: config) ? "" : " (Off)")
+    }
+
     /// `SCAN` runs only on the USB serial link; the firmware replies `ERR NOT_OVER_BLE` on BLE.
     public static func scanAllowed(onUsb: Bool) -> Bool { onUsb }
     /// `SCREEN` answers `ERR NOT_OVER_BLE` on BLE: send it on the USB serial link only.
