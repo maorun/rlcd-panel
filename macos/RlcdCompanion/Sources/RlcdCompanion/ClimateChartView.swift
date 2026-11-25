@@ -247,11 +247,23 @@ struct WeekChartView: View {
 
     private func moldChart(_ sensor: Int) -> some View {
         let points = WeekMold.points(rows: rows, sensor: sensor)
+        let dry = points.contains { $0.dryHours != nil }
         return VStack(alignment: .leading, spacing: 2) {
-            Text("Mold hours").font(.caption).foregroundStyle(.secondary)
-            Chart(points.filter { $0.hours != nil }, id: \.self) { p in
-                BarMark(x: .value("Day", p.label), y: .value("Hours", p.hours ?? 0))
+            Text(dry ? "Mold / dry hours" : "Mold hours").font(.caption).foregroundStyle(.secondary)
+            Chart {
+                ForEach(points.filter { $0.hours != nil }, id: \.self) { p in
+                    BarMark(x: .value("Day", p.label), y: .value("Hours", p.hours ?? 0))
+                        .foregroundStyle(by: .value("Series", "Mold"))
+                        .position(by: .value("Series", "Mold"))
+                }
+                ForEach(points.filter { $0.dryHours != nil }, id: \.self) { p in
+                    BarMark(x: .value("Day", p.label), y: .value("Hours", p.dryHours ?? 0))
+                        .foregroundStyle(by: .value("Series", "Dry"))
+                        .position(by: .value("Series", "Dry"))
+                }
             }
+            .chartForegroundStyleScale(["Mold": Color.blue, "Dry": Color.orange])
+            .chartLegend(.visible)
             .chartXScale(domain: points.map(\.label))
             .chartYScale(domain: 0...24)
             .frame(height: 110)
@@ -284,9 +296,12 @@ struct WeekChartView: View {
                     HStack(alignment: .top) {
                         chart("Temperature (°C)", sensor, \.temperatureMinC, \.temperatureMaxC)
                         chart("Humidity (%RH)", sensor, \.humidityMinPct, \.humidityMaxPct)
-                        if WeekMold.points(rows: rows, sensor: sensor).contains(where: { $0.hours != nil }) {
+                        if WeekMold.points(rows: rows, sensor: sensor).contains(where: { $0.hours != nil || $0.dryHours != nil }) {
                             moldChart(sensor)
                         }
+                    }
+                    if let dry = WeekReply.drySum(rows: rows, sensor: sensor) {
+                        Text("Dry \(dry) h").font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }

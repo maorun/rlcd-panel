@@ -25,11 +25,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Dry hours in the macOS week chart
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/WeekMoldTests.swift`, `FEATURES.md`
-  - **Goal:** Show in the macOS week chart how many hours each room was too dry. This item needs the firmware item "Dry hours column in the WEEK reply". Add `WeekReply.drySum(sensor:)` with the sum over the days with a value. Give `nil` without such a day. Show the daily dry hours as a second bar series beside the mold hours in `WeekChartView`. Show the text `Dry <N> h` below the chart.
-  - **Acceptance:** A unit test checks a sum of 12 hours over three days. A unit test checks `nil` for a reply without a dry value. A unit test checks that an 8-column reply gives `nil`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-  - **Rank:** [Total: 25, Use: 6, Setup: 2, Harmony: 7, Safety: 10, Effort: S]
 
 
 

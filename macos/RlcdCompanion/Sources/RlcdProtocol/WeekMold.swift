@@ -5,6 +5,8 @@ public struct WeekMoldPoint: Hashable {
     public let day: Int
     public let label: String
     public let hours: Int?
+    /// Hours at or below `dry_alert_limit_rh`. `nil` for a gap day, an empty field and a reply with 7 or 8 columns.
+    public let dryHours: Int?
 }
 
 public enum WeekMold {
@@ -17,7 +19,7 @@ public enum WeekMold {
     public static func points(rows: [WeekRow], sensor: Int) -> [WeekMoldPoint] {
         (0...6).reversed().map { day in
             let row = rows.first { $0.sensor == sensor && $0.day == day }
-            return WeekMoldPoint(day: day, label: label(day: day, date: row?.date ?? ""), hours: row?.moldHours)
+            return WeekMoldPoint(day: day, label: label(day: day, date: row?.date ?? ""), hours: row?.moldHours, dryHours: row?.dryHours)
         }
     }
 }

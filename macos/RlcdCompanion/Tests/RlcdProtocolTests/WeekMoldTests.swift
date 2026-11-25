@@ -36,4 +36,32 @@ struct WeekMoldTests {
         #expect(points.allSatisfy { $0.hours == nil })
         #expect(WeekMold.points(rows: [], sensor: 0).allSatisfy { $0.hours == nil })
     }
+
+    @Test func drySumOverThreeDaysIsTwelve() throws {
+        let rows = try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header,
+            "0,0,2026-11-17,15.0,19.5,40.0,55.0,0,5", "0,1,2026-11-16,15.0,19.5,40.0,55.0,0,3",
+            "0,2,2026-11-15,15.0,19.5,40.0,55.0,0,4", "0,3,,,,,,,", "1,0,2026-11-17,15.0,19.5,40.0,55.0,0,9"])
+        #expect(WeekReply.drySum(rows: rows, sensor: 0) == 12)
+        #expect(WeekReply.drySum(rows: rows, sensor: 1) == 9)
+        let points = WeekMold.points(rows: rows, sensor: 0)
+        #expect(points.map(\.dryHours) == [nil, nil, nil, nil, 4, 3, 5])
+    }
+
+    @Test func drySumIsNilWithoutDryValue() throws {
+        let rows = try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,2026-11-17,15.0,19.5,40.0,55.0,2,", "0,1,,,,,,,"])
+        #expect(WeekReply.drySum(rows: rows, sensor: 0) == nil)
+        #expect(WeekReply.drySum(rows: [], sensor: 0) == nil)
+        #expect(WeekReply.drySum(rows: rows, sensor: 3) == nil)
+    }
+
+    @Test func eightColumnReplyGivesNilDrySum() throws {
+        let rows = try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.moldHeader, "0,0,2026-11-17,15.0,19.5,40.0,55.0,6"])
+        #expect(WeekReply.drySum(rows: rows, sensor: 0) == nil)
+        #expect(WeekMold.points(rows: rows, sensor: 0).allSatisfy { $0.dryHours == nil })
+    }
+
+    @Test func drySumOfZeroHoursIsZeroNotNil() throws {
+        let rows = try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,2026-11-17,15.0,19.5,40.0,55.0,0,0", "0,1,2026-11-16,15.0,19.5,40.0,55.0,0,0"])
+        #expect(WeekReply.drySum(rows: rows, sensor: 0) == 0)
+    }
 }
