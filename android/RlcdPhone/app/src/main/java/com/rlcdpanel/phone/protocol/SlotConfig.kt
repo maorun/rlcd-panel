@@ -60,6 +60,27 @@ object SlotConfig {
         if (slot !in SlotAssignment.SLOTS) Plan.Invalid("Slot $slot gibt es nicht")
         else Plan.Commands(listOf("SET slot${slot}_mac="))
 
+    /**
+     * `SET slotN_mac=<MAC>` for a rejected (`UNASSIGNED`) sensor. A slot that holds a fixed MAC is refused, so a tap
+     * never overwrites another sensor; a disabled slot is refused (the firmware would reject the MAC as `DISABLED`); a MAC that another slot holds is refused as in [define]. No name is sent.
+     */
+    fun assignRejected(slot: Int, mac: String, config: PanelConfig): Plan {
+        if (slot !in SlotAssignment.SLOTS) return Plan.Invalid("Slot $slot gibt es nicht")
+        if (config.slotMac(slot) != null) return Plan.Invalid("Slot $slot hat schon eine feste MAC")
+        if (!config.slotEnabled(slot)) return Plan.Invalid("Slot $slot ist deaktiviert")
+        return define(slot, mac, "", config)
+    }
+
+    /** Slots without a fixed MAC: the slots that `SLOT CLEAR` accepts. */
+    fun freeableSlots(config: PanelConfig): List<Int> = SlotAssignment.SLOTS.filter { config.slotMac(it) == null }
+
+    /** `SLOT CLEAR <N>` for a `FULL` reject. The firmware answers `ERR FIXED_MAC` for a fixed MAC slot, so the plan refuses it first. */
+    fun clearRejected(slot: Int, config: PanelConfig): Plan = when {
+        slot !in SlotAssignment.SLOTS -> Plan.Invalid("Slot $slot gibt es nicht")
+        config.slotMac(slot) != null -> Plan.Invalid("Slot $slot hat eine feste MAC")
+        else -> Plan.Commands(listOf("SLOT CLEAR $slot"))
+    }
+
     /** `SET slotN_enabled=<0|1>` enables or disables (hides) slot [slot]; empty list for a slot that does not exist. */
     fun setEnabled(slot: Int, enabled: Boolean): List<String> =
         if (slot !in SlotAssignment.SLOTS) emptyList()

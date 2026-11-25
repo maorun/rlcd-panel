@@ -13,9 +13,20 @@ enum class RejectReason(val wire: String, val fix: String) {
     }
 }
 
+/** What the user can do about a [RejectRow] in a companion app. */
+enum class RejectAction { ASSIGN, FREE }
+
 /** One `REJECTS` row. [count] is 1 to 255. */
 data class RejectRow(val mac: String, val format: String, val reason: RejectReason, val count: Int) {
     val fix: String get() = reason.fix
+
+    /** `UNASSIGNED` gives [RejectAction.ASSIGN], `FULL` gives [RejectAction.FREE]; the other reasons give no action. */
+    val action: RejectAction?
+        get() = when (reason) {
+            RejectReason.UNASSIGNED -> RejectAction.ASSIGN
+            RejectReason.FULL -> RejectAction.FREE
+            else -> null
+        }
 }
 
 /** The parsed `REJECTS` reply: the rows and the count of MACs that did not fit in the 8 entries. */

@@ -216,4 +216,60 @@ class SlotConfigTest {
         assertThrows(IllegalArgumentException::class.java) { SlotConfig.setOutdoorSlot(11, empty) }
         assertThrows(IllegalArgumentException::class.java) { SlotConfig.setOutdoorSlot(-1, empty) }
     }
+
+    @Test
+    fun assignRejectedSetsTheMacOfAFreeSlot() {
+        assertEquals(
+            listOf("SET slot3_mac=A4:C1:38:11:22:33"),
+            commands(SlotConfig.assignRejected(3, mac, empty))
+        )
+    }
+
+    @Test
+    fun assignRejectedRefusesASlotWithAFixedMac() {
+        val config = PanelConfig(mapOf("slot3_mac" to "AA:00:00:00:00:99"))
+        assertEquals("Slot 3 hat schon eine feste MAC", reason(SlotConfig.assignRejected(3, mac, config)))
+    }
+
+    @Test
+    fun assignRejectedRefusesAMacThatAnotherSlotHolds() {
+        val config = PanelConfig(mapOf("slot1_mac" to "A4:C1:38:11:22:33"))
+        assertTrue(reason(SlotConfig.assignRejected(3, mac, config)).startsWith("Slot 1 hält"))
+    }
+
+    @Test
+    fun assignRejectedRefusesABadSlot() {
+        assertEquals("Slot 11 gibt es nicht", reason(SlotConfig.assignRejected(11, mac, empty)))
+    }
+
+    @Test
+    fun freeableSlotsSkipFixedMacSlots() {
+        val config = PanelConfig(mapOf("slot2_mac" to "AA:00:00:00:00:02", "slot10_mac" to "AA:00:00:00:00:10"))
+        assertEquals(listOf(1, 3, 4, 5, 6, 7, 8, 9), SlotConfig.freeableSlots(config))
+        assertEquals((1..10).toList(), SlotConfig.freeableSlots(empty))
+    }
+
+    @Test
+    fun clearRejectedSendsSlotClear() {
+        assertEquals(listOf("SLOT CLEAR 4"), commands(SlotConfig.clearRejected(4, empty)))
+    }
+
+    @Test
+    fun clearRejectedRefusesAFixedMacSlotAndABadSlot() {
+        val config = PanelConfig(mapOf("slot4_mac" to "AA:00:00:00:00:04"))
+        assertEquals("Slot 4 hat eine feste MAC", reason(SlotConfig.clearRejected(4, config)))
+        assertEquals("Slot 0 gibt es nicht", reason(SlotConfig.clearRejected(0, empty)))
+    }
+
+    @Test
+    fun assignRejectedRefusesADisabledSlot() {
+        val config = PanelConfig(mapOf("slot3_enabled" to "0"))
+        assertEquals("Slot 3 ist deaktiviert", reason(SlotConfig.assignRejected(3, mac, config)))
+    }
+
+    @Test
+    fun assignRejectedFindsAnUpperCaseHolderForALowerCaseMac() {
+        val config = PanelConfig(mapOf("slot2_mac" to "A4:C1:38:11:22:33"))
+        assertTrue(reason(SlotConfig.assignRejected(3, "a4:c1:38:11:22:33", config)).startsWith("Slot 2 hält"))
+    }
 }

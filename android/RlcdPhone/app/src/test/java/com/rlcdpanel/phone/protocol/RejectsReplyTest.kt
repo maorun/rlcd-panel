@@ -1,6 +1,7 @@
 package com.rlcdpanel.phone.protocol
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -100,5 +101,24 @@ class RejectsReplyTest {
         assertThrows(ParseException::class.java) { RejectsReply.parse(listOf(RejectsReply.HEADER)) }
         assertThrows(ParseException::class.java) { RejectsReply.parse(listOf("BEGIN REJECTS", "a,b,c,d")) }
         assertThrows(ParseException::class.java) { RejectsReply.parse(emptyList()) }
+    }
+
+    @Test
+    fun actionOfEachFixtureRow() {
+        val actions = RejectsReply.parse(fixtureLines()).rows.map { it.reason to it.action }
+        assertEquals(
+            listOf(
+                RejectReason.FULL to RejectAction.FREE,
+                RejectReason.UNASSIGNED to RejectAction.ASSIGN,
+                RejectReason.JUMP to null,
+                RejectReason.DISABLED to null
+            ),
+            actions
+        )
+    }
+
+    @Test
+    fun weakGivesNoAction() {
+        assertNull(RejectsReply.parse(reply("AA:00:00:00:00:02,BTHOME,WEAK,3")).rows.single().action)
     }
 }
