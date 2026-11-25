@@ -1742,7 +1742,7 @@ class MainActivity : ComponentActivity() {
         return "${saltProgress.text}. Beobachtung beendet: $reason."
     }
 
-    /** Starts the salt watch: `HISTORY N` every 10 minutes; at 6 stable hours `SALT N` follows. */
+    /** Starts the salt watch: `HISTORY N 6` every 10 minutes (`HISTORY N` for an older firmware); at 6 stable hours `SALT N` follows. */
     private fun startSaltWatch(magnesium: Boolean) {
         val n = calibState.reference
         if (n !in 0..SaltCommand.MAX_SENSOR || saltProgress.isRunning) return
@@ -1767,8 +1767,13 @@ class MainActivity : ComponentActivity() {
 
     private fun pollSaltWatch(sensor: Int, magnesium: Boolean, run: Int) {
         stopBleScan()
-        consoleClient.send(HistoryCommand.line(sensor)) { reply ->
+        consoleClient.send(saltProgress.historyLine(sensor)) { reply ->
             if (run != saltWatchRun || !saltProgress.isRunning) return@send
+            // Older firmware: repeat the tick once with the full `HISTORY N`.
+            if (reply is ConsoleReply.Status && saltProgress.fallBackToFullHistory(reply.line)) {
+                pollSaltWatch(sensor, magnesium, run)
+                return@send
+            }
             saltProgress.record(reply, sensor)
             if (saltProgress.isReady && saltProgress.isRunning) {
                 saltProgress.stop(SaltProgress.StopReason.COMPLETED)

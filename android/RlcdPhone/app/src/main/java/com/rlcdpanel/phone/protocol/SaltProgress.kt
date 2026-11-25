@@ -17,6 +17,9 @@ class SaltProgress(private val nowMs: () -> Long = System::currentTimeMillis) {
         private set
     var replies: Int = 0
         private set
+    /** True while the watch sends `HISTORY N 6`; false after an older firmware answered `ERR BAD_ARG`. */
+    var usesHourWindow: Boolean = true
+        private set
     private var startedAt: Long = 0
 
     /** Hours until [REQUIRED_HOURS] stable hours, 0 when reached. */
@@ -25,8 +28,23 @@ class SaltProgress(private val nowMs: () -> Long = System::currentTimeMillis) {
     /** Text of the screen, for example `3 von 6 Stunden stabil`. The count stops at 6. */
     val text: String get() = "${minOf(stableHours, REQUIRED_HOURS)} von $REQUIRED_HOURS Stunden stabil"
 
+    /** Line of one tick: 6 rows give the full count, so the short read saves BLE bytes. */
+    fun historyLine(sensor: Int): String =
+        if (usesHourWindow) HistoryCommand.lineHours(sensor, REQUIRED_HOURS) else HistoryCommand.line(sensor)
+
+    /**
+     * Switches once to `HISTORY N` when [replyLine] is `ERR BAD_ARG` for the short read (firmware without the hour window).
+     * Returns true once, while the watch runs; the caller then repeats the tick.
+     */
+    fun fallBackToFullHistory(replyLine: String): Boolean {
+        if (!isRunning || !usesHourWindow || !HistoryCommand.shouldFallBackFromHours(replyLine)) return false
+        usesHourWindow = false
+        return true
+    }
+
     /** Starts the watch and clears the count. */
     fun start() {
+        usesHourWindow = true
         stableHours = 0
         replies = 0
         startedAt = nowMs()
@@ -84,7 +102,7 @@ class SaltProgress(private val nowMs: () -> Long = System::currentTimeMillis) {
         const val REQUIRED_HOURS = 6
         /** Largest humidity span of stable hours in %RH (same limit as `SALT N`). */
         const val MAX_SPAN_PCT = 1.0
-        /** Seconds between two `HISTORY N` commands. */
+        /** Seconds between two history commands (`HISTORY N 6`, or `HISTORY N` after the fallback). */
         const val INTERVAL_SECONDS = 600
         /** The watch stops after this time. */
         const val MAX_DURATION_SECONDS = 8 * 3600

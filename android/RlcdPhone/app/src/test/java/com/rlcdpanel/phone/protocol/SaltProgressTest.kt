@@ -151,4 +151,37 @@ class SaltProgressTest {
         assertFalse(p.isRunning)
         assertEquals(SaltProgress.StopReason.TIMEOUT, p.stopReason)
     }
+
+    @Test
+    fun sixStableRowsGiveTheFullCount() {
+        val p = SaltProgress { clock }
+        p.start()
+        p.record(reply(listOf(75.2, 75.3, 75.1, 75.2, 75.4, 75.3)), 2)
+        assertEquals(6, p.stableHours)
+        assertTrue(p.isReady)
+        assertEquals("6 von 6 Stunden stabil", p.text)
+        // The short read asks for exactly the rows that the full count needs.
+        assertEquals("HISTORY 2 ${SaltProgress.REQUIRED_HOURS}", p.historyLine(2))
+    }
+
+    @Test
+    fun watchSendsTheShortReadAndFallsBackOnceOnBadArg() {
+        val p = SaltProgress { clock }
+        p.start()
+        assertEquals("HISTORY 4 6", p.historyLine(4))
+        assertFalse(p.fallBackToFullHistory("ERR UNKNOWN"))
+        assertEquals("HISTORY 4 6", p.historyLine(4))
+        assertTrue(p.fallBackToFullHistory("ERR BAD_ARG"))
+        assertEquals("HISTORY 4", p.historyLine(4))
+        assertFalse(p.fallBackToFullHistory("ERR BAD_ARG"))
+        p.stop(SaltProgress.StopReason.USER)
+        p.start()
+        assertEquals("HISTORY 4 6", p.historyLine(4))
+    }
+
+    @Test
+    fun stoppedWatchDoesNotFallBack() {
+        val p = SaltProgress { clock }
+        assertFalse(p.fallBackToFullHistory("ERR BAD_ARG"))
+    }
 }

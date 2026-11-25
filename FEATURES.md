@@ -3613,3 +3613,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The salt test watch sends `HISTORY <N> 6` every 10 minutes (`SaltProgress.historyCommand(sensor:)`). `SaltProgress.requiredHours` is 6, so 6 rows give the full count and the BLE reply is shorter.
 - After `ERR BAD_ARG` for the short read (older firmware), `SaltProgress.fallBackToFullHistory()` switches once to `HISTORY <N>`, `AppModel` repeats the tick at once and the watch goes on. A new watch tries the short read again. Another error still stops the watch with `replyFailed`.
 - Unit tests cover the lines `HISTORY 4 6`, sensor 11, hours 0 and hours 25 without a line, `Stable 6/6 h` for 6 stable rows and the fallback to `HISTORY 4`.
+
+## Short HISTORY reads for the Android salt test watch
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/HistoryCommand.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SaltProgress.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/CalibrationScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/HistoryCommandTest.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/SaltProgressTest.kt`
+- `HistoryCommand.lineHours(sensor, hours)` gives the line `HISTORY <N> <H>`. It throws `IllegalArgumentException` for a sensor outside 0 to 10 and for hours outside 1 to 24. The command needs the firmware hour window.
+- The salt test watch sends `HISTORY <N> 6` every 10 minutes (`SaltProgress.historyLine`). `SaltProgress.REQUIRED_HOURS` is 6, so 6 rows give the full count and the BLE reply is shorter.
+- After `ERR BAD_ARG` for the short read (older firmware), `SaltProgress.fallBackToFullHistory` switches once to `HISTORY <N>`. `MainActivity` repeats the tick at once and the watch goes on. A new watch tries the short read again. Another error still stops the watch with `REPLY_FAILED`.
+- Unit tests cover the line `HISTORY 4 6`, sensor 11, hours 0 and hours 25 with `IllegalArgumentException`, the full count for 6 stable rows and the fallback decision for `ERR BAD_ARG`.
