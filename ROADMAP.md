@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Dry hours in the Android week chart
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/WeekScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/WeekChartModelTest.kt`, `FEATURES.md`
-  - **Goal:** Show the dry hours of each day beside the mold hours in the Android week chart. The `WEEK` reply holds the column `dry_h` and `WeekRow.dryHours` parses it, but the chart shows only the mold hours. Add `WeekChartModel.dry(rows, sensor)` with the rules of `WeekChartModel.mold`: seven values from day 6 (left) to day 0 (right), `null` for a gap day, for a missing row and for a reply without the column. Draw a second bar row below the mold bars with the label `0 bis 24, max. <N> h`. Draw no bar row when each value is `null`. Send no new console command.
-  - **Acceptance:** A unit test gives the seven dry values of one sensor in day order. A unit test gives `null` for a gap day and for a missing row. A unit test gives seven `null` values for a reply with the 8-column header. A unit test checks the maximum in the label. A unit test checks that a sensor without a dry value draws no bar row. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
-  - **Rank:** [Total: 30, Use: 7, Setup: 5, Harmony: 8, Safety: 10, Effort: S]
-
 - [ ] Reception check in the console command SELFTEST
   - **Location:** `rlcd_panel/serial_console.h`, `tests/test_firmware_logic.cpp`, `tests/fixtures/selftest_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
   - **Goal:** Report a weak BLE link of a sensor slot in the self-test, so one command shows each hardware problem. Add the check `reception` as the seventh row after `ble`. Read the RTC copy of `ReceptionHistory` and the key `reception_low_pct`. Give `SKIP OFF` for the limit 0, `SKIP NO_SLOT` without an occupied slot, and `SKIP FEW_SCANS` when no slot reaches `RECEPTION_LOW_MIN_SCANS` 12 counted scans. Give `FAIL LOW=<N>` with the number of the first slot below the limit, and `OK <N>%` with the lowest rate of the counted slots. Count the row in `END SELFTEST pass=<N> fail=<N>` like each other row. Do not read the card, do not start the microphones, and do not change the state. Add the line to `tests/fixtures/selftest_reply_sample.txt`. The macOS, Android and Wear OS parsers read each `CHECK` line by name, so the apps show the row without a change.

@@ -59,7 +59,7 @@ object WeekChartModel {
     const val TEMP_MIN_SPAN = 2.0
     const val RH_MIN_SPAN = 5.0
     const val RH_MAX = 100.0
-    const val MOLD_MAX_H = 24
+    const val HOURS_MAX_H = 24
 
     fun humidityScale(series: WeekSeries) = series.scale(RH_MIN_SPAN, 0.0, RH_MAX)
 
@@ -76,11 +76,24 @@ object WeekChartModel {
     fun temperature(rows: List<WeekRow>, sensor: Int) = series(rows, sensor, { it.temperatureMinC }, { it.temperatureMaxC })
     fun humidity(rows: List<WeekRow>, sensor: Int) = series(rows, sensor, { it.humidityMinPct }, { it.humidityMaxPct })
 
-    /** Mold hours of seven days from day 6 (left) to day 0 (right); null for a gap day, a missing row or a reply without the column. */
-    fun mold(rows: List<WeekRow>, sensor: Int): List<Int?> {
+    private fun hoursByDay(rows: List<WeekRow>, sensor: Int, hours: (WeekRow) -> Int?): List<Int?> {
         val byDay = rows.filter { it.sensor == sensor }.associateBy { it.day }
-        return (6 downTo 0).map { byDay[it]?.moldHours }
+        return (6 downTo 0).map { day -> byDay[day]?.let(hours) }
     }
+
+    /** Mold hours of seven days from day 6 (left) to day 0 (right); null for a gap day, a missing row or a reply without the column. */
+    fun mold(rows: List<WeekRow>, sensor: Int): List<Int?> = hoursByDay(rows, sensor) { it.moldHours }
+
+    /** Dry hours of seven days from day 6 (left) to day 0 (right); same rules as [mold]. */
+    fun dry(rows: List<WeekRow>, sensor: Int): List<Int?> = hoursByDay(rows, sensor) { it.dryHours }
+
+    /** Label of an hour bar row, or null when each value is null (no bar row is drawn). */
+    private fun hoursLabel(hours: List<Int?>): String? =
+        hours.filterNotNull().maxOrNull()?.let { "0 bis 24, max. $it h" }
+
+    // Named wrappers: both rows must keep the same rule, so each one calls hoursLabel.
+    fun moldLabel(hours: List<Int?>): String? = hoursLabel(hours)
+    fun dryLabel(hours: List<Int?>): String? = hoursLabel(hours)
 
     /** `MM-DD` of the day, or empty without a date. */
     fun dayLabel(rows: List<WeekRow>, sensor: Int, day: Int): String =
@@ -111,7 +124,7 @@ private fun WeekBars(range: Pair<Double, Double>?, series: WeekSeries, color: Co
 }
 
 @Composable
-private fun MoldBars(hours: List<Int?>, color: Color, outline: Color, modifier: Modifier = Modifier) {
+private fun HourBars(hours: List<Int?>, color: Color, outline: Color, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier.fillMaxWidth().height(60.dp)) {
         val slot = size.width / 7f
         val barW = slot * 0.6f
@@ -123,7 +136,7 @@ private fun MoldBars(hours: List<Int?>, color: Color, outline: Color, modifier: 
                 drawRect(outline, Offset(x, 0f), Size(barW, size.height), style = Stroke(width = 2f))
                 continue
             }
-            val barH = size.height * (h.coerceIn(0, WeekChartModel.MOLD_MAX_H).toFloat() / WeekChartModel.MOLD_MAX_H)
+            val barH = size.height * (h.coerceIn(0, WeekChartModel.HOURS_MAX_H).toFloat() / WeekChartModel.HOURS_MAX_H)
             drawRect(color, Offset(x, size.height - barH), Size(barW, barH.coerceAtLeast(if (h > 0) 3f else 0f)))
         }
     }
@@ -181,10 +194,16 @@ fun WeekScreen(
                             Text("%.0f bis %.0f".format(it.first, it.second), style = MaterialTheme.typography.bodySmall)
                         }
                         val mold = WeekChartModel.mold(state.rows, sensor)
-                        if (mold.any { it != null }) {
+                        WeekChartModel.moldLabel(mold)?.let { label ->
                             Text("Schimmelstunden (h)", style = MaterialTheme.typography.labelMedium)
-                            MoldBars(mold, barColor, outline)
-                            Text("0 bis 24, max. ${mold.filterNotNull().max()} h", style = MaterialTheme.typography.bodySmall)
+                            HourBars(mold, barColor, outline)
+                            Text(label, style = MaterialTheme.typography.bodySmall)
+                        }
+                        val dry = WeekChartModel.dry(state.rows, sensor)
+                        WeekChartModel.dryLabel(dry)?.let { label ->
+                            Text("Trockenstunden (h)", style = MaterialTheme.typography.labelMedium)
+                            HourBars(dry, MaterialTheme.colorScheme.tertiary, outline)
+                            Text(label, style = MaterialTheme.typography.bodySmall)
                         }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                             for (day in 6 downTo 0) {
