@@ -82,9 +82,27 @@ class CalibrationReplyTest {
     @Test
     fun outOfRangeProposalIsDropped() {
         val r = CalibrationReply.parse(
-            listOf("REFERENCE onboard", "slot1_temp_offset_c=9.0", "slot1_rh_offset_pct=2.1", "usb_temp_offset_c=0.5")
+            listOf("REFERENCE onboard", "slot1_temp_offset_c=9.0", "slot1_rh_offset_pct=2.1")
         )
         assertEquals(listOf(CalibrationProposal("slot1_rh_offset_pct", "2.1")), r.proposals)
+    }
+
+    @Test
+    fun usbProposalIsParsed() {
+        val r = CalibrationReply.parse(listOf("REFERENCE onboard", "usb_temp_offset_c=-0.8"))
+        assertEquals(-0.8, r.usbProposal!!, 0.0)
+        assertEquals(-0.8, CalibrationReply.parse(fixtureLines()).usbProposal!!, 0.0)
+    }
+
+    @Test
+    fun missingUsbProposalGivesNull() {
+        assertNull(CalibrationReply.parse(listOf("REFERENCE onboard", "temp_offset_c=-0.4")).usbProposal)
+    }
+
+    @Test
+    fun usbProposalOutsideRangeThrows() {
+        assertBad("usb_temp_offset_c=0.5", listOf("REFERENCE onboard", "usb_temp_offset_c=0.5"))
+        assertBad("usb_temp_offset_c=-5.1", listOf("REFERENCE onboard", "usb_temp_offset_c=-5.1"))
     }
 
     @Test
@@ -268,6 +286,32 @@ class CalibrationReplyTest {
         assertEquals(
             listOf(CalibrationProposal("slot9_temp_offset_c", "-0.4"), CalibrationProposal("slot9_rh_offset_pct", "2.1")),
             r.proposals
+        )
+    }
+
+    @Test
+    fun chosenKeepsReplyOrderWithUsbProposal() {
+        val state = com.rlcdpanel.phone.CalibrationState(
+            reply = CalibrationReply.parse(fixtureLines()),
+            selected = setOf("usb_temp_offset_c", "temp_offset_c")
+        )
+        assertEquals(listOf("temp_offset_c", "usb_temp_offset_c"), state.chosen.map { it.key })
+    }
+
+    @Test
+    fun nonNumericUsbProposalThrows() {
+        assertBad("usb_temp_offset_c=abc", listOf("REFERENCE onboard", "usb_temp_offset_c=abc"))
+    }
+
+    @Test
+    fun usbProposalHasNoCardAndCountsAsProposal() {
+        val usbOnly = CalibrationReply.parse(listOf("REFERENCE onboard", "usb_temp_offset_c=-0.8"))
+        assertTrue(com.rlcdpanel.phone.CalibrationText.cardProposals(usbOnly).isEmpty())
+        assertTrue(!com.rlcdpanel.phone.CalibrationText.hasNoProposal(usbOnly))
+        assertTrue(com.rlcdpanel.phone.CalibrationText.hasNoProposal(CalibrationReply.parse(listOf("REFERENCE onboard"))))
+        assertEquals(
+            listOf("temp_offset_c"),
+            com.rlcdpanel.phone.CalibrationText.cardProposals(CalibrationReply.parse(fixtureLines())).map { it.key }
         )
     }
 }

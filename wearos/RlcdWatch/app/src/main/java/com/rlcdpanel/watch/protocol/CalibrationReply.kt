@@ -13,6 +13,10 @@ data class CalibrationReply(
     /** Only keys with a value that the key range accepts. */
     val proposals: List<CalibrationProposal>
 ) {
+    /** Value of the line `usb_temp_offset_c=<x>`, null without the line. */
+    val usbProposal: Double?
+        get() = proposals.firstOrNull { it.key == USB_KEY }?.value?.toDoubleOrNull()
+
     data class Sensor(
         val name: String,
         val hours: Long,
@@ -27,6 +31,8 @@ data class CalibrationReply(
     data class UsbSplit(val usbHours: Long, val batHours: Long, val usbTempOffset: Double, val usbTempDiff: Double?)
 
     companion object {
+        const val USB_KEY = "usb_temp_offset_c"
+
         /** Parses the lines of a `CALIB` frame (a `BEGIN` line is allowed). Needs the `REFERENCE` line. */
         fun parse(lines: List<String>): CalibrationReply {
             var reference: String? = null
@@ -52,6 +58,7 @@ data class CalibrationReply(
                     line.contains('=') && !line.contains(' ') -> {
                         val key = line.substringBefore('=')
                         val value = line.substringAfter('=')
+                        if (key == USB_KEY && !CalibrationKeys.validate(key, value)) throw ParseException(line)
                         if (isOffsetKey(key) && CalibrationKeys.validate(key, value)) {
                             proposals.removeAll { it.key == key } // the last line of a key wins
                             proposals.add(CalibrationProposal(key, value))

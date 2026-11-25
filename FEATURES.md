@@ -4044,3 +4044,12 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - No firmware change, no RTC layout change. `TwoPointCalibration.kt` is unchanged, so `scripts/check-protocol-sync.sh` stays green.
 - Tests: `TwoPointCalibrationTest` checks the `SALT` lines, the gain 1.116 error for the NaCl mean 73.0 %RH and the MgCl2 mean 35.0 %RH at 20 C, the macOS values (gain 1.066, offset 0.8), the `SET` order (gain, offset, `CONFIG`), the gain 1.15 error without `SET`, the `ERR READ_ONLY` text and the clear on a sensor change.
 - Validation: `scripts/check-protocol-sync.sh` passes. The local host has no Android SDK, so the Gradle tests run in CI.
+
+## USB temperature offset proposal in the Android calibration screen
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/CalibrationScreen.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/CalibrationReply.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/CalibrationReplyTest.kt`
+- `CalibrationReply.usbProposal` (`Double?`) holds the value of the line `usb_temp_offset_c=<x>` of `CALIB 0`; it is `null` without the line. `CalibrationReply.parse` throws `ParseException` for a value outside -5.0 to 0.0 C.
+- The screen shows the checkbox `USB offset <x> C` below the `USB` line when the proposal exists. The proposal no longer appears as a second card in the list.
+- The selected proposal goes through `CalibrationBatch` in reply order, so `SET usb_temp_offset_c=<x>` follows `SET temp_offset_c`, then `CONFIG`.
+- Tests: `CalibrationReplyTest` checks the proposal `-0.8`, `null` without the line, `ParseException` for 0.5 and -5.1, and the `SET` order of the batch.
+- Validation: the host has no Android SDK, so Gradle runs in CI (`Android phone companion tests and APK`).
