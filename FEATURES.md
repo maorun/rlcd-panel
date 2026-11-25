@@ -3173,3 +3173,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SensorHealthScreen` shows `⚠ Weak signal` under each flagged slot row (`SensorHealthText.weakSignal`).
 - `StatusReply.kt` and `ReceptionWatch.kt` also exist in `android/RlcdPhone` with the same code; `scripts/check-protocol-sync.sh` lists `ReceptionWatch.kt`.
 - Validation: `ReceptionWatchTest` (9 tests) covers the first read, a rising bit, an equal mask, a falling bit, a missing field, slot 10, a bit above slot 10 and the message and notification id. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.
+
+## Log gap report in the macOS archive view
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/LogGaps.swift`, `Sources/RlcdCompanion/ArchiveView.swift`, `Tests/RlcdProtocolTests/LogGapsTests.swift`.
+- `LogGaps.find(rows:minGapMinutes:)` sorts the `ClimateRow` times first (a row with an unreadable timestamp is skipped). Each step above `minGapMinutes` (default 90) gives one `Gap` with `start` (last row before), `end` (first row after) and `missingHours` (step in hours, rounded, minus 1, at least 1). A step of exactly 90 minutes gives no gap. The step is the smaller of the real and the wall-clock difference, so the repeated hour of the October change and the lost hour of the March change give no false gap. A limit below 1 minute counts as 1 minute. A real gap across the October change counts one hour less. The days before the first row and after the last row are not counted.
+- `LogGaps.report` adds `rowCount`, the sum of `missingHours` and `coveragePct` (rows divided by rows plus missing hours). A month without rows gives coverage 0 and no gap.
+- `ArchiveView` shows the coverage and the gap list of the selected climate month above the climate charts. It reads only the rows of the downloaded files and sends no console command.
+- Tests: `LogGapsTests` (11 tests) cover hourly rows, a 3-hour step, the exact 90-minute step, 91 minutes, an empty month, unsorted rows, an unreadable timestamp both daylight saving change nights the rounding of the missing hours and the limit clamp.
+- Validation: `swift build` passes locally; `swift test` does not run locally (no TestingMacros in the Command Line Tools); CI `macOS companion tests` runs it.
