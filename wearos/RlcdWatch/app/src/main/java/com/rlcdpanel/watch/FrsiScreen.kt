@@ -22,6 +22,7 @@ import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
 import com.rlcdpanel.watch.protocol.FrsiApply
+import com.rlcdpanel.watch.protocol.FrsiCommand
 import com.rlcdpanel.watch.protocol.FrsiReply
 import com.rlcdpanel.watch.protocol.FrsiText
 import com.rlcdpanel.watch.protocol.SaltCommand
@@ -32,6 +33,10 @@ data class FrsiState(
     val room: Int = 0,
     /** Wall slot 1 to 10. */
     val wall: Int = 1,
+    /** Sample window in hours: 3, 6, 12 or 24. 6 sends no argument. */
+    val hours: Int = FrsiCommand.DEFAULT_HOURS,
+    /** Window of the shown reply or error: it names the needed hours in the texts. */
+    val replyHours: Int = FrsiCommand.DEFAULT_HOURS,
     val isReading: Boolean = false,
     val reply: FrsiReply? = null,
     /** An error text that tells why there is no reply, or the text of the last apply. */
@@ -54,6 +59,13 @@ object FrsiScreenText {
     /** Next wall slot after [wall]: 1 to 10, then 1 again. */
     fun nextWall(wall: Int): Int = if (wall >= SaltCommand.MAX_SENSOR) 1 else wall + 1
 
+    /** Next window after [hours] in [FrsiCommand.HOUR_CHOICES]; an unknown value gives the default 6 h. */
+    fun nextHours(hours: Int): Int {
+        val choices = FrsiCommand.HOUR_CHOICES
+        val i = choices.indexOf(hours)
+        return if (i < 0) FrsiCommand.DEFAULT_HOURS else choices[(i + 1) % choices.size]
+    }
+
     /** `Vorschlag: wall_frsi_pct=70`, or null without a valid proposal. */
     fun proposal(reply: FrsiReply): String? = reply.proposal?.let { "Vorschlag: ${it.key}=${it.value}" }
 }
@@ -65,6 +77,7 @@ fun FrsiScreen(
     wallName: String,
     onNextRoom: () -> Unit,
     onNextWall: () -> Unit,
+    onNextHours: () -> Unit,
     onRead: () -> Unit,
     onAsk: () -> Unit = {},
     onCancel: () -> Unit = {},
@@ -106,6 +119,16 @@ fun FrsiScreen(
                 }
                 item {
                     Chip(
+                        onClick = onNextHours,
+                        enabled = !busy,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text("Fenster", fontSize = 12.sp, maxLines = 1) },
+                        secondaryLabel = { Text("${state.hours} h", fontSize = 10.sp, maxLines = 1) }
+                    )
+                }
+                item {
+                    Chip(
                         onClick = onRead,
                         enabled = !busy,
                         modifier = Modifier.fillMaxWidth(0.85f),
@@ -138,7 +161,7 @@ fun FrsiScreen(
                 state.reply?.let { reply ->
                     item {
                         Text(
-                            FrsiText.outcome(reply),
+                            FrsiText.outcome(reply, state.replyHours),
                             fontSize = 11.sp,
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(horizontal = 12.dp)

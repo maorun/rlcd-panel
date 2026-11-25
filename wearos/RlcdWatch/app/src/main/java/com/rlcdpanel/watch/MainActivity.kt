@@ -452,6 +452,7 @@ class MainActivity : ComponentActivity() {
                     roomName = panelConfig.tileName(frsiState.room),
                     wallName = panelConfig.tileName(frsiState.wall),
                     onNextRoom = { frsiState = frsiState.copy(room = FrsiScreenText.nextRoom(frsiState.room), reply = null, message = null, confirming = false, readOnly = false) },
+                    onNextHours = { frsiState = frsiState.copy(hours = FrsiScreenText.nextHours(frsiState.hours), reply = null, message = null, confirming = false, readOnly = false) },
                     onNextWall = { frsiState = frsiState.copy(wall = FrsiScreenText.nextWall(frsiState.wall), reply = null, message = null, confirming = false, readOnly = false) },
                     onRead = { readFrsi() },
                     onAsk = { frsiState = frsiState.copy(confirming = true) },
@@ -1274,7 +1275,7 @@ onApply = { applySpread(it) }
         showFrsi = false
     }
 
-    /** Asks for the console permissions, then sends `FRSI <R> <W>` once. Only the `Messen` chip calls it. It sends no `SET`. */
+    /** Asks for the console permissions, then sends `FRSI <R> <W> [<H>]` once. Only the `Messen` chip calls it. It sends no `SET`. */
     private fun readFrsi() {
         if (frsiState.isReading || frsiState.isApplying || pendingFrsiRead) return
         val picked = frsiState
@@ -1308,7 +1309,7 @@ onApply = { applySpread(it) }
             return
         }
         val command = try {
-            FrsiCommand.line(picked.room, picked.wall)
+            FrsiCommand.line(picked.room, picked.wall, picked.hours)
         } catch (e: IllegalArgumentException) {
             frsiState = picked.copy(isReading = false, message = FrsiApply.DIFFERENT_TEXT)
             return
@@ -1317,12 +1318,12 @@ onApply = { applySpread(it) }
             val current = frsiState
             frsiState = when (reply) {
                 is ConsoleReply.Frame -> try {
-                    current.copy(isReading = false, reply = FrsiReply.parse(reply.lines), message = null)
+                    current.copy(isReading = false, reply = FrsiReply.parse(reply.lines), replyHours = picked.hours, message = null)
                 } catch (e: ParseException) {
                     current.copy(isReading = false, message = "Antwort nicht lesbar")
                 }
-                is ConsoleReply.Status -> current.copy(isReading = false, message = FrsiText.status(reply.line))
-                else -> current.copy(isReading = false, message = BleConsoleClient.errorText(reply))
+                is ConsoleReply.Status -> current.copy(isReading = false, replyHours = picked.hours, message = FrsiText.status(reply.line, picked.hours))
+                else -> current.copy(isReading = false, replyHours = picked.hours, message = BleConsoleClient.errorText(reply))
             }
         }
     }

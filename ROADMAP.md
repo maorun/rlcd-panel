@@ -28,12 +28,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A host test checks that a jump of 9.0 C passes at once with `jump_limit_c=10.0`. A host test checks that a jump of 4.0 C stays pending with `jump_limit_c=3.0`. A host test checks that both keys 0 give no pending packet. A host test rejects `jump_limit_c=2.5`, `jump_limit_c=3.2` and `jump_limit_rh=51`. A host test rejects a trailer byte outside the range in the RTC restore. `testConfigExampleTemplateInSync` passes. The host unit tests, `arduino-cli compile rlcd_panel`, `swift test` in `macos/RlcdCompanion`, `scripts/check-protocol-sync.sh` and `gradle testDebugUnitTest` in both Android projects pass.
   - **Rank:** [Total: 32, Use: 6, Setup: 9, Harmony: 9, Safety: 8, Effort: M]
 
-- [ ] Hour window for the Wear OS wall factor check
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/FrsiReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/FrsiScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/FrsiReplyTest.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
-  - **Goal:** Let the user select the sample window of the wall factor check on the watch. Copy the Android `FrsiReply.kt` with `DEFAULT_HOURS`, `MIN_HOURS` and the argument H into the watch protocol package. Add `FrsiReply.kt` to the `FILES` list of `scripts/check-protocol-sync.sh`. Add a picker with 3, 6, 12 and 24 hours to the wall factor screen. Send no argument for 6 hours.
-  - **Acceptance:** A unit test checks the lines `FRSI 0 2` and `FRSI 0 2 12`. A unit test checks that 2 and 25 hours give no line. A unit test parses `tests/fixtures/frsi_reply_sample.txt`. `scripts/check-protocol-sync.sh` and `scripts/check-protocol-sync.sh --self-test` exit with 0. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 30, Use: 4, Setup: 8, Harmony: 8, Safety: 10, Effort: S]
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Badge intervals in the Wear OS event log
