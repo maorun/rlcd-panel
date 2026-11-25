@@ -3816,3 +3816,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The `Übernehmen` chip runs `CalibrationBatch`: `SET rh_gain=<x>` or `SET slotN_rh_gain=<x>`, then the offset key, then `CONFIG`. The first `ERR` stops the batch. `ERR READ_ONLY` shows the hint `Set ble_console=2 to apply`. No command is repeated.
 - After a `SET` has run (also after a reply that is not valid), the watch removes both salt results and reads `CONFIG` again, because the raw means depend on the active gain and offset.
 - Tests: `TwoPointCalibrationTest` calculates gain and offset from one `NaCl` reply and one `MgCl2` reply, checks the `SET` lines for slot 3, checks that a gain of 1.15 gives the error text and no result, and checks that one reply gives no result. `SaltScreenTextTest` checks the result text, the salt results of `SaltState` and the apply text.
+
+## RTC trim action on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/RtcTrimReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/RtcTrimReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt`, `scripts/check-protocol-sync.sh`
+- The user corrects a fast or slow panel clock from the watch. The sensor health screen shows the `RTC trimmen` chip while `RtcState.canTrim` is true (drift of 3 ppm or more) and `ble_console` is 2.
+- A tap sends `RTC TRIM`. After an `OK` reply the watch sends `STATUS` and shows the new trim value. The watch does not repeat a failed command.
+- `RtcTrimReply.kt` holds the reply text. `RtcTrimReply.parse` gives the old and the new trim value of `OK RTC TRIM <old> <new>`. A bad line, a bad number or a value outside -64 to 63 gives no value. `RtcTrimReply.text` gives `RTC getrimmt: <old> → <new>`, the text of `ERR NO_DRIFT` and `ERR READ_ONLY`, or `Panel meldet: <line>` (for example `ERR WRITE_FAILED`).
+- The phone `SensorHealthText.trimResult` uses the same function. `RtcTrimReply.kt` is in the `FILES` list of `scripts/check-protocol-sync.sh`, so both copies stay equal.
+- Tests: `RtcTrimReplyTest` parses `OK RTC TRIM 2 -1`, checks the error texts and checks that a bad line gives no value. The test also checks the rule of the chip.

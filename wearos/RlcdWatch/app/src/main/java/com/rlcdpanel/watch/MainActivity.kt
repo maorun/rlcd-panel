@@ -28,6 +28,7 @@ import androidx.lifecycle.lifecycleScope
 import com.rlcdpanel.watch.complication.ClimateComplicationService
 import com.rlcdpanel.watch.console.BleConsoleClient
 import com.rlcdpanel.watch.protocol.ChimeCommand
+import com.rlcdpanel.watch.protocol.RtcTrimReply
 import com.rlcdpanel.watch.protocol.AlertMask
 import com.rlcdpanel.watch.protocol.AlertTransitions
 import com.rlcdpanel.watch.protocol.AlertVibration
@@ -117,6 +118,7 @@ class MainActivity : ComponentActivity() {
     private var versionState by mutableStateOf(VersionReadState())
     private var pendingVersionRead = false
     private var chimeState by mutableStateOf(ChimeTestState())
+    private var rtcTrimState by mutableStateOf(RtcTrimState())
     private var showEvents by mutableStateOf(false)
     private var eventState by mutableStateOf(EventLogState())
     private var pendingEventsRead = false
@@ -579,6 +581,8 @@ onApply = { applySpread(it) }
                     onSelectChime = { if (!chimeState.isTesting) chimeState = chimeState.copy(bit = it, message = null) },
                     onTestChime = { testChime() },
                     onIdentify = { identifyPanel() },
+                    rtcTrimState = rtcTrimState,
+                    onTrimRtc = { trimRtc() },
                     panelConfig = panelConfig,
                     slotClearState = slotClearState,
                     onAskClear = {
@@ -1643,6 +1647,7 @@ onApply = { applySpread(it) }
     private fun readSensorHealth() {
         if (healthState.isReading || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
         chimeState = chimeState.copy(message = null)
+        if (!rtcTrimState.isBusy) rtcTrimState = RtcTrimState()
         if (!slotClearState.isSending) slotClearState = SlotClearState()
         if (!slotSwapState.isSending) slotSwapState = SlotSwapState()
         healthState = healthState.copy(isReading = true, message = null)
@@ -1725,6 +1730,39 @@ onApply = { applySpread(it) }
         consoleClient.send(ChimeCommand.beep(chimeState.bit)) { reply ->
             val failure = ChimeCommand.failureText(reply) { SensorHealthText.muteFallback(it) }
             chimeState = SensorHealthText.chimeResult(chimeState, reply, failure)
+        }
+    }
+
+    /**
+     * Sends `RTC TRIM` after a tap, then `STATUS` after an `OK`. A failed command is not repeated.
+     */
+    private fun trimRtc() {
+        if (rtcTrimState.isBusy || chimeState.isTesting || healthState.isReading || healthState.isMuting || pendingClockRead || pendingVersionRead || versionState.isReading || pendingHealthRead ||
+            pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || clockState.isReadingClock || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning
+        ) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
+        ) {
+            rtcTrimState = RtcTrimState(message = "Bluetooth-Berechtigung fehlt", isError = true)
+            return
+        }
+        rtcTrimState = RtcTrimState(isBusy = true)
+        consoleClient.send(RtcTrimReply.COMMAND) { reply ->
+            val result = SensorHealthText.trimResult(reply) { SensorHealthText.muteFallback(it) }
+            rtcTrimState = result
+            // The panel has written the trim after every `OK` line, so STATUS also runs after an `OK` line that parse rejects.
+            val sentOk = (reply as? ConsoleReply.Status)?.line?.trim()?.startsWith("OK RTC TRIM") == true
+            if (sentOk) {
+                consoleClient.send(ChimeCommand.STATUS) { status ->
+                    try {
+                        healthState = SensorHealthState(status = parseStatusReply(status))
+                    } catch (e: Exception) {
+                        val reason = if (status is ConsoleReply.Frame) "Antwort nicht lesbar" else SensorHealthText.muteFallback(status)
+                        rtcTrimState = RtcTrimState(message = "${result.message}, Stand unbestätigt. $reason", isError = true)
+                    }
+                }
+            }
         }
     }
 

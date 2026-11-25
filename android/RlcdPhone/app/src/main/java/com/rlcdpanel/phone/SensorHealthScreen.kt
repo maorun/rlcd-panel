@@ -20,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.DriftWatch
+import com.rlcdpanel.phone.protocol.RtcTrimReply
 import com.rlcdpanel.phone.protocol.JumpAdvice
 import com.rlcdpanel.phone.protocol.ConfigCache
 import com.rlcdpanel.phone.protocol.ConfigCacheInfo
@@ -136,15 +137,7 @@ object SensorHealthText {
     /** The trim button needs a writable console and a drift of 3 ppm or more in either direction. */
     fun canTrim(r: RtcState?, canWrite: Boolean): Boolean = canWrite && r?.canTrim == true
     /** Short text of the `RTC TRIM` reply line. */
-    fun trimResult(line: String): String {
-        val words = line.trim().split(' ').filter { it.isNotEmpty() }
-        return when {
-            words.size == 5 && words[0] == "OK" && words[1] == "RTC" && words[2] == "TRIM" -> "RTC getrimmt: ${words[3]} → ${words[4]}"
-            line.startsWith("ERR NO_DRIFT") -> "Kein Drift-Wert von 24 h oder mehr"
-            line.startsWith("ERR READ_ONLY") -> "Set ble_console=2 to apply"
-            else -> "Panel meldet: ${line.take(80)}"
-        }
-    }
+    fun trimResult(line: String): String = RtcTrimReply.text(line)
     fun mold(row: SensorHealth): String =
         row.moldHours?.let { (if (it > 0) "⚠ " else "") + "Schimmel $it h" } ?: "Schimmel --"
     fun dry(row: SensorHealth): String =

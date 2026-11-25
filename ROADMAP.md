@@ -23,11 +23,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] RTC trim action on the Wear OS watch
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/RtcTrimReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/RtcTrimReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/RtcTrimReplyTest.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
-  - **Goal:** Let the user correct a fast or slow panel clock from the watch. The watch parses `RtcState.canTrim`, but it has no action. Move the reply text of the phone `RTC TRIM` action into a shared `RtcTrimReply.kt` in both protocol packages. Add `RtcTrimReply.kt` to the `FILES` list of `scripts/check-protocol-sync.sh`. Show a `RTC trimmen` chip in the watch sensor health screen while `canTrim` is true. Send `RTC TRIM` after a tap, then `STATUS` after an `OK`. Show the old and the new trim value, or the text of `ERR NO_DRIFT`, `ERR WRITE_FAILED` and `ERR READ_ONLY`. Do not repeat a failed command.
-  - **Acceptance:** A unit test parses `OK RTC TRIM 2 -1` to the old and the new value. A unit test checks the text of `ERR NO_DRIFT` and `ERR READ_ONLY`. A unit test checks that a bad reply line gives no value. `scripts/check-protocol-sync.sh` exits with 0. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` and `gradle testDebugUnitTest` in `android/RlcdPhone` pass.
-  - **Rank:** [Total: 29, Use: 3, Setup: 9, Harmony: 8, Safety: 9, Effort: S]
 
 
 ## Priority 3: Display and Logging (Score 22–27)

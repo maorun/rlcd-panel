@@ -45,6 +45,8 @@ import com.rlcdpanel.watch.protocol.RuntimeState
 import com.rlcdpanel.watch.protocol.Shtc3State
 import com.rlcdpanel.watch.protocol.SlotClearCommand
 import com.rlcdpanel.watch.protocol.SlotSwapCommand
+import com.rlcdpanel.watch.protocol.RtcState
+import com.rlcdpanel.watch.protocol.RtcTrimReply
 import com.rlcdpanel.watch.protocol.StatusReply
 import com.rlcdpanel.watch.protocol.StatusSensor
 import com.rlcdpanel.watch.protocol.TimeReply
@@ -89,6 +91,13 @@ data class ChimeTestState(
     val isError: Boolean = false
 )
 
+/** State of one `RTC TRIM` command: [isBusy] while it runs, [message] is the short result text, [isError] marks a failure. */
+data class RtcTrimState(
+    val isBusy: Boolean = false,
+    val message: String? = null,
+    val isError: Boolean = false
+)
+
 /**
  * State of the `Platz freigeben` button. [confirming] is the slot (1 to 10) that waits for the confirmation;
  * [message] holds the last result text and [isError] marks a failed command.
@@ -115,6 +124,15 @@ data class SlotSwapState(
 /** One-line texts of the rows. */
 object SensorHealthText {
     const val WARNING = "⚠"
+
+    /** The trim chip needs a writable console and a drift of 3 ppm or more in either direction. */
+    fun canTrim(r: RtcState?, canWrite: Boolean): Boolean = canWrite && r?.canTrim == true
+
+    /** State after an `RTC TRIM` reply: the old and the new value, or the text of the `ERR` line. */
+    fun trimResult(reply: ConsoleReply, fallback: (ConsoleReply) -> String): RtcTrimState {
+        val line = (reply as? ConsoleReply.Status)?.line ?: return RtcTrimState(message = fallback(reply), isError = true)
+        return RtcTrimState(message = RtcTrimReply.text(line), isError = RtcTrimReply.parse(line) == null)
+    }
 
     fun battery(sensor: StatusSensor): String = sensor.battery?.let { "Bat ${it.toInt()} %" } ?: "Bat --"
     fun rssi(sensor: StatusSensor): String = sensor.rssi?.let { "${it.toInt()} dBm" } ?: "-- dBm"
@@ -252,6 +270,8 @@ fun SensorHealthScreen(
     onSelectChime: (Int) -> Unit = {},
     onTestChime: () -> Unit = {},
     onIdentify: () -> Unit = {},
+    rtcTrimState: RtcTrimState = RtcTrimState(),
+    onTrimRtc: () -> Unit = {},
     panelConfig: PanelConfig = PanelConfig(),
     slotClearState: SlotClearState = SlotClearState(),
     onAskClear: (Int) -> Unit = {},
@@ -504,6 +524,28 @@ fun SensorHealthScreen(
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text(if (chimeState.isTesting) "Sende ..." else "Panel finden", fontSize = 12.sp, maxLines = 1) }
                     )
+                }
+                if (SensorHealthText.canTrim(status?.rtc, panelConfig.canWrite)) {
+                    item {
+                        Chip(
+                            onClick = onTrimRtc,
+                            enabled = !rtcTrimState.isBusy && !chimeState.isTesting && !state.isReading && !state.isMuting && !clockState.isReadingClock && !versionState.isReading,
+                            modifier = Modifier.fillMaxWidth(0.85f),
+                            colors = ChipDefaults.secondaryChipColors(),
+                            label = { Text(if (rtcTrimState.isBusy) "Sende ..." else "RTC trimmen", fontSize = 12.sp, maxLines = 1) }
+                        )
+                    }
+                }
+                rtcTrimState.message?.let { message ->
+                    item {
+                        Text(
+                            text = message,
+                            fontSize = 10.sp,
+                            color = if (rtcTrimState.isError) Color(0xFFFF8A80) else Color(0xFFB0BEC5),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    }
                 }
                 chimeState.message?.let { message ->
                     item {
