@@ -3563,3 +3563,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SensorHealthText.dry(sensor)` gives `Trocken <N> h`, with the `WARNING` mark before it above 0 hours, and `Trocken --` for `null`. `SensorHealthText.isDry(sensor)` is true above 0 hours. The names follow `mold` and `isMold`.
 - `SensorHealthScreen` shows the line after `Schimmel <N> h`, in the warning colour above 0 hours.
 - Tests: `SensorHealthTextTest.dryTextAndWarning` asserts `Trocken 0 h`, `⚠ Trocken 3 h` and `Trocken --`. `StatusReplyTest.dryHoursOfFixtureAndMissingField` parses `tests/fixtures/status_reply_sample.txt` (`dryHours` 2 for sensor 0) and a reply without the field. They run in CI (the local host has no Android SDK).
+
+## Alert timeline in the Android event log
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertTimeline.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/EventLogScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertTimelineTest.kt`
+- The user sees on the phone when each alert started and ended. `AlertTimeline.build(rows, nowMs)` ports the macOS `AlertTimeline.build`: each `ALERT_RISE` pairs with the next `ALERT_FALL` of the same alert bit.
+- An alert without a fall stays open and ends at the injected `nowMs`. A fall without a rise starts at the first row with a valid time and has `startUnknown`. An `EVENTS_DROPPED` row marks each open interval `startUnknown`. A second rise of an open alert keeps the first start.
+- `EventLogScreen` shows the section `Alarm-Verlauf` (newest first): alert name, start (`~` before a guessed start), end or `läuft`, and the duration (`AlertTimeline.lineText`, `durationText`). The panel time is read in the phone time zone.
+- Tests: `AlertTimelineTest` covers one pair, an open interval, a fall without a rise, two alert bits, a repeated rise, a dropped row, bad times, the duration text and `tests/fixtures/events_reply_sample.txt`.
+- Validation: `./scripts/check-protocol-sync.sh` exits 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
