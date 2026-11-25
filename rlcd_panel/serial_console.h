@@ -45,7 +45,7 @@ enum class SerialParseStatus : uint8_t {
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CONFIG CHANGED with extra text (CHANGEDX, CHANGED 1); DAYS with 0, above 31, a leading zero, a non-digit, no number or extra text; CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, or with extra text; SELFTEST, SPREAD and TODAY with extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
+  BAD_ARG,  // CONFIG CHANGED with extra text (CHANGEDX, CHANGED 1); DAYS with 0, above 31, a leading zero, a non-digit, no number or extra text; CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, or with extra text; SELFTEST and TODAY with extra text; SPREAD with a number outside 6 to 24, a leading zero, a non-digit or extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '='); CONFIG <key> with an unknown key
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv, daily_v4_YYYY.csv or events_v1_YYYY.csv
@@ -79,7 +79,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "CONFIG <key>", "CONFIG CHANGED", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "SPREAD", "TODAY", "TAIL 1..72", "DAYS 1..31", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "CONFIG <key>", "CONFIG CHANGED", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "SPREAD", "SPREAD 6..24", "TODAY", "TAIL 1..72", "DAYS 1..31", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -293,10 +293,27 @@ public:
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "SPREAD")) {
+      // "SPREAD" (6 hours) or "SPREAD <H>", H 6 to 24, no leading zero
+      unsigned hours = static_cast<unsigned>(SpreadMath::HOURS);
       if (cmd_len != len) {
-        return SerialParseStatus::BAD_ARG; // SPREAD takes no argument
+        const size_t digits = len - cmd_len - 1;
+        if (line[cmd_len] != ' ' || digits < 1 || digits > 2 || (digits > 1 && line[cmd_len + 1] == '0')) {
+          return SerialParseStatus::BAD_ARG;
+        }
+        hours = 0;
+        for (size_t i = 0; i < digits; ++i) {
+          const char d = line[cmd_len + 1 + i];
+          if (d < '0' || d > '9') {
+            return SerialParseStatus::BAD_ARG;
+          }
+          hours = hours * 10 + static_cast<unsigned>(d - '0');
+        }
+        if (hours < SpreadMath::HOURS || hours > SpreadMath::MAX_HOURS) {
+          return SerialParseStatus::BAD_ARG;
+        }
       }
       out.kind = SerialCommandKind::SPREAD;
+      out.reference = static_cast<uint8_t>(hours);
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "TODAY")) {
@@ -1181,15 +1198,15 @@ struct SerialStatusSnapshot {
 //   0.10 (or an hour without a usable factor, "span=--") gives "UNSTABLE span=<x>", no fresh outdoor_slot reading gives
 //   "ERR NO_OUTDOOR", equal sensors, the outdoor slot or a number above 10 give "ERR BAD_ARG". showFrsi() works on the RTC copy:
 //   no card access, no state change, so execute() ignores FRSI. USB and BLE at each ble_console level.
-//   SPREAD -> "SPREAD sensors=<n> temp_median=<x> rh_median=<x>", one line "SENSOR <name> temp_dev=<x> rh_dev=<x> <OK|OUTLIER>" for
-//   each sensor and "CRC32 <8 hex digits>". All sensors sit at one place for 6 hours; the mean of the last 6 hourly samples of each
-//   sensor with 6 temperature and 6 humidity samples (onboard and slots 1 to 10) counts, the median of these means is the
+//   SPREAD [<H>] (H 6 to 24, no leading zero, default 6) -> "SPREAD sensors=<n> temp_median=<x> rh_median=<x>", one line "SENSOR <name> temp_dev=<x> rh_dev=<x> <OK|OUTLIER>" for
+//   each sensor and "CRC32 <8 hex digits>". All sensors sit at one place for H hours; the mean of the last H hourly samples of each
+//   sensor with H temperature and H humidity samples (onboard and slots 1 to 10) counts, the median of these means is the
 //   reference (the mean of the two middle means for an even count) and OUTLIER means a deviation above 0.5 C or 3.0 %RH.
 //   Each OUTLIER line is followed by one proposal line "<temp_key>=<x> <rh_key>=<x>" (temp_offset_c and rh_offset_pct for the onboard
 //   sensor, slotN_temp_offset_c and slotN_rh_offset_pct for slots 1 to 10): active offset + median - sensor mean (rounded to 0.1),
 //   clamped to the key range; OK sensors have no proposal line.
 //   A stale slot does not count (no SENSOR line, not in sensors= and in the median).
-//   Fewer than 3 such sensors give "SKIP sensors=<n>" and the CRC32 line, extra text gives "ERR BAD_ARG". showSpread() works on
+//   Fewer than 3 such sensors give "SKIP sensors=<n>" and the CRC32 line, a number outside 6 to 24, a leading zero, a non-digit or extra text gives "ERR BAD_ARG". showSpread() works on
 //   the RTC copy and the registry: no card access, no state change, so execute() ignores SPREAD. USB and BLE at each ble_console level.
 //   TODAY -> "BEGIN TODAY", the header "sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct", one row for
 //   each sensor (0 onboard, 1 to 10 a slot) that holds at least one hourly sample, and "CRC32 <8 hex digits>". The row covers the hourly
@@ -1651,15 +1668,15 @@ public:
     send(sink, line);
   }
 
-  // Co-location check: the mean of the last SPREAD_HOURS hourly samples of each sensor with enough temperature and humidity
+  // Co-location check: the mean of the last `hours` (6 by default, SPREAD <H> 6 to 24) hourly samples of each sensor with enough temperature and humidity
   // samples, the median of these means and the deviation of each sensor from it. The card and the state stay untouched.
   // A slot that SwitchBotRegistry::isStale reports (with DeviceConfig::staleTimeoutMs()) does not count: it keeps its old hourly
   // samples, so it has no SENSOR line and is not in sensors= and in the median. An empty slot has no samples and drops out as before.
   // The OUTLIER check uses the exact deviation (sixths of 0.1 units), the printed value rounds to one decimal, so "0.5" can show
   // OUTLIER when the exact deviation is above the limit.
-  // All maths run in integers: a sum of 6 tenths and its doubled median keep the limit checks exact.
+  // All maths run in integers: a sum of `hours` tenths and its doubled median keep the limit checks exact.
   static void showSpread(Sink& sink, const ClimateHistory& history, const DeviceConfig& config,
-                         const SwitchBotRegistry& registry, uint32_t now_ms) {
+                         const SwitchBotRegistry& registry, uint32_t now_ms, size_t hours = SpreadMath::HOURS) {
     static const char* const names[ClimateHistory::SLOT_COUNT] = {
         "onboard", "slot1", "slot2", "slot3", "slot4", "slot5",
         "slot6", "slot7", "slot8", "slot9", "slot10"};
@@ -1667,9 +1684,9 @@ public:
         "",       "slot1_", "slot2_", "slot3_", "slot4_", "slot5_",
         "slot6_", "slot7_", "slot8_", "slot9_", "slot10_"};
     SpreadMath::Result r;
-    SpreadMath::compute(history, r, SpreadMath::freshMask(registry, now_ms, config.staleTimeoutMs()));
+    SpreadMath::compute(history, r, SpreadMath::freshMask(registry, now_ms, config.staleTimeoutMs()), hours);
     const size_t count = r.count;
-    const int32_t hours2 = 2 * static_cast<int32_t>(SpreadMath::HOURS);
+    const int32_t hours2 = 2 * static_cast<int32_t>(r.hours);
     char text[1024];
     size_t len = 0;
     if (!r.enough()) {
@@ -3119,7 +3136,6 @@ public:
   static constexpr size_t FRSI_HOURS = 6;
   static constexpr int32_t FRSI_MIN_DELTA_TENTHS = 100;  // 10.0 C
   static constexpr int32_t FRSI_MAX_SPAN_HUNDREDTHS = 10; // 0.10
-  static constexpr size_t SPREAD_HOURS = SpreadMath::HOURS;
   static constexpr size_t SPREAD_MIN_SENSORS = SpreadMath::MIN_SENSORS;
   static constexpr size_t SALT_HOURS = 6;
   static constexpr int32_t SALT_MAX_SPAN_TENTHS = 10; // 1.0 %RH

@@ -16126,9 +16126,9 @@ void fillSpread(ClimateHistory& h, size_t sensor, int hours, float temp, float r
 }
 
 std::string spreadOutput(const ClimateHistory& h, const DeviceConfig& cfg = DeviceConfig{},
-                         const SwitchBotRegistry& reg = SwitchBotRegistry{}, uint32_t now_ms = 0) {
+                         const SwitchBotRegistry& reg = SwitchBotRegistry{}, uint32_t now_ms = 0, size_t hours = 6) {
   FakeSink sink;
-  TestRunner::showSpread(sink, h, cfg, reg, now_ms);
+  TestRunner::showSpread(sink, h, cfg, reg, now_ms, hours);
   return sink.out;
 }
 } // namespace
@@ -21987,6 +21987,81 @@ void testSensorDriftLatch() {
     const std::string fresh_out = spreadOutput(four, cfg, fresh_reg, now);
     assert(fresh_out.find("SPREAD sensors=4 ") == 0);
     assert(fresh_out.find("SENSOR slot3 temp_dev=2.0 rh_dev=0.0 OUTLIER\n") != std::string::npos);
+  }
+
+  // SPREAD <H>: window of 6 to 24 hours; DriftLatch keeps 6 hours
+  {
+    SerialCommand c;
+    assert(parseText("SPREAD", c) == SerialParseStatus::OK && c.kind == SerialCommandKind::SPREAD && c.reference == 6);
+    assert(parseText("SPREAD 6", c) == SerialParseStatus::OK && c.reference == 6);
+    assert(parseText("SPREAD 7", c) == SerialParseStatus::OK && c.reference == 7);
+    assert(parseText("SPREAD 24", c) == SerialParseStatus::OK && c.reference == 24);
+    assert(parseText("SPREAD 5", c) == SerialParseStatus::BAD_ARG);
+    assert(parseText("SPREAD 25", c) == SerialParseStatus::BAD_ARG);
+    assert(parseText("SPREAD 06", c) == SerialParseStatus::BAD_ARG);
+    assert(parseText("SPREAD 1x", c) == SerialParseStatus::BAD_ARG);
+    assert(parseText("SPREAD 6 1", c) == SerialParseStatus::BAD_ARG);
+    assert(parseText("SPREAD 100", c) == SerialParseStatus::BAD_ARG);
+    assert(parseText("SPREAD -6", c) == SerialParseStatus::BAD_ARG);
+    assert(parseText("SPREAD ", c) == SerialParseStatus::BAD_ARG);
+    assert(parseText("SPREAD  6", c) == SerialParseStatus::BAD_ARG);
+    assert(parseText("SPREAD 0", c) == SerialParseStatus::BAD_ARG);
+    assert(parseText("SPREAD +6", c) == SerialParseStatus::BAD_ARG);
+    for (uint8_t level = 0; level <= 2; ++level) {
+      assert(parseText("SPREAD 24", c) == SerialParseStatus::OK);
+      assert(std::string(BleConsoleBridge::gate(c, level)).empty());
+    }
+
+    // older 18 hours and newest 6 hours differ, so the 24 hour medians differ from the 6 hour medians
+    ClimateHistory w;
+    for (size_t sensor = 0; sensor < 3; ++sensor) {
+      const float old_t = sensor == 2 ? 19.0f : 18.0f;
+      const float new_t = sensor == 2 ? 21.0f : 20.0f;
+      fillSpread(w, sensor, 18, old_t, 50.0f);
+      fillSpread(w, sensor, 6, new_t, 50.0f);
+    }
+    assert(spreadOutput(w).find("SPREAD sensors=3 temp_median=20.0 rh_median=50.0\n") == 0);
+    const std::string day = spreadOutput(w, DeviceConfig{}, SwitchBotRegistry{}, 0, 24);
+    assert(day.find("SPREAD sensors=3 temp_median=18.5 rh_median=50.0\n") == 0);
+    assert(day.find("SENSOR onboard temp_dev=0.0 rh_dev=0.0 OK\n") != std::string::npos);
+    assert(day.find("SENSOR slot2 temp_dev=1.0 rh_dev=0.0 OUTLIER\n") != std::string::npos);
+    assert(day.find("temp_offset_c=") == day.find("slot2_temp_offset_c=") + 6); // only the slot2 proposal exists
+    assert(day.find("slot2_temp_offset_c=-1.0 slot2_rh_offset_pct=0.0\n") != std::string::npos);
+    SpreadMath::Result r24;
+    SpreadMath::compute(w, r24, SpreadMath::ALL_SENSORS, 24);
+    assert(r24.hours == 24 && r24.count == 3 && r24.t_sum[0] == 4440 && r24.t_med2 == 8880);
+
+    // an hour count outside 6 to 24 falls back to 6 hours
+    SpreadMath::Result clamp;
+    SpreadMath::compute(w, clamp, SpreadMath::ALL_SENSORS, 5);
+    assert(clamp.hours == 6);
+    SpreadMath::compute(w, clamp, SpreadMath::ALL_SENSORS, 25);
+    assert(clamp.hours == 6);
+
+    // SPREAD and SPREAD 6 give the same bytes
+    assert(spreadOutput(w) == spreadOutput(w, DeviceConfig{}, SwitchBotRegistry{}, 0, 6));
+
+    // a sensor with 12 samples counts in SPREAD 12 and not in SPREAD 24
+    ClimateHistory part;
+    for (size_t sensor = 0; sensor < 3; ++sensor) {
+      fillSpread(part, sensor, 24, 20.0f, 50.0f);
+    }
+    fillSpread(part, 3, 12, 20.0f, 50.0f);
+    assert(spreadOutput(part, DeviceConfig{}, SwitchBotRegistry{}, 0, 24).find("SPREAD sensors=3 ") == 0);
+    assert(spreadOutput(part, DeviceConfig{}, SwitchBotRegistry{}, 0, 24).find("slot3") == std::string::npos);
+    assert(spreadOutput(part, DeviceConfig{}, SwitchBotRegistry{}, 0, 12).find("SPREAD sensors=4 ") == 0);
+    assert(spreadOutput(part).find("SPREAD sensors=4 ") == 0);
+
+    // DriftLatch keeps 6 hours: slot 2 is 2.0 C off in the newest 6 hours (OUTLIER), 0.5 C off over 24 hours (OK)
+    ClimateHistory d;
+    for (size_t sensor = 0; sensor < 3; ++sensor) {
+      fillSpread(d, sensor, 18, 20.0f, 50.0f);
+      fillSpread(d, sensor, 6, sensor == 2 ? 22.0f : 20.0f, 50.0f);
+    }
+    assert(DriftLatch::update(0, d, DriftLatch::ALL_MASK) == 0x0004);
+    assert(spreadOutput(d).find("SENSOR slot2 temp_dev=2.0 rh_dev=0.0 OUTLIER\n") != std::string::npos);
+    assert(spreadOutput(d, DeviceConfig{}, SwitchBotRegistry{}, 0, 24).find("SENSOR slot2 temp_dev=0.5 rh_dev=0.0 OK\n") !=
+           std::string::npos);
   }
 
   // RTC: round trip and reject rules
