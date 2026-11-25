@@ -92,6 +92,60 @@ struct DailyLogTests {
         #expect(DailyLog.isDailyFileName("daily_v5_2026.csv"))
     }
 
+    /// Header of `SdLogCodec::formatDailyHeader` (v6): the v5 header plus dry_h_0 to dry_h_10.
+    private func headerV6() -> String {
+        headerV5() + "," + (0..<DailyLog.sensorNames.count).map { "dry_h_\($0)" }.joined(separator: ",")
+    }
+
+    private func v6Line(dry: [String]) -> String {
+        let empty = Array(repeating: "", count: 6).joined(separator: ",")
+        let moldEmpty = Array(repeating: "", count: 10).joined(separator: ",")
+        return "2026-11-14,20.1,24.8,22.3,40.0,55.5,47.2" + String(repeating: ",\(empty)", count: 10)
+            + ",35,62,71,18,12,7,\(moldEmpty)," + dry.joined(separator: ",")
+    }
+
+    @Test func parsesDailyV6WithDryHours() throws {
+        var dry = Array(repeating: "", count: 11)
+        dry[2] = "5"
+        let log = try DailyLog.parse(text: headerV6() + "\n" + v6Line(dry: dry) + "\n")
+        #expect(log.format == .v6)
+        #expect(log.rows[0].sensors.count == 11)
+        #expect(log.rows[0].moldHours[0] == 7)
+        #expect(log.rows[0].dryHours.count == 11)
+        #expect(log.rows[0].dryHours[2] == 5)
+        #expect(log.rows[0].dryHours[0] == nil) // an empty field gives nil
+        #expect(DailyLog.isDailyFileName("daily_v6_2026.csv"))
+    }
+
+    @Test func dailyV6RowReplacesV5RowOfSameDate() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rlcd-daily-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let empty = Array(repeating: "", count: 6).joined(separator: ",")
+        let moldEmpty = Array(repeating: "", count: 10).joined(separator: ",")
+        let v5 = "2026-11-14,20.1,24.8,22.3,40.0,55.5,47.2" + String(repeating: ",\(empty)", count: 10) + ",35,62,71,18,12,7,\(moldEmpty)"
+        var dry = Array(repeating: "", count: 11)
+        dry[2] = "5"
+        try (headerV5() + "\n" + v5 + "\n").write(to: dir.appendingPathComponent("daily_v5_2026.csv"), atomically: true, encoding: .utf8)
+        try (headerV6() + "\n" + v6Line(dry: dry) + "\n").write(to: dir.appendingPathComponent("daily_v6_2026.csv"), atomically: true, encoding: .utf8)
+        let result = DailyLog.load(from: dir)
+        #expect(result.rows.count == 1)
+        #expect(result.rows[0].dryHours[2] == 5)
+        #expect(result.failedFiles.isEmpty)
+    }
+
+    @Test func dailyV5HasNoDryHours() throws {
+        let empty = Array(repeating: "", count: 6).joined(separator: ",")
+        let moldEmpty = Array(repeating: "", count: 10).joined(separator: ",")
+        let line = "2026-11-14,20.1,24.8,22.3,40.0,55.5,47.2" + String(repeating: ",\(empty)", count: 10) + ",35,62,71,18,12,7,\(moldEmpty)"
+        #expect(try DailyLog.parse(text: headerV5() + "\n" + line + "\n").rows[0].dryHours.isEmpty)
+    }
+
+    @Test func dailyV6RowWith93ColumnsIsBad() throws {
+        let short = v6Line(dry: Array(repeating: "", count: 10))
+        #expect(throws: ParseError.badLine(short)) { try DailyLog.parse(text: headerV6() + "\n" + short + "\n") }
+    }
+
     @Test func parsesDailyV1() throws {
         let log = try DailyLog.parse(text: header(v2: false) + "\n" + row(v2: false) + "\n")
         #expect(log.format == .v1)
@@ -203,7 +257,7 @@ struct DailyLogTests {
         #expect(DailyLog.isDailyFileName("daily_v3_2026.csv"))
         #expect(DailyLog.isDailyFileName("daily_v4_2026.csv"))
         #expect(DailyLog.isDailyFileName("daily_v5_2026.csv"))
-        #expect(!DailyLog.isDailyFileName("daily_v6_2026.csv"))
+        #expect(DailyLog.isDailyFileName("daily_v6_2026.csv"))
         #expect(!DailyLog.isDailyFileName("climate_v4_202611.csv"))
         #expect(!DailyLog.isDailyFileName("events_v1_2026.csv"))
         #expect(!DailyLog.isDailyFileName("../daily_v2_2026.csv"))

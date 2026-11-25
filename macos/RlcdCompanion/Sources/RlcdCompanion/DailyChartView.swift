@@ -10,8 +10,8 @@ enum DailySource: String, CaseIterable, Identifiable {
 }
 
 /// One chart pair for each sensor: daily minimum, mean and maximum of temperature and humidity, and the daily noise
-/// peak for rows of `daily_v2` to `daily_v4`, and the mold hours
-/// of each sensor as a bar chart for rows of `daily_v4`. The source `Card files` reads only the rows that `DailyLog.load`
+/// peak for rows of `daily_v2` to `daily_v6`, and the mold hours (`daily_v4` to `daily_v6`) and dry hours (`daily_v6`)
+/// of each sensor as two bar series. The source `Card files` reads only the rows that `DailyLog.load`
 /// gave; the source `Panel (BLE)` sends `DAYS <N>` only on the read button.
 struct DailyChartView: View {
     @Bindable var model: AppModel
@@ -54,15 +54,26 @@ struct DailyChartView: View {
         folder.rows.compactMap { row in
             guard let date = Self.parser.date(from: row.date), sensor < row.moldHours.count,
                   let hours = row.moldHours[sensor] else { return nil }
-            return Point(id: row.date, date: date, series: "Mold", value: Double(hours))
+            return Point(id: "\(row.date)-Mold", date: date, series: "Mold", value: Double(hours))
         }
     }
 
-    private func moldChart(_ data: [Point]) -> some View {
+    private func dryPoints(_ sensor: Int) -> [Point] {
+        folder.rows.compactMap { row in
+            guard let date = Self.parser.date(from: row.date), sensor < row.dryHours.count,
+                  let hours = row.dryHours[sensor] else { return nil }
+            return Point(id: "\(row.date)-Dry", date: date, series: "Dry", value: Double(hours))
+        }
+    }
+
+    /// Mold hours and, for `daily_v6` rows, dry hours as two bar series beside each other.
+    private func hoursChart(mold: [Point], dry: [Point]) -> some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text("Hours above mold limit").font(.caption).foregroundStyle(.secondary)
-            Chart(data) {
+            Text("Hours above mold limit / at or below dry limit").font(.caption).foregroundStyle(.secondary)
+            Chart(mold + dry) {
                 BarMark(x: .value("Day", $0.date, unit: .day), y: .value("Hours", $0.value))
+                    .foregroundStyle(by: .value("Series", $0.series))
+                    .position(by: .value("Series", $0.series))
             }
             .chartYScale(domain: 0...24)
             .frame(height: 110)
@@ -168,7 +179,8 @@ struct DailyChartView: View {
                             chart("Humidity (%RH)", rh, limits: ChartLimits.humidity(limits))
                         }
                         let mold = moldPoints(sensor)
-                        if !mold.isEmpty { moldChart(mold) } // only daily_v4 rows hold the mold hours
+                        let dry = dryPoints(sensor)
+                        if !mold.isEmpty || !dry.isEmpty { hoursChart(mold: mold, dry: dry) } // mold: daily_v4 and newer, dry: daily_v6
                     }
                 }
                 Text("Noise").font(.headline)
