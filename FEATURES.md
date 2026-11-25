@@ -3417,3 +3417,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The current schedule is the cached `CONFIG` of the moment of the `STATUS` read (`SensorHealthState.measuredConfig`); a later `CONFIG` read does not move it.
 - The firmware does not change; the RTC layout and `STATE_VERSION` do not change.
 - Tests: `RuntimePreviewTest` (doubled `wake_interval_s` gives the macOS value 764, night interval only for the quiet hours, missing runtime and zero awake samples give null, invalid draft gives null, cap and few samples). `scripts/check-protocol-sync.sh` passes. The Gradle tests run in GitHub Actions CI (no Android SDK on the local host). The behavior on a device is not tested.
+
+## Hour window argument for the console command FRSI
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- A short cold night gives fewer than 6 stable hours. The user selects the sample window of the wall factor check.
+- The optional argument `FRSI <R> <W> <H>` takes H 3 to 24 without a leading zero (`SerialCommand::frsi_hours`). `FRSI <R> <W>` stays `FRSI <R> <W> 6` and gives the same bytes.
+- `showFrsi` uses the newest H samples of each history. Fewer than H samples give `SKIP hours=<n>`. The `UNSTABLE` limit 0.10 and the `ERR LOW_DELTA` limit 10 C stay. The reply `hours=` field holds H.
+- H 2, H 25, a leading zero, a non-digit and extra text give `ERR BAD_ARG`. The RTC layout and `STATE_VERSION` do not change.
+- Tests: `testSerialFrsiParser` (default, H 3, 12, 24, bad H), `testSerialFrsiWindow` (3 samples with H 3, `SKIP hours=6` with H 12, equal bytes for the default and H 6, newest samples only, `ERR LOW_DELTA`).
+- Validation on the board: send `FRSI 0 2 3` over USB and check the reply and the `CRC32` line.

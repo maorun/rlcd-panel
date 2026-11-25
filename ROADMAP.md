@@ -22,11 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Hour window argument for the console command FRSI
-  - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/climate_math.h`, `tests/test_firmware_logic.cpp`, `tests/fixtures/frsi_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Let the user select the sample window of the wall factor check. A short cold night gives fewer than 6 stable hours. Add the optional argument `FRSI <R> <W> <H>` (H 3 to 24, no leading zero). `FRSI <R> <W>` stays `FRSI <R> <W> 6`. Use the newest H samples of each history. Give `SKIP hours=<n>` below H samples. Keep the `UNSTABLE` limit 0.10 and the `ERR LOW_DELTA` limit 10 C. Give `ERR BAD_ARG` for 2, 25, a leading zero, a non-digit and extra text. Do not change the RTC layout or `STATE_VERSION`.
-  - **Acceptance:** A host test checks that `FRSI 0 2 3` gives a result from 3 samples. A host test checks that `FRSI 0 2 12` gives `SKIP hours=6` with 6 samples. A host test checks that `FRSI 0 2` gives the same bytes as `FRSI 0 2 6`. A host test rejects `FRSI 0 2 2`, `FRSI 0 2 25` and `FRSI 0 2 06`. A host test rejects `FRSI 0 2 x` and `FRSI 0 2 6 1`. The host unit tests and `arduino-cli compile rlcd_panel` pass.
-  - **Rank:** [Total: 29, Use: 3, Setup: 8, Harmony: 8, Safety: 10, Effort: S]
 - [ ] Open window notification in the macOS app
   - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/WindowWatch.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/WindowWatchTests.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `FEATURES.md`
   - **Goal:** Tell the user when the panel detects an open window. The Android and Wear OS apps have this notification. The macOS app does not. Add `WindowWatch` with the rules of the Kotlin `WindowWatch`. Feed it with the `window` mask of the `STATUS` line `LATCH` (`LatchMetrics`). Post one `UserNotifications` notification `Window open: <name>` for each rising bit. Use the room name of `EventText`. The first read only stores the mask. A missing `window` field keeps the stored mask. Without enabled notifications the watch stays untouched.

@@ -45,7 +45,7 @@ enum class SerialParseStatus : uint8_t {
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CONFIG CHANGED with extra text (CHANGEDX, CHANGED 1); DAYS with 0, above 31, a leading zero, a non-digit, no number or extra text; CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, or with extra text; SELFTEST and TODAY with extra text; SPREAD with a number outside 6 to 24, a leading zero, a non-digit or extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
+  BAD_ARG,  // CONFIG CHANGED with extra text (CHANGEDX, CHANGED 1); DAYS with 0, above 31, a leading zero, a non-digit, no number or extra text; CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, with a window outside 3 to 24, a leading zero, a non-digit or extra text; SELFTEST and TODAY with extra text; SPREAD with a number outside 6 to 24, a leading zero, a non-digit or extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '='); CONFIG <key> with an unknown key
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv, daily_v4_YYYY.csv or events_v1_YYYY.csv
@@ -59,6 +59,7 @@ struct SerialCommand {
   char file[SdLogCodec::LOG_NAME_SIZE] = {0};
   uint8_t reference = 0; // CALIB and SALT: 0 onboard, 1 to 10 a slot; BEEP and ACK: alert bit number 0 to 7; PATTERN: pattern number 0 to 2; MUTE: 0 or 1; SNOOZE: minutes 0 to 720 (uint16 in `minutes`); SLOT CLEAR: slot number 1 to 10
   uint16_t minutes = 0; // SNOOZE: length in minutes 0 to 720
+  uint8_t frsi_hours = 0; // FRSI: sample window H 3 to 24 (6 without the argument)
   uint8_t reference_b = 0; // SLOT SWAP: second slot number 1 to 10; FRSI: wall slot 1 to 10 (`reference` holds the first, the room sensor 0 to 10)
   bool week_one = false; // WEEK: true for "WEEK <N>"; `reference` then holds the sensor 0 to 5
   bool history_one = false; // HISTORY: true for "HISTORY <N>"; `reference` then holds the sensor 0 to 10
@@ -79,7 +80,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "CONFIG <key>", "CONFIG CHANGED", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "SPREAD", "SPREAD 6..24", "TODAY", "TAIL 1..72", "DAYS 1..31", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "CONFIG <key>", "CONFIG CHANGED", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "FRSI 0..10 0..10 3..24", "SPREAD", "SPREAD 6..24", "TODAY", "TAIL 1..72", "DAYS 1..31", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -249,7 +250,8 @@ public:
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "FRSI")) {
-      // exactly "FRSI <R> <W>": R 0 to 10 (room), W 1 to 10 (wall slot), two different numbers, no leading zero
+      // "FRSI <R> <W>" or "FRSI <R> <W> <H>": R 0 to 10 (room), W 1 to 10 (wall slot), two different numbers, no leading zero;
+      // H 3 to 24 (sample window, no leading zero, default 6)
       if (len <= cmd_len + 1 || line[cmd_len] != ' ') {
         return SerialParseStatus::BAD_ARG;
       }
@@ -277,12 +279,30 @@ public:
           --remaining;
         }
       }
-      if (remaining != 0 || numbers[0] == numbers[1] || numbers[1] == 0) {
+      int hours = 6;
+      if (remaining != 0) {
+        // one more number: a space, then 1 or 2 digits without a leading zero
+        if (remaining < 2 || remaining > 3 || p[0] != ' ' || p[1] < '1' || p[1] > '9') {
+          return SerialParseStatus::BAD_ARG;
+        }
+        hours = p[1] - '0';
+        if (remaining == 3) {
+          if (p[2] < '0' || p[2] > '9') {
+            return SerialParseStatus::BAD_ARG;
+          }
+          hours = hours * 10 + (p[2] - '0');
+        }
+        if (hours < 3 || hours > 24) {
+          return SerialParseStatus::BAD_ARG;
+        }
+      }
+      if (numbers[0] == numbers[1] || numbers[1] == 0) {
         return SerialParseStatus::BAD_ARG; // the wall sensor is a slot (1 to 10), never the onboard sensor
       }
       out.kind = SerialCommandKind::FRSI;
       out.reference = static_cast<uint8_t>(numbers[0]);
       out.reference_b = static_cast<uint8_t>(numbers[1]);
+      out.frsi_hours = static_cast<uint8_t>(hours);
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "SCAN")) {
@@ -1191,10 +1211,10 @@ struct SerialStatusSnapshot {
 //   Fewer than 6 samples give "SKIP <name> hours=<n>", a humidity span above 1.0 %RH gives "UNSTABLE <name> span=<x>" (both
 //   with the CRC32 line), a mean temperature outside 10 to 35 C gives "ERR BAD_TEMP". showSalt() works on the RTC history: no
 //   card access, so execute() ignores SALT.
-//   FRSI R W -> "FRSI room=<name> wall=<name> hours=<n> frsi=<x.xx> span=<x.xx> delta_c=<x>", the line "wall_frsi_pct=<N>" (the
-//   mean temperature factor (t_wall - t_out) / (t_room - t_out) of the last 6 hourly samples of R (room, 0 onboard, 1 to 10 a slot),
+//   FRSI R W [H] (H 3 to 24, no leading zero, default 6: the newest H samples of each history count, SKIP hours=<n> below H) -> "FRSI room=<name> wall=<name> hours=<n> frsi=<x.xx> span=<x.xx> delta_c=<x>", the line "wall_frsi_pct=<N>" (the
+//   mean temperature factor (t_wall - t_out) / (t_room - t_out) of the last H (default 6) hourly samples of R (room, 0 onboard, 1 to 10 a slot),
 //   W (a slot on the inner wall surface) and outdoor_slot, in percent, clamped to 50 to 95) and "CRC32 <8 hex digits>". Fewer than
-//   6 samples give "SKIP hours=<n>", a mean difference of room and outdoor below 10 C gives "ERR LOW_DELTA", a factor span above
+//   H samples give "SKIP hours=<n>", a mean difference of room and outdoor below 10 C gives "ERR LOW_DELTA", a factor span above
 //   0.10 (or an hour without a usable factor, "span=--") gives "UNSTABLE span=<x>", no fresh outdoor_slot reading gives
 //   "ERR NO_OUTDOOR", equal sensors, the outdoor slot or a number above 10 give "ERR BAD_ARG". showFrsi() works on the RTC copy:
 //   no card access, no state change, so execute() ignores FRSI. USB and BLE at each ble_console level.
@@ -1579,15 +1599,20 @@ public:
     send(sink, line);
   }
 
-  // Wall surface factor check: the mean of (t_wall - t_out) / (t_room - t_out) over the last FRSI_HOURS hourly samples of the
+  // Wall surface factor check: the mean of (t_wall - t_out) / (t_room - t_out) over the last `window` (3 to 24, default FRSI_HOURS 6) hourly samples of the
   // room sensor, the wall sensor (a slot on the inner wall surface) and the outdoor slot. The card and the state stay untouched.
-  // The samples pair by age: the 6 newest samples of each history count, so a skipped hourly push of one history shifts its age.
+  // The samples pair by age: the H newest samples of each history count, so a skipped hourly push of one history shifts its age.
   static void showFrsi(Sink& sink, uint8_t room, uint8_t wall, const ClimateHistory& history, const DeviceConfig& config,
-                       const SwitchBotRegistry& registry, uint32_t now_ms) {
+                       const SwitchBotRegistry& registry, uint32_t now_ms, uint8_t window = FRSI_HOURS) {
     static const char* const names[ClimateHistory::SLOT_COUNT] = {
         "onboard", "slot1", "slot2", "slot3", "slot4", "slot5",
         "slot6", "slot7", "slot8", "slot9", "slot10"};
     const uint8_t outdoor = config.outdoor_slot;
+    if (window < 3 || window > 24) {
+      send(sink, "ERR BAD_ARG\n");
+      return;
+    }
+    const size_t need = window;
     if (room >= ClimateHistory::SLOT_COUNT || wall >= ClimateHistory::SLOT_COUNT || wall == 0 || room == wall || (outdoor != 0 && (room == outdoor || wall == outdoor))) {
       send(sink, "ERR BAD_ARG\n");
       return;
@@ -1608,7 +1633,7 @@ public:
     hours = hours < t_out.size() ? hours : t_out.size();
     char text[256];
     size_t len = 0;
-    if (hours < FRSI_HOURS) {
+    if (hours < need) {
       len = static_cast<size_t>(snprintf(text, sizeof(text), "SKIP hours=%u\n", static_cast<unsigned>(hours)));
     } else {
       int32_t delta_sum = 0;
@@ -1616,7 +1641,7 @@ public:
       float factor_min = 0.0f;
       float factor_max = 0.0f;
       bool usable = true;
-      for (size_t k = 0; k < FRSI_HOURS; ++k) {
+      for (size_t k = 0; k < need; ++k) {
         const float r = static_cast<float>(t_room.at(t_room.size() - 1 - k)) / 10.0f;
         const float w = static_cast<float>(t_wall.at(t_wall.size() - 1 - k)) / 10.0f;
         const float o = static_cast<float>(t_out.at(t_out.size() - 1 - k)) / 10.0f;
@@ -1631,7 +1656,7 @@ public:
         factor_max = k == 0 || factor > factor_max ? factor : factor_max;
       }
       // The mean difference is checked first: a low difference gives ERR LOW_DELTA also when one hour has no usable factor.
-      const int32_t delta_tenths = static_cast<int32_t>(lroundf(static_cast<float>(delta_sum) / static_cast<float>(FRSI_HOURS)));
+      const int32_t delta_tenths = static_cast<int32_t>(lroundf(static_cast<float>(delta_sum) / static_cast<float>(need)));
       if (delta_tenths < FRSI_MIN_DELTA_TENTHS) {
         send(sink, "ERR LOW_DELTA\n");
         return;
@@ -1646,7 +1671,7 @@ public:
         }
         len = static_cast<size_t>(snprintf(text, sizeof(text), "UNSTABLE span=%s\n", f));
       } else {
-        const int32_t mean = static_cast<int32_t>(lroundf(factor_sum / static_cast<float>(FRSI_HOURS) * 100.0f));
+        const int32_t mean = static_cast<int32_t>(lroundf(factor_sum / static_cast<float>(need) * 100.0f));
         const int32_t pct = mean < 50 ? 50 : (mean > 95 ? 95 : mean);
         char f[3][12];
         formatHundredths(f[0], sizeof(f[0]), mean);
@@ -1654,7 +1679,7 @@ public:
         formatTenths(f[2], sizeof(f[2]), delta_tenths);
         len = static_cast<size_t>(snprintf(text, sizeof(text),
                                            "FRSI room=%s wall=%s hours=%u frsi=%s span=%s delta_c=%s\nwall_frsi_pct=%ld\n",
-                                           names[room], names[wall], static_cast<unsigned>(FRSI_HOURS), f[0], f[1], f[2],
+                                           names[room], names[wall], static_cast<unsigned>(need), f[0], f[1], f[2],
                                            static_cast<long>(pct)));
       }
     }
