@@ -345,8 +345,11 @@ struct PersistentState {
   // Runs DriftLatch::update on the RTC histories. `tile_mask` holds the tiles that count: the caller leaves out empty and
   // stale slots. A tile outside the mask does not count in the median; its bit clears and records one SENSOR_DRIFT event
   // with high byte 0 when it was set, so each drift event pair closes. Fewer than SpreadMath::MIN_SENSORS sensors clear
-  // each bit without an event; any other change of a counted tile records one SENSOR_DRIFT event.
-  void updateDrift(uint16_t tile_mask, const RtcTime& now, const SpreadMath::Limits& limits = SpreadMath::Limits()) {
+  // each bit without an event; any other change of a counted tile records one SENSOR_DRIFT event. The outdoor slot
+  // (`outdoor_slot`, 0 is off) leaves the mask like a stale slot: its bit clears with one closing event.
+  void updateDrift(uint16_t tile_mask, const RtcTime& now, const SpreadMath::Limits& limits = SpreadMath::Limits(),
+                   uint8_t outdoor_slot = 0) {
+    tile_mask = static_cast<uint16_t>(tile_mask & ~SpreadMath::outdoorMask(outdoor_slot));
     const uint16_t previous = drift_tiles;
     SpreadMath::Result r;
     SpreadMath::compute(history, r, tile_mask);

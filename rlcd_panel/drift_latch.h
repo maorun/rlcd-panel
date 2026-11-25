@@ -71,6 +71,12 @@ struct SpreadMath {
   // Bit i of the sensor mask is sensor i (0 onboard, 1 to 10 a slot). Every sensor counts by default.
   static constexpr uint16_t ALL_SENSORS = static_cast<uint16_t>((1u << ClimateHistory::SLOT_COUNT) - 1u);
 
+  // Bit of the outdoor slot (`outdoor_slot` 1 to 10 is sensor bit `outdoor_slot`), 0 for outdoor_slot 0. The outdoor sensor never
+  // sits beside the indoor sensors, so its deviation from the median is no calibration error: callers clear this bit.
+  static uint16_t outdoorMask(uint8_t outdoor_slot) {
+    return outdoor_slot >= 1 && outdoor_slot <= MAX_SWITCHBOT_SENSORS ? static_cast<uint16_t>(1u << outdoor_slot) : 0;
+  }
+
   // Mask of the sensors that count: the onboard sensor and each slot of `registry` that is not stale. A stale slot keeps
   // its old hourly samples, so it would show as a false OUTLIER.
   static uint16_t freshMask(const SwitchBotRegistry& registry, uint32_t now_ms, uint32_t stale_timeout_ms) {

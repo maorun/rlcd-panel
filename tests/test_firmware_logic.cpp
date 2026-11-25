@@ -22963,6 +22963,64 @@ void testSensorDriftLatch() {
     assert(fresh_out.find("SENSOR slot3 temp_dev=2.0 rh_dev=0.0 OUTLIER\n") != std::string::npos);
   }
 
+  // The outdoor slot leaves SPREAD and the drift check
+  {
+    assert(SpreadMath::outdoorMask(0) == 0 && SpreadMath::outdoorMask(3) == 0x0008 && SpreadMath::outdoorMask(10) == 0x0400 &&
+           SpreadMath::outdoorMask(11) == 0);
+    ClimateHistory four;
+    fillSpread(four, 0, 6, 20.0f, 50.0f);
+    fillSpread(four, 1, 6, 20.0f, 50.0f);
+    fillSpread(four, 2, 6, 20.0f, 50.0f);
+    fillSpread(four, 3, 6, 15.0f, 50.0f); // outdoor sensor 5.0 C below
+    fillSpread(four, 4, 6, 20.0f, 50.0f);
+    SwitchBotRegistry reg;
+    for (uint8_t i = 1; i <= 4; ++i) {
+      SwitchBotReading x;
+      x.valid = true;
+      x.mac[5] = i;
+      x.temperature_c = 20.0f;
+      x.humidity_pct = 50;
+      x.updated_ms = 3000000;
+      assert(reg.upsert(x));
+    }
+    DeviceConfig cfg;
+    const uint32_t now = 3000000;
+    // outdoor_slot 0 keeps the old reply
+    std::string old_out = spreadOutput(four, cfg, reg, now);
+    assert(old_out.find("SPREAD sensors=5 ") == 0 && old_out.find("SENSOR slot3 ") != std::string::npos);
+    cfg.outdoor_slot = 3;
+    std::string out = spreadOutput(four, cfg, reg, now);
+    assert(out.find("SPREAD sensors=4 temp_median=20.0 rh_median=50.0\n") == 0);
+    assert(out.find("slot3") == std::string::npos && out.find("OUTLIER") == std::string::npos);
+    // drift latch: the outdoor bit stays clear
+    PersistentState pd;
+    pd.history = four;
+    const RtcTime t1 = localTime(2026, 11, 14, 9, 30);
+    pd.updateDrift(0x001F, t1, SpreadMath::Limits(), 3);
+    assert(pd.drift_tiles == 0 && pd.events.size() == 0);
+    PersistentState pd0;
+    pd0.history = four;
+    pd0.updateDrift(0x001F, t1);
+    assert(pd0.drift_tiles == 0x0008 && pd0.events.size() == 1);
+    // outdoor_slot changes to 3 while bit 3 is set: one closing event
+    pd0.updateDrift(0x001F, t1, SpreadMath::Limits(), 3);
+    assert(pd0.drift_tiles == 0 && pd0.events.size() == 2 && pd0.events.at(1).detail == 0x0003);
+    pd0.updateDrift(0x001F, t1, SpreadMath::Limits(), 3);
+    assert(pd0.events.size() == 2);
+    // 2 indoor sensors and one outdoor sensor: SKIP
+    ClimateHistory three;
+    fillSpread(three, 0, 6, 20.0f, 50.0f);
+    fillSpread(three, 1, 6, 20.0f, 50.0f);
+    fillSpread(three, 2, 6, 10.0f, 50.0f);
+    SwitchBotRegistry reg3;
+    for (uint8_t i = 1; i <= 2; ++i) {
+      SwitchBotReading x = reg.slot(i - 1);
+      assert(reg3.upsert(x));
+    }
+    cfg.outdoor_slot = 2;
+    assert(spreadOutput(three, cfg, reg3, now).find("SKIP sensors=2\n") == 0);
+  }
+
   // SPREAD <H>: window of 6 to 24 hours; DriftLatch keeps 6 hours
   {
     SerialCommand c;
