@@ -1316,7 +1316,7 @@ struct SerialStatusSnapshot {
 //   Each OUTLIER line is followed by one proposal line "<temp_key>=<x> <rh_key>=<x>" (temp_offset_c and rh_offset_pct for the onboard
 //   sensor, slotN_temp_offset_c and slotN_rh_offset_pct for slots 1 to 10): active offset + median - sensor mean (rounded to 0.1),
 //   clamped to the key range; OK sensors have no proposal line.
-//   A stale slot does not count (no SENSOR line, not in sensors= and in the median).
+//   A stale slot does not count (no SENSOR line, not in sensors= and in the median). The outdoor slot (`outdoor_slot`) does not count either.
 //   Fewer than 3 such sensors give "SKIP sensors=<n>" and the CRC32 line, a number outside 6 to 24, a leading zero, a non-digit or extra text gives "ERR BAD_ARG". showSpread() works on
 //   the RTC copy and the registry: no card access, no state change, so execute() ignores SPREAD. USB and BLE at each ble_console level.
 //   TODAY -> "BEGIN TODAY", the header "sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct,mold_h,dry_h" (11 columns), one row for
@@ -1794,7 +1794,7 @@ public:
   // Co-location check: the mean of the last `hours` (6 by default, SPREAD <H> 6 to 24) hourly samples of each sensor with enough temperature and humidity
   // samples, the median of these means and the deviation of each sensor from it. The card and the state stay untouched.
   // A slot that SwitchBotRegistry::isStale reports (with DeviceConfig::staleTimeoutMs()) does not count: it keeps its old hourly
-  // samples, so it has no SENSOR line and is not in sensors= and in the median. An empty slot has no samples and drops out as before.
+  // samples, so it has no SENSOR line and is not in sensors= and in the median. The outdoor slot (`outdoor_slot`) leaves in the same way. An empty slot has no samples and drops out as before.
   // The OUTLIER check uses the exact deviation (sixths of 0.1 units), the printed value rounds to one decimal, so "0.5" can show
   // OUTLIER when the exact deviation is above the limit.
   // All maths run in integers: a sum of `hours` tenths and its doubled median keep the limit checks exact.
@@ -1807,7 +1807,11 @@ public:
         "",       "slot1_", "slot2_", "slot3_", "slot4_", "slot5_",
         "slot6_", "slot7_", "slot8_", "slot9_", "slot10_"};
     SpreadMath::Result r;
-    SpreadMath::compute(history, r, SpreadMath::freshMask(registry, now_ms, config.staleTimeoutMs()), hours);
+    // The outdoor slot never sits beside the indoor sensors: it has no SENSOR line and is not in sensors=.
+    SpreadMath::compute(history, r,
+                        static_cast<uint16_t>(SpreadMath::freshMask(registry, now_ms, config.staleTimeoutMs()) &
+                                              ~SpreadMath::outdoorMask(config.outdoor_slot)),
+                        hours);
     const SpreadMath::Limits limits = SpreadMath::Limits::fromConfig(config);
     const size_t count = r.count;
     const int32_t hours2 = 2 * static_cast<int32_t>(r.hours);
