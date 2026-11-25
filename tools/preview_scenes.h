@@ -34,9 +34,10 @@ struct PreviewScene {
   bool wall = false;          // cold outer wall: the onboard tile and slot 1 show the "C" badge
   bool identify = false;      // console command IDENTIFY: white text on black ("RLCD 3F2A", version, transport)
   bool weak = false;          // weak BLE signal: slot 1 shows the "R" badge
+  bool drift = false;         // sensor drift: the onboard tile and slot 1 show the "S" badge
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 22;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 23;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
@@ -61,6 +62,7 @@ constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_wall", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, false, false, false, true},
     {"display_preview_identify", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, false, false, false, false, true},
     {"display_preview_weak_signal", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, false, false, false, false, false, true},
+    {"display_preview_drift", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, false, false, false, false, false, false, true},
 };
 
 // Renders one mode with the fixed sample data used for all documentation previews.
@@ -68,7 +70,8 @@ inline void renderScene(
     St7305Framebuffer& fb, DisplayMode mode, bool low_battery, bool quiet_hours = false,
     bool long_runtime = false, bool battery_empty = false, bool ventilate = false,
     bool invert = false, uint8_t tiles = 0, uint8_t stats_page = 0, bool dry = false,
-    bool muted = false, bool window = false, bool wall = false, bool identify = false, bool weak = false) {
+    bool muted = false, bool window = false, bool wall = false, bool identify = false, bool weak = false,
+    bool drift = false) {
   if (identify) {
     DashboardView::renderIdentify(fb, 0x3F2A, "1.0.0", "USB");
     return;
@@ -279,6 +282,9 @@ inline void renderScene(
   }
   if (weak) {
     info.reception_low = 0x1; // slot 1 receives under half of the scans
+  }
+  if (drift) {
+    info.drift_tiles = 0x3; // the onboard tile and slot 1 drift from the median
   }
   info.sensor_battery_latch = SensorBatteryLatch::update(0, slots, MAX_SWITCHBOT_SENSORS, now_ms, DeviceConfig::DEFAULT_SENSOR_BATTERY_LIMIT_PCT);
   info.config_from_sd = true;

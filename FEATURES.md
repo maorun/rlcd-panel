@@ -3333,3 +3333,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `SpreadApply.proposalFor` accepts only a temperature offset key and a humidity offset key with values in the firmware range (`CalibrationKeys.validate`). `Senden` runs `SpreadApply.batch` (`CalibrationBatch`): the `SET` commands of `SpreadReply.Proposal`, temperature first, then `CONFIG`. After success `SPREAD` runs again. The first `ERR` stops the batch and shows its text.
 - `ERR READ_ONLY` (`ble_console` 1) shows `Nur lesen` and hides the chips. The shared files `SpreadReply.kt` and `CalibrationBatch.kt` stay equal to `android/RlcdPhone`; `SpreadApply.kt` exists only on the watch.
 - Validation: `SpreadReplyTest` has 9 new tests (the `SET` commands of the fixture proposal, no commands for an `OK` row, pairing of two outliers, the full batch, the stop after `ERR READ_ONLY`, the stop after another `ERR`, the key and range check of a proposal). They run in CI only (no Android SDK on the local host). `./scripts/check-protocol-sync.sh` exits with 0.
+
+## Sensor drift badge in the climate tiles
+
+- A tile draws the inverted badge `S` while its bit is set in `PersistentState::drift_tiles` (bit 0 is the onboard tile, bits 1 to 10 are the slots). The user sees a drifting sensor on the panel without an app.
+- The badge sits in the STANDARD, LARGE and COMPACT tile styles, beside the `V`, `D`, `W`, `C` and `R` badges (same 10 px steps, order `V`, `D`, `W`, `C`, `R`, `S`). A stale tile draws no `S` badge, so the `STALE` badge stays readable. The tile text does not change.
+- `SystemInfo::drift_tiles` carries the RTC copy to `DashboardView::render` (new last parameter `drift_tiles`); `rlcd_panel.ino` fills it from `g_state.drift_tiles`. The RTC layout and `STATE_VERSION` do not change. A mask of 0 gives the same frames as before.
+- **Preview:** `docs/display_preview_drift.png` shows the badge on the onboard tile and on slot 1 (scene field `PreviewScene::drift`, `PREVIEW_SCENE_COUNT` 23).
+- Host test `testDriftBadge` asserts the badge pixels in each tile style, the shift beside the `V` and `R` badges, the stale tile, a clear bit, the tile of each bit in the 4-tile layout and the preview scene. The test fails without the badge code.
