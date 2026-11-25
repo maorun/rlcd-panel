@@ -27,7 +27,7 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
     }
 
     @Test func windowWatchReportsOnlyNewOpenEvents() {
-        var watch = WindowWatch()
+        var watch = WindowEventWatch()
         let old = row("WINDOW_OPEN", 0x101)
         #expect(watch.newOpenTiles([old]).isEmpty)
         let opened = EventRow(time: "2026-11-14 10:05:00", event: "WINDOW_OPEN", detail: 0x102)
@@ -37,7 +37,7 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
     }
 
     @Test func windowWatchSkipsAnOpenRowThatALaterRowClosed() {
-        var watch = WindowWatch()
+        var watch = WindowEventWatch()
         _ = watch.newOpenTiles([])
         let open1 = EventRow(time: "2026-11-14 10:05:00", event: "WINDOW_OPEN", detail: 0x101)
         let close1 = EventRow(time: "2026-11-14 10:09:00", event: "WINDOW_OPEN", detail: 0x001)
@@ -46,7 +46,7 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
     }
 
     @Test func windowWatchCountsEqualRowsWithEmptyTimeOnce() {
-        var watch = WindowWatch()
+        var watch = WindowEventWatch()
         let open = EventRow(time: "", event: "WINDOW_OPEN", detail: 0x101)
         _ = watch.newOpenTiles([open])
         #expect(watch.newOpenTiles([open]).isEmpty)

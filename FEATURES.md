@@ -3427,3 +3427,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - H 2, H 25, a leading zero, a non-digit and extra text give `ERR BAD_ARG`. The RTC layout and `STATE_VERSION` do not change.
 - Tests: `testSerialFrsiParser` (default, H 3, 12, 24, bad H), `testSerialFrsiWindow` (3 samples with H 3, `SKIP hours=6` with H 12, equal bytes for the default and H 6, newest samples only, `ERR LOW_DELTA`).
 - Validation on the board: send `FRSI 0 2 3` over USB and check the reply and the `CRC32` line.
+
+## Open window latch notification in the macOS app
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/WindowWatch.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/EventText.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/WindowWatchTests.swift`
+- `WindowWatch.update(mask:)` follows the rules of the Kotlin `WindowWatch`: the first read only stores the mask, a rising bit gives its tile (0 onboard, 1 to 10 slots), an equal mask and a falling bit give no tile, and a `nil` mask (older firmware) keeps the stored mask. `WindowWatch.notificationBody` gives `Window open: <name>` with `EventText.roomName`.
+- `AppModel.checkWindowLatchNotifications` feeds it with `LatchMetrics.window` after each `STATUS` reply and posts one notification for each rising tile (identifier `rlcd_panel_window_<tile>`). The watch runs also while notifications are off, so a later switch-on does not replay a rise. `clearPanelData` resets it for a new panel.
+- The old event list watch `WindowWatch` in `EventText.swift` is now `WindowEventWatch` (same rules, no change). Both paths use the identifier `rlcd_panel_window_<tile>`, so a window that both a `STATUS` reply and an event list report shows one notification (the later text replaces the earlier text). Each post can still play the sound, so one window can sound twice; this is accepted.
+- Tests: `WindowWatchTests` (7 tests) cover the first mask, a rising bit once, an equal mask, a falling bit, a `nil` mask, a bit above tile 10 and the body text. They run in CI (the local host lacks TestingMacros). `swift build -c release` passes locally.
