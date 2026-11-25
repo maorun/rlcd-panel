@@ -71,6 +71,7 @@ import com.rlcdpanel.phone.protocol.DriftWatch
 import com.rlcdpanel.phone.protocol.WallText
 import com.rlcdpanel.phone.protocol.DiagnosticsReport
 import com.rlcdpanel.phone.protocol.EventCsv
+import com.rlcdpanel.phone.protocol.ReceptionNotice
 import com.rlcdpanel.phone.protocol.RejectsLog
 import com.rlcdpanel.phone.protocol.EventRow
 import com.rlcdpanel.phone.protocol.EventsReply
@@ -129,6 +130,7 @@ class MainActivity : ComponentActivity() {
     private val wallWatch = WallWatch()
     private val windowWatch = WindowWatch()
     private val driftWatch = DriftWatch()
+    private val receptionNotice = ReceptionNotice()
     private var panelConfig by mutableStateOf(PanelConfig())
 
     private var pendingConsoleCommand = CONSOLE_STATUS
@@ -1480,6 +1482,7 @@ class MainActivity : ComponentActivity() {
             val status = StatusReply.parse(reply.lines)
             checkWindowNotifications(status)
             checkDriftNotifications(status)
+            checkReceptionNotifications(status)
             chimeState.copy(
                 isBusy = false, isError = false, muted = status.muted ?: expected,
                 reminder = status.chime?.let { ChimeText.reminder(it) },
@@ -2045,6 +2048,7 @@ class MainActivity : ComponentActivity() {
                 val status = StatusReply.parse(reply.lines)
                 checkWindowNotifications(status)
                 checkDriftNotifications(status)
+                checkReceptionNotifications(status)
                 val limit = panelConfig.values["sensor_battery_limit_pct"]?.toDoubleOrNull()
                 SensorHealthState(rows = SensorHealth.rows(status, limit), ntp = status.ntp, sdFreeMb = status.sdFreeMb, reset = status.reset, shtc3 = status.shtc3, memory = status.memory, rtc = status.rtc, noise = status.noise, runtime = status.runtime, awake = status.awake, status = status).also { s ->
                     sourceBadges = s.rows.mapNotNull { r -> r.badge?.let { r.slot to it } }.toMap()
@@ -2255,6 +2259,17 @@ class MainActivity : ComponentActivity() {
                 title = "RLCD Alarm",
                 message = WindowWatch.message(panelConfig.tileName(tileIndex)),
                 notificationId = WindowWatch.notificationId(tileIndex)
+            )
+        }
+    }
+
+    /** Posts one notification for each weak signal bit of `LATCH` that rose since the previous `STATUS` read. */
+    private fun checkReceptionNotifications(status: StatusReply) {
+        for (notice in receptionNotice.plan(status, panelConfig.tileNames)) {
+            postVentilationNotification(
+                title = "RLCD Alarm",
+                message = notice.message,
+                notificationId = notice.notificationId
             )
         }
     }
