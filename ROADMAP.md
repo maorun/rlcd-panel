@@ -19,13 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-## Priority 2: Configuration and Control (Score 28–33)
-
-- [ ] Config key freeze_alert_delay_h for the freezer alert
-  - **Location:** `rlcd_panel/device_config.h`, `rlcd_panel/audio_alert.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `docs/config.example.ini`, `tests/fixtures/config_backup_sample.ini`, `tests/test_firmware_logic.cpp`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigSchema.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigSchema.kt`, the `ConfigBackup` and `EventText` files of the three apps, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Stop a freezer chime for a short cold air stream, for example an open freezer door. Add the key `freeze_alert_delay_h` (0 is off, else 1 to 12 h, default 0) as 1 byte at the end of the config trailer after `heat_alert_delay_h`. Add `AlertLimits::freeze_delay_h`. `AlertEvaluator::Tally::add` raises `ALERT_FREEZER` for a tile only when the live reading is at or below `freeze_alert_limit_c` and the newest N hourly temperature samples of the tile (`TemperatureHistory::newestAtOrBelow`, new) are at or below the limit. Fewer than N samples or a delay without a history pointer give no rise. Keep the hold and release rules. Add the key to `KEYS`, the template and the three app schemas. `KEY_COUNT` becomes 105. Increase `STATE_VERSION` by 1.
-  - **Acceptance:** A host test checks no `ALERT_FREEZER` with delay 3 and 2 cold samples. A host test checks the rise with 3 cold samples. A host test checks that a sample above the limit among the newest 3 gives no rise. A host test checks that delay 0 keeps the old rise. A host test checks that 13 is a rejected line. `testConfigExampleTemplateInSync` passes. `ConfigSchemaTests` and the Kotlin `ConfigSchemaTest` pass. `scripts/check-protocol-sync.sh` passes. The host test suite passes. `arduino-cli compile rlcd_panel` passes.
-  - **Rank:** [Total: 32, Use: 7, Setup: 7, Harmony: 9, Safety: 9, Effort: M]
 
 
 - [ ] Add ReceptionReply.kt to the protocol sync check

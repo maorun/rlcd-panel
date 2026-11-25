@@ -63,6 +63,9 @@ struct AlertLimits {
   // heat_alert_delay_h: ALERT_HEAT rises for a tile only when the newest N hourly temperature and humidity
   // pairs of its history also give a feels-like value at or above the limit. 0 = off. Uses `history` too.
   uint8_t heat_delay_h = 0;
+  // freeze_alert_delay_h: ALERT_FREEZER rises for a tile only when the newest N hourly temperature samples
+  // of its history are also at or below the limit. 0 = off. Uses `history` too.
+  uint8_t freeze_delay_h = 0;
   const ClimateHistory* history = nullptr;
 
   float heatReleaseC() const { return heat_trigger_c - HEAT_HYSTERESIS_C; }
@@ -360,11 +363,25 @@ private:
       return true;
     }
 
+    // True when the freeze delay allows a rise of the tile: delay 0, or the newest N hourly temperature
+    // samples are all at or below the limit. Keep the guards identical to delayPassed above.
+    bool freezeDelayPassed(size_t tile) const {
+      if (limits.freeze_delay_h == 0) {
+        return true;
+      }
+      if (limits.history == nullptr || tile >= ClimateHistory::SLOT_COUNT) {
+        return false;
+      }
+      // A sample is stored rounded to 0.1 C; compare in the same unit, rounded down for a limit between steps.
+      const int16_t limit_tenths = static_cast<int16_t>(floorf(limits.freezer_trigger_c * 10.0f + 0.001f)); // the small bias absorbs float error at an exact step
+      return limits.history->temperatures[tile].newestAtOrBelow(limits.freeze_delay_h, limit_tenths);
+    }
+
     void add(float temperature_c, float humidity_pct, size_t tile) {
       have_temperature = have_temperature || !isnan(temperature_c);
       have_humidity = have_humidity || !isnan(humidity_pct);
       if (!isnan(temperature_c)) {
-        cold_trigger = cold_trigger || temperature_c < limits.freezer_trigger_c;
+        cold_trigger = cold_trigger || (temperature_c < limits.freezer_trigger_c && freezeDelayPassed(tile));
         cold_hold = cold_hold || temperature_c < limits.freezerReleaseC();
       }
       const float feels = ClimateMath::heatIndexC(temperature_c, humidity_pct);
