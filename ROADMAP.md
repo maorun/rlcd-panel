@@ -26,12 +26,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 ## Priority 3: Display and Logging (Score 22–27)
 
 
-- [ ] Room picker for the macOS today view
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/TodayReplyTests.swift`, `FEATURES.md`
-  - **Goal:** Read the day range of one room with a short BLE reply. Add `ConsoleCommand.todaySensor(Int)` with the line `TODAY <N>` for 0 to 10. Give no line for another number. Add a room picker with `All` and the tile names to the `Today` group of `DiagnosticsView`. Send `TODAY` again after `ERR BAD_ARG` from an older firmware. Then keep only the row of the selected room.
-  - **Acceptance:** A unit test checks the lines `TODAY 3` and `TODAY`. A unit test checks that 11 and -1 give no line. A unit test checks the fallback decision for `ERR BAD_ARG`. A unit test parses `tests/fixtures/today_one_reply_sample.txt`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-  - **Rank:** [Total: 25, Use: 5, Setup: 3, Harmony: 7, Safety: 10, Effort: S]
-
 
 
 ## Rules for ranking

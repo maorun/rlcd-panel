@@ -381,6 +381,19 @@ public enum TodayReply {
         }
     }
 
+    /// The command to send again after an `ERR` reply to `cmd`: plain `TODAY` after `ERR BAD_ARG` for `TODAY N`
+    /// (a firmware without the argument), else `nil`. The caller then keeps only the selected row (`keepOnly`).
+    public static func retryAfterError(_ cmd: ConsoleCommand, text: String) -> ConsoleCommand? {
+        guard case .todaySensor = cmd, text == "ERR BAD_ARG" else { return nil }
+        return .today
+    }
+
+    /// The rows of `sensor` only; `nil` keeps all rows.
+    public static func keepOnly(_ rows: [TodayRow], sensor: Int?) -> [TodayRow] {
+        guard let sensor else { return rows }
+        return rows.filter { $0.sensor == sensor }
+    }
+
     /// Clear text for the error replies of `TODAY`; other text stays as it is.
     public static func message(_ reply: String) -> String {
         switch reply {
@@ -655,6 +668,8 @@ public enum ConsoleCommand: Equatable {
     case days(Int)
     /// `TODAY`: minimum, maximum and mean of each sensor since local midnight (RTC copy only, USB and BLE).
     case today
+    /// `TODAY N` (N 0 to 10): the row of one sensor only. An older firmware answers `ERR BAD_ARG`.
+    case todaySensor(Int)
 
     /// Smallest and largest window of `SPREAD` in hours.
     public static let spreadMinHours = 6
@@ -779,6 +794,7 @@ public enum ConsoleCommand: Equatable {
             guard (ConsoleCommand.spreadMinHours...ConsoleCommand.spreadMaxHours).contains(hours) else { return nil }
             return hours == ConsoleCommand.spreadMinHours ? "SPREAD" : "SPREAD \(hours)"
         case .today: return "TODAY"
+        case let .todaySensor(n): return (0...10).contains(n) ? "TODAY \(n)" : nil
         case let .tail(rows): return (1...72).contains(rows) ? "TAIL \(rows)" : nil
         case let .days(rows): return (1...31).contains(rows) ? "DAYS \(rows)" : nil
         case .config: return "CONFIG"

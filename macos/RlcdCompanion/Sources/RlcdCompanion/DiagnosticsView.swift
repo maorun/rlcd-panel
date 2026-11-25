@@ -165,8 +165,17 @@ struct DiagnosticsView: View {
     /// Row count picker, read button and the newest climate rows. Sends `TAIL` only on the button.
     private var todayBox: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Button("Read today") { model.readToday() }
-                .disabled(!model.canCopyReport)
+            HStack(spacing: 8) {
+                Picker("Room", selection: $model.todayRoom) {
+                    Text("All").tag(Int?.none)
+                    ForEach(0...10, id: \.self) { i in
+                        Text(model.config?.name(forSlot: i) ?? (i == 0 ? "Onboard" : "Slot \(i)")).tag(Int?.some(i))
+                    }
+                }
+                .frame(maxWidth: 200)
+                Button("Read today") { model.readToday() }
+                    .disabled(!model.canCopyReport)
+            }
             if let rows = model.today {
                 if rows.isEmpty {
                     Text("No sensor holds a sample.").font(.caption).foregroundStyle(.secondary)
