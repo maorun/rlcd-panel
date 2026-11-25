@@ -298,9 +298,17 @@ public struct FrsiReply: Equatable, Sendable {
 
     /// Result of a one-line reply (`.status`): `ERR LOW_DELTA` and `ERR NO_OUTDOOR` give a reply for the view and no
     /// message; any other line gives no reply and the message text (`errorText`).
-    public static func statusResult(_ text: String) -> (reply: FrsiReply?, message: String?) {
+    /// `hours` is the window of the request: `ERR BAD_ARG` of `FRSI R W <H>` (not 6 hours) means a firmware
+    /// without the hour argument, because the app sends only valid sensors.
+    public static func statusResult(_ text: String, hours: Int = ConsoleCommand.frsiDefaultHours) -> (reply: FrsiReply?, message: String?) {
         if let reply = try? parse(lines: [text]) { return (reply, nil) }
+        if text == "ERR BAD_ARG", hours != ConsoleCommand.frsiDefaultHours { return (nil, ConsoleCommand.spreadFirmwareText) }
         return (nil, errorText(text))
+    }
+
+    /// Text of a `SKIP hours=<n>` reply: the samples the firmware has against the requested window.
+    public static func skipText(hours: Int, requested: Int) -> String {
+        "\(hours) of \(requested) h, too few samples (\(requested) needed)"
     }
 
     /// Text for the one-line error replies of `FRSI`; other text stays as it is.
