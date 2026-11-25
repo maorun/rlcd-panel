@@ -3720,3 +3720,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `scripts/check-protocol-sync.sh` compares `TodayCommand.kt` with the watch copy.
 - Tests: `TodayCommandTest` covers the lines `TODAY 3` and `TODAY`, the numbers 11 and -1, the fallback decision, `select` and `tests/fixtures/today_one_reply_sample.txt`.
 - Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
+
+## Hour window picker for the Wear OS wall factor screen
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/FrsiReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/FrsiApply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/FrsiScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/FrsiReplyTest.kt`, `scripts/check-protocol-sync.sh`
+- The user selects the sample window of the wall factor check on the watch. The chip `Fenster` of `FrsiScreen` changes the window in the order 3 h, 6 h, 12 h, 24 h and then 3 h again. The start value is 6 h.
+- `FrsiReply.kt` is now a copy of the Android file. It holds `FrsiCommand.DEFAULT_HOURS` (6), `MIN_HOURS` (3), `MAX_HOURS` (24) and `HOUR_CHOICES`. `FrsiCommand.line(room, wall, hours)` gives `FRSI <R> <W>` for 6 hours and `FRSI <R> <W> <H>` for each other window. A number below 3 or above 24 throws `IllegalArgumentException` and sends no line.
+- `FrsiReply.kt` is in the `FILES` list of `scripts/check-protocol-sync.sh`. The watch-only parts `FrsiApply` and `FrsiApply.parseBytes` moved to `FrsiApply.kt`, because the sync check needs equal files.
+- `FrsiText.outcome(reply, hours)` shows the needed hours in the `SKIP` text. `FrsiText.status(line, hours)` adds a firmware update hint to `ERR BAD_ARG` for a window other than 6 h, because an older firmware does not know the argument.
+- A change of the window clears the last reply and the confirmation. The `Senden` chip cannot apply a reply of another window.
+- Tests: `FrsiScreenTextTest` checks the picker order. `FrsiReplyTest` checks the lines `FRSI 0 2` and `FRSI 0 2 12`, the hours 2 and 25 (no line), the `SKIP` and `ERR BAD_ARG` texts and `tests/fixtures/frsi_reply_sample.txt`.
+- Validation: `scripts/check-protocol-sync.sh` and `scripts/check-protocol-sync.sh --self-test` exit 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.

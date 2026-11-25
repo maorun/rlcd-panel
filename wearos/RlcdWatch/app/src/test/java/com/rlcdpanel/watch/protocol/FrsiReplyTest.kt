@@ -14,7 +14,7 @@ class FrsiReplyTest {
 
     @Test
     fun sharedFixtureGivesFactorAndProposal() {
-        val r = FrsiReply.parseBytes(Fixtures.file("frsi_reply_sample.txt").readBytes())
+        val r = FrsiApply.parseBytes(Fixtures.file("frsi_reply_sample.txt").readBytes())
         val m = (r.outcome as FrsiReply.Outcome.Measured).measurement
         assertEquals("onboard", m.room)
         assertEquals("slot2", m.wall)
@@ -47,24 +47,44 @@ class FrsiReplyTest {
 
     @Test
     fun errorStatusLineIsNoFrame() {
-        assertThrows(ParseException::class.java) { FrsiReply.parseBytes("ERR LOW_DELTA\n".toByteArray()) }
+        assertThrows(ParseException::class.java) { FrsiApply.parseBytes("ERR LOW_DELTA\n".toByteArray()) }
     }
 
     @Test
     fun equalRoomAndWallThrow() {
         assertThrows(IllegalArgumentException::class.java) { FrsiCommand.line(2, 2) }
         assertEquals("FRSI 0 2", FrsiCommand.line(0, 2))
+        assertEquals("FRSI 0 2", FrsiCommand.line(0, 2, 6))
+        assertEquals("FRSI 0 2 12", FrsiCommand.line(0, 2, 12))
         for ((r, w) in listOf(0 to 0, 0 to 11, 11 to 1, 1 to 0)) {
             assertThrows(IllegalArgumentException::class.java) { FrsiCommand.line(r, w) }
         }
     }
 
     @Test
+    fun hoursOutsideTheRangeThrow() {
+        for (h in listOf(2, 25, 0, -1)) {
+            assertThrows(IllegalArgumentException::class.java) { FrsiCommand.line(0, 2, h) }
+        }
+        assertEquals("FRSI 0 2 3", FrsiCommand.line(0, 2, 3))
+        assertEquals("FRSI 0 2 24", FrsiCommand.line(0, 2, 24))
+        assertEquals(listOf(3, 6, 12, 24), FrsiCommand.HOUR_CHOICES)
+    }
+
+    @Test
+    fun skipAndBadArgTextsNameTheWindow() {
+        assertTrue(FrsiText.outcome(parse("SKIP hours=4"), 12).contains("12 h"))
+        assertTrue(FrsiText.outcome(parse("SKIP hours=4")).contains("6 h"))
+        assertTrue(!FrsiText.status("ERR BAD_ARG").contains("Update"))
+        assertTrue(FrsiText.status("ERR BAD_ARG", 12).contains("Update"))
+    }
+
+    @Test
     fun badCrcLineThrows() {
         val text = Fixtures.file("frsi_reply_sample.txt").readText().replace("CRC32 9843400e", "CRC32 00000000")
-        assertThrows(ParseException::class.java) { FrsiReply.parseBytes(text.toByteArray()) }
+        assertThrows(ParseException::class.java) { FrsiApply.parseBytes(text.toByteArray()) }
         val noCrc = text.substringBefore("CRC32")
-        assertThrows(ParseException::class.java) { FrsiReply.parseBytes(noCrc.toByteArray()) }
+        assertThrows(ParseException::class.java) { FrsiApply.parseBytes(noCrc.toByteArray()) }
     }
 
     @Test
