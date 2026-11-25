@@ -1,10 +1,13 @@
 package com.rlcdpanel.phone
 
 import com.rlcdpanel.phone.protocol.DaysReply
+import com.rlcdpanel.phone.protocol.DaysRow
+import com.rlcdpanel.phone.protocol.DaysSensor
 import com.rlcdpanel.phone.protocol.Fixtures
 import com.rlcdpanel.phone.protocol.MoldRoomSummary
 import com.rlcdpanel.phone.protocol.PanelConfig
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -40,5 +43,24 @@ class DaysMoldCardsTest {
         val cards = DaysMoldCards.cards(DaysReply.parse(lines), PanelConfig())
         assertEquals(1, cards.size)
         assertEquals(listOf("Keine Schimmelstunden"), DaysMoldCards.lines(cards[0]))
+    }
+
+    private fun sensorWith(dry: Int?) = DaysSensor(null, null, null, null, 0, dry)
+
+    private fun dayRow(date: String, dry: Int?) =
+        DaysRow(date, List(DaysReply.SENSOR_COUNT) { if (it == 0) sensorWith(dry) else sensorWith(null) })
+
+    @Test
+    fun dryLineSumsTheDryHours() {
+        val rows = listOf(dayRow("2026-01-01", 3), dayRow("2026-01-02", null), dayRow("2026-01-03", 5))
+        assertEquals("Trocken 8 h", DaysMoldCards.dryLine(rows, 0))
+        assertEquals("Trocken 0 h", DaysMoldCards.dryLine(listOf(dayRow("2026-01-01", 0)), 0))
+    }
+
+    @Test
+    fun dryLineIsNullWithoutDryValue() {
+        assertNull(DaysMoldCards.dryLine(listOf(dayRow("2026-01-01", null)), 0))
+        assertNull(DaysMoldCards.dryLine(listOf(dayRow("2026-01-01", 4)), 1))
+        assertNull(DaysMoldCards.dryLine(emptyList(), 0))
     }
 }

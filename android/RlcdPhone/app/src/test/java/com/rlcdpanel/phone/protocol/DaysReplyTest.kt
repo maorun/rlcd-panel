@@ -8,8 +8,8 @@ import org.junit.Test
 
 class DaysReplyTest {
     /** A row: onboard 18.0 to 24.5 C, 40.0 to 55.5 %RH, mold 3 h; slot 1 with -3.5 to 2.0 C only. */
-    private fun row(date: String = "2026-01-02", onboardMold: String = "3"): String {
-        val c = MutableList(DaysReply.COLUMNS) { "" }
+    private fun row(date: String = "2026-01-02", onboardMold: String = "3", columns: Int = DaysReply.COLUMNS): String {
+        val c = MutableList(columns) { "" }
         c[0] = date
         c[1] = "18.0"; c[2] = "24.5"; c[3] = "21.2"; c[4] = "40.0"; c[5] = "55.5"; c[6] = "47.8"
         c[7] = "-3.5"; c[8] = "2.0"
@@ -19,10 +19,90 @@ class DaysReplyTest {
 
     private fun reply(vararg rows: String) = listOf("BEGIN DAYS ${rows.size}", DaysReply.HEADER) + rows
 
+    private fun replyV5(vararg rows: String) = listOf("BEGIN DAYS ${rows.size}", DaysReply.HEADER_V5) + rows
+
+    /** First dry column of sensor 0. */
+    private val dryFirst = DaysReply.COLUMNS_V5
+
     @Test
-    fun headerHas83Columns() {
+    fun headersHave94And83Columns() {
+        assertEquals(94, DaysReply.COLUMNS)
+        assertEquals(83, DaysReply.COLUMNS_V5)
         assertEquals(DaysReply.COLUMNS, DaysReply.HEADER.split(",").size)
+        assertEquals(DaysReply.COLUMNS_V5, DaysReply.HEADER_V5.split(",").size)
         assertEquals(DaysReply.COLUMNS, row().split(",").size)
+        assertTrue(DaysReply.HEADER.startsWith(DaysReply.HEADER_V5 + ",dry_h_0,"))
+        assertTrue(DaysReply.HEADER.endsWith(",dry_h_10"))
+    }
+
+    @Test
+    fun parsesDryHoursOfASensor() {
+        val c = row().split(",").toMutableList()
+        c[dryFirst + 2] = "5"
+        c[dryFirst] = "0"
+        val r = DaysReply.parse(reply(c.joinToString(","))).single()
+        assertEquals(0, r.sensors[0].dryHours)
+        assertNull(r.sensors[1].dryHours)
+        assertEquals(5, r.sensors[2].dryHours)
+        assertEquals(false, r.sensors[2].isEmpty)
+    }
+
+    @Test
+    fun emptyDryFieldIsNull() {
+        val r = DaysReply.parse(reply(row())).single()
+        r.sensors.forEach { assertNull(it.dryHours) }
+    }
+
+    @Test
+    fun daily5ReplyHasNullDryHours() {
+        val r = DaysReply.parse(replyV5(row(columns = DaysReply.COLUMNS_V5))).single()
+        assertEquals(DaysSensor(18.0, 24.5, 40.0, 55.5, 3), r.sensors[0])
+        r.sensors.forEach { assertNull(it.dryHours) }
+    }
+
+    @Test
+    fun rowWith93ColumnsUnderTheV6HeaderThrows() {
+        assertThrows(ParseException::class.java) { DaysReply.parse(reply(row(columns = 93))) }
+        // A v6 row under the v5 header and a v5 row under the v6 header are both wrong.
+        assertThrows(ParseException::class.java) { DaysReply.parse(replyV5(row())) }
+        assertThrows(ParseException::class.java) { DaysReply.parse(reply(row(columns = DaysReply.COLUMNS_V5))) }
+    }
+
+    @Test
+    fun badDryValuesThrow() {
+        for (bad in listOf("25", "x", "-1", "007")) {
+            val c = row().split(",").toMutableList()
+            c[dryFirst] = bad
+            assertThrows(ParseException::class.java) { DaysReply.parse(reply(c.joinToString(","))) }
+        }
+    }
+
+    @Test
+    fun v6FixtureParsesWithEmptyDryFields() {
+        val lines = Fixtures.file("days_reply_v6_sample.txt").readLines().filter { !it.startsWith("CRC32") }
+        val rows = DaysReply.parse(lines)
+        assertEquals(3, rows.size)
+        rows.forEach { r ->
+            assertEquals(DaysSensor(18.0, 24.5, 40.0, 55.5, null), r.sensors[0])
+            r.sensors.forEach { assertNull(it.dryHours) }
+        }
+    }
+
+    @Test
+    fun v6FixtureCrcMatches() {
+        val text = Fixtures.file("days_reply_v6_sample.txt").readText()
+        val lines = text.lines().filter { it.isNotEmpty() && !it.startsWith("CRC32") }
+        assertEquals(ConsoleReply.Frame(lines), ReplyAssembler().append(text.toByteArray()))
+    }
+
+    @Test
+    fun csvHasADryColumn() {
+        val c = row().split(",").toMutableList()
+        c[dryFirst] = "4"
+        val lines = DaysReply.csv(DaysReply.parse(reply(c.joinToString(","))), PanelConfig()).trim().lines()
+        assertEquals("date,sensor,name,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h,dry_h", lines[0])
+        assertTrue(lines[1].endsWith("18.0,24.5,40.0,55.5,3,4"))
+        assertTrue(lines[2].endsWith("-3.5,2.0,,,,"))
     }
 
     @Test
@@ -92,11 +172,11 @@ class DaysReplyTest {
     fun csvHasOneLinePerSensorWithData() {
         val rows = DaysReply.parse(reply(row()))
         val lines = DaysReply.csv(rows, PanelConfig()).trim().lines()
-        assertEquals("date,sensor,name,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h", lines[0])
+        assertEquals("date,sensor,name,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h,dry_h", lines[0])
         assertEquals(3, lines.size)
         assertTrue(lines[1].startsWith("2026-01-02,0,"))
-        assertTrue(lines[1].endsWith("18.0,24.5,40.0,55.5,3"))
-        assertTrue(lines[2].endsWith("-3.5,2.0,,,"))
+        assertTrue(lines[1].endsWith("18.0,24.5,40.0,55.5,3,"))
+        assertTrue(lines[2].endsWith("-3.5,2.0,,,,"))
     }
 
     private fun fixtureLines(): List<String> =

@@ -93,6 +93,12 @@ object DaysMoldCards {
             "Tage mit Schimmel: ${MoldSummary.daysText(room)}",
             "Schlimmster Tag: ${MoldSummary.worstText(room)}"
         )
+
+    /** `Trocken <N> h` (sum of the dry hours of [sensor] over [rows]), or null when no row holds a dry value. */
+    fun dryLine(rows: List<DaysRow>, sensor: Int): String? {
+        val hours = rows.mapNotNull { it.sensors[sensor].dryHours }
+        return if (hours.isEmpty()) null else "Trocken ${hours.sum()} h"
+    }
 }
 
 @Composable
@@ -191,6 +197,7 @@ fun DaysScreen(
                     Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(room.name, style = MaterialTheme.typography.titleMedium)
                         DaysMoldCards.lines(room).forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                        DaysMoldCards.dryLine(state.rows, room.sensor)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
                     }
                 }
             }
