@@ -336,4 +336,34 @@ class AlertLimitsTest {
         AlertLimits.run(listOf("SET mold_alert_limit_rh=75"), { _, cb -> cb(ConsoleReply.Status("ERR READ_ONLY")) }) { result = it }
         assertEquals("Set ble_console=2 to apply", result!!.failure)
     }
+
+    @Test
+    fun unusableReplyStopsBatchWithGenericText() {
+        var result: AlertLimits.Result? = null
+        val sent = mutableListOf<String>()
+        AlertLimits.run(listOf("SET mold_alert_limit_rh=75"), { c, cb -> sent.add(c); cb(ConsoleReply.Frame(listOf("x"))) }) { result = it }
+        assertEquals("Keine gültige Antwort vom Panel", result!!.failure)
+        assertEquals(listOf("SET mold_alert_limit_rh=75"), sent)
+        assertTrue(!result!!.ok)
+    }
+
+    @Test
+    fun failedConfigReadKeepsAppliedCount() {
+        var result: AlertLimits.Result? = null
+        AlertLimits.run(listOf("SET mold_alert_limit_rh=75"), { c, cb ->
+            cb(if (c == "CONFIG") ConsoleReply.Status("ERR BUSY") else ConsoleReply.Status("OK SET x"))
+        }) { result = it }
+        assertTrue(result!!.configFailed)
+        assertEquals("Übernommen: 1. CONFIG lesen fehlgeschlagen", result!!.summary)
+    }
+
+    @Test
+    fun successSummaryCountsAppliedCommands() {
+        var result: AlertLimits.Result? = null
+        AlertLimits.run(listOf("SET a=1", "SET b=2"), { c, cb ->
+            cb(if (c == "CONFIG") ConsoleReply.Frame(listOf("SOURCE SD")) else ConsoleReply.Status("OK SET x"))
+        }) { result = it }
+        assertTrue(result!!.ok)
+        assertEquals("Übernommen: 2", result!!.summary)
+    }
 }
