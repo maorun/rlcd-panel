@@ -3632,3 +3632,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `scripts/check-protocol-sync.sh` compares `AlertTimeline.kt` with the phone copy.
 - Tests: `AlertTimelineTest` covers one pair, an open rise, a fall without a rise, a leading `EVENTS_DROPPED` row, the text and `tests/fixtures/events_reply_sample.txt`.
 - Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
+
+## Config key dry_alert_delay_h for the dry air badge
+
+- **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/dry_latch.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `docs/config.example.ini`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigSchema.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigSchema.kt`
+- The new `config.ini` key `dry_alert_delay_h` stops a short dry spell from setting the `D` badge. The value 0 is off (default). Else the value is 1 to 12 h. Another value gives a rejected line.
+- With a delay of N hours, `DryLatch::update` sets the bit of a tile only when the live reading and the newest N hourly samples of the tile are all at or below `dry_alert_limit_rh`. Fewer than N samples give no set. A delay without a history gives no set.
+- `HumidityHistory::newestAtOrBelow(n, limit_tenths)` checks the newest N samples. The limit itself counts as dry.
+- The hold and release rules do not change. A bit that is set holds up to the limit plus 3 %RH. The delay never clears a set bit.
+- The firmware stores the key as 1 byte at the end of the config trailer, after `reception_low_pct`. `KEY_COUNT` is 99. `STATE_VERSION` is 78.
+- The three `ConfigSchema` files (macOS, Android, Wear OS) hold the new key. The Android and Wear OS `ConfigBackup` and `EventText` lists hold it too.
+- Host tests cover the default 0, the values 1 and 12, the rejected values 13, -1 and `x`, the RTC round trip of the trailer byte, a delay of 3 with 2 and with 3 dry samples, and the unchanged rules for delay 0.

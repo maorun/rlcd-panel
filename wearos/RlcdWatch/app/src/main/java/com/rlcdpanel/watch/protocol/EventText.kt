@@ -49,7 +49,8 @@ object EventText {
         "wall_frsi_pct", "slot_auto_assign",
         "slot1_enabled", "slot2_enabled", "slot3_enabled", "slot4_enabled", "slot5_enabled",
         "slot6_enabled", "slot7_enabled", "slot8_enabled", "slot9_enabled", "slot10_enabled",
-        "auto_assign_min_rssi", "window_drop_c", "mold_alert_delay_h", "reception_low_pct"
+        "auto_assign_min_rssi", "window_drop_c", "mold_alert_delay_h", "reception_low_pct",
+        "dry_alert_delay_h"
     )
 
     fun describe(row: EventRow): String {

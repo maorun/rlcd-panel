@@ -992,7 +992,8 @@ void refreshSensors() {
   const uint16_t previous_dry_tiles = g_state.dry_tiles;
   g_state.dry_tiles = DryLatch::update(
       g_state.dry_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
-      config().dry_alert_limit_rh, config().climate_alert_tiles, config().staleTimeoutMs());
+      config().dry_alert_limit_rh, config().climate_alert_tiles, config().staleTimeoutMs(),
+      &g_state.history, config().dry_alert_delay_h);
   // The sensor drift latch has no chime. It runs each wake cycle after the hourly push above; the result changes only with a new hourly sample or a changed tile mask.
   uint16_t drift_tile_mask = 1;
   for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
