@@ -2,11 +2,19 @@ import Charts
 import RlcdProtocol
 import SwiftUI
 
+/// Source of the daily chart rows.
+enum DailySource: String, CaseIterable, Identifiable {
+    case card = "Card files"
+    case panel = "Panel (BLE)"
+    var id: String { rawValue }
+}
+
 /// One chart pair for each sensor: daily minimum, mean and maximum of temperature and humidity, and the daily noise
 /// peak for rows of `daily_v2` to `daily_v4`, and the mold hours
-/// of each sensor as a bar chart for rows of `daily_v4`. Reads only the rows that `DailyLog.load` gave; sends no console command.
+/// of each sensor as a bar chart for rows of `daily_v4`. The source `Card files` reads only the rows that `DailyLog.load`
+/// gave; the source `Panel (BLE)` sends `DAYS <N>` only on the read button.
 struct DailyChartView: View {
-    let folder: DailyFolder
+    @Bindable var model: AppModel
     var temperatureUnit = "°C"
     var limits: [ChartLimit] = []
 
@@ -89,9 +97,50 @@ struct DailyChartView: View {
         }
     }
 
+    private var folder: DailyFolder {
+        switch model.dailySource {
+        case .card: model.dailyFolder ?? DailyFolder(rows: [], failedFiles: [])
+        case .panel: DailyFolder(rows: model.daysResult?.rows ?? [], failedFiles: [])
+        }
+    }
+
+    private var sourceBar: some View {
+        HStack {
+            Picker("Source", selection: $model.dailySource) {
+                ForEach(DailySource.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented).fixedSize()
+            if model.dailySource == .panel {
+                Picker("Days", selection: $model.daysCount) {
+                    ForEach(DaysReply.rowChoices, id: \.self) { Text("\($0)").tag($0) }
+                }
+                .pickerStyle(.segmented).fixedSize()
+                Button("Read daily rows") { model.readDays(rows: model.daysCount) }
+                    .disabled(!model.consoleConnected)
+            }
+        }
+    }
+
     var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            sourceBar
+            charts
+        }
+    }
+
+    @ViewBuilder private var charts: some View {
+        let folder = self.folder
         if folder.rows.isEmpty {
-            Text("No daily summary rows in the folder").font(.caption).foregroundStyle(.secondary)
+            switch model.dailySource {
+            case .card:
+                if model.dailyFolder != nil {
+                    Text("No daily summary rows in the folder").font(.caption).foregroundStyle(.secondary)
+                }
+            case .panel:
+                Text(model.daysResult != nil ? "The panel returned no daily rows"
+                    : (model.consoleConnected ? "No daily rows read yet" : "Console not connected"))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
         } else {
             VStack(alignment: .leading, spacing: 8) {
                 ForEach(0..<DailyLog.sensorNames.count, id: \.self) { sensor in

@@ -638,6 +638,8 @@ public enum ConsoleCommand: Equatable {
     case spread
     /// `TAIL N` (N 1 to 72): the newest N hourly climate rows from the MicroSD card (USB and BLE).
     case tail(Int)
+    /// `DAYS N` (N 1 to 31): the newest N daily summary rows from the MicroSD card (USB and BLE).
+    case days(Int)
     /// `TODAY`: minimum, maximum and mean of each sensor since local midnight (RTC copy only, USB and BLE).
     case today
 
@@ -741,6 +743,7 @@ public enum ConsoleCommand: Equatable {
         case .spread: return "SPREAD"
         case .today: return "TODAY"
         case let .tail(rows): return (1...72).contains(rows) ? "TAIL \(rows)" : nil
+        case let .days(rows): return (1...31).contains(rows) ? "DAYS \(rows)" : nil
         case .config: return "CONFIG"
         case .version: return "VERSION"
         case .scan: return "SCAN"

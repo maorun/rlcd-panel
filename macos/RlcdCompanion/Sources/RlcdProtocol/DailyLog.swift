@@ -30,6 +30,11 @@ public struct DailyRow: Equatable {
 public struct DailyFolder: Equatable {
     public let rows: [DailyRow]
     public let failedFiles: [String]
+
+    public init(rows: [DailyRow], failedFiles: [String]) {
+        self.rows = rows
+        self.failedFiles = failedFiles
+    }
 }
 
 public struct DailyLog: Equatable {
