@@ -1871,6 +1871,127 @@ void testMoldHoursStats() {
   assert(PowerManager::STATE_VERSION == 77); // no RTC state change
 }
 
+void testDashboardStatsDryHours() {
+  const uint32_t now = 10000000;
+  SwitchBotReading sb;
+  sb.valid = true;
+  sb.temperature_c = 21.0f;
+  sb.humidity_pct = 50;
+  sb.updated_ms = now - 1000;
+  HumidityHistory h;
+  for (int i = 0; i < 5; ++i) {
+    h.push(300); // 30.0 %RH, at the limit
+  }
+  for (int i = 0; i < 5; ++i) {
+    h.push(301); // just above the limit
+  }
+  char text[16];
+  DashboardView::formatDry(text, sizeof(text), sb, now, SENSOR_STALE_TIMEOUT_MS, &h, 30);
+  assert(strcmp(text, "DRY 5H") == 0);
+  DashboardView::formatDry(text, sizeof(text), sb, now, SENSOR_STALE_TIMEOUT_MS, &h, 0);
+  assert(strcmp(text, "") == 0); // limit 0: no text
+  DashboardView::formatDry(text, sizeof(text), sb, now, SENSOR_STALE_TIMEOUT_MS, nullptr, 30);
+  assert(strcmp(text, "DRY --") == 0);
+  const SwitchBotReading empty{};
+  DashboardView::formatDry(text, sizeof(text), empty, now, SENSOR_STALE_TIMEOUT_MS, &h, 30);
+  assert(strcmp(text, "DRY --") == 0);
+  sb.updated_ms = now - SENSOR_STALE_TIMEOUT_MS - 1;
+  DashboardView::formatDry(text, sizeof(text), sb, now, SENSOR_STALE_TIMEOUT_MS, &h, 30);
+  assert(strcmp(text, "DRY --") == 0); // stale slot
+  sb.updated_ms = now - 1000;
+  HumidityHistory one;
+  one.push(300);
+  DashboardView::formatDry(text, sizeof(text), sb, now, SENSOR_STALE_TIMEOUT_MS, &one, 30);
+  assert(strcmp(text, "DRY --") == 0); // fewer than 2 samples
+
+  // Rendered bounds: DRY sits 6 px left of the MOLD text and keeps 4 px to the MAC line.
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  for (size_t i = 0; i < 3; ++i) {
+    slots[i].valid = true;
+    slots[i].temperature_c = 21.0f;
+    slots[i].humidity_pct = 50;
+    slots[i].updated_ms = now - 1000;
+    for (size_t k = 0; k < 6; ++k) {
+      slots[i].mac[k] = 0xEE;
+    }
+  }
+  ClimateHistory history;
+  for (size_t s = 0; s < ClimateHistory::SLOT_COUNT; ++s) {
+    for (int i = 0; i < 24; ++i) {
+      history.slots[s].push(250); // 24 samples at or below 30 %RH: "DRY 24H"
+    }
+  }
+  DeviceConfig cfg;
+  cfg.dry_alert_limit_rh = 30;
+  const uint16_t mold_left = static_cast<uint16_t>(DashboardView::COMFORT_RIGHT_X - strlen("MOLD 0H") * 6);
+  const uint16_t dry_w = static_cast<uint16_t>(strlen("DRY 24H") * 6);
+  const uint16_t dry_right = static_cast<uint16_t>(mold_left - DashboardView::DRY_MOLD_GAP_PX);
+  const uint16_t dry_left = static_cast<uint16_t>(dry_right - dry_w);
+  // Widest MAC line of a live slot: formatMac text plus the widest badge ("BTH" or "ATC"). The DRY gap check
+  // is a guard: the widest line still leaves DRY_GAP_PX free, so no live line suppresses the text.
+  char mac_text[32];
+  DashboardView::formatMac(mac_text, sizeof(mac_text), slots[0].mac);
+  const BleFormat formats[] = {BleFormat::WOIO, BleFormat::METER, BleFormat::BTHOME, BleFormat::ATC, BleFormat::THERMOPRO};
+  size_t widest_chars = 0;
+  for (const BleFormat f : formats) {
+    char line[48];
+    snprintf(line, sizeof(line), "%s [%s]", mac_text, formatBadge(f));
+    widest_chars = std::max(widest_chars, strlen(line));
+  }
+  const uint16_t mac_right = 10 + static_cast<uint16_t>(widest_chars * 12);
+  assert(mac_right + DashboardView::DRY_GAP_PX <= dry_left);
+  slots[2].valid = false; // empty slot with a fixed MAC: draws "DRY --"
+  cfg.slot_mac[2][3] = 0xAA;
+  cfg.slot_mac[2][4] = 0xBB;
+  cfg.slot_mac[2][5] = 0xCC;
+  St7305Framebuffer fb;
+  DashboardView::renderSensorStats(fb, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr, &history, &cfg);
+  St7305Framebuffer off;
+  DeviceConfig cfg_off = cfg;
+  cfg_off.dry_alert_limit_rh = 0;
+  DashboardView::renderSensorStats(off, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr, &history, &cfg_off);
+  for (size_t i = 0; i < 3; ++i) { // slots 1 and 2 are live, slot 3 is empty with a fixed MAC
+    const uint16_t y_dry = static_cast<uint16_t>(34 + i * DashboardView::SENSOR_BLOCK_PITCH + DashboardView::MOLD_Y_OFFSET);
+    const uint16_t box_w = static_cast<uint16_t>(strlen(i == 2 ? "DRY --" : "DRY 24H") * 6);
+    const uint16_t box_left = static_cast<uint16_t>(dry_right - box_w);
+    bool ink = false;
+    bool gap_ink = false;
+    for (uint16_t y = y_dry; y < y_dry + 7; ++y) {
+      for (uint16_t x = 0; x < RLCD_WIDTH; ++x) {
+        const bool changed = fb.getPixel(x, y) != off.getPixel(x, y);
+        if (changed) {
+          assert(x >= box_left && x < dry_right); // only inside the DRY text box
+          ink = true;
+        }
+        if (x >= dry_right && x < mold_left && fb.getPixel(x, y)) {
+          gap_ink = true; // the 6 px gap to the MOLD text stays blank
+        }
+        if (i < 2 && x >= mac_right && x < dry_left) {
+          assert(!fb.getPixel(x, y));
+        }
+      }
+    }
+    assert(ink && !gap_ink);
+  }
+  // Without a config nothing changes: the frame equals the frame with limit 0 and the default names
+  St7305Framebuffer plain;
+  St7305Framebuffer plain_off;
+  DeviceConfig cfg_default;
+  DashboardView::renderSensorStats(plain, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr, &history);
+  DashboardView::renderSensorStats(plain_off, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr, &history, &cfg_default);
+  const uint16_t y_mold0 = static_cast<uint16_t>(34 + DashboardView::MOLD_Y_OFFSET);
+  for (uint16_t y = y_mold0; y < y_mold0 + 7; ++y) {
+    for (uint16_t x = 0; x < RLCD_WIDTH; ++x) {
+      assert(plain.getPixel(x, y) == plain_off.getPixel(x, y)); // nullptr config and limit 0 draw no DRY text
+    }
+  }
+  assert(PowerManager::STATE_VERSION == 77); // no RTC state change
+}
+
 void testDashboardClimateLine() {
   Shtc3Reading onboard;
   onboard.valid = true;
@@ -26933,6 +27054,7 @@ int main() {
   testMoldHoursStats();
   testFeelsLikeStats();
   testAbsHumidityStats();
+  testDashboardStatsDryHours();
   testDashboardClimateLine();
   testDashboardStaleIndicator();
   testButtonDebounceAndModeTransitions();

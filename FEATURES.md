@@ -3544,3 +3544,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The `Sensor health` rows of `DiagnosticsView` show `Dry <N> h` and an orange warning symbol above 0 hours.
 - Tests: `ReplyTests.dryHoursOfSharedFixtureAndBadFields` parses `tests/fixtures/status_reply_sample.txt`, `dry_h=5`, a missing field and `dry_h=x`.
 - Validation: `swift build -c release` passes locally; `swift test` does not run locally (no TestingMacros in the Command Line Tools) and runs on GitHub Actions CI.
+
+## Dry hours in the sensor stats view
+
+- **Code:** `rlcd_panel/dashboard_view.h`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`
+- Each sensor block of the stats view shows `DRY <N>H` in scale-1 text on the `MOLD` line (`y + 21`). The text ends `DRY_MOLD_GAP_PX` (6 px) left of the `MOLD <N>H` text.
+- `DashboardView::formatDry` counts the hourly samples at or below `dry_alert_limit_rh` with `HumidityHistory::countAtOrBelow`. A sample at the limit counts.
+- The key value 0 draws no text. An empty slot, a stale slot and a slot with fewer than 2 samples show `DRY --`.
+- The text is drawn only when `DRY_GAP_PX` (4 px) stay free to the `MAC` line.
+- The count is calculated for each render. No RTC state changes and `STATE_VERSION` stays 77.
+- Thus the user sees how long a room was too dry in the last day.
+- Host tests cover 5 samples at the limit, limit 0, a stale slot, an empty slot, fewer than 2 samples, and the text bounds to the `MAC` line and the `MOLD` text. `docs/display_preview_stats.png` and `docs/display_preview_stats2.png` show the text with a limit of 45 %RH.
