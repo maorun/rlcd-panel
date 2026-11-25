@@ -107,20 +107,17 @@ public enum EventText {
             return d == 1 ? "BLE scan start failed" : "BLE scan works again"
         case "WINDOW_OPEN":
             // Low byte is the tile (0 onboard, 1 to 10 slots); the high byte 1 marks an open window, 0 a closed one.
-            let tile = d & 0xFF, open = d >> 8
-            guard (0...0xFFFF).contains(d), tile <= 10, open <= 1 else { return raw }
+            guard let (tile, open) = tileState(d) else { return raw }
             return "Window \(open == 1 ? "open" : "closed") in \(roomName(tile: tile, config: config))"
         case "WALL_DAMP", "DRY_AIR":
             // Low byte is the tile (0 onboard, 1 to 10 slots); the high byte 1 marks the badge set, 0 cleared.
-            let tile = d & 0xFF, set = d >> 8
-            guard (0...0xFFFF).contains(d), tile <= 10, set <= 1 else { return raw }
+            guard let (tile, set) = tileState(d) else { return raw }
             let room = roomName(tile: tile, config: config)
             if row.event == "WALL_DAMP" { return set == 1 ? "Wall damp (\(room))" : "Wall dry again (\(room))" }
             return set == 1 ? "Dry air (\(room))" : "Air humidity good (\(room))"
         case "SENSOR_DRIFT":
             // Low byte is the tile (0 onboard, 1 to 10 slots); the high byte 1 marks drift, 0 good again.
-            let tile = d & 0xFF, drift = d >> 8
-            guard (0...0xFFFF).contains(d), tile <= 10, drift <= 1 else { return raw }
+            guard let (tile, drift) = tileState(d) else { return raw }
             let room = roomName(tile: tile, config: config)
             return drift == 1 ? "Sensor drift (\(room))" : "Sensor drift gone (\(room))"
         case "CONFIG_SET":
@@ -134,6 +131,13 @@ public enum EventText {
         default:
             return raw
         }
+    }
+
+    /// Tile (0 onboard, 1 to 10 slots) and state (1 set, 0 clear) of a detail value of `WINDOW_OPEN`, `WALL_DAMP`,
+    /// `DRY_AIR` or `SENSOR_DRIFT`: low byte tile, high byte state. `nil` for a value that these rules reject.
+    public static func tileState(_ detail: Int) -> (tile: Int, state: Int)? {
+        guard (0...0xFFFF).contains(detail), detail & 0xFF <= 10, detail >> 8 <= 1 else { return nil }
+        return (detail & 0xFF, detail >> 8)
     }
 
     /// Room name of a tile: the `DeviceConfig` name, else `Onboard` or `Slot <N>`.

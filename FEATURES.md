@@ -3663,3 +3663,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - Each day keeps the count of the limit at the time of its write. After a change of `dry_alert_limit_rh`, the sum mixes limits for up to 7 days.
 - The `WEEK` reply and the daily file do not change. The week block grows from 390 to 467 bytes. `STATE_VERSION` is 79.
 - Host tests cover 5 dry hours for 5 dry samples, `0xFF` for limit 0 and for a gap day, the RTC restore checks for 25 and for a gap humidity pair, the text `DRY 12H`, the rendered label line, and the swap of the dry bytes by `SLOT SWAP`.
+
+## Badge intervals in the macOS alert timeline
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/AlertTimeline.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/BadgeIntervalTests.swift`
+- `AlertTimeline.badges(rows:now:)` pairs each set row of `WINDOW_OPEN`, `WALL_DAMP`, `DRY_AIR` and `SENSOR_DRIFT` with the next clear row of the same badge and tile. The low byte of the detail is the tile (0 to 10). The high byte is the state (1 set, 0 clear). A row with another value is ignored.
+- A `BadgeInterval` holds the event, the tile, the start, the end, `isOpen` and `startUnknown`. A badge without a clear row stays open and ends at the injected `now`. A clear row without a set row gives `startUnknown`. An `EVENTS_DROPPED` row gives `startUnknown` to each interval that is open at that row. Two tiles of one badge give two intervals. `AlertTimeline.build` and `AlertTimeline.badges` use one pairing helper. The tile and state rules are in `EventText.tileState`.
+- A clear row without a set row takes the first valid row time as start. This start has no link to the badge, so the line shows it with `~`.
+- `DiagnosticsView` shows the group `Badge intervals` below the alert timeline. Each line shows the badge letter (`W`, `C`, `D`, `S`), the room name, the start, the end (`now` for an open interval) and the duration. A `~` before the start marks an unknown start. The newest interval is first.
+- Tests cover one `DRY_AIR` pair, two cycles of one tile, bad times, tile 10, the order of equal starts, an open `WINDOW_OPEN`, a clear row without a set row, two tiles of one badge, the same tile of two badges, invalid details, the dropped row, the line text, the `EventText` fallbacks and `tests/fixtures/events_reply_sample.txt`.
+- Validation: `swift test` (758 tests) and `swift build -c release` pass in `macos/RlcdCompanion`.
+
