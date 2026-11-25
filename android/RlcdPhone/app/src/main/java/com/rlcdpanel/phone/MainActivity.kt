@@ -368,6 +368,7 @@ class MainActivity : ComponentActivity() {
                     onApplyTwoPoint = { withConsolePermission { applyTwoPoint() } },
                     onPickFrsiRoom = { calibState = calibState.copy(frsiRoom = it, frsi = null, message = null, isError = false) },
                     onPickFrsiWall = { calibState = calibState.copy(frsiWall = it, frsi = null, message = null, isError = false) },
+                    onPickFrsiHours = { calibState = calibState.copy(frsiHours = it, frsi = null, message = null, isError = false) },
                     onFrsi = { withConsolePermission { readFrsi() } },
                     onApplyFrsi = { withConsolePermission { applyFrsi() } },
                     onSpread = { withConsolePermission { readSpread() } },
@@ -1660,7 +1661,7 @@ class MainActivity : ComponentActivity() {
         stopSaltWatch(SaltProgress.StopReason.VIEW_CLOSED)
         consoleClient.cancel()
         pendingConsoleAction = null
-        calibState = CalibrationState(reference = calibState.reference, frsiRoom = calibState.frsiRoom, frsiWall = calibState.frsiWall)
+        calibState = CalibrationState(reference = calibState.reference, frsiRoom = calibState.frsiRoom, frsiWall = calibState.frsiWall, frsiHours = calibState.frsiHours)
         showCalib = false
         showHealth = true
     }
@@ -1824,21 +1825,23 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /** Sends `FRSI R W` after a tap. */
+    /** Sends `FRSI R W` (with the window `H` unless it is 6) after a tap. */
     private fun readFrsi() {
         val room = calibState.frsiRoom
         val wall = calibState.frsiWall
+        val hours = calibState.frsiHours
         if (room !in 0..SaltCommand.MAX_SENSOR || wall !in 1..SaltCommand.MAX_SENSOR || room == wall) return
+        if (hours !in FrsiCommand.MIN_HOURS..FrsiCommand.MAX_HOURS) return
         stopBleScan()
         calibState = calibState.copy(isBusy = true, isError = false, message = null, frsi = null)
-        consoleClient.send(FrsiCommand.line(room, wall)) { reply ->
+        consoleClient.send(FrsiCommand.line(room, wall, hours)) { reply ->
             calibState = when (reply) {
                 is ConsoleReply.Frame -> try {
-                    calibState.copy(isBusy = false, frsi = FrsiReply.parse(reply.lines))
+                    calibState.copy(isBusy = false, frsi = FrsiReply.parse(reply.lines), frsiReplyHours = hours)
                 } catch (e: ParseException) {
                     calibState.copy(isBusy = false, isError = true, message = "Antwort nicht lesbar: ${e.line.take(80)}")
                 }
-                is ConsoleReply.Status -> calibState.copy(isBusy = false, isError = true, message = FrsiText.status(reply.line))
+                is ConsoleReply.Status -> calibState.copy(isBusy = false, isError = true, message = FrsiText.status(reply.line, hours))
                 else -> calibState.copy(isBusy = false, isError = true, message = BleConsoleClient.errorText(reply))
             }
         }

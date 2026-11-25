@@ -1,15 +1,25 @@
 package com.rlcdpanel.phone.protocol
 
-/** Console command `FRSI <R> <W>`: R is the room sensor (0 to 10), W is the wall slot (1 to 10), both differ. */
+/**
+ * Console command `FRSI <R> <W> [<H>]`: R is the room sensor (0 to 10), W is the wall slot (1 to 10), both differ.
+ * H is the sample window in hours (3 to 24); 6 is the firmware default and sends no argument.
+ */
 object FrsiCommand {
     const val KEY = "wall_frsi_pct"
+    const val DEFAULT_HOURS = 6
+    const val MIN_HOURS = 3
+    const val MAX_HOURS = 24
+
+    /** Window choices of the calibration screen. */
+    val HOUR_CHOICES = listOf(3, 6, 12, 24)
 
     /** Throws [IllegalArgumentException] for numbers that the firmware answers with `ERR BAD_ARG`. */
-    fun line(room: Int, wall: Int): String {
+    fun line(room: Int, wall: Int, hours: Int = DEFAULT_HOURS): String {
         require(room in 0..SaltCommand.MAX_SENSOR) { "room $room outside 0 to ${SaltCommand.MAX_SENSOR}" }
         require(wall in 1..SaltCommand.MAX_SENSOR) { "wall $wall outside 1 to ${SaltCommand.MAX_SENSOR}" }
         require(room != wall) { "room and wall are equal" }
-        return "FRSI $room $wall"
+        require(hours in MIN_HOURS..MAX_HOURS) { "hours $hours outside $MIN_HOURS to $MAX_HOURS" }
+        return if (hours == DEFAULT_HOURS) "FRSI $room $wall" else "FRSI $room $wall $hours"
     }
 }
 
@@ -77,20 +87,21 @@ data class FrsiReply(val outcome: Outcome) {
 
 /** Readable texts of an `FRSI` result. */
 object FrsiText {
-    fun outcome(reply: FrsiReply): String = when (val o = reply.outcome) {
+    fun outcome(reply: FrsiReply, requestedHours: Int = FrsiCommand.DEFAULT_HOURS): String = when (val o = reply.outcome) {
         is FrsiReply.Outcome.Measured -> {
             val m = o.measurement
             "Wandfaktor ${m.frsi} (${m.room} / ${m.wall}), ${m.hours} h, Schwankung ${m.span}, Differenz ${m.deltaC} °C"
         }
-        is FrsiReply.Outcome.Skipped -> "SKIP: nur ${o.hours} h, mindestens 6 h nötig"
+        is FrsiReply.Outcome.Skipped -> "SKIP: nur ${o.hours} h, mindestens $requestedHours h nötig"
         is FrsiReply.Outcome.Unstable -> "UNSTABLE: Schwankung ${o.span ?: "--"}, Messung zu unruhig"
     }
 
     /** Text of a status line such as `ERR LOW_DELTA`; other lines keep their first 80 characters. */
-    fun status(line: String): String = when {
+    fun status(line: String, hours: Int = FrsiCommand.DEFAULT_HOURS): String = when {
         line.startsWith("ERR LOW_DELTA") -> "ERR LOW_DELTA: Raum und außen unter 10 °C Unterschied"
         line.startsWith("ERR NO_OUTDOOR") -> "ERR NO_OUTDOOR: outdoor_slot fehlt oder hat keinen frischen Messwert"
-        line.startsWith("ERR BAD_ARG") -> "ERR BAD_ARG: Raum, Wand und outdoor_slot müssen verschieden sein"
+        line.startsWith("ERR BAD_ARG") -> "ERR BAD_ARG: Raum, Wand und outdoor_slot müssen verschieden sein" +
+            if (hours != FrsiCommand.DEFAULT_HOURS) " (oder Firmware ohne Fenster-Argument: Update nötig)" else ""
         line.startsWith("ERR READ_ONLY") -> CalibrationBatch.failureText(line)
         else -> line.take(80)
     }
