@@ -132,6 +132,7 @@ final class AppModel: ConsoleLinkDelegate {
     private var silenceWatch = SilenceWatch()
     private var wallWatch = WallWatch()
     private var staleWatch = StaleWatch()
+    private var windowEventWatch = WindowEventWatch()
     private var windowWatch = WindowWatch()
     private var driftWatch = DriftWatch()
     private var receptionWatch = ReceptionWatch()
@@ -343,15 +344,30 @@ final class AppModel: ConsoleLinkDelegate {
         }
     }
 
-    /// Posts one notification for each new open window event of the event list. `WindowWatch` runs on each list,
+    /// Posts one notification for each new open window event of the event list. `WindowEventWatch` runs on each list,
     /// so a list read while notifications are off does not repeat later.
     private func checkWindowNotifications(_ rows: [EventRow]) {
-        let tiles = windowWatch.newOpenTiles(rows)
+        let tiles = windowEventWatch.newOpenTiles(rows)
         guard notificationsEnabled, Bundle.main.bundleIdentifier != nil else { return }
         for tile in tiles {
             let content = UNMutableNotificationContent()
             content.title = "RLCD Panel Alert"
             content.body = "Window open in \(EventText.roomName(tile: tile, config: lastConfig))"
+            content.sound = .default
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "rlcd_panel_window_\(tile)", content: content, trigger: nil))
+        }
+    }
+
+    /// Feeds `WindowWatch` with the `window=` mask of each `STATUS` reply and posts one notification for each rising bit.
+    /// `WindowWatch` runs on each reply, so a rise read while notifications are off does not repeat later.
+    /// The identifier equals the one of `checkWindowNotifications`, so both paths replace each other for one window.
+    private func checkWindowLatchNotifications(_ latch: LatchMetrics?) {
+        let tiles = windowWatch.update(mask: latch?.window)
+        guard notificationsEnabled, Bundle.main.bundleIdentifier != nil else { return }
+        for tile in tiles {
+            let content = UNMutableNotificationContent()
+            content.title = "RLCD Panel Alert"
+            content.body = WindowWatch.notificationBody(tile: tile, config: lastConfig)
             content.sound = .default
             UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "rlcd_panel_window_\(tile)", content: content, trigger: nil))
         }
@@ -493,7 +509,8 @@ final class AppModel: ConsoleLinkDelegate {
         week = []
         events = []
         recentEvents = .empty
-        windowWatch = WindowWatch() // the next list of a panel is a new baseline
+        windowEventWatch = WindowEventWatch() // the next list of a panel is a new baseline
+        windowWatch = WindowWatch()
         driftWatch = DriftWatch()
         receptionWatch = ReceptionWatch()
         config = nil
@@ -1664,6 +1681,7 @@ final class AppModel: ConsoleLinkDelegate {
                 status = parsed
                 diagnostics = try DiagnosticsReply.parse(status: parsed)
                 diagnosticsConfig = config?.values
+                checkWindowLatchNotifications(diagnostics?.latch)
                 checkDriftNotifications(diagnostics?.latch)
                 checkReceptionNotifications(diagnostics?.latch)
             case let (.version, .frame(lines)):

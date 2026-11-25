@@ -167,7 +167,7 @@ extension EventsReply {
 /// Finds the open window events of an event list that no earlier list held. The first list only sets the baseline,
 /// so the history of the panel gives no notification. A row counts by time, detail and its place among equal rows.
 /// An open row whose tile a later row of the same list closed gives no notification.
-public struct WindowWatch {
+public struct WindowEventWatch {
     private var seen: Set<String> = []
     private var primed = false
 

@@ -22,11 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Open window notification in the macOS app
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/WindowWatch.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/WindowWatchTests.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `FEATURES.md`
-  - **Goal:** Tell the user when the panel detects an open window. The Android and Wear OS apps have this notification. The macOS app does not. Add `WindowWatch` with the rules of the Kotlin `WindowWatch`. Feed it with the `window` mask of the `STATUS` line `LATCH` (`LatchMetrics`). Post one `UserNotifications` notification `Window open: <name>` for each rising bit. Use the room name of `EventText`. The first read only stores the mask. A missing `window` field keeps the stored mask. Without enabled notifications the watch stays untouched.
-  - **Acceptance:** A unit test checks that the first mask gives no tile. A unit test checks that a rising bit gives its tile once. A unit test checks that a falling bit and an equal mask give no tile. A unit test checks that a nil mask keeps the stored mask. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-  - **Rank:** [Total: 29, Use: 8, Setup: 2, Harmony: 9, Safety: 10, Effort: S]
 - [ ] Hour window picker for the macOS FRSI check
   - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift`, `FEATURES.md`
   - **Goal:** Let the user select the FRSI sample window in the calibration view. This item needs the firmware item "Hour window argument for the console command FRSI". Change `ConsoleCommand.frsi(room:wall:)` to `frsi(room:wall:hours:)`. Send `FRSI <R> <W>` for 6 hours and `FRSI <R> <W> <H>` for other values. Add a picker with 3, 6, 12 and 24 hours. Show the hour count of the reply beside the factor.
