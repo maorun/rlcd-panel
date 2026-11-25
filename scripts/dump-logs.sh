@@ -69,7 +69,7 @@ import os, re, subprocess, sys, time, zlib
 port, baud, out_dir, timeout_s = sys.argv[1], int(sys.argv[2]), sys.argv[3], float(sys.argv[4])
 mode = sys.argv[5]
 # One shared pattern for the file names; keep it in sync with LogArchive.swift.
-NAME_PATTERN = r"(?:climate_v[2-6]_20\d\d(?:0[1-9]|1[0-2])|daily_v[1-5]_20\d\d|events_v1_20\d\d)\.csv"
+NAME_PATTERN = r"(?:climate_v[2-6]_20\d\d(?:0[1-9]|1[0-2])|daily_v[1-6]_20\d\d|events_v1_20\d\d)\.csv"
 NAME = re.compile(f"^{NAME_PATTERN}\\Z")
 FILE_LINE = re.compile(f"^FILE ({NAME_PATTERN}) (\\d{{1,9}})\\Z")
 FILE_ANY = re.compile(r"^FILE ([A-Za-z0-9_.\-]{1,64}) (\d{1,9})$")
@@ -77,8 +77,8 @@ BEGIN_LINE = re.compile(f"^BEGIN ({NAME_PATTERN}) (\\d{{1,9}})\\Z")
 MAX_FILE_BYTES = 16 * 1024 * 1024
 
 if mode == "self-test":
-    good = ["climate_v6_202611.csv", "daily_v5_2026.csv", "climate_v2_202501.csv", "events_v1_2026.csv"]
-    bad = ["climate_v7_202611.csv", "climate_v6_202613.csv", "daily_v6_2026.csv", "../climate_v6_202611.csv", "climate_v6_202611.csv.tmp", "climate_v6_202611.csv\n"]
+    good = ["climate_v6_202611.csv", "daily_v5_2026.csv", "daily_v6_2026.csv", "climate_v2_202501.csv", "events_v1_2026.csv"]
+    bad = ["climate_v7_202611.csv", "climate_v6_202613.csv", "daily_v7_2026.csv", "../climate_v6_202611.csv", "climate_v6_202611.csv.tmp", "climate_v6_202611.csv\n"]
     errors = [f"not accepted: {n}" for n in good if not (NAME.match(n) and FILE_LINE.match(f"FILE {n} 10") and BEGIN_LINE.match(f"BEGIN {n} 10"))]
     errors += [f"not rejected: {n}" for n in bad if NAME.match(n) or FILE_LINE.match(f"FILE {n} 10") or BEGIN_LINE.match(f"BEGIN {n} 10")]
     if not FILE_ANY.match("FILE climate_v7_202611.csv 10") or FILE_ANY.match("FILE bad\x1b[2Jname 10"):

@@ -333,7 +333,7 @@ public:
     return age > static_cast<int>(retention_months);
   }
 
-  // ---- Daily summary file "daily_v4_YYYY.csv" (the older "daily_v3", "daily_v2" and "daily_v1" files stay readable) ----
+  // ---- Daily summary file "daily_v6_YYYY.csv" (the older "daily_v5" to "daily_v1" files stay readable) ----
 
   // Splits a bare yearly file name "<prefix>YYYY.csv" into the year 2000..2099.
   static bool parseYearFileName(const char* name, const char* prefix, int& year) {
@@ -358,9 +358,10 @@ public:
     return true;
   }
 
-  // Splits a bare daily file name "daily_v1_YYYY.csv" to "daily_v5_YYYY.csv" into the year 2000..2099.
+  // Splits a bare daily file name "daily_v1_YYYY.csv" to "daily_v6_YYYY.csv" into the year 2000..2099.
   static bool parseDailyFileName(const char* name, int& year) {
-    return parseYearFileName(name, "daily_v5_", year) || parseYearFileName(name, "daily_v4_", year) ||
+    return parseYearFileName(name, "daily_v6_", year) || parseYearFileName(name, "daily_v5_", year) ||
+           parseYearFileName(name, "daily_v4_", year) ||
            parseYearFileName(name, "daily_v3_", year) || parseYearFileName(name, "daily_v2_", year) ||
            parseYearFileName(name, "daily_v1_", year);
   }
@@ -400,9 +401,18 @@ public:
            static_cast<int>(retention_months);
   }
 
-  // Writes "/sdcard/daily_v5_YYYY.csv". Returns the length, or 0 for a null or small buffer or a
+  // Writes "/sdcard/daily_v6_YYYY.csv". Returns the length, or 0 for a null or small buffer or a
   // year outside 2000..2099.
   static size_t formatDailyFilename(uint16_t year, char* out, size_t capacity) {
+    return formatDailyFilenameVersion(year, 6, out, capacity);
+  }
+
+  // Writes "/sdcard/daily_v5_YYYY.csv", the old 83-column file that is read but never written.
+  static size_t formatDailyFilenameV5(uint16_t year, char* out, size_t capacity) {
+    return formatDailyFilenameVersion(year, 5, out, capacity);
+  }
+
+  static size_t formatDailyFilenameVersion(uint16_t year, unsigned version, char* out, size_t capacity) {
     if (out == nullptr || capacity == 0) {
       return 0;
     }
@@ -410,7 +420,7 @@ public:
     if (year < 2000 || year > 2099) {
       return 0;
     }
-    const int n = snprintf(out, capacity, "%s/daily_v5_%04u.csv", MOUNT_POINT, static_cast<unsigned>(year));
+    const int n = snprintf(out, capacity, "%s/daily_v%u_%04u.csv", MOUNT_POINT, version, static_cast<unsigned>(year));
     if (n <= 0 || static_cast<size_t>(n) >= capacity) {
       out[0] = '\0';
       return 0;
@@ -419,7 +429,7 @@ public:
   }
 
   // Header line of the daily file: the date, six columns for each of the 11 sensors, the noise
-  // range, the noise peak summary and the mold hours of each sensor.
+  // range, the noise peak summary, the mold hours and the dry hours of each sensor (94 columns).
   static size_t formatDailyHeader(char* out, size_t capacity) {
     static const char* const SENSORS[] = {
         "onboard", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10"};
@@ -449,6 +459,10 @@ public:
       const int n2 = snprintf(out + pos, capacity - pos, ",mold_h_%u", static_cast<unsigned>(i));
       pos += n2 > 0 ? static_cast<size_t>(n2) : capacity;
     }
+    for (size_t i = 0; pos < capacity && i < LOG_SOURCE_COUNT; ++i) {
+      const int n2 = snprintf(out + pos, capacity - pos, ",dry_h_%u", static_cast<unsigned>(i));
+      pos += n2 > 0 ? static_cast<size_t>(n2) : capacity;
+    }
     if (pos < capacity) {
       const int n3 = snprintf(out + pos, capacity - pos, "\n");
       pos += n3 > 0 ? static_cast<size_t>(n3) : capacity;
@@ -463,13 +477,14 @@ public:
   // Writes one daily row, including the newline: the date, then minimum, maximum and mean of the
   // temperature and of the humidity for the onboard sensor and the five slots, then the minimum and
   // maximum noise level, then the peak level, its local hour and the event sum of `stats`, then for each
-  // sensor the hours above `mold_limit_rh` (HumidityHistory::countAbove). A sensor without samples, or a
-  // day without a valid noise reading, gives empty fields, so every row has 48 columns.
+  // sensor the hours above `mold_limit_rh` (HumidityHistory::countAbove), then for each sensor the hours at or
+  // below `dry_limit_rh` (HumidityHistory::countAtOrBelow). A sensor without samples, a day without a valid
+  // noise reading and `dry_limit_rh` 0 (the dry hours only) give empty fields, so every row has 94 columns.
   // Returns the length, or 0 for a null or small buffer or an invalid date.
   static size_t formatDailyRow(
       uint16_t year, uint8_t month, uint8_t day, const ClimateHistory& history, const NoiseHistory& noise,
       const DailyNoiseStats& stats, char* out, size_t capacity,
-      uint8_t mold_limit_rh = DeviceConfig::DEFAULT_MOLD_ALERT_LIMIT_RH) {
+      uint8_t mold_limit_rh = DeviceConfig::DEFAULT_MOLD_ALERT_LIMIT_RH, uint8_t dry_limit_rh = 0) {
     if (out == nullptr || capacity == 0) {
       return 0;
     }
@@ -513,6 +528,15 @@ public:
         pos += static_cast<size_t>(snprintf(
             out + pos, capacity - pos, ",%u",
             static_cast<unsigned>(history.slots[i].countAbove(static_cast<uint16_t>(mold_limit_rh * 10u)))));
+      }
+    }
+    for (size_t i = 0; i < LOG_SOURCE_COUNT; ++i) {
+      if (dry_limit_rh == 0 || history.slots[i].size() == 0) {
+        pos += static_cast<size_t>(snprintf(out + pos, capacity - pos, ","));
+      } else {
+        pos += static_cast<size_t>(snprintf(
+            out + pos, capacity - pos, ",%u",
+            static_cast<unsigned>(history.slots[i].countAtOrBelow(static_cast<uint16_t>(dry_limit_rh * 10u)))));
       }
     }
     pos += static_cast<size_t>(snprintf(out + pos, capacity - pos, "\n"));
@@ -1042,7 +1066,8 @@ public:
 
   // ---- Restore of the seven-day history from the daily rows ----
 
-  static constexpr size_t DAILY_COLUMNS = 1 + 6 * LOG_SOURCE_COUNT + 2 + 3 + LOG_SOURCE_COUNT; // 83
+  static constexpr size_t DAILY_COLUMNS_V5 = 1 + 6 * LOG_SOURCE_COUNT + 2 + 3 + LOG_SOURCE_COUNT; // 83
+  static constexpr size_t DAILY_COLUMNS = DAILY_COLUMNS_V5 + LOG_SOURCE_COUNT;                    // 94
   static constexpr size_t DAILY_TAIL_BYTES = 4096; // the read limit of each file
   static constexpr size_t DAILY_ROW_CAPACITY = 14;
 
@@ -1067,10 +1092,10 @@ public:
     }
   };
 
-  // Parses one row of the current daily format (83 columns, without the newline) for the restore. An
-  // empty field is a missing value; a sensor needs both its minimum and its maximum for a pair. A wrong
-  // column count, a bad date or a bad number rejects the row. The header line has a bad date, so it is
-  // rejected too.
+  // Parses one row of the daily format (94 columns, or 83 columns of daily_v5 without the dry hours, without
+  // the newline) for the restore. An empty field is a missing value; a sensor needs both its minimum and its
+  // maximum for a pair. A wrong column count, a bad date or a bad number rejects the row. The header line has
+  // a bad date, so it is rejected too. The dry hours of a daily_v5 row stay gaps.
   static bool parseDailyRow(const char* line, size_t len, WeekHistory::RestoreRow& out) {
     if (line == nullptr) {
       return false;
@@ -1093,7 +1118,7 @@ public:
         start = i + 1;
       }
     }
-    if (n != DAILY_COLUMNS) {
+    if (n != DAILY_COLUMNS && n != DAILY_COLUMNS_V5) {
       return false;
     }
     // "YYYY-MM-DD"
@@ -1150,25 +1175,17 @@ public:
         row.rh_mask = static_cast<uint16_t>(row.rh_mask | (1u << s));
       }
     }
-    // The mold_h_<N> columns follow the five noise columns; an empty field is a gap.
+    // The mold_h_<N> columns follow the five noise columns, the dry_h_<N> columns (daily_v6) follow them; an
+    // empty field is a gap.
     const size_t mold_col = 1 + 6 * LOG_SOURCE_COUNT + 5;
     for (size_t s = 0; s < LOG_SOURCE_COUNT; ++s) {
-      const size_t col = mold_col + s;
-      if (lens[col] == 0) {
-        continue;
-      }
-      uint32_t hours = 0;
-      for (size_t d = 0; d < lens[col]; ++d) {
-        const char c = fields[col][d];
-        if (c < '0' || c > '9' || d >= 2) {
-          return false;
-        }
-        hours = hours * 10 + static_cast<uint32_t>(c - '0');
-      }
-      if (hours > WeekHistory::MAX_MOLD_HOURS) {
+      if (!parseHours(fields[mold_col + s], lens[mold_col + s], WeekHistory::MAX_MOLD_HOURS, row.mold_h[s])) {
         return false;
       }
-      row.mold_h[s] = static_cast<uint8_t>(hours);
+      if (n == DAILY_COLUMNS &&
+          !parseHours(fields[DAILY_COLUMNS_V5 + s], lens[DAILY_COLUMNS_V5 + s], WeekHistory::MAX_DRY_HOURS, row.dry_h[s])) {
+        return false;
+      }
     }
     out = row;
     return true;
@@ -1224,6 +1241,26 @@ public:
   }
 
 private:
+  // Parses an hour count field of the daily file: empty keeps `out` (a gap), else 0 to `max_hours` in at most
+  // two digits. False for a bad character or a count above `max_hours`.
+  static bool parseHours(const char* field, size_t len, uint8_t max_hours, uint8_t& out) {
+    if (len == 0) {
+      return true;
+    }
+    uint32_t hours = 0;
+    for (size_t d = 0; d < len; ++d) {
+      if (field[d] < '0' || field[d] > '9' || d >= 2) {
+        return false;
+      }
+      hours = hours * 10 + static_cast<uint32_t>(field[d] - '0');
+    }
+    if (hours > max_hours) {
+      return false;
+    }
+    out = static_cast<uint8_t>(hours);
+    return true;
+  }
+
   // Appends ",<value in tenths as x.y>" or "," for a missing value.
   static size_t appendTenths(char* out, size_t capacity, size_t pos, bool present, int16_t tenths) {
     if (!present) {
@@ -1398,7 +1435,7 @@ public:
   // of the summarized day, so the row of 31 December goes to the file of that year.
   static SdLogResult appendDaily(
       const RtcTime& now, const ClimateHistory& history, const NoiseHistory& noise,
-      const DailyNoiseStats& stats, uint8_t mold_limit_rh) {
+      const DailyNoiseStats& stats, uint8_t mold_limit_rh, uint8_t dry_limit_rh) {
     uint16_t year = 0;
     uint8_t month = 0, day = 0;
     DailyPlanner::previousDay(now, year, month, day);
@@ -1407,7 +1444,8 @@ public:
     if (SdLogCodec::formatDailyFilename(year, path, sizeof(path)) == 0) {
       return SdLogResult::NO_TIME;
     }
-    const size_t row_len = SdLogCodec::formatDailyRow(year, month, day, history, noise, stats, row, sizeof(row), mold_limit_rh);
+    const size_t row_len = SdLogCodec::formatDailyRow(year, month, day, history, noise, stats, row, sizeof(row), mold_limit_rh,
+                                                     dry_limit_rh);
     if (row_len == 0) {
       return SdLogResult::NO_TIME;
     }
@@ -1553,9 +1591,10 @@ public:
   }
 
   // Restores the seven-day history from the daily rows of the card after a power-on (see
-  // WeekHistory::restore). Reads the last DAILY_TAIL_BYTES of the daily file of the current year and, in
-  // the first week of January, of the previous year. A missing card or file, a read failure or a bad row
-  // changes nothing. Returns the days stored.
+  // WeekHistory::restore). Reads the last DAILY_TAIL_BYTES of the daily_v5 and the daily_v6 file of the
+  // current year (the daily_v6 rows are newer, so the old file serves as fallback and covers a change of the
+  // format within the year) and, in the first week of January, of the previous year. A missing card or file,
+  // a read failure or a bad row changes nothing. Returns the days stored.
   static size_t restoreWeek(WeekHistory& week, const RtcTime& now) {
     char path[SdLogCodec::MAX_PATH_SIZE];
     if (!now.valid || now.oscillator_stopped || now.year < WeekHistory::MIN_TRUSTED_YEAR ||
@@ -1569,12 +1608,11 @@ public:
     static char buf[SdLogCodec::DAILY_TAIL_BYTES];
     static SdLogCodec::DailyRowBuffer rows;
     rows = SdLogCodec::DailyRowBuffer{};
-    readDailyTail(path, buf, sizeof(buf), rows);
+    readYearRows(now.year, path, buf, sizeof(buf), rows);
     if (now.month == 1 && now.day <= 7) {
       static SdLogCodec::DailyRowBuffer older;
       older = SdLogCodec::DailyRowBuffer{};
-      if (SdLogCodec::formatDailyFilename(static_cast<uint16_t>(now.year - 1), path, sizeof(path)) != 0 &&
-          readDailyTail(path, buf, sizeof(buf), older) > 0) {
+      if (readYearRows(static_cast<uint16_t>(now.year - 1), path, buf, sizeof(buf), older) > 0) {
         older.appendAll(rows);
         rows = older;
       }
@@ -1629,6 +1667,18 @@ private:
       return 0;
     }
     return SdLogCodec::parseClimateTail(buf, n, whole, out);
+  }
+
+  // Reads the rows of the daily_v5 and then the daily_v6 file of `year` into `out`, oldest first. Returns the rows added.
+  static size_t readYearRows(uint16_t year, char* path, char* buf, size_t capacity, SdLogCodec::DailyRowBuffer& out) {
+    size_t added = 0;
+    if (SdLogCodec::formatDailyFilenameV5(year, path, SdLogCodec::MAX_PATH_SIZE) != 0) {
+      added += readDailyTail(path, buf, capacity, out);
+    }
+    if (SdLogCodec::formatDailyFilename(year, path, SdLogCodec::MAX_PATH_SIZE) != 0) {
+      added += readDailyTail(path, buf, capacity, out);
+    }
+    return added;
   }
 
   // Reads the last `capacity` bytes of one daily file and parses its rows. A missing file or a short read gives 0.
