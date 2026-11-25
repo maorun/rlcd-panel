@@ -3744,3 +3744,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The RTC state holds two bytes at the end of the config trailer: the temperature limit in tenths of a degree and the humidity limit. The RTC restore rejects a byte outside the range. `KEY_COUNT` is 101 and `STATE_VERSION` is 80.
 - The three `ConfigSchema` copies, the Android and Wear OS `ConfigBackup` and `EventText` lists, and `docs/config.example.ini` hold both keys.
 - Tests: host tests check that a jump of 9.0 C passes at once with `jump_limit_c=10.0`, that a jump of 4.0 C stays pending with `jump_limit_c=3.0`, and that both keys 0 give no pending packet. They reject `jump_limit_c=2.5`, `jump_limit_c=3.2` and `jump_limit_rh=51`, and a trailer byte outside the range in the RTC restore. `testConfigExampleTemplateInSync` passes. The schema tests of the three apps cover both keys.
+
+## Badge intervals in the Wear OS event log
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/EventLogScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/AlertTimelineTest.kt`
+- The user sees on the watch when each badge of a room started and ended. The event log screen shows the section `Badge-Zeitleiste` below the alert intervals.
+- The section uses `AlertTimeline.badges`. It shows one chip for each interval, newest first, up to 6 chips (`EventLogState.MAX_BADGE_CHIPS`). Badges are `W` (window open), `C` (wall damp), `D` (dry air) and `S` (sensor drift).
+- `BadgeChips.text` gives two lines. The label line holds the badge letter and the room, for example `C Slot 3`. The second line holds the start and the duration, for example `01.01. 08:00 · 45 min`.
+- An open interval shows `offen` in place of the duration. An interval with `startUnknown` shows `?` in place of the start.
+- `AlertTimeline.kt` stays equal to the Android copy. The chip text is a watch-only part in `EventLogScreen.kt`.
+- Tests: `AlertTimelineTest` checks the chip text of a closed `WALL_DAMP` interval, `offen` for an open `DRY_AIR` interval and `?` for an interval with `startUnknown`.
+- Validation: `scripts/check-protocol-sync.sh` and `scripts/check-protocol-sync.sh --self-test` exit 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
