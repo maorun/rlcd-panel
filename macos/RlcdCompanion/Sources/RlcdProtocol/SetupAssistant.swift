@@ -212,7 +212,7 @@ public struct SetupAssistant {
     /// The first slot without a fixed MAC, without a reading and not disabled (`slotN_enabled=0`).
     public static func freeSlot(status: StatusReply, config: ConfigReply) -> Int? {
         SlotAssignment.slots.first { n in
-            guard config.mac(forSlot: n) == nil, config.values["slot\(n)_enabled"] != "0" else { return false }
+            guard config.mac(forSlot: n) == nil, SlotAssignment.isEnabled(slot: n, config: config) else { return false }
             guard let sensor = status.sensors.first(where: { $0.index == n }) else { return true }
             return sensor.state == "EMPTY"
         }
