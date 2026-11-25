@@ -244,6 +244,7 @@ fun SensorHealthScreen(
     onOpenSpread: () -> Unit = {},
     onOpenFrsi: () -> Unit = {},
     onOpenToday: () -> Unit = {},
+    onOpenTail: () -> Unit = {},
     onOpenMold: () -> Unit = {},
     clockState: ClockReadState = ClockReadState(),
     onReadClock: () -> Unit = {},
@@ -330,6 +331,14 @@ fun SensorHealthScreen(
                         modifier = Modifier.fillMaxWidth(0.85f),
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text("Today", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                item {
+                    Chip(
+                        onClick = onOpenTail,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text("Log tail and gaps", fontSize = 12.sp, maxLines = 1) }
                     )
                 }
                 item {

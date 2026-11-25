@@ -25,11 +25,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Newest log rows with gap report on the Wear OS watch
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/TailReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/LogGaps.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/TailScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/TailReplyTest.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/LogGapsTest.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
-  - **Goal:** Show on the watch if the card log has missing hours. Copy the Android `TailReply.kt` and `LogGaps.kt` into the watch protocol package. Add both names to the `FILES` list of `scripts/check-protocol-sync.sh`. Add `TailScreen`. Send `TAIL 6` only after a tap. Show the newest row of each room, the gap count and one line for each gap. Show `Keine Lücken` for a report without a gap.
-  - **Acceptance:** A unit test parses `tests/fixtures/tail_reply_sample.txt`. A unit test checks that a step of 3 hours gives one gap with 2 missing hours. A unit test checks that hourly rows give no gap. `scripts/check-protocol-sync.sh` and `scripts/check-protocol-sync.sh --self-test` exit with 0. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 27, Use: 4, Setup: 5, Harmony: 8, Safety: 10, Effort: M]
 
 - [ ] Room picker for the macOS today view
   - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/TodayReplyTests.swift`, `FEATURES.md`

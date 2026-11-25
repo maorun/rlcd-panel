@@ -3674,3 +3674,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - Tests cover one `DRY_AIR` pair, two cycles of one tile, bad times, tile 10, the order of equal starts, an open `WINDOW_OPEN`, a clear row without a set row, two tiles of one badge, the same tile of two badges, invalid details, the dropped row, the line text, the `EventText` fallbacks and `tests/fixtures/events_reply_sample.txt`.
 - Validation: `swift test` (758 tests) and `swift build -c release` pass in `macos/RlcdCompanion`.
 
+## Log tail and gap report on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/TailReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/LogGaps.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/TailScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `scripts/check-protocol-sync.sh`
+- The watch shows if the log on the MicroSD card of the panel has missing hours. `TailReply.kt` and `LogGaps.kt` are copies of the Android files.
+- The screen opens from the sensor health screen with the chip `Log tail and gaps`. A tap on `Read log tail` sends `TAIL 6`. The watch sends no command before this tap.
+- `TailScreen` shows the summary of `LogGaps.summaryText`: `Keine Lücken` for a report without a gap, else the missing hours and the gap count. One line for each gap follows, newest gap first.
+- `TailScreenText.coverageText` shows `Letzte <N> Zeilen`, because the report covers only these rows. `TailScreenText.roomLines` gives one card for each room. The card shows the room name, the time and the temperature and humidity of the newest row that holds a value of this room. A room without any value has no card.
+- An error line (`ERR NO_CARD`, `ERR NO_FILE`, `ERR READ_FAILED`) shows a German text. A reply that does not parse shows `Antwort nicht lesbar`.
+- `scripts/check-protocol-sync.sh` compares both files with the phone copies.
+- Tests: `TailReplyTest` parses `tests/fixtures/tail_reply_sample.txt`. `LogGapsTest` checks that a step of 3 hours gives one gap with 2 missing hours and that hourly rows give no gap. `TailScreenTextTest` covers the room lines and the error texts.
+- Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
