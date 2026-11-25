@@ -21,11 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Sensor drift badge in the climate tiles
-  - **Location:** `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tools/render_display_preview.cpp`, `scripts/generate-display-preview.sh`, `docs/display_preview_drift.png`, `tests/test_firmware_logic.cpp`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Show the drift state on the panel, so the user sees it without an app. Add `SystemInfo::drift_tiles` and copy `PersistentState::drift_tiles` in `rlcd_panel.ino`. Bit 0 is the onboard tile, bits 1 to 10 are the slots. Draw the inverted `S` badge for each set bit. Put it beside `V`, `D`, `W`, `C` and `R` in each tile style. Do not draw the badge on a stale tile. Add the scene field `PreviewScene::drift` and the image `docs/display_preview_drift.png`. Do not change the RTC layout or `STATE_VERSION`.
-  - **Acceptance:** A host test renders a tile with its drift bit set and finds the inverted `S` badge pixels. A host test checks that a clear bit and a stale tile give no badge. A host test checks the badge position beside the other badges in the STANDARD, LARGE and COMPACT styles. `./scripts/generate-display-preview.sh` creates `docs/display_preview_drift.png`. The host unit tests pass and `arduino-cli compile rlcd_panel` passes.
-  - **Rank:** [Total: 33, Use: 7, Setup: 8, Harmony: 8, Safety: 10, Effort: S]
 
 
 ## Priority 3: Display and Logging (Score 22–27)
