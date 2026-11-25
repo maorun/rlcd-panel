@@ -8,6 +8,7 @@
 #include "audio_alert.h"
 #include "battery_monitor.h"
 #include "device_config.h"
+#include "drift_latch.h"
 #include "es7210_mic.h"
 #include "frame_refresh.h"
 #include "pcf85063_rtc.h"
@@ -1047,6 +1048,7 @@ struct SerialStatusSnapshot {
   uint16_t window_tiles = 0;         // WindowLatch bits, bit 0 onboard, bits 1..10 slots
   uint16_t stale_slots = 0;          // PersistentState::stale_slots, bits 0..9 are the registry slots
   uint16_t reception_low = 0;        // PersistentState::reception_low, bits 0..9 are the registry slots
+  uint16_t drift_tiles = 0;          // DriftLatch bits, bit 0 onboard, bits 1..10 slots
   NoiseHistory noise_history;        // RTC copy of the hourly noise levels
   NoiseBand noise_band = NoiseBand::QUIET; // RTC copy of the noise band latch
   DailyNoiseStats daily_noise;       // RTC copy of the noise summary of the current day
@@ -1594,48 +1596,37 @@ public:
     static const char* const prefixes[ClimateHistory::SLOT_COUNT] = {
         "",       "slot1_", "slot2_", "slot3_", "slot4_", "slot5_",
         "slot6_", "slot7_", "slot8_", "slot9_", "slot10_"};
-    int32_t t_sum[ClimateHistory::SLOT_COUNT];
-    int32_t rh_sum[ClimateHistory::SLOT_COUNT];
-    size_t sensor_of[ClimateHistory::SLOT_COUNT];
-    size_t count = 0;
-    for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
-      if (history.recentSums(i, SPREAD_HOURS, t_sum[count], rh_sum[count])) {
-        sensor_of[count++] = i;
-      }
-    }
+    SpreadMath::Result r;
+    SpreadMath::compute(history, r);
+    const size_t count = r.count;
+    const int32_t hours2 = 2 * static_cast<int32_t>(SpreadMath::HOURS);
     char text[1024];
     size_t len = 0;
-    if (count < SPREAD_MIN_SENSORS) {
+    if (!r.enough()) {
       len = static_cast<size_t>(snprintf(text, sizeof(text), "SKIP sensors=%u\n", static_cast<unsigned>(count)));
     } else {
-      const int32_t t_med2 = medianTwice(t_sum, count);
-      const int32_t rh_med2 = medianTwice(rh_sum, count);
       char f[2][12];
-      formatTenths(f[0], sizeof(f[0]), divRound(t_med2, 2 * static_cast<int32_t>(SPREAD_HOURS)));
-      formatTenths(f[1], sizeof(f[1]), divRound(rh_med2, 2 * static_cast<int32_t>(SPREAD_HOURS)));
+      formatTenths(f[0], sizeof(f[0]), divRound(r.t_med2, hours2));
+      formatTenths(f[1], sizeof(f[1]), divRound(r.rh_med2, hours2));
       len = static_cast<size_t>(snprintf(text, sizeof(text), "SPREAD sensors=%u temp_median=%s rh_median=%s\n",
                                          static_cast<unsigned>(count), f[0], f[1]));
       for (size_t k = 0; k < count; ++k) {
-        const int32_t t_dev2 = 2 * t_sum[k] - t_med2;
-        const int32_t rh_dev2 = 2 * rh_sum[k] - rh_med2;
-        const int32_t t_abs = t_dev2 < 0 ? -t_dev2 : t_dev2;
-        const int32_t rh_abs = rh_dev2 < 0 ? -rh_dev2 : rh_dev2;
-        const bool outlier = t_abs > SPREAD_MAX_TEMP_TENTHS * 2 * static_cast<int32_t>(SPREAD_HOURS) ||
-                             rh_abs > SPREAD_MAX_RH_TENTHS * 2 * static_cast<int32_t>(SPREAD_HOURS);
-        formatTenths(f[0], sizeof(f[0]), divRound(t_dev2, 2 * static_cast<int32_t>(SPREAD_HOURS)));
-        formatTenths(f[1], sizeof(f[1]), divRound(rh_dev2, 2 * static_cast<int32_t>(SPREAD_HOURS)));
+        const int32_t t_dev2 = r.t_dev2[k];
+        const int32_t rh_dev2 = r.rh_dev2[k];
+        const bool outlier = SpreadMath::isOutlier(r, k);
+        formatTenths(f[0], sizeof(f[0]), divRound(t_dev2, hours2));
+        formatTenths(f[1], sizeof(f[1]), divRound(rh_dev2, hours2));
         len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "SENSOR %s temp_dev=%s rh_dev=%s %s\n",
-                                            names[sensor_of[k]], f[0], f[1], outlier ? "OUTLIER" : "OK"));
+                                            names[r.sensor_of[k]], f[0], f[1], outlier ? "OUTLIER" : "OK"));
         if (outlier) {
           // Proposal: active offset + median - sensor mean (the mean is sum / hours), clamped to the key range.
-          const size_t s = sensor_of[k];
+          const size_t s = r.sensor_of[k];
           const float temp_active = s == 0 ? config.temp_offset_c : config.slot_temp_offset_c[s - 1];
           const float rh_active = s == 0 ? config.rh_offset_pct : config.slot_rh_offset_pct[s - 1];
           const float temp_lo = s == 0 ? DeviceConfig::MIN_TEMP_OFFSET_C : DeviceConfig::MIN_SLOT_TEMP_OFFSET_C;
           const float temp_hi = s == 0 ? DeviceConfig::MAX_TEMP_OFFSET_C : DeviceConfig::MAX_SLOT_TEMP_OFFSET_C;
           const float rh_lo = s == 0 ? DeviceConfig::MIN_RH_OFFSET_PCT : DeviceConfig::MIN_SLOT_RH_OFFSET_PCT;
           const float rh_hi = s == 0 ? DeviceConfig::MAX_RH_OFFSET_PCT : DeviceConfig::MAX_SLOT_RH_OFFSET_PCT;
-          const int32_t hours2 = 2 * static_cast<int32_t>(SPREAD_HOURS);
           const int32_t temp_new = clampTenths(tenths(temp_active) - divRound(t_dev2, hours2), temp_lo, temp_hi);
           const int32_t rh_new = clampTenths(tenths(rh_active) - divRound(rh_dev2, hours2), rh_lo, rh_hi);
           formatTenths(f[0], sizeof(f[0]), temp_new);
@@ -2537,14 +2528,15 @@ public:
     if (len >= sizeof(text)) {
       return;
     }
-    len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "LATCH vent=%03x dry=%03x batlow=%03x stale=%03x wall=%03x window=%03x rxlow=%03x\n",
+    len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "LATCH vent=%03x dry=%03x batlow=%03x stale=%03x wall=%03x window=%03x rxlow=%03x drift=%03x\n",
                                         static_cast<unsigned>(snap.ventilate_tiles & 0x7FFu),
                                         static_cast<unsigned>(snap.dry_tiles & 0x7FFu),
                                         static_cast<unsigned>(snap.sensor_battery_latch & 0x3FFu),
                                         static_cast<unsigned>(snap.stale_slots & 0x3FFu),
                                         static_cast<unsigned>(snap.wall_tiles & 0x7FFu),
                                         static_cast<unsigned>(snap.window_tiles & 0x7FFu),
-                                        static_cast<unsigned>(snap.reception_low & 0x3FFu)));
+                                        static_cast<unsigned>(snap.reception_low & 0x3FFu),
+                                        static_cast<unsigned>(snap.drift_tiles & 0x7FFu)));
     if (len >= sizeof(text)) {
       return;
     }
@@ -3057,32 +3049,14 @@ public:
   static constexpr size_t FRSI_HOURS = 6;
   static constexpr int32_t FRSI_MIN_DELTA_TENTHS = 100;  // 10.0 C
   static constexpr int32_t FRSI_MAX_SPAN_HUNDREDTHS = 10; // 0.10
-  static constexpr size_t SPREAD_HOURS = 6;
-  static constexpr size_t SPREAD_MIN_SENSORS = 3;
-  static constexpr int32_t SPREAD_MAX_TEMP_TENTHS = 5;  // 0.5 C
-  static constexpr int32_t SPREAD_MAX_RH_TENTHS = 30;   // 3.0 %RH
+  static constexpr size_t SPREAD_HOURS = SpreadMath::HOURS;
+  static constexpr size_t SPREAD_MIN_SENSORS = SpreadMath::MIN_SENSORS;
   static constexpr size_t SALT_HOURS = 6;
   static constexpr int32_t SALT_MAX_SPAN_TENTHS = 10; // 1.0 %RH
 
 private:
   // Rounds a / b half away from zero (b > 0).
-  static int32_t divRound(int32_t a, int32_t b) {
-    return a >= 0 ? (a + b / 2) / b : -((-a + b / 2) / b);
-  }
-
-  // Twice the median of `values` (count 1 to 11): the middle value doubled, or the sum of the two middle values.
-  static int32_t medianTwice(const int32_t* values, size_t count) {
-    int32_t sorted[ClimateHistory::SLOT_COUNT];
-    for (size_t i = 0; i < count; ++i) {
-      size_t j = i;
-      while (j > 0 && sorted[j - 1] > values[i]) {
-        sorted[j] = sorted[j - 1];
-        --j;
-      }
-      sorted[j] = values[i];
-    }
-    return count % 2 == 1 ? 2 * sorted[count / 2] : sorted[count / 2 - 1] + sorted[count / 2];
-  }
+  static int32_t divRound(int32_t a, int32_t b) { return SpreadMath::divRound(a, b); }
 
   // Hours with a temperature and a humidity sample in the reference and in the sensor.
   static size_t commonHours(const ClimateHistory& h, size_t reference, size_t sensor) {

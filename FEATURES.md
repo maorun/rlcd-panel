@@ -3209,3 +3209,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `DailyChartView` has a source selector: `Card files` (the folder rows as before) and `Panel (BLE)`. The panel source shows a day picker (`DaysReply.rowChoices`: 7, 14, 31) and the button `Read daily rows`. The app sends `DAYS <N>` only on this button, on USB and on BLE, and shows the rows in the existing charts (temperature, humidity, mold hours).
 - `ERR NO_CARD`, `ERR NO_FILE`, `ERR READ_FAILED` and `ERR BAD_ARG` give a clear text (`DaysReply.message`). A lost link, a missing reply or a bad reply clears the rows (`AppModel.daysResult`).
 - Validation: `DaysReplyTests` read `tests/fixtures/days_reply_sample.txt` (3 rows) and cover the values, an empty pair, a wrong column count, a bad count and header, the command limits, the error texts and the equality with the rows of a `daily_v5` file. `swift build` and `scripts/check-protocol-sync.sh` passed locally; `swift test` runs in CI (the local host lacks the Swift Testing macros).
+
+## Sensor drift latch and event from the co-location median
+
+- **Code:** `rlcd_panel/drift_latch.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- The panel tells the user when one sensor drifts away from the other sensors, so the user can calibrate it before the alerts become wrong. The latch has no chime and no badge.
+- `SpreadMath` (`drift_latch.h`) holds the median and deviation rules of the console command `SPREAD` (last 6 hourly samples of each sensor, at least 3 sensors, `OUTLIER` above 0.5 C or 3.0 %RH). `SerialConsoleRunner::showSpread` and `DriftLatch` use it, so both give the same result.
+- `DriftLatch::update` runs in each wake cycle after the `ClimateHistory` push. A sensor that is `OUTLIER` sets its bit. The bit releases when both deviations are 0.3 C and 2.0 %RH or less; between the limits it keeps its state. Fewer than 3 sensors, a sensor with fewer than 6 samples and an empty slot clear the bit.
+- `PersistentState::drift_tiles` (2 bytes just before the checksum; bit 0 onboard, bits 1 to 10 slots) holds the bits. A bit above bit 10 and a bit of an empty slot are rejected. `resetSlot` clears the bit and `swapSlotsByUser` swaps it. `STATE_VERSION` is 76.
+- `EventCode::SENSOR_DRIFT` 26 records each changed bit (detail low byte the tile 0 to 10, high byte 1 drift, 0 good again). `EventRing::MAX_CODE` is 26.
+- The `STATUS` line `LATCH` ends with ` drift=<3 hex digits>`. `tests/fixtures/status_reply_sample.txt` holds the field.
+- Validation: host tests (`testSensorDriftLatch`) pass; `arduino-cli compile rlcd_panel` passes; `scripts/check-protocol-sync.sh` passes. The behavior on the board is not tested.

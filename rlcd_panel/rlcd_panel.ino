@@ -992,6 +992,14 @@ void refreshSensors() {
   g_state.dry_tiles = DryLatch::update(
       g_state.dry_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
       config().dry_alert_limit_rh, config().climate_alert_tiles, config().staleTimeoutMs());
+  // The sensor drift latch has no chime. It runs each wake cycle after the hourly push above; the result changes only with a new hourly sample or a changed tile mask.
+  uint16_t drift_tile_mask = 1;
+  for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+    if (tiles[i].valid) {
+      drift_tile_mask = static_cast<uint16_t>(drift_tile_mask | (2u << i));
+    }
+  }
+  g_state.updateDrift(drift_tile_mask, g_rtc_time);
   const uint16_t previous_wall_tiles = g_state.wall_tiles;
   g_state.wall_tiles = WallLatch::update(
       g_state.wall_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
@@ -1587,6 +1595,7 @@ void setup() {
       snap.window_tiles = g_state.window_tiles;
       snap.stale_slots = g_state.stale_slots;
       snap.reception_low = g_state.reception_low;
+      snap.drift_tiles = g_state.drift_tiles;
       snap.noise_history = g_state.noise_history;
       snap.noise_band = g_state.noise_band;
       snap.daily_noise = g_state.daily.noise;

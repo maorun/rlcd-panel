@@ -18,6 +18,7 @@
 #include "sd_logger.h"
 #include "shtc3_sensor.h"
 #include "sparkline.h"
+#include "drift_latch.h"
 #include "dry_latch.h"
 #include "wall_latch.h"
 #include "window_latch.h"
@@ -121,6 +122,7 @@ struct PersistentState {
   uint8_t alert_mask = ALERT_NONE; // alerts active in the last wake cycle (hysteresis latch)
   int32_t sd_free_mb = -1;         // free MicroSD space in MB at the last card read; -1 is unknown (STATUS)
   uint8_t scan_fault = 0;          // 1: the last BLE scan start failed (recordScanResult); a power-on sets 0
+  uint16_t drift_tiles = 0;     // sensor drift latch, bit 0 onboard, bits 1..10 slots (DriftLatch)
   uint16_t reception_low = 0;      // low reception latch, bits 0..9 are the registry slots (recordReceptionChanges)
   static constexpr uint8_t RECEPTION_LOW_MIN_SCANS = 12; // counted scans before the latch may set
   uint16_t stale_slots = 0;        // stale latch, bits 0..9 are the registry slots (recordStaleChanges)
@@ -327,6 +329,23 @@ struct PersistentState {
     recordTileChanges(EventCode::DRY_AIR, previous, current, DryLatch::ALL_MASK, DryLatch::TILE_COUNT, now);
   }
 
+  // Records one SENSOR_DRIFT event for each changed bit between two drift_tiles values: same detail layout as WALL_DAMP.
+  void recordDriftChanges(uint16_t previous, uint16_t current, const RtcTime& now) {
+    recordTileChanges(EventCode::SENSOR_DRIFT, previous, current, DriftLatch::ALL_MASK, DriftLatch::TILE_COUNT, now);
+  }
+
+  // Runs DriftLatch::update on the RTC histories. Fewer than SpreadMath::MIN_SENSORS sensors clear each bit without an
+  // event; any other change records one SENSOR_DRIFT event. Like SPREAD, the latch does not check the age of the samples.
+  void updateDrift(uint16_t tile_mask, const RtcTime& now) {
+    const uint16_t previous = drift_tiles;
+    SpreadMath::Result r;
+    SpreadMath::compute(history, r);
+    drift_tiles = DriftLatch::update(previous, history, tile_mask);
+    if (r.enough()) {
+      recordDriftChanges(previous, drift_tiles, now);
+    }
+  }
+
   void recordTileChanges(EventCode code, uint16_t previous, uint16_t current, uint16_t mask, size_t tile_count,
                          const RtcTime& now) {
     const uint16_t changed = static_cast<uint16_t>((previous ^ current) & mask);
@@ -404,6 +423,7 @@ struct PersistentState {
     swapBit(dry_tiles, a, b, 1);
     swapBit(window_tiles, a, b, 1);
     swapBit(wall_tiles, a, b, 1);
+    swapBit(drift_tiles, a, b, 1);
     std::swap(window_anchors.ref[1 + a], window_anchors.ref[1 + b]);
     std::swap(window_anchors.prev[1 + a], window_anchors.prev[1 + b]);
     std::swap(window_anchors.stamp_ms[1 + a], window_anchors.stamp_ms[1 + b]);
@@ -461,6 +481,7 @@ struct PersistentState {
     dry_tiles = static_cast<uint16_t>(dry_tiles & ~(2u << index));
     window_tiles = static_cast<uint16_t>(window_tiles & ~(2u << index));
     wall_tiles = static_cast<uint16_t>(wall_tiles & ~(2u << index));
+    drift_tiles = static_cast<uint16_t>(drift_tiles & ~(2u << index));
     window_anchors.clearTile(1 + index);
     stale_slots = static_cast<uint16_t>(stale_slots & ~(1u << index));
     reception_low = static_cast<uint16_t>(reception_low & ~(1u << index));
@@ -610,7 +631,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 75;
+  static constexpr uint8_t STATE_VERSION = 76;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -681,7 +702,8 @@ public:
   // Snooze (just before the checksum): start stamp (uint32), minutes (uint16).
   static constexpr size_t SNOOZE_SIZE = 4 + 2;
   static constexpr size_t RECEPTION_LOW_SIZE = 2;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + WINDOW_SIZE + WALL_SIZE + SNOOZE_SIZE + RECEPTION_LOW_SIZE + 4;
+  static constexpr size_t DRIFT_SIZE = 2;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + WINDOW_SIZE + WALL_SIZE + SNOOZE_SIZE + RECEPTION_LOW_SIZE + DRIFT_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -1058,6 +1080,8 @@ public:
     out[pos++] = static_cast<uint8_t>(state.snooze.minutes >> 8);
     out[pos++] = static_cast<uint8_t>(state.reception_low & 0xFF);
     out[pos++] = static_cast<uint8_t>((state.reception_low >> 8) & 0xFF);
+    out[pos++] = static_cast<uint8_t>(state.drift_tiles & 0xFF);
+    out[pos++] = static_cast<uint8_t>((state.drift_tiles >> 8) & 0xFF);
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -1515,6 +1539,16 @@ public:
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       if ((s.reception_low & (1u << i)) != 0 && !s.registry.slot(i).valid) {
         return false; // a low reception bit of an empty slot is corrupt
+      }
+    }
+    s.drift_tiles = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    pos += 2;
+    if ((s.drift_tiles & ~DriftLatch::ALL_MASK) != 0) {
+      return false; // a bit above bit 10 is corrupt
+    }
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if ((s.drift_tiles & (2u << i)) != 0 && !s.registry.slot(i).valid) {
+        return false; // a drift bit of an empty slot is corrupt
       }
     }
     s.registry.setAutoAssign(s.config.slot_auto_assign != 0);

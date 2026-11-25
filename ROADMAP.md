@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Sensor drift latch and event from the co-location median
-  - **Location:** `rlcd_panel/drift_latch.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/status_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Tell the user when one sensor drifts away from the other sensors, so the user can calibrate it before the alerts become wrong. Move the median and deviation rules of `SerialConsoleRunner::showSpread` into one shared helper `SpreadMath`, so that `SPREAD` and the latch give the same result. Add `DriftLatch::update` after each hourly `ClimateHistory` push: a sensor that is `OUTLIER` by the `SPREAD` rules sets its bit, and the bit releases at 0.3 C and 2.0 %RH or less. Fewer than 3 sensors clear each bit without an event. Store the bits in `PersistentState::drift_tiles` (2 bytes just before the checksum, bit 0 onboard, bits 1 to 10 slots). Reject a bit above bit 10 and a bit of an empty slot. `resetSlot` clears the bit and `swapSlotsByUser` swaps it. Record `EventCode::SENSOR_DRIFT` 26 for each changed bit (detail low byte the tile 0 to 10, high byte 1 drift, 0 good again) and set `EventRing::MAX_CODE` to 26. Append ` drift=<3 hex digits>` to the `STATUS` line `LATCH`. Set `STATE_VERSION` to 76. Do not add a chime or a badge.
-  - **Acceptance:** A host test checks that `SPREAD` and `SpreadMath` give the same deviations for the `tests/fixtures/spread_reply_sample.txt` data. A host test with one sensor 1.0 C above the median sets its bit and records one `SENSOR_DRIFT` event. A sensor at 0.4 C keeps the bit, and a sensor at 0.3 C releases it with one event. Two sensors give no bit. A host test checks the RTC reject rules, the `resetSlot` clear and the `swapSlotsByUser` swap. The `STATUS` fixture holds the `drift=` field. The host unit tests pass and `arduino-cli compile rlcd_panel` passes.
-  - **Rank:** [Total: 34, Use: 6, Setup: 10, Harmony: 9, Safety: 9, Effort: M]
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 - [ ] Sensor drift notification and calibration shortcut in the macOS app

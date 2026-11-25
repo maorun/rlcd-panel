@@ -137,6 +137,7 @@ enum class EventCode : uint8_t {
   RECEPTION_LOW = 23,   // the BLE reception rate of a slot fell below 50 % or is good again; detail low byte the slot number 1 to 10, high byte 1 low, 0 good
   WALL_DAMP = 24,       // the wall humidity latch of a tile changed; detail low byte the tile (0 onboard, 1 to 10 slots), high byte 1 damp, 0 dry again
   DRY_AIR = 25,         // the dry air latch of a tile changed; detail low byte the tile (0 onboard, 1 to 10 slots), high byte 1 dry, 0 good
+  SENSOR_DRIFT = 26,    // the sensor drift latch of a tile changed; detail low byte the tile (0 onboard, 1 to 10 slots), high byte 1 drift, 0 good again
 };
 
 struct LogEvent {
@@ -157,7 +158,7 @@ struct LogEvent {
 class EventRing {
 public:
   static constexpr size_t CAPACITY = 16;
-  static constexpr uint8_t MAX_CODE = static_cast<uint8_t>(EventCode::DRY_AIR);
+  static constexpr uint8_t MAX_CODE = static_cast<uint8_t>(EventCode::SENSOR_DRIFT);
 
   size_t size() const { return count_; }
   uint16_t dropped() const { return dropped_; }
@@ -578,6 +579,7 @@ public:
       case EventCode::RECEPTION_LOW: return "RECEPTION_LOW";
       case EventCode::WALL_DAMP: return "WALL_DAMP";
       case EventCode::DRY_AIR: return "DRY_AIR";
+      case EventCode::SENSOR_DRIFT: return "SENSOR_DRIFT";
       case EventCode::NONE: break;
     }
     return nullptr;
