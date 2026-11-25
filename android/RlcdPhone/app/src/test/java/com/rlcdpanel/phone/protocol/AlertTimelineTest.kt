@@ -145,4 +145,82 @@ class AlertTimelineTest {
         }
         assertEquals(8, AlertTimeline.ALERT_NAMES.size)
     }
+
+    private fun badges(vararg rows: EventRow) = AlertTimeline.badges(rows.toList(), now, zone)
+
+    @Test
+    fun badgeSetAndClearGiveOneInterval() {
+        val intervals = badges(
+            row("2026-01-01 08:00:00", "DRY_AIR", 0x0103),
+            row("2026-01-01 09:00:00", "DRY_AIR", 0x0003)
+        )
+        assertEquals(
+            listOf(BadgeInterval("DRY_AIR", 3, ms("2026-01-01 08:00:00"), ms("2026-01-01 09:00:00"), false, false)),
+            intervals
+        )
+        assertEquals("D", intervals[0].badge)
+        assertEquals("Slot 3", intervals[0].room)
+    }
+
+    @Test
+    fun badgeSetWithoutClearEndsAtNow() {
+        val intervals = badges(row("2026-01-01 10:00:00", "WINDOW_OPEN", 0x0100))
+        assertEquals(listOf(BadgeInterval("WINDOW_OPEN", 0, ms("2026-01-01 10:00:00"), now, true, false)), intervals)
+        assertEquals("W", intervals[0].badge)
+        assertEquals("Onboard", intervals[0].room)
+    }
+
+    @Test
+    fun badgeClearWithoutSetIsStartUnknown() {
+        val intervals = badges(
+            row("2026-01-01 07:00:00", "SD_FAULT", 2),
+            row("2026-01-01 09:00:00", "WALL_DAMP", 0x0002)
+        )
+        assertEquals(
+            listOf(BadgeInterval("WALL_DAMP", 2, ms("2026-01-01 07:00:00"), ms("2026-01-01 09:00:00"), false, true)),
+            intervals
+        )
+    }
+
+    @Test
+    fun twoTilesOfOneBadgeGiveTwoIntervals() {
+        val intervals = badges(
+            row("2026-01-01 08:00:00", "SENSOR_DRIFT", 0x0101),
+            row("2026-01-01 08:10:00", "SENSOR_DRIFT", 0x0102),
+            row("2026-01-01 08:20:00", "SENSOR_DRIFT", 0x0001),
+            row("2026-01-01 08:30:00", "SENSOR_DRIFT", 0x0002)
+        )
+        assertEquals(listOf(1, 2), intervals.map { it.tile })
+        assertEquals(listOf(ms("2026-01-01 08:20:00"), ms("2026-01-01 08:30:00")), intervals.map { it.endMs })
+        assertTrue(intervals.none { it.isOpen || it.startUnknown })
+    }
+
+    @Test
+    fun badgeIgnoresInvalidDetailAndAlertRows() {
+        val intervals = badges(
+            row("2026-01-01 08:00:00", "DRY_AIR", 0x010B),
+            row("2026-01-01 08:00:00", "DRY_AIR", 0x0203),
+            row("2026-01-01 08:00:00", "ALERT_RISE", 1)
+        )
+        assertTrue(intervals.isEmpty())
+    }
+
+    @Test
+    fun badgesSortByStartThenEventThenTile() {
+        val intervals = badges(
+            row("2026-01-01 08:00:00", "SENSOR_DRIFT", 0x0101),
+            row("2026-01-01 08:00:00", "DRY_AIR", 0x0102),
+            row("2026-01-01 08:00:00", "DRY_AIR", 0x0101)
+        )
+        assertEquals(listOf("DRY_AIR" to 1, "DRY_AIR" to 2, "SENSOR_DRIFT" to 1), intervals.map { it.event to it.tile })
+    }
+
+    @Test
+    fun droppedRowMarksOpenBadgeStartUnknown() {
+        val intervals = badges(
+            row("2026-01-01 08:00:00", "WALL_DAMP", 0x0104),
+            row("2026-01-01 08:30:00", EventsReply.DROPPED_EVENT, 3)
+        )
+        assertEquals(listOf(BadgeInterval("WALL_DAMP", 4, ms("2026-01-01 08:00:00"), now, true, true)), intervals)
+    }
 }

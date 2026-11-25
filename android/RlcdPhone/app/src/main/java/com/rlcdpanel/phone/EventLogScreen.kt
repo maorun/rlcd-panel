@@ -61,6 +61,10 @@ fun EventLogScreen(
         AlertTimeline.build(state.rows, System.currentTimeMillis()).asReversed()
     }
 
+    val badges = remember(state.rows) {
+        AlertTimeline.badges(state.rows, System.currentTimeMillis()).asReversed()
+    }
+
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
@@ -116,6 +120,19 @@ fun EventLogScreen(
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Text(
                             AlertTimeline.lineText(interval),
+                            modifier = Modifier.padding(10.dp),
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = if (interval.isOpen) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
+                        )
+                    }
+                }
+            }
+            if (badges.isNotEmpty()) {
+                item { Text("Badge-Verlauf", style = MaterialTheme.typography.titleSmall) }
+                items(badges) { interval ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text(
+                            AlertTimeline.badgeLineText(interval),
                             modifier = Modifier.padding(10.dp),
                             style = MaterialTheme.typography.bodyMedium,
                             color = if (interval.isOpen) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface

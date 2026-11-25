@@ -3582,6 +3582,16 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - Tests: `AlertTimelineTest` covers one pair, an open interval, a fall without a rise, two alert bits, a repeated rise, a dropped row, bad times, the duration text and `tests/fixtures/events_reply_sample.txt`.
 - Validation: `./scripts/check-protocol-sync.sh` exits 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
 
+## Badge intervals in the Android event log
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertTimeline.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AlertTimeline.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/EventLogScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertTimelineTest.kt`
+- The user sees on the phone when each badge of a room started and ended. `AlertTimeline.badges(rows, nowMs, zone)` ports the macOS `AlertTimeline.badges`. It pairs each set row of `WINDOW_OPEN`, `WALL_DAMP`, `DRY_AIR` and `SENSOR_DRIFT` with the next clear row of the same badge and tile.
+- A badge without a clear row stays open and ends at `nowMs`. A clear row without a set row starts at the first row with a valid time and has `startUnknown`. An `EVENTS_DROPPED` row marks each open interval as `startUnknown`. A row with an invalid detail is ignored.
+- `EventLogScreen` shows the section `Badge-Verlauf` (newest first) below `Alarm-Verlauf`: badge letter, room (`Onboard` or `Slot <N>`), start (`~` before a guessed start), end or `läuft`, and the duration (`AlertTimeline.badgeLineText`).
+- The watch protocol package holds the same file. Only the `package` line differs. `scripts/check-protocol-sync.sh` checks it.
+- Tests: `AlertTimelineTest` covers one `DRY_AIR` pair, an open `WINDOW_OPEN` interval that ends at `nowMs`, a clear row without a set row, two tiles of one badge, and invalid details.
+- Validation: `./scripts/check-protocol-sync.sh` exits 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
+
 ## macOS gap report for the newest log rows
 
 - `DiagnosticsView` shows a gap report in the `Newest log rows` group after a `TAIL` read. It feeds `TailReply.rows` to `LogGaps.report(rows:)`.
