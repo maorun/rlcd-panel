@@ -35,11 +35,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Weak signal notification on the Wear OS watch
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ReceptionWatch.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ReceptionWatchTest.kt`, `FEATURES.md`
-  - **Goal:** Tell the user on the wrist that a sensor has a weak BLE signal. Parse the field `rxlow=` of the `STATUS` line `LATCH` (`null` for older firmware). Add `ReceptionWatch` with the rules of `WindowWatch` for bits 0 to 9 (slots 1 to 10). Show one notification for each rising bit with the slot name. Show a weak signal mark beside each flagged slot in `SensorHealthScreen`.
-  - **Acceptance:** `StatusReplyTest` reads `tests/fixtures/status_reply_sample.txt` and gives the `rxlow` value of the fixture. A missing field gives `null`, a bad hex value throws `ParseException`. `ReceptionWatchTest` checks that the first read gives no slot, that a rising bit gives its slot, and that a falling bit gives no slot. `gradle testDebugUnitTest assembleDebug` passes in `wearos/RlcdWatch`.
-  - **Rank:** [Total: 27, Use: 5, Setup: 6, Harmony: 7, Safety: 9, Effort: S]
 - [ ] Log gap report in the macOS archive view
   - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/LogGaps.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ArchiveView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/LogGapsTests.swift`, `FEATURES.md`
   - **Goal:** Show the user where the climate log has missing hours, for example after an empty battery or a card fault. Add `LogGaps.find(rows:minGapMinutes:)` over the `ClimateLog` rows of one month: each step above 90 minutes gives one gap with start, end and missing hours. Show the gap list and the total coverage in percent in `ArchiveView` for the selected month. Read only the downloaded files.

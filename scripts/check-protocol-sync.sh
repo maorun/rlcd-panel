@@ -9,7 +9,7 @@ PHONE_DIR="android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol"
 # The decoder lives in the finder package of the phone app and in the protocol package of the watch app.
 PHONE_ADV="android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/finder/SensorAdvertisement.kt"
 WATCH_ADV="${WATCH_DIR}/SensorAdvertisement.kt"
-FILES=(AckCommand.kt AlertTransitions.kt CalibrationBatch.kt CalibrationReply.kt Checksums.kt ChimeCommand.kt ClimateMath.kt ConsoleWire.kt EventsReply.kt EventFilter.kt EventText.kt HistoryReply.kt PanelClock.kt PanelConfig.kt RejectsReply.kt ReplyAssembler.kt SaltCommand.kt SaltText.kt SelfTestReply.kt SensorHealth.kt SignalMeter.kt SilenceWatch.kt SpreadReply.kt StaleWatch.kt StatusReply.kt TelemetryFrame.kt TodayReply.kt VersionReply.kt WallText.kt WallWatch.kt WeekReply.kt WindowWatch.kt)
+FILES=(AckCommand.kt AlertTransitions.kt CalibrationBatch.kt CalibrationReply.kt Checksums.kt ChimeCommand.kt ClimateMath.kt ConsoleWire.kt EventsReply.kt EventFilter.kt EventText.kt HistoryReply.kt PanelClock.kt PanelConfig.kt ReceptionWatch.kt RejectsReply.kt ReplyAssembler.kt SaltCommand.kt SaltText.kt SelfTestReply.kt SensorHealth.kt SignalMeter.kt SilenceWatch.kt SpreadReply.kt StaleWatch.kt StatusReply.kt TelemetryFrame.kt TodayReply.kt VersionReply.kt WallText.kt WallWatch.kt WeekReply.kt WindowWatch.kt)
 
 # compare_dirs <watch dir> <phone dir>: prints each differing file, returns 1 for a difference, 2 for a missing file.
 compare_dirs() {

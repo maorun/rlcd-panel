@@ -3153,3 +3153,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `ConfigEditorScreen` shows one field for each key in the groups Climate, Alerts, Power, Sensors and BLE, with the problem text or the description under the field. The fields need `ble_console=2`. The `Config editor` button sits in the sensor health screen. A `CONFIG` read refreshes the config cache and clears the input.
 - Tests: `ConfigSchemaTest` reads `docs/config.example.ini` (each template key once, template default), compares the ranges with the macOS values for 5 sample keys, checks the range error without a command, the batch order with `ble_console` last, the first `ERR` stop, `ERR READ_ONLY` and the 40-byte refusal.
 - Limit: no Android SDK exists on the development host, so `gradle testDebugUnitTest assembleDebug` runs only in CI.
+
+## Weak signal notification on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/.../protocol/StatusReply.kt`, `ReceptionWatch.kt`, `MainActivity.kt`, `SensorHealthScreen.kt`; tests `ReceptionWatchTest`, `StatusReplyTest`, `SensorHealthTextTest`.
+- `LatchState.receptionLow` (`Int?`) parses `rxlow=` of the `STATUS` line `LATCH` (3 hex digits, at most `3ff`; bits 0 to 9 are slots 1 to 10). A missing field of older firmware gives `null`. A bad field such as `rxlow=400` or `rxlow=00g` throws `ParseException`. `LatchState.hasWeakSignal(sensor)` tests one slot; `badges()` does not change.
+- `ReceptionWatch` follows the rules of `WindowWatch` for slots 1 to 10: the first read only stores the mask, a rising bit gives its slot number, a falling bit and an equal mask give nothing, a `null` mask keeps the stored mask.
+- `MainActivity.parseStatusReply` feeds `rxlow` to `ReceptionWatch` after each `STATUS` read. It posts one notification `Weak signal: <slot name>` for each rising bit (id 2200 + slot) and one short vibration for each check. A read that raises a window bit and a weak signal bit vibrates twice. A rise is lost without the `POST_NOTIFICATIONS` permission, as for `WindowWatch`. The notifications appear only on `STATUS` reads.
+- `SensorHealthScreen` shows `⚠ Weak signal` under each flagged slot row (`SensorHealthText.weakSignal`).
+- `StatusReply.kt` and `ReceptionWatch.kt` also exist in `android/RlcdPhone` with the same code; `scripts/check-protocol-sync.sh` lists `ReceptionWatch.kt`.
+- Validation: `ReceptionWatchTest` (9 tests) covers the first read, a rising bit, an equal mask, a falling bit, a missing field, slot 10, a bit above slot 10 and the message and notification id. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.

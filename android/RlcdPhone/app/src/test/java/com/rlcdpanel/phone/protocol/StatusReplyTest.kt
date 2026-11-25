@@ -422,4 +422,21 @@ class StatusReplyTest {
             }
         }
     }
+
+    @Test
+    fun parsesRxlowMask() {
+        val latch = StatusReply.parse(fixtureLines()).latch!!
+        assertEquals(0x202, latch.receptionLow)
+        assertEquals(true, latch.hasWeakSignal(2))
+        assertEquals(false, latch.hasWeakSignal(0))
+        val old = replace("LATCH ", "LATCH vent=002 dry=000 batlow=008 stale=004").latch!!
+        assertNull(old.receptionLow)
+        for (extra in listOf("rxlow=400", "rxlow=", "rxlow=00g", "rxlow=1", "rxlow=0x1")) {
+            try {
+                replace("LATCH ", "LATCH vent=000 dry=000 batlow=000 stale=000 $extra")
+                fail("expected ParseException for $extra")
+            } catch (e: ParseException) {
+            }
+        }
+    }
 }
