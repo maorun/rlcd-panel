@@ -4069,3 +4069,12 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `AlertLimits.kt` is shared with the phone (`scripts/check-protocol-sync.sh` lists it). `AlertLimits.Result`, `READ_ONLY_TEXT` and `failureText` moved into it, so the protocol package no longer depends on the phone `finder` package.
 - Tests: `AlertLimitsTest` covers ranges, plan, batch, the stepper grid, the ends, off-grid snapping and `ERR READ_ONLY`.
 - Validation: the host has no Android SDK, so Gradle runs in CI (`Wear OS companion tests and APK`).
+
+## Hour window picker for SPREAD on Android and Wear OS
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/SpreadCommand.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/SpreadCommand.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/CalibrationScreen.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SpreadScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `scripts/check-protocol-sync.sh`
+- `SpreadCommand` moved from `SpreadReply.kt` to its own shared file `SpreadCommand.kt` (in the `check-protocol-sync.sh` list). `SpreadCommand.line(hours)` gives `SPREAD` for 6 and `SPREAD <H>` for 7 to 24; it throws `IllegalArgumentException` for each other value, like the firmware limits (`ERR BAD_ARG`). `SpreadCommand.LINE` stays.
+- The phone calibration screen (`FilterChip` row `Fenster`) and the watch `SpreadScreen` (three chips) offer 6, 12 and 24 h (`SpreadCommand.PICKER_HOURS`, default 6). A new pick clears the last reply. The result shows `Window <H> h` (`SpreadCommand.windowText`) from the window of the request. The `SPREAD` reply holds no hour count, so the app keeps the window itself. The re-read after `Apply` uses the same window.
+- A panel firmware without `SPREAD <H>` answers `ERR BAD_ARG` to a window above 6 h (`SpreadCommand.isOldFirmware`). The app then shows `Update the panel firmware for longer windows`, sets the window to 6 h and sends `SPREAD` once more.
+- Tests: `SpreadCommandTest` (both apps: command for 6, 7, 12 and 24, exception for 5, 25, 0 and -6, picker values, old firmware detection) runs in CI only (no Android SDK on this host). `scripts/check-protocol-sync.sh` passes.
+- Validation on the device: read the check with 12 h on a panel with the current firmware and on one with an old firmware.

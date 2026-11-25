@@ -175,6 +175,7 @@ class MainActivity : ComponentActivity() {
     private var pendingSelfTestRead = false
     private var showSpread by mutableStateOf(false)
     private var spreadState by mutableStateOf(SpreadState())
+    private var spreadHours by mutableStateOf(SpreadCommand.DEFAULT_HOURS)
     private var slotClearState by mutableStateOf(SlotClearState())
     private var slotSwapState by mutableStateOf(SlotSwapState())
     private var pendingSpreadRead = false
@@ -544,6 +545,8 @@ class MainActivity : ComponentActivity() {
                 BackHandler { closeSpread() }
                 SpreadScreen(
 state = spreadState,
+hours = spreadHours,
+onPickHours = { spreadHours = it; spreadState = spreadState.copy(reply = null, confirming = null, message = null) },
 onRead = { readSpread() },
 onAsk = { spreadState = spreadState.copy(confirming = it) },
 onCancel = { spreadState = spreadState.copy(confirming = null) },
@@ -1492,20 +1495,29 @@ onApply = { applySpread(it) }
         startSpreadRead()
     }
 
-    /** A failed CRC-32, a timeout or an `ERR` reply gives one error text. The command is not repeated. */
-    private fun startSpreadRead() {
+    /**
+     * A failed CRC-32, a timeout or an `ERR` reply gives one error text. A panel firmware that answers `ERR BAD_ARG` to
+     * a window above 6 h gets one more request with 6 h and the update text.
+     */
+    private fun startSpreadRead(hours: Int = spreadHours, note: String? = null) {
         if (consoleClient.isRunning) {
             spreadState = SpreadState(message = "Panel-Verbindung ist belegt")
             return
         }
-        consoleClient.send(SpreadCommand.LINE) { reply ->
+        consoleClient.send(SpreadCommand.line(hours)) { reply ->
+            if (reply is ConsoleReply.Status && SpreadCommand.isOldFirmware(hours, reply.line)) {
+                spreadHours = SpreadCommand.DEFAULT_HOURS
+                spreadState = SpreadState(isReading = true, message = SpreadCommand.OLD_FIRMWARE_TEXT)
+                startSpreadRead(SpreadCommand.DEFAULT_HOURS, SpreadCommand.OLD_FIRMWARE_TEXT)
+                return@send
+            }
             spreadState = when (reply) {
                 is ConsoleReply.Frame -> try {
-                    SpreadState(reply = SpreadReply.parse(reply.lines))
+                    SpreadState(reply = SpreadReply.parse(reply.lines), replyHours = hours, message = note)
                 } catch (e: ParseException) {
                     SpreadState(message = "Antwort nicht lesbar")
                 }
-                else -> SpreadState(message = BleConsoleClient.errorText(reply))
+                else -> SpreadState(message = listOfNotNull(note, BleConsoleClient.errorText(reply)).joinToString(". "))
             }
         }
     }
