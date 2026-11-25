@@ -8,16 +8,32 @@
 
 namespace rlcd_panel {
 
+// OUTLIER limits in tenths (keys drift_limit_c and drift_limit_rh). The defaults give 0.5 C and 3.0 %RH. DriftLatch
+// releases 0.2 C and 1.0 %RH below the limits, so the defaults give the release limits 0.3 C and 2.0 %RH.
+struct SpreadLimits {
+  static constexpr int32_t DEFAULT_TEMP_TENTHS = 5;
+  static constexpr int32_t DEFAULT_RH_TENTHS = 30;
+  static constexpr int32_t RELEASE_TEMP_MARGIN_TENTHS = 2;
+  static constexpr int32_t RELEASE_RH_MARGIN_TENTHS = 10;
+  int32_t temp_tenths = DEFAULT_TEMP_TENTHS;
+  int32_t rh_tenths = DEFAULT_RH_TENTHS;
+  int32_t releaseTempTenths() const { return temp_tenths - RELEASE_TEMP_MARGIN_TENTHS; }
+  int32_t releaseRhTenths() const { return rh_tenths - RELEASE_RH_MARGIN_TENTHS; }
+  static SpreadLimits fromConfig(const DeviceConfig& config) {
+    SpreadLimits l;
+    l.temp_tenths = DeviceConfig::driftLimitTenths(config.drift_limit_c);
+    l.rh_tenths = DeviceConfig::driftLimitTenths(config.drift_limit_rh);
+    return l;
+  }
+};
+
 // Co-location maths shared by the console command SPREAD and DriftLatch, so that both give the same result.
 // All maths run in integers: the sum of the last HOURS tenth samples and its doubled median keep the limit checks exact.
 struct SpreadMath {
   static constexpr size_t HOURS = 6;      // default window of SPREAD and the fixed window of DriftLatch
   static constexpr size_t MAX_HOURS = 24; // longest window of SPREAD <H>
   static constexpr size_t MIN_SENSORS = 3;
-  static constexpr int32_t MAX_TEMP_TENTHS = 5;       // OUTLIER above 0.5 C
-  static constexpr int32_t MAX_RH_TENTHS = 30;        // OUTLIER above 3.0 %RH
-  static constexpr int32_t RELEASE_TEMP_TENTHS = 3;   // DriftLatch releases at 0.3 C or less
-  static constexpr int32_t RELEASE_RH_TENTHS = 20;    // DriftLatch releases at 2.0 %RH or less
+  using Limits = SpreadLimits;
   static constexpr size_t MAX_COUNT = ClimateHistory::SLOT_COUNT;
 
   struct Result {
@@ -96,14 +112,15 @@ struct SpreadMath {
     }
   }
 
-  // True when entry `k` deviates above the SPREAD limits (0.5 C or 3.0 %RH, exact).
-  static bool isOutlier(const Result& r, size_t k) {
-    return exceeds(r, k, MAX_TEMP_TENTHS, MAX_RH_TENTHS);
+  // True when entry `k` deviates above the SPREAD limits (default 0.5 C or 3.0 %RH, exact).
+  static bool isOutlier(const Result& r, size_t k, const Limits& limits = Limits()) {
+    return exceeds(r, k, limits.temp_tenths, limits.rh_tenths);
   }
 
-  // True when entry `k` is at or below the release limits of the drift latch (0.3 C and 2.0 %RH, exact).
-  static bool isSettled(const Result& r, size_t k) {
-    return !exceeds(r, k, RELEASE_TEMP_TENTHS, RELEASE_RH_TENTHS);
+  // True when entry `k` is at or below the release limits of the drift latch (the limits minus 0.2 C and 1.0 %RH,
+  // exact; default 0.3 C and 2.0 %RH).
+  static bool isSettled(const Result& r, size_t k, const Limits& limits = Limits()) {
+    return !exceeds(r, k, limits.releaseTempTenths(), limits.releaseRhTenths());
   }
 
 private:
@@ -117,7 +134,7 @@ private:
 
 // Per tile sensor drift latch. One bit for each tile: bit 0 is the onboard sensor, bits 1 to 10 are the registry slots.
 // A sensor that is OUTLIER by the SPREAD rules sets its bit. The bit releases when both deviations are at or below
-// 0.3 C and 2.0 %RH; between the two limits the bit keeps its state. Fewer than 3 sensors, a tile outside `tile_mask`
+// the limits minus 0.2 C and 1.0 %RH (default 0.3 C and 2.0 %RH); between the two limits the bit keeps its state. Fewer than 3 sensors, a tile outside `tile_mask`
 // and a sensor without enough samples clear the bit. The latch has no chime and no badge.
 class DriftLatch {
 public:
@@ -125,7 +142,8 @@ public:
   static constexpr uint16_t ALL_MASK = static_cast<uint16_t>((1u << TILE_COUNT) - 1u);
 
   // `tile_mask` holds the tiles that exist (bit 0 onboard, bits 1 to 10 the slots that hold a reading).
-  static uint16_t update(uint16_t previous, const ClimateHistory& history, uint16_t tile_mask = ALL_MASK) {
+  static uint16_t update(uint16_t previous, const ClimateHistory& history, uint16_t tile_mask = ALL_MASK,
+                         const SpreadMath::Limits& limits = SpreadMath::Limits()) {
     SpreadMath::Result r;
     SpreadMath::compute(history, r, tile_mask);
     uint16_t bits = 0;
@@ -136,7 +154,7 @@ public:
       const size_t tile = r.sensor_of[k];
       const uint16_t mask = static_cast<uint16_t>(1u << tile);
       // SpreadMath::compute already left out each tile outside `tile_mask`, so every entry is inside it.
-      if (SpreadMath::isOutlier(r, k) || ((previous & mask) != 0 && !SpreadMath::isSettled(r, k))) {
+      if (SpreadMath::isOutlier(r, k, limits) || ((previous & mask) != 0 && !SpreadMath::isSettled(r, k, limits))) {
         bits |= mask;
       }
     }

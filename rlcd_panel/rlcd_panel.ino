@@ -1004,7 +1004,7 @@ void refreshSensors() {
   // A stale slot keeps its old hourly samples: it leaves the drift check and its bit clears; `updateDrift` records the closing event.
   // SPREAD uses the same rule (SpreadMath::freshMask).
   drift_tile_mask = static_cast<uint16_t>(drift_tile_mask & SpreadMath::freshMask(calibrated, nowMs(), config().staleTimeoutMs()));
-  g_state.updateDrift(drift_tile_mask, g_rtc_time);
+  g_state.updateDrift(drift_tile_mask, g_rtc_time, SpreadMath::Limits::fromConfig(config()));
   const uint16_t previous_wall_tiles = g_state.wall_tiles;
   g_state.wall_tiles = WallLatch::update(
       g_state.wall_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
