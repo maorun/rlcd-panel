@@ -992,6 +992,15 @@ public:
   // Finds the valid climate rows of a file tail (same line rules as parseClimateTail, through forEachTailLine) and keeps the
   // newest `capacity` of them in `spans`, oldest first. The span excludes the line end (LF, CR LF). Returns the count kept.
   static size_t collectTailRows(const char* buf, size_t len, bool from_start, TailSpan* spans, size_t capacity) {
+    return collectRows(buf, len, from_start, spans, capacity, [](const char* line, size_t n) {
+      ClimateHistory::RestoreRow row;
+      return parseClimateRow(line, n, row);
+    });
+  }
+
+  // The shared walker of collectTailRows and collectDailyTailRows: `valid(line, len)` decides if a line is a row.
+  template <typename Valid>
+  static size_t collectRows(const char* buf, size_t len, bool from_start, TailSpan* spans, size_t capacity, Valid valid) {
     if (spans == nullptr || capacity == 0 || len > 0xFFFF) {
       return 0;
     }
@@ -1001,8 +1010,7 @@ public:
       while (end > start && buf[end - 1] == '\r') {
         --end;
       }
-      ClimateHistory::RestoreRow row;
-      if (!parseClimateRow(buf + start, end - start, row)) {
+      if (!valid(buf + start, end - start)) {
         return;
       }
       if (count == capacity) {
@@ -1014,6 +1022,20 @@ public:
       ++count;
     });
     return count;
+  }
+
+  // ---- Console command DAYS: the newest rows of the daily files ----
+
+  static constexpr size_t DAYS_MAX_ROWS = 31;  // largest N of "DAYS <N>"
+  static constexpr size_t DAYS_BYTES = 16384;  // read limit from the end of each file
+
+  // Finds the valid daily rows of a file tail (same line rules as collectTailRows, row check by parseDailyRow) and keeps the
+  // newest `capacity` of them in `spans`, oldest first. The span excludes the line end. Returns the count kept.
+  static size_t collectDailyTailRows(const char* buf, size_t len, bool from_start, TailSpan* spans, size_t capacity) {
+    return collectRows(buf, len, from_start, spans, capacity, [](const char* line, size_t n) {
+      WeekHistory::RestoreRow row;
+      return parseDailyRow(line, n, row);
+    });
   }
 
   // ---- Restore of the seven-day history from the daily rows ----

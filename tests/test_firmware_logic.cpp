@@ -16324,6 +16324,252 @@ void testSerialTailErrors() {
   }
 }
 
+namespace {
+std::string daysRow(int year, int month, int day) {
+  char t[24];
+  snprintf(t, sizeof(t), "%04d-%02d-%02d", year, month, day);
+  return std::string(t) + std::string(82, ',') + "\n";
+}
+// A row with onboard values: temperature 18.0 / 24.5 / 21.2 C, humidity 40.0 / 55.5 / 47.8 %RH
+std::string daysFixtureRow(int year, int month, int day) {
+  char t[24];
+  snprintf(t, sizeof(t), "%04d-%02d-%02d", year, month, day);
+  return std::string(t) + ",18.0,24.5,21.2,40.0,55.5,47.8" + std::string(76, ',') + "\n";
+}
+std::string daysHeader() {
+  char h[SdLogCodec::DAILY_HEADER_SIZE];
+  const size_t n = SdLogCodec::formatDailyHeader(h, sizeof(h));
+  return std::string(h, n);
+}
+RtcTime daysNow(uint16_t year) {
+  RtcTime t = tailNow(3);
+  t.year = year;
+  return t;
+}
+std::string daysOutput(FakeConsoleStorage& storage, uint8_t n, const RtcTime& now, int* mounts = nullptr) {
+  FakeSink sink;
+  TestRunner::showDays(storage, sink, n, now);
+  if (mounts != nullptr) {
+    *mounts = storage.mounts - storage.unmounts;
+  }
+  return sink.out;
+}
+} // namespace
+
+void testSerialDaysCommand() {
+  SerialCommand cmd;
+  assert(parseText("DAYS 1", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::DAYS && cmd.reference == 1);
+  assert(parseText("DAYS 9", cmd) == SerialParseStatus::OK && cmd.reference == 9);
+  assert(parseText("DAYS 31\r\n", cmd) == SerialParseStatus::OK && cmd.reference == 31);
+  const char* bad[] = {"DAYS", "DAYS ", "DAYS 0", "DAYS 32", "DAYS 99", "DAYS 100", "DAYS 03", "DAYS 3 x", "DAYS 3x", "DAYS x",
+                       "DAYS -1", "DAYS +1", "DAYS  3", "DAYS 1 2"};
+  for (const char* line : bad) {
+    assert(parseText(line, cmd) == SerialParseStatus::BAD_ARG);
+  }
+  assert(parseText("DAYS1", cmd) != SerialParseStatus::OK);
+  // BLE console gate: allowed at each level
+  assert(parseText("DAYS 3", cmd) == SerialParseStatus::OK);
+  for (uint8_t level = 0; level <= 2; ++level) {
+    assert(std::string(BleConsoleBridge::gate(cmd, level)).empty());
+  }
+  FakeConsoleStorage storage;
+  FakeSink quiet;
+  TestRunner::execute(storage, quiet, cmd); // execute() ignores DAYS; the sketch calls showDays
+  assert(storage.mounts == 0 && quiet.out.empty());
+}
+
+void testSerialDaysRows() {
+  const std::string header = daysHeader();
+  assert(!header.empty() && header.back() == '\n');
+  // 5 rows, DAYS 3: the 3 newest oldest first, CRC over all bytes before it
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["daily_v5_2026.csv"] =
+        header + daysRow(2026, 3, 1) + daysRow(2026, 3, 2) + daysRow(2026, 3, 3) + daysRow(2026, 3, 4) + daysRow(2026, 3, 5);
+    int open_mounts = -1;
+    const std::string out = daysOutput(storage, 3, daysNow(2026), &open_mounts);
+    const std::string body = "BEGIN DAYS 3\n" + header + daysRow(2026, 3, 3) + daysRow(2026, 3, 4) + daysRow(2026, 3, 5);
+    assert(out == body + crcLine(body));
+    assert(open_mounts == 0 && storage.mounts == 1);
+  }
+  // 2 rows in the current year and 3 in the previous year: 5 rows across the year change
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["daily_v5_2026.csv"] = header + daysRow(2026, 1, 1) + daysRow(2026, 1, 2);
+    storage.tail_files["daily_v5_2025.csv"] = header + daysRow(2025, 12, 29) + daysRow(2025, 12, 30) + daysRow(2025, 12, 31);
+    const std::string out = daysOutput(storage, 5, daysNow(2026));
+    const std::string body = "BEGIN DAYS 5\n" + header + daysRow(2025, 12, 29) + daysRow(2025, 12, 30) + daysRow(2025, 12, 31) +
+                             daysRow(2026, 1, 1) + daysRow(2026, 1, 2);
+    assert(out == body + crcLine(body));
+  }
+  // The previous file holds more rows than needed: only its newest rows join
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["daily_v5_2026.csv"] = header + daysRow(2026, 1, 1);
+    storage.tail_files["daily_v5_2025.csv"] = header + daysRow(2025, 12, 29) + daysRow(2025, 12, 30) + daysRow(2025, 12, 31);
+    const std::string out = daysOutput(storage, 3, daysNow(2026));
+    const std::string body = "BEGIN DAYS 3\n" + header + daysRow(2025, 12, 30) + daysRow(2025, 12, 31) + daysRow(2026, 1, 1);
+    assert(out == body + crcLine(body));
+  }
+  // Enough rows in the current file: the previous file stays unread
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["daily_v5_2026.csv"] = header + daysRow(2026, 1, 1) + daysRow(2026, 1, 2);
+    storage.tail_files["daily_v5_2025.csv"] = header + daysRow(2025, 12, 31);
+    const std::string out = daysOutput(storage, 2, daysNow(2026));
+    assert(storage.tail_read_count.count("daily_v5_2025.csv") == 0);
+    const std::string body = "BEGIN DAYS 2\n" + header + daysRow(2026, 1, 1) + daysRow(2026, 1, 2);
+    assert(out == body + crcLine(body));
+  }
+  // No current file: the previous year file answers
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["daily_v5_2025.csv"] = header + daysRow(2025, 12, 31);
+    const std::string out = daysOutput(storage, 2, daysNow(2026));
+    const std::string body = "BEGIN DAYS 1\n" + header + daysRow(2025, 12, 31);
+    assert(out == body + crcLine(body));
+  }
+  // A bad row (wrong column count, bad date) and a line without newline count as no row
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["daily_v5_2026.csv"] = header + daysRow(2026, 3, 1) + "2026-03-02,1,2\n" + "2026-13-40" + std::string(82, ',') +
+                                              "\n" + daysRow(2026, 3, 3) + "2026-03-04" + std::string(82, ',');
+    const std::string out = daysOutput(storage, 5, daysNow(2026));
+    const std::string body = "BEGIN DAYS 2\n" + header + daysRow(2026, 3, 1) + daysRow(2026, 3, 3);
+    assert(out == body + crcLine(body));
+  }
+  // A file above 16384 bytes: the partial first line of the window is skipped
+  {
+    FakeConsoleStorage storage;
+    std::string big = header;
+    int day = 0;
+    while (big.size() < SdLogCodec::DAYS_BYTES * 2) {
+      big += daysRow(2026, 1 + day / 28 % 12, 1 + day % 28);
+      ++day;
+    }
+    storage.tail_files["daily_v5_2026.csv"] = big;
+    const std::string out = daysOutput(storage, 31, daysNow(2026));
+    // the 31 newest rows of the file, oldest first (the last 31 generated days)
+    std::string expect = "BEGIN DAYS 31\n" + header;
+    for (int d = day - 31; d < day; ++d) {
+      expect += daysRow(2026, 1 + d / 28 % 12, 1 + d % 28);
+    }
+    assert(out == expect + crcLine(expect));
+    assert(storage.tail_read_count["daily_v5_2025.csv"] == 0);
+  }
+}
+
+void testSerialDaysErrors() {
+  const std::string header = daysHeader();
+  {
+    FakeConsoleStorage storage;
+    storage.card = false;
+    assert(daysOutput(storage, 3, daysNow(2026)) == "ERR NO_CARD\n");
+    assert(storage.unmounts == 0);
+  }
+  {
+    FakeConsoleStorage storage;
+    int open_mounts = -1;
+    assert(daysOutput(storage, 3, daysNow(2026), &open_mounts) == "ERR NO_FILE\n");
+    assert(open_mounts == 0);
+  }
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["daily_v5_2026.csv"] = header + daysRow(2026, 3, 1);
+    RtcTime invalid = daysNow(2026);
+    invalid.valid = false;
+    int open_mounts = -1;
+    assert(daysOutput(storage, 3, invalid, &open_mounts) == "ERR NO_FILE\n");
+    assert(open_mounts == 0);
+  }
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["daily_v5_2026.csv"] = header + daysRow(2026, 3, 1);
+    storage.tail_fail_name = "daily_v5_2026.csv";
+    int open_mounts = -1;
+    assert(daysOutput(storage, 3, daysNow(2026), &open_mounts) == "ERR READ_FAILED\n");
+    assert(open_mounts == 0);
+  }
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["daily_v5_2026.csv"] = header + daysRow(2026, 3, 1);
+    storage.tail_files["daily_v5_2025.csv"] = header + daysRow(2025, 12, 31);
+    storage.tail_fail_name = "daily_v5_2025.csv";
+    int open_mounts = -1;
+    assert(daysOutput(storage, 3, daysNow(2026), &open_mounts) == "ERR READ_FAILED\n");
+    assert(open_mounts == 0);
+  }
+  {
+    // The file changes between the count read and the output read
+    FakeConsoleStorage storage;
+    storage.tail_files["daily_v5_2026.csv"] = header + daysRow(2026, 3, 1);
+    storage.fail_second_read_name = "daily_v5_2026.csv";
+    int open_mounts = -1;
+    assert(daysOutput(storage, 1, daysNow(2026), &open_mounts) == "BEGIN DAYS 1\n" + header + "ERR READ_FAILED\n");
+    assert(open_mounts == 0);
+  }
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["daily_v5_2026.csv"] = header + daysRow(2026, 3, 1);
+    assert(daysOutput(storage, 0, daysNow(2026)) == "ERR BAD_ARG\n");
+    assert(daysOutput(storage, 32, daysNow(2026)) == "ERR BAD_ARG\n");
+    assert(storage.mounts == 0);
+  }
+  {
+    // A short write ends the reply without a CRC32 line and the card is unmounted
+    FakeConsoleStorage storage;
+    storage.tail_files["daily_v5_2026.csv"] = header + daysRow(2026, 3, 1) + daysRow(2026, 3, 2);
+    FakeSink sink;
+    sink.limit = 40;
+    TestRunner::showDays(storage, sink, 2, daysNow(2026));
+    assert(sink.out.find("CRC32") == std::string::npos);
+    assert(storage.mounts == storage.unmounts);
+  }
+  {
+    // A short write inside the row output: no CRC32 line, the card is unmounted
+    FakeConsoleStorage storage;
+    storage.tail_files["daily_v5_2026.csv"] = header + daysRow(2026, 3, 1) + daysRow(2026, 3, 2);
+    FakeSink sink;
+    sink.limit = ("BEGIN DAYS 2\n" + header).size() + 20;
+    TestRunner::showDays(storage, sink, 2, daysNow(2026));
+    assert(sink.out.find("CRC32") == std::string::npos);
+    assert(sink.out.find("2026-03-01") != std::string::npos && storage.mounts == storage.unmounts);
+  }
+}
+
+void testSerialDaysFixture() {
+  // The reply equals the shared fixture and each row parses with SdLogCodec::parseDailyRow
+  FakeConsoleStorage storage;
+  storage.tail_files["daily_v5_2026.csv"] = daysHeader() + daysFixtureRow(2026, 1, 1) + daysFixtureRow(2026, 1, 2);
+  storage.tail_files["daily_v5_2025.csv"] = daysHeader() + daysFixtureRow(2025, 12, 31);
+  const std::string out = daysOutput(storage, 3, daysNow(2026));
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  const std::string path = root + "tests/fixtures/days_reply_sample.txt";
+  if (getenv("GENERATE_DAYS_FIXTURE") != nullptr) {
+    std::ofstream gen(path, std::ios::binary);
+    gen << out;
+  }
+  std::ifstream in(path);
+  assert(in.good());
+  const std::string fixture((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  assert(out == fixture);
+  size_t rows = 0;
+  size_t pos = 0;
+  while (pos < fixture.size()) {
+    const size_t eol = fixture.find('\n', pos);
+    const std::string line = fixture.substr(pos, eol - pos);
+    pos = eol + 1;
+    WeekHistory::RestoreRow row;
+    if (line.rfind("20", 0) == 0 && line.rfind("date", 0) != 0) {
+      assert(SdLogCodec::parseDailyRow(line.data(), line.size(), row));
+      ++rows;
+    }
+  }
+  assert(rows == 3);
+}
+
 void testSerialSpread() {
   SerialCommand cmd;
   assert(parseText("SPREAD", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SPREAD);
@@ -26251,6 +26497,10 @@ testSerialConfigNegativeSmallOffset();
   testSerialToday();
   testSerialTailParserAndGate();
   testSerialTailRows();
+  testSerialDaysCommand();
+  testSerialDaysRows();
+  testSerialDaysErrors();
+  testSerialDaysFixture();
   testSerialTailFixture();
   testSerialTailByteLimit();
   testSerialTailErrors();

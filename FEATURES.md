@@ -575,6 +575,16 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 - Validation: the host tests (235 suites) cover the parser, the gate, the row selection over the month limit and the year change, the 16384 byte limit, every error reply, a short write and the shared fixture `tests/fixtures/tail_reply_sample.txt`. `arduino-cli compile rlcd_panel` passed. `TailReplyTest` runs in CI only (no Android SDK on the local host).
 - Validation on the board: send `TAIL 3` over BLE and verify the `CRC32` line.
 
+## Serial console command DAYS for the newest daily rows
+
+- **Code:** `rlcd_panel/serial_console.h` (`SerialCommandKind::DAYS`, `SerialConsoleRunner::showDays`), `rlcd_panel/sd_logger.h` (`SdLogCodec::collectDailyTailRows`, `DAYS_MAX_ROWS`, `DAYS_BYTES`), `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/days_reply_sample.txt`
+- The console command `DAYS <N>` (N 1 to 31) sends the newest N rows of the daily summary log. It reads the last 16384 bytes of the current `daily_v5_YYYY.csv` through `Storage::readTail`. With fewer than N rows it reads the last 16384 bytes of the previous year file too.
+- Only rows that `SdLogCodec::parseDailyRow` accepts count (83 columns, valid date). A partial first line, a last line without a newline and a bad line are skipped. A full row has about 450 to 580 bytes, so the 16384 byte window can hold fewer than 31 rows; then `DAYS 31` returns fewer rows (the reply shows the count `n`).
+- Reply: `BEGIN DAYS <n>` (`n` is the row count sent, at most N), the `daily_v5` header, the rows oldest first and the `CRC32` line. Errors: `ERR NO_CARD`, `ERR NO_FILE` (no valid RTC time or no file), `ERR READ_FAILED`, and `ERR BAD_ARG` for 0, 32, a non-digit, a leading zero, a missing number or extra text.
+- The command mounts and unmounts the card itself. It changes no state and runs on USB and on BLE at each `ble_console` level, so the companion apps read a long-term history where `DUMP` is not allowed. The RTC layout and `STATE_VERSION` do not change.
+- Validation: the host tests (235 suites) cover the parser, the gate, 5 rows with `DAYS 3`, the year change (2 + 3 rows), bad rows, the 16384 byte limit, every error reply, a short write and the shared fixture `tests/fixtures/days_reply_sample.txt` (each row parses with `SdLogCodec::parseDailyRow`). `scripts/check-protocol-sync.sh` and `arduino-cli compile rlcd_panel` passed.
+- Validation on the board: send `DAYS 3` over BLE and verify the `CRC32` line.
+
 ## Android newest climate rows screen
 
 - **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/TailScreen.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TailCommand.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/PhoneDashboardScreen.kt`.
