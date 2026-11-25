@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material3.Button
@@ -20,6 +21,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -28,6 +30,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.DaysReply
 import com.rlcdpanel.phone.protocol.DaysRow
+import com.rlcdpanel.phone.protocol.MoldRoomSummary
+import com.rlcdpanel.phone.protocol.MoldSummary
 import com.rlcdpanel.phone.protocol.PanelConfig
 
 /** Result of one `DAYS` read: the rows (oldest first), or a text that tells why there are none. */
@@ -72,6 +76,23 @@ object DaysChartModel {
         val available = DaysReply.sensors(rows)
         return if (selected in available) selected else available.firstOrNull()
     }
+}
+
+/** Text of the mold cards above the rows: one card for each room that holds a mold value. */
+object DaysMoldCards {
+    const val NONE = "Keine Schimmelstunden"
+
+    /** Rooms with a mold value, most mold hours first; a room without a mold value has no card. */
+    fun cards(rows: List<DaysRow>, panelConfig: PanelConfig): List<MoldRoomSummary> =
+        MoldSummary.build(rows, panelConfig).filter { it.totalHours != null }
+
+    /** One text line for each fact of the card: [NONE] alone for a room with 0 mold hours. */
+    fun lines(room: MoldRoomSummary): List<String> =
+        if (room.totalHours == 0) listOf(NONE) else listOf(
+            "Schimmelstunden: ${MoldSummary.totalText(room)}",
+            "Tage mit Schimmel: ${MoldSummary.daysText(room)}",
+            "Schlimmster Tag: ${MoldSummary.worstText(room)}"
+        )
 }
 
 @Composable
@@ -130,6 +151,7 @@ fun DaysScreen(
     val barColor = MaterialTheme.colorScheme.primary
     val outline = MaterialTheme.colorScheme.outline
     val sensor = DaysChartModel.effectiveSensor(state.rows, selectedSensor)
+    val moldCards = remember(state.rows, panelConfig) { DaysMoldCards.cards(state.rows, panelConfig) }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
@@ -164,6 +186,14 @@ fun DaysScreen(
                 )
             }
             state.message?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
+            items(moldCards, key = { it.sensor }) { room ->
+                Card(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                        Text(room.name, style = MaterialTheme.typography.titleMedium)
+                        DaysMoldCards.lines(room).forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                    }
+                }
+            }
             if (sensor != null) {
                 item {
                     Row(modifier = Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
