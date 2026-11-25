@@ -649,13 +649,14 @@ This file describes finished work for `rlcd-panel`. Open work is in `ROADMAP.md`
 
 - **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/selftest_reply_sample.txt`.
 - The console command `SELFTEST` (`SerialCommandKind::SELFTEST`) runs each onboard check once and replies `BEGIN SELFTEST`, one line `CHECK <name> <OK|FAIL|SKIP> <detail>` for each check, `END SELFTEST pass=<N> fail=<N>` and the `CRC32` line. `SKIP` counts as neither pass nor fail. Extra text gives `ERR BAD_ARG`.
-- The fixed order is `shtc3`, `rtc`, `sd`, `battery`, `mic`, `ble`. `SelfTestChecks` holds the verdicts; the sketch reads the hardware and passes the result in.
+- The fixed order is `shtc3`, `rtc`, `sd`, `battery`, `mic`, `ble`, `reception`. `SelfTestChecks` holds the verdicts; the sketch reads the hardware and passes the result in.
   - `shtc3`: one read with the retry of `readShtc3WithRetry` on a local `Shtc3Health` copy. Detail `READ`, `RETRIED`, `NACK`, `SHORT` or `CRC`.
   - `rtc`: `PCF85063A` read and oscillator stop flag. Detail `RUNNING`, `NO_RTC`, `OSC_STOPPED` or `READ_FAILED`. The check only reads.
   - `sd`: the card mounts and unmounts. Detail `free_mb=<N>`, `NO_CARD` or `SIZE_UNKNOWN`.
   - `battery`: ADC voltage from 2500 to 4400 mV (inclusive). Detail `mv=<N>`.
   - `mic`: one 1 s `StereoAnalyzer` window through `NoiseSampler::measure`, which powers the ADC and the I2S bus down on each path. Detail `L=<status>,R=<status>` or `IMBALANCE=<N>dB` above 10 dB. While muted (snooze included) the check gives `SKIP MUTED`, in quiet hours `SKIP QUIET`.
   - `ble`: one 1 s BLE scan start and stop. Detail `SCAN` or `START_FAILED`. On BLE the check gives `SKIP CONSOLE`, because the BLE console holds the radio.
+  - `reception`: lowest BLE reception rate of the occupied slots, from the RTC copy of `ReceptionHistory` and the key `reception_low_pct`. Only slots with 12 or more counted scans count. Detail `OFF` (limit 0), `NO_SLOT`, `FEW_SCANS` (all `SKIP`), `LOW=<N>` (`FAIL`, first slot below the limit) or `<N>%` (`OK`, lowest rate rounded down). The row shows the raw rate, not the `reception_low` latch, which releases at the limit plus 20 %. The check reads no card, starts no microphone and changes no state. It also runs on BLE.
 - On USB the BLE console stops for the command and starts again. The command runs on USB and on BLE at each `ble_console` level, also at level 1 (read command). The RTC state, the RTC layout and `STATE_VERSION` do not change.
 - Host tests cover the parser, the BLE gate, `execute()`, each verdict and limit (2499, 2500, 4400, 4401 mV), the reply for all checks `OK`, each single `FAIL`, the `SKIP` paths (muted, quiet hours, BLE), a short write without `CRC32` and one reply against `tests/fixtures/selftest_reply_sample.txt`.
 - Validation on the board: send `SELFTEST` over USB with and without a MicroSD card and verify `CHECK sd FAIL NO_CARD` without a card. Send `SELFTEST` over BLE and verify `CHECK ble SKIP CONSOLE`. These board checks did not run in this delivery.

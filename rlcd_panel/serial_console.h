@@ -860,6 +860,7 @@ struct SelfTestChecks {
   static constexpr int32_t BATTERY_MIN_MV = 2500;
   static constexpr int32_t BATTERY_MAX_MV = 4400;
   static constexpr uint32_t MIC_WINDOW_MS = 1000;
+  static constexpr uint32_t MIN_SCANS = 12; // same as PersistentState::RECEPTION_LOW_MIN_SCANS
 
   // `retried` is true when the first read failed and the retry ran (readShtc3WithRetry).
   static SelfTestOutcome shtc3(Shtc3Result result, bool retried) {
@@ -905,6 +906,53 @@ struct SelfTestChecks {
     snprintf(detail, sizeof(detail), "mv=%ld", static_cast<long>(millivolts));
     const bool ok = millivolts >= BATTERY_MIN_MV && millivolts <= BATTERY_MAX_MV;
     return SelfTestOutcome::of(ok ? SelfTestOutcome::Status::OK : SelfTestOutcome::Status::FAIL, detail);
+  }
+
+  // BLE reception of the occupied registry slots from the RTC copy of ReceptionHistory. `limit_pct` is reception_low_pct:
+  // 0 gives SKIP OFF. Only slots with a valid reading and at least MIN_SCANS (12, RECEPTION_LOW_MIN_SCANS) counted scans
+  // count (SKIP NO_SLOT without an occupied slot, SKIP FEW_SCANS without a counted one). A rate below the limit
+  // (received * 100 < limit * scans) gives FAIL LOW=<first slot 1..5>, else OK <lowest rate, rounded down>%.
+  static SelfTestOutcome reception(const SwitchBotRegistry& registry, const ReceptionHistory& history, uint8_t limit_pct) {
+    if (limit_pct == 0) {
+      return SelfTestOutcome::of(SelfTestOutcome::Status::SKIP, "OFF");
+    }
+    bool occupied = false;
+    int first_low = 0;
+    bool counted = false;
+    uint32_t low_received = 0;
+    uint32_t low_scans = 1;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (!registry.slot(i).valid) {
+        continue;
+      }
+      occupied = true;
+      const uint32_t scans = history.scans(i);
+      if (scans < MIN_SCANS) {
+        continue;
+      }
+      const uint32_t received = history.received(i);
+      if (first_low == 0 && received * 100U < static_cast<uint32_t>(limit_pct) * scans) {
+        first_low = static_cast<int>(i) + 1;
+      }
+      if (!counted || received * low_scans < low_received * scans) {
+        low_received = received;
+        low_scans = scans;
+      }
+      counted = true;
+    }
+    if (!occupied) {
+      return SelfTestOutcome::of(SelfTestOutcome::Status::SKIP, "NO_SLOT");
+    }
+    if (!counted) {
+      return SelfTestOutcome::of(SelfTestOutcome::Status::SKIP, "FEW_SCANS");
+    }
+    char detail[24];
+    if (first_low != 0) {
+      snprintf(detail, sizeof(detail), "LOW=%d", first_low);
+      return SelfTestOutcome::of(SelfTestOutcome::Status::FAIL, detail);
+    }
+    snprintf(detail, sizeof(detail), "%u%%", static_cast<unsigned>(low_received * 100U / low_scans));
+    return SelfTestOutcome::of(SelfTestOutcome::Status::OK, detail);
   }
 
   // One window of the StereoAnalyzer: both channels must be OK and within the imbalance limit.
@@ -1584,21 +1632,21 @@ public:
     send(sink, line);
   }
 
-  // SELFTEST: runs each check once in the fixed order shtc3, rtc, sd, battery, mic, ble and replies
+  // SELFTEST: runs each check once in the fixed order shtc3, rtc, sd, battery, mic, ble, reception and replies
   // "BEGIN SELFTEST", one "CHECK <name> <OK|FAIL|SKIP> <detail>" line per check, "END SELFTEST pass=<N> fail=<N>" and the
-  // CRC32 line (SKIP counts as neither). `shtc3`, `rtc`, `battery`, `mic` and `ble` are injected and return a SelfTestOutcome;
+  // CRC32 line (SKIP counts as neither). `shtc3`, `rtc`, `battery`, `mic`, `ble` and `reception` are injected and return a SelfTestOutcome;
   // the card check mounts `storage` itself and unmounts it. The mic check is skipped while `muted` (MUTED) or in `quiet_hours`
   // (QUIET). On BLE (`over_ble`) the scan check is skipped with CONSOLE, because the BLE console holds the radio, and
   // `ble` does not run. No state change, no RTC write.
-  template <typename Shtc3Fn, typename RtcFn, typename BatteryFn, typename MicFn, typename BleFn>
+  template <typename Shtc3Fn, typename RtcFn, typename BatteryFn, typename MicFn, typename BleFn, typename ReceptionFn>
   static void selfTest(Storage& storage, Sink& sink, bool over_ble, bool muted, bool quiet_hours, Shtc3Fn shtc3, RtcFn rtc,
-                       BatteryFn battery, MicFn mic, BleFn ble) {
+                       BatteryFn battery, MicFn mic, BleFn ble, ReceptionFn reception) {
     using Status = SelfTestOutcome::Status;
     struct Row {
       const char* name;
       SelfTestOutcome outcome;
     };
-    Row rows[6];
+    Row rows[7];
     rows[0] = {"shtc3", shtc3()};
     rows[1] = {"rtc", rtc()};
     if (storage.mount()) {
@@ -1615,6 +1663,7 @@ public:
       rows[4] = {"mic", mic()};
     }
     rows[5] = {"ble", over_ble ? SelfTestOutcome::of(Status::SKIP, "CONSOLE") : ble()};
+    rows[6] = {"reception", reception()};
     SerialCrc32 crc;
     auto emit = [&](const char* text) {
       const size_t len = strlen(text);
