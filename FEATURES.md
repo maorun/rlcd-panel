@@ -2269,7 +2269,7 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 
 ## Wear OS rejected packet list
 
-- `SensorHealthScreen` shows a `Rejected packets` chip below the `Week chart` chip. It opens `RejectsScreen` (`ScalingLazyColumn`). The `Read rejects` chip sends `REJECTS` through `BleConsoleClient.send` (`MainActivity.readRejects`). Only a tap sends it. The watch sends no `SET` and no `SLOT CLEAR`.
+- `SensorHealthScreen` shows a `Rejected packets` chip below the `Week chart` chip. It opens `RejectsScreen` (`ScalingLazyColumn`). The `Read rejects` chip sends `REJECTS` through `BleConsoleClient.send` (`MainActivity.readRejects`). Only a tap sends it.
 - `RejectsScreen` shows one card for each entry: the last 5 characters of the MAC (`RejectsText.shortMac`), and the format, the reason and the count (`RejectsText.detail`, for example `METER FULL x2`). It shows `DROPPED <N>` when MACs were lost and `No rejected packets` for an empty list. A failed reply shows `BleConsoleClient.errorText`. `onStop` and the back action cancel the client and clear the state.
 - `protocol/RejectsReply.kt` of the watch is a copy of the Android file and differs only in the `package` line. `scripts/check-protocol-sync.sh` compares it (the `FILES` list has 16 entries).
 - Tests: `RejectsReplyTest` parses `tests/fixtures/rejects_reply_sample.txt` (rows, reasons, `DROPPED` count), an empty list for the header only and `ParseException` for the reason `LOST`. `RejectsTextTest` covers the row and dropped texts. The UI wiring has no host test.
@@ -3435,3 +3435,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `AppModel.checkWindowLatchNotifications` feeds it with `LatchMetrics.window` after each `STATUS` reply and posts one notification for each rising tile (identifier `rlcd_panel_window_<tile>`). The watch runs also while notifications are off, so a later switch-on does not replay a rise. `clearPanelData` resets it for a new panel.
 - The old event list watch `WindowWatch` in `EventText.swift` is now `WindowEventWatch` (same rules, no change). Both paths use the identifier `rlcd_panel_window_<tile>`, so a window that both a `STATUS` reply and an event list report shows one notification (the later text replaces the earlier text). Each post can still play the sound, so one window can sound twice; this is accepted.
 - Tests: `WindowWatchTests` (7 tests) cover the first mask, a rising bit once, an equal mask, a falling bit, a `nil` mask, a bit above tile 10 and the body text. They run in CI (the local host lacks TestingMacros). `swift build -c release` passes locally.
+
+## Wear OS slot release
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/SlotClearCommand.kt`, `SensorHealthScreen.kt`, `MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/SlotClearCommandTest.kt`
+- The user frees a dead sensor slot from the watch. `SensorHealthScreen` shows a `Platz freigeben` chip below each sensor row with the state `STALE` (slot 1 to 10). The onboard sensor and a slot without the state `STALE` have no chip.
+- `SlotClearCommand.canFree` also needs a `CONFIG` reply in the cache and no fixed MAC (`PanelConfig.slotMac`) for the slot. Without a `CONFIG` read the chip stays hidden, because a fixed MAC is unknown.
+- A tap on the chip asks `Platz <N> freigeben?` with the chips `Senden` and `Abbrechen`. `Senden` calls `MainActivity.clearSlot`: it sends `SLOT CLEAR <N>` (`SlotClearCommand.line`, 1 to 10, other numbers throw `IllegalArgumentException`) and after `OK SLOT CLEAR <N>` it sends `STATUS`. An `ERR` reply sends no `STATUS`. A timeout or a corrupt reply still sends `STATUS`, because the command can have run. No command is retried. The result text and the confirmation reset when the user reads again or leaves the screen.
+- `SlotClearCommand.result` words the reply: `Platz <N> freigegeben`, `Platz hat eine feste MAC` for `ERR FIXED_MAC`, `Nur lesen. Setze ble_console=2, um Plätze freizugeben.` for `ERR READ_ONLY`, and `Antwort nicht lesbar` for each other reply. `SlotClearCommand.kt` exists only on the watch.
+- Tests: `SlotClearCommandTest` (slot 3 gives `SLOT CLEAR 3`, 0 and 11 throw, the three reply texts, an unknown reply, the chip rules including a slot with a fixed MAC).

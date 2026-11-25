@@ -43,6 +43,7 @@ import com.rlcdpanel.watch.protocol.ConfigChangedReply
 import com.rlcdpanel.watch.protocol.ConfigReset
 import com.rlcdpanel.watch.protocol.RejectsReply
 import com.rlcdpanel.watch.protocol.SelfTestReply
+import com.rlcdpanel.watch.protocol.SlotClearCommand
 import com.rlcdpanel.watch.protocol.SpreadApply
 import com.rlcdpanel.watch.protocol.SpreadCommand
 import com.rlcdpanel.watch.protocol.SpreadReply
@@ -139,6 +140,7 @@ class MainActivity : ComponentActivity() {
     private var pendingSelfTestRead = false
     private var showSpread by mutableStateOf(false)
     private var spreadState by mutableStateOf(SpreadState())
+    private var slotClearState by mutableStateOf(SlotClearState())
     private var pendingSpreadRead = false
     private var showToday by mutableStateOf(false)
     private var todayState by mutableStateOf(TodayState())
@@ -475,7 +477,10 @@ onApply = { applySpread(it) }
             }
 
             if (showSensorHealth) {
-                BackHandler { showSensorHealth = false }
+                BackHandler {
+                    if (!slotClearState.isSending) slotClearState = SlotClearState()
+                    showSensorHealth = false
+                }
                 SensorHealthScreen(
                     state = healthState,
                     onRead = { readSensorHealth() },
@@ -507,6 +512,11 @@ onApply = { applySpread(it) }
                     onSelectChime = { if (!chimeState.isTesting) chimeState = chimeState.copy(bit = it, message = null) },
                     onTestChime = { testChime() },
                     onIdentify = { identifyPanel() },
+                    panelConfig = panelConfig,
+                    slotClearState = slotClearState,
+                    onAskClear = { if (!slotClearState.isSending) slotClearState = SlotClearState(confirming = it) },
+                    onCancelClear = { if (!slotClearState.isSending) slotClearState = SlotClearState() },
+                    onClearSlot = { clearSlot(it) },
                     versionState = versionState,
                     onReadVersion = { readVersion() }
                 )
@@ -1377,6 +1387,7 @@ onApply = { applySpread(it) }
     private fun readSensorHealth() {
         if (healthState.isReading || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingMoldRead || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || consoleClient.isRunning) return
         chimeState = chimeState.copy(message = null)
+        if (!slotClearState.isSending) slotClearState = SlotClearState()
         healthState = healthState.copy(isReading = true, message = null)
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
@@ -1476,6 +1487,46 @@ onApply = { applySpread(it) }
         consoleClient.send(ChimeCommand.IDENTIFY) { reply ->
             val failure = ChimeCommand.failureText(reply) { SensorHealthText.muteFallback(it) }
             chimeState = SensorHealthText.identifyResult(chimeState, reply, failure)
+        }
+    }
+
+    /**
+     * Sends `SLOT CLEAR <N>`, then `STATUS`. Only the `Senden` chip after the confirmation calls it.
+     * An `ERR` reply sends no `STATUS`; a timeout or a corrupt reply still sends it, because the command can have run. No command is retried.
+     */
+    private fun clearSlot(slot: Int) {
+        if (slotClearState.isSending || slotClearState.confirming != slot || healthState.isReading || healthState.isMuting || chimeState.isTesting || pendingHealthRead ||
+            pendingClockRead || pendingVersionRead || versionState.isReading || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead ||
+            pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || clockState.isReadingClock || pendingMoldRead || moldState.isReading ||
+            isReadingConfig || pendingSaltRead || saltState.isReading || pendingSpreadRead || spreadState.isReading || spreadState.isApplying ||
+            pendingTodayRead || todayState.isReading || selfTestState.isRunning || rejectsState.isReading || consoleClient.isRunning
+        ) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
+        ) {
+            slotClearState = SlotClearState(message = "Bluetooth-Berechtigung fehlt", isError = true)
+            return
+        }
+        slotClearState = SlotClearState(confirming = slot, isSending = true)
+        consoleClient.send(SlotClearCommand.line(slot)) { reply ->
+            val (text, isError) = SlotClearCommand.result(slot, reply)
+            // A timeout or a corrupt reply can follow a command that ran, so STATUS also runs after it.
+            val failure = if (reply is ConsoleReply.Corrupt) SensorHealthText.muteFallback(reply) else text
+            val message = if (isError) failure else text
+            if (isError && reply is ConsoleReply.Status) {
+                slotClearState = SlotClearState(message = message, isError = true)
+                return@send
+            }
+            slotClearState = SlotClearState(message = message, isError = isError)
+            consoleClient.send(ChimeCommand.STATUS) { status ->
+                try {
+                    healthState = SensorHealthState(status = parseStatusReply(status))
+                } catch (e: Exception) {
+                    val reason = if (status is ConsoleReply.Frame) "Antwort nicht lesbar" else SensorHealthText.muteFallback(status)
+                    slotClearState = SlotClearState(message = "$message, Stand unbestätigt. $reason", isError = true)
+                }
+            }
         }
     }
 
@@ -1606,6 +1657,8 @@ onApply = { applySpread(it) }
      */
     private fun parseStatusReply(reply: ConsoleReply): StatusReply {
         val status = StatusReply.parseReply(reply)
+        // A fresh status can hide the row, so a waiting confirmation ends.
+        if (!slotClearState.isSending && slotClearState.confirming != null) slotClearState = slotClearState.copy(confirming = null)
         runCatching { checkWindowNotifications(status) }
         runCatching { checkWeakSignalNotifications(status) }
         runCatching { checkDriftNotifications(status) }

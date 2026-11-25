@@ -38,10 +38,12 @@ import com.rlcdpanel.watch.protocol.NtpState
 import com.rlcdpanel.watch.protocol.DriftWatch
 import com.rlcdpanel.watch.protocol.ReceptionRate
 import com.rlcdpanel.watch.protocol.ReplyError
+import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.ResetState
 import com.rlcdpanel.watch.protocol.SensorTrend
 import com.rlcdpanel.watch.protocol.RuntimeState
 import com.rlcdpanel.watch.protocol.Shtc3State
+import com.rlcdpanel.watch.protocol.SlotClearCommand
 import com.rlcdpanel.watch.protocol.StatusReply
 import com.rlcdpanel.watch.protocol.StatusSensor
 import com.rlcdpanel.watch.protocol.TimeReply
@@ -82,6 +84,17 @@ data class VersionReadState(
 data class ChimeTestState(
     val isTesting: Boolean = false,
     val bit: Int = 0,
+    val message: String? = null,
+    val isError: Boolean = false
+)
+
+/**
+ * State of the `Platz freigeben` button. [confirming] is the slot (1 to 10) that waits for the confirmation;
+ * [message] holds the last result text and [isError] marks a failed command.
+ */
+data class SlotClearState(
+    val confirming: Int? = null,
+    val isSending: Boolean = false,
     val message: String? = null,
     val isError: Boolean = false
 )
@@ -217,6 +230,11 @@ fun SensorHealthScreen(
     onSelectChime: (Int) -> Unit = {},
     onTestChime: () -> Unit = {},
     onIdentify: () -> Unit = {},
+    panelConfig: PanelConfig = PanelConfig(),
+    slotClearState: SlotClearState = SlotClearState(),
+    onAskClear: (Int) -> Unit = {},
+    onCancelClear: () -> Unit = {},
+    onClearSlot: (Int) -> Unit = {},
     versionState: VersionReadState = VersionReadState(),
     onReadVersion: () -> Unit = {}
 ) {
@@ -456,6 +474,17 @@ fun SensorHealthScreen(
                         )
                     }
                 }
+                slotClearState.message?.let { message ->
+                    item {
+                        Text(
+                            text = message,
+                            fontSize = 10.sp,
+                            color = if (slotClearState.isError) Color(0xFFFF8A80) else Color(0xFFB0BEC5),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    }
+                }
                 if (status != null) {
                     SensorHealthText.ntp(status.ntp)?.let { text ->
                         item {
@@ -568,6 +597,39 @@ fun SensorHealthScreen(
                                 SensorHealthText.driftMark(status.latch, sensor)?.let { mark ->
                                     Text(mark, fontSize = 10.sp, color = Color(0xFFFFB74D))
                                 }
+                            }
+                        }
+                        if (SlotClearCommand.canFree(sensor, panelConfig)) {
+                            val busy = slotClearState.isSending || state.isReading || state.isMuting
+                            if (slotClearState.confirming == sensor.index) {
+                                Text(
+                                    SlotClearCommand.confirmText(sensor.index),
+                                    fontSize = 10.sp,
+                                    color = Color.White,
+                                    textAlign = TextAlign.Center
+                                )
+                                Chip(
+                                    onClick = { onClearSlot(sensor.index) },
+                                    enabled = !busy,
+                                    modifier = Modifier.fillMaxWidth(0.85f),
+                                    colors = ChipDefaults.primaryChipColors(),
+                                    label = { Text(if (slotClearState.isSending) "Sende ..." else "Senden", fontSize = 12.sp, maxLines = 1) }
+                                )
+                                Chip(
+                                    onClick = onCancelClear,
+                                    enabled = !slotClearState.isSending,
+                                    modifier = Modifier.fillMaxWidth(0.85f),
+                                    colors = ChipDefaults.secondaryChipColors(),
+                                    label = { Text("Abbrechen", fontSize = 12.sp, maxLines = 1) }
+                                )
+                            } else {
+                                Chip(
+                                    onClick = { onAskClear(sensor.index) },
+                                    enabled = !busy,
+                                    modifier = Modifier.fillMaxWidth(0.85f),
+                                    colors = ChipDefaults.secondaryChipColors(),
+                                    label = { Text("Platz freigeben", fontSize = 12.sp, maxLines = 1) }
+                                )
                             }
                         }
                         if (SensorHealthText.canMeter(sensor)) {
