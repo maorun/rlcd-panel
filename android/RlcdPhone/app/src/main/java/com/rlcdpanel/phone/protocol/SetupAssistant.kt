@@ -62,6 +62,11 @@ class SetupAssistant {
     private val queue = ArrayDeque<String>()
     private var assigning = false
     private var applying = false
+    private var applyingOutdoor = false
+
+    /** The rows of the last `WEEK` reply of the calibrate step; empty before the user reads it. */
+    var week: List<WeekRow> = emptyList()
+        private set
 
     val isStopped: Boolean get() = stop != null
 
@@ -146,6 +151,30 @@ class SetupAssistant {
         return nextCommand()
     }
 
+    /** `WEEK`, on a tap. Allowed in the step `CALIBRATE`. The assistant never reads it by itself. */
+    fun beginReadWeek(): String? {
+        if (!begin() || step != Step.CALIBRATE || applying) return null
+        return send(WEEK)
+    }
+
+    /** The outdoor slot proposal from the last `WEEK` reply, only in the step `CALIBRATE`. */
+    fun outdoorProposal(config: PanelConfig?): OutdoorProposal? =
+        if (step == Step.CALIBRATE && stop == null) OutdoorProposal.propose(week, config) else null
+
+    /** Sends `SET outdoor_slot=<N>`, then `CONFIG` through [nextCommand]. The assistant stays in `CALIBRATE`. */
+    fun beginApplyOutdoor(config: PanelConfig?): String? {
+        val p = outdoorProposal(config)
+        if (!begin() || step != Step.CALIBRATE || applying) return null
+        if (p == null) { notice = "Kein Vorschlag vorhanden"; return null }
+        if (config != null && !config.canWrite) { stop = Stop.ReadOnly; return null }
+        applying = true
+        applyingOutdoor = true
+        queue.clear()
+        queue.add(p.setLine)
+        queue.add(CONFIG)
+        return nextCommand()
+    }
+
     /** Ends the assistant without a calibration. */
     fun finish() {
         if (!begin() || step != Step.CALIBRATE || applying) return
@@ -167,6 +196,8 @@ class SetupAssistant {
         queue.clear()
         assigning = false
         applying = false
+        applyingOutdoor = false
+        week = emptyList()
     }
 
     // MARK: Replies and link
@@ -257,8 +288,15 @@ class SetupAssistant {
             command == CONFIG -> {
                 if (!assigning && !applying) { fail("Unerwartete Antwort auf CONFIG"); return }
                 if (queue.isNotEmpty()) return
-                if (assigning) { assigning = false; step = Step.VERIFY } else { applying = false; step = Step.DONE }
+                if (assigning) {
+                    assigning = false
+                    step = Step.VERIFY
+                } else {
+                    applying = false
+                    if (applyingOutdoor) applyingOutdoor = false else step = Step.DONE
+                }
             }
+            command == WEEK -> week = WeekReply.parse(lines)
             command == STATUS -> verify(StatusReply.parse(lines))
             command.startsWith("SALT ") -> {
                 val parsed = SaltReply.parse(lines)
@@ -295,6 +333,7 @@ class SetupAssistant {
     companion object {
         const val STATUS = "STATUS"
         const val CONFIG = "CONFIG"
+        const val WEEK = "WEEK"
         const val MAX_VERIFY_TRIES = 3
         const val READ_ONLY_TEXT = "Set ble_console=2 to apply"
         const val FIXED_MAC_TEXT = "Der Slot hat eine feste MAC. Slot leeren oder einen anderen Slot wählen"
