@@ -37,14 +37,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST, SPREAD, TAIL, TODAY };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST, SPREAD, TAIL, TODAY, DAYS };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, or with extra text; SELFTEST, SPREAD and TODAY with extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
+  BAD_ARG,  // DAYS with 0, above 31, a leading zero, a non-digit, no number or extra text; CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, or with extra text; SELFTEST, SPREAD and TODAY with extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '='); CONFIG <key> with an unknown key
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv, daily_v2_YYYY.csv, daily_v3_YYYY.csv, daily_v4_YYYY.csv or events_v1_YYYY.csv
@@ -77,7 +77,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "CONFIG <key>", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "SPREAD", "TODAY", "TAIL 1..72", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "CONFIG <key>", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "SPREAD", "TODAY", "TAIL 1..72", "DAYS 1..31", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -322,6 +322,27 @@ public:
         return SerialParseStatus::BAD_ARG;
       }
       out.kind = SerialCommandKind::TAIL;
+      out.reference = static_cast<uint8_t>(value);
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "DAYS")) {
+      // exactly "DAYS <N>", N 1 to 31, no leading zero
+      const size_t digits = len - cmd_len - 1;
+      if (len <= cmd_len + 1 || line[cmd_len] != ' ' || digits > 2 || (digits > 1 && line[cmd_len + 1] == '0')) {
+        return SerialParseStatus::BAD_ARG;
+      }
+      unsigned value = 0;
+      for (size_t i = 0; i < digits; ++i) {
+        const char d = line[cmd_len + 1 + i];
+        if (d < '0' || d > '9') {
+          return SerialParseStatus::BAD_ARG;
+        }
+        value = value * 10 + static_cast<unsigned>(d - '0');
+      }
+      if (value < 1 || value > SdLogCodec::DAYS_MAX_ROWS) {
+        return SerialParseStatus::BAD_ARG;
+      }
+      out.kind = SerialCommandKind::DAYS;
       out.reference = static_cast<uint8_t>(value);
       return SerialParseStatus::OK;
     }
@@ -1072,7 +1093,7 @@ struct SerialStatusSnapshot {
 // Runs one parsed command. Storage mounts the card for the command and unmounts it on every
 // path. Interfaces:
 //   Storage: bool mount(); void unmount(); size_t listLogs(SerialLogEntry*, size_t cap);
-//            int readTail(const char* name, char* buf, size_t capacity, size_t& len, bool& whole) (TAIL only);
+//            int readTail(const char* name, char* buf, size_t capacity, size_t& len, bool& whole) (TAIL and DAYS only);
 //            bool openLog(const char* name, uint32_t& size); size_t read(uint8_t*, size_t);
 //            void closeLog(); uint64_t totalBytes(); uint64_t usedBytes();
 //   Sink:    size_t write(const uint8_t*, size_t); returns the count written. A short count
@@ -1171,6 +1192,13 @@ struct SerialStatusSnapshot {
 //   newline and a bad line are skipped). "ERR NO_CARD" without a card, "ERR NO_FILE" without a valid RTC time or without both files,
 //   "ERR READ_FAILED" for a read error (after the BEGIN line it takes the place of the CRC32 line, like DUMP), "ERR BAD_ARG" for 0, a number above 72, a non-digit, a leading zero, no number or extra text.
 //   showTail() mounts and unmounts the card itself, so execute() ignores TAIL. No state change. USB and BLE at each ble_console level.
+//   DAYS <N> -> "BEGIN DAYS <n>", the CSV header of daily_v5, the newest rows (N 1 to 31) oldest first and "CRC32 <8 hex digits>". <n> is
+//   the row count sent. The rows come from the last 16384 bytes of the current year file daily_v5_YYYY.csv; fewer than N rows there add
+//   the rows of the last 16384 bytes of the previous year file, but only when the window of the current file reaches its start. Only
+//   complete rows that SdLogCodec::parseDailyRow accepts count (a partial first line, a line without newline and a bad line are
+//   skipped). Same errors as TAIL: "ERR NO_CARD", "ERR NO_FILE", "ERR READ_FAILED", "ERR BAD_ARG" (0, above 31, a non-digit, a leading
+//   zero, no number or extra text). showDays() mounts and unmounts the card itself, so execute() ignores DAYS. No state change.
+//   USB and BLE at each ble_console level.
 //   Any failure -> "ERR <NO_CARD|NOT_FOUND|READ_FAILED>". A read error after BEGIN pads the
 //   payload with zero bytes to the announced count, then sends "ERR READ_FAILED" in place of the
 //   CRC32 line, so the host stays in step with the frame and sees the error.
@@ -1922,6 +1950,102 @@ public:
         return;
       }
       const size_t again = SdLogCodec::collectTailRows(buf, len, whole, newer, count);
+      if (again != newer_count) {
+        storage.unmount();
+        send(sink, "ERR READ_FAILED\n");
+        return;
+      }
+      for (size_t i = 0; ok && i < newer_count; ++i) {
+        ok = emit(buf + newer[i].start, newer[i].len) && emit("\n", 1);
+      }
+    }
+    storage.unmount();
+    if (!ok) {
+      return;
+    }
+    char line[24];
+    snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, line);
+  }
+
+  // Sends the newest `count` rows (1 to 31) of the daily files as CSV (see DAYS above). Same read rules as showTail: one file in the
+  // buffer at a time, the previous year file only when the current one has fewer than `count` rows and its window reaches the start.
+  static void showDays(Storage& storage, Sink& sink, uint8_t count, const RtcTime& now) {
+    char path[SdLogCodec::MAX_PATH_SIZE];
+    char older_path[SdLogCodec::MAX_PATH_SIZE];
+    if (count < 1 || count > SdLogCodec::DAYS_MAX_ROWS) {
+      send(sink, "ERR BAD_ARG\n");
+      return;
+    }
+    if (!storage.mount()) {
+      send(sink, "ERR NO_CARD\n");
+      return;
+    }
+    static char buf[SdLogCodec::DAYS_BYTES]; // static: the buffer would use the whole loop task stack
+    SdLogCodec::TailSpan newer[SdLogCodec::DAYS_MAX_ROWS];
+    SdLogCodec::TailSpan older[SdLogCodec::DAYS_MAX_ROWS];
+    size_t newer_count = 0;
+    size_t older_count = 0;
+    size_t len = 0;
+    bool whole = false;
+    if (!now.valid || SdLogCodec::formatDailyFilename(now.year, path, sizeof(path)) == 0) {
+      storage.unmount();
+      send(sink, "ERR NO_FILE\n");
+      return;
+    }
+    const char* name = path + strlen(SdLogCodec::MOUNT_POINT) + 1; // without the slash
+    int status = storage.readTail(name, buf, sizeof(buf), len, whole);
+    bool have_file = status == 0;
+    bool read_failed = status == 2;
+    const bool current_whole = whole;
+    if (have_file) {
+      newer_count = SdLogCodec::collectDailyTailRows(buf, len, whole, newer, count);
+    }
+    bool older_ok = false;
+    if (!read_failed && newer_count < count && (!have_file || current_whole) &&
+        SdLogCodec::formatDailyFilename(static_cast<uint16_t>(now.year - 1), older_path, sizeof(older_path)) != 0) {
+      const char* older_name = older_path + strlen(SdLogCodec::MOUNT_POINT) + 1;
+      status = storage.readTail(older_name, buf, sizeof(buf), len, whole);
+      if (status == 0) {
+        have_file = true;
+        older_ok = true;
+        older_count = SdLogCodec::collectDailyTailRows(buf, len, whole, older, count - newer_count);
+      } else if (status == 2) {
+        read_failed = true;
+      }
+    }
+    if (read_failed || !have_file) {
+      storage.unmount();
+      send(sink, read_failed ? "ERR READ_FAILED\n" : "ERR NO_FILE\n");
+      return;
+    }
+    SerialCrc32 crc;
+    auto emit = [&](const char* text, size_t n) {
+      if (!put(sink, reinterpret_cast<const uint8_t*>(text), n)) {
+        return false;
+      }
+      crc.update(reinterpret_cast<const uint8_t*>(text), n);
+      return true;
+    };
+    char head[32];
+    snprintf(head, sizeof(head), "BEGIN DAYS %u\n", static_cast<unsigned>(newer_count + older_count));
+    char header[SdLogCodec::DAILY_HEADER_SIZE];
+    const size_t header_len = SdLogCodec::formatDailyHeader(header, sizeof(header));
+    bool ok = emit(head, strlen(head)) && header_len > 0 && emit(header, header_len);
+    // The previous file rows first: the buffer still holds that file when it was read last.
+    if (ok && older_ok) {
+      for (size_t i = 0; ok && i < older_count; ++i) {
+        ok = emit(buf + older[i].start, older[i].len) && emit("\n", 1);
+      }
+    }
+    if (ok && newer_count > 0) {
+      status = storage.readTail(name, buf, sizeof(buf), len, whole);
+      if (status != 0) {
+        storage.unmount();
+        send(sink, "ERR READ_FAILED\n");
+        return;
+      }
+      const size_t again = SdLogCodec::collectDailyTailRows(buf, len, whole, newer, count);
       if (again != newer_count) {
         storage.unmount();
         send(sink, "ERR READ_FAILED\n");
@@ -2881,7 +3005,8 @@ public:
         command.kind == SerialCommandKind::IDENTIFY || command.kind == SerialCommandKind::SNOOZE ||
         command.kind == SerialCommandKind::NTP_SYNC || command.kind == SerialCommandKind::FRSI ||
         command.kind == SerialCommandKind::SELFTEST || command.kind == SerialCommandKind::SPREAD ||
-        command.kind == SerialCommandKind::TAIL || command.kind == SerialCommandKind::TODAY) {
+        command.kind == SerialCommandKind::TAIL || command.kind == SerialCommandKind::TODAY ||
+        command.kind == SerialCommandKind::DAYS) {
       return;
     }
     if (!storage.mount()) {
@@ -2919,6 +3044,7 @@ public:
       case SerialCommandKind::SPREAD:
       case SerialCommandKind::TAIL:
       case SerialCommandKind::TODAY:
+      case SerialCommandKind::DAYS:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       default: break;
