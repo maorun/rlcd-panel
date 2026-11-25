@@ -267,6 +267,25 @@ class StatusReplyTest {
     }
 
     @Test
+    fun dryHoursOfFixtureAndBadFields() {
+        val sensors = StatusReply.parse(fixtureLines()).sensors
+        assertEquals(2, sensors[0].dryHours)
+        assertNull(sensors[1].dryHours)
+        val five = fixtureLines().map { if (it.startsWith("SENSOR 1 ")) it.replace("dry_h=--", "dry_h=5") else it }
+        assertEquals(5, StatusReply.parse(five).sensors[1].dryHours)
+        val without = fixtureLines().map { it.replace(Regex(" dry_h=\\S+"), "") }
+        assertNull(StatusReply.parse(without).sensors[0].dryHours)
+        for (value in listOf("x", "-1")) {
+            val bad = fixtureLines().map { if (it.startsWith("SENSOR 1 ")) it.replace("dry_h=--", "dry_h=$value") else it }
+            try {
+                StatusReply.parse(bad)
+                fail("expected ParseException")
+            } catch (e: ParseException) {
+            }
+        }
+    }
+
+    @Test
     fun parsesRtcLine() {
         assertEquals(RtcState(0, 5), StatusReply.parse(fixtureLines()).rtc)
         assertEquals(RtcState(null, null), replace("RTC ", "RTC trim=-- drift_ppm=--").rtc)

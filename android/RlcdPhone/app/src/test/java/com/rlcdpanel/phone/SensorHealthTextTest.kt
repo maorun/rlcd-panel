@@ -41,6 +41,20 @@ class SensorHealthTextTest {
         assertTrue(SensorHealthText.isMold(row(3)))
     }
 
+    private fun dryRow(dryHours: Int?) = SensorHealth(
+        1, "A", -60.0, 80.0, 10.0, "OK", "WOIO", null, SensorHealth.Verdict.GOOD, null, null, null, dryHours
+    )
+
+    @Test
+    fun dryTextAndWarning() {
+        assertEquals("Trocken --", SensorHealthText.dry(dryRow(null)))
+        assertEquals("Trocken 0 h", SensorHealthText.dry(dryRow(0)))
+        assertEquals("⚠ Trocken 3 h", SensorHealthText.dry(dryRow(3)))
+        assertFalse(SensorHealthText.isDry(dryRow(null)))
+        assertFalse(SensorHealthText.isDry(dryRow(0)))
+        assertTrue(SensorHealthText.isDry(dryRow(3)))
+    }
+
     @Test
     fun panelDiagnosticsTexts() {
         val status = StatusReply.parse(fixtureLines())
