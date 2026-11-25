@@ -33,12 +33,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test parses a `daily_v6` row with 5 dry hours for sensor 2. A unit test checks `nil` for an empty field. A unit test checks `[]` for a `daily_v5` file. A unit test checks `ParseError.badLine` for a `daily_v6` row with 93 columns. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
   - **Rank:** [Total: 25, Use: 6, Setup: 2, Harmony: 7, Safety: 10, Effort: S]
 
-- [ ] Dry hours in the Android days screen
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/DaysReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/DaysReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/DaysScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/DaysReplyTest.kt`, `FEATURES.md`
-  - **Goal:** Show on the phone how many hours each room was too dry on each day. This item needs the firmware item "Dry hours columns in the daily log". Let `DaysReply.parse` accept the `daily_v6` header and the `daily_v5` header. Add `dryHours` (one `Int?` for each sensor, empty for `daily_v5`). Copy the changed file into the watch protocol package. Show `Trocken <N> h` beside the mold hours of each room in the days screen.
-  - **Acceptance:** A unit test parses the updated `tests/fixtures/days_reply_sample.txt` with dry hours. A unit test parses a `daily_v5` reply with empty `dryHours`. A unit test checks `null` for an empty field. A unit test checks `ParseException` for a row with 93 columns. `scripts/check-protocol-sync.sh` exits with 0. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` and `gradle testDebugUnitTest` in `wearos/RlcdWatch` pass.
-  - **Rank:** [Total: 24, Use: 5, Setup: 2, Harmony: 7, Safety: 10, Effort: S]
-
 
 
 
