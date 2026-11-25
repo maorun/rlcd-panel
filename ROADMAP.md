@@ -26,11 +26,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Short HISTORY reads for the macOS salt test watch
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/SaltProgressTests.swift`, `FEATURES.md`
-  - **Goal:** Send fewer bytes over BLE during a salt test. This item needs the firmware item "Hour window for the console command HISTORY". Add `ConsoleCommand.historySensorHours(Int, Int)` with the line `HISTORY <N> <H>`. Send `HISTORY <N> 6` every 10 minutes in the salt test watch. `SaltProgress.requiredHours` is 6, so 6 rows give the full count. Send `HISTORY <N>` again after an `ERR BAD_ARG` reply from an older firmware.
-  - **Acceptance:** A unit test checks the line `HISTORY 4 6`. A unit test checks that sensor 11, hours 0 and hours 25 give no line. A unit test checks that 6 stable rows give `Stable 6/6 h`. A unit test checks the fallback to `HISTORY 4` after `ERR BAD_ARG`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-  - **Rank:** [Total: 25, Use: 3, Setup: 5, Harmony: 7, Safety: 10, Effort: S]
 
 
 ## Rules for ranking

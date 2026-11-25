@@ -71,7 +71,7 @@ final class AppModel: ConsoleLinkDelegate {
     var calibrationReference = 0
     var salt: SaltReply?
     var saltSensor = 0
-    /// Watch of the salt test: `HISTORY N` every 10 minutes for at most 8 hours.
+    /// Watch of the salt test: `HISTORY N 6` every 10 minutes (`HISTORY N` for an older firmware) for at most 8 hours.
     var saltProgress = SaltProgress()
     private(set) var saltWatchSensor = 0
     var saltSelected = true
@@ -1075,7 +1075,7 @@ final class AppModel: ConsoleLinkDelegate {
         }
     }
 
-    /// Starts or stops the salt test watch: `HISTORY N` every 10 minutes for at most 8 hours.
+    /// Starts or stops the salt test watch: `HISTORY N 6` every 10 minutes (`HISTORY N` for an older firmware) for at most 8 hours.
     func setSaltWatch(_ on: Bool, sensor: Int) {
         guard on else { stopSaltWatch(.user); return }
         guard consoleConnected else { message = "Connect the console first"; return }
@@ -1094,16 +1094,23 @@ final class AppModel: ConsoleLinkDelegate {
         }
     }
 
-    /// One tick of the salt watch. A tick while another command runs is skipped without a catch-up; the next tick reads the same 24 hours.
+    /// One tick of the salt watch. A tick while another command runs is skipped without a catch-up; the next tick reads the same 6 hours.
     /// Returns false when the watch is over. The toggle is the user action;
     /// the watch also runs on BLE, where the firmware allows `HISTORY` at each `ble_console` level.
     private func pollSaltWatch(sensor: Int) -> Bool {
         guard saltProgress.shouldPoll() else { return false }
         if pendingCommand == nil, queue.isEmpty, batch == nil {
-            queue = [.historySensor(sensor)]
+            queue = [saltProgress.historyCommand(sensor: sensor)]
             sendNext()
         }
         return true
+    }
+
+    private static func isSaltHistory(_ cmd: ConsoleCommand) -> Bool {
+        switch cmd {
+        case .historySensor, .historySensorHours: return true
+        default: return false
+        }
     }
 
     func stopSaltWatch(_ reason: SaltProgress.StopReason) {
@@ -1511,7 +1518,7 @@ final class AppModel: ConsoleLinkDelegate {
             failReport(reason: "no reply", pending: cmd)
             if case .dump = cmd { archiveSummary = "Download stopped, saved \(downloadStats.saved), failed \(downloadStats.failed)" }
             if cmd == .scan { scanResult = nil; stopRepeatScan(.scanFailed) } // no reply ends the repeat
-            if case .historySensor = cmd { stopSaltWatch(.replyFailed) }
+            if Self.isSaltHistory(cmd) { stopSaltWatch(.replyFailed) }
             if cmd == .screen { panelImage = nil }
             if cmd == .rejects { rejectsResult = nil }
             if cmd == .configChanged { configChanged = nil }
@@ -1629,7 +1636,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if case .eventsNewest = cmd { recentEvents = .empty }
                 if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
                 if cmd == .scan { stopRepeatScan(.scanFailed) }
-                if case .historySensor = cmd { stopSaltWatch(.replyFailed) }
+                if Self.isSaltHistory(cmd) { stopSaltWatch(.replyFailed) }
                 // A wrong CRC-32 follows a complete frame, so the stream stays in step and the next file may follow.
                 // Any other error leaves the stream out of step.
                 if case .badCrc = e, case .dump = cmd {} else { queue.removeAll() }
@@ -1647,6 +1654,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if cmd == .ntpSync { message = ConsoleCommand.ntpSyncMessage(text) }
                 // A file that the card no longer holds (log retention) does not stop the other files.
                 var keepQueue = false
+                var saltRetry: ConsoleCommand?
                 if case .dump = cmd {
                     // ERR READ_FAILED follows a complete frame of padded bytes, so the stream stays in step too.
                     keepQueue = text == "ERR NOT_FOUND" || text == "ERR READ_FAILED"
@@ -1676,10 +1684,14 @@ final class AppModel: ConsoleLinkDelegate {
                 if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
                 if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
                 if cmd == .scan, text.hasPrefix("ERR") { stopRepeatScan(.scanFailed) }
-                if case .historySensor = cmd, text.hasPrefix("ERR") { stopSaltWatch(.replyFailed) }
+                if let retry = saltProgress.retryAfterError(cmd, text: text, sensor: saltWatchSensor) {
+                    saltRetry = retry // older firmware: repeat the tick with HISTORY N
+                    message = "Older firmware: reading the full HISTORY"
+                } else if Self.isSaltHistory(cmd), text.hasPrefix("ERR") { stopSaltWatch(.replyFailed) }
                 if case .set = cmd { configChanged = nil } // any SET (form, assistant, calibration) makes the list old
                 batch?.receive(status: text)
                 if text.hasPrefix("ERR"), !keepQueue { queue.removeAll() }
+                if let retry = saltRetry { queue = [retry] } // like the other ERR paths, the queue holds only the retry
                 // A failed ACK still reads STATUS, so the row follows the panel (the alert may have cleared).
                 if case .ack = cmd, text.hasPrefix("ERR") { queue = [.status] }
                 if cmd == .ackAll, text.hasPrefix("ERR") { queue = [.status] }
@@ -1710,7 +1722,7 @@ final class AppModel: ConsoleLinkDelegate {
                 version = nil
                 version = try VersionReply.parse(lines: lines)
             case let (.history, .frame(lines)): history = try HistoryReply.parse(lines: lines)
-            case let (.historySensor(n), .frame(lines)):
+            case let (.historySensor(n), .frame(lines)), let (.historySensorHours(n, _), .frame(lines)):
                 // The watch reads its own reply; the shared history rows stay as they are.
                 saltProgress.record(rows: try HistoryReply.parse(lines: lines), sensor: n)
                 if !saltProgress.isRunning { stopSaltWatch(saltProgress.stopReason ?? .timeout) }
@@ -1812,7 +1824,7 @@ final class AppModel: ConsoleLinkDelegate {
         } catch {
             message = "Reply not understood: \(error)"
             if cmd == .scan { stopRepeatScan(.scanFailed) }
-            if case .historySensor = cmd { stopSaltWatch(.replyFailed) }
+            if Self.isSaltHistory(cmd) { stopSaltWatch(.replyFailed) }
         }
     }
 
