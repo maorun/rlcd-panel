@@ -28,11 +28,5 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test gives four lines for four active limits. A unit test gives no line for `dry_alert_limit_rh=0` and one line for `freeze_alert_limit_c=0`. A unit test gives no line for a value outside the range. A unit test gives an empty list without a `CONFIG` reply. A unit test checks the split into humidity and temperature lines. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
   - **Rank:** [Total: 29, Use: 7, Setup: 5, Harmony: 7, Safety: 10, Effort: S]
 
-- [ ] Salt test progress on the Wear OS watch
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/SaltProgress.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/HistoryCommand.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SaltScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/SaltProgressTest.kt`, `FEATURES.md`
-  - **Goal:** Show on the watch how many stable hours a salt test still needs, so the user leaves the sensor in the jar long enough. Port `SaltProgress` and `HistoryCommand` of the Android app with the same rules: `REQUIRED_HOURS` 6, the tick interval, the stop reasons `USER`, `VIEW_CLOSED`, `TIMEOUT`, `LINK_LOST`, `REPLY_FAILED` and `COMPLETED`, and the short read `HISTORY <N> 6` with the single fallback to `HISTORY <N>` after `ERR BAD_ARG`. Show the text `<N> von 6 Stunden stabil` and `Bereit` at six stable hours. Start the watch only on a tap, and stop it when the screen closes, when the link drops, after a failed reply and after the timeout.
-  - **Acceptance:** A unit test counts the stable hours of a reply with six samples in a span of 1.0 %RH. A unit test keeps the count below six for an unstable span. A unit test checks the text `3 von 6 Stunden stabil`. A unit test checks the stop reason `COMPLETED` at six hours. A unit test checks the fallback to `HISTORY <N>` after `ERR BAD_ARG` and that it runs once. A unit test checks the stop reason `TIMEOUT`. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 28, Use: 2, Setup: 9, Harmony: 7, Safety: 10, Effort: M]
-
 ## Priority 3: Display and Logging (Score 22–27)
 
