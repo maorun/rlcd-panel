@@ -49,6 +49,7 @@ import com.rlcdpanel.phone.protocol.FrsiCommand
 import com.rlcdpanel.phone.protocol.FrsiReply
 import com.rlcdpanel.phone.protocol.FrsiText
 import com.rlcdpanel.phone.protocol.SaltCommand
+import com.rlcdpanel.phone.protocol.SaltProgress
 import com.rlcdpanel.phone.protocol.SpreadCommand
 import com.rlcdpanel.phone.protocol.SpreadReply
 import com.rlcdpanel.phone.protocol.SaltReply
@@ -353,7 +354,7 @@ class MainActivity : ComponentActivity() {
                     sensors = CalibrationSensors.selectable(healthState.rows, calibState.reference),
                     frsiSensors = (CalibrationSensors.selectable(healthState.rows, calibState.frsiRoom) +
                         CalibrationSensors.selectable(healthState.rows, calibState.frsiWall)).distinct().sorted(),
-                    onPickReference = { calibState = calibState.copy(reference = it, reply = null, selected = emptySet(), message = null, isError = false, naCl = null, mgCl2 = null) },
+                    onPickReference = { stopSaltWatch(SaltProgress.StopReason.USER); calibState = calibState.copy(reference = it, reply = null, selected = emptySet(), message = null, isError = false, naCl = null, mgCl2 = null) },
                     onRead = { withConsolePermission { readCalibration() } },
                     onToggle = { key ->
                         calibState = calibState.copy(
@@ -362,6 +363,8 @@ class MainActivity : ComponentActivity() {
                     },
                     onApply = { withConsolePermission { applyCalibration() } },
                     onSalt = { magnesium -> withConsolePermission { readSalt(magnesium) } },
+                    onWatchSalt = { magnesium -> withConsolePermission { startSaltWatch(magnesium) } },
+                    onStopWatch = { stopSaltWatch(SaltProgress.StopReason.USER) },
                     onApplyTwoPoint = { withConsolePermission { applyTwoPoint() } },
                     onPickFrsiRoom = { calibState = calibState.copy(frsiRoom = it, frsi = null, message = null, isError = false) },
                     onPickFrsiWall = { calibState = calibState.copy(frsiWall = it, frsi = null, message = null, isError = false) },
@@ -627,6 +630,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStop() {
         val consoleWasRunning = consoleClient.isRunning
+        stopSaltWatch(SaltProgress.StopReason.LINK_LOST)
         consoleClient.cancel()
         stopFinderScan(stopFromScreen = true)
         if (showSetup) onSetupStop(consoleWasRunning)
@@ -1651,6 +1655,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun closeCalibration() {
+        stopSaltWatch(SaltProgress.StopReason.VIEW_CLOSED)
         consoleClient.cancel()
         pendingConsoleAction = null
         calibState = CalibrationState(reference = calibState.reference, frsiRoom = calibState.frsiRoom, frsiWall = calibState.frsiWall)
@@ -1710,6 +1715,78 @@ class MainActivity : ComponentActivity() {
                 else -> calibState.copy(isBusy = false, isError = true, message = BleConsoleClient.errorText(reply))
             }
         }
+    }
+
+    private val saltProgress = SaltProgress()
+    private var saltWatchJob: Job? = null
+
+    /** Counts each start of the watch; a reply of an older run never counts for a newer one. */
+    private var saltWatchRun = 0
+
+    /** Text of the salt watch for the screen: the count while it runs, the stop reason after a stop. */
+    private fun saltWatchText(): String {
+        val reason = when (saltProgress.stopReason) {
+            null, SaltProgress.StopReason.COMPLETED -> return saltProgress.text
+            SaltProgress.StopReason.TIMEOUT -> "nach 8 Stunden beendet"
+            SaltProgress.StopReason.LINK_LOST -> "Verbindung verloren"
+            SaltProgress.StopReason.REPLY_FAILED -> "Panel antwortet mit Fehler"
+            SaltProgress.StopReason.USER -> "vom Benutzer beendet"
+            SaltProgress.StopReason.VIEW_CLOSED -> "Ansicht geschlossen"
+        }
+        return "${saltProgress.text}. Beobachtung beendet: $reason."
+    }
+
+    /** Starts the salt watch: `HISTORY N` every 10 minutes; at 6 stable hours `SALT N` follows. */
+    private fun startSaltWatch(magnesium: Boolean) {
+        val n = calibState.reference
+        if (n !in 0..SaltCommand.MAX_SENSOR || saltProgress.isRunning) return
+        saltWatchRun++
+        val run = saltWatchRun
+        saltProgress.start()
+        calibState = calibState.copy(isWatching = true, isError = false, message = null, watchText = saltWatchText())
+        saltWatchJob?.cancel()
+        saltWatchJob = lifecycleScope.launch {
+            while (saltProgress.shouldPoll()) {
+                // Wait for a free console, then poll once and wait one interval from this poll.
+                while (saltProgress.shouldPoll() && (consoleClient.isRunning || calibState.isBusy)) delay(2_000L)
+                if (!saltProgress.shouldPoll()) break
+                pollSaltWatch(n, magnesium, run)
+                // A reply that arrives at once can end the watch before `saltWatchJob` holds this job.
+                if (!saltProgress.isRunning) break
+                delay(SaltProgress.INTERVAL_SECONDS * 1000L)
+            }
+            finishSaltWatch()
+        }
+    }
+
+    private fun pollSaltWatch(sensor: Int, magnesium: Boolean, run: Int) {
+        stopBleScan()
+        consoleClient.send(HistoryCommand.line(sensor)) { reply ->
+            if (run != saltWatchRun || !saltProgress.isRunning) return@send
+            saltProgress.record(reply, sensor)
+            if (saltProgress.isReady && saltProgress.isRunning) {
+                saltProgress.stop(SaltProgress.StopReason.COMPLETED)
+                saltWatchJob?.cancel()
+                finishSaltWatch()
+                readSalt(magnesium)
+            } else {
+                calibState = calibState.copy(watchText = saltWatchText(), isWatching = saltProgress.isRunning)
+                if (!saltProgress.isRunning) saltWatchJob?.cancel()
+            }
+        }
+    }
+
+    private fun finishSaltWatch() {
+        calibState = calibState.copy(isWatching = false, watchText = saltWatchText())
+    }
+
+    /** Ends the salt watch for [reason]. The first reason stays. */
+    private fun stopSaltWatch(reason: SaltProgress.StopReason) {
+        if (!saltProgress.isRunning) return
+        saltProgress.stop(reason)
+        saltWatchJob?.cancel()
+        saltWatchJob = null
+        if (reason != SaltProgress.StopReason.VIEW_CLOSED) finishSaltWatch()
     }
 
     /** Sends `SALT N` or `SALT N MGCL2` after a tap. With both checks of one sensor, the two-point result follows. */

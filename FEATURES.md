@@ -3389,3 +3389,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `ConsoleCommand.spreadErrorMessage(hours:text:)`: `ERR BAD_ARG` for a window above 6 hours shows `Firmware update needed` (an older firmware has no hour argument). The 6 hour window sends plain `SPREAD`, so it works with each firmware.
 - `SpreadReply.parse` does not change. The reply has the same format for each window.
 - Tests: `CalibrationTests` check the command for 6, 7, 12 and 24 hours, no command for 0, 5 and 25, the picker windows, and the reply of `tests/fixtures/spread_reply_sample.txt` for each window. They run in CI (the local host lacks TestingMacros).
+
+## Salt test progress in the Android calibration screen
+
+- `CalibrationScreen` of the phone app shows when a salt test has enough stable hours. The buttons `NaCl beobachten` and `MgCl2 beobachten` start a watch for the picked reference sensor.
+- `SaltProgress` (`protocol/SaltProgress.kt`, phone only) follows the rules of the macOS `SaltProgress.swift` with an injected clock in milliseconds. A stable hour has a humidity span of 1.0 %RH or less. The run starts at age 0 and ends at the first gap or at the first span above the limit, so a jump resets the count. The text is `<N> von 6 Stunden stabil`; the count stops at 6.
+- `MainActivity` sends `HISTORY N` every 10 minutes (`SaltProgress.INTERVAL_SECONDS`) while the screen is open and no other console command runs. At 6 stable hours the watch ends and `SALT N` (or `SALT N MGCL2`) follows through `readSalt`.
+- The watch stops after 8 hours (`StopReason.TIMEOUT`, checked at each tick), on a lost link or a reply timeout, on an `ERR` reply or an unreadable reply, when the user taps `Beobachtung beenden` or picks another sensor, when the app goes to the background and when the user leaves the screen. The first stop reason stays; a stopped watch ignores later replies.
+- Tests: `SaltProgressTest` reads `tests/fixtures/history_reply_sample.txt` and gives the stable hours of the macOS `SaltProgressTests` rules (sensor 0: 1, sensor 1: 2, sensor 3: 1). It also covers the reset by a span above 1.0 %RH, the inclusive limit, a gap, the stop after 8 hours with the injected clock and the stop by a reply error.
+- Validation: `scripts/check-protocol-sync.sh` passes (`SaltProgress.kt` is phone only). The Gradle tests run in GitHub Actions CI (no Android SDK on the local host). The behavior on a device is not tested.
