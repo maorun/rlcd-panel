@@ -3461,3 +3461,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - Fewer than 3 sensors, `resetSlot` and a power-on keep clearing each bit without an event.
 - The RTC layout and `STATE_VERSION` do not change.
 - Host tests cover a drifting slot that goes stale, a stale slot without a bit, `resetSlot` and fewer than 3 sensors.
+
+## Wall factor check on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/FrsiReply.kt`, `FrsiScreen.kt`, `SensorHealthScreen.kt`, `MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/FrsiReplyTest.kt`, `tests/fixtures/frsi_reply_sample.txt`.
+- `FrsiReply.kt` is a port of the phone file (`FrsiCommand`, `FrsiReply`, `FrsiText`) with the watch package. `FrsiReply.parseBytes` runs the `ReplyAssembler` and throws `ParseException` for a bad or missing `CRC32` line and for a status line such as `ERR LOW_DELTA`. `FrsiApply` builds the batch `SET wall_frsi_pct=<N>`, then `CONFIG`, and words the result.
+- `FrsiScreen` (`ScalingLazyColumn`) has a room chip (onboard to slot 10) and a wall chip (slot 1 to 10); each tap selects the next entry and clears the old result. `FrsiCommand.line` throws `IllegalArgumentException` for an equal pair, so the screen shows `Raum und Wand müssen verschieden sein` and sends nothing.
+- The watch sends `FRSI <R> <W>` over the BLE console only after a tap on `Messen`. The screen shows the factor, the span, the hours, the difference and the line `Vorschlag: wall_frsi_pct=<N>`. `SKIP`, `UNSTABLE`, `ERR LOW_DELTA`, `ERR NO_OUTDOOR` and `ERR BAD_ARG` have their own texts.
+- The chip `Übernehmen` asks for a confirmation. `Senden` sends `SET wall_frsi_pct=<N>`, then `CONFIG`. `ERR READ_ONLY` shows `Set ble_console=2 to apply` and hides the chip. No command is retried. `SensorHealthScreen` has the chip `Wall factor`.
+- Validation: `FrsiReplyTest` reads `tests/fixtures/frsi_reply_sample.txt` (factor 0.70, proposal 70) and covers `SKIP`, `UNSTABLE`, the error texts, an equal pair, a bad CRC-32 line and the apply batch. It runs in CI only (no Android SDK on the local host).
