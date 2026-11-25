@@ -354,6 +354,17 @@ struct DiagnosticsView: View {
                             .help("Weak BLE signal (rxlow)")
                             .accessibilityLabel("Weak signal")
                     }
+                    if model.diagnostics?.latch?.hasDrift(sensor: r.slot) == true {
+                        Button {
+                            model.openCalibrationForDrift()
+                        } label: {
+                            Image(systemName: "arrow.up.and.down.circle").foregroundStyle(.orange)
+                        }
+                        .buttonStyle(.borderless)
+                        .disabled(!model.consoleConnected)
+                        .help("Sensor drift: open the calibration and read the spread")
+                        .accessibilityLabel("Sensor drift, open calibration")
+                    }
                     Text(r.verdict.rawValue).font(.caption.bold())
                         .foregroundStyle(r.verdict == .good ? Color.green : r.verdict == .empty ? Color.secondary : Color.orange)
                     Text(r.advice).font(.caption).foregroundStyle(.secondary)

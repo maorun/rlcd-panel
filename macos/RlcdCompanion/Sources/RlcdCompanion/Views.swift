@@ -7,6 +7,7 @@ private let tileNames = ["Onboard", "Slot 1", "Slot 2", "Slot 3", "Slot 4", "Slo
 struct MainView: View {
     @Bindable var model: AppModel
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 telemetrySection
@@ -14,6 +15,12 @@ struct MainView: View {
                 consoleSection
             }
             .padding()
+        }
+        .onChange(of: model.calibrationFocusRequest) { _, requested in
+            guard requested else { return }
+            withAnimation { proxy.scrollTo("calibration", anchor: .top) }
+            model.calibrationFocusRequest = false
+        }
         }
         .frame(minWidth: 560, minHeight: 640)
         .onAppear { model.refreshLoginItem() }
@@ -231,7 +238,7 @@ struct MainView: View {
             PanelView(model: model)
             ScannerView(model: model)
             ArchiveView(model: model)
-            CalibrationView(model: model)
+            CalibrationView(model: model).id("calibration")
             if let s = model.status { statusView(s) }
             DiagnosticsView(model: model)
             if !model.history.isEmpty { chartsView }
