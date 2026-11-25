@@ -165,6 +165,9 @@ fun WeekScreen(
                 WeekMoldText.summary(days)?.let { text ->
                     item { Text(text, fontSize = 12.sp, textAlign = TextAlign.Center) }
                 }
+                WeekMoldText.dry(days)?.let { text ->
+                    item { Text(text, fontSize = 12.sp, textAlign = TextAlign.Center) }
+                }
             }
         }
     }

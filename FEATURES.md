@@ -3410,6 +3410,15 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - Tests: `WeekMoldTextTest` reads `tests/fixtures/week_reply_sample.txt` (sensor 0 gives 17 h, sensor 1 gives 10 h with one empty day), checks that gap days add nothing, and checks that a 7-column reply gives `null`.
 - Validation: `scripts/check-protocol-sync.sh` passes. The Gradle tests run in GitHub Actions CI (no Android SDK on the local host). The behavior on the watch is not tested.
 
+## Dry hours in the Wear OS week screen
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/WeekMoldText.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/WeekScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/WeekMoldTextTest.kt`
+- The user sees the dry hours of one room for the week on the wrist. `WeekScreen` shows `Trocken <N> h` below the `Schimmel <N> h` line. `N` is the sum of `WeekRow.dryHours` over the days with a value (`WeekMoldText.dry`).
+- A gap day and a day with an empty field do not add to the sum. `dry` gives `null` when no day has a value (reply with 7 or 8 columns, limit 0, older firmware), and the screen shows no line.
+- No new console command. The `WEEK <N>` reply already holds the column `dry_h`. `WeekMoldText.kt` is watch-only (not in the `FILES` list).
+- Tests: `WeekMoldTextTest` gives `Trocken 9 h` for three days with 2, 3 and 4 hours, `null` for seven gap days, `null` for a reply with the 8-column header, and ignores a day without a value in the sum.
+- Validation: The Gradle tests run in GitHub Actions CI (no Android SDK on the local host). The behavior on the watch is not tested.
+
 ## Hour window selection for SPREAD in the macOS calibration view
 
 - **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift`
