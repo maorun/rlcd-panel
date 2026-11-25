@@ -117,6 +117,12 @@ public enum EventText {
             let room = roomName(tile: tile, config: config)
             if row.event == "WALL_DAMP" { return set == 1 ? "Wall damp (\(room))" : "Wall dry again (\(room))" }
             return set == 1 ? "Dry air (\(room))" : "Air humidity good (\(room))"
+        case "SENSOR_DRIFT":
+            // Low byte is the tile (0 onboard, 1 to 10 slots); the high byte 1 marks drift, 0 good again.
+            let tile = d & 0xFF, drift = d >> 8
+            guard (0...0xFFFF).contains(d), tile <= 10, drift <= 1 else { return raw }
+            let room = roomName(tile: tile, config: config)
+            return drift == 1 ? "Sensor drift (\(room))" : "Sensor drift gone (\(room))"
         case "CONFIG_SET":
             let index = d & 0xFF, transport = d >> 8
             guard (0...0xFFFF).contains(d), transport <= 1 else { return raw }

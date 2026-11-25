@@ -343,6 +343,36 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         #expect(try LatchMetrics.parse(line: base + " rxlow=3FF").receptionLow == 0x3ff)
     }
 
+    @Test func parsesDriftFromSharedFixture() throws {
+        let m = try #require(try LatchMetrics.parse(lines: lines(try statusFixtureText())))
+        #expect(m.drift == 0x002)
+        #expect(m.hasDrift(sensor: 1))
+        #expect(!m.hasDrift(sensor: 0))
+        #expect(!m.hasDrift(sensor: 11))
+    }
+
+    @Test func driftBoundsAndSensorRange() throws {
+        let base = "LATCH vent=000 dry=000 batlow=000 stale=000 wall=000 window=000 rxlow=000"
+        let all = try LatchMetrics.parse(line: base + " drift=7FF")
+        #expect(all.drift == 0x7ff)
+        #expect((0...10).allSatisfy { all.hasDrift(sensor: $0) })
+        #expect(!all.hasDrift(sensor: -1))
+        #expect(!all.hasDrift(sensor: 11))
+    }
+
+    @Test func driftIsNilWithoutField() throws {
+        let m = try LatchMetrics.parse(line: "LATCH vent=002 dry=000 batlow=008 stale=004 wall=002 window=402 rxlow=202")
+        #expect(m.drift == nil)
+        #expect(!m.hasDrift(sensor: 1))
+    }
+
+    @Test func driftRejectsBadFields() {
+        let base = "LATCH vent=000 dry=000 batlow=000 stale=000 wall=000 window=000 rxlow=000"
+        for bad in [base + " drift=zzz", base + " drift=800", base + " drift=00", base + " drift=0x1", base + " drift="] {
+            #expect(throws: ParseError.badLine(bad)) { try LatchMetrics.parse(line: bad) }
+        }
+    }
+
     @Test func receptionLowRejectsBadFields() {
         let base = "LATCH vent=000 dry=000 batlow=000 stale=000 wall=000 window=000"
         for bad in [base + " rxlow=zzz", base + " rxlow=400", base + " rxlow=00", base + " rxlow=0x1", base + " rxlow="] {
