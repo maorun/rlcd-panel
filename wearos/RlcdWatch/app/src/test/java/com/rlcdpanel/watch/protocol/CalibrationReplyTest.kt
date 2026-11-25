@@ -130,4 +130,14 @@ class CalibrationReplyTest {
         assertTrue(o.changed)
         assertTrue(o.isError)
     }
+
+    @Test
+    fun usbProposalOutsideRangeThrows() {
+        try {
+            CalibrationReply.parse(listOf("REFERENCE onboard", "usb_temp_offset_c=0.5"))
+            org.junit.Assert.fail("no error")
+        } catch (e: ParseException) {
+            assertEquals("usb_temp_offset_c=0.5", e.line)
+        }
+    }
 }

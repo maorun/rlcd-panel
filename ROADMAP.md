@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] USB temperature offset proposal in the Android calibration screen
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/CalibrationScreen.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/CalibrationReply.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/CalibrationReplyTest.kt`, `FEATURES.md`
-  - **Goal:** Let the user apply the `usb_temp_offset_c` proposal of `CALIB 0` from the phone. The screen shows the `USB` line, but it cannot apply the proposal. Add `CalibrationReply.usbProposal` (`Double?`, from the line `usb_temp_offset_c=<x>`, `null` without the line). Show a checkbox `USB offset <x> C` below the `USB` line when the proposal exists. Add the selected proposal to the `CalibrationBatch` after the offset proposals of the onboard sensor. Throw `ParseException` for a proposal outside -5.0 to 0.0 C.
-  - **Acceptance:** A unit test parses a `CALIB 0` reply with `usb_temp_offset_c=-0.8` and checks the proposal. A unit test checks `null` without the line. A unit test checks `ParseException` for `usb_temp_offset_c=0.5`. A unit test checks that the batch sends `SET usb_temp_offset_c=-0.8` after `SET temp_offset_c`. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
-  - **Rank:** [Total: 34, Use: 5, Setup: 10, Harmony: 9, Safety: 10, Effort: S]
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 - [ ] Config key freeze_alert_delay_h for the freezer alert

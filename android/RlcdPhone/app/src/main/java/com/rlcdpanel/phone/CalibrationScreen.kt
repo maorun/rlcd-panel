@@ -88,6 +88,15 @@ object CalibrationText {
 
     fun skipped(s: CalibrationReply.Skipped): String = "SKIP ${s.name}: nur ${s.hours} h"
 
+    /** Proposals that the screen lists as cards; the USB proposal has its own checkbox. */
+    fun cardProposals(reply: CalibrationReply): List<CalibrationProposal> =
+        reply.proposals.filter { it.key != CalibrationReply.USB_KEY }
+
+    /** True when the screen shows no proposal at all. */
+    fun hasNoProposal(reply: CalibrationReply): Boolean = cardProposals(reply).isEmpty() && reply.usbProposal == null
+
+    fun usbOffset(x: Double): String = "USB offset $x C"
+
     fun usb(u: CalibrationReply.UsbSplit): String =
         "USB ${u.usbHours} h, Batterie ${u.batHours} h, usb_temp_offset ${u.usbTempOffset}, Differenz ${u.usbTempDiff ?: "--"}"
 }
@@ -298,10 +307,22 @@ fun CalibrationScreen(
                 items(reply.sensors) { Text(CalibrationText.sensor(it)) }
                 items(reply.skipped) { Text(CalibrationText.skipped(it)) }
                 reply.usb?.let { u -> item { Text(CalibrationText.usb(u)) } }
-                if (reply.proposals.isEmpty()) {
+                reply.usbProposal?.let { x ->
+                    item {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = CalibrationReply.USB_KEY in state.selected,
+                                onCheckedChange = { onToggle(CalibrationReply.USB_KEY) },
+                                enabled = !state.isBusy
+                            )
+                            Text(CalibrationText.usbOffset(x))
+                        }
+                    }
+                }
+                if (CalibrationText.hasNoProposal(reply)) {
                     item { Text("Keine Vorschläge", style = MaterialTheme.typography.bodyMedium) }
                 }
-                items(reply.proposals, key = { it.key }) { p ->
+                items(CalibrationText.cardProposals(reply), key = { it.key }) { p ->
                     Card(modifier = Modifier.fillMaxWidth()) {
                         Row(
                             modifier = Modifier.padding(8.dp),
