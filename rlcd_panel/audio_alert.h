@@ -60,6 +60,9 @@ struct AlertLimits {
   // history are also above the limit. 0 = off. `history` indexes the tiles (0 onboard, 1 to 10 slots);
   // without it a delay above 0 gives no rise.
   uint8_t mold_delay_h = 0;
+  // heat_alert_delay_h: ALERT_HEAT rises for a tile only when the newest N hourly temperature and humidity
+  // pairs of its history also give a feels-like value at or above the limit. 0 = off. Uses `history` too.
+  uint8_t heat_delay_h = 0;
   const ClimateHistory* history = nullptr;
 
   float heatReleaseC() const { return heat_trigger_c - HEAT_HYSTERESIS_C; }
@@ -329,6 +332,34 @@ private:
       return limits.history->slots[tile].newestAbove(limits.mold_delay_h, limit_tenths);
     }
 
+    // True when the heat delay allows a rise of the tile: delay 0, or each of the newest N sample pairs
+    // (temperature and humidity of the same index) gives a feels-like value at or above the limit.
+    // Keep the guards (delay 0, no history, tile bound) identical to delayPassed above.
+    bool heatDelayPassed(size_t tile) const {
+      if (limits.heat_delay_h == 0) {
+        return true;
+      }
+      if (limits.history == nullptr || tile >= ClimateHistory::SLOT_COUNT) {
+        return false;
+      }
+      const TemperatureHistory& temps = limits.history->temperatures[tile];
+      const HumidityHistory& hums = limits.history->slots[tile];
+      const size_t n = limits.heat_delay_h;
+      // Both pushes are independent, so unequal sizes show a skipped sample: the pairs may not align.
+      if (temps.size() != hums.size() || temps.size() < n) {
+        return false;
+      }
+      for (size_t k = 0; k < n; ++k) {
+        const float t = static_cast<float>(temps.at(temps.size() - 1 - k)) / 10.0f;
+        const float rh = static_cast<float>(hums.at(hums.size() - 1 - k)) / 10.0f;
+        const float feels = ClimateMath::heatIndexC(t, rh);
+        if (isnan(feels) || feels < limits.heat_trigger_c) {
+          return false;
+        }
+      }
+      return true;
+    }
+
     void add(float temperature_c, float humidity_pct, size_t tile) {
       have_temperature = have_temperature || !isnan(temperature_c);
       have_humidity = have_humidity || !isnan(humidity_pct);
@@ -338,7 +369,7 @@ private:
       }
       const float feels = ClimateMath::heatIndexC(temperature_c, humidity_pct);
       if (!isnan(feels)) {
-        heat_trigger = heat_trigger || feels >= limits.heat_trigger_c;
+        heat_trigger = heat_trigger || (feels >= limits.heat_trigger_c && heatDelayPassed(tile));
         heat_hold = heat_hold || feels > limits.heatReleaseC();
       }
       if (!isnan(humidity_pct)) {

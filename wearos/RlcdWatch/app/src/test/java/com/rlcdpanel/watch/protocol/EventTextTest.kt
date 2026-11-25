@@ -27,6 +27,7 @@ class EventTextTest {
         assertEquals("Config set: jump_limit_rh (BLE)", EventText.describe(row("CONFIG_SET", 0x0100 or 100)))
         assertEquals("Config set: drift_limit_c (USB)", EventText.describe(row("CONFIG_SET", 101)))
         assertEquals("Config set: drift_limit_rh (BLE)", EventText.describe(row("CONFIG_SET", 0x0100 or 102)))
+        assertEquals("Config set: heat_alert_delay_h (BLE)", EventText.describe(row("CONFIG_SET", 0x0100 or 103)))
     }
 
     @Test

@@ -122,6 +122,7 @@ class EventTextTest {
         assertEquals("Config set: jump_limit_rh (USB)", EventText.describe(row("CONFIG_SET", 100)))
         assertEquals("Config set: drift_limit_c (USB)", EventText.describe(row("CONFIG_SET", 101)))
         assertEquals("Config set: drift_limit_rh (USB)", EventText.describe(row("CONFIG_SET", 102)))
+        assertEquals("Config set: heat_alert_delay_h (USB)", EventText.describe(row("CONFIG_SET", 103)))
         assertEquals("CONFIG_SET,512", EventText.describe(row("CONFIG_SET", 0x0200)))
     }
 

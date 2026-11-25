@@ -77,6 +77,16 @@ class ConfigSchemaTest {
     }
 
     @Test
+    fun heatAlertDelayAcceptsOffAndOneToTwelve() {
+        assertNull(ConfigSchema.validate("heat_alert_delay_h", "0"))
+        assertNull(ConfigSchema.validate("heat_alert_delay_h", "1"))
+        assertNull(ConfigSchema.validate("heat_alert_delay_h", "12"))
+        assertNotNull(ConfigSchema.validate("heat_alert_delay_h", "13"))
+        assertNotNull(ConfigSchema.validate("heat_alert_delay_h", "x"))
+        assertEquals("0", ConfigSchema.entry("heat_alert_delay_h")!!.defaultValue)
+    }
+
+    @Test
     fun dryAlertDelayAcceptsOffAndOneToTwelve() {
         assertNull(ConfigSchema.validate("dry_alert_delay_h", "0"))
         assertNull(ConfigSchema.validate("dry_alert_delay_h", "1"))
