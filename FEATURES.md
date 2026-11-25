@@ -3380,3 +3380,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `WeekMoldText.kt` is watch-only (not in the `FILES` list). The shared files do not change.
 - Tests: `WeekMoldTextTest` reads `tests/fixtures/week_reply_sample.txt` (sensor 0 gives 17 h, sensor 1 gives 10 h with one empty day), checks that gap days add nothing, and checks that a 7-column reply gives `null`.
 - Validation: `scripts/check-protocol-sync.sh` passes. The Gradle tests run in GitHub Actions CI (no Android SDK on the local host). The behavior on the watch is not tested.
+
+## Hour window selection for SPREAD in the macOS calibration view
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift`
+- `ConsoleCommand.spread(hours:)` sends `SPREAD` for 6 hours and `SPREAD <H>` for 7 to 24 hours. Another number gives no command (`line` is `nil`).
+- `CalibrationView` shows a picker with 6, 12 and 24 hours (`ConsoleCommand.spreadWindows`). `AppModel.spreadHours` holds the window and `spreadReplyHours` the window of the last read (the skip text shows it). `spreadCheck()` sends it with each read, and the read after `applySpread()` sends it again. The hint shows the selected window.
+- `ConsoleCommand.spreadErrorMessage(hours:text:)`: `ERR BAD_ARG` for a window above 6 hours shows `Firmware update needed` (an older firmware has no hour argument). The 6 hour window sends plain `SPREAD`, so it works with each firmware.
+- `SpreadReply.parse` does not change. The reply has the same format for each window.
+- Tests: `CalibrationTests` check the command for 6, 7, 12 and 24 hours, no command for 0, 5 and 25, the picker windows, and the reply of `tests/fixtures/spread_reply_sample.txt` for each window. They run in CI (the local host lacks TestingMacros).

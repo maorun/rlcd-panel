@@ -85,6 +85,10 @@ final class AppModel: ConsoleLinkDelegate {
     var today: [TodayRow]?
     /// Sensor names of the `SPREAD` proposals that the user ticked.
     var spreadSelection: Set<String> = []
+    /// Window of the co-location check in hours (6, 12 or 24); sent with each read and after each applied proposal.
+    var spreadHours = ConsoleCommand.spreadMinHours
+    /// Window of the last sent `SPREAD`; the result view shows it, not the live picker value.
+    private(set) var spreadReplyHours = ConsoleCommand.spreadMinHours
     private var respreadAfterBatch = false
     /// Reply of the last `TAIL` command, `nil` before a user read and after an error.
     var tailResult: TailReply?
@@ -1293,11 +1297,13 @@ final class AppModel: ConsoleLinkDelegate {
     @discardableResult
     func spreadCheck() -> Bool {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return false }
+        guard ConsoleCommand.spread(hours: spreadHours).line != nil else { message = "Pick 6 to 24 hours"; return false }
         message = nil
         batchSummary = nil
         spread = nil
         spreadSelection = []
-        queue = [.spread]
+        spreadReplyHours = spreadHours
+        queue = [.spread(hours: spreadHours)]
         sendNext()
         return true
     }
@@ -1613,7 +1619,10 @@ final class AppModel: ConsoleLinkDelegate {
                 if case .calib = cmd { calibration = nil }
                 if case .salt = cmd { salt = nil }
                 if case .saltMagnesium = cmd { saltMagnesium = nil }
-                if cmd == .spread { spread = nil }
+                if case let .spread(hours) = cmd {
+                    spread = nil
+                    if let text = ConsoleCommand.spreadErrorMessage(hours: hours, text: text) { message = text }
+                }
                 if cmd == .today { today = nil; message = TodayReply.message(text) }
                 if case .frsi = cmd {
                     let result = FrsiReply.statusResult(text) // ERR LOW_DELTA and ERR NO_OUTDOOR are results

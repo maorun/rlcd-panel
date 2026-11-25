@@ -636,14 +636,30 @@ public enum ConsoleCommand: Equatable {
     case saltMagnesium(Int)
     /// `FRSI R W` (R 0 to 10 room sensor, W 1 to 10 wall slot, different): the temperature factor of a wall.
     case frsi(room: Int, wall: Int)
-    /// `SPREAD`: the co-location check of all sensors (RTC copy only).
-    case spread
+    /// `SPREAD` (6 hours) or `SPREAD <H>` (H 7 to 24): the co-location check of all sensors (RTC copy only).
+    /// An older firmware answers `ERR BAD_ARG` for `SPREAD <H>`.
+    case spread(hours: Int)
     /// `TAIL N` (N 1 to 72): the newest N hourly climate rows from the MicroSD card (USB and BLE).
     case tail(Int)
     /// `DAYS N` (N 1 to 31): the newest N daily summary rows from the MicroSD card (USB and BLE).
     case days(Int)
     /// `TODAY`: minimum, maximum and mean of each sensor since local midnight (RTC copy only, USB and BLE).
     case today
+
+    /// Smallest and largest window of `SPREAD` in hours.
+    public static let spreadMinHours = 6
+    public static let spreadMaxHours = 24
+    /// Windows of the picker in `CalibrationView`.
+    public static let spreadWindows = [6, 12, 24]
+    /// Text for `ERR BAD_ARG` of `SPREAD <H>` from a firmware without the hour argument.
+    public static let spreadFirmwareText = "Firmware update needed"
+
+    /// Message for a failed `SPREAD`: `Firmware update needed` for `ERR BAD_ARG` of `SPREAD <H>`, else `nil`.
+    /// The 6 hour window sends plain `SPREAD`, so its `ERR BAD_ARG` is no sign of an old firmware.
+    public static func spreadErrorMessage(hours: Int, text: String) -> String? {
+        guard text == "ERR BAD_ARG", hours != spreadMinHours else { return nil }
+        return spreadFirmwareText
+    }
 
     public static func beep(bit: Int) -> ConsoleCommand { .beep(bit) }
     public static func pattern(n: Int) -> ConsoleCommand { .pattern(n) }
@@ -742,7 +758,9 @@ public enum ConsoleCommand: Equatable {
         case .events: return "EVENTS"
         case let .eventsNewest(n): return (1...16).contains(n) ? "EVENTS \(n)" : nil
         case .week: return "WEEK"
-        case .spread: return "SPREAD"
+        case let .spread(hours):
+            guard (ConsoleCommand.spreadMinHours...ConsoleCommand.spreadMaxHours).contains(hours) else { return nil }
+            return hours == ConsoleCommand.spreadMinHours ? "SPREAD" : "SPREAD \(hours)"
         case .today: return "TODAY"
         case let .tail(rows): return (1...72).contains(rows) ? "TAIL \(rows)" : nil
         case let .days(rows): return (1...31).contains(rows) ? "DAYS \(rows)" : nil

@@ -55,8 +55,14 @@ struct CalibrationView: View {
     private var spreadSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Co-location check").font(.headline)
-            Text("Put all sensors at one place for 6 hours, then read the deviation of each sensor.")
+            Text("Put all sensors at one place for \(model.spreadHours) hours, then read the deviation of each sensor.")
                 .font(.caption).foregroundStyle(.secondary)
+            Picker("Window", selection: $model.spreadHours) {
+                ForEach(ConsoleCommand.spreadWindows, id: \.self) { Text("\($0) h").tag($0) }
+            }
+            .pickerStyle(.segmented)
+            .frame(maxWidth: 220)
+            .disabled(!model.isIdle)
             Button("Read spread") { model.spreadCheck() }
                 .disabled(!model.isIdle)
             if let reply = model.spread {
@@ -76,7 +82,7 @@ struct CalibrationView: View {
                             .disabled(model.spreadChanges.isEmpty || !model.isIdle)
                     }
                 case let .skipped(sensors):
-                    Text("\(sensors) sensors have 6 hours of data (3 needed). Put 3 or more sensors at one place for 6 hours.")
+                    Text("\(sensors) sensors have \(model.spreadReplyHours) hours of data (3 needed). Put 3 or more sensors at one place for \(model.spreadReplyHours) hours.")
                         .font(.caption).foregroundStyle(.secondary)
                 }
             }
