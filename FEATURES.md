@@ -3605,3 +3605,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `HISTORY <N> 0`, `HISTORY <N> 25`, `HISTORY <N> 06`, `HISTORY <N> 6 1`, a non-digit and extra text give `ERR BAD_ARG`. A window above the stored hours sends all rows.
 - No card access, no state change, no RTC layout change, `STATE_VERSION` does not change. The command runs on USB and on BLE at each `ble_console` level.
 - Host tests cover the parser, the 6 newest rows of sensor 2, the CRC-32 line, the unchanged `HISTORY 2` reply and the rejected arguments.
+
+## Short HISTORY reads for the macOS salt test watch
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/SaltProgress.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/SaltProgressTests.swift`
+- `ConsoleCommand.historySensorHours(N, H)` sends `HISTORY <N> <H>` (N 0 to 10, H 1 to 24; no line for another value). It needs the firmware hour window.
+- The salt test watch sends `HISTORY <N> 6` every 10 minutes (`SaltProgress.historyCommand(sensor:)`). `SaltProgress.requiredHours` is 6, so 6 rows give the full count and the BLE reply is shorter.
+- After `ERR BAD_ARG` for the short read (older firmware), `SaltProgress.fallBackToFullHistory()` switches once to `HISTORY <N>`, `AppModel` repeats the tick at once and the watch goes on. A new watch tries the short read again. Another error still stops the watch with `replyFailed`.
+- Unit tests cover the lines `HISTORY 4 6`, sensor 11, hours 0 and hours 25 without a line, `Stable 6/6 h` for 6 stable rows and the fallback to `HISTORY 4`.

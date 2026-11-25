@@ -84,4 +84,61 @@ import Testing
         #expect(ConsoleCommand.historySensor(11).line == nil)
         #expect(ConsoleCommand.historySensor(-1).line == nil)
     }
+
+    @Test func historyHoursLine() {
+        #expect(ConsoleCommand.historySensorHours(4, 6).line == "HISTORY 4 6")
+        #expect(ConsoleCommand.historySensorHours(0, 1).line == "HISTORY 0 1")
+        #expect(ConsoleCommand.historySensorHours(10, 24).line == "HISTORY 10 24")
+        #expect(ConsoleCommand.historySensorHours(11, 6).line == nil)
+        #expect(ConsoleCommand.historySensorHours(-1, 6).line == nil)
+        #expect(ConsoleCommand.historySensorHours(4, 0).line == nil)
+        #expect(ConsoleCommand.historySensorHours(4, 25).line == nil)
+    }
+
+    @Test func sixRowsOfShortReadGiveFullCount() throws {
+        var p = SaltProgress()
+        p.start()
+        p.record(rows: try Self.reply([75.2, 75.4, 75.0, 75.6, 75.3, 75.2]), sensor: 2)
+        #expect(p.historyCommand(sensor: 2) == .historySensorHours(2, SaltProgress.requiredHours))
+        #expect(p.text == "Stable 6/6 h" && p.isReady)
+    }
+
+    @Test func fallsBackToFullHistoryAfterBadArg() {
+        var p = SaltProgress()
+        p.start()
+        #expect(p.historyCommand(sensor: 4) == .historySensorHours(4, 6))
+        #expect(p.fallBackToFullHistory())
+        #expect(p.historyCommand(sensor: 4) == .historySensor(4))
+        #expect(p.historyCommand(sensor: 4).line == "HISTORY 4")
+        #expect(!p.fallBackToFullHistory()) // a second BAD_ARG does not loop
+        p.start()
+        #expect(p.historyCommand(sensor: 4) == .historySensorHours(4, 6)) // a new watch tries the short read again
+    }
+
+    @Test func retryAfterErrorOnlyForBadArgOfShortRead() {
+        var p = SaltProgress()
+        p.start()
+        #expect(p.retryAfterError(.historySensorHours(4, 6), text: "ERR NOT_OVER_BLE", sensor: 4) == nil)
+        #expect(p.retryAfterError(.historySensor(4), text: "ERR BAD_ARG", sensor: 4) == nil)
+        #expect(p.usesHourWindow)
+        #expect(p.retryAfterError(.historySensorHours(4, 6), text: "ERR BAD_ARG", sensor: 4) == .historySensor(4))
+        #expect(p.retryAfterError(.historySensorHours(4, 6), text: "ERR BAD_ARG", sensor: 4) == nil)
+    }
+
+    @Test func retryAfterErrorRejectsOtherSensorStoppedWatchAndNearMissText() {
+        var p = SaltProgress()
+        p.start()
+        #expect(p.retryAfterError(.historySensorHours(5, 6), text: "ERR BAD_ARG", sensor: 4) == nil)
+        #expect(p.retryAfterError(.historySensorHours(4, 6), text: "ERR BAD_ARG ", sensor: 4) == nil)
+        #expect(p.retryAfterError(.historySensorHours(4, 6), text: "err bad_arg", sensor: 4) == nil)
+        #expect(p.usesHourWindow)
+        p.stop(.user)
+        #expect(p.retryAfterError(.historySensorHours(4, 6), text: "ERR BAD_ARG", sensor: 4) == nil)
+    }
+
+    @Test func noFallbackWhenWatchIsNotRunning() {
+        var p = SaltProgress()
+        #expect(!p.fallBackToFullHistory())
+        #expect(p.usesHourWindow)
+    }
 }

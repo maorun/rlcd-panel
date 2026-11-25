@@ -1,13 +1,13 @@
 import Foundation
 
 /// Progress of a salt test: the count of stable hours of one sensor from `HISTORY N` replies.
-/// The caller sends `HISTORY N` every `intervalSeconds` while `isRunning`; the clock is injected for tests.
+/// The caller sends `HISTORY N 6` (`HISTORY N` for an older firmware) every `intervalSeconds` while `isRunning`; the clock is injected for tests.
 public struct SaltProgress {
     /// Stable hours that the salt check needs (same number as `SALT N`).
     public static let requiredHours = 6
     /// Largest humidity span of stable hours in %RH (same limit as `SALT N`).
     public static let maxSpanPct = 1.0
-    /// Seconds between two `HISTORY N` commands.
+    /// Seconds between two history commands.
     public static let intervalSeconds = 600
     /// The watch stops after this time.
     public static let maxDurationSeconds = 8 * 3600
@@ -21,6 +21,8 @@ public struct SaltProgress {
     /// Stable hours of the last reply, 0 before the first reply.
     public private(set) var stableHours = 0
     public private(set) var replies = 0
+    /// True while the watch sends `HISTORY N <requiredHours>`; false after an older firmware answered `ERR BAD_ARG`.
+    public private(set) var usesHourWindow = true
     private var startedAt: Date?
     private let now: () -> Date
 
@@ -52,8 +54,30 @@ public struct SaltProgress {
         return count
     }
 
+    /// The command of one tick: 6 rows give the full count, so the short read saves BLE bytes.
+    public func historyCommand(sensor: Int) -> ConsoleCommand {
+        usesHourWindow ? .historySensorHours(sensor, Self.requiredHours) : .historySensor(sensor)
+    }
+
+    /// The command to send again after an `ERR` reply to `cmd`, or nil when the watch must stop.
+    /// Only `ERR BAD_ARG` for the short read gives a command, once per watch (`HISTORY N` of an older firmware).
+    /// A reply for another sensor than `sensor` (a late reply of an older watch) gives nil.
+    public mutating func retryAfterError(_ cmd: ConsoleCommand, text: String, sensor: Int) -> ConsoleCommand? {
+        guard case let .historySensorHours(n, _) = cmd, n == sensor, text == "ERR BAD_ARG", fallBackToFullHistory() else { return nil }
+        return historyCommand(sensor: n)
+    }
+
+    /// Switches to `HISTORY N` after `ERR BAD_ARG` for the short read (firmware without the hour window).
+    /// Returns true once, while the watch runs and still uses the short read; the caller then repeats the tick.
+    public mutating func fallBackToFullHistory() -> Bool {
+        guard isRunning, usesHourWindow else { return false }
+        usesHourWindow = false
+        return true
+    }
+
     /// Starts the watch and clears the count.
     public mutating func start() {
+        usesHourWindow = true
         stableHours = 0
         replies = 0
         startedAt = now()
