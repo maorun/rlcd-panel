@@ -14607,12 +14607,28 @@ void testSerialHistoryParser() {
   assert(parseText("HISTORY 11", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("HISTORY 1x", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("HISTORY x", cmd) == SerialParseStatus::BAD_ARG);
-  assert(parseText("HISTORY 1 2", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("HISTORY 1 2", cmd) == SerialParseStatus::OK && cmd.reference == 1 && cmd.history_hours == 2);
+  assert(parseText("HISTORY 1 2 3", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("HISTORY  1", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("HISTORY 010", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("HISTORY -1", cmd) == SerialParseStatus::BAD_ARG);
+  // HISTORY <N> <H>: window of 1 to 24 hours
+  assert(parseText("HISTORY 2 6", cmd) == SerialParseStatus::OK && cmd.history_one && cmd.reference == 2 &&
+         cmd.history_hours == 6);
+  assert(parseText("HISTORY 10 24", cmd) == SerialParseStatus::OK && cmd.reference == 10 && cmd.history_hours == 24);
+  assert(parseText("HISTORY 0 1", cmd) == SerialParseStatus::OK && cmd.reference == 0 && cmd.history_hours == 1);
+  assert(parseText("HISTORY 2 10", cmd) == SerialParseStatus::OK && cmd.history_hours == 10);
+  assert(parseText("HISTORY 2", cmd) == SerialParseStatus::OK && cmd.history_hours == 0);
+  for (const char* bad : {"HISTORY 2 0", "HISTORY 2 25", "HISTORY 2 06", "HISTORY 2 6 1", "HISTORY 2 x", "HISTORY 2 ",
+                          "HISTORY 2 1x", "HISTORY 2 -1", "HISTORY 2  6", "HISTORY 11 6", "HISTORY  2 6", "HISTORY 2 100"}) {
+    assert(parseText(bad, cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  }
   // HISTORY <N> is a read command: it runs at each ble_console level and mounts no card
   assert(parseText("HISTORY 3", cmd) == SerialParseStatus::OK);
+  for (uint8_t level = 0; level <= 2; ++level) {
+    assert(std::string(BleConsoleBridge::gate(cmd, level)).empty());
+  }
+  assert(parseText("HISTORY 3 6", cmd) == SerialParseStatus::OK);
   for (uint8_t level = 0; level <= 2; ++level) {
     assert(std::string(BleConsoleBridge::gate(cmd, level)).empty());
   }
@@ -14753,6 +14769,52 @@ void testSerialHistoryOneSensor() {
   TestRunner::showHistory(empty, h, n, 5);
   const std::string body = "BEGIN HISTORY\nsensor,age_h,temp_c,rh_pct,noise_db\n";
   assert(empty.out == body + historyCrcLine(body) + "\n");
+}
+
+void testSerialHistoryHourWindow() {
+  ClimateHistory h;
+  NoiseHistory n;
+  for (int i = 0; i < 10; ++i) {
+    h.temperatures[2].pushCelsius(20.0f + static_cast<float>(i));
+    h.slots[2].pushPercent(40.0f + static_cast<float>(i));
+    h.temperatures[3].pushCelsius(10.0f);
+    h.slots[3].pushPercent(50.0f);
+  }
+  FakeSink sink;
+  TestRunner::showHistory(sink, h, n, 2, 6);
+  const std::vector<std::string> lines = splitLines(sink.out);
+  assert(lines.size() == 2 + 6 + 1);
+  assert(lines[2] == "2,0,29.0,49.0," && lines[7] == "2,5,24.0,44.0,");
+  const size_t pos = sink.out.rfind("CRC32 ");
+  assert(lines.back() == historyCrcLine(sink.out.substr(0, pos)));
+  // the window equals the head of the one-sensor reply; HISTORY 2 keeps all 10 rows
+  FakeSink one;
+  TestRunner::showHistory(one, h, n, 2);
+  assert(splitLines(one.out).size() == 2 + 10 + 1);
+  FakeSink zero;
+  TestRunner::showHistory(zero, h, n, 2, 0);
+  assert(zero.out == one.out);
+  // the window also cuts the onboard noise rows
+  ClimateHistory hn;
+  NoiseHistory nn;
+  for (int i = 0; i < 8; ++i) {
+    hn.temperatures[0].pushCelsius(21.0f);
+    hn.slots[0].pushPercent(45.0f);
+    nn.push(static_cast<uint8_t>(30 + i));
+  }
+  FakeSink noisy;
+  TestRunner::showHistory(noisy, hn, nn, 0, 3);
+  const std::vector<std::string> noisy_lines = splitLines(noisy.out);
+  assert(noisy_lines.size() == 2 + 3 + 1);
+  assert(noisy_lines[2] == "0,0,21.0,45.0,37" && noisy_lines[4] == "0,2,21.0,45.0,35");
+  // a window above the stored hours sends all rows; 24 stays valid
+  FakeSink wide;
+  TestRunner::showHistory(wide, h, n, 2, 24);
+  assert(wide.out == one.out);
+  // the window applies to the chosen sensor only
+  FakeSink other;
+  TestRunner::showHistory(other, h, n, 3, 1);
+  assert(splitLines(other.out).size() == 2 + 1 + 1);
 }
 
 void testSerialHistoryFixtureMatchesFullReply() {
@@ -27442,6 +27504,7 @@ testSerialHistoryEmpty();
 testSerialHistoryFullOrderAndNegative();
 testSerialHistoryMissingAndInvalidNoise();
 testSerialHistoryOneSensor();
+testSerialHistoryHourWindow();
 testSerialHistoryFixtureMatchesFullReply();
 testSerialHistoryNoiseOnly();
 testSerialHistoryShortWriteAndNoCard();

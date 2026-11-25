@@ -26,12 +26,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Hour window for the console command HISTORY
-  - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/history_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Make the `HISTORY` reply short for one sensor over BLE. Accept the optional argument `HISTORY <N> <H>` (H 1 to 24, no leading zero, `SerialCommand::history_hours`). Send only the rows of sensor N with `age_h` below H. Calculate the `CRC32` line over the filtered bytes. Keep the `HISTORY` and `HISTORY <N>` replies. Give `ERR BAD_ARG` for H 0, H 25, a leading zero, a non-digit and extra text. Do not change the RTC layout or `STATE_VERSION`.
-  - **Acceptance:** A host test checks that `HISTORY 2 6` sends the 6 newest rows of sensor 2. A host test checks the CRC-32 of this reply. A host test checks that `HISTORY 2` keeps its reply. A host test checks `ERR BAD_ARG` for `HISTORY 2 0` and `HISTORY 2 25`. A host test checks `ERR BAD_ARG` for `HISTORY 2 06` and `HISTORY 2 6 1`. The host unit tests pass. `arduino-cli compile rlcd_panel` passes.
-  - **Rank:** [Total: 25, Use: 3, Setup: 5, Harmony: 7, Safety: 10, Effort: S]
-
 - [ ] Short HISTORY reads for the macOS salt test watch
   - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/SaltProgressTests.swift`, `FEATURES.md`
   - **Goal:** Send fewer bytes over BLE during a salt test. This item needs the firmware item "Hour window for the console command HISTORY". Add `ConsoleCommand.historySensorHours(Int, Int)` with the line `HISTORY <N> <H>`. Send `HISTORY <N> 6` every 10 minutes in the salt test watch. `SaltProgress.requiredHours` is 6, so 6 rows give the full count. Send `HISTORY <N>` again after an `ERR BAD_ARG` reply from an older firmware.

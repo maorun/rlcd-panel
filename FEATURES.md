@@ -3596,3 +3596,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `TailScreen` shows `Keine Lücken` or the count of missing hours and gaps, then one line for each gap with start, end and missing hours.
 - Tests: `LogGapsTest` covers 90 minutes (no gap), 3 hours (1 gap, 2 missing hours), the October and March changes, bad time stamps, order, texts and `tests/fixtures/tail_reply_sample.txt` (1 gap, 666 missing hours).
 - Validation: `./scripts/check-protocol-sync.sh` exits 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
+
+## Hour window for the console command HISTORY
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`
+- The console command `HISTORY <N> <H>` (N 0 to 10, H 1 to 24, no leading zero) sends only the rows of sensor `N` with `age_h` below `H`. The reply has the same `BEGIN HISTORY` line and header as `HISTORY`; the `CRC32` line covers the filtered bytes. Thus a salt test reads 6 rows in a few BLE notifications.
+- `SerialCommand::history_hours` holds H (0 without the argument). `SerialConsoleRunner::showHistory(sink, history, noise, only_sensor, max_hours)` takes 0 for all hours. `HISTORY` and `HISTORY <N>` keep their replies.
+- `HISTORY <N> 0`, `HISTORY <N> 25`, `HISTORY <N> 06`, `HISTORY <N> 6 1`, a non-digit and extra text give `ERR BAD_ARG`. A window above the stored hours sends all rows.
+- No card access, no state change, no RTC layout change, `STATE_VERSION` does not change. The command runs on USB and on BLE at each `ble_console` level.
+- Host tests cover the parser, the 6 newest rows of sensor 2, the CRC-32 line, the unchanged `HISTORY 2` reply and the rejected arguments.
