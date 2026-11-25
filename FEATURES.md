@@ -3881,3 +3881,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `TodayScreen` shows `Schimmel <N> h` and `Trocken <N> h` on each card with data, with `⚠` above 0 and `--` for `null` (`TodayText.mold`, `TodayText.dry`).
 - `TodayReplyTest` parses `tests/fixtures/today_reply_sample.txt` (old header) with `null` hours, a new row with `mold_h` 3 and `dry_h` 0, `null` for empty fields, and `ParseException` for 10 columns and for `dry_h` 7 with hours 5.
 - Validation: the local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.
+
+## Console command RECEPTION with the scan mask of each slot
+
+The `RX <N>%` value and the `RECEPTION` line of `STATUS` show only a rate. The user could not see which scans failed. The new console command `RECEPTION` shows the scan mask of each slot, so the user finds a sensor with a gap pattern.
+
+- `SerialConsoleRunner::showReception` reads the RTC copy of `ReceptionHistory` and the registry. It replies `BEGIN RECEPTION`, the header `slot,mac,name,scans,received,mask`, one row for each occupied registry slot and the `CRC32` line. An empty slot has no row.
+- `mask` has `scans` characters (at most 24), oldest scan first: `1` for a scan with a packet, `0` for a missed scan. `received` is the count of `1` characters. `name` comes from `DeviceConfig::nameForMac` and is empty for an unknown MAC.
+- Extra text, for example `RECEPTION 1` and `RECEPTIONX`, gives `ERR BAD_ARG`. The command mounts no card, changes no state and does not change the RTC layout or `STATE_VERSION`. It runs on USB and on BLE at each `ble_console` level.
+- `tests/fixtures/reception_reply_sample.txt` holds the reply sample. The tests cover slot 2 with 6 scans and the mask `101101`, an empty slot, a slot with 24 scans, `ERR BAD_ARG`, the BLE gate at `ble_console` 1, a short write, the CRC-32, an unchanged state and the fixture.
+- Validation: the host tests and `arduino-cli compile rlcd_panel` pass. The companion apps do not parse `RECEPTION` yet.
