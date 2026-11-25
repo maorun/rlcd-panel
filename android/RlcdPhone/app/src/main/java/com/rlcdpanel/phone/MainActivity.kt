@@ -84,6 +84,7 @@ import com.rlcdpanel.phone.protocol.DaysReply
 import com.rlcdpanel.phone.protocol.DaysRow
 import com.rlcdpanel.phone.protocol.TailCommand
 import com.rlcdpanel.phone.protocol.TailReply
+import com.rlcdpanel.phone.protocol.TodayCommand
 import com.rlcdpanel.phone.protocol.TodayReply
 import com.rlcdpanel.phone.protocol.WeekCsv
 import com.rlcdpanel.phone.protocol.WeekReply
@@ -303,6 +304,8 @@ class MainActivity : ComponentActivity() {
             if (showToday) {
                 TodayScreen(
                     state = todayState,
+                    roomNames = panelConfig.tileNames,
+                    onSelect = { sensor -> if (!todayState.isReading) todayState = TodayState(sensor = sensor) },
                     onRead = { withConsolePermission { readToday() } },
                     onBack = { closeToday() }
                 )
@@ -645,7 +648,7 @@ class MainActivity : ComponentActivity() {
         healthState = healthState.copy(isReading = false)
         configState = configState.copy(isReading = false)
         if (weekState.isReading) weekState = WeekState(message = "Abgebrochen. Erneut lesen.")
-        if (todayState.isReading) todayState = TodayState(message = "Abgebrochen. Erneut lesen.")
+        if (todayState.isReading) todayState = TodayState(message = "Abgebrochen. Erneut lesen.", sensor = todayState.sensor)
         if (tailState.isReading) tailState = TailState(message = "Abgebrochen. Erneut lesen.")
         if (daysState.isReading) daysState = DaysState(message = "Abgebrochen. Erneut lesen.")
         if (panelHistory.isReading) panelHistory = PanelHistoryState(message = "Abgebrochen. Erneut lesen.")
@@ -693,7 +696,7 @@ class MainActivity : ComponentActivity() {
             else if (showRejects) rejectsState = RejectsState(message = "Bluetooth-Berechtigung fehlt")
             else if (showHistory) panelHistory = PanelHistoryState(message = "Bluetooth-Berechtigung fehlt")
             else if (showWeek) weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
-            else if (showToday) todayState = TodayState(message = "Bluetooth-Berechtigung fehlt")
+            else if (showToday) todayState = TodayState(message = "Bluetooth-Berechtigung fehlt", sensor = todayState.sensor)
             else if (showTail) tailState = TailState(message = "Bluetooth-Berechtigung fehlt")
             else if (showDays) daysState = DaysState(message = "Bluetooth-Berechtigung fehlt")
             else if (showSetup) setupState = setupState.copy(isBusy = false, message = "Bluetooth-Berechtigung fehlt")
@@ -881,22 +884,30 @@ class MainActivity : ComponentActivity() {
         if (!scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
     }
 
-    /** Sends `TODAY` after a tap. */
+    /** Sends `TODAY <N>` for one room, or `TODAY` for all rooms, after a tap. An old firmware answers `ERR BAD_ARG`; then `TODAY` follows once. */
     private fun readToday() {
         stopBleScan()
-        todayState = TodayState(isReading = true)
-        consoleClient.send("TODAY") { reply ->
-            todayState = when (reply) {
-                is ConsoleReply.Frame -> try {
-                    TodayState(rows = TodayReply.parse(reply.lines), hasRead = true)
-                } catch (e: ParseException) {
-                    TodayState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
-                }
-                is ConsoleReply.Status ->
-                    TodayState(message = TodayReply.statusText(reply.line) ?: BleConsoleClient.errorText(reply))
-                else -> TodayState(message = BleConsoleClient.errorText(reply))
+        val sensor = todayState.sensor
+        todayState = TodayState(isReading = true, sensor = sensor)
+        consoleClient.send(TodayCommand.line(sensor)) { first ->
+            val status = (first as? ConsoleReply.Status)?.line
+            if (status != null && TodayCommand.needsFallback(sensor, status)) {
+                consoleClient.send(TodayCommand.ALL) { full -> todayState = todayResult(full, sensor) }
+            } else {
+                todayState = todayResult(first, sensor)
             }
         }
+    }
+
+    private fun todayResult(reply: ConsoleReply, sensor: Int?): TodayState = when (reply) {
+        is ConsoleReply.Frame -> try {
+            TodayState(rows = TodayCommand.select(TodayReply.parse(reply.lines), sensor), hasRead = true, sensor = sensor)
+        } catch (e: ParseException) {
+            TodayState(message = "Antwort nicht lesbar: ${e.line.take(80)}", sensor = sensor)
+        }
+        is ConsoleReply.Status ->
+            TodayState(message = TodayReply.statusText(reply.line) ?: BleConsoleClient.errorText(reply), sensor = sensor)
+        else -> TodayState(message = BleConsoleClient.errorText(reply), sensor = sensor)
     }
 
     private fun closeTail() {

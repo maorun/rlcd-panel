@@ -9,9 +9,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
@@ -19,6 +21,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.rlcdpanel.phone.protocol.TodayCommand
 import com.rlcdpanel.phone.protocol.TodayRow
 import java.util.Locale
 
@@ -28,7 +31,9 @@ data class TodayState(
     val rows: List<TodayRow> = emptyList(),
     val message: String? = null,
     /** True after a reply that parsed; an empty [rows] list then means the panel holds no sensor. */
-    val hasRead: Boolean = false
+    val hasRead: Boolean = false,
+    /** Selected room (0 to 10), null reads all rooms. */
+    val sensor: Int? = null
 )
 
 object TodayText {
@@ -42,7 +47,13 @@ object TodayText {
 }
 
 @Composable
-fun TodayScreen(state: TodayState, onRead: () -> Unit, onBack: () -> Unit) {
+fun TodayScreen(
+    state: TodayState,
+    roomNames: List<String>,
+    onSelect: (Int?) -> Unit,
+    onRead: () -> Unit,
+    onBack: () -> Unit
+) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
@@ -58,6 +69,26 @@ fun TodayScreen(state: TodayState, onRead: () -> Unit, onBack: () -> Unit) {
                 }
             }
             item {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    item {
+                        FilterChip(
+                            selected = state.sensor == null,
+                            onClick = { onSelect(null) },
+                            enabled = !state.isReading,
+                            label = { Text("Alle") }
+                        )
+                    }
+                    items((0..TodayCommand.MAX_SENSOR).toList()) { sensor ->
+                        FilterChip(
+                            selected = state.sensor == sensor,
+                            onClick = { onSelect(sensor) },
+                            enabled = !state.isReading,
+                            label = { Text(roomNames.getOrNull(sensor) ?: "Tile $sensor") }
+                        )
+                    }
+                }
+            }
+            item {
                 Text(
                     "Liest TODAY über die BLE-Konsole. Das Panel braucht USB-Strom und ble_console 1 oder 2.",
                     style = MaterialTheme.typography.bodySmall
@@ -65,7 +96,7 @@ fun TodayScreen(state: TodayState, onRead: () -> Unit, onBack: () -> Unit) {
             }
             state.message?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
             if (state.hasRead && state.rows.isEmpty() && state.message == null) {
-                item { Text("Keine Sensoren", style = MaterialTheme.typography.bodyMedium) }
+                item { Text(if (state.sensor == null) "Keine Sensoren" else "Keine Daten für den Raum", style = MaterialTheme.typography.bodyMedium) }
             }
             items(state.rows, key = { it.sensor }) { row ->
                 Card(modifier = Modifier.fillMaxWidth()) {

@@ -3709,3 +3709,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The fixture also holds one open interval (`SENSOR_DRIFT`, tile 5), one clear row without a set row (`SENSOR_DRIFT`, tile 0) and two tiles of one badge (`DRY_AIR`, tiles 3 and 4). The file `events_reply_sample.txt` does not change.
 - `BadgeIntervalTests` read the fixture through `ReplyAssembler`. The tests check the `CRC32` line, the 7 intervals with each tile and each `startUnknown` flag, and the end of the open interval at the injected `now`.
 - Validation: `swift test` does not run on the local host, because the Command Line Tools lack the Swift Testing macros. The CI job `macOS companion tests` runs it.
+
+## Room picker for the Android today screen
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TodayCommand.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/TodayScreen.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/TodayCommandTest.kt`, `scripts/check-protocol-sync.sh`
+- `TodayCommand.kt` is a copy of the watch file. `TodayCommand.line(N)` gives `TODAY <N>` for N 0 to 10 and `TODAY` for no room. Another number throws `IllegalArgumentException`. The short reply holds only the row of one room and saves BLE bytes.
+- The today screen has a chip row with `Alle` and the 11 tile names (`PanelConfig.tileNames`). `Alle` sends `TODAY`. A room sends `TODAY <N>`. The command runs only after the button `Read today`.
+- An older firmware answers `ERR BAD_ARG` for `TODAY <N>`. `TodayCommand.needsFallback` then returns true. The app sends `TODAY` once. `TodayCommand.select` keeps only the row of the selected room.
+- A read with a room and no row shows `Keine Daten für den Raum`. The selected room stays after an error, a cancel and a permission denial.
+- `scripts/check-protocol-sync.sh` compares `TodayCommand.kt` with the watch copy.
+- Tests: `TodayCommandTest` covers the lines `TODAY 3` and `TODAY`, the numbers 11 and -1, the fallback decision, `select` and `tests/fixtures/today_one_reply_sample.txt`.
+- Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
