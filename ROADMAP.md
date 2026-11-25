@@ -34,12 +34,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test checks the lines `FRSI 0 2` and `FRSI 0 2 12`. A unit test checks that 2 and 25 hours give no line. A unit test parses `tests/fixtures/frsi_reply_sample.txt`. `scripts/check-protocol-sync.sh` and `scripts/check-protocol-sync.sh --self-test` exit with 0. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
   - **Rank:** [Total: 30, Use: 4, Setup: 8, Harmony: 8, Safety: 10, Effort: S]
 
-- [ ] Badge intervals in the Android alert timeline
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertTimeline.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AlertTimeline.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/EventLogScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertTimelineTest.kt`, `FEATURES.md`
-  - **Goal:** Show on the phone when each badge of a room started and ended. Add `BadgeInterval` and `AlertTimeline.badges(rows, nowMs, zone)` with the rules of the macOS `AlertTimeline.badges`. Pair each set row of `WINDOW_OPEN`, `WALL_DAMP`, `DRY_AIR` and `SENSOR_DRIFT` with the next clear row of the same tile. Use `nowMs` as the end of an open interval. Mark an interval without a set row as `startUnknown`. Copy the changed file into the watch protocol package. Show the intervals below the alert intervals of the event log screen.
-  - **Acceptance:** A unit test pairs one `DRY_AIR` set row and one clear row to one interval. A unit test checks that a `WINDOW_OPEN` set row without a clear row ends at `nowMs`. A unit test checks that a clear row without a set row gives `startUnknown`. A unit test checks that two tiles of one badge give two intervals. `scripts/check-protocol-sync.sh` exits with 0. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
-  - **Rank:** [Total: 28, Use: 6, Setup: 4, Harmony: 8, Safety: 10, Effort: M]
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Badge intervals in the Wear OS event log
