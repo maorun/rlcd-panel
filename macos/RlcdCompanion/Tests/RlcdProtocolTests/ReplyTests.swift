@@ -374,10 +374,10 @@ struct ReplyParserTests {
         #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.legacyHeader, "0,0,2026-11-14,1,2,3"]) }
         #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.legacyHeader, "0,7,,,,,"]) }
         #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.legacyHeader, "0,0,14.11.2026,,,,"]) }
-        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,1,2,3,4,25"]) }
-        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,1,2,3,4,x"]) }
-        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,1,2,3,4,+5"]) }
-        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,1,2,3,4"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.moldHeader, "0,0,,1,2,3,4,25"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.moldHeader, "0,0,,1,2,3,4,x"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.moldHeader, "0,0,,1,2,3,4,+5"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.moldHeader, "0,0,,1,2,3,4"]) }
         #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.legacyHeader, "0,0,,1,2,3,4,5"]) }
         #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.legacyHeader, "0,0,,1,2,3,4", "0,0,,1,2,3,4"]) }
         #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.legacyHeader, "0,0,,5,2,3,4"]) }
@@ -394,16 +394,33 @@ struct ReplyParserTests {
         let rows = try WeekReply.parse(lines: fixtureLines)
         #expect(rows.count == 42)
         #expect(rows[0] == WeekRow(sensor: 0, day: 0, date: "2026-11-17", temperatureMinC: 15.0, temperatureMaxC: 19.5,
-                                   humidityMinPct: 40.0, humidityMaxPct: 55.0, moldHours: 0))
+                                   humidityMinPct: 40.0, humidityMaxPct: 55.0, moldHours: 0, dryHours: 0))
         #expect(rows[1].moldHours == 7)
         #expect(rows[41] == WeekRow(sensor: 5, day: 6, date: "2026-11-11", temperatureMinC: 23.0, temperatureMaxC: 27.5,
-                                    humidityMinPct: 56.0, humidityMaxPct: 71.0, moldHours: 24))
+                                    humidityMinPct: 56.0, humidityMaxPct: 71.0, moldHours: 24, dryHours: 3))
         let gaps = rows.filter { $0.temperatureMinC == nil }
         #expect(gaps.count == 1)
         #expect(gaps[0].sensor == 2 && gaps[0].day == 3 && gaps[0].date == "2026-11-14")
         #expect(gaps[0].temperatureMaxC == nil && gaps[0].humidityMinPct == nil && gaps[0].humidityMaxPct == nil)
-        #expect(gaps[0].moldHours == nil)
-        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,2026-11-14,1,2,3,4,5,6"]) }
+        #expect(gaps[0].moldHours == nil && gaps[0].dryHours == nil)
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.moldHeader, "0,0,2026-11-14,1,2,3,4,5,6"]) }
+    }
+
+    @Test func weekNineColumnsGiveDryHours() throws {
+        let rows = try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,2026-11-14,19.5,22.0,40.5,55.0,6,5",
+                                               "0,1,2026-11-13,,,,,,", "1,0,,10.0,20.0,40.0,60.0,3,"])
+        #expect(rows[0].moldHours == 6 && rows[0].dryHours == 5)
+        #expect(rows[1].dryHours == nil)
+        #expect(rows[2].moldHours == 3 && rows[2].dryHours == nil)
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,1,2,3,4,5,25"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,1,2,3,4,5,x"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,1,2,3,4,5"]) }
+    }
+
+    /// A firmware without the `dry_h` column sends 8 columns: `dryHours` is `nil`.
+    @Test func weekEightColumnsGiveNilDryHours() throws {
+        let rows = try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.moldHeader, "0,0,2026-11-14,19.5,22.0,40.5,55.0,6", "0,1,2026-11-13,,,,,"])
+        #expect(rows[0].moldHours == 6 && rows[0].dryHours == nil && rows[1].dryHours == nil)
     }
 
     /// A firmware without the `mold_h` column sends 7 columns: `moldHours` is `nil`.

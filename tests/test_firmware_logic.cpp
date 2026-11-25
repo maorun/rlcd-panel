@@ -15704,10 +15704,10 @@ void testSerialWeekRowsDatesAndCrc() {
   const std::vector<std::string> lines = splitLines(sink.out);
   assert(lines.size() == 2 + 77 + 1);
   assert(lines[0] == "BEGIN WEEK");
-  assert(lines[1] == "sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h");
-  assert(lines[2 + 1 * 7 + 0] == "1,0,2026-11-14,10.0,20.0,40.0,60.0,0"); // 0.5 steps, no hour above 70 %RH
+  assert(lines[1] == "sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h,dry_h");
+  assert(lines[2 + 1 * 7 + 0] == "1,0,2026-11-14,10.0,20.0,40.0,60.0,0,"); // 0.5 steps, no hour above 70 %RH, dry limit 0 gives an empty dry_h
   assert(lines[2 + 1 * 7 + 6].rfind("1,6,2026-11-08,", 0) == 0);
-  assert(lines[2 + 0] == "0,0,2026-11-14,,,,,"); // gap day: empty values and mold_h, date stays
+  assert(lines[2 + 0] == "0,0,2026-11-14,,,,,,"); // gap day: empty values, mold_h and dry_h, date stays
   const size_t crc_at = sink.out.rfind("CRC32 ");
   assert(crc_at != std::string::npos);
   const std::string body = sink.out.substr(0, crc_at);
@@ -15742,13 +15742,14 @@ static WeekHistory weekFromFixture() {
       f.push_back(lines[i].substr(start, at - start));
     }
     f.push_back(lines[i].substr(start));
-    assert(f.size() == 8);
+    assert(f.size() == 9);
     auto tenths = [](const std::string& v) { return static_cast<int16_t>(std::lround(std::stod(v) * 10.0)); };
     const bool has_t = !f[3].empty();
     const bool has_h = !f[5].empty();
     const uint8_t mold = f[7].empty() ? WeekHistory::GAP : static_cast<uint8_t>(std::stoi(f[7]));
+    const uint8_t dry = f[8].empty() ? WeekHistory::GAP : static_cast<uint8_t>(std::stoi(f[8]));
     week.setDay(static_cast<size_t>(std::stoi(f[0])), static_cast<size_t>(std::stoi(f[1])), has_t, has_t ? tenths(f[3]) : 0,
-                has_t ? tenths(f[4]) : 0, has_h, has_h ? tenths(f[5]) : 0, has_h ? tenths(f[6]) : 0, mold);
+                has_t ? tenths(f[4]) : 0, has_h, has_h ? tenths(f[5]) : 0, has_h ? tenths(f[6]) : 0, mold, dry);
   }
   return week;
 }
@@ -15765,7 +15766,7 @@ void testSerialWeekWithoutArgumentMatchesFixture() {
     assert(lines[i] == fixture[i]);
   }
   for (size_t i = 2 + 42; i < 2 + 77; ++i) {
-    assert(lines[i].find(",2026-11-") != std::string::npos && lines[i].rfind(",,,,,") == lines[i].size() - 5); // empty sensors: gaps only
+    assert(lines[i].find(",2026-11-") != std::string::npos && lines[i].rfind(",,,,,,") == lines[i].size() - 6); // empty sensors: gaps only
   }
   FakeSink all;
   TestRunner::showWeek(all, week, -1);
@@ -15784,13 +15785,13 @@ void testSerialWeekOneSensorRowsAndCrc() {
   const std::vector<std::string> lines = splitLines(sink.out);
   assert(lines.size() == 2 + 7 + 1);
   assert(lines[0] == "BEGIN WEEK");
-  assert(lines[1] == "sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h");
+  assert(lines[1] == "sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h,dry_h");
   const std::vector<std::string> fixture = splitLines(readWeekFixture());
   for (size_t d = 0; d < 7; ++d) {
     assert(lines[2 + d] == fixture[2 + 2 * 7 + d]); // sensor 2 only
     assert(lines[2 + d].rfind("2,", 0) == 0);
   }
-  assert(lines[2 + 3] == "2,3,2026-11-14,,,,,"); // gap day
+  assert(lines[2 + 3] == "2,3,2026-11-14,,,,,,"); // gap day
   const size_t crc_at = sink.out.rfind("CRC32 ");
   assert(crc_at != std::string::npos);
   const std::string body = sink.out.substr(0, crc_at);
@@ -15824,6 +15825,23 @@ void testSerialWeekDatesCrossYearBoundary() {
   const std::vector<std::string> lines = splitLines(sink.out);
   assert(lines[2].rfind("0,0,2026-01-02,", 0) == 0);
   assert(lines[2 + 6].rfind("0,6,2025-12-27,", 0) == 0);
+}
+
+void testSerialWeekDryHoursColumn() {
+  WeekHistory week;
+  assert(week.advance(weekTime(2026, 11, 18), ClimateHistory(), true));
+  week.setDay(2, 0, true, 100, 200, true, 400, 600, 3, 5);   // 5 dry hours
+  week.setDay(2, 1, true, 100, 200, true, 400, 600, 3, WeekHistory::GAP); // limit 0 stores no dry hours
+  FakeSink sink;
+  TestRunner::showWeek(sink, week, 2);
+  const std::vector<std::string> lines = splitLines(sink.out);
+  assert(lines.size() == 2 + 7 + 1);
+  assert(lines[1] == "sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h,dry_h");
+  assert(lines[2 + 0] == "2,0,2026-11-17,10.0,20.0,40.0,60.0,3,5"); // field 9 holds the 5 dry hours
+  assert(lines[2 + 1] == "2,1,2026-11-16,10.0,20.0,40.0,60.0,3,");  // limit 0: empty field
+  assert(lines[2 + 2] == "2,2,2026-11-15,,,,,,");                    // gap day: empty field
+  const std::string body = sink.out.substr(0, sink.out.rfind("CRC32 "));
+  assert(sink.out == body + historyCrcLine(body) + "\n"); // CRC32 line of WEEK 2
 }
 
 // The REJECTS tests: RejectLog of the registry, the RTC copy, the console reply and the shared fixture.
@@ -16043,8 +16061,8 @@ void testSerialWeekWithoutStamp() {
   TestRunner::showWeek(sink, week);
   const std::vector<std::string> lines = splitLines(sink.out);
   assert(lines.size() == 2 + 77 + 1);
-  assert(lines[2] == "0,0,,,,,,");
-  assert(lines[2 + 41] == "5,6,,,,,,");
+  assert(lines[2] == "0,0,,,,,,,");
+  assert(lines[2 + 41] == "5,6,,,,,,,");
 }
 
 void testSerialScreenParser() {
@@ -27764,6 +27782,7 @@ int main() {
   testSerialWeekWithoutArgumentMatchesFixture();
   testSerialWeekOneSensorRowsAndCrc();
   testSerialWeekDatesCrossYearBoundary();
+  testSerialWeekDryHoursColumn();
   testSerialWeekOverBleBridge();
   testRejectLogReasons();
   testRejectLogDroppedAndReset();

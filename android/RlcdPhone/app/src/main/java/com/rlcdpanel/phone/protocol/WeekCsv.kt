@@ -16,6 +16,7 @@ object WeekCsv {
                     number(row.temperatureMinC), number(row.temperatureMaxC),
                     number(row.humidityMinPct), number(row.humidityMaxPct),
                     row.moldHours?.toString() ?: "",
+                    row.dryHours?.toString() ?: "",
                     panelConfig.tileName(row.sensor)
                 ).joinToString(",") { EventCsv.quote(it) }
             ).append('\n')

@@ -25,12 +25,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Dry hours column in the WEEK reply
-  - **Location:** `rlcd_panel/serial_console.h`, `tests/test_firmware_logic.cpp`, `tests/fixtures/week_reply_sample.txt`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/WeekMoldTests.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/WeekReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/WeekReply.kt`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Send the stored dry hours of each day to the companion apps. Append the column `dry_h` after `mold_h` to the `WEEK` and `WEEK <N>` replies. Read `WeekHistory::dryHours` and send an empty field without `hasDryHours`. Let the macOS and Kotlin `WeekReply.parse` accept 7, 8 or 9 columns. Give `dryHours` as `nil` or `null` for 7 or 8 columns and for an empty field.
-  - **Acceptance:** A host test checks the field `5` for a day with 5 dry hours. A host test checks an empty field for a gap day and for limit 0. A host test checks the `CRC32` line of `WEEK 2`. A unit test in each app parses the updated `tests/fixtures/week_reply_sample.txt`. A unit test in each app parses an 8-column reply with `dryHours` empty. The host unit tests, `arduino-cli compile rlcd_panel`, `swift test`, `scripts/check-protocol-sync.sh` and `gradle testDebugUnitTest` in both Android projects pass.
-  - **Rank:** [Total: 26, Use: 5, Setup: 3, Harmony: 9, Safety: 9, Effort: S]
-
 - [ ] Dry hours in the macOS week chart
   - **Location:** `macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/WeekMoldTests.swift`, `FEATURES.md`
   - **Goal:** Show in the macOS week chart how many hours each room was too dry. This item needs the firmware item "Dry hours column in the WEEK reply". Add `WeekReply.drySum(sensor:)` with the sum over the days with a value. Give `nil` without such a day. Show the daily dry hours as a second bar series beside the mold hours in `WeekChartView`. Show the text `Dry <N> h` below the chart.
