@@ -3281,9 +3281,9 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 
 ## Changed settings list on the Wear OS watch
 
-- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigChangedReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigSchema.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/ConfigChangedScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `scripts/check-protocol-sync.sh`.
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigChangedReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigSchema.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigBackup.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/ConfigChangedScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `scripts/check-protocol-sync.sh`.
 - The user checks the panel settings on the wrist during troubleshooting. The chip `Changed settings` in the sensor health screen opens `ConfigChangedScreen`.
-- `ConfigChangedReply.kt` and `ConfigSchema.kt` are copies of the phone files with another `package` line. Both are in the `FILES` list of `scripts/check-protocol-sync.sh`. The parser needs `ConfigSchema.entry` to reject unknown keys.
+- `ConfigChangedReply.kt`, `ConfigSchema.kt` and `ConfigBackup.kt` (the types `ConfigKind`, `ConfigChange` and `ConfigKeys` that `ConfigSchema.kt` needs) are copies of the phone files with another `package` line. All three are in the `FILES` list of `scripts/check-protocol-sync.sh`. The parser needs `ConfigSchema.entry` to reject unknown keys.
 - The button `Read settings` sends `CONFIG CHANGED` once over the BLE console. The screen shows one card for each changed key with key and value. A count of 0 shows `Alle Werte Standard`. A bad reply shows `Antwort nicht lesbar`.
 - The screen sends no `SET`.
 - Tests: `ConfigChangedReplyTest` reads `tests/fixtures/config_changed_reply_sample.txt` and checks keys and values, the CRC-32, a count of 0, a bad count and bad lines.
