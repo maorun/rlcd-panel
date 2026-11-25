@@ -594,6 +594,8 @@ final class AppModel: ConsoleLinkDelegate {
         config = nil // the ble_console level of the old link must not gate SET on the new link
         status = nil // the sensor list of the old panel must not feed the slot choice
         draft = [:] // edits belong to the panel that was read
+        alertLimitEdits = [:]
+        alertLimitsBatchRunning = false
         setup?.linkLost("link changed")
         assembler.reset()
         abandonCommands()
@@ -903,7 +905,7 @@ final class AppModel: ConsoleLinkDelegate {
 
     /// Apply is allowed with changes, no problem, an idle link and a console that takes `SET`.
     var canApply: Bool {
-        canSet && !changes.isEmpty && problems.isEmpty
+        canSet && !changes.isEmpty && problems.isEmpty && alertLimitEdits.isEmpty
             && pendingCommand == nil && queue.isEmpty && batch == nil
     }
 
@@ -995,7 +997,7 @@ final class AppModel: ConsoleLinkDelegate {
     /// Reset of one changed key: allowed with a console that takes `SET`, not for `ble_console` 1, and only when
     /// the default is a value that the console can send.
     func canReset(_ entry: ConfigChangedEntry) -> Bool {
-        canSet && consoleLevel != 1 && isIdle && draft.isEmpty && // the CONFIG reply of the batch drops unsaved edits
+        canSet && consoleLevel != 1 && isIdle && draft.isEmpty && alertLimitEdits.isEmpty && // the CONFIG reply of the batch drops unsaved edits
              !ConfigSchema.resetChanges(for: entry).isEmpty
     }
 
@@ -1009,6 +1011,30 @@ final class AppModel: ConsoleLinkDelegate {
         // `ble_console` can end the console: the user reads the list again.
         rereadChangedAfterBatch = entry.key != "ble_console"
         batch = ConfigBatch(changes: changes)
+        sendNextBatchCommand()
+    }
+
+    // MARK: Alert limits view. The user's Apply click sends the SET commands, then CONFIG.
+
+    /// Input text of the keys that the user touched in the alert limits view.
+    var alertLimitEdits: [String: String] = [:]
+
+    /// True while the batch of `applyAlertLimits` runs; only then the CONFIG reply drops the alert edits.
+    private var alertLimitsBatchRunning = false
+
+    /// Needs a read `CONFIG`: without it the form cannot tell the panel value from the default.
+    var alertLimitsCanEdit: Bool { consoleConnected && config != nil && AlertLimits.canEdit(transportIsUsb: transport == .usb, consoleLevel: consoleLevel) }
+
+    var alertLimitsPlan: AlertLimits.Plan { AlertLimits.plan(edits: alertLimitEdits, config: config) }
+
+    /// Sends one `SET` for each changed limit, stops at the first `ERR` reply and reads `CONFIG` at the end.
+    func applyAlertLimits() {
+        guard alertLimitsCanEdit, isIdle, draft.isEmpty else { message = "Apply not allowed"; return }
+        guard case .commands(let commands) = alertLimitsPlan, !commands.isEmpty else { return }
+        message = nil
+        batchSummary = nil
+        alertLimitsBatchRunning = true // the CONFIG reply at the end shows the panel state and drops the edits
+        batch = ConfigBatch(commands: commands)
         sendNextBatchCommand()
     }
 
@@ -1822,7 +1848,7 @@ final class AppModel: ConsoleLinkDelegate {
                 batch?.receiveFrame()
                 config = try ConfigReply.parse(lines: lines)
                 lastConfig = config
-                if batch != nil { draft = [:] } // the panel state replaces the edits
+                if batch != nil { draft = [:]; if alertLimitsBatchRunning { alertLimitEdits = [:]; alertLimitsBatchRunning = false } } // the panel state replaces the edits
             case let (.configChanged, .frame(lines)):
                 configChanged = nil // a reply that fails to parse must not leave the old keys
                 configChanged = try ConfigChangedReply.parse(lines: lines)

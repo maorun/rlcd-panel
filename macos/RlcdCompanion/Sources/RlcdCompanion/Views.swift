@@ -239,6 +239,7 @@ struct MainView: View {
             ScannerView(model: model)
             ArchiveView(model: model)
             CalibrationView(model: model).id("calibration")
+            AlertLimitsView(model: model)
             if let s = model.status { statusView(s) }
             DiagnosticsView(model: model)
             if !model.history.isEmpty { chartsView }
