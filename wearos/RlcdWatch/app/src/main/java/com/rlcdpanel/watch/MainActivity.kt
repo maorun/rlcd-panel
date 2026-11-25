@@ -41,6 +41,7 @@ import com.rlcdpanel.watch.protocol.ParseException
 import com.rlcdpanel.watch.protocol.StatusReply
 import com.rlcdpanel.watch.protocol.ConsoleReply
 import com.rlcdpanel.watch.protocol.EventsReply
+import com.rlcdpanel.watch.protocol.JumpAdvice
 import com.rlcdpanel.watch.protocol.ConfigChangedReply
 import com.rlcdpanel.watch.protocol.ConfigReset
 import com.rlcdpanel.watch.protocol.ReceptionReply
@@ -584,6 +585,7 @@ onApply = { applySpread(it) }
                     onOpenConfigChanged = { showConfigChanged = true },
                     onOpenSelfTest = { showSelfTest = true },
                     onOpenSpread = { showSpread = true },
+                    onApplyJumpAdvice = { applyJumpAdvice(it) },
                     onOpenFrsi = { showFrsi = true },
                     onOpenToday = { showToday = true },
                     onOpenTail = { showTail = true },
@@ -677,7 +679,7 @@ onApply = { applySpread(it) }
         consoleClient.cancel()
         isReadingConfig = false
         // An open permission dialog keeps pendingHealthRead, so its result still starts the tapped STATUS read.
-        healthState = healthState.copy(isReading = false, isMuting = false)
+        healthState = healthState.copy(isReading = false, isMuting = false, jumpBusy = false)
         eventState = EventLogState()
         pendingEventsRead = false
         pendingEventsAll = false
@@ -1740,6 +1742,44 @@ onApply = { applySpread(it) }
                 val reason = if (reply is ConsoleReply.Frame) "Antwort nicht lesbar" else BleConsoleClient.errorText(reply)
                 healthState.copy(isReading = false, message = reason)
             }
+            if (reply is ConsoleReply.Frame && healthState.status != null && showSensorHealth) readJumpAdvice()
+        }
+    }
+
+    /** Sends `EVENTS` after a good `STATUS` read and shows the jump guard advice. A failed read gives no advice. */
+    private fun readJumpAdvice() {
+        consoleClient.send("EVENTS") { reply ->
+            if (!showSensorHealth || healthState.isReading || reply !is ConsoleReply.Frame) return@send
+            val log = try { EventsReply.parse(reply.lines) } catch (e: ParseException) { return@send }
+            healthState = healthState.copy(jumpAdvice = JumpAdvice.evaluate(log.rows, panelConfig, System.currentTimeMillis()))
+        }
+    }
+
+    /** Sends `SET jump_limit_c=<value>`, then `CONFIG`, only after the tap on `Anwenden`. The first `ERR` stops it. */
+    private fun applyJumpAdvice(advice: JumpAdvice) {
+        if (!panelConfig.canWrite || healthState.jumpBusy || healthState.isReading || healthState.isMuting || isReadingConfig || consoleClient.isRunning) return
+        // The proposal came from the limit at read time. A changed cached limit makes it stale, so the advice goes.
+        if (panelConfig.values[JumpAdvice.KEY]?.trim()?.toDoubleOrNull() != advice.currentC) {
+            healthState = healthState.copy(jumpAdvice = emptyList())
+            return
+        }
+        healthState = healthState.copy(jumpBusy = true, jumpMessage = null)
+        CalibrationBatch(listOf(advice.proposal)).run(consoleClient::send) { result ->
+            result.config?.let { frame ->
+                lifecycleScope.launch {
+                    val stored = withContext(Dispatchers.IO) {
+                        val info = ConfigCache.store(filesDir, frame, System.currentTimeMillis())
+                        info to info?.let { PanelConfig.load(this@MainActivity) }
+                    }
+                    stored.second?.let { panelConfig = it }
+                }
+            }
+            val ok = result.failure == null && !result.configFailed
+            // The limit changed or is unknown, so the old advice is stale. A new read gives a fresh one.
+            healthState = healthState.copy(
+                jumpBusy = false, jumpMessage = result.summary,
+                jumpAdvice = if (result.applied.isNotEmpty() || ok) emptyList() else healthState.jumpAdvice
+            )
         }
     }
 

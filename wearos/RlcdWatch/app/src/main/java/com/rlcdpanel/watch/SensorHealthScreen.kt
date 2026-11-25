@@ -36,6 +36,7 @@ import com.rlcdpanel.watch.protocol.NoiseState
 import com.rlcdpanel.watch.protocol.BleRejectState
 import com.rlcdpanel.watch.protocol.NtpState
 import com.rlcdpanel.watch.protocol.DriftWatch
+import com.rlcdpanel.watch.protocol.JumpAdvice
 import com.rlcdpanel.watch.protocol.ReceptionRate
 import com.rlcdpanel.watch.protocol.ReplyError
 import com.rlcdpanel.watch.protocol.PanelConfig
@@ -59,7 +60,11 @@ data class SensorHealthState(
     val isReading: Boolean = false,
     val isMuting: Boolean = false,
     val status: StatusReply? = null,
-    val message: String? = null
+    val message: String? = null,
+    /** Advice from the `JUMP_DROP` rows of the event ring; empty without a read or a cached limit. */
+    val jumpAdvice: List<JumpAdvice> = emptyList(),
+    val jumpBusy: Boolean = false,
+    val jumpMessage: String? = null
 )
 
 /**
@@ -261,6 +266,7 @@ fun SensorHealthScreen(
     onOpenSelfTest: () -> Unit = {},
     onOpenSalt: () -> Unit = {},
     onOpenSpread: () -> Unit = {},
+    onApplyJumpAdvice: (JumpAdvice) -> Unit = {},
     onOpenFrsi: () -> Unit = {},
     onOpenToday: () -> Unit = {},
     onOpenTail: () -> Unit = {},
@@ -566,6 +572,30 @@ fun SensorHealthScreen(
                             modifier = Modifier.padding(horizontal = 12.dp)
                         )
                     }
+                }
+                items(state.jumpAdvice, key = { "jump-${it.slot}" }) { advice ->
+                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text(
+                            "${SensorHealthText.WARNING} ${advice.text(panelConfig.tileName(advice.slot))}",
+                            fontSize = 10.sp,
+                            color = Color(0xFFFFB74D),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                        Chip(
+                            onClick = { onApplyJumpAdvice(advice) },
+                            enabled = panelConfig.canWrite && !state.jumpBusy && !state.isReading && !state.isMuting,
+                            modifier = Modifier.fillMaxWidth(0.85f),
+                            colors = ChipDefaults.secondaryChipColors(),
+                            label = { Text(if (state.jumpBusy) "Sende ..." else "Anwenden", fontSize = 12.sp, maxLines = 1) }
+                        )
+                        if (!panelConfig.canWrite) {
+                            Text("Set ble_console=2 to apply", fontSize = 10.sp, color = Color(0xFFB0BEC5), textAlign = TextAlign.Center)
+                        }
+                    }
+                }
+                state.jumpMessage?.let { message ->
+                    item { Text(message, fontSize = 10.sp, color = Color(0xFFB0BEC5), textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 12.dp)) }
                 }
                 slotClearState.message?.let { message ->
                     item {
