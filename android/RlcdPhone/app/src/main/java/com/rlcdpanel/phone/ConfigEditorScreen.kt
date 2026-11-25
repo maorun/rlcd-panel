@@ -8,7 +8,15 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.Switch
+import androidx.compose.foundation.layout.Row
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import com.rlcdpanel.phone.protocol.ConfigChangedEntry
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
@@ -22,6 +30,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.ConfigCategory
 import com.rlcdpanel.phone.protocol.ConfigPlan
+import com.rlcdpanel.phone.protocol.ConfigResetPlan
 import com.rlcdpanel.phone.protocol.ConfigSchema
 import com.rlcdpanel.phone.protocol.PanelConfig
 
@@ -30,7 +39,9 @@ data class ConfigEditorState(
     val isBusy: Boolean = false,
     val message: String? = null,
     val isError: Boolean = false,
-    val readOnly: Boolean = false
+    val readOnly: Boolean = false,
+    /** Reply of `CONFIG CHANGED`; null until it was read. */
+    val changed: List<ConfigChangedEntry>? = null
 )
 
 /** One field for each key of `DeviceConfigParser::KEYS`, grouped like the macOS config editor. */
@@ -40,6 +51,7 @@ fun ConfigEditorScreen(
     panelConfig: PanelConfig,
     onRead: () -> Unit,
     onApply: (List<String>) -> Unit,
+    onReadChanged: () -> Unit = {},
     onBack: () -> Unit
 ) {
     // Input text of the keys that the user touched; an untouched key shows the cached value.
@@ -50,10 +62,34 @@ fun ConfigEditorScreen(
         val pending = ConfigSchema.diff(panelConfig.values, panelConfig.values + edits.toMap()).map { it.key }.toSet()
         edits.keys.toList().filter { it !in pending }.forEach { edits.remove(it) }
     }
+    var changedOnly by remember { mutableStateOf(false) }
+    // Commands that wait for the confirmation of the user.
+    var pendingReset by remember { mutableStateOf<ConfigResetPlan?>(null) }
+    val changed = state.changed
+    val changedKeys = changed.orEmpty().map { it.key }.toSet()
     val writable = panelConfig.canWrite && !state.readOnly
     val plan = ConfigSchema.plan(edits.toMap(), panelConfig.values)
     val problems = (plan as? ConfigPlan.Invalid)?.problems.orEmpty()
     val commands = (plan as? ConfigPlan.Commands)?.commands.orEmpty()
+    pendingReset?.let { reset ->
+        AlertDialog(
+            onDismissRequest = { pendingReset = null },
+            title = { Text("Auf Standard zurücksetzen?") },
+            text = {
+                Text(
+                    (reset.commands + reset.skipped.map { "${it.key}: ${it.value}" }).joinToString("\n")
+                        .ifEmpty { "Nichts zu senden" }
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { onApply(reset.commands); pendingReset = null },
+                    enabled = reset.commands.isNotEmpty() && !state.isBusy
+                ) { Text("Senden (${reset.commands.size})") }
+            },
+            dismissButton = { TextButton(onClick = { pendingReset = null }) { Text("Abbrechen") } }
+        )
+    }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(horizontal = 12.dp),
@@ -63,6 +99,25 @@ fun ConfigEditorScreen(
             item { OutlinedButton(onClick = onBack) { Text("Zurück") } }
             item { Text("Konfiguration", style = MaterialTheme.typography.titleLarge) }
             item { OutlinedButton(onClick = onRead, enabled = !state.isBusy) { Text("CONFIG lesen") } }
+            item { OutlinedButton(onClick = onReadChanged, enabled = !state.isBusy) { Text("CONFIG CHANGED lesen") } }
+            item {
+                Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Switch(checked = changedOnly, onCheckedChange = { changedOnly = it })
+                    Text("Changed only")
+                }
+            }
+            if (changedOnly) {
+                item {
+                    when {
+                        changed == null -> Text("CONFIG CHANGED lesen, um die geänderten Einstellungen zu sehen")
+                        changed.isEmpty() -> Text("Keine Einstellung weicht vom Standard ab")
+                        else -> Button(
+                            onClick = { pendingReset = ConfigSchema.resetPlan(changed) },
+                            enabled = writable && !state.isBusy
+                        ) { Text("Reset all (${changed.size})") }
+                    }
+                }
+            }
             if (!writable) {
                 item {
                     val text = if (panelConfig.bleConsole == 1 || state.readOnly) ConfigSchema.READ_ONLY_TEXT
@@ -77,7 +132,7 @@ fun ConfigEditorScreen(
                 item(key = "head_${category.name}") {
                     Text(category.title, style = MaterialTheme.typography.titleMedium, modifier = Modifier.padding(top = 8.dp))
                 }
-                for (entry in ConfigSchema.entries(category)) {
+                for (entry in ConfigSchema.entries(category).filter { !changedOnly || it.key in changedKeys }) {
                     item(key = entry.key) {
                         val current = panelConfig.values[entry.key] ?: entry.defaultValue
                         val text = edits[entry.key] ?: current
@@ -93,6 +148,12 @@ fun ConfigEditorScreen(
                                 singleLine = true,
                                 enabled = writable && !state.isBusy
                             )
+                            if (changedOnly) {
+                                OutlinedButton(
+                                    onClick = { pendingReset = ConfigSchema.resetPlan(changed.orEmpty().filter { it.key == entry.key }) },
+                                    enabled = writable && !state.isBusy
+                                ) { Text("Reset (Standard ${entry.defaultValue.ifEmpty { "leer" }})") }
+                            }
                         }
                     }
                 }

@@ -3260,3 +3260,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `MainActivity.parseStatusReply` feeds `drift` to `DriftWatch` after each `STATUS` read. It posts one notification `Sensor drift: <name>` for each rising tile (id 2300 + tile, free of `WindowWatch` 2100 and `ReceptionWatch` 2200) and one short vibration for each check. A rise is lost without the `POST_NOTIFICATIONS` permission, as for `WindowWatch`. Notifications appear only on `STATUS` reads.
 - `SensorHealthScreen` shows `⚠ Sensor drift` in the row of each flagged sensor, onboard tile included (`SensorHealthText.driftMark`). The watch has no calibration shortcut.
 - Validation: `scripts/check-protocol-sync.sh` and `--self-test` pass. `DriftWatchTest` (9 tests) and `SensorHealthTextTest.driftMark` are new. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only; it did not run locally.
+
+## Changed settings view and reset to default in the Android config editor
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigChangedReply.kt`, `ConfigSchema.kt`, `ConfigEditorScreen.kt`, `MainActivity.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/ConfigChangedReplyTest.kt`
+- The user sees the settings that differ from the default and resets them to the default on the phone.
+- `ConfigChangedReply.parse` reads the reply of `CONFIG CHANGED` (lines before `CRC32`) into `ConfigChangedEntry` rows. A count in `END CHANGED` that differs from the line count, a missing `END` line, a line without `=`, an unknown key and a repeated key throw `ParseException`.
+- `ConfigEditorScreen` has the button `CONFIG CHANGED lesen` and the switch `Changed only`, which shows only the keys of the reply. Each shown key has a `Reset` button; `Reset all` resets every changed key.
+- `ConfigSchema.resetPlan` builds one `SET <key>=<default>` for each changed key through `batch` (fixed schema order, `ble_console` last). A key whose default the console cannot send (an empty name) goes to `skipped` with the reason; the other keys still reset.
+- A dialog lists the commands and asks for a confirmation before the send. `applyConfigEditor` sends `CONFIG` after the batch, then `CONFIG CHANGED` again, so the list is current. A batch that sets `ble_console` or whose closing `CONFIG` fails after a `SET` was sent drops the list instead (the console can end); the user reads it again.
+- Validation: `scripts/check-protocol-sync.sh` passes. The Gradle tests run in GitHub Actions CI (no Android SDK on the local host). The behavior on the phone is not tested.

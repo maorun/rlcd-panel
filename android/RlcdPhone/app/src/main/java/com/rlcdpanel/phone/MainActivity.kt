@@ -37,6 +37,7 @@ import com.rlcdpanel.phone.finder.SignalSeries
 import com.rlcdpanel.phone.finder.SlotAssignment
 import com.rlcdpanel.phone.protocol.AckCommand
 import com.rlcdpanel.phone.protocol.AlertLimits
+import com.rlcdpanel.phone.protocol.ConfigChangedReply
 import com.rlcdpanel.phone.protocol.ConfigSchema
 import com.rlcdpanel.phone.protocol.CalibrationBatch
 import com.rlcdpanel.phone.protocol.ChimeCommand
@@ -415,6 +416,7 @@ class MainActivity : ComponentActivity() {
                     panelConfig = panelConfig,
                     onRead = { withConsolePermission { applyConfigEditor(emptyList()) } },
                     onApply = { commands -> withConsolePermission { applyConfigEditor(commands) } },
+                    onReadChanged = { withConsolePermission { readConfigChanged() } },
                     onBack = { closeConfigEditor() }
                 )
                 BackHandler { closeConfigEditor() }
@@ -1368,6 +1370,40 @@ class MainActivity : ComponentActivity() {
             // A reply that arrives after closeConfigEditor must not mark another screen as busy or failed.
             if (showConfigEditor) {
                 configEditorState = configEditorState.copy(isBusy = false, isError = !result.ok, readOnly = result.readOnly, message = result.summary)
+                // Show the changed keys again after a batch (also a pure CONFIG read), so a reset shows at once.
+                // A changed ble_console can end the console, so the list is dropped instead of read. The same holds
+                // for a batch that sent commands while the closing CONFIG failed: the panel state is unknown.
+                if (result.config != null && "ble_console" !in result.applied) readConfigChanged(keepMessage = true)
+                else if (commands.isNotEmpty()) configEditorState = configEditorState.copy(changed = null)
+            }
+        }
+    }
+
+    /** Sends `CONFIG CHANGED` and keeps the keys of the reply for the `Changed only` filter. */
+    private fun readConfigChanged(keepMessage: Boolean = false) {
+        stopBleScan()
+        configEditorState = if (keepMessage) configEditorState.copy(isBusy = true)
+        else configEditorState.copy(isBusy = true, isError = false, message = null)
+        consoleClient.send("CONFIG CHANGED") { reply ->
+            if (showConfigEditor) {
+                val failure = when (reply) {
+                    is ConsoleReply.Frame -> try {
+                        val parsed = ConfigChangedReply.parse(reply.lines)
+                        configEditorState = configEditorState.copy(isBusy = false, changed = parsed)
+                        null
+                    } catch (e: ParseException) {
+                        "CONFIG CHANGED nicht lesbar: ${e.line.take(60)}"
+                    }
+                    else -> "CONFIG CHANGED lesen fehlgeschlagen"
+                }
+                if (failure != null) {
+                    // After a batch the failure text joins the batch summary and keeps its error state.
+                    val message = if (keepMessage) listOfNotNull(configEditorState.message, failure).joinToString(". ") else failure
+                    configEditorState = configEditorState.copy(
+                        isBusy = false, changed = null, message = message,
+                        isError = if (keepMessage) configEditorState.isError else true
+                    )
+                }
             }
         }
     }
