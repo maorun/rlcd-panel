@@ -21973,8 +21973,22 @@ void testSensorDriftLatch() {
     sd.history = four;
     sd.updateDrift(0x000F, t1);
     assert(sd.drift_tiles == 0x0008 && sd.events.size() == 1 && sd.events.at(0).detail == 0x0103);
-    sd.updateDrift(0x0007, t1); // slot 3 turned stale: no event, bit clear
-    assert(sd.drift_tiles == 0 && sd.events.size() == 1);
+    sd.updateDrift(0x0007, t1); // slot 3 turned stale: bit clear, one closing event
+    assert(sd.drift_tiles == 0 && sd.events.size() == 2 && sd.events.at(1).detail == 0x0003);
+    sd.updateDrift(0x0007, t1); // a stale slot without a bit records nothing
+    assert(sd.events.size() == 2);
+    {
+      PersistentState nb;
+      nb.history = four;
+      nb.updateDrift(0x0007, t1); // slot 3 never drifted in the mask: no bit, no event
+      assert(nb.drift_tiles == 0 && nb.events.size() == 0);
+      nb.drift_tiles = 0x0008;
+      nb.updateDrift(0x0003, t1); // fewer than 3 sensors: bit clears without an event
+      assert(nb.drift_tiles == 0 && nb.events.size() == 0);
+      nb.drift_tiles = 0x0008;
+      nb.resetSlot(2); // resetSlot (slot 3 = tile 3) clears without an event
+      assert(nb.drift_tiles == 0 && nb.events.size() == 0);
+    }
     // the stale slot does not move the median of the three others
     SpreadMath::Result with_all;
     SpreadMath::compute(four, with_all, 0x000F);
