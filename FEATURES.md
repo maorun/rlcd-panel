@@ -3755,3 +3755,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `AlertTimeline.kt` stays equal to the Android copy. The chip text is a watch-only part in `EventLogScreen.kt`.
 - Tests: `AlertTimelineTest` checks the chip text of a closed `WALL_DAMP` interval, `offen` for an open `DRY_AIR` interval and `?` for an interval with `startUnknown`.
 - Validation: `scripts/check-protocol-sync.sh` and `scripts/check-protocol-sync.sh --self-test` exit 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
+
+## Dry hours column in the WEEK reply
+
+- **Code:** `rlcd_panel/serial_console.h`, `tests/test_firmware_logic.cpp`, `tests/fixtures/week_reply_sample.txt`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/CsvExport.swift`, `android/RlcdPhone/.../protocol/WeekReply.kt`, `android/RlcdPhone/.../protocol/WeekCsv.kt`, `wearos/RlcdWatch/.../protocol/WeekReply.kt`, `AGENTS.md`.
+- The panel sends the stored dry hours of each day to the companion apps. The `WEEK` and `WEEK <N>` replies have the new last column `dry_h` after `mold_h`.
+- `SerialConsoleRunner::showWeek` reads `WeekHistory::dryHours`. The field is empty without `hasDryHours`. A gap day and the limit 0 of `dry_alert_limit_rh` give an empty field. The `CRC32` line covers the new column.
+- The macOS and Kotlin `WeekReply.parse` accept 7, 8 or 9 columns. The header selects the format: `WeekReply.header` has 9 columns, `moldHeader` (`MOLD_HEADER` in Kotlin) has 8 and `legacyHeader` has 7. `WeekRow.dryHours` is `nil` or `null` for 7 or 8 columns and for an empty field. A value outside 0 to 24, a sign or a non-digit is a bad line.
+- `CsvExport.week` and the Android `WeekCsv` write the new column.
+- Tests: host tests check the field `5` for a day with 5 dry hours, an empty field for a gap day and for limit 0, and the `CRC32` line of `WEEK 2`. A unit test in each app parses `tests/fixtures/week_reply_sample.txt` with the new column. A unit test in each app parses a 7-column and an 8-column reply with `dryHours` empty.

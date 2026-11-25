@@ -30,8 +30,8 @@ class WeekReplyTest {
     fun sharedFixtureGivesTheSwiftValues() {
         val rows = WeekReply.parse(fixtureLines())
         assertEquals(42, rows.size)
-        assertEquals(WeekRow(0, 0, "2026-11-17", 15.0, 19.5, 40.0, 55.0, 0), rows[0])
-        assertEquals(WeekRow(5, 6, "2026-11-11", 23.0, 27.5, 56.0, 71.0, 24), rows[41])
+        assertEquals(WeekRow(0, 0, "2026-11-17", 15.0, 19.5, 40.0, 55.0, 0, 0), rows[0])
+        assertEquals(WeekRow(5, 6, "2026-11-11", 23.0, 27.5, 56.0, 71.0, 24, 3), rows[41])
         val gap = rows.single { it.sensor == 2 && it.day == 3 }
         assertEquals("2026-11-14", gap.date)
         assertNull(gap.temperatureMinC)
@@ -39,6 +39,7 @@ class WeekReplyTest {
         assertNull(gap.humidityMinPct)
         assertNull(gap.humidityMaxPct)
         assertNull(gap.moldHours)
+        assertNull(gap.dryHours)
         assertTrue(gap.isGap)
         assertEquals(1, rows.count { it.isGap })
     }
@@ -61,7 +62,7 @@ class WeekReplyTest {
 
     @Test
     fun eightColumnsGiveMoldHours() {
-        val rows = WeekReply.parse(listOf("BEGIN WEEK", WeekReply.HEADER, "0,0,2026-11-14,19.5,22.0,40.5,55.0,6", "0,1,2026-11-13,,,,,", "1,0,,10.0,20.0,40.0,60.0,"))
+        val rows = WeekReply.parse(listOf("BEGIN WEEK", WeekReply.MOLD_HEADER, "0,0,2026-11-14,19.5,22.0,40.5,55.0,6", "0,1,2026-11-13,,,,,", "1,0,,10.0,20.0,40.0,60.0,"))
         assertEquals(6, rows[0].moldHours)
         assertNull(rows[1].moldHours)
         assertNull(rows[2].moldHours)
@@ -76,12 +77,41 @@ class WeekReplyTest {
 
     @Test
     fun badMoldHoursThrow() {
-        bad("BEGIN WEEK", WeekReply.HEADER, "0,0,,1,2,3,4,25")
-        bad("BEGIN WEEK", WeekReply.HEADER, "0,0,,1,2,3,4,-1")
-        bad("BEGIN WEEK", WeekReply.HEADER, "0,0,,1,2,3,4,x")
-        bad("BEGIN WEEK", WeekReply.HEADER, "0,0,,1,2,3,4,+5")
-        bad("BEGIN WEEK", WeekReply.HEADER, "0,0,,1,2,3,4")
+        bad("BEGIN WEEK", WeekReply.MOLD_HEADER, "0,0,,1,2,3,4,25")
+        bad("BEGIN WEEK", WeekReply.MOLD_HEADER, "0,0,,1,2,3,4,-1")
+        bad("BEGIN WEEK", WeekReply.MOLD_HEADER, "0,0,,1,2,3,4,x")
+        bad("BEGIN WEEK", WeekReply.MOLD_HEADER, "0,0,,1,2,3,4,+5")
+        bad("BEGIN WEEK", WeekReply.MOLD_HEADER, "0,0,,1,2,3,4")
         bad("BEGIN WEEK", WeekReply.LEGACY_HEADER, "0,0,,1,2,3,4,5")
+    }
+
+    @Test
+    fun nineColumnsGiveDryHours() {
+        val rows = WeekReply.parse(listOf("BEGIN WEEK", WeekReply.HEADER, "0,0,2026-11-14,19.5,22.0,40.5,55.0,6,5", "0,1,2026-11-13,,,,,,", "1,0,,10.0,20.0,40.0,60.0,3,"))
+        assertEquals(6, rows[0].moldHours)
+        assertEquals(5, rows[0].dryHours)
+        assertNull(rows[1].dryHours)
+        assertEquals(3, rows[2].moldHours)
+        assertNull(rows[2].dryHours)
+    }
+
+    @Test
+    fun sevenAndEightColumnsGiveNullDryHours() {
+        val seven = WeekReply.parse(listOf("BEGIN WEEK", WeekReply.LEGACY_HEADER, "0,0,2026-11-14,19.5,22.0,40.5,55.0"))
+        assertNull(seven[0].dryHours)
+        val eight = WeekReply.parse(listOf("BEGIN WEEK", WeekReply.MOLD_HEADER, "0,0,2026-11-14,19.5,22.0,40.5,55.0,6", "0,1,2026-11-13,,,,,"))
+        assertEquals(6, eight[0].moldHours)
+        assertNull(eight[0].dryHours)
+        assertNull(eight[1].dryHours)
+    }
+
+    @Test
+    fun badDryHoursThrow() {
+        bad("BEGIN WEEK", WeekReply.HEADER, "0,0,,1,2,3,4,5,25")
+        bad("BEGIN WEEK", WeekReply.HEADER, "0,0,,1,2,3,4,5,-1")
+        bad("BEGIN WEEK", WeekReply.HEADER, "0,0,,1,2,3,4,5,x")
+        bad("BEGIN WEEK", WeekReply.HEADER, "0,0,,1,2,3,4,5")
+        bad("BEGIN WEEK", WeekReply.MOLD_HEADER, "0,0,,1,2,3,4,5,6")
     }
 
     @Test
@@ -151,7 +181,7 @@ class WeekReplyTest {
     @Test
     fun oneSensorReplyOfSevenRowsParsesWithAndWithoutMoldColumn() {
         val withMold = (0..6).map { "2,$it,2026-11-${17 - it},15.0,19.5,40.0,55.0,$it" }
-        val rows = WeekReply.parse(listOf("BEGIN WEEK", WeekReply.HEADER) + withMold)
+        val rows = WeekReply.parse(listOf("BEGIN WEEK", WeekReply.MOLD_HEADER) + withMold)
         assertEquals(7, rows.size)
         assertEquals((0..6).toList(), rows.map { it.day })
         assertTrue(rows.all { it.sensor == 2 })
