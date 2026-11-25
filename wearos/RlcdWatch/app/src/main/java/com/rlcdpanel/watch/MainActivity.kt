@@ -63,6 +63,7 @@ import com.rlcdpanel.watch.protocol.DaysReply
 import com.rlcdpanel.watch.protocol.MoldSummary
 import com.rlcdpanel.watch.protocol.HistoryReply
 import com.rlcdpanel.watch.protocol.SaltCommand
+import com.rlcdpanel.watch.protocol.SaltProgress
 import com.rlcdpanel.watch.protocol.SaltReply
 import com.rlcdpanel.watch.protocol.SaltText
 import com.rlcdpanel.watch.protocol.TwoPointCalibration
@@ -83,6 +84,7 @@ import com.rlcdpanel.watch.ventilation.OutdoorWeatherService
 import com.rlcdpanel.watch.ventilation.VentilationAction
 import com.rlcdpanel.watch.ventilation.VentilationGuide
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -140,6 +142,13 @@ class MainActivity : ComponentActivity() {
     /** Room of the open history screen; set by the tap on the chip, so a read and its title use the same room. */
     private var historyRoom by mutableIntStateOf(0)
     private var showSalt by mutableStateOf(false)
+    private val saltProgress = SaltProgress()
+    private var saltWatchJob: Job? = null
+    /** Counts each start of the watch; a reply of an older run never counts for a newer one. */
+    private var saltWatchRun = 0
+    private var saltWatchText by mutableStateOf<String?>(null)
+    private var isSaltWatching by mutableStateOf(false)
+    private var isSaltWatchReady by mutableStateOf(false)
     private var saltState by mutableStateOf(SaltState())
     private var pendingSaltRead = false
     /** True after a salt apply until a fresh `CONFIG` is cached; the salt screen then evaluates with no config. */
@@ -461,7 +470,12 @@ class MainActivity : ComponentActivity() {
                     roomName = panelConfig.tileName(saltRoom),
                     currentConfig = if (saltConfigStale) emptyMap() else panelConfig.values,
                     onRead = { readSalt(it) },
-                    onApply = { applySalt(it) }
+                    onApply = { applySalt(it) },
+                    watchText = saltWatchText,
+                    isWatching = isSaltWatching,
+                    isWatchReady = isSaltWatchReady,
+                    onWatch = { startSaltWatch() },
+                    onStopWatch = { stopSaltWatch(SaltProgress.StopReason.USER) }
                 )
                 return@setContent
             }
@@ -676,6 +690,9 @@ onApply = { applySpread(it) }
 
     override fun onStop() {
         closeSignal()
+        stopSaltWatch(SaltProgress.StopReason.VIEW_CLOSED)
+        saltWatchText = null
+        isSaltWatchReady = false
         consoleClient.cancel()
         isReadingConfig = false
         // An open permission dialog keeps pendingHealthRead, so its result still starts the tapped STATUS read.
@@ -1064,6 +1081,9 @@ onApply = { applySpread(it) }
     }
 
     private fun closeSalt() {
+        stopSaltWatch(SaltProgress.StopReason.VIEW_CLOSED)
+        saltWatchText = null
+        isSaltWatchReady = false
         markSaltConfigStaleWhileApplying()
         consoleClient.cancel()
         pendingSaltRead = false
@@ -1077,6 +1097,93 @@ onApply = { applySpread(it) }
      */
     private fun markSaltConfigStaleWhileApplying() {
         if (saltState.isApplying) saltConfigStale = true
+    }
+
+    /** Text of the salt watch: the count while it runs, the stop reason after a stop. */
+    private fun watchTextNow(): String {
+        val reason = when (saltProgress.stopReason) {
+            null, SaltProgress.StopReason.COMPLETED -> return saltProgress.text
+            SaltProgress.StopReason.TIMEOUT -> "nach ${SaltProgress.MAX_DURATION_SECONDS / 3600} Stunden beendet"
+            SaltProgress.StopReason.LINK_LOST -> "Verbindung verloren"
+            SaltProgress.StopReason.REPLY_FAILED -> "Panel antwortet mit Fehler"
+            SaltProgress.StopReason.USER -> "vom Benutzer beendet"
+            SaltProgress.StopReason.VIEW_CLOSED -> "Ansicht geschlossen"
+        }
+        return "${saltProgress.text}. Beobachtung beendet: $reason."
+    }
+
+    /**
+     * Starts the salt watch after a tap: `HISTORY N 6` every 10 minutes (`HISTORY N` after one `ERR BAD_ARG`).
+     * It sends no `SALT` and no `SET`; at 6 stable hours the screen shows `Bereit` and the user taps NaCl or MgCl2.
+     */
+    private fun startSaltWatch() {
+        val n = saltRoom
+        if (n !in 0..SaltCommand.MAX_SENSOR || saltProgress.isRunning || saltState.isReading || saltState.isApplying || pendingSaltRead) return
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            emptyList()
+        }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isNotEmpty()) {
+            saltWatchText = "Bluetooth-Berechtigung fehlt. Tippe zuerst auf NaCl, um sie zu erteilen."
+            return
+        }
+        saltWatchRun++
+        val run = saltWatchRun
+        saltProgress.start()
+        isSaltWatching = true
+        refreshSaltWatchText()
+        saltWatchJob?.cancel()
+        saltWatchJob = lifecycleScope.launch {
+            while (saltProgress.shouldPoll()) {
+                while (saltProgress.shouldPoll() && (consoleClient.isRunning || saltState.isReading || saltState.isApplying)) delay(2_000L)
+                if (!saltProgress.shouldPoll()) break
+                pollSaltWatch(n, run)
+                if (!saltProgress.isRunning) break
+                delay(SaltProgress.INTERVAL_SECONDS * 1000L)
+            }
+            finishSaltWatch()
+        }
+    }
+
+    private fun pollSaltWatch(sensor: Int, run: Int) {
+        stopBleScan()
+        consoleClient.send(saltProgress.historyLine(sensor)) { reply ->
+            if (run != saltWatchRun || !saltProgress.isRunning) return@send
+            if (reply is ConsoleReply.Status && saltProgress.fallBackToFullHistory(reply.line)) {
+                pollSaltWatch(sensor, run)
+                return@send
+            }
+            saltProgress.record(reply, sensor)
+            if (saltProgress.isReady && saltProgress.isRunning) {
+                saltProgress.stop(SaltProgress.StopReason.COMPLETED)
+                saltWatchJob?.cancel()
+                finishSaltWatch()
+            } else {
+                refreshSaltWatchText()
+                isSaltWatching = saltProgress.isRunning
+                if (!saltProgress.isRunning) saltWatchJob?.cancel()
+            }
+        }
+    }
+
+    private fun refreshSaltWatchText() {
+        saltWatchText = watchTextNow()
+        isSaltWatchReady = saltProgress.isReady
+    }
+
+    private fun finishSaltWatch() {
+        isSaltWatching = false
+        refreshSaltWatchText()
+    }
+
+    /** Ends the salt watch for [reason]. The first reason stays. */
+    private fun stopSaltWatch(reason: SaltProgress.StopReason) {
+        if (!saltProgress.isRunning) return
+        saltProgress.stop(reason)
+        saltWatchJob?.cancel()
+        saltWatchJob = null
+        if (reason != SaltProgress.StopReason.VIEW_CLOSED) finishSaltWatch() else isSaltWatching = false
     }
 
     /** Asks for the console permissions, then sends `SALT <N>` or, for [magnesium], `SALT <N> MGCL2` once. Only a tap in the salt screen calls it. It sends no `SET`. */

@@ -3997,3 +3997,13 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `AlertLimits.plan` refuses 13 and a non-numeric value before any `SET` is sent. The `SET` order follows `LIMITS`. The first `ERR` line stops the batch before `CONFIG`.
 - Unit tests check the values 0, 1 and 12, the rejected values 13, `x`, an empty text, 1.5 and -1, the line `SET heat_alert_delay_h=2`, the order of heat limit before heat delay, the text `Aus` and the range against the `ConfigSchema` entry.
 - Validation: the host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
+
+## Salt test progress on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/SaltProgress.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/HistoryCommand.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SaltScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/SaltProgressTest.kt`, `scripts/check-protocol-sync.sh`
+- `SaltProgress` and `HistoryCommand` are copies of the Android files with another package line, and both are in the `FILES` list of `scripts/check-protocol-sync.sh`. `REQUIRED_HOURS` is 6, the span limit is 1.0 %RH, the tick is 600 s and the watch ends after 8 hours.
+- The stop reasons are `USER`, `VIEW_CLOSED`, `TIMEOUT`, `LINK_LOST`, `REPLY_FAILED` and `COMPLETED`. The first reason stays. A corrupt reply gives `LINK_LOST`, an `ERR` reply or an unreadable frame gives `REPLY_FAILED`.
+- The watch sends the short read `HISTORY <N> 6`. After one `ERR BAD_ARG` it switches once to `HISTORY <N>` and repeats the tick.
+- The salt screen shows the chip `Salztest beobachten` (only a tap starts the watch), the text `<N> von 6 Stunden stabil` and `Bereit` at 6 stable hours. The watch sends no `SALT` and no `SET`; the user taps `NaCl` or `MgCl2`. `MainActivity` stops the watch on `USER`, on closing the screen or `onStop` (`VIEW_CLOSED`), on a lost link, on a failed reply and after the timeout.
+- Tests: `SaltProgressTest` covers six stable samples, an unstable span, the text `3 von 6 Stunden stabil`, `COMPLETED`, the single fallback after `ERR BAD_ARG` and `TIMEOUT`.
+- Validation: the host has no Android SDK, so Gradle runs in CI (`Wear OS companion tests and APK`).

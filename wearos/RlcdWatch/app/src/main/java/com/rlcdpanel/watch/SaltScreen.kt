@@ -103,7 +103,13 @@ fun SaltScreen(
     /** Active `config.ini` values of the cached `CONFIG` read; empty until a read. */
     currentConfig: Map<String, String>,
     onRead: (Boolean) -> Unit,
-    onApply: (TwoPointCalibration.Result) -> Unit
+    onApply: (TwoPointCalibration.Result) -> Unit,
+    /** Text of the salt watch (`3 von 6 Stunden stabil`), `null` before the first start. */
+    watchText: String? = null,
+    isWatching: Boolean = false,
+    isWatchReady: Boolean = false,
+    onWatch: () -> Unit = {},
+    onStopWatch: () -> Unit = {}
 ) {
     val evaluation = remember(state.naCl, state.mgCl2, currentConfig) {
         TwoPointCalibration.evaluate(state.naCl, state.mgCl2, currentConfig.takeIf { it.isNotEmpty() })
@@ -139,6 +145,26 @@ fun SaltScreen(
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text(if (state.isReading) "Lese Panel ..." else "MgCl2", fontSize = 12.sp, maxLines = 1) }
                     )
+                }
+                item {
+                    Chip(
+                        onClick = { if (isWatching) onStopWatch() else onWatch() },
+                        enabled = isWatching || !busy,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text(if (isWatching) "Beobachtung beenden" else "Salztest beobachten", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                watchText?.let { text ->
+                    item {
+                        Text(
+                            text = if (isWatchReady) "$text. Bereit" else text,
+                            fontSize = 10.sp,
+                            color = if (isWatchReady) Color(0xFF80CBC4) else Color(0xFFB0BEC5),
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.padding(horizontal = 12.dp)
+                        )
+                    }
                 }
                 state.message?.let { message ->
                     item {
