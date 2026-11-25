@@ -2,6 +2,7 @@ package com.rlcdpanel.watch
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
@@ -13,7 +14,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.wear.compose.foundation.lazy.ScalingLazyColumn
-import androidx.wear.compose.foundation.lazy.items
+import androidx.wear.compose.foundation.lazy.itemsIndexed
 import androidx.wear.compose.foundation.lazy.rememberScalingLazyListState
 import androidx.wear.compose.material.Chip
 import androidx.wear.compose.material.ChipDefaults
@@ -22,6 +23,7 @@ import androidx.wear.compose.material.PositionIndicator
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
+import com.rlcdpanel.watch.protocol.SpreadApply
 import com.rlcdpanel.watch.protocol.SpreadReply
 import com.rlcdpanel.watch.protocol.SpreadText
 
@@ -29,7 +31,13 @@ import com.rlcdpanel.watch.protocol.SpreadText
 data class SpreadState(
     val isReading: Boolean = false,
     val reply: SpreadReply? = null,
-    val message: String? = null
+    val message: String? = null,
+    /** Row index whose proposal waits for a confirmation, or null. */
+    val confirming: Int? = null,
+    /** True while the `SET` commands run. */
+    val isApplying: Boolean = false,
+    /** True after `ERR READ_ONLY`: the chips stay hidden. */
+    val readOnly: Boolean = false
 )
 
 /** Texts of the co-location check screen. */
@@ -48,7 +56,10 @@ object SpreadScreenText {
 @Composable
 fun SpreadScreen(
     state: SpreadState,
-    onRead: () -> Unit
+    onRead: () -> Unit,
+    onAsk: (Int) -> Unit = {},
+    onCancel: () -> Unit = {},
+    onApply: (Int) -> Unit = {}
 ) {
     val listState = rememberScalingLazyListState()
     MaterialTheme {
@@ -65,7 +76,7 @@ fun SpreadScreen(
                 item {
                     Chip(
                         onClick = onRead,
-                        enabled = !state.isReading,
+                        enabled = !state.isReading && !state.isApplying,
                         modifier = Modifier.fillMaxWidth(0.85f),
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text(if (state.isReading) "Lese SPREAD ..." else "Read SPREAD", fontSize = 12.sp, maxLines = 1) }
@@ -107,22 +118,60 @@ fun SpreadScreen(
                         is SpreadReply.Outcome.Measured -> {
                             item { Text("Median ${outcome.tempMedian} °C", fontSize = 12.sp, color = Color.White) }
                             item { Text("Median ${outcome.rhMedian} %RH", fontSize = 12.sp, color = Color.White) }
-                            items(outcome.rows) { row ->
-                                Chip(
-                                    onClick = {},
-                                    enabled = false,
-                                    modifier = Modifier.fillMaxWidth(0.95f),
-                                    colors = ChipDefaults.secondaryChipColors(),
-                                    label = {
-                                        Text(
-                                            SpreadScreenText.title(row),
-                                            fontSize = 12.sp,
-                                            maxLines = 1,
-                                            color = if (row.isOutlier) Color(0xFFFF8A80) else Color.Unspecified
-                                        )
-                                    },
-                                    secondaryLabel = { Text(SpreadScreenText.deviations(row), fontSize = 10.sp, maxLines = 1) }
-                                )
+                            itemsIndexed(outcome.rows) { index, row ->
+                                val proposal = SpreadApply.proposalFor(outcome, index)
+                                Column(
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Chip(
+                                        onClick = {},
+                                        enabled = false,
+                                        modifier = Modifier.fillMaxWidth(0.95f),
+                                        colors = ChipDefaults.secondaryChipColors(),
+                                        label = {
+                                            Text(
+                                                SpreadScreenText.title(row),
+                                                fontSize = 12.sp,
+                                                maxLines = 1,
+                                                color = if (row.isOutlier) Color(0xFFFF8A80) else Color.Unspecified
+                                            )
+                                        },
+                                        secondaryLabel = { Text(SpreadScreenText.deviations(row), fontSize = 10.sp, maxLines = 1) }
+                                    )
+                                    if (proposal != null && !state.readOnly) {
+                                        if (state.confirming == index) {
+                                            Text(
+                                                SpreadApply.confirmText(proposal),
+                                                fontSize = 10.sp,
+                                                color = Color.White,
+                                                textAlign = TextAlign.Center
+                                            )
+                                            Chip(
+                                                onClick = { onApply(index) },
+                                                enabled = !state.isApplying,
+                                                modifier = Modifier.fillMaxWidth(0.85f),
+                                                colors = ChipDefaults.primaryChipColors(),
+                                                label = { Text("Senden", fontSize = 12.sp, maxLines = 1) }
+                                            )
+                                            Chip(
+                                                onClick = onCancel,
+                                                enabled = !state.isApplying,
+                                                modifier = Modifier.fillMaxWidth(0.85f),
+                                                colors = ChipDefaults.secondaryChipColors(),
+                                                label = { Text("Abbrechen", fontSize = 12.sp, maxLines = 1) }
+                                            )
+                                        } else {
+                                            Chip(
+                                                onClick = { onAsk(index) },
+                                                enabled = !state.isReading && !state.isApplying,
+                                                modifier = Modifier.fillMaxWidth(0.85f),
+                                                colors = ChipDefaults.secondaryChipColors(),
+                                                label = { Text("Übernehmen", fontSize = 12.sp, maxLines = 1) }
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

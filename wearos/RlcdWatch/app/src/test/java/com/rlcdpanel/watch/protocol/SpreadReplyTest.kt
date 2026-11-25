@@ -73,4 +73,114 @@ class SpreadReplyTest {
         assertBad("ERR BAD_ARG")
         assertBad()
     }
+
+    private fun fixtureMeasured(): SpreadReply.Outcome.Measured {
+        val frame = ReplyAssembler().append(Fixtures.file("spread_reply_sample.txt").readBytes()) as ConsoleReply.Frame
+        return SpreadReply.parse(frame.lines).outcome as SpreadReply.Outcome.Measured
+    }
+
+    @Test
+    fun fixtureProposalGivesSetCommandsTemperatureFirst() {
+        val m = fixtureMeasured()
+        assertEquals(
+            listOf("SET slot2_temp_offset_c=-1.0", "SET slot2_rh_offset_pct=-5.0"),
+            SpreadApply.proposalFor(m, 2)!!.setCommands
+        )
+    }
+
+    @Test
+    fun okSensorGivesNoCommands() {
+        val m = fixtureMeasured()
+        assertEquals(null, SpreadApply.proposalFor(m, 0))
+        assertEquals(null, SpreadApply.proposalFor(m, 1))
+        assertEquals(null, SpreadApply.proposalFor(m, 9))
+    }
+
+    @Test
+    fun secondOutlierOwnsSecondProposal() {
+        val m = parse(
+            "SPREAD sensors=3 temp_median=20.0 rh_median=50.0",
+            "SENSOR a temp_dev=1.0 rh_dev=0.0 OUTLIER",
+            "temp_offset_c=-1.0 rh_offset_pct=0.0",
+            "SENSOR b temp_dev=0.0 rh_dev=0.0 OK",
+            "SENSOR c temp_dev=0.0 rh_dev=4.0 OUTLIER",
+            "slot2_temp_offset_c=0.0 slot2_rh_offset_pct=-4.0"
+        ).outcome as SpreadReply.Outcome.Measured
+        assertEquals("temp_offset_c", SpreadApply.proposalFor(m, 0)?.tempKey)
+        assertEquals("slot2_temp_offset_c", SpreadApply.proposalFor(m, 2)?.tempKey)
+        assertEquals("Temp -1.0 °C, Feuchte 0.0 %RH", SpreadApply.confirmText(SpreadApply.proposalFor(m, 0)!!))
+    }
+
+    @Test
+    fun batchSendsSetCommandsThenConfig() {
+        val proposal = SpreadApply.proposalFor(fixtureMeasured(), 2)!!
+        val sent = mutableListOf<String>()
+        var result: CalibrationBatch.Result? = null
+        SpreadApply.batch(proposal).run({ line, cb ->
+            sent.add(line)
+            cb(ConsoleReply.Status("OK"))
+        }) { result = it }
+        assertEquals(listOf("SET slot2_temp_offset_c=-1.0", "SET slot2_rh_offset_pct=-5.0", "CONFIG"), sent)
+        assertEquals(null, result!!.failure)
+    }
+
+    @Test
+    fun readOnlyErrorStopsTheBatchAfterTheFirstCommand() {
+        val proposal = SpreadApply.proposalFor(fixtureMeasured(), 2)!!
+        val sent = mutableListOf<String>()
+        var result: CalibrationBatch.Result? = null
+        SpreadApply.batch(proposal).run({ line, cb ->
+            sent.add(line)
+            cb(ConsoleReply.Status("ERR READ_ONLY"))
+        }) { result = it }
+        assertEquals(listOf("SET slot2_temp_offset_c=-1.0"), sent)
+        assertEquals(emptyList<String>(), result!!.applied)
+        assertTrue(SpreadApply.isReadOnly(result!!))
+    }
+
+    @Test
+    fun otherErrorStopsTheBatchWithoutReadOnly() {
+        val proposal = SpreadApply.proposalFor(fixtureMeasured(), 2)!!
+        val sent = mutableListOf<String>()
+        var result: CalibrationBatch.Result? = null
+        SpreadApply.batch(proposal).run({ line, cb ->
+            sent.add(line)
+            cb(ConsoleReply.Status(if (sent.size == 1) "OK SET" else "ERR BAD_VALUE"))
+        }) { result = it }
+        assertEquals(2, sent.size)
+        assertEquals("slot2_rh_offset_pct" to "ERR BAD_VALUE", result!!.failure)
+        assertFalse(SpreadApply.isReadOnly(result!!))
+    }
+
+    @Test
+    fun foreignKeyOrOutOfRangeValueGivesNoProposal() {
+        fun measured(line: String) = parse(
+            "SPREAD sensors=1 temp_median=20.0 rh_median=50.0",
+            "SENSOR a temp_dev=1.0 rh_dev=0.0 OUTLIER",
+            line
+        ).outcome as SpreadReply.Outcome.Measured
+        assertEquals(null, SpreadApply.proposalFor(measured("wake_interval_s=1 rh_offset_pct=0.0"), 0))
+        assertEquals(null, SpreadApply.proposalFor(measured("slot1_temp_offset_c=9.0 slot1_rh_offset_pct=0.0"), 0))
+        assertEquals(null, SpreadApply.proposalFor(measured("rh_offset_pct=1.0 temp_offset_c=1.0"), 0))
+        assertEquals("slot1_temp_offset_c", SpreadApply.proposalFor(measured("slot1_temp_offset_c=-1.0 slot1_rh_offset_pct=0.0"), 0)?.tempKey)
+    }
+
+    @Test
+    fun keysOfDifferentSensorsGiveNoProposal() {
+        val m = parse(
+            "SPREAD sensors=1 temp_median=20.0 rh_median=50.0",
+            "SENSOR a temp_dev=1.0 rh_dev=0.0 OUTLIER",
+            "slot1_temp_offset_c=-1.0 slot2_rh_offset_pct=0.0"
+        ).outcome as SpreadReply.Outcome.Measured
+        assertEquals(null, SpreadApply.proposalFor(m, 0))
+    }
+
+    @Test
+    fun corruptReplyGivesUnknownState() {
+        val proposal = SpreadApply.proposalFor(fixtureMeasured(), 2)!!
+        var result: CalibrationBatch.Result? = null
+        SpreadApply.batch(proposal).run({ _, cb -> cb(ConsoleReply.Corrupt(ReplyError.Timeout)) }) { result = it }
+        assertTrue(SpreadApply.isUnknownState(result!!))
+        assertFalse(SpreadApply.isReadOnly(result!!))
+    }
 }
