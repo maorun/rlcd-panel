@@ -32,7 +32,7 @@ object ReceptionReply {
         val rows = ArrayList<ReceptionRow>()
         val slots = HashSet<Int>()
         for (line in lines.drop(2)) {
-            val c = line.split(",", limit = -1)
+            val c = line.split(",")
             if (c.size != 6) throw ParseException(line)
             val slot = c[0].takeIf { UINT.matches(it) }?.toInt()
             val scans = c[3].takeIf { UINT.matches(it) }?.toInt()
