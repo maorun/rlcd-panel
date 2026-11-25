@@ -1,5 +1,6 @@
 package com.rlcdpanel.watch.protocol
 
+import com.rlcdpanel.watch.BadgeChips
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
@@ -156,5 +157,42 @@ class AlertTimelineTest {
             assertEquals("$name alert on", EventText.describe(EventRow("", "ALERT_RISE", bit)))
         }
         assertEquals(8, AlertTimeline.ALERT_NAMES.size)
+    }
+
+    private fun badge(event: String, tile: Int, start: String, end: String?, unknown: Boolean = false) =
+        BadgeInterval(event, tile, ms(start), end?.let { ms(it) } ?: now, end == null, unknown)
+
+    @Test
+    fun chipTextOfClosedWallDampInterval() {
+        val chip = BadgeChips.text(badge("WALL_DAMP", 3, "2026-01-01 08:00:00", "2026-01-01 08:45:00"), zone)
+        assertEquals("C Slot 3", chip.label)
+        assertEquals("01.01. 08:00 · 45 min", chip.secondary)
+    }
+
+    @Test
+    fun chipTextOfOpenDryAirIntervalShowsOffen() {
+        val chip = BadgeChips.text(badge("DRY_AIR", 0, "2026-01-01 10:00:00", null), zone)
+        assertEquals("D Onboard", chip.label)
+        assertEquals("01.01. 10:00 · offen", chip.secondary)
+    }
+
+    @Test
+    fun chipTextOfUnknownStartShowsQuestionMark() {
+        val chip = BadgeChips.text(badge("SENSOR_DRIFT", 2, "2026-01-01 07:00:00", "2026-01-01 09:05:00", true), zone)
+        assertEquals("S Slot 2", chip.label)
+        assertEquals("? · 2 h 05 min", chip.secondary)
+        val open = BadgeChips.text(badge("WINDOW_OPEN", 1, "2026-01-01 07:00:00", null, true), zone)
+        assertEquals("? · offen", open.secondary)
+    }
+
+    @Test
+    fun newestChipsAreNewestFirstAndCappedAtSix() {
+        val rows = (1..8).flatMap { h ->
+            val hh = "%02d".format(h)
+            listOf(row("2026-01-01 $hh:00:00", "DRY_AIR", 0x100 + h), row("2026-01-01 $hh:10:00", "DRY_AIR", h))
+        }
+        val chips = BadgeChips.newest(rows, now, zone)
+        assertEquals(6, chips.size)
+        assertEquals(listOf(8, 7, 6, 5, 4, 3), chips.map { it.tile })
     }
 }

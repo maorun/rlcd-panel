@@ -29,9 +29,14 @@ import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
 import com.rlcdpanel.watch.protocol.AlertTimeline
+import com.rlcdpanel.watch.protocol.BadgeInterval
 import com.rlcdpanel.watch.protocol.EventFilter
 import com.rlcdpanel.watch.protocol.EventRow
 import com.rlcdpanel.watch.protocol.EventText
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+import java.util.Locale
 
 /** Result of one `EVENTS` read: the rows oldest first, the count of lost events, or a text that tells why there are none. */
 data class EventLogState(
@@ -59,6 +64,9 @@ data class EventLogState(
         /** The timeline shows the newest [MAX_INTERVALS] intervals, so the event rows stay in reach on the small screen. */
         const val MAX_INTERVALS = 8
 
+        /** The badge chips show the newest [MAX_BADGE_CHIPS] intervals. */
+        const val MAX_BADGE_CHIPS = 6
+
         /** The first read asks for [SHORT_COUNT] events, because a short reply needs less BLE time. */
         const val SHORT_COUNT = MAX_ROWS
         const val UNKNOWN_TIME = "--:--"
@@ -69,6 +77,26 @@ data class EventLogState(
             if (sep < 0 || time.length < sep + 6) return UNKNOWN_TIME
             return time.substring(sep + 1, sep + 6)
         }
+    }
+}
+
+/** Two text lines of one badge chip. */
+data class BadgeChipText(val label: String, val secondary: String)
+
+/** Chip text of a badge interval: `<letter> <room>` and `<start> · <duration>`. */
+object BadgeChips {
+    /** Must match `AlertTimeline.SHORT`, which is private in the synced file. */
+    private val SHORT: DateTimeFormatter = DateTimeFormatter.ofPattern("dd.MM. HH:mm", Locale.ROOT)
+
+    /** The newest [EventLogState.MAX_BADGE_CHIPS] badge intervals, newest first. */
+    fun newest(rows: List<EventRow>, nowMs: Long, zone: ZoneId = ZoneId.systemDefault()): List<BadgeInterval> =
+        AlertTimeline.badges(rows, nowMs, zone).asReversed().take(EventLogState.MAX_BADGE_CHIPS)
+
+    /** `?` replaces the start of an interval with `startUnknown`; `offen` replaces the duration of an open interval. */
+    fun text(interval: BadgeInterval, zone: ZoneId = ZoneId.systemDefault()): BadgeChipText {
+        val start = if (interval.startUnknown) "?" else SHORT.format(Instant.ofEpochMilli(interval.startMs).atZone(zone))
+        val duration = if (interval.isOpen) "offen" else AlertTimeline.durationText(interval.durationMs)
+        return BadgeChipText("${interval.badge} ${interval.room}", "$start · $duration")
     }
 }
 
@@ -83,6 +111,7 @@ fun EventLogScreen(
     val shownRows = state.visibleRows(category)
     // Intervals come from all rows, newest first; the clock is read once per read result.
     val intervals = remember(state.rows) { AlertTimeline.build(state.rows, System.currentTimeMillis()).asReversed().take(EventLogState.MAX_INTERVALS) }
+    val badges = remember(state.rows) { BadgeChips.newest(state.rows, System.currentTimeMillis()) }
     MaterialTheme {
         Scaffold(
             timeText = { TimeText() },
@@ -112,6 +141,20 @@ fun EventLogScreen(
                         Card(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth(0.95f)) {
                             Text(AlertTimeline.lineText(interval), fontSize = 11.sp)
                         }
+                    }
+                }
+                if (state.loaded && badges.isNotEmpty()) {
+                    item { Text("Badge-Zeitleiste", fontSize = 10.sp, color = Color(0xFFB0BEC5)) }
+                    items(badges) { interval ->
+                        val chip = BadgeChips.text(interval)
+                        Chip(
+                            onClick = {},
+                            enabled = false,
+                            modifier = Modifier.fillMaxWidth(0.95f),
+                            colors = ChipDefaults.secondaryChipColors(),
+                            label = { Text(chip.label, fontSize = 12.sp, maxLines = 1) },
+                            secondaryLabel = { Text(chip.secondary, fontSize = 10.sp, maxLines = 1) }
+                        )
                     }
                 }
                 item {

@@ -25,12 +25,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Badge intervals in the Wear OS event log
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/EventLogScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/AlertTimelineTest.kt`, `FEATURES.md`
-  - **Goal:** Show on the watch when each badge of a room started and ended. This item needs the Android item "Badge intervals in the Android alert timeline". Use the shared `AlertTimeline.badges`. Show one chip for each interval below the alert intervals: badge letter, room name, start and duration. Show `offen` for an open interval and `?` for `startUnknown`.
-  - **Acceptance:** A unit test checks the chip text of a closed `WALL_DAMP` interval. A unit test checks `offen` for an open `DRY_AIR` interval. A unit test checks `?` for an interval with `startUnknown`. `scripts/check-protocol-sync.sh` exits with 0. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 27, Use: 5, Setup: 4, Harmony: 8, Safety: 10, Effort: M]
-
 - [ ] Dry hours column in the WEEK reply
   - **Location:** `rlcd_panel/serial_console.h`, `tests/test_firmware_logic.cpp`, `tests/fixtures/week_reply_sample.txt`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/WeekMoldTests.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/WeekReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/WeekReply.kt`, `AGENTS.md`, `FEATURES.md`
   - **Goal:** Send the stored dry hours of each day to the companion apps. Append the column `dry_h` after `mold_h` to the `WEEK` and `WEEK <N>` replies. Read `WeekHistory::dryHours` and send an empty field without `hasDryHours`. Let the macOS and Kotlin `WeekReply.parse` accept 7, 8 or 9 columns. Give `dryHours` as `nil` or `null` for 7 or 8 columns and for an empty field.
