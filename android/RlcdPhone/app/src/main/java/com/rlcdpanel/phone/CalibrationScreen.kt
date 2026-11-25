@@ -58,7 +58,11 @@ data class CalibrationState(
     val frsiWall: Int = 1,
     val frsi: FrsiReply? = null,
     /** Last `SPREAD` reply of the co-location check. */
-    val spread: SpreadReply? = null
+    val spread: SpreadReply? = null,
+    /** True while the salt watch sends `HISTORY N` every 10 minutes. */
+    val isWatching: Boolean = false,
+    /** Progress text or stop reason of the salt watch; null before the first start. */
+    val watchText: String? = null
 ) {
     /** The proposals that a tap on `Apply` sends, in reply order. */
     val chosen: List<CalibrationProposal>
@@ -89,6 +93,8 @@ fun CalibrationScreen(
     onToggle: (String) -> Unit,
     onApply: () -> Unit,
     onSalt: (Boolean) -> Unit,
+    onWatchSalt: (Boolean) -> Unit,
+    onStopWatch: () -> Unit,
     onApplyTwoPoint: () -> Unit,
     onPickFrsiRoom: (Int) -> Unit,
     onPickFrsiWall: (Int) -> Unit,
@@ -155,6 +161,17 @@ fun CalibrationScreen(
                     Button(onClick = { onSalt(true) }, enabled = !state.isBusy) { Text("MgCl2 (33 %)") }
                 }
             }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (state.isWatching) {
+                        OutlinedButton(onClick = onStopWatch) { Text("Beobachtung beenden") }
+                    } else {
+                        OutlinedButton(onClick = { onWatchSalt(false) }, enabled = !state.isBusy) { Text("NaCl beobachten") }
+                        OutlinedButton(onClick = { onWatchSalt(true) }, enabled = !state.isBusy) { Text("MgCl2 beobachten") }
+                    }
+                }
+            }
+            state.watchText?.let { item { Text(it, style = MaterialTheme.typography.bodyMedium) } }
             state.naCl?.let { item { Text("NaCl: ${SaltText.outcome(it)}") } }
             state.mgCl2?.let { item { Text("MgCl2: ${SaltText.outcome(it)}") } }
             evaluation.error?.let { item { Text(it, color = MaterialTheme.colorScheme.error) } }
