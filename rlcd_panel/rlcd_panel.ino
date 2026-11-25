@@ -999,6 +999,9 @@ void refreshSensors() {
       drift_tile_mask = static_cast<uint16_t>(drift_tile_mask | (2u << i));
     }
   }
+  // A stale slot keeps its old hourly samples: it leaves the drift check and its bit clears without an event.
+  // SPREAD uses the same rule (SpreadMath::freshMask).
+  drift_tile_mask = static_cast<uint16_t>(drift_tile_mask & SpreadMath::freshMask(calibrated, nowMs(), config().staleTimeoutMs()));
   g_state.updateDrift(drift_tile_mask, g_rtc_time);
   const uint16_t previous_wall_tiles = g_state.wall_tiles;
   g_state.wall_tiles = WallLatch::update(
@@ -1516,7 +1519,7 @@ void setup() {
                        nowMs());
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SPREAD) {
       // The RTC histories answer: no card access, no state change, so the console keeps running.
-      Runner::showSpread(sink, g_state.history, g_state.config);
+      Runner::showSpread(sink, g_state.history, g_state.config, g_state.registry, nowMs());
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::TODAY) {
       // The RTC histories answer: no card access, no state change, so the console keeps running.
       RtcTime today_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again

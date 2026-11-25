@@ -1188,8 +1188,9 @@ struct SerialStatusSnapshot {
 //   Each OUTLIER line is followed by one proposal line "<temp_key>=<x> <rh_key>=<x>" (temp_offset_c and rh_offset_pct for the onboard
 //   sensor, slotN_temp_offset_c and slotN_rh_offset_pct for slots 1 to 10): active offset + median - sensor mean (rounded to 0.1),
 //   clamped to the key range; OK sensors have no proposal line.
+//   A stale slot does not count (no SENSOR line, not in sensors= and in the median).
 //   Fewer than 3 such sensors give "SKIP sensors=<n>" and the CRC32 line, extra text gives "ERR BAD_ARG". showSpread() works on
-//   the RTC copy: no card access, no state change, so execute() ignores SPREAD. USB and BLE at each ble_console level.
+//   the RTC copy and the registry: no card access, no state change, so execute() ignores SPREAD. USB and BLE at each ble_console level.
 //   TODAY -> "BEGIN TODAY", the header "sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct", one row for
 //   each sensor (0 onboard, 1 to 10 a slot) that holds at least one hourly sample, and "CRC32 <8 hex digits>". The row covers the hourly
 //   samples of the RTC ClimateHistory since the last local midnight of the RTC time: the newest sample is as old as the time since
@@ -1652,12 +1653,13 @@ public:
 
   // Co-location check: the mean of the last SPREAD_HOURS hourly samples of each sensor with enough temperature and humidity
   // samples, the median of these means and the deviation of each sensor from it. The card and the state stay untouched.
-  // The age of the samples is not checked: a sensor without new samples keeps its old hours, so the user must keep all sensors alive
-  // for the 6 hours. A lost sensor can show as OUTLIER.
+  // A slot that SwitchBotRegistry::isStale reports (with DeviceConfig::staleTimeoutMs()) does not count: it keeps its old hourly
+  // samples, so it has no SENSOR line and is not in sensors= and in the median. An empty slot has no samples and drops out as before.
   // The OUTLIER check uses the exact deviation (sixths of 0.1 units), the printed value rounds to one decimal, so "0.5" can show
   // OUTLIER when the exact deviation is above the limit.
   // All maths run in integers: a sum of 6 tenths and its doubled median keep the limit checks exact.
-  static void showSpread(Sink& sink, const ClimateHistory& history, const DeviceConfig& config) {
+  static void showSpread(Sink& sink, const ClimateHistory& history, const DeviceConfig& config,
+                         const SwitchBotRegistry& registry, uint32_t now_ms) {
     static const char* const names[ClimateHistory::SLOT_COUNT] = {
         "onboard", "slot1", "slot2", "slot3", "slot4", "slot5",
         "slot6", "slot7", "slot8", "slot9", "slot10"};
@@ -1665,7 +1667,7 @@ public:
         "",       "slot1_", "slot2_", "slot3_", "slot4_", "slot5_",
         "slot6_", "slot7_", "slot8_", "slot9_", "slot10_"};
     SpreadMath::Result r;
-    SpreadMath::compute(history, r);
+    SpreadMath::compute(history, r, SpreadMath::freshMask(registry, now_ms, config.staleTimeoutMs()));
     const size_t count = r.count;
     const int32_t hours2 = 2 * static_cast<int32_t>(SpreadMath::HOURS);
     char text[1024];

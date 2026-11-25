@@ -50,10 +50,29 @@ struct SpreadMath {
     return count % 2 == 1 ? 2 * sorted[count / 2] : sorted[count / 2 - 1] + sorted[count / 2];
   }
 
-  // Fills `out` from the RTC histories. The medians and deviations exist only with enough() sensors.
-  static void compute(const ClimateHistory& history, Result& out) {
+  // Bit i of the sensor mask is sensor i (0 onboard, 1 to 10 a slot). Every sensor counts by default.
+  static constexpr uint16_t ALL_SENSORS = static_cast<uint16_t>((1u << ClimateHistory::SLOT_COUNT) - 1u);
+
+  // Mask of the sensors that count: the onboard sensor and each slot of `registry` that is not stale. A stale slot keeps
+  // its old hourly samples, so it would show as a false OUTLIER.
+  static uint16_t freshMask(const SwitchBotRegistry& registry, uint32_t now_ms, uint32_t stale_timeout_ms) {
+    uint16_t mask = 1;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (!registry.slot(i).isStale(now_ms, stale_timeout_ms)) {
+        mask = static_cast<uint16_t>(mask | (2u << i));
+      }
+    }
+    return mask;
+  }
+
+  // Fills `out` from the RTC histories. The medians and deviations exist only with enough() sensors. A sensor outside
+  // `sensor_mask` does not count: not in `count`, not in the medians, no entry.
+  static void compute(const ClimateHistory& history, Result& out, uint16_t sensor_mask = ALL_SENSORS) {
     out = Result();
     for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
+      if ((sensor_mask & (1u << i)) == 0) {
+        continue;
+      }
       if (history.recentSums(i, HOURS, out.t_sum[out.count], out.rh_sum[out.count])) {
         out.sensor_of[out.count++] = i;
       }
@@ -100,7 +119,7 @@ public:
   // `tile_mask` holds the tiles that exist (bit 0 onboard, bits 1 to 10 the slots that hold a reading).
   static uint16_t update(uint16_t previous, const ClimateHistory& history, uint16_t tile_mask = ALL_MASK) {
     SpreadMath::Result r;
-    SpreadMath::compute(history, r);
+    SpreadMath::compute(history, r, tile_mask);
     uint16_t bits = 0;
     if (!r.enough()) {
       return 0;
@@ -108,9 +127,7 @@ public:
     for (size_t k = 0; k < r.count; ++k) {
       const size_t tile = r.sensor_of[k];
       const uint16_t mask = static_cast<uint16_t>(1u << tile);
-      if ((tile_mask & mask) == 0) {
-        continue;
-      }
+      // SpreadMath::compute already left out each tile outside `tile_mask`, so every entry is inside it.
       if (SpreadMath::isOutlier(r, k) || ((previous & mask) != 0 && !SpreadMath::isSettled(r, k))) {
         bits |= mask;
       }
