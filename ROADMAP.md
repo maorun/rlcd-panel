@@ -22,11 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Battery runtime preview in the Android config editor
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/RuntimePreview.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/RuntimePreviewTest.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/ConfigEditorScreen.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt`, `FEATURES.md`
-  - **Goal:** Show the battery runtime for an edited wake schedule before the user sends `SET`. Port the macOS `RuntimePreview` ratio model to Kotlin. Use the `RUNTIME h` and `AWAKE avg_ms` values of the last `STATUS` reply. Use the draft values of `wake_interval_s`, `night_wake_interval_s`, `quiet_hours_start_hour` and `quiet_hours_end_hour`. Show `Laufzeit ca. <N> h` below the wake interval fields. Show `Laufzeit --` without a `RUNTIME` line, without a runtime value or without awake samples. The preview sends no command.
-  - **Acceptance:** A unit test checks that a doubled `wake_interval_s` gives the macOS value for the same input. A unit test checks that a night interval counts only for the quiet hours. A unit test checks that a missing `RUNTIME` value and zero awake samples give null. A unit test checks that an invalid draft value gives null. `gradle testDebugUnitTest` and `gradle assembleDebug` in `android/RlcdPhone` pass.
-  - **Rank:** [Total: 32, Use: 5, Setup: 9, Harmony: 8, Safety: 10, Effort: M]
 - [ ] Hour window argument for the console command FRSI
   - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/climate_math.h`, `tests/test_firmware_logic.cpp`, `tests/fixtures/frsi_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
   - **Goal:** Let the user select the sample window of the wall factor check. A short cold night gives fewer than 6 stable hours. Add the optional argument `FRSI <R> <W> <H>` (H 3 to 24, no leading zero). `FRSI <R> <W>` stays `FRSI <R> <W> 6`. Use the newest H samples of each history. Give `SKIP hours=<n>` below H samples. Keep the `UNSTABLE` limit 0.10 and the `ERR LOW_DELTA` limit 10 C. Give `ERR BAD_ARG` for 2, 25, a leading zero, a non-digit and extra text. Do not change the RTC layout or `STATE_VERSION`.

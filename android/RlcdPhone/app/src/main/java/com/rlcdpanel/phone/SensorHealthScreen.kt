@@ -56,7 +56,9 @@ data class SensorHealthState(
     val runtime: RuntimeState? = null,
     val awake: AwakeState? = null,
     /** The last good `STATUS` reply, for the shared diagnostics report. */
-    val status: StatusReply? = null
+    val status: StatusReply? = null,
+    /** `CONFIG` values of the cache when `STATUS` was read: the schedule that `RUNTIME h` was measured with. */
+    val measuredConfig: Map<String, String> = emptyMap()
 )
 
 /** Cache of the last `CONFIG` read: [info] is null without a cache; [message] tells a failed read. */

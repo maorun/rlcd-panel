@@ -33,6 +33,8 @@ import com.rlcdpanel.phone.protocol.ConfigPlan
 import com.rlcdpanel.phone.protocol.ConfigResetPlan
 import com.rlcdpanel.phone.protocol.ConfigSchema
 import com.rlcdpanel.phone.protocol.PanelConfig
+import com.rlcdpanel.phone.protocol.RuntimePreview
+import com.rlcdpanel.phone.protocol.StatusReply
 
 /** State of the config editor screen. */
 data class ConfigEditorState(
@@ -51,6 +53,8 @@ fun ConfigEditorScreen(
     panelConfig: PanelConfig,
     onRead: () -> Unit,
     onApply: (List<String>) -> Unit,
+    status: StatusReply? = null,
+    measuredConfig: Map<String, String> = emptyMap(),
     onReadChanged: () -> Unit = {},
     onBack: () -> Unit
 ) {
@@ -148,6 +152,16 @@ fun ConfigEditorScreen(
                                 singleLine = true,
                                 enabled = writable && !state.isBusy
                             )
+                            // Preview only: reads the last STATUS and sends no command.
+                            if (entry.key == "night_wake_interval_s") {
+                                // Without a STATUS read or a cached CONFIG the schedule is unknown: show `Laufzeit --`.
+                                val hours = if (measuredConfig.isEmpty()) null
+                                else RuntimePreview.hours(measuredConfig, edits.toMap(), status)
+                                Text(
+                                    RuntimePreview.text(hours),
+                                    style = MaterialTheme.typography.bodySmall
+                                )
+                            }
                             if (changedOnly) {
                                 OutlinedButton(
                                     onClick = { pendingReset = ConfigSchema.resetPlan(changed.orEmpty().filter { it.key == entry.key }) },

@@ -3406,3 +3406,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The key `reception_low_pct` is 0 (off) or 30 to 80 %, default 50. It is 1 byte at the end of the config trailer, after `mold_alert_delay_h`. `KEY_COUNT` is 98 and `STATE_VERSION` is 77.
 - `PersistentState::recordReceptionChanges(now, limit_pct)` sets the bit of a slot below the limit and releases it at the limit plus 20 %. The default gives the old 50 % and 70 % rules. Value 0 clears each bit without a `RECEPTION_LOW` event.
 - Tests: `testReceptionLowPctConfig` (default, 30, 80, 0, reject of 29, 81 and `x`, RTC round trip), `testReceptionLowPctLatch` (limit 30, default rules, limit 0), `ConfigSchemaTests.rangesMatchFirmwareConstants` and `ConfigSchemaTest.receptionLowPctAcceptsOffAndThirtyToEighty`.
+
+## Battery runtime preview in the Android config editor
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/RuntimePreview.kt`, `ConfigEditorScreen.kt`, `MainActivity.kt`, `SensorHealthScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/RuntimePreviewTest.kt`
+- `RuntimePreview` (phone only) ports the macOS `RuntimePreview.swift` ratio model: the `RUNTIME h` value of the last `STATUS` scales with the ratio of the drain rates of the current and the edited schedule. The drain rate is `(day_h / (wake_interval_s + awake) + night_h / (night_wake_interval_s + awake)) / 24`. The sleep current is not modelled, so the value is an estimate.
+- The awake time follows `BatteryHistory::estimate`: the `AWAKE avg_ms` mean counts from 8 samples and above 2000 ms, else the constant 10 s applies. A `RUNTIME h` value at the cap of 2388 h gives no preview; a result stops at 2388 h.
+- `night_wake_interval_s` counts only for the quiet hours (22 to 7 is 9 of 24 hours; equal start and end is 0). A night interval of 0 uses `wake_interval_s` for all 24 hours. The quiet window comes from the draft or the `CONFIG` values, else from the `QUIET` line.
+- `ConfigEditorScreen` shows `Laufzeit ca. <N> h` below the `night_wake_interval_s` field and `Laufzeit --` without a `RUNTIME` value, without an `AWAKE` mean, for a draft value that is no integer and for an interval outside the key range. It shows nothing before the first `STATUS` read. The preview sends no command.
+- The current schedule is the cached `CONFIG` of the moment of the `STATUS` read (`SensorHealthState.measuredConfig`); a later `CONFIG` read does not move it.
+- The firmware does not change; the RTC layout and `STATE_VERSION` do not change.
+- Tests: `RuntimePreviewTest` (doubled `wake_interval_s` gives the macOS value 764, night interval only for the quiet hours, missing runtime and zero awake samples give null, invalid draft gives null, cap and few samples). `scripts/check-protocol-sync.sh` passes. The Gradle tests run in GitHub Actions CI (no Android SDK on the local host). The behavior on a device is not tested.
