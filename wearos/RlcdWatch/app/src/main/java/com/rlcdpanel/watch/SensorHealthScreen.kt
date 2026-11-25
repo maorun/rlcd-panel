@@ -269,6 +269,7 @@ fun SensorHealthScreen(
     onOpenCalib: () -> Unit = {},
     onApplyJumpAdvice: (JumpAdvice) -> Unit = {},
     onOpenFrsi: () -> Unit = {},
+    onOpenAlertLimits: () -> Unit = {},
     onOpenToday: () -> Unit = {},
     onOpenTail: () -> Unit = {},
     onOpenMold: () -> Unit = {},
@@ -359,6 +360,14 @@ fun SensorHealthScreen(
                         modifier = Modifier.fillMaxWidth(0.85f),
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text("Wall factor", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                item {
+                    Chip(
+                        onClick = onOpenAlertLimits,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text("Alert limits", fontSize = 12.sp, maxLines = 1) }
                     )
                 }
                 item {
