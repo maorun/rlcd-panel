@@ -31,12 +31,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Dry hours in the Wear OS sensor health screen
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/StatusReplyTest.kt`, `FEATURES.md`
-  - **Goal:** Show the dry hours of each room on the watch. `StatusSensor.dryHours` already holds the `dry_h=` field. Add `SensorHealthText.dryText` and `SensorHealthText.isDry` with the rules of `moldText` and `isMold`. Show `Trocken <N> h` after `Schimmel <N> h`. Show `SensorHealthText.WARNING` above 0 hours. Show `Trocken --` for a `null` value.
-  - **Acceptance:** A unit test checks `Trocken 0 h` without the warning mark. A unit test checks the warning mark for 3 hours. A unit test checks `Trocken --` for `null`. A unit test parses `tests/fixtures/status_reply_sample.txt` and checks `dryHours` 2 for sensor 0. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 27, Use: 6, Setup: 4, Harmony: 7, Safety: 10, Effort: S]
-
 - [ ] Gap report for the newest log rows in the macOS app
   - **Location:** `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/LogGaps.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/TailReplyTests.swift`, `FEATURES.md`
   - **Goal:** Show missing hours in the `TAIL` reply without a full log download. Feed `TailReply.rows` to `LogGaps.report(rows:)`. Show the count of missing hours in the `Newest log rows` group. Show one line for each gap with its start and end time. Show `No gaps` for a report without a gap.

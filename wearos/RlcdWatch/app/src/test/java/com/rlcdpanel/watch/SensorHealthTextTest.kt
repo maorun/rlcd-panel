@@ -78,6 +78,17 @@ class SensorHealthTextTest {
     }
 
     @Test
+    fun dryTextAndWarning() {
+        fun dry(hours: Int?) = StatusSensor(1, "A", 20.0, 50.0, 80.0, -60.0, 10.0, "OK", "WOIO", dryHours = hours)
+        assertEquals("Trocken 0 h", SensorHealthText.dry(dry(0)))
+        assertEquals("⚠ Trocken 3 h", SensorHealthText.dry(dry(3)))
+        assertEquals("Trocken --", SensorHealthText.dry(dry(null)))
+        assertFalse(SensorHealthText.isDry(dry(0)))
+        assertTrue(SensorHealthText.isDry(dry(3)))
+        assertFalse(SensorHealthText.isDry(dry(null)))
+    }
+
+    @Test
     fun firmwareLineAndTimeoutText() {
         val v = VersionReply.parse(listOf("VERSION fw=1.0.0 git=abc1234 core=3.3.12 state=68 built=unknown"))
         assertEquals("FW 1.0.0 (abc1234)", SensorHealthText.firmware(v))
