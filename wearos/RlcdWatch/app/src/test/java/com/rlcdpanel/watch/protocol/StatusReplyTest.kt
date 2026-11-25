@@ -461,4 +461,13 @@ class StatusReplyTest {
             }
         }
     }
+
+    @Test
+    fun dryHoursOfFixtureAndMissingField() {
+        val sensors = StatusReply.parse(fixtureLines()).sensors
+        assertEquals(2, sensors[0].dryHours)
+        assertNull(sensors[1].dryHours)
+        val without = fixtureLines().map { it.replace(Regex(" dry_h=\\S+"), "") }
+        assertNull(StatusReply.parse(without).sensors[0].dryHours)
+    }
 }

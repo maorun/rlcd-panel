@@ -124,6 +124,11 @@ object SensorHealthText {
     /** Hours above `mold_alert_limit_rh` in the last 24 hours; the warning mark shows above 0 hours. */
     fun mold(sensor: StatusSensor): String =
         sensor.moldHours?.let { (if (it > 0) "$WARNING " else "") + "Schimmel $it h" } ?: "Schimmel --"
+
+    /** Hours at or below `dry_alert_limit_rh` in the last 24 hours; the warning mark shows above 0 hours. */
+    fun dry(sensor: StatusSensor): String =
+        sensor.dryHours?.let { (if (it > 0) "$WARNING " else "") + "Trocken $it h" } ?: "Trocken --"
+
     fun trendSymbol(trend: SensorTrend?): String = trend?.symbol ?: "–"
 
     /** `T <value> <arrow>  RH <value> <arrow>`; `↑` rise, `↓` fall, `–` steady and unknown. */
@@ -140,6 +145,8 @@ object SensorHealthText {
         if (DriftWatch.isDrifting(latch?.drift, sensor.index)) "$WARNING ${DriftWatch.TEXT}" else null
 
     fun isMold(sensor: StatusSensor): Boolean = (sensor.moldHours ?: 0) > 0
+
+    fun isDry(sensor: StatusSensor): Boolean = (sensor.dryHours ?: 0) > 0
 
     /** Panel badges of one sensor row, for example `V · STALE`; null without a `LATCH` line or without a badge. */
     fun badges(latch: LatchState?, sensor: StatusSensor): String? =
@@ -624,6 +631,11 @@ fun SensorHealthScreen(
                                     SensorHealthText.mold(sensor),
                                     fontSize = 10.sp,
                                     color = if (SensorHealthText.isMold(sensor)) Color(0xFFFFB74D) else Color.Unspecified
+                                )
+                                Text(
+                                    SensorHealthText.dry(sensor),
+                                    fontSize = 10.sp,
+                                    color = if (SensorHealthText.isDry(sensor)) Color(0xFFFFB74D) else Color.Unspecified
                                 )
                                 SensorHealthText.badges(status.latch, sensor)?.let { badges ->
                                     Text("Badges $badges", fontSize = 10.sp, color = Color(0xFFFFB74D))

@@ -3555,3 +3555,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The count is calculated for each render. No RTC state changes and `STATE_VERSION` stays 77.
 - Thus the user sees how long a room was too dry in the last day.
 - Host tests cover 5 samples at the limit, limit 0, a stale slot, an empty slot, fewer than 2 samples, and the text bounds to the `MAC` line and the `MOLD` text. `docs/display_preview_stats.png` and `docs/display_preview_stats2.png` show the text with a limit of 45 %RH.
+
+## Dry hours in the Wear OS sensor health screen
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/StatusReplyTest.kt`
+- The user sees the dry hours of each room on the watch. `StatusSensor.dryHours` already holds the `dry_h=` field.
+- `SensorHealthText.dry(sensor)` gives `Trocken <N> h`, with the `WARNING` mark before it above 0 hours, and `Trocken --` for `null`. `SensorHealthText.isDry(sensor)` is true above 0 hours. The names follow `mold` and `isMold`.
+- `SensorHealthScreen` shows the line after `Schimmel <N> h`, in the warning colour above 0 hours.
+- Tests: `SensorHealthTextTest.dryTextAndWarning` asserts `Trocken 0 h`, `⚠ Trocken 3 h` and `Trocken --`. `StatusReplyTest.dryHoursOfFixtureAndMissingField` parses `tests/fixtures/status_reply_sample.txt` (`dryHours` 2 for sensor 0) and a reply without the field. They run in CI (the local host has no Android SDK).
