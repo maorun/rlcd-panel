@@ -256,6 +256,7 @@ fun SensorHealthScreen(
     onOpenWeek: () -> Unit = {},
     onOpenSignal: (StatusSensor) -> Unit = {},
     onOpenRejects: () -> Unit = {},
+    onOpenReception: () -> Unit = {},
     onOpenConfigChanged: () -> Unit = {},
     onOpenSelfTest: () -> Unit = {},
     onOpenSalt: () -> Unit = {},
@@ -375,6 +376,14 @@ fun SensorHealthScreen(
                         modifier = Modifier.fillMaxWidth(0.85f),
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text("Rejected packets", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                item {
+                    Chip(
+                        onClick = onOpenReception,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text("Reception", fontSize = 12.sp, maxLines = 1) }
                     )
                 }
                 item {

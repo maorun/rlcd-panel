@@ -35,7 +35,7 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test parses `tests/fixtures/reception_reply_sample.txt`. A unit test checks the cells of the mask `101101`. Unit tests check `ParseException` for the mask `10a1`, for a wrong mask length, for a wrong `received` value and for a repeated slot. A unit test checks an empty reply with zero rows. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
   - **Rank:** [Total: 31, Use: 5, Setup: 8, Harmony: 8, Safety: 10, Effort: S]
 
-- [ ] Reception strip on the Wear OS watch
+- [x] Reception strip on the Wear OS watch
   - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ReceptionReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ReceptionReplyTest.kt`, `FEATURES.md`
   - **Goal:** Show the scan pattern of each slot on the watch, so the user can walk to a sensor and see the gaps. This item needs the firmware item "Console command RECEPTION with the scan mask of each slot". Add `ReceptionReply.parse` with the same rules as the Android parser. Add a `Reception` chip in the sensor health screen that sends `RECEPTION` only on a tap. Show one row for each slot: the name, `<received>/<scans>` and a strip of the newest 12 cells that fits the round screen. Show `⚠` below 50 %.
   - **Acceptance:** A unit test parses `tests/fixtures/reception_reply_sample.txt`. A unit test checks that a mask of 24 characters gives the newest 12 cells. Unit tests check `ParseException` for the mask `10a1`, for a wrong mask length and for a repeated slot. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
