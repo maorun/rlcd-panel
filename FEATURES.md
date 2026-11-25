@@ -3099,6 +3099,15 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `TodayReplyTest` reads `tests/fixtures/today_reply_sample.txt` and covers the rows, `null` for empty fields, `ParseException` cases, the `--` texts for a sensor with 0 hours and the `ERR NO_TIME` text.
 - Validation: `./scripts/check-protocol-sync.sh` and `--self-test` pass. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.
 
+## Monthly mold summary screen on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/DaysReply.kt`, `protocol/EventCsv.kt`, `protocol/MoldSummary.kt`, `MoldSummaryScreen.kt`, `MainActivity.kt`, `SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/DaysReplyTest.kt`, `scripts/check-protocol-sync.sh`
+- `DaysReply.kt` and `EventCsv.kt` (needed by `DaysReply.csv`) are copies of the phone files; only the `package` line differs. `scripts/check-protocol-sync.sh` now compares both.
+- `MoldSummary.build` sums the `mold_h` values of the `DAYS 31` rows for each room that holds a value: the sum of the hours, the number of days with at least 1 mold hour, and the worst day (most hours; on a tie the newest day) with its `MM-DD` date. The rows are sorted by the sum, highest first; equal sums keep the sensor order. A room without any mold value shows `--` for the sum, the days and the worst day and comes last. A room with values of 0 shows `0 h`, `0 Tage` and `--` for the worst day.
+- `MoldSummaryScreen` shows one card for each room. The sensor health screen has the chip `Mold (31 days)`. `MainActivity.readMold` sends `DAYS 31` over the BLE console only after a tap on `Read mold days` (with the Bluetooth permission check). `ERR NO_CARD`, `ERR NO_FILE` and `ERR READ_FAILED` show the clear texts of `DaysReply.errorText`. The panel needs USB power and `ble_console` 1 or 2.
+- `DaysReplyTest` reads `tests/fixtures/days_reply_sample.txt` (3 rows) and covers the parser and the summary model: sum, day count, worst day, sort order, the `--` texts and the fixture (its mold fields are empty, so the onboard room shows `--`).
+- Validation: `./scripts/check-protocol-sync.sh` and `--self-test` pass. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.
+
 ## Trend arrows in the Android sensor health screen
 
 - **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt`, `protocol/SensorHealth.kt`, `SensorHealthScreen.kt`, `StatusReplyTest.kt`.
@@ -3190,7 +3199,7 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `DaysReply.parse` reads the reply with the column layout of `SdLogCodec::parseDailyRow` (83 columns: the date, six values for each of 11 sensors, five noise columns, 11 mold hour columns). An empty field gives `null`. A half pair, a bad date, a value outside its range, mold hours above 24, a wrong header, a wrong row count and a wrong column count throw `ParseException`. The mean and noise columns are not read.
 - The room selector shows the sensors that hold a value. One card shows one bar for each day: the temperature range, the humidity range and the mold hours (0 to 24). A day without a value is an empty outline.
 - `ERR NO_CARD`, `ERR NO_FILE` and `ERR READ_FAILED` give a clear German text. The button `CSV teilen` shares one line for each day and sensor with data (`date,sensor,name,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h`).
-- `DaysReply` exists in the phone app only; `scripts/check-protocol-sync.sh` passes.
+- `DaysReply` exists in the phone app and in the Wear OS app (see the section on the monthly mold summary screen); `scripts/check-protocol-sync.sh` passes.
 - Validation: `DaysReplyTest` reads `tests/fixtures/days_reply_sample.txt` (3 rows) and covers the values, an empty pair, a wrong column count, bad values and framing, the error texts, the CSV and the `CRC32` line. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.
 
 ## macOS daily history over the BLE console
