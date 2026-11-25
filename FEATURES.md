@@ -3324,3 +3324,12 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `DailyChartView` shows the line `<room>: Mold <N> h, <D> days, worst <MM-DD> <H> h` for each room with a value, and `<room>: No mold hours` for a room whose total is 0. A room without a mold value (rows of a `daily_v1` to `daily_v3` file, empty or stale sensor) has no line. The source is the archive folder or the `DAYS` reply, whichever the chart shows.
 - Tests: `MoldSummaryTests` read `tests/fixtures/days_reply_sample.txt` (no mold values, so each total is `nil`), and check the sum, the day count, the worst day, the tie rule, the `No mold hours` text and the rows of a `daily_v3` file without mold columns.
 - Validation: `swift build` passes. `swift test` does not run on the local host (no `TestingMacros`); it runs in CI. The view is not checked on a screen.
+
+## Apply the SPREAD offset proposals on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SpreadScreen.kt`, `MainActivity.kt`, `protocol/SpreadApply.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/SpreadReplyTest.kt`
+- The user corrects a drifting sensor from the watch. `SpreadScreen` shows one `Übernehmen` chip below each `OUTLIER` row that has a proposal. An `OK` row has no chip.
+- `SpreadApply.proposalFor` pairs the n-th `OUTLIER` row with the n-th proposal line. A tap on the chip shows both offsets (`Temp <x> °C, Feuchte <y> %RH`) with the chips `Senden` and `Abbrechen`.
+- `Senden` runs `SpreadApply.batch` (`CalibrationBatch`): the `SET` commands of `SpreadReply.Proposal`, temperature first, then `CONFIG`. After success `SPREAD` runs again. The first `ERR` stops the batch and shows its text.
+- `ERR READ_ONLY` (`ble_console` 1) shows `Nur lesen` and hides the chips. The shared files `SpreadReply.kt` and `CalibrationBatch.kt` stay equal to `android/RlcdPhone`; `SpreadApply.kt` exists only on the watch.
+- Validation: `SpreadReplyTest` has 6 new tests (the `SET` commands of the fixture proposal, no commands for an `OK` row, pairing of two outliers, the full batch, the stop after `ERR READ_ONLY`, the stop after another `ERR`). They run in CI only (no Android SDK on the local host). `./scripts/check-protocol-sync.sh` exits with 0.
