@@ -1446,7 +1446,7 @@ void setup() {
     portENTER_CRITICAL(&g_registry_mux);
     g_state.reception.recordScan(g_state.registry, packets_before);
     g_state.recordStaleChanges(g_rtc_time, nowMs(), config().staleTimeoutMs());
-    g_state.recordReceptionChanges(g_rtc_time);
+    g_state.recordReceptionChanges(g_rtc_time, config().reception_low_pct);
     portEXIT_CRITICAL(&g_registry_mux);
     cycle.advance();
   }

@@ -22,11 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Config key reception_low_pct for the weak signal limit
-  - **Location:** `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `docs/config.example.ini`, `tools/sample_config.ini`, `tests/test_firmware_logic.cpp`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ConfigSchemaTests.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigSchema.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/ConfigSchemaTest.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigSchema.kt`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Let the user set the reception rate that sets the `R` badge. A sensor far from the panel has a low rate and sets a false badge. Add the key `reception_low_pct` (0 is off, else 30 to 80 %, default 50). Add 1 byte at the end of the config trailer, after `mold_alert_delay_h`. `PersistentState::recordReceptionChanges` sets the bit below the limit and releases it at the limit plus 20 %. Value 0 clears each bit without an event. Raise `KEY_COUNT` to 98 and `STATE_VERSION` to 77. Add the key to the three `ConfigSchema` files. Keep the Kotlin files equal.
-  - **Acceptance:** A host test checks that `reception_low_pct=30` sets the bit below 30 % and releases it at 50 %. A host test checks that the default gives the old 50 % and 70 % rules. A host test checks that 0 clears each bit without a `RECEPTION_LOW` event. A host test rejects 29, 81 and a non-digit. `testConfigExampleTemplateInSync` passes. `ConfigSchemaTests.rangesMatchFirmwareConstants` passes. `./scripts/check-protocol-sync.sh` exits with 0. The host unit tests, `swift test`, `gradle testDebugUnitTest` in both Kotlin apps and `arduino-cli compile rlcd_panel` pass.
-  - **Rank:** [Total: 30, Use: 4, Setup: 8, Harmony: 9, Safety: 9, Effort: M]
 
 ## Priority 3: Display and Logging (Score 22–27)
 
