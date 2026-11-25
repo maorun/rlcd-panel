@@ -3959,3 +3959,14 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `SlotAssignment.menuTitle` adds ` (Off)` to the slot menus (`Assign`, `Assign to slot`). `SlotAssignment.disabledWarning` blocks `AppModel.assign` (MAC and MAC with name) for a disabled slot; clearing a slot stays possible.
 - `SlotAssignmentTests` cover the command, a slot that holds the value, a missing `CONFIG`, the default 1 for a missing key and the blocked assignment.
 - Validation: `swift build -c release` passes locally. The local Command Line Tools lack TestingMacros, so `swift test` runs in CI.
+
+## Config key heat_alert_delay_h for the heat alert
+
+- The new `config.ini` key `heat_alert_delay_h` stops a short warm peak from raising `ALERT_HEAT`. The value 0 is off (default). Else the value is 1 to 12 h. Another value, for example 13, gives a rejected line.
+- `AlertLimits::heat_delay_h` holds the delay. `AlertEvaluator::Tally::add` raises `ALERT_HEAT` for a tile only when the live feels-like value is at or above `heat_alert_limit_c` and `Tally::heatDelayPassed` is true. The newest N hourly pairs of the tile must each give a `ClimateMath::heatIndexC` value at or above the limit. The pair takes the temperature sample and the humidity sample of the same index. The two histories must have the same size, because each push is independent and a skipped push shifts the pairs.
+- No rise for fewer than N pairs, for histories of unequal size, for an invalid pair (NaN heat index) and for a delay without a history pointer. `alertLimits()` in `rlcd_panel.ino` sets `heat_delay_h` and uses the same `history` pointer as `mold_delay_h`.
+- The hold rule and the release 2 C below the limit do not change. A delay never clears an active alert.
+- The key is the byte after `drift_limit_rh` at the end of the config trailer. `DeviceConfigParser::KEY_COUNT` is 104 (index 103) and `PowerManager::STATE_VERSION` is 82. `docs/config.example.ini` and `tests/fixtures/config_backup_sample.ini` list the key.
+- The three `ConfigSchema` tables (macOS, Android, Wear OS), `ConfigBackup.kt` and `EventText.kt` list the key.
+- Host tests cover the rise with delay 2 and two pairs, no rise with one pair, no rise with an older pair below the limit, no rise for a short humidity history and for a missing history pointer, the release 2 C below the limit, the values 12 and 13, the text round trip and the RTC byte with a corrupt value.
+- Validation: host tests (242 suites) and `arduino-cli compile rlcd_panel` pass locally. The local Command Line Tools lack TestingMacros and the Android SDK, so `swift test` and `gradle testDebugUnitTest` run in CI.

@@ -1245,6 +1245,7 @@ AlertLimits alertLimits() {
   limits.heat_trigger_c = static_cast<float>(config().heat_alert_limit_c);
   limits.stale_timeout_ms = config().staleTimeoutMs();
   limits.mold_delay_h = config().mold_alert_delay_h;
+  limits.heat_delay_h = config().heat_alert_delay_h;
   limits.history = &g_state.history;
   return limits;
 }

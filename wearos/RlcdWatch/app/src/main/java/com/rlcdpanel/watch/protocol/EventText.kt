@@ -50,7 +50,8 @@ object EventText {
         "slot1_enabled", "slot2_enabled", "slot3_enabled", "slot4_enabled", "slot5_enabled",
         "slot6_enabled", "slot7_enabled", "slot8_enabled", "slot9_enabled", "slot10_enabled",
         "auto_assign_min_rssi", "window_drop_c", "mold_alert_delay_h", "reception_low_pct",
-        "dry_alert_delay_h", "jump_limit_c", "jump_limit_rh", "drift_limit_c", "drift_limit_rh"
+        "dry_alert_delay_h", "jump_limit_c", "jump_limit_rh", "drift_limit_c", "drift_limit_rh",
+        "heat_alert_delay_h"
     )
 
     fun describe(row: EventRow): String {
