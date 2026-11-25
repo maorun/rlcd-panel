@@ -88,6 +88,16 @@ class ConfigSchemaTest {
     }
 
     @Test
+    fun jumpLimitsAcceptOffAndTheirRanges() {
+        for (ok in listOf("0", "3.0", "8.0", "20.0")) assertNull(ok, ConfigSchema.validate("jump_limit_c", ok))
+        for (bad in listOf("2.9", "20.5", "x", "-1")) assertNotNull(bad, ConfigSchema.validate("jump_limit_c", bad))
+        for (ok in listOf("0", "10", "25", "50")) assertNull(ok, ConfigSchema.validate("jump_limit_rh", ok))
+        for (bad in listOf("9", "51", "1.5", "-1")) assertNotNull(bad, ConfigSchema.validate("jump_limit_rh", bad))
+        assertEquals("8.0", ConfigSchema.entry("jump_limit_c")!!.defaultValue)
+        assertEquals("25", ConfigSchema.entry("jump_limit_rh")!!.defaultValue)
+    }
+
+    @Test
     fun valueOutsideTheRangeGivesErrorTextAndNoCommand() {
         assertNotNull(ConfigSchema.validate("wake_interval_s", "29"))
         assertNull(ConfigSchema.validate("wake_interval_s", "30"))

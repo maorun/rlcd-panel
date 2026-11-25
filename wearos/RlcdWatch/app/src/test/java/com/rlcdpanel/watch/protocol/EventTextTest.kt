@@ -22,6 +22,12 @@ class EventTextTest {
     }
 
     @Test
+    fun jumpLimitKeysGiveConfigSetTexts() {
+        assertEquals("Config set: jump_limit_c (USB)", EventText.describe(row("CONFIG_SET", 99)))
+        assertEquals("Config set: jump_limit_rh (BLE)", EventText.describe(row("CONFIG_SET", 0x0100 or 100)))
+    }
+
+    @Test
     fun sensorDriftGivesTexts() {
         assertEquals("Sensor drift (tile 3)", EventText.describe(row("SENSOR_DRIFT", 0x0103)))
         assertEquals("Sensor drift gone (Onboard)", EventText.describe(row("SENSOR_DRIFT", 0x0000)))

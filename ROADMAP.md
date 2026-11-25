@@ -22,11 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Config keys jump_limit_c and jump_limit_rh for the jump guard
-  - **Location:** `rlcd_panel/device_config.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `docs/config.example.ini`, `tests/test_firmware_logic.cpp`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ConfigSchemaTests.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigSchema.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigSchema.kt`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Let the user set the jump guard limits for a sensor in the sun or near a heater. Add the key `jump_limit_c` (0 is off, else 3.0 to 20.0 C in 0.5 C steps, default 8.0). Add the key `jump_limit_rh` (0 is off, else 10 to 50 %RH, default 25). Store one byte for each key at the end of the config trailer. Pass both limits to `JumpGuard` in place of `JUMP_TEMP_C` and `JUMP_RH_PCT`. Turn the guard off when both keys are 0. Raise `KEY_COUNT` to 101 and `STATE_VERSION` by one. Add both keys to the three `ConfigSchema` copies.
-  - **Acceptance:** A host test checks that a jump of 9.0 C passes at once with `jump_limit_c=10.0`. A host test checks that a jump of 4.0 C stays pending with `jump_limit_c=3.0`. A host test checks that both keys 0 give no pending packet. A host test rejects `jump_limit_c=2.5`, `jump_limit_c=3.2` and `jump_limit_rh=51`. A host test rejects a trailer byte outside the range in the RTC restore. `testConfigExampleTemplateInSync` passes. The host unit tests, `arduino-cli compile rlcd_panel`, `swift test` in `macos/RlcdCompanion`, `scripts/check-protocol-sync.sh` and `gradle testDebugUnitTest` in both Android projects pass.
-  - **Rank:** [Total: 32, Use: 6, Setup: 9, Harmony: 9, Safety: 8, Effort: M]
 
 ## Priority 3: Display and Logging (Score 22–27)
 

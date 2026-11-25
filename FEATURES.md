@@ -3731,3 +3731,16 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - A change of the window clears the last reply and the confirmation. The `Senden` chip cannot apply a reply of another window.
 - Tests: `FrsiScreenTextTest` checks the picker order. `FrsiReplyTest` checks the lines `FRSI 0 2` and `FRSI 0 2 12`, the hours 2 and 25 (no line), the `SKIP` and `ERR BAD_ARG` texts and `tests/fixtures/frsi_reply_sample.txt`.
 - Validation: `scripts/check-protocol-sync.sh` and `scripts/check-protocol-sync.sh --self-test` exit 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
+
+
+## Config keys for the jump guard limits
+
+- **Code:** `rlcd_panel/device_config.h`, `rlcd_panel/switchbot_ble.h`, `rlcd_panel/power_manager.h`, `docs/config.example.ini`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigSchema.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigSchema.kt`
+- The user can set the limits of the jump guard. This helps for a sensor in the sun or near a heater, because the reading of such a sensor changes fast.
+- `jump_limit_c` sets the temperature limit. The value 0 is off. Else the range is 3.0 to 20.0 C in 0.5 C steps. The default is 8.0 C. A value such as 2.5 or 3.2 gives a rejected line.
+- `jump_limit_rh` sets the humidity limit. The value 0 is off. Else the range is 10 to 50 %RH. The default is 25 %RH.
+- A limit of 0 turns only its own check off. When both keys are 0, the jump guard is off and no packet stays pending.
+- `JumpGuard::isJump` takes both limits. `SwitchBotRegistry::setJumpLimits` stores them. `PersistentState::applyConfig` and the RTC restore pass them to the registry. The defaults give the old behavior.
+- The RTC state holds two bytes at the end of the config trailer: the temperature limit in tenths of a degree and the humidity limit. The RTC restore rejects a byte outside the range. `KEY_COUNT` is 101 and `STATE_VERSION` is 80.
+- The three `ConfigSchema` copies, the Android and Wear OS `ConfigBackup` and `EventText` lists, and `docs/config.example.ini` hold both keys.
+- Tests: host tests check that a jump of 9.0 C passes at once with `jump_limit_c=10.0`, that a jump of 4.0 C stays pending with `jump_limit_c=3.0`, and that both keys 0 give no pending packet. They reject `jump_limit_c=2.5`, `jump_limit_c=3.2` and `jump_limit_rh=51`, and a trailer byte outside the range in the RTC restore. `testConfigExampleTemplateInSync` passes. The schema tests of the three apps cover both keys.
