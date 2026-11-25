@@ -22,11 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 ## Priority 2: Configuration and Control (Score 28–33)
 
   - **Rank:** [Total: 32, Use: 6, Setup: 9, Harmony: 8, Safety: 9, Effort: S]
-- [ ] Changed settings view and reset to default in the Android config editor
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigChangedReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigSchema.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/ConfigEditorScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/ConfigChangedReplyTest.kt`, `FEATURES.md`
-  - **Goal:** Let the user see and undo the changed settings on the phone. Add `ConfigChangedReply.parse` for the `CONFIG CHANGED` reply. Add a filter `Changed only` to `ConfigEditorScreen` that shows only the keys of the reply. Add one `Reset` action for each changed key and one `Reset all` action. Build the `SET` commands with the `ConfigSchema` default through `batch` (fixed schema order, `ble_console` last). Ask for a confirmation before the send. Send `CONFIG CHANGED` again after the batch. Requires "Console command CONFIG CHANGED for the keys that differ from the default".
-  - **Acceptance:** `ConfigChangedReplyTest` reads `tests/fixtures/config_changed_reply_sample.txt` and gives the keys and values of the fixture. A count in `END CHANGED` that differs from the line count throws `ParseException`. An unknown key throws `ParseException`. A test checks that `Reset all` gives one `SET` command for each changed key with the schema default and puts `ble_console` last. `gradle testDebugUnitTest` passes in `android/RlcdPhone`.
-  - **Rank:** [Total: 28, Use: 3, Setup: 9, Harmony: 8, Safety: 8, Effort: S]
 
 ## Priority 3: Display and Logging (Score 22–27)
 

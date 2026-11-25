@@ -21,6 +21,16 @@ sealed class ConfigPlan {
     data class Invalid(val problems: Map<String, String>) : ConfigPlan()
 }
 
+/**
+ * `SET` commands that reset changed keys to the schema default. A key whose default the console cannot send
+ * (an empty name) lands in [skipped] with the reason; the other keys still reset.
+ */
+data class ConfigResetPlan(
+    val commands: List<String>,
+    val changes: List<ConfigChange>,
+    val skipped: Map<String, String>
+)
+
 /** End of a batch run. */
 data class ConfigRunResult(
     val applied: List<String>,
@@ -143,6 +153,19 @@ object ConfigSchema {
         val problems = problems(changes, current)
         if (problems.isNotEmpty()) return ConfigPlan.Invalid(problems)
         return ConfigPlan.Commands(batch(changes), changes)
+    }
+
+    /**
+     * Reset plan for the [changed] keys (reply of `CONFIG CHANGED`): one `SET key=default` for each key whose value
+     * differs from the schema default, in the fixed schema order with `ble_console` last. Keys outside the schema drop out.
+     */
+    fun resetPlan(changed: List<ConfigChangedEntry>): ConfigResetPlan {
+        val current = changed.filter { it.key in byKey }.associate { it.key to it.value }
+        val defaults = current.mapValues { byKey.getValue(it.key).defaultValue }
+        val all = diff(current, defaults)
+        val problems = problems(all)
+        val ok = all.filter { it.key !in problems }
+        return ConfigResetPlan(batch(ok), ok, problems)
     }
 
     /** Text of a failed reply. `ERR READ_ONLY` gets the clear text for `ble_console=1`. */
