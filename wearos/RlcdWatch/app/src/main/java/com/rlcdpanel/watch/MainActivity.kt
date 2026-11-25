@@ -32,6 +32,7 @@ import com.rlcdpanel.watch.protocol.AlertMask
 import com.rlcdpanel.watch.protocol.AlertTransitions
 import com.rlcdpanel.watch.protocol.AlertVibration
 import com.rlcdpanel.watch.protocol.SignalMeter
+import com.rlcdpanel.watch.protocol.CalibrationBatch
 import com.rlcdpanel.watch.protocol.ConfigCache
 import com.rlcdpanel.watch.protocol.PanelClock
 import com.rlcdpanel.watch.protocol.VersionReply
@@ -61,6 +62,7 @@ import com.rlcdpanel.watch.protocol.HistoryReply
 import com.rlcdpanel.watch.protocol.SaltCommand
 import com.rlcdpanel.watch.protocol.SaltReply
 import com.rlcdpanel.watch.protocol.SaltText
+import com.rlcdpanel.watch.protocol.TwoPointCalibration
 import com.rlcdpanel.watch.protocol.WeekReply
 import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryCache
@@ -136,6 +138,10 @@ class MainActivity : ComponentActivity() {
     private var showSalt by mutableStateOf(false)
     private var saltState by mutableStateOf(SaltState())
     private var pendingSaltRead = false
+    /** True after a salt apply until a fresh `CONFIG` is cached; the salt screen then evaluates with no config. */
+    private var saltConfigStale by mutableStateOf(false)
+    /** Salt of the read that waits for the permission dialog: true for `SALT N MGCL2`. */
+    private var pendingSaltMagnesium = false
     /** Room of the open salt screen; set by the tap on the chip, so a read and its title use the same room. */
     private var saltRoom by mutableIntStateOf(0)
     private var showRejects by mutableStateOf(false)
@@ -262,7 +268,7 @@ class MainActivity : ComponentActivity() {
         } else if (week) {
             weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
         } else if (salt) {
-            saltState = SaltState(message = "Bluetooth-Berechtigung fehlt")
+            saltState = saltState.withFailure(pendingSaltMagnesium, "Bluetooth-Berechtigung fehlt")
         } else if (rejects) {
             rejectsState = RejectsState(message = "Bluetooth-Berechtigung fehlt")
         } else if (configChanged) {
@@ -440,7 +446,9 @@ class MainActivity : ComponentActivity() {
                 SaltScreen(
                     state = saltState,
                     roomName = panelConfig.tileName(saltRoom),
-                    onRead = { readSalt() }
+                    currentConfig = if (saltConfigStale) emptyMap() else panelConfig.values,
+                    onRead = { readSalt(it) },
+                    onApply = { applySalt(it) }
                 )
                 return@setContent
             }
@@ -654,6 +662,7 @@ onApply = { applySpread(it) }
         pendingEventsAll = false
         weekState = WeekState()
         pendingWeekRead = false
+        markSaltConfigStaleWhileApplying()
         saltState = SaltState()
         pendingSaltRead = false
         // An open permission dialog keeps pendingHistoryRead, so its result still starts the tapped HISTORY read.
@@ -1029,16 +1038,26 @@ onApply = { applySpread(it) }
     }
 
     private fun closeSalt() {
+        markSaltConfigStaleWhileApplying()
         consoleClient.cancel()
         pendingSaltRead = false
         saltState = SaltState()
         showSalt = false
     }
 
-    /** Asks for the console permissions, then sends `SALT <N>` once. Only a tap in the salt screen calls it. It sends no `SET`. */
-    private fun readSalt() {
-        if (saltState.isReading || pendingSaltRead || healthState.isMuting || clockState.isReadingClock || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
-        saltState = SaltState(isReading = true)
+    /**
+     * A cancel drops the callback of a running apply batch, and a `SET` may have run. The cached gain and offset
+     * are then stale until the next `CONFIG` read, so the salt screen evaluates with no config.
+     */
+    private fun markSaltConfigStaleWhileApplying() {
+        if (saltState.isApplying) saltConfigStale = true
+    }
+
+    /** Asks for the console permissions, then sends `SALT <N>` or, for [magnesium], `SALT <N> MGCL2` once. Only a tap in the salt screen calls it. It sends no `SET`. */
+    private fun readSalt(magnesium: Boolean) {
+        if (saltState.isReading || saltState.isApplying || pendingSaltRead || healthState.isMuting || clockState.isReadingClock || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
+        saltState = saltState.reading()
+        pendingSaltMagnesium = magnesium
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
@@ -1054,23 +1073,49 @@ onApply = { applySpread(it) }
 
     /** A failed CRC-32, a timeout or an `ERR` reply gives one text. The command is not repeated. */
     private fun startSaltRead() {
+        val magnesium = pendingSaltMagnesium
         if (consoleClient.isRunning) {
-            saltState = SaltState(message = "Panel-Verbindung ist belegt")
+            saltState = saltState.withoutRead("Panel-Verbindung ist belegt")
             return
         }
         if (saltRoom !in 0..SaltCommand.MAX_SENSOR) {
-            saltState = SaltState(message = "Raum ohne Sensor")
+            saltState = saltState.withoutRead("Raum ohne Sensor")
             return
         }
-        consoleClient.send(SaltCommand.line(saltRoom, false)) { reply ->
+        consoleClient.send(SaltCommand.line(saltRoom, magnesium)) { reply ->
             saltState = when (reply) {
                 is ConsoleReply.Frame -> try {
-                    SaltState(reply = SaltReply.parse(reply.lines))
+                    saltState.withReply(magnesium, SaltReply.parse(reply.lines))
                 } catch (e: ParseException) {
-                    SaltState(message = "Antwort nicht lesbar")
+                    saltState.withFailure(magnesium, "Antwort nicht lesbar")
                 }
-                is ConsoleReply.Status -> SaltState(message = SaltText.status(reply.line))
-                else -> SaltState(message = BleConsoleClient.errorText(reply))
+                is ConsoleReply.Status -> saltState.withFailure(magnesium, SaltText.status(reply.line))
+                else -> saltState.withFailure(magnesium, BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
+    /**
+     * Sends `SET <gain key>=<gain>`, `SET <offset key>=<offset>`, then `CONFIG`. Only the `Übernehmen` chip calls it,
+     * and only for a result inside the key ranges. The first `ERR` stops the batch. No command is retried.
+     * After a finished batch the two salt results are dropped, because the raw means depend on the active gain and offset.
+     */
+    private fun applySalt(result: TwoPointCalibration.Result) {
+        if (saltState.isApplying || saltState.isReading || pendingSaltRead || isReadingConfig || consoleClient.isRunning) return
+        val before = saltState
+        saltState = before.copy(isApplying = true, applyMessage = null, applyIsError = false)
+        CalibrationBatch(result.proposals).run(consoleClient::send) { batch ->
+            saltState = before.afterApply(batch)
+            if (SaltScreenText.changedConfig(batch)) {
+                // The cached config holds the old gain and offset. Use the CONFIG reply of the batch, else read again.
+                saltConfigStale = true
+                val frame = batch.config
+                if (frame != null) {
+                    isReadingConfig = true
+                    handleConfigReply(frame)
+                } else {
+                    startConfigRead()
+                }
             }
         }
     }
@@ -1800,28 +1845,32 @@ onApply = { applySpread(it) }
     /** A good reply replaces the cache; a bad CRC-32, a timeout or an `ERR` reply keeps the old one. */
     private fun startConfigRead() {
         isReadingConfig = true
-        consoleClient.send("CONFIG") { reply ->
-            // The write and the reload touch the disk, so they run off the main thread.
-            lifecycleScope.launch {
-                val (info, loaded) = withContext(Dispatchers.IO) {
-                    val stored = ConfigCache.store(filesDir, reply, System.currentTimeMillis())
-                    stored to stored?.let { PanelConfig.load(this@MainActivity) }
+        consoleClient.send("CONFIG") { reply -> handleConfigReply(reply) }
+    }
+
+    /** Stores one `CONFIG` reply. The caller sets [isReadingConfig] first. */
+    private fun handleConfigReply(reply: ConsoleReply) {
+        // The write and the reload touch the disk, so they run off the main thread.
+        lifecycleScope.launch {
+            val (info, loaded) = withContext(Dispatchers.IO) {
+                val stored = ConfigCache.store(filesDir, reply, System.currentTimeMillis())
+                stored to stored?.let { PanelConfig.load(this@MainActivity) }
+            }
+            isReadingConfig = false
+            if (info != null && loaded != null) {
+                panelConfig = loaded
+                saltConfigStale = false
+                ClimateTileService.requestUpdate(this@MainActivity)
+                ClimateComplicationService.requestUpdate(this@MainActivity)
+                configStatus = "Config gelesen" +
+                    if (info.rejectedLines.isEmpty()) "" else ", ${info.rejectedLines.size} Zeilen abgelehnt"
+            } else {
+                val reason = when {
+                    reply !is ConsoleReply.Frame -> BleConsoleClient.errorText(reply)
+                    PanelConfig.parseConfigReply(reply.lines).source != "SD" -> "Panel ohne SD-Config"
+                    else -> "Cache nicht beschreibbar"
                 }
-                isReadingConfig = false
-                if (info != null && loaded != null) {
-                    panelConfig = loaded
-                    ClimateTileService.requestUpdate(this@MainActivity)
-                    ClimateComplicationService.requestUpdate(this@MainActivity)
-                    configStatus = "Config gelesen" +
-                        if (info.rejectedLines.isEmpty()) "" else ", ${info.rejectedLines.size} Zeilen abgelehnt"
-                } else {
-                    val reason = when {
-                        reply !is ConsoleReply.Frame -> BleConsoleClient.errorText(reply)
-                        PanelConfig.parseConfigReply(reply.lines).source != "SD" -> "Panel ohne SD-Config"
-                        else -> "Cache nicht beschreibbar"
-                    }
-                    configStatus = "$reason. Alter Stand bleibt."
-                }
+                configStatus = "$reason. Alter Stand bleibt."
             }
         }
     }

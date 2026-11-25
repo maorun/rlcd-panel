@@ -3805,3 +3805,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The panel event ring holds 16 events, and the hourly card write clears it. Only drops since the last write count, so the 24-hour window is an upper bound.
 - `DiagnosticsView` shows the advice with the slot name in the group `Jump guard advice`. The `Apply` button sends the proposal through `ConfigBatch` (`AppModel.applyJumpAdvice`). The app sends no command without a user action.
 - Tests: `JumpAdviceTests` check one advice for 3 drops of slot 2, no advice for 2 drops and for drops older than 24 hours, the proposal `10.0` from 8.0, the clamp at 20.0 and no advice for `jump_limit_c=0`.
+
+## Two-point salt calibration on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/TwoPointCalibration.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SaltScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `scripts/check-protocol-sync.sh`.
+- The user calibrates the humidity gain and offset of one sensor on the watch. The salt screen has a `NaCl` chip and a `MgCl2` chip. The `NaCl` chip sends `SALT N`. The `MgCl2` chip sends `SALT N MGCL2`. Both commands come from the shared `SaltCommand`.
+- `TwoPointCalibration.kt` is a copy of the phone file. `scripts/check-protocol-sync.sh` compares both files. The watch keeps the last `NaCl` result and the last `MgCl2` result of the room. A failed read removes only the result of its own salt.
+- After both replies, `TwoPointCalibration.evaluate` calculates the result from the replies and the cached `CONFIG` values. The screen shows `Gain <x>, Offset <y>` and the `Übernehmen` chip. With only one reply the screen shows no result and no error.
+- A gain outside 0.90 to 1.10 gives the error text `Gain <x> is outside 0.90 to 1.10, no SET sent`. The screen shows no `Übernehmen` chip, so the watch sends no `SET`. The other failures of `TwoPointCalibration.Failure` show their text in the same way.
+- The `Übernehmen` chip runs `CalibrationBatch`: `SET rh_gain=<x>` or `SET slotN_rh_gain=<x>`, then the offset key, then `CONFIG`. The first `ERR` stops the batch. `ERR READ_ONLY` shows the hint `Set ble_console=2 to apply`. No command is repeated.
+- After a `SET` has run (also after a reply that is not valid), the watch removes both salt results and reads `CONFIG` again, because the raw means depend on the active gain and offset.
+- Tests: `TwoPointCalibrationTest` calculates gain and offset from one `NaCl` reply and one `MgCl2` reply, checks the `SET` lines for slot 3, checks that a gain of 1.15 gives the error text and no result, and checks that one reply gives no result. `SaltScreenTextTest` checks the result text, the salt results of `SaltState` and the apply text.
