@@ -1553,7 +1553,8 @@ void setup() {
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::HISTORY) {
       // The RTC histories answer: no card access, so the console keeps running.
       Runner::showHistory(sink, g_state.history, g_state.noise_history,
-                          command.history_one ? static_cast<int>(command.reference) : -1);
+                          command.history_one ? static_cast<int>(command.reference) : -1,
+                          static_cast<int>(command.history_hours));
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::EVENTS) {
       // The RTC ring answers: no card access, so the console keeps running. The ring stays.
       RtcTime events_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again

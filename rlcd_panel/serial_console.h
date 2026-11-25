@@ -63,6 +63,7 @@ struct SerialCommand {
   uint8_t reference_b = 0; // SLOT SWAP: second slot number 1 to 10; FRSI: wall slot 1 to 10 (`reference` holds the first, the room sensor 0 to 10)
   bool week_one = false; // WEEK: true for "WEEK <N>"; `reference` then holds the sensor 0 to 5
   bool history_one = false; // HISTORY: true for "HISTORY <N>"; `reference` then holds the sensor 0 to 10
+  uint8_t history_hours = 0; // HISTORY: window H 1 to 24 of "HISTORY <N> <H>" (0 without the argument, all hours)
   bool today_one = false; // TODAY: true for "TODAY <N>"; `reference` then holds the sensor 0 to 10
   bool events_newest = false; // EVENTS: true for "EVENTS <N>"; `reference` then holds N 1 to 16
   bool ack_all = false; // ACK: true for "ACK ALL" (every active repeatable alert bit that is not acknowledged)
@@ -470,11 +471,30 @@ public:
       if (cmd_len == len) {
         return SerialParseStatus::OK;
       }
-      // optional sensor argument: "HISTORY <N>" with N 0 to 10
-      const int sensor = parseSensorArgument(line, cmd_len, len);
+      // optional sensor argument "HISTORY <N>" with N 0 to 10, then optional hours "HISTORY <N> <H>" with H 1 to 24
+      const char* arg = line + cmd_len + 1;
+      const size_t arg_len = len - cmd_len - 1;
+      const char* space = line[cmd_len] == ' ' ? static_cast<const char*>(memchr(arg, ' ', arg_len)) : nullptr;
+      const size_t sensor_end = space != nullptr ? cmd_len + 1 + static_cast<size_t>(space - arg) : len;
+      const int sensor = parseSensorArgument(line, cmd_len, sensor_end);
       if (sensor < 0) {
         out = SerialCommand{};
         return SerialParseStatus::BAD_ARG;
+      }
+      if (space != nullptr) {
+        const char* h = space + 1;
+        const size_t h_len = len - sensor_end - 1;
+        int hours = -1;
+        if (h_len == 1 && h[0] >= '1' && h[0] <= '9') {
+          hours = h[0] - '0';
+        } else if (h_len == 2 && (h[0] == '1' || h[0] == '2') && h[1] >= '0' && h[1] <= '9') {
+          hours = (h[0] - '0') * 10 + (h[1] - '0');
+        }
+        if (hours < 1 || hours > 24) {
+          out = SerialCommand{};
+          return SerialParseStatus::BAD_ARG;
+        }
+        out.history_hours = static_cast<uint8_t>(hours);
       }
       out.history_one = true;
       out.reference = static_cast<uint8_t>(sensor);
@@ -1940,7 +1960,9 @@ public:
   // includes the noise history). Each history counts its age from its own newest sample: the hourly write pushes all
   // histories in one step, and a sensor without a fresh reading skips its step, so a gap can shift that sensor's age_h. The card stays untouched. A short write ends the reply, so the host sees no CRC32 line.
   // `only_sensor` 0 to 10 sends the rows of that sensor with the same header; a negative value sends all sensors.
-  static void showHistory(Sink& sink, const ClimateHistory& history, const NoiseHistory& noise, int only_sensor = -1) {
+  // `max_hours` above 0 sends only the rows with age_h below it; the CRC32 line covers the filtered bytes.
+  static void showHistory(Sink& sink, const ClimateHistory& history, const NoiseHistory& noise, int only_sensor = -1,
+                          int max_hours = 0) {
     SerialCrc32 crc;
     auto emit = [&](const char* text) {
       const size_t len = strlen(text);
@@ -1962,6 +1984,9 @@ public:
       const size_t noises = s == ClimateHistory::ONBOARD ? noise.size() : 0;
       size_t hours = temps > rhs ? temps : rhs;
       hours = noises > hours ? noises : hours;
+      if (max_hours > 0 && hours > static_cast<size_t>(max_hours)) {
+        hours = static_cast<size_t>(max_hours);
+      }
       for (size_t age = 0; age < hours; ++age) {
         char temp[12] = "", rh[12] = "", db[8] = "";
         if (age < temps) {
