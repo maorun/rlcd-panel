@@ -17,7 +17,7 @@ data class MoldRoomSummary(
     val worstHours: Int?
 )
 
-/** Builds the mold summary of the watch from the rows of one `DAYS 31` reply. */
+/** Builds the mold summary of the watch and phone apps from the rows of one `DAYS 31` reply. */
 object MoldSummary {
     /** Command of the screen: the newest 31 daily rows. */
     const val COMMAND = "DAYS 31"
