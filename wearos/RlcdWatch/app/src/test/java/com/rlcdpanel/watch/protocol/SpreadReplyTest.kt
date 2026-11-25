@@ -155,7 +155,7 @@ class SpreadReplyTest {
     @Test
     fun foreignKeyOrOutOfRangeValueGivesNoProposal() {
         fun measured(line: String) = parse(
-            "SPREAD sensors=3 temp_median=20.0 rh_median=50.0",
+            "SPREAD sensors=1 temp_median=20.0 rh_median=50.0",
             "SENSOR a temp_dev=1.0 rh_dev=0.0 OUTLIER",
             line
         ).outcome as SpreadReply.Outcome.Measured
@@ -168,7 +168,7 @@ class SpreadReplyTest {
     @Test
     fun keysOfDifferentSensorsGiveNoProposal() {
         val m = parse(
-            "SPREAD sensors=3 temp_median=20.0 rh_median=50.0",
+            "SPREAD sensors=1 temp_median=20.0 rh_median=50.0",
             "SENSOR a temp_dev=1.0 rh_dev=0.0 OUTLIER",
             "slot1_temp_offset_c=-1.0 slot2_rh_offset_pct=0.0"
         ).outcome as SpreadReply.Outcome.Measured
