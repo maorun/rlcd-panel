@@ -15665,7 +15665,9 @@ void testSerialWeekParserAndGate() {
   assert(parseText("WEEK", cmd) == SerialParseStatus::OK && !cmd.week_one);
   assert(parseText("WEEK 0", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::WEEK && cmd.week_one && cmd.reference == 0);
   assert(parseText("WEEK 5\r\n", cmd) == SerialParseStatus::OK && cmd.week_one && cmd.reference == 5);
-  const char* bad_forms[] = {"WEEK 6", "WEEK 1x", "WEEK ", "WEEK  ", "WEEK 1 2", "WEEK 10", "WEEK -1", "WEEK x"};
+  assert(parseText("WEEK 6", cmd) == SerialParseStatus::OK && cmd.week_one && cmd.reference == 6);
+  assert(parseText("WEEK 10", cmd) == SerialParseStatus::OK && cmd.week_one && cmd.reference == 10);
+  const char* bad_forms[] = {"WEEK 11", "WEEK 01", "WEEK 1x", "WEEK ", "WEEK  ", "WEEK 1 2", "WEEK 100", "WEEK -1", "WEEK x"};
   for (const char* bad : bad_forms) {
     assert(parseText(bad, cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE && !cmd.week_one);
   }
@@ -15808,6 +15810,24 @@ void testSerialWeekOneSensorRowsAndCrc() {
   }
   const std::string last_body = last.out.substr(0, last.out.rfind("CRC32 "));
   assert(last.out == last_body + historyCrcLine(last_body) + "\n");
+  WeekHistory high = week; // give sensor 10 real values on day 2 to prove the row reads the right index
+  high.setDay(10, 2, true, 105, 215, true, 400, 650, 3, 5);
+  for (const int slot : {6, 10}) { // slots 6 to 10 hold a week too
+    FakeSink hi;
+    TestRunner::showWeek(hi, high, slot);
+    const std::vector<std::string> hi_lines = splitLines(hi.out);
+    assert(hi_lines.size() == 2 + 7 + 1);
+    for (size_t d = 0; d < 7; ++d) {
+      assert(hi_lines[2 + d].rfind(std::to_string(slot) + "," + std::to_string(d) + ",", 0) == 0);
+    }
+    if (slot == 10) {
+      assert(hi_lines[2 + 2] == "10,2,2026-11-15,10.5,21.5,40.0,65.0,3,5");
+    } else {
+      assert(hi_lines[2 + 2] == "6,2,2026-11-15,,,,,,"); // sensor 6 stays a gap day
+    }
+    const std::string hi_body = hi.out.substr(0, hi.out.rfind("CRC32 "));
+    assert(hi.out == hi_body + historyCrcLine(hi_body) + "\n");
+  }
   for (size_t limit = 0; limit < crc_at; ++limit) {
     FakeSink cut;
     cut.limit = limit;
@@ -16172,7 +16192,7 @@ void testSerialWeekOverBleBridge() {
   }
   assert(action == BleConsoleBridge::Action::RUN && command.kind == SerialCommandKind::WEEK);
   action = BleConsoleBridge::Action::NONE;
-  for (const char c : std::string("WEEK 6\n")) {
+  for (const char c : std::string("WEEK 11\n")) {
     action = bridge.feed(static_cast<uint8_t>(c), command, reply);
   }
   assert(action == BleConsoleBridge::Action::REPLY && std::string(reply) == "ERR BAD_ARG\n");
