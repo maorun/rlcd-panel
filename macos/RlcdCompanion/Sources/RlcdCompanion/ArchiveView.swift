@@ -16,7 +16,7 @@ struct ArchiveView: View {
                     Button("List card files") { model.listArchive() }
                         .disabled(!model.canArchive)
                     Button("Choose folder…") { chooseFolder() }
-                    Button("Show daily charts") { model.dailyFolder = model.archiveFolder.map(DailyLog.load(from:)) }
+                    Button("Show daily charts") { model.dailySource = .card; model.dailyFolder = model.archiveFolder.map(DailyLog.load(from:)) }
                         .disabled(model.archiveFolder == nil)
                     Button("Show climate charts") { model.showClimateCharts() }
                         .disabled(model.archiveFolder == nil)
@@ -47,7 +47,7 @@ struct ArchiveView: View {
                     }
                 }
                 if let summary = model.archiveSummary { Text(summary).font(.caption).foregroundStyle(.secondary) }
-                if let daily = model.dailyFolder { DailyChartView(folder: daily, limits: ChartLimits.from(config: model.lastConfig)) }
+                DailyChartView(model: model, limits: ChartLimits.from(config: model.lastConfig))
                 if let stats = model.alertStats { AlertStatsView(result: stats) }
                 if let climate = model.climateData {
                     if !model.climateMonth.isEmpty {

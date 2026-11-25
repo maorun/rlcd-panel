@@ -90,6 +90,12 @@ final class AppModel: ConsoleLinkDelegate {
     var tailResult: TailReply?
     /// Row count of the picker in the `Newest log rows` group (one of `TailReply.rowChoices`).
     var tailRows = 24
+    /// Reply of the last `DAYS` command, `nil` before a user read and after an error.
+    var daysResult: DaysReply?
+    /// Day count of the picker of the daily chart (one of `DaysReply.rowChoices`).
+    var daysCount = 31
+    /// Source of the daily chart: local card files or the panel over the console.
+    var dailySource: DailySource = .card
     var twoPointMessage: String?
     /// Proposal keys that the user selected.
     var calibrationSelection: Set<String> = []
@@ -453,7 +459,7 @@ final class AppModel: ConsoleLinkDelegate {
         diagnostics = nil
         diagnosticsConfig = nil
         version = nil
-        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
+        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; daysResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         panelTime = nil
@@ -472,7 +478,7 @@ final class AppModel: ConsoleLinkDelegate {
     func disconnectConsole() {
         stopRepeatScan(.user)
         stopSaltWatch(.user)
-        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
+        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; daysResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         panelTime = nil
@@ -488,7 +494,7 @@ final class AppModel: ConsoleLinkDelegate {
     func selectTransport(_ t: Transport) {
         stopRepeatScan(.user)
         stopSaltWatch(.user)
-        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
+        scanResult = nil; panelImage = nil; rejectsResult = nil; tailResult = nil; daysResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         transport = t
@@ -918,6 +924,17 @@ final class AppModel: ConsoleLinkDelegate {
         message = nil
         tailResult = nil
         queue = [.tail(rows)]
+        sendNext()
+    }
+
+    /// Reads the newest daily rows with `DAYS <rows>`. Runs only on the user's button, on USB and on BLE.
+    func readDays(rows: Int) {
+        guard consoleConnected else { message = "Console not connected"; return }
+        guard pendingCommand == nil, queue.isEmpty, batch == nil, !reportRunning else { message = "Wait for the running command"; return }
+        guard ConsoleCommand.days(rows).line != nil else { message = "Day count must be 1 to 31"; return }
+        message = nil
+        daysResult = nil
+        queue = [.days(rows)]
         sendNext()
     }
 
@@ -1375,6 +1392,7 @@ final class AppModel: ConsoleLinkDelegate {
             if cmd == .screen { panelImage = nil }
             if cmd == .rejects { rejectsResult = nil }
             if case .tail = cmd { tailResult = nil }
+            if case .days = cmd { daysResult = nil }
             if cmd == .today { today = nil }
             if case .eventsNewest = cmd { recentEvents = .empty }
             if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
@@ -1435,6 +1453,7 @@ final class AppModel: ConsoleLinkDelegate {
                 panelImage = nil
                 rejectsResult = nil
                 tailResult = nil
+                daysResult = nil
                 today = nil
                 config = nil // the ble_console level of a lost link must not gate SET on the next link
                 diagnosticsConfig = nil // the runtime preview needs the schedule of the same link
@@ -1470,6 +1489,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if cmd == .screen { panelImage = nil } // a rejected frame must not stay next to the error
                 if cmd == .rejects { rejectsResult = nil }
                 if case .tail = cmd { tailResult = nil }
+                if case .days = cmd { daysResult = nil }
                 if cmd == .today { today = nil }
                 if case .eventsNewest = cmd { recentEvents = .empty }
                 if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
@@ -1512,6 +1532,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if cmd == .screen { panelImage = nil } // ERR NO_FRAME must not leave an old image
                 if cmd == .rejects { rejectsResult = nil }
                 if case .tail = cmd { tailResult = nil; message = TailReply.message(text) }
+                if case .days = cmd { daysResult = nil; message = DaysReply.message(text) }
                 if case .eventsNewest = cmd { recentEvents = .empty }
                 if cmd == .selfTest { selfTestResult = nil; selfTestLines = [] }
                 if cmd == .scan { scanResult = nil } // ERR SCAN_FAILED must not leave the rows of an old scan
@@ -1571,6 +1592,10 @@ final class AppModel: ConsoleLinkDelegate {
                 tailResult = nil // a reply that fails to parse must not leave the old rows
                 tailResult = try TailReply.parse(lines: lines)
             case (.tail, .file): message = "Unexpected file reply"
+            case let (.days, .frame(lines)):
+                daysResult = nil // a reply that fails to parse must not leave the old rows
+                daysResult = try DaysReply.parse(lines: lines)
+            case (.days, .file): message = "Unexpected file reply"
             case let (.selfTest, .frame(lines)):
                 selfTestResult = nil // a reply that fails to parse must not leave an old result
                 selfTestLines = []
