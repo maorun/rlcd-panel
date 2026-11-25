@@ -32,4 +32,23 @@ class HistoryCommandTest {
         assertEquals(false, HistoryCommand.shouldFallBack(3, "ERR NO_CONSOLE"))
         assertEquals(false, HistoryCommand.shouldFallBack(3, "OK"))
     }
+
+    @Test
+    fun hourLine() {
+        assertEquals("HISTORY 4 6", HistoryCommand.lineHours(4, 6))
+        assertEquals("HISTORY 0 1", HistoryCommand.lineHours(0, 1))
+        assertEquals("HISTORY 10 24", HistoryCommand.lineHours(10, 24))
+        assertThrows(IllegalArgumentException::class.java) { HistoryCommand.lineHours(11, 6) }
+        assertThrows(IllegalArgumentException::class.java) { HistoryCommand.lineHours(-1, 6) }
+        assertThrows(IllegalArgumentException::class.java) { HistoryCommand.lineHours(4, 0) }
+        assertThrows(IllegalArgumentException::class.java) { HistoryCommand.lineHours(4, 25) }
+    }
+
+    @Test
+    fun fallsBackFromHourWindowOnlyForBadArg() {
+        assertEquals(true, HistoryCommand.shouldFallBackFromHours("ERR BAD_ARG"))
+        assertEquals(false, HistoryCommand.shouldFallBackFromHours("ERR UNKNOWN"))
+        assertEquals(false, HistoryCommand.shouldFallBackFromHours("ERR NOT_OVER_BLE"))
+        assertEquals(false, HistoryCommand.shouldFallBackFromHours("OK"))
+    }
 }

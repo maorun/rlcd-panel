@@ -64,7 +64,7 @@ data class CalibrationState(
     val frsi: FrsiReply? = null,
     /** Last `SPREAD` reply of the co-location check. */
     val spread: SpreadReply? = null,
-    /** True while the salt watch sends `HISTORY N` every 10 minutes. */
+    /** True while the salt watch sends `HISTORY N 6` every 10 minutes. */
     val isWatching: Boolean = false,
     /** Progress text or stop reason of the salt watch; null before the first start. */
     val watchText: String? = null
