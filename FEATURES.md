@@ -3794,3 +3794,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The RTC state holds two bytes at the end of the config trailer, after `jump_limit_rh`: the temperature limit in tenths of a degree (3 to 20) and the humidity limit in tenths of a percent (20 to 100 in steps of 5). The RTC restore rejects any other byte. `KEY_COUNT` is 103 and `STATE_VERSION` is 81.
 - The three `ConfigSchema` copies and the two Kotlin `ConfigBackup` copies list both keys. The Kotlin `EventText` shows both names for `CONFIG_SET`.
 - Tests: host tests check that a deviation of 0.8 C gives `OK` with `drift_limit_c=1.0` and `OUTLIER` with the default. They check that a deviation of 4.0 %RH sets the drift bit with `drift_limit_rh=3.5` and that 2.5 %RH releases it. They check that the defaults give the old set and release results. They reject `drift_limit_c=0.2`, `drift_limit_c=2.1` and `drift_limit_rh=2.3`, and a trailer byte outside the range in the RTC restore. `testConfigExampleTemplateInSync` passes. The schema tests of the three apps cover both keys.
+
+## Jump guard advice in the macOS diagnostics view
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/JumpAdvice.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/JumpAdviceTests.swift`
+- The macOS app tells the user when the jump guard drops many good readings of one sensor. A sensor in the sun or near a heater causes this.
+- `JumpAdvice.evaluate(events:config:now:)` counts the `JUMP_DROP` rows of each slot in the 24 hours before `now`. It gives one advice for each slot with 3 or more drops. A row with a bad time or a bad slot does not count.
+- The proposal is `jump_limit_c` plus 2.0, with a maximum of 20.0. There is no advice without a config, for `jump_limit_c=0` (check off) and for `jump_limit_c=20.0`. A config without the key uses the default 8.0.
+- Drops at or before the newest `CONFIG_SET` row of `jump_limit_c` do not count, so a second `Apply` does not stack on old drops. The app hides the advice after a batch that changed `jump_limit_c` until the next `EVENTS` read.
+- The panel event ring holds 16 events, and the hourly card write clears it. Only drops since the last write count, so the 24-hour window is an upper bound.
+- `DiagnosticsView` shows the advice with the slot name in the group `Jump guard advice`. The `Apply` button sends the proposal through `ConfigBatch` (`AppModel.applyJumpAdvice`). The app sends no command without a user action.
+- Tests: `JumpAdviceTests` check one advice for 3 drops of slot 2, no advice for 2 drops and for drops older than 24 hours, the proposal `10.0` from 8.0, the clamp at 20.0 and no advice for `jump_limit_c=0`.

@@ -530,6 +530,7 @@ final class AppModel: ConsoleLinkDelegate {
         history = []
         week = []
         events = []
+        jumpAdviceApplied = false
         recentEvents = .empty
         windowEventWatch = WindowEventWatch() // the next list of a panel is a new baseline
         windowWatch = WindowWatch()
@@ -1415,6 +1416,24 @@ final class AppModel: ConsoleLinkDelegate {
         sendNextBatchCommand()
     }
 
+    /// Jump guard advice from the loaded event ring and the last `CONFIG` reply.
+    /// Hidden after a batch that changed `jump_limit_c` until the next `EVENTS` read: the old ring lacks the new `CONFIG_SET` row, so
+    /// the old drops would give a second advice for the raised limit.
+    var jumpAdvice: [JumpAdvice] {
+        jumpAdviceApplied ? [] : JumpAdvice.evaluate(events: events, config: config, now: Date())
+    }
+
+    private var jumpAdviceApplied = false
+
+    /// Sends the proposal of one advice through `ConfigBatch` (`SET`, then `CONFIG`). Runs on a user action only.
+    func applyJumpAdvice(_ advice: JumpAdvice) {
+        guard isIdle else { message = "Wait for the running command"; return }
+        message = nil
+        batchSummary = nil
+        batch = ConfigBatch(changes: [advice.change])
+        sendNextBatchCommand()
+    }
+
     /// `LIST` and `DUMP` run only on the USB serial link; the firmware replies `ERR NOT_OVER_BLE` on BLE.
     var canArchive: Bool { consoleConnected && transport == .usb }
 
@@ -1555,6 +1574,7 @@ final class AppModel: ConsoleLinkDelegate {
         if b.isFinished {
             batchSummary = b.summary
             batch = nil
+            if b.applied.contains(JumpAdvice.key) { jumpAdviceApplied = true } // any batch that changed the limit
             if rereadChangedAfterBatch, !b.configFailed {
                 rereadChangedAfterBatch = false
                 queue = [.configChanged] // the form shows the keys that still differ
@@ -1754,6 +1774,7 @@ final class AppModel: ConsoleLinkDelegate {
                 week = try WeekReply.parse(lines: lines)
             case let (.events, .frame(lines)):
                 events = try EventsReply.parse(lines: lines)
+                jumpAdviceApplied = false
                 checkWindowNotifications(events)
             case let (.eventsNewest, .frame(lines)):
                 recentEvents = .empty // a reply that fails to parse must not leave the old lines
