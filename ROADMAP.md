@@ -30,12 +30,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Dry air delay in the Android alert limits screen
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertLimits.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/AlertLimitScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertLimitsTest.kt`, `FEATURES.md`
-  - **Goal:** Let the user set the dry air delay on the phone. This item needs the firmware item "Config key dry_alert_delay_h for the dry air badge". Add one `Limit` for `dry_alert_delay_h` (whole hours, 0 to 12, 0 is off). Use the label `Verzögerung Trockenalarm (h)`. Show it below `dry_alert_limit_rh`. Use the same `SET` batch and stop rules as `mold_alert_delay_h`.
-  - **Acceptance:** A unit test checks that 0, 1 and 12 are valid. A unit test checks that 13, -1 and 1.5 are invalid. A unit test checks the line `SET dry_alert_delay_h=4` in the batch. A unit test checks that the range equals the `ConfigSchema` entry. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
-  - **Rank:** [Total: 27, Use: 5, Setup: 6, Harmony: 7, Safety: 9, Effort: S]
-
 - [ ] Newest log rows with gap report on the Wear OS watch
   - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/TailReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/LogGaps.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/TailScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/TailReplyTest.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/LogGapsTest.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
   - **Goal:** Show on the watch if the card log has missing hours. Copy the Android `TailReply.kt` and `LogGaps.kt` into the watch protocol package. Add both names to the `FILES` list of `scripts/check-protocol-sync.sh`. Add `TailScreen`. Send `TAIL 6` only after a tap. Show the newest row of each room, the gap count and one line for each gap. Show `Keine Lücken` for a report without a gap.
