@@ -43,6 +43,9 @@ jobs:
           ./scripts/check-config.sh "${RUNNER_TEMP}/missing.ini" || status=$?
           test "${status}" -eq 2
 
+      - name: Test the check-config script
+        run: bash tests/test_scripts.sh
+
       - name: Self-test the dump-logs file name pattern
         run: ./scripts/dump-logs.sh --self-test
 

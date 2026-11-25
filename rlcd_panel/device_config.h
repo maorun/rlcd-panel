@@ -454,6 +454,9 @@ struct ConfigRejects {
   }
 };
 
+// Reason of a rejected line, for the host check (DeviceConfigCheck). It is no RTC state.
+enum class CheckReason : uint8_t { UNKNOWN_KEY = 0, BAD_VALUE = 1, DUPLICATE_MAC = 2 };
+
 // Outcome of one parse. `file_ok` is false for a file above the size limit; the config then keeps
 // all defaults. `keys_set` counts distinct keys with an accepted value. `rejected` counts lines
 // that were malformed or out of range (it saturates at 255); the previous value of their key
@@ -464,6 +467,8 @@ struct ConfigParseResult {
   uint8_t keys_set = 0;
   uint8_t rejected = 0;
   uint16_t rejected_lines[ConfigRejects::MAX_LINES] = {0, 0, 0, 0};
+  CheckReason rejected_reasons[ConfigRejects::MAX_LINES] = {CheckReason::BAD_VALUE, CheckReason::BAD_VALUE,
+                                                            CheckReason::BAD_VALUE, CheckReason::BAD_VALUE};
 
   ConfigRejects rejects() const {
     ConfigRejects r;
@@ -897,7 +902,7 @@ private:
   // value, the all-zero MAC and a MAC that another slot has fixed are rejected; the previous value
   // stays. Returns false for any other key.
   static bool parseMacKey(const char* key, size_t key_len, const char* val, size_t val_len, DeviceConfig& cfg,
-                          bool& ok, int& index) {
+                          bool& ok, int& index, bool& duplicate) {
     static const char* const mac_keys[DeviceConfig::SLOT_COUNT] = {
         "slot1_mac", "slot2_mac", "slot3_mac", "slot4_mac", "slot5_mac",
         "slot6_mac", "slot7_mac", "slot8_mac", "slot9_mac", "slot10_mac"};
@@ -918,7 +923,9 @@ private:
         return true;
       }
       uint8_t mac[DeviceConfig::MAC_BYTES];
-      ok = parseMac(val, val_len, mac) && !DeviceConfig::macIsZero(mac) && !cfg.macFixedElsewhere(mac, i);
+      const bool valid = parseMac(val, val_len, mac) && !DeviceConfig::macIsZero(mac);
+      duplicate = valid && cfg.macFixedElsewhere(mac, i);
+      ok = valid && !duplicate;
       if (ok) {
         memcpy(cfg.slot_mac[i], mac, sizeof(mac));
       }
@@ -1026,9 +1033,10 @@ private:
     return false;
   }
 
-  static void reject(ConfigParseResult& result, uint16_t line_no) {
+  static void reject(ConfigParseResult& result, uint16_t line_no, CheckReason reason = CheckReason::BAD_VALUE) {
     if (result.rejected < ConfigRejects::MAX_LINES) {
       result.rejected_lines[result.rejected] = line_no;
+      result.rejected_reasons[result.rejected] = reason;
     }
     if (result.rejected < 255) {
       ++result.rejected;
@@ -1043,7 +1051,7 @@ private:
     }
     const char* eq = static_cast<const char*>(memchr(line, '=', n));
     if (eq == nullptr) {
-      reject(result, line_no);
+      reject(result, line_no, CheckReason::UNKNOWN_KEY);
       return;
     }
     const char* key = line;
@@ -1054,6 +1062,7 @@ private:
     trim(val, val_len);
 
     bool ok = false;
+    bool duplicate = false;
     int index = -1;
     if (keyIs(key, key_len, "temp_offset_c")) {
       index = 0;
@@ -1213,7 +1222,7 @@ private:
       // index and ok set by parseEnabledKey
     } else if (parseNameKey(key, key_len, val, val_len, cfg, ok, index)) {
       // index and ok set by parseNameKey
-    } else if (parseMacKey(key, key_len, val, val_len, cfg, ok, index)) {
+    } else if (parseMacKey(key, key_len, val, val_len, cfg, ok, index, duplicate)) {
       // index and ok set by parseMacKey
     }
     if (index < 0) {
@@ -1222,7 +1231,7 @@ private:
     if (ok) {
       seen.set(static_cast<size_t>(index));
     } else {
-      reject(result, line_no);
+      reject(result, line_no, duplicate ? CheckReason::DUPLICATE_MAC : CheckReason::BAD_VALUE);
     }
   }
 };
@@ -1468,7 +1477,7 @@ public:
 
 // Host check of a config.ini text (tools/check_config.cpp). It runs DeviceConfigParser with the
 // firmware rules and writes the report: the accepted values as DeviceConfigText, then one line
-// "REJECTED line=<N>" for each recorded line and "REJECTED count=<N>". The exit code is 0 for no
+// "REJECTED line=<N> key=<key> reason=<UNKNOWN_KEY|BAD_VALUE|DUPLICATE_MAC>" for each recorded line and "REJECTED count=<N>". The exit code is 0 for no
 // rejected line, 1 for rejected lines and 2 for a file above DeviceConfigParser::MAX_FILE_SIZE
 // (the report is then one ERROR line). The code needs no Arduino header.
 class DeviceConfigCheck {
@@ -1477,7 +1486,7 @@ public:
   static constexpr int EXIT_REJECTED = 1;
   static constexpr int EXIT_UNUSABLE = 2;
   // Enough for the longest report: the values, four line numbers and the count.
-  static constexpr size_t MAX_REPORT_SIZE = DeviceConfigText::MAX_SIZE + 128;
+  static constexpr size_t MAX_REPORT_SIZE = DeviceConfigText::MAX_SIZE + 384;
 
   // Returns the exit code. `out` always holds a terminated string, empty when `cap` is 0.
   static int run(const char* data, size_t len, char* out, size_t cap) {
@@ -1494,7 +1503,11 @@ public:
     size_t pos = DeviceConfigText::format(cfg, out, cap);
     const ConfigRejects rejects = result.rejects();
     for (size_t i = 0; i < rejects.recorded() && pos < cap; ++i) {
-      pos += append(out, cap, pos, "REJECTED line=%u\n", static_cast<unsigned>(rejects.lines[i]));
+      char key[48];
+      lineKey(data, len, rejects.lines[i], key, sizeof(key));
+      const int n = snprintf(out + pos, cap - pos, "REJECTED line=%u key=%s reason=%s\n",
+                             static_cast<unsigned>(rejects.lines[i]), key, reasonText(result.rejected_reasons[i]));
+      pos += n < 0 ? 0 : static_cast<size_t>(n);
     }
     if (pos < cap) {
       append(out, cap, pos, "REJECTED count=%u\n", static_cast<unsigned>(rejects.count));
@@ -1503,6 +1516,46 @@ public:
   }
 
 private:
+  static const char* reasonText(CheckReason r) {
+    switch (r) {
+      case CheckReason::UNKNOWN_KEY: return "UNKNOWN_KEY";
+      case CheckReason::DUPLICATE_MAC: return "DUPLICATE_MAC";
+      default: return "BAD_VALUE";
+    }
+  }
+
+  // Copies the trimmed key of the 1-based line `line_no` to `key` ("--" for a line without "=").
+  static void lineKey(const char* data, size_t len, uint16_t line_no, char* key, size_t cap) {
+    snprintf(key, cap, "--");
+    size_t start = 0;
+    if (len >= 3 && static_cast<uint8_t>(data[0]) == 0xEF && static_cast<uint8_t>(data[1]) == 0xBB &&
+        static_cast<uint8_t>(data[2]) == 0xBF) {
+      start = 3; // the parser skips a UTF-8 BOM
+    }
+    for (uint16_t cur = 1; start <= len; ++cur) {
+      size_t end = start;
+      while (end < len && data[end] != '\n') ++end;
+      if (cur == line_no) {
+        const char* eq = static_cast<const char*>(memchr(data + start, '=', end - start));
+        if (eq != nullptr) {
+          const char* k = data + start;
+          size_t n = static_cast<size_t>(eq - k);
+          while (n > 0 && (*k == ' ' || *k == '\t')) { ++k; --n; }
+          while (n > 0 && (k[n - 1] == ' ' || k[n - 1] == '\t' || k[n - 1] == '\r')) --n;
+          if (n >= cap) n = cap - 1;
+          memcpy(key, k, n);
+          key[n] = '\0';
+          for (size_t j = 0; j < n; ++j) {
+            if (static_cast<uint8_t>(key[j]) < 0x20) key[j] = '?'; // no control character in the report
+          }
+        }
+        return;
+      }
+      if (end >= len) return;
+      start = end + 1;
+    }
+  }
+
   static size_t append(char* out, size_t cap, size_t pos, const char* fmt, unsigned value) {
     const int n = snprintf(out + pos, cap - pos, fmt, value);
     return n < 0 ? 0 : static_cast<size_t>(n);

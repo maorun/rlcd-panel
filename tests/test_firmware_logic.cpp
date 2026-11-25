@@ -21781,13 +21781,13 @@ static void testConfigCheckTool() {
   assert(runConfigCheck(malformed, sizeof(malformed) - 1, report, sizeof(report)) == 1);
   assert(strstr(report, "chime_volume_pct=40\n") != nullptr);
   assert(strstr(report, "wake_interval_s=60\n") != nullptr);
-  assert(strstr(report, "REJECTED line=2\n") != nullptr);
+  assert(strstr(report, "REJECTED line=2 key=wake_interval_s reason=BAD_VALUE\n") != nullptr);
   assert(strstr(report, "REJECTED count=1\n") != nullptr);
 
   // Out-of-range value: exit 1.
   const char range[] = "\nchime_volume_pct=101\n";
   assert(runConfigCheck(range, sizeof(range) - 1, report, sizeof(report)) == 1);
-  assert(strstr(report, "REJECTED line=2\n") != nullptr);
+  assert(strstr(report, "REJECTED line=2 key=chime_volume_pct reason=BAD_VALUE\n") != nullptr);
   assert(strstr(report, "REJECTED count=1\n") != nullptr);
 
   // More than four rejects: four line numbers, the true count.
@@ -21797,8 +21797,8 @@ static void testConfigCheckTool() {
     many_len += static_cast<size_t>(snprintf(many + many_len, sizeof(many) - many_len, "wake_interval_s=x\n"));
   }
   assert(runConfigCheck(many, many_len, report, sizeof(report)) == 1);
-  assert(strstr(report, "REJECTED line=4\n") != nullptr);
-  assert(strstr(report, "REJECTED line=5\n") == nullptr);
+  assert(strstr(report, "REJECTED line=4 key=wake_interval_s reason=BAD_VALUE\n") != nullptr);
+  assert(strstr(report, "REJECTED line=5") == nullptr);
   assert(strstr(report, "REJECTED count=6\n") != nullptr);
 
   // Empty file: exit 0 with the defaults.
@@ -21833,6 +21833,46 @@ static void testConfigCheckTool() {
   }
   assert(runConfigCheck(longest, strlen(longest), report, sizeof(report)) == 1);
   assert(strstr(report, "REJECTED count=5\n") != nullptr);
+  assert(strlen(report) < DeviceConfigCheck::MAX_REPORT_SIZE);
+}
+
+static void testConfigCheckDuplicateMac() {
+  char report[DeviceConfigCheck::MAX_REPORT_SIZE];
+
+  // Same MAC in slot 1 and slot 3 (case-insensitive): line 3 is rejected as DUPLICATE_MAC.
+  const char dup[] = "slot1_mac=AA:BB:CC:DD:EE:01\nslot2_mac=AA:BB:CC:DD:EE:02\nslot3_mac=aa:bb:cc:dd:ee:01\n";
+  assert(runConfigCheck(dup, sizeof(dup) - 1, report, sizeof(report)) == 1);
+  assert(strstr(report, "REJECTED line=3 key=slot3_mac reason=DUPLICATE_MAC\n") != nullptr);
+  assert(strstr(report, "REJECTED count=1\n") != nullptr);
+
+  // Two empty MACs do not collide.
+  const char empty[] = "slot1_mac=\nslot3_mac=\n";
+  assert(runConfigCheck(empty, sizeof(empty) - 1, report, sizeof(report)) == 0);
+  assert(strstr(report, "REJECTED count=0\n") != nullptr);
+
+  // A malformed MAC is BAD_VALUE, not DUPLICATE_MAC.
+  const char bad[] = "slot1_mac=AA:BB\n";
+  assert(runConfigCheck(bad, sizeof(bad) - 1, report, sizeof(report)) == 1);
+  assert(strstr(report, "REJECTED line=1 key=slot1_mac reason=BAD_VALUE\n") != nullptr);
+
+  // A line without "=" has no known key.
+  const char nokey[] = "wake_interval_s\n";
+  assert(runConfigCheck(nokey, sizeof(nokey) - 1, report, sizeof(report)) == 1);
+  assert(strstr(report, "REJECTED line=1 key=-- reason=UNKNOWN_KEY\n") != nullptr);
+  assert(strstr(report, "REJECTED count=1\n") != nullptr);
+
+  // A BOM on line 1 does not reach the key text.
+  const char bom[] = "\xEF\xBB\xBFslot1_mac=AA:BB\n";
+  assert(runConfigCheck(bom, sizeof(bom) - 1, report, sizeof(report)) == 1);
+  assert(strstr(report, "REJECTED line=1 key=slot1_mac reason=BAD_VALUE\n") != nullptr);
+
+  // Four duplicate rejects still fit the report buffer.
+  const char many[] = "slot1_mac=AA:BB:CC:DD:EE:01\nslot2_mac=AA:BB:CC:DD:EE:01\nslot3_mac=AA:BB:CC:DD:EE:01\n"
+                      "slot4_mac=AA:BB:CC:DD:EE:01\nslot5_mac=AA:BB:CC:DD:EE:01\n";
+  assert(runConfigCheck(many, sizeof(many) - 1, report, sizeof(report)) == 1);
+  assert(strstr(report, "REJECTED line=5 key=slot5_mac reason=DUPLICATE_MAC\n") != nullptr);
+  assert(strstr(report, "REJECTED line=1 ") == nullptr);
+  assert(strstr(report, "REJECTED count=4\n") != nullptr);
   assert(strlen(report) < DeviceConfigCheck::MAX_REPORT_SIZE);
 }
 
@@ -28857,6 +28897,7 @@ testSerialConfigNegativeSmallOffset();
   testSensorBatteryPreviewScene();
   testSensorStaleMinConfig();
   testConfigCheckTool();
+  testConfigCheckDuplicateMac();
   testSdCardStatus();
   testClimateMathFixtureVectors();
   testWallRhFixtureVectors();
