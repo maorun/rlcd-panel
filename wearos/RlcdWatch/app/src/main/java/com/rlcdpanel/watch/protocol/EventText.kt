@@ -160,6 +160,13 @@ object EventText {
                 else if (row.event == "WALL_DAMP") (if (set == 1) "Wall damp ($room)" else "Wall dry again ($room)")
                 else (if (set == 1) "Dry air ($room)" else "Air humidity good ($room)")
             }
+            "SENSOR_DRIFT" -> {
+                // Low byte is the tile (0 onboard, 1 to 10 slots); the high byte 1 marks a drifting sensor, 0 a good one.
+                val tile = d and 0xFF
+                val drift = d shr 8
+                if (d !in 0..0xFFFF || tile > 10 || drift > 1) raw
+                else "Sensor drift ${if (drift == 1) "" else "gone "}(${if (tile == 0) "Onboard" else "tile $tile"})"
+            }
             "SD_FAULT" -> SD_STATUSES[d]?.let { if (d == 1) "SD card OK" else "SD card fault: $it" } ?: raw
             else -> raw
         }

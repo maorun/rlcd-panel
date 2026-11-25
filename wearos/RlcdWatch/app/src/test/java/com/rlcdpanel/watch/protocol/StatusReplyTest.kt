@@ -191,6 +191,21 @@ class StatusReplyTest {
         assertEquals(false, status.memory!!.isLow)
     }
 
+    @Test
+    fun parsesDriftMask() {
+        val latch = StatusReply.parse(fixtureLines()).latch!!
+        assertEquals(0x002, latch.drift)
+        val old = replace("LATCH ", "LATCH vent=002 dry=000 batlow=008 stale=004").latch!!
+        assertNull(old.drift)
+        for (extra in listOf("drift=800", "drift=", "drift=00g", "drift=1")) {
+            try {
+                replace("LATCH ", "LATCH vent=002 dry=000 batlow=008 stale=004 $extra")
+                fail("expected ParseException for $extra")
+            } catch (e: ParseException) {
+            }
+        }
+    }
+
     private fun replace(prefix: String, line: String) =
         StatusReply.parse(fixtureLines().map { if (it.startsWith(prefix)) line else it })
 
@@ -289,7 +304,7 @@ class StatusReplyTest {
     @Test
     fun parsesLatchLine() {
         val latch = StatusReply.parse(fixtureLines()).latch!!
-        assertEquals(LatchState(0x002, 0x000, 0x008, 0x004, 0x002, 0x402, 0x202), latch)
+        assertEquals(LatchState(0x002, 0x000, 0x008, 0x004, 0x002, 0x402, 0x202, 0x002), latch)
         assertEquals(0x202, latch.receptionLow)
         assertEquals(0x002, latch.wall)
         assertEquals(0x402, latch.window)
