@@ -28,12 +28,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test checks that the first mask gives no tile. A unit test checks that a rising bit gives its tile. A unit test checks that an equal mask and a falling bit give no tile. A unit test checks that a `nil` mask keeps the stored mask. A unit test checks the notification text. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
   - **Rank:** [Total: 29, Use: 7, Setup: 4, Harmony: 8, Safety: 10, Effort: S]
 
-- [ ] Dry air notification in the Android app
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/DryWatch.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/DryWatchTest.kt`, `FEATURES.md`
-  - **Goal:** Tell the user on the phone when a room becomes too dry. Add `DryWatch` with the rules of the Kotlin `WindowWatch`. Read the `dry=` mask of the `STATUS` line `LATCH`. `MainActivity` posts one notification for each rising tile with `DryWatch.message(<room>)` and `DryWatch.notificationId(tile)`. Use `PanelConfig.tileName` for the room.
-  - **Acceptance:** A unit test checks that the first mask gives no tile. A unit test checks that a rising bit gives its tile. A unit test checks that an equal mask and a falling bit give no tile. A unit test checks that a missing `dry=` field keeps the stored mask. A unit test checks that each tile has a different notification ID. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
-  - **Rank:** [Total: 29, Use: 7, Setup: 4, Harmony: 8, Safety: 10, Effort: S]
-
 
 ## Priority 3: Display and Logging (Score 22–27)
 
