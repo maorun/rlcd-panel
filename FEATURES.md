@@ -4034,3 +4034,13 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `AlertLimits.plan` gives one `SET <key>=<value>` for each changed key in the fixed order, no command for an unchanged value, and refuses the whole list when one value is invalid. `AppModel.applyAlertLimits` sends the commands through `ConfigBatch`, then `CONFIG`; the first `ERR` stops the remaining `SET` commands.
 - `AlertLimitsView` shows the cached value (else the firmware default) of each key. The edit fields and `Apply` need a console that takes `SET` (USB, or BLE with `ble_console=2`); otherwise the view is read-only with a hint. A bad field shows a warning symbol and `Apply` stays off. The view sends commands only on the `Apply` click.
 - No firmware change, no RTC layout change. Tests: `AlertLimitsViewTests` (order, ranges, plan, unchanged value, invalid value, comma, batch order with `CONFIG` last, stop after `ERR`, edit gate).
+
+## Salt picker for the two-point calibration in the Android calibration screen
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/CalibrationScreen.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/TwoPointCalibrationTest.kt`
+- The `Salt check` section has a picker with the chips `NaCl (75 %)` and `MgCl2 (33 %)` (`CalibrationState.magnesium`) and one check button. A tap sends `SaltCommand.line(sensor, magnesium)`, so `SALT N` or `SALT N MGCL2`. The phone keeps the last NaCl reply and the last MgCl2 reply of the picked sensor.
+- With both replies and a read config, the screen shows the gain and the offset of `TwoPointCalibration`. The `Apply` button sends `SET <gain key>`, `SET <offset key>`, then `CONFIG` through `CalibrationBatch`. A gain outside 0.90 to 1.10 shows `Gain <x> is outside 0.90 to 1.10, no SET sent` and sends no `SET`. `ERR READ_ONLY` shows `Set ble_console=2 to apply`.
+- `CalibrationState.selectReference(sensor)` clears both salt replies, the `CALIB` reply and the selection when the sensor changes. The same sensor keeps them.
+- No firmware change, no RTC layout change. `TwoPointCalibration.kt` is unchanged, so `scripts/check-protocol-sync.sh` stays green.
+- Tests: `TwoPointCalibrationTest` checks the `SALT` lines, the gain 1.116 error for the NaCl mean 73.0 %RH and the MgCl2 mean 35.0 %RH at 20 C, the macOS values (gain 1.066, offset 0.8), the `SET` order (gain, offset, `CONFIG`), the gain 1.15 error without `SET`, the `ERR READ_ONLY` text and the clear on a sensor change.
+- Validation: `scripts/check-protocol-sync.sh` passes. The local host has no Android SDK, so the Gradle tests run in CI.

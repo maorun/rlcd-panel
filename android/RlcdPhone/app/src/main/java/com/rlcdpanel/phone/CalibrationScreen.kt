@@ -54,6 +54,8 @@ data class CalibrationState(
     /** Last NaCl and MgCl2 check of the picked reference sensor. */
     val naCl: SaltReply? = null,
     val mgCl2: SaltReply? = null,
+    /** Salt of the next check: false is NaCl, true is MgCl2. */
+    val magnesium: Boolean = false,
     /** Room sensor (0 to 10) and wall slot (1 to 10) of the wall factor section. */
     val frsiRoom: Int = 0,
     val frsiWall: Int = 1,
@@ -69,6 +71,11 @@ data class CalibrationState(
     /** Progress text or stop reason of the salt watch; null before the first start. */
     val watchText: String? = null
 ) {
+    /** Picks another reference sensor. A change drops the reply, the selection and both salt checks. */
+    fun selectReference(sensor: Int): CalibrationState =
+        if (sensor == reference) this
+        else copy(reference = sensor, reply = null, selected = emptySet(), message = null, isError = false, naCl = null, mgCl2 = null)
+
     /** The proposals that a tap on `Apply` sends, in reply order. */
     val chosen: List<CalibrationProposal>
         get() = reply?.proposals.orEmpty().filter { it.key in selected }
@@ -97,6 +104,7 @@ fun CalibrationScreen(
     onRead: () -> Unit,
     onToggle: (String) -> Unit,
     onApply: () -> Unit,
+    onPickSalt: (Boolean) -> Unit,
     onSalt: (Boolean) -> Unit,
     onWatchSalt: (Boolean) -> Unit,
     onStopWatch: () -> Unit,
@@ -163,8 +171,15 @@ fun CalibrationScreen(
             }
             item {
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onClick = { onSalt(false) }, enabled = !state.isBusy) { Text("NaCl (75 %)") }
-                    Button(onClick = { onSalt(true) }, enabled = !state.isBusy) { Text("MgCl2 (33 %)") }
+                    FilterChip(selected = !state.magnesium, enabled = !state.isBusy, onClick = { onPickSalt(false) }, label = { Text("NaCl (75 %)") })
+                    FilterChip(selected = state.magnesium, enabled = !state.isBusy, onClick = { onPickSalt(true) }, label = { Text("MgCl2 (33 %)") })
+                }
+            }
+            item {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Button(onClick = { onSalt(state.magnesium) }, enabled = !state.isBusy) {
+                        Text(if (state.magnesium) "MgCl2 prüfen" else "NaCl prüfen")
+                    }
                 }
             }
             item {
