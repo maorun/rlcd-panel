@@ -114,6 +114,17 @@ public:
     return n;
   }
 
+  // Number of stored samples at or below the limit (0.1 %RH steps). A sample at the limit counts.
+  size_t countAtOrBelow(uint16_t limit_tenths) const {
+    size_t n = 0;
+    for (size_t i = 0; i < count_; ++i) {
+      if (at(i) <= static_cast<int32_t>(limit_tenths)) {
+        ++n;
+      }
+    }
+    return n;
+  }
+
   // True when the newest `n` samples exist and each one is strictly above the limit (0.1 %RH steps).
   // Fewer than `n` samples give false. `n` 0 gives true.
   bool newestAbove(size_t n, uint16_t limit_tenths) const {

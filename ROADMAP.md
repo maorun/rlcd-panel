@@ -26,12 +26,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Dry hours field in the STATUS SENSOR lines
-  - **Location:** `rlcd_panel/sparkline.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/status_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Show how many hours each room was too dry. Add `HumidityHistory::countAtOrBelow(limit_tenths)`. Append ` dry_h=<N|-->` after `rh_trend=` to each `SENSOR` line of `STATUS`. Count the 24-hour samples at or below `dry_alert_limit_rh`. Send `--` for `dry_alert_limit_rh` 0, for fewer than `HumidityHistory::MIN_RANGE_SAMPLES` samples and for an empty, disabled or stale slot. Calculate the field on each `STATUS`. Do not change the RTC layout or `STATE_VERSION`.
-  - **Acceptance:** A host test checks that a sample at the limit counts. A host test checks that a sample above the limit does not count. A host test checks `dry_h=--` for limit 0, for a stale slot and for too few samples. A host test checks the full `SENSOR` line with the new field. The fixture holds the field. The host unit tests pass. `arduino-cli compile rlcd_panel` passes.
-  - **Rank:** [Total: 27, Use: 6, Setup: 4, Harmony: 7, Safety: 10, Effort: S]
-
 - [ ] Dry hours in the macOS sensor list
   - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/StatusReplyTests.swift`, `FEATURES.md`
   - **Goal:** Show the dry hours of each room beside the mold hours. This item needs the firmware item "Dry hours field in the STATUS SENSOR lines". Add `StatusSensor.dryHours` (`Int?`). Give `nil` for `--` and for a missing field. Throw `ParseError.badLine` for a bad number. Show `Dry <N> h` in the menu bar status list and in the `Sensor health` rows. Show a warning symbol above 0 hours.

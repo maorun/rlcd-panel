@@ -1160,7 +1160,7 @@ struct SerialStatusSnapshot {
 //   DeviceConfigParser::KEYS whose value differs from the default DeviceConfig, in KEYS order, then "END CHANGED <N>" and "CRC32 <8 hex digits>"
 //   over all lines before it. An empty slot name and an empty MAC equal the default (the default config holds none). "ERR BAD_ARG" for extra text (CHANGEDX, CHANGED 1).
 //   showConfigChanged() works on the RTC copy: no card access, so execute() ignores CONFIG. USB and BLE at each ble_console level.
-//   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW> format=<...> mac=<...> mold_h=<N|--> temp_trend=<RISE|FALL|STEADY|--> rh_trend=<RISE|FALL|STEADY|-->" for index 0
+//   STATUS -> "SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<OK|STALE|EMPTY|BATLOW> format=<...> mac=<...> mold_h=<N|--> temp_trend=<RISE|FALL|STEADY|--> rh_trend=<RISE|FALL|STEADY|--> dry_h=<N|-->" for index 0
 //   (onboard, newest hourly sample, bat and rssi are "--") and 1 to 5 (slots, calibrated readings), a missing value gives "--";
 //   then "SD status=<UNKNOWN|OK|NO_CARD|MOUNT_FAILED|WRITE_FAILED|FULL> age=<s|--> free_mb=<N|-->" (age since the last card result; free card space of the last card read), then "RESET reason=<TEXT> abnormal=<N|-->", then "RTC trim=<N|--> drift_ppm=<N|-->" (offset register of the PCF85063A; the drift rate only for a figure of 24 h or more), then "NTP ok=<0|1|--> failures=<N> age_s=<N|--> next_s=<N|-->" (RTC copy of the NTP state; "--" without an attempt or without Wi-Fi credentials; next_s is the time to the next due attempt; age_s and next_s use the 32-bit clock difference of NtpSchedule::due and wrap like it), then "SHTC3 nack=<N> short=<N> crc=<N> run=<N> retried=<N>[ usb_offset=<x>]" (the offset only on USB power), then "BLE rejected=<N> last=<MAC|--> woio=<N> meter=<N> bthome=<N> atc=<N> thermopro=<N> unassigned=<N> jumps=<N>" (packets of the current scan that no slot took; unassigned counts the packets blocked by slot_auto_assign=0; jumps counts the pending packets of a large reading jump that JumpGuard dropped), then "RECEPTION s1=<N>/<M> ... s5=<N>/<M>" (scans with a packet of the last <M> scans, "--" for an empty slot), then "POWER src=<USB|BAT> v=<V> pct=<%> alerts=<hex mask> muted=<0|1> acked=<hex mask>", then "RUNTIME h=<N|--> samples=<N> cycles=<N.N|--> scan_saved_ms=<N>" (remaining hours, battery samples, charge cycles), then "AWAKE last_ms=<N|--> avg_ms=<N|--> max_ms=<N|--> samples=<N>" (measured awake time of the timer wakeups on battery power), then "MEMORY free=<N> min=<N> largest=<N> psram=<N>" (heap and PSRAM bytes of the current wake cycle; no RTC state), then "FRAME crc=<8 hex digits|--> skips=<N>" (RTC copy of FrameRefresh: CRC-32 of the last flushed frame, "--" for 0, and the skip counter), then "WAKE cause=<POWER_ON|TIMER|KEY|OTHER> boots=<N> battery_interval_s=<N>" (cause of this wake cycle, RTC copy of boot_count, and the sleep interval that PowerManager::powerConfig gives on battery power at the current RTC time), then "LATCH vent=<3 hex digits> dry=<3 hex digits> batlow=<3 hex digits> stale=<3 hex digits> wall=<3 hex digits> window=<3 hex digits> rxlow=<3 hex digits>" (RTC copy of the badge latches; vent, dry, wall and window: bit 0 onboard, bits 1 to 10 slots; batlow, stale and rxlow: bits 0 to 9 slots), then "NOISE db=<N|--> band=<QUIET|MODERATE|LOUD> peak_db=<N|--> peak_hour=<N|--> events_sum=<N>" (RTC copy: newest hourly noise level, noise band latch, peak of the current day; no microphone access), then "CHIME repeat_h=<N> bits=<2 hex digits> last_s=<N|--> next_s=<N|--> snooze_s=<N|-->" (chime_repeat_h; bits are the repeatable active alerts without the acknowledged ones; seconds since the last chime stamp, "--" for 0; seconds to the next reminder, at least 0, "--" for repeat_h 0 and for bits 0; remaining snooze seconds, "--" without an active snooze), then "CRC32 <8 hex digits>" over all lines
 //   before it. A space in a name becomes "_". showStatus() works on the RTC copy: no card access, so execute() ignores STATUS.
@@ -2371,7 +2371,7 @@ public:
     const DeviceConfig& cfg = *snap.config;
     const SwitchBotRegistry cal = snap.registry->calibrated(cfg.slot_temp_offset_c, cfg.slot_rh_offset_pct, cfg.slot_rh_gain);
     // Static: buffer does not fit the default Arduino loopTask stack.
-    static char text[2560];
+    static char text[3072];
     size_t len = 0;
     for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
       // A slot name follows the MAC of the sensor in the slot (reading, else fixed MAC), not the slot index.
@@ -2446,13 +2446,19 @@ public:
         snprintf(mold, sizeof(mold), "%u",
                  static_cast<unsigned>(rh_history.countAbove(static_cast<uint16_t>(cfg.mold_alert_limit_rh * 10u))));
       }
+      // dry_h: live sensor with enough samples shows the hours at or below dry_alert_limit_rh; 0 = off gives "--".
+      char dry[8] = "--";
+      if (live && cfg.dry_alert_limit_rh != 0 && rh_history.size() >= HumidityHistory::MIN_RANGE_SAMPLES) {
+        snprintf(dry, sizeof(dry), "%u",
+                 static_cast<unsigned>(rh_history.countAtOrBelow(static_cast<uint16_t>(cfg.dry_alert_limit_rh * 10u))));
+      }
       // Same rules as the trend marks of the tiles: a live sensor shows the trend of its 24-hour histories.
       const char* temp_trend = live ? TrendClassifier::statusText(TrendClassifier::temperature(snap.history->temperatures[i])) : "--";
       const char* rh_trend = live ? TrendClassifier::statusText(TrendClassifier::humidity(rh_history)) : "--";
       len += static_cast<size_t>(snprintf(
           text + len, sizeof(text) - len,
-          "SENSOR %u %s temp=%s rh=%s bat=%s rssi=%s age=%s state=%s format=%s mac=%s mold_h=%s temp_trend=%s rh_trend=%s\n",
-          static_cast<unsigned>(i), name, temp, rh, bat, rssi, age, state, format_str, mac, mold, temp_trend, rh_trend));
+          "SENSOR %u %s temp=%s rh=%s bat=%s rssi=%s age=%s state=%s format=%s mac=%s mold_h=%s temp_trend=%s rh_trend=%s dry_h=%s\n",
+          static_cast<unsigned>(i), name, temp, rh, bat, rssi, age, state, format_str, mac, mold, temp_trend, rh_trend, dry));
       if (len >= sizeof(text)) {
         return; // a truncated frame has no valid CRC: send nothing
       }
