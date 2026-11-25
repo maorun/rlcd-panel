@@ -367,28 +367,54 @@ public struct TodayRow: Hashable {
     public let humidityMinPct: Double?
     public let humidityMaxPct: Double?
     public let humidityMeanPct: Double?
+    /// Hours of the day above the mold limit; `nil` for an empty field and for the old header.
+    public let moldHours: Int?
+    /// Hours of the day at or below the dry limit; `nil` for an empty field and for the old header.
+    public let dryHours: Int?
+
+    public init(sensor: Int, name: String, hours: Int, temperatureMinC: Double?, temperatureMaxC: Double?,
+                temperatureMeanC: Double?, humidityMinPct: Double?, humidityMaxPct: Double?, humidityMeanPct: Double?,
+                moldHours: Int? = nil, dryHours: Int? = nil) {
+        self.sensor = sensor; self.name = name; self.hours = hours
+        self.temperatureMinC = temperatureMinC; self.temperatureMaxC = temperatureMaxC; self.temperatureMeanC = temperatureMeanC
+        self.humidityMinPct = humidityMinPct; self.humidityMaxPct = humidityMaxPct; self.humidityMeanPct = humidityMeanPct
+        self.moldHours = moldHours; self.dryHours = dryHours
+    }
 }
 
 public enum TodayReply {
+    /// Old header (9 columns).
     public static let header = "sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct"
+    /// New header (11 columns) with the mold and dry hours.
+    public static let headerWithHours = header + ",mold_h,dry_h"
 
     /// `lines` hold `BEGIN TODAY`, the header and the rows (without the `CRC32` line).
     public static func parse(lines: [String]) throws -> [TodayRow] {
         guard lines.first == "BEGIN TODAY" else { throw ParseError.missingLine("BEGIN TODAY") }
-        guard lines.count >= 2, lines[1] == header else { throw ParseError.missingLine(header) }
+        guard lines.count >= 2, lines[1] == header || lines[1] == headerWithHours else { throw ParseError.missingLine(header) }
+        let columns = lines[1] == headerWithHours ? 11 : 9
         var seen = Set<Int>()
         return try lines.dropFirst(2).map { line in
             let c = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
-            guard c.count == 9, let s = plainInt(c[0]), (0...10).contains(s), let h = plainInt(c[2]), (0...24).contains(h),
+            guard c.count == columns, let s = plainInt(c[0]), (0...10).contains(s), let h = plainInt(c[2]), (0...24).contains(h),
                   seen.insert(s).inserted else { throw ParseError.badLine(line) }
             let values = try c[3...8].map { field -> Double? in
                 if field.isEmpty { return nil }
                 guard let d = plainDecimal(field) else { throw ParseError.badLine(line) }
                 return d
             }
+            var counts: [Int?] = [nil, nil]
+            if columns == 11 {
+                counts = try c[9...10].map { field -> Int? in
+                    if field.isEmpty { return nil }
+                    guard let n = plainInt(field), (0...24).contains(n), n <= h else { throw ParseError.badLine(line) }
+                    return n
+                }
+            }
             return TodayRow(sensor: s, name: c[1], hours: h,
                             temperatureMinC: values[0], temperatureMaxC: values[1], temperatureMeanC: values[2],
-                            humidityMinPct: values[3], humidityMaxPct: values[4], humidityMeanPct: values[5])
+                            humidityMinPct: values[3], humidityMaxPct: values[4], humidityMeanPct: values[5],
+                            moldHours: counts[0], dryHours: counts[1])
         }
     }
 
