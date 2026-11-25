@@ -42,6 +42,7 @@ import com.rlcdpanel.watch.protocol.EventsReply
 import com.rlcdpanel.watch.protocol.ConfigChangedReply
 import com.rlcdpanel.watch.protocol.RejectsReply
 import com.rlcdpanel.watch.protocol.SelfTestReply
+import com.rlcdpanel.watch.protocol.SpreadApply
 import com.rlcdpanel.watch.protocol.SpreadCommand
 import com.rlcdpanel.watch.protocol.SpreadReply
 import com.rlcdpanel.watch.protocol.TodayReply
@@ -415,7 +416,13 @@ class MainActivity : ComponentActivity() {
 
             if (showSensorHealth && showSpread) {
                 BackHandler { closeSpread() }
-                SpreadScreen(state = spreadState, onRead = { readSpread() })
+                SpreadScreen(
+state = spreadState,
+onRead = { readSpread() },
+onAsk = { spreadState = spreadState.copy(confirming = it) },
+onCancel = { spreadState = spreadState.copy(confirming = null) },
+onApply = { applySpread(it) }
+)
                 return@setContent
             }
 
@@ -1109,6 +1116,33 @@ class MainActivity : ComponentActivity() {
                     SpreadState(message = "Antwort nicht lesbar")
                 }
                 else -> SpreadState(message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
+    /**
+     * Sends the `SET` commands of one proposal after the confirmation, then `SPREAD` again. The first `ERR` stops the
+     * batch and shows its text; `ERR READ_ONLY` shows `Nur lesen` and hides the chips.
+     */
+    private fun applySpread(index: Int) {
+        val measured = spreadState.reply?.outcome as? SpreadReply.Outcome.Measured ?: return
+        val proposal = SpreadApply.proposalFor(measured, index) ?: return
+        if (spreadState.isApplying || spreadState.isReading || consoleClient.isRunning) return
+        val before = spreadState
+        spreadState = before.copy(confirming = null, isApplying = true, message = null)
+        SpreadApply.batch(proposal).run(consoleClient::send) { result ->
+            val failure = result.failure
+            if (failure == null) {
+                spreadState = before.copy(confirming = null, isApplying = false, isReading = true)
+                startSpreadRead()
+            } else {
+                val readOnly = SpreadApply.isReadOnly(result)
+                spreadState = before.copy(
+                    confirming = null,
+                    isApplying = false,
+                    readOnly = readOnly,
+                    message = if (readOnly) SpreadApply.READ_ONLY_TEXT else result.summary
+                )
             }
         }
     }
