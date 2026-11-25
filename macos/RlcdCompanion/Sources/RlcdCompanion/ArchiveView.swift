@@ -49,7 +49,14 @@ struct ArchiveView: View {
                 if let summary = model.archiveSummary { Text(summary).font(.caption).foregroundStyle(.secondary) }
                 if let daily = model.dailyFolder { DailyChartView(folder: daily, limits: ChartLimits.from(config: model.lastConfig)) }
                 if let stats = model.alertStats { AlertStatsView(result: stats) }
-                if model.climateData != nil { ClimateChartView(model: model) }
+                if let climate = model.climateData {
+                    if !model.climateMonth.isEmpty {
+                        LogGapSummary(
+                            report: LogGaps.report(rows: climate.rows), month: model.climateMonth,
+                            failedFiles: climate.failedFiles)
+                    }
+                    ClimateChartView(model: model)
+                }
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
     }
@@ -87,6 +94,44 @@ struct ArchiveView: View {
             model.alertStats = nil
             model.hideClimateCharts()
             model.selectNewArchiveFiles() // the plan depends on the local copies in the folder
+        }
+    }
+}
+
+/// Missing hours of the selected climate month. Reads only the rows of the downloaded files.
+private struct LogGapSummary: View {
+    let report: LogGaps.Report
+    let month: String
+    let failedFiles: [String]
+
+    private static let formatter: DateFormatter = {
+        let f = DateFormatter()
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = PanelClock.timeZone
+        f.dateFormat = "yyyy-MM-dd HH:mm"
+        return f
+    }()
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Log coverage \(month): \(String(format: "%.1f", report.coveragePct)) % (\(report.rowCount) rows, \(report.missingHours) missing h)")
+                .font(.caption)
+            if !failedFiles.isEmpty {
+                Text("Unreadable file(s), coverage is too low: \(failedFiles.joined(separator: ", "))")
+                    .font(.caption).foregroundStyle(.orange)
+            }
+            if report.gaps.isEmpty {
+                Text(report.rowCount == 0 ? "No rows in this month." : "No gaps above 90 minutes.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 2) {
+                    ForEach(Array(report.gaps.enumerated()), id: \.offset) { _, gap in
+                        Text("\(Self.formatter.string(from: gap.start)) to \(Self.formatter.string(from: gap.end)): \(gap.missingHours) h missing")
+                            .font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
+                    }
+                }.frame(maxWidth: .infinity, alignment: .leading)
+            }.frame(maxHeight: 120)
         }
     }
 }

@@ -30,11 +30,7 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Log gap report in the macOS archive view
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/LogGaps.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ArchiveView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/LogGapsTests.swift`, `FEATURES.md`
-  - **Goal:** Show the user where the climate log has missing hours, for example after an empty battery or a card fault. Add `LogGaps.find(rows:minGapMinutes:)` over the `ClimateLog` rows of one month: each step above 90 minutes gives one gap with start, end and missing hours. Show the gap list and the total coverage in percent in `ArchiveView` for the selected month. Read only the downloaded files.
-  - **Acceptance:** `LogGapsTests` check that hourly rows give no gap, that a 3-hour step gives one gap with 2 missing hours, and that a step of exactly 90 minutes gives no gap. A month without rows gives coverage 0 and no crash. Rows out of time order are sorted first. `swift test` passes in `macos/RlcdCompanion`.
-  - **Rank:** [Total: 27, Use: 4, Setup: 7, Harmony: 6, Safety: 10, Effort: S]
+
 
 ## Rules for ranking
 
