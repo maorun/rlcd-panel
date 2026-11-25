@@ -59,6 +59,21 @@ struct DiagnosticsView: View {
                 badgeIntervals().frame(maxWidth: .infinity, alignment: .leading)
             }
 
+            if !model.jumpAdvice.isEmpty {
+                GroupBox("Jump guard advice") {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(model.jumpAdvice, id: \.slot) { advice in
+                            HStack {
+                                Text(advice.text).font(.caption)
+                                Button("Apply") { model.applyJumpAdvice(advice) }
+                                    .disabled(!model.isIdle)
+                            }
+                        }
+                        if let s = model.batchSummary { Text(s).font(.caption).foregroundStyle(.secondary) }
+                    }.frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
+
             GroupBox("Today") {
                 todayBox.frame(maxWidth: .infinity, alignment: .leading)
             }
