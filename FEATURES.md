@@ -3921,7 +3921,7 @@ The `RX <N>%` value and the `RECEPTION` line of `STATUS` show only a rate. The u
 - `ReceptionRow.newestCells()` gives the newest 12 scans (`STRIP_CELLS`) of the mask, oldest first. `ReceptionRow.isLow` is true below 50 % of the counted scans; a slot without a counted scan is not low.
 - The `Reception` chip in the sensor health screen opens `ReceptionScreen`. The command `RECEPTION` goes out only after a tap on `Read reception`, with the same permission, busy and cancel rules as `REJECTS`. The screen shows the name (`Slot <N>` for an empty name), `<received>/<scans>` with `⚠` below 50 %, and a strip of the newest 12 cells (`█` packet, `·` gap).
 - Tests: `ReceptionReplyTest` parses `tests/fixtures/reception_reply_sample.txt`, checks the CRC-32, the newest 12 cells of a 24 character mask, the warning below 50 %, and `ParseException` for the mask `10a1`, for a wrong mask length, for a `received` mismatch, for a repeated slot and for a missing header.
-- The Android parser `android/RlcdPhone/.../protocol/ReceptionReply.kt` follows the same rules. The file is not in the protocol sync list, so a change needs both copies.
+- The Android parser `android/RlcdPhone/.../protocol/ReceptionReply.kt` is now the same file (see the section `ReceptionReply.kt in the protocol sync check`).
 - Validation: the local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only. `scripts/check-protocol-sync.sh` passes.
 
 ## Reception strip in the Android sensor health screen
@@ -4053,3 +4053,11 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The selected proposal goes through `CalibrationBatch` in reply order, so `SET usb_temp_offset_c=<x>` follows `SET temp_offset_c`, then `CONFIG`.
 - Tests: `CalibrationReplyTest` checks the proposal `-0.8`, `null` without the line, `ParseException` for 0.5 and -5.1, and the `SET` order of the batch.
 - Validation: the host has no Android SDK, so Gradle runs in CI (`Android phone companion tests and APK`).
+
+## ReceptionReply.kt in the protocol sync check
+
+- **Code:** `scripts/check-protocol-sync.sh`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ReceptionReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ReceptionReply.kt`, the two `ReceptionReplyTest.kt` files
+- The phone and the watch held two versions of `ReceptionRow`. Both apps now use one file. `ReceptionRow` holds `mask: String` and offers `cells: List<Boolean>`, `percent: Int?` (`null` without a counted scan), `isLow` and `newestCells(count = STRIP_CELLS)`. `ReceptionReply.COMMAND` is `RECEPTION`. The parser rejects the same input in both apps (repeated slot, `received` above `scans`, a mask with a bad character, a wrong length or a wrong count of `1`).
+- `ReceptionReply.kt` is in the `FILES` list of `scripts/check-protocol-sync.sh`. The screen texts do not change.
+- Both `ReceptionReplyTest.kt` files hold the same cases, apart from the package line.
+- Validation: `bash scripts/check-protocol-sync.sh` and `bash scripts/check-protocol-sync.sh --self-test` pass. The local host has no Android SDK, so the Gradle tests run in CI.

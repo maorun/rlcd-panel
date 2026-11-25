@@ -2,6 +2,7 @@ package com.rlcdpanel.watch.protocol
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -36,6 +37,29 @@ class ReceptionReplyTest {
         assertEquals("001011010010", row.newestCells())
         assertEquals(12, row.newestCells().length)
         assertEquals("101101", ReceptionReply.parse(fixtureLines())[1].newestCells())
+    }
+
+    @Test
+    fun maskGivesCellsAndPercent() {
+        val row = ReceptionReply.parse(reply("2,A2:A2:A2:A2:A2:A2,,6,4,101101")).single()
+        assertEquals(listOf(true, false, true, true, false, true), row.cells)
+        assertEquals(66, row.percent)
+        assertFalse(row.isLow)
+        assertEquals(24, ReceptionReply.parse(fixtureLines())[0].cells.size)
+    }
+
+    @Test
+    fun slotWithoutScanHasNoRate() {
+        val row = ReceptionReply.parse(reply("1,A1:A1:A1:A1:A1:A1,,0,0,")).single()
+        assertEquals(0, row.cells.size)
+        assertNull(row.percent)
+        assertEquals("", row.newestCells())
+        assertFalse(row.isLow)
+    }
+
+    @Test
+    fun commandNameIsReception() {
+        assertEquals("RECEPTION", ReceptionReply.COMMAND)
     }
 
     @Test

@@ -9,6 +9,12 @@ data class ReceptionRow(
     val received: Int,
     val mask: String
 ) {
+    /** The scans as flags, oldest first, `true` for a scan with a packet. */
+    val cells: List<Boolean> get() = mask.map { it == '1' }
+
+    /** Rate in whole percent, `null` without a counted scan. */
+    val percent: Int? get() = if (scans > 0) received * 100 / scans else null
+
     /** The newest [count] scans, oldest first. A shorter mask gives all its cells. */
     fun newestCells(count: Int = STRIP_CELLS): String = mask.takeLast(count)
 
@@ -23,6 +29,7 @@ data class ReceptionRow(
 
 /** Parser of the `RECEPTION` reply (`SerialConsoleRunner::showReception` of the firmware). */
 object ReceptionReply {
+    const val COMMAND = "RECEPTION"
     const val HEADER = "slot,mac,name,scans,received,mask"
     const val MAX_SCANS = 24
 
