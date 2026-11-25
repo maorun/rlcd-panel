@@ -1517,7 +1517,7 @@ void setup() {
       // The RTC histories and the registry answer: no card access, no state change, so the console keeps running.
       // The BLE scan has stopped while a console command runs, so the registry needs no lock (like STATUS).
       Runner::showFrsi(sink, command.reference, command.reference_b, g_state.history, g_state.config, g_state.registry,
-                       nowMs());
+                       nowMs(), command.frsi_hours);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SPREAD) {
       // The RTC histories answer: no card access, no state change, so the console keeps running.
       Runner::showSpread(sink, g_state.history, g_state.config, g_state.registry, nowMs(),

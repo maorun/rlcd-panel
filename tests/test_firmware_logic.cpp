@@ -16060,11 +16060,11 @@ SwitchBotRegistry frsiRegistry(uint32_t updated_ms) {
 }
 
 std::string frsiOutput(uint8_t room, uint8_t wall, const ClimateHistory& h, uint8_t outdoor, const SwitchBotRegistry& reg,
-                       uint32_t now_ms = 2000) {
+                       uint32_t now_ms = 2000, uint8_t window = 6) {
   FakeSink sink;
   DeviceConfig cfg;
   cfg.outdoor_slot = outdoor;
-  TestRunner::showFrsi(sink, room, wall, h, cfg, reg, now_ms);
+  TestRunner::showFrsi(sink, room, wall, h, cfg, reg, now_ms, window);
   return sink.out;
 }
 
@@ -16101,10 +16101,29 @@ void testSerialFrsiParser() {
   assert(parseText("FRSI 11 1", cmd) == SerialParseStatus::BAD_ARG);  // above 10
   assert(parseText("FRSI 1 11", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("FRSI 01 2", cmd) == SerialParseStatus::BAD_ARG);
-  assert(parseText("FRSI 1 2 3", cmd) == SerialParseStatus::BAD_ARG); // extra text
+  assert(parseText("FRSI 1 2 3 4", cmd) == SerialParseStatus::BAD_ARG); // extra text
   assert(parseText("FRSI 1 2x", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("FRSI -1 2", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("FRSI1 2", cmd) == SerialParseStatus::UNKNOWN);
+  // the optional window H: 3 to 24, no leading zero, default 6
+  assert(parseText("FRSI 0 2", cmd) == SerialParseStatus::OK && cmd.frsi_hours == 6);
+  assert(parseText("FRSI 0 2 3", cmd) == SerialParseStatus::OK && cmd.frsi_hours == 3 && cmd.reference == 0 && cmd.reference_b == 2);
+  assert(parseText("FRSI 0 2 6", cmd) == SerialParseStatus::OK && cmd.frsi_hours == 6);
+  assert(parseText("FRSI 10 1 12", cmd) == SerialParseStatus::OK && cmd.frsi_hours == 12 && cmd.reference == 10);
+  assert(parseText("FRSI 0 10 24\r\n", cmd) == SerialParseStatus::OK && cmd.frsi_hours == 24 && cmd.reference_b == 10);
+  assert(parseText("FRSI 0 2 2", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 0 2 25", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 0 2 06", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 0 2 03", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 0 2 0", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 0 2 x", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 0 2 6x", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 0 2 6 1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 0 2 100", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 0 2 ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 0 2  6", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 0 -2 6", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("FRSI 1 1 6", cmd) == SerialParseStatus::BAD_ARG);
   assert(parseText("frsi 0 2", cmd) == SerialParseStatus::UNKNOWN);
   // allowed on BLE at each level; execute() ignores FRSI: no mount, no output
   assert(parseText("FRSI 0 2", cmd) == SerialParseStatus::OK);
@@ -17201,6 +17220,47 @@ void testSerialFrsiReply() {
   fillFrsi(high, 2, 6, 19.8f); // factor 0.99
   out = frsiOutput(0, 2, high, 1, reg);
   assert(out.find("frsi=0.99 ") != std::string::npos && out.find("wall_frsi_pct=95\n") != std::string::npos);
+}
+
+void testSerialFrsiWindow() {
+  ClimateHistory h;
+  fillFrsi(h, 0, 6, 20.0f);
+  fillFrsi(h, 1, 6, 0.0f);
+  fillFrsi(h, 2, 6, 14.0f);
+  const SwitchBotRegistry reg = frsiRegistry(1000);
+  // the default equals window 6, byte for byte
+  assert(frsiOutput(0, 2, h, 1, reg) == frsiOutput(0, 2, h, 1, reg, 2000, 6));
+  // 12 hours with 6 samples: SKIP hours=6
+  const std::string skip = frsiOutput(0, 2, h, 1, reg, 2000, 12);
+  assert(skip.rfind("SKIP hours=6\nCRC32 ", 0) == 0 && frsiCrcOk(skip));
+  // 3 samples give a result from 3 samples
+  ClimateHistory three;
+  fillFrsi(three, 0, 3, 20.0f);
+  fillFrsi(three, 1, 3, 0.0f);
+  fillFrsi(three, 2, 3, 14.0f);
+  assert(frsiOutput(0, 2, three, 1, reg, 2000, 6).rfind("SKIP hours=3\n", 0) == 0);
+  const std::string r3 = frsiOutput(0, 2, three, 1, reg, 2000, 3);
+  assert(r3.rfind("FRSI room=onboard wall=slot2 hours=3 frsi=0.70 span=0.00 delta_c=20.0\nwall_frsi_pct=70\nCRC32 ", 0) == 0 && frsiCrcOk(r3));
+  // only the newest H samples count: 3 old unstable samples are outside a window of 3
+  ClimateHistory mixed = h;
+  mixed.temperatures[2] = TemperatureHistory();
+  fillFrsi(mixed, 2, 3, 17.0f);
+  fillFrsi(mixed, 2, 3, 14.0f);
+  assert(frsiOutput(0, 2, mixed, 1, reg, 2000, 6).rfind("UNSTABLE span=0.15\n", 0) == 0);
+  assert(frsiOutput(0, 2, mixed, 1, reg, 2000, 3).rfind("FRSI room=onboard wall=slot2 hours=3 frsi=0.70", 0) == 0);
+  // the limits stay: LOW_DELTA over the window, bad window
+  ClimateHistory lowDelta = h;
+  lowDelta.temperatures[0] = TemperatureHistory();
+  fillFrsi(lowDelta, 0, 6, 9.9f);
+  assert(frsiOutput(0, 2, lowDelta, 1, reg, 2000, 3) == "ERR LOW_DELTA\n");
+  // a full history of 24 samples with window 24 reaches the oldest sample
+  ClimateHistory full;
+  fillFrsi(full, 0, 24, 20.0f);
+  fillFrsi(full, 1, 24, 0.0f);
+  fillFrsi(full, 2, 24, 14.0f);
+  assert(frsiOutput(0, 2, full, 1, reg, 2000, 24).rfind("FRSI room=onboard wall=slot2 hours=24 frsi=0.70", 0) == 0);
+  assert(frsiOutput(0, 2, h, 1, reg, 2000, 2) == "ERR BAD_ARG\n");
+  assert(frsiOutput(0, 2, h, 1, reg, 2000, 25) == "ERR BAD_ARG\n");
 }
 
 void testSerialFrsiErrorsAndShortReplies() {
@@ -27219,6 +27279,7 @@ testSerialConfigNegativeSmallOffset();
   testSerialTailErrors();
   testSerialSelfTestChecks();
   testSerialSelfTestReply();
+  testSerialFrsiWindow();
   testSerialFrsiErrorsAndShortReplies();
   testMagnesiumReferenceTable();
   testRhGainCorrection();
