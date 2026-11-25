@@ -1,0 +1,4 @@
+BEGIN TODAY
+sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct,mold_h,dry_h
+1,slot1,2,-3.5,-2.5,-3.0,80.0,81.0,80.5,2,0
+CRC32 f5c60b18
