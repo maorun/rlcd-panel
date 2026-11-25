@@ -52,6 +52,7 @@ import com.rlcdpanel.watch.protocol.FrsiText
 import com.rlcdpanel.watch.protocol.SpreadApply
 import com.rlcdpanel.watch.protocol.SpreadCommand
 import com.rlcdpanel.watch.protocol.SpreadReply
+import com.rlcdpanel.watch.protocol.TodayCommand
 import com.rlcdpanel.watch.protocol.TodayReply
 import com.rlcdpanel.watch.protocol.DaysReply
 import com.rlcdpanel.watch.protocol.MoldSummary
@@ -265,7 +266,7 @@ class MainActivity : ComponentActivity() {
         } else if (frsi) {
             frsiState = frsiState.copy(isReading = false, reply = null, confirming = false, message = "Bluetooth-Berechtigung fehlt")
         } else if (today) {
-            todayState = TodayState(message = "Bluetooth-Berechtigung fehlt")
+            todayState = TodayState(message = "Bluetooth-Berechtigung fehlt", sensor = todayState.sensor)
         } else if (mold) {
             moldState = MoldSummaryState(message = "Bluetooth-Berechtigung fehlt")
         } else if (events) {
@@ -464,7 +465,12 @@ onApply = { applySpread(it) }
 
             if (showSensorHealth && showToday) {
                 BackHandler { closeToday() }
-                TodayScreen(state = todayState, onRead = { readToday() })
+                TodayScreen(
+                    state = todayState,
+                    roomNames = panelConfig.tileNames,
+                    onSelect = { sensor -> if (!todayState.isReading && !pendingTodayRead) todayState = TodayState(sensor = sensor) },
+                    onRead = { readToday() }
+                )
                 return@setContent
             }
 
@@ -1380,11 +1386,12 @@ onApply = { applySpread(it) }
     /** Asks for the console permissions, then sends `TODAY` once. Only a tap in the today screen calls it. */
     private fun readToday() {
         if (todayState.isReading || pendingTodayRead) return
+        val sensor = todayState.sensor
         if (spreadState.isReading || pendingSpreadRead || selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSelfTestRead || pendingRejectsRead || pendingConfigChangedRead || configChangedState.isReading || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) {
-            todayState = TodayState(message = "Panel-Verbindung ist belegt")
+            todayState = TodayState(message = "Panel-Verbindung ist belegt", sensor = sensor)
             return
         }
-        todayState = TodayState(isReading = true)
+        todayState = TodayState(isReading = true, sensor = sensor)
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
         } else {
@@ -1400,22 +1407,31 @@ onApply = { applySpread(it) }
 
     /** A failed CRC-32, a timeout or an `ERR` reply gives one error text. The command is not repeated. */
     private fun startTodayRead() {
+        val sensor = todayState.sensor
         if (consoleClient.isRunning) {
-            todayState = TodayState(message = "Panel-Verbindung ist belegt")
+            todayState = TodayState(message = "Panel-Verbindung ist belegt", sensor = sensor)
             return
         }
-        consoleClient.send("TODAY") { reply ->
-            todayState = when (reply) {
-                is ConsoleReply.Frame -> try {
-                    TodayState(rows = TodayReply.parse(reply.lines), hasRead = true)
-                } catch (e: ParseException) {
-                    TodayState(message = "Antwort nicht lesbar")
-                }
-                else -> TodayState(message = reply.let { r ->
-                    (r as? ConsoleReply.Status)?.let { TodayReply.statusText(it.line) } ?: BleConsoleClient.errorText(r)
-                })
+        consoleClient.send(TodayCommand.line(sensor)) { first ->
+            val status = (first as? ConsoleReply.Status)?.line
+            if (status != null && TodayCommand.needsFallback(sensor, status)) {
+                consoleClient.send(TodayCommand.ALL) { full -> todayState = todayResult(full, sensor) }
+            } else {
+                todayState = todayResult(first, sensor)
             }
         }
+    }
+
+    private fun todayResult(reply: ConsoleReply, sensor: Int?): TodayState = when (reply) {
+        is ConsoleReply.Frame -> try {
+            TodayState(rows = TodayCommand.select(TodayReply.parse(reply.lines), sensor), hasRead = true, sensor = sensor)
+        } catch (e: ParseException) {
+            TodayState(message = "Antwort nicht lesbar", sensor = sensor)
+        }
+        else -> TodayState(
+            message = (reply as? ConsoleReply.Status)?.let { TodayReply.statusText(it.line) } ?: BleConsoleClient.errorText(reply),
+            sensor = sensor
+        )
     }
 
     private fun closeSelfTest() {

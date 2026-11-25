@@ -3119,6 +3119,15 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `TodayReplyTest` reads `tests/fixtures/today_reply_sample.txt` and covers the rows, `null` for empty fields, `ParseException` cases, the `--` texts for a sensor with 0 hours and the `ERR NO_TIME` text.
 - Validation: `./scripts/check-protocol-sync.sh` and `--self-test` pass. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.
 
+## Room picker for the Wear OS today screen
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/TodayCommand.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/TodayScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/TodayCommandTest.kt`
+- `TodayCommand.line(sensor: Int?)` gives `TODAY <N>` for 0 to 10 and `TODAY` for `null`; another number throws `IllegalArgumentException`. `TodayCommand` is watch-only and not in `scripts/check-protocol-sync.sh`.
+- `TodayScreen` has a scrollable chip row with `Alle` and the names of `PanelConfig.tileNames`. The selected chip uses the primary colors. A tap on `Read today` sends the command for the selected room.
+- After `ERR BAD_ARG` from an older firmware, `MainActivity.startTodayRead` sends `TODAY` once (`TodayCommand.needsFallback`) and `TodayCommand.select` keeps only the row of the selected room. A room without a row shows `Keine Daten für den Raum`.
+- `TodayCommandTest` covers `TODAY 3` and `TODAY`, the rejected numbers 11 and -1, the fallback decision, the row filter and `tests/fixtures/today_one_reply_sample.txt`.
+- Validation: `./scripts/check-protocol-sync.sh` passes. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.
+
 ## Monthly mold summary screen on the Wear OS watch
 
 - **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/DaysReply.kt`, `protocol/EventCsv.kt`, `protocol/MoldSummary.kt`, `MoldSummaryScreen.kt`, `MainActivity.kt`, `SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/DaysReplyTest.kt`, `scripts/check-protocol-sync.sh`
