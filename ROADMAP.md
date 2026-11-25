@@ -22,10 +22,56 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
+- [ ] Alert timeline in the Android event log
+  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertTimeline.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/EventLogScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertTimelineTest.kt`, `FEATURES.md`
+  - **Goal:** Show on the phone when each alert started and ended. Port the macOS `AlertTimeline.build(rows, now)` to Kotlin. Pair each `ALERT_RISE` row with the next `ALERT_FALL` row of the same alert bit. Use the injected `now` as the end of an open interval. Mark an interval without a rise row as `startUnknown`. Show the intervals in `EventLogScreen` with the alert name, the start, the end or `läuft` and the duration.
+  - **Acceptance:** A unit test pairs one rise and one fall to one interval. A unit test checks that a rise without a fall gives an open interval that ends at `now`. A unit test checks that a fall without a rise gives `startUnknown`. A unit test checks that two alert bits give two separate intervals. A unit test parses `tests/fixtures/events_reply_sample.txt`. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
+  - **Rank:** [Total: 28, Use: 6, Setup: 5, Harmony: 7, Safety: 10, Effort: M]
 
 
 ## Priority 3: Display and Logging (Score 22–27)
 
+- [ ] Dry hours in the stats view
+  - **Location:** `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`, `docs/display_preview_stats.png`, `docs/display_preview_stats2.png`, `AGENTS.md`, `FEATURES.md`
+  - **Goal:** Show on the panel how many hours each room was too dry. Add `DashboardView::formatDry`. Draw `DRY <N>H` at scale 1 on the MOLD line (`y + 21`). Right-align it 6 px left of the `MOLD <N>H` text. Count the samples with `HumidityHistory::countAtOrBelow` and `dry_alert_limit_rh`. Draw no text for `dry_alert_limit_rh` 0. Show `DRY --` for an empty or stale slot. Draw the text only when `DRY_GAP_PX` 4 stay free to the MAC line. Calculate the text on each render. Do not change the RTC layout or `STATE_VERSION`.
+  - **Acceptance:** A host test checks `DRY 5H` for 5 samples at or below the limit. A host test checks that limit 0 draws no text. A host test checks `DRY --` for a stale slot. A host test checks that the text does not touch the MAC line and the MOLD text. The host unit tests pass. `./scripts/generate-display-preview.sh` updates the stats images. `arduino-cli compile rlcd_panel` passes.
+  - **Rank:** [Total: 27, Use: 6, Setup: 3, Harmony: 8, Safety: 10, Effort: S]
+
+- [ ] Dry hours in the Wear OS sensor health screen
+  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/SensorHealthTextTest.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/StatusReplyTest.kt`, `FEATURES.md`
+  - **Goal:** Show the dry hours of each room on the watch. `StatusSensor.dryHours` already holds the `dry_h=` field. Add `SensorHealthText.dryText` and `SensorHealthText.isDry` with the rules of `moldText` and `isMold`. Show `Trocken <N> h` after `Schimmel <N> h`. Show `SensorHealthText.WARNING` above 0 hours. Show `Trocken --` for a `null` value.
+  - **Acceptance:** A unit test checks `Trocken 0 h` without the warning mark. A unit test checks the warning mark for 3 hours. A unit test checks `Trocken --` for `null`. A unit test parses `tests/fixtures/status_reply_sample.txt` and checks `dryHours` 2 for sensor 0. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
+  - **Rank:** [Total: 27, Use: 6, Setup: 4, Harmony: 7, Safety: 10, Effort: S]
+
+- [ ] Gap report for the newest log rows in the macOS app
+  - **Location:** `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/LogGaps.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/TailReplyTests.swift`, `FEATURES.md`
+  - **Goal:** Show missing hours in the `TAIL` reply without a full log download. Feed `TailReply.rows` to `LogGaps.report(rows:)`. Show the count of missing hours in the `Newest log rows` group. Show one line for each gap with its start and end time. Show `No gaps` for a report without a gap.
+  - **Acceptance:** A unit test checks the gap count of the rows in `tests/fixtures/tail_reply_sample.txt`. A unit test checks that a step of 3 hours in `TAIL` rows gives one gap. A unit test checks that hourly rows give no gap. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
+  - **Rank:** [Total: 26, Use: 4, Setup: 5, Harmony: 7, Safety: 10, Effort: S]
+
+- [ ] Gap report in the Android tail screen
+  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/LogGaps.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/TailScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/LogGapsTest.kt`, `FEATURES.md`
+  - **Goal:** Show missing hours of the climate log on the phone. Port the macOS `LogGaps.report` to Kotlin. Give one gap for a step above 90 minutes between two neighbour rows. Skip a row with an unreadable timestamp. Use the smaller of the real and the wall-clock difference, so the October clock change gives no false gap. Show the gap count and one line for each gap in `TailScreen`.
+  - **Acceptance:** A unit test checks that a step of 90 minutes gives no gap. A unit test checks that a step of 3 hours gives one gap with 2 missing hours. A unit test checks that the repeated hour of the October change gives no gap. A unit test parses `tests/fixtures/tail_reply_sample.txt`. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
+  - **Rank:** [Total: 26, Use: 4, Setup: 5, Harmony: 7, Safety: 10, Effort: S]
+
+- [ ] Hour window for the console command HISTORY
+  - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/history_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
+  - **Goal:** Make the `HISTORY` reply short for one sensor over BLE. Accept the optional argument `HISTORY <N> <H>` (H 1 to 24, no leading zero, `SerialCommand::history_hours`). Send only the rows of sensor N with `age_h` below H. Calculate the `CRC32` line over the filtered bytes. Keep the `HISTORY` and `HISTORY <N>` replies. Give `ERR BAD_ARG` for H 0, H 25, a leading zero, a non-digit and extra text. Do not change the RTC layout or `STATE_VERSION`.
+  - **Acceptance:** A host test checks that `HISTORY 2 6` sends the 6 newest rows of sensor 2. A host test checks the CRC-32 of this reply. A host test checks that `HISTORY 2` keeps its reply. A host test checks `ERR BAD_ARG` for `HISTORY 2 0` and `HISTORY 2 25`. A host test checks `ERR BAD_ARG` for `HISTORY 2 06` and `HISTORY 2 6 1`. The host unit tests pass. `arduino-cli compile rlcd_panel` passes.
+  - **Rank:** [Total: 25, Use: 3, Setup: 5, Harmony: 7, Safety: 10, Effort: S]
+
+- [ ] Short HISTORY reads for the macOS salt test watch
+  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/SaltProgressTests.swift`, `FEATURES.md`
+  - **Goal:** Send fewer bytes over BLE during a salt test. This item needs the firmware item "Hour window for the console command HISTORY". Add `ConsoleCommand.historySensorHours(Int, Int)` with the line `HISTORY <N> <H>`. Send `HISTORY <N> 6` every 10 minutes in the salt test watch. `SaltProgress.requiredHours` is 6, so 6 rows give the full count. Send `HISTORY <N>` again after an `ERR BAD_ARG` reply from an older firmware.
+  - **Acceptance:** A unit test checks the line `HISTORY 4 6`. A unit test checks that sensor 11, hours 0 and hours 25 give no line. A unit test checks that 6 stable rows give `Stable 6/6 h`. A unit test checks the fallback to `HISTORY 4` after `ERR BAD_ARG`. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
+  - **Rank:** [Total: 25, Use: 3, Setup: 5, Harmony: 7, Safety: 10, Effort: S]
+
+- [ ] Room picker for the Wear OS today screen
+  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/TodayCommand.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/TodayScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/TodayCommandTest.kt`, `FEATURES.md`
+  - **Goal:** Read the day range of one room with a short BLE reply. Add `TodayCommand.line(sensor: Int?)`. Give `TODAY <N>` for 0 to 10 and `TODAY` for `null`. Throw `IllegalArgumentException` for another number. Add a room chip row to `TodayScreen` with `Alle` and the names from `PanelConfig.tileName`. Send `TODAY` again after `ERR BAD_ARG` from an older firmware. Then keep only the row of the selected room.
+  - **Acceptance:** A unit test checks `TODAY 3` and `TODAY`. A unit test checks that 11 and -1 throw `IllegalArgumentException`. A unit test checks the fallback decision for `ERR BAD_ARG`. A unit test parses `tests/fixtures/today_one_reply_sample.txt`. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
+  - **Rank:** [Total: 25, Use: 5, Setup: 3, Harmony: 7, Safety: 10, Effort: S]
 
 
 ## Rules for ranking
