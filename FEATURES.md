@@ -3579,3 +3579,11 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - The report shows the count of missing hours and one line for each gap with its start and end time. It shows `No gaps` for a report without a gap.
 - Tests: `TailReplyTests.gapReportOfFixtureRows` (rows of `tests/fixtures/tail_reply_sample.txt`: 1 gap, 666 missing hours), `TailReplyTests.threeHourStepOfTailRowsGivesOneGap` and `TailReplyTests.hourlyTailRowsGiveNoGap`.
 - Validation: `swift build -c release` passes locally; `swift test` does not run locally (no TestingMacros in the Command Line Tools) and runs on GitHub Actions CI.
+
+## Android gap report for the newest log rows
+
+- `LogGaps.report(rows)` (`protocol/LogGaps.kt`, port of the macOS `LogGaps.swift`) finds missing hours in the `TAIL` rows. A step above 90 minutes between two neighbour rows gives one gap; the rows are sorted first and a row with an unreadable time stamp is skipped.
+- The step is the smaller of the real (`Europe/Berlin`) and the wall-clock difference, so the repeated hour of the October change gives no false gap.
+- `TailScreen` shows `Keine Lücken` or the count of missing hours and gaps, then one line for each gap with start, end and missing hours.
+- Tests: `LogGapsTest` covers 90 minutes (no gap), 3 hours (1 gap, 2 missing hours), the October and March changes, bad time stamps, order, texts and `tests/fixtures/tail_reply_sample.txt` (1 gap, 666 missing hours).
+- Validation: `./scripts/check-protocol-sync.sh` exits 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
