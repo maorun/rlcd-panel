@@ -172,7 +172,7 @@ struct CalibrationView: View {
         }
     }
 
-    /// Wall factor from the last 6 hours of a room sensor, a wall slot and the outdoor slot (`FRSI R W`).
+    /// Wall factor from the last 3 to 24 hours of a room sensor, a wall slot and the outdoor slot (`FRSI R W`).
     private var frsiSection: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Wall factor").font(.headline)
@@ -191,6 +191,12 @@ struct CalibrationView: View {
                     .onChange(of: model.calibrationSensors) { _, sensors in
                         if !sensors.contains(model.frsiWall) { model.frsiWall = 1 }
                     }
+                Picker("Window", selection: $model.frsiHours) {
+                    ForEach(ConsoleCommand.frsiWindows, id: \.self) { Text("\($0) h").tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 220)
+                .disabled(!model.isIdle)
                 Button("Check wall") { model.frsiCheck(room: model.frsiRoom, wall: model.frsiWall) }
                     .disabled(!model.isIdle)
             }
@@ -206,7 +212,7 @@ struct CalibrationView: View {
                             .disabled(model.frsiChanges.isEmpty || !model.isIdle)
                     }
                 case let .skipped(hours):
-                    Text("\(hours) h, too few samples (6 needed)").font(.caption).foregroundStyle(.secondary)
+                    Text(FrsiReply.skipText(hours: hours, requested: model.frsiReplyHours)).font(.caption).foregroundStyle(.secondary)
                 case let .unstable(span):
                     Text("Factor span \(span.map { String(format: "%.2f", $0) } ?? "--") is above 0.10, wait and check again")
                         .font(.caption).foregroundStyle(.secondary)

@@ -81,6 +81,9 @@ final class AppModel: ConsoleLinkDelegate {
     var frsiRoom = 0
     var frsiWall = 1
     var frsi: FrsiReply?
+    /// Hour window of the next `FRSI` check and the window of the last request (for the `SKIP` text).
+    var frsiHours = ConsoleCommand.frsiDefaultHours
+    private(set) var frsiReplyHours = ConsoleCommand.frsiDefaultHours
     var spread: SpreadReply?
     var today: [TodayRow]?
     /// Sensor names of the `SPREAD` proposals that the user ticked.
@@ -1327,14 +1330,16 @@ final class AppModel: ConsoleLinkDelegate {
 
     /// Reads the wall factor of `FRSI R W`. Runs only on the user's button press; the firmware reads the RTC copy.
     func frsiCheck(room: Int, wall: Int) {
+        let hours = frsiHours
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
-        guard room != wall, ConsoleCommand.frsi(room: room, wall: wall).line != nil else {
-            message = "Pick two different sensors, the wall must be a slot"; return
+        guard room != wall, ConsoleCommand.frsi(room: room, wall: wall, hours: hours).line != nil else {
+            message = "Pick two different sensors, the wall must be a slot and the window 3 to 24 hours"; return
         }
         message = nil
         batchSummary = nil
         frsi = nil
-        queue = [.frsi(room: room, wall: wall)]
+        frsiReplyHours = hours
+        queue = [.frsi(room: room, wall: wall, hours: hours)]
         sendNext()
     }
 
@@ -1641,8 +1646,8 @@ final class AppModel: ConsoleLinkDelegate {
                     if let text = ConsoleCommand.spreadErrorMessage(hours: hours, text: text) { message = text }
                 }
                 if cmd == .today { today = nil; message = TodayReply.message(text) }
-                if case .frsi = cmd {
-                    let result = FrsiReply.statusResult(text) // ERR LOW_DELTA and ERR NO_OUTDOOR are results
+                if case let .frsi(_, _, hours) = cmd {
+                    let result = FrsiReply.statusResult(text, hours: hours) // ERR LOW_DELTA and ERR NO_OUTDOOR are results
                     frsi = result.reply
                     message = result.message
                 }

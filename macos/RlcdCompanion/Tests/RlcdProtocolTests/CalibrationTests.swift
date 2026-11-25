@@ -498,12 +498,35 @@ import Testing
     }
 
     @Test func frsiCommandLine() {
-        #expect(ConsoleCommand.frsi(room: 0, wall: 2).line == "FRSI 0 2")
-        #expect(ConsoleCommand.frsi(room: 10, wall: 1).line == "FRSI 10 1")
-        #expect(ConsoleCommand.frsi(room: 2, wall: 2).line == nil)
-        #expect(ConsoleCommand.frsi(room: 0, wall: 0).line == nil)
-        #expect(ConsoleCommand.frsi(room: 0, wall: 11).line == nil)
-        #expect(ConsoleCommand.frsi(room: 11, wall: 1).line == nil)
+        #expect(ConsoleCommand.frsi(room: 0, wall: 2, hours: 6).line == "FRSI 0 2")
+        #expect(ConsoleCommand.frsi(room: 10, wall: 1, hours: 6).line == "FRSI 10 1")
+        #expect(ConsoleCommand.frsi(room: 2, wall: 2, hours: 6).line == nil)
+        #expect(ConsoleCommand.frsi(room: 0, wall: 0, hours: 6).line == nil)
+        #expect(ConsoleCommand.frsi(room: 0, wall: 11, hours: 6).line == nil)
+        #expect(ConsoleCommand.frsi(room: 11, wall: 1, hours: 6).line == nil)
+    }
+
+    @Test func frsiHourWindow() {
+        #expect(ConsoleCommand.frsi(room: 0, wall: 2, hours: 6).line == "FRSI 0 2")
+        #expect(ConsoleCommand.frsi(room: 0, wall: 2, hours: 12).line == "FRSI 0 2 12")
+        #expect(ConsoleCommand.frsi(room: 0, wall: 2, hours: 3).line == "FRSI 0 2 3")
+        #expect(ConsoleCommand.frsi(room: 0, wall: 2, hours: 24).line == "FRSI 0 2 24")
+        #expect(ConsoleCommand.frsi(room: 0, wall: 2, hours: 2).line == nil)
+        #expect(ConsoleCommand.frsi(room: 0, wall: 2, hours: 25).line == nil)
+        #expect(ConsoleCommand.frsiWindows.allSatisfy { ConsoleCommand.frsi(room: 0, wall: 2, hours: $0).line != nil })
+    }
+
+    @Test func frsiSkipForLongerRequest() throws {
+        // A 12 hour request that the firmware answers with the 6 samples it has.
+        #expect(ConsoleCommand.frsi(room: 0, wall: 2, hours: 12).line == "FRSI 0 2 12")
+        #expect(try FrsiReply.parse(lines: ["SKIP hours=6"]).outcome == .skipped(hours: 6))
+    }
+
+    @Test func frsiSkipTextAndFirmwareHint() {
+        #expect(FrsiReply.skipText(hours: 6, requested: 12) == "6 of 12 h, too few samples (12 needed)")
+        #expect(FrsiReply.statusResult("ERR BAD_ARG", hours: 12).message == ConsoleCommand.spreadFirmwareText)
+        #expect(FrsiReply.statusResult("ERR BAD_ARG", hours: 6).message == FrsiReply.errorText("ERR BAD_ARG"))
+        #expect(FrsiReply.statusResult("ERR LOW_DELTA", hours: 12).reply?.outcome == .lowDelta)
     }
 
     @Test func frsiBatchText() throws {

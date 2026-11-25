@@ -22,11 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Hour window picker for the macOS FRSI check
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/CalibrationTests.swift`, `FEATURES.md`
-  - **Goal:** Let the user select the FRSI sample window in the calibration view. This item needs the firmware item "Hour window argument for the console command FRSI". Change `ConsoleCommand.frsi(room:wall:)` to `frsi(room:wall:hours:)`. Send `FRSI <R> <W>` for 6 hours and `FRSI <R> <W> <H>` for other values. Add a picker with 3, 6, 12 and 24 hours. Show the hour count of the reply beside the factor.
-  - **Acceptance:** A unit test checks that 6 hours gives `FRSI 0 2`. A unit test checks that 12 hours gives `FRSI 0 2 12`. A unit test checks that 2 and 25 hours give no command. A unit test parses a `SKIP hours=6` reply for a 12 hour request. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-  - **Rank:** [Total: 29, Use: 3, Setup: 8, Harmony: 8, Safety: 10, Effort: S]
 
 ## Priority 3: Display and Logging (Score 22–27)
 

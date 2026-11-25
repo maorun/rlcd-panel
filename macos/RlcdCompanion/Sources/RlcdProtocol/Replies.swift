@@ -634,8 +634,9 @@ public enum ConsoleCommand: Equatable {
     case salt(Int)
     /// `SALT N MGCL2`: the same check against saturated magnesium chloride.
     case saltMagnesium(Int)
-    /// `FRSI R W` (R 0 to 10 room sensor, W 1 to 10 wall slot, different): the temperature factor of a wall.
-    case frsi(room: Int, wall: Int)
+    /// `FRSI R W` (6 hours) or `FRSI R W <H>` (H 3 to 24; R 0 to 10 room sensor, W 1 to 10 wall slot, different): the
+    /// temperature factor of a wall. An older firmware answers `ERR BAD_ARG` for `FRSI R W <H>`.
+    case frsi(room: Int, wall: Int, hours: Int)
     /// `SPREAD` (6 hours) or `SPREAD <H>` (H 7 to 24): the co-location check of all sensors (RTC copy only).
     /// An older firmware answers `ERR BAD_ARG` for `SPREAD <H>`.
     case spread(hours: Int)
@@ -651,6 +652,12 @@ public enum ConsoleCommand: Equatable {
     public static let spreadMaxHours = 24
     /// Windows of the picker in `CalibrationView`.
     public static let spreadWindows = [6, 12, 24]
+    /// Smallest, default and largest window of `FRSI` in hours; the default sends plain `FRSI R W`.
+    public static let frsiMinHours = 3
+    public static let frsiDefaultHours = 6
+    public static let frsiMaxHours = 24
+    /// Windows of the picker in `CalibrationView`.
+    public static let frsiWindows = [3, 6, 12, 24]
     /// Text for `ERR BAD_ARG` of `SPREAD <H>` from a firmware without the hour argument.
     public static let spreadFirmwareText = "Firmware update needed"
 
@@ -809,9 +816,10 @@ public enum ConsoleCommand: Equatable {
         case let .saltMagnesium(reference):
             guard (0...10).contains(reference) else { return nil }
             return "SALT \(reference) MGCL2"
-        case let .frsi(room, wall):
-            guard (0...10).contains(room), (1...10).contains(wall), room != wall else { return nil }
-            return "FRSI \(room) \(wall)"
+        case let .frsi(room, wall, hours):
+            guard (0...10).contains(room), (1...10).contains(wall), room != wall,
+                  (ConsoleCommand.frsiMinHours...ConsoleCommand.frsiMaxHours).contains(hours) else { return nil }
+            return hours == ConsoleCommand.frsiDefaultHours ? "FRSI \(room) \(wall)" : "FRSI \(room) \(wall) \(hours)"
         case let .set(key, value):
             let text = "SET \(key)=\(value)"
             let bad = CharacterSet.whitespacesAndNewlines.union(.controlCharacters)
