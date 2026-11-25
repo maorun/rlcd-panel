@@ -3572,3 +3572,10 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `EventLogScreen` shows the section `Alarm-Verlauf` (newest first): alert name, start (`~` before a guessed start), end or `läuft`, and the duration (`AlertTimeline.lineText`, `durationText`). The panel time is read in the phone time zone.
 - Tests: `AlertTimelineTest` covers one pair, an open interval, a fall without a rise, two alert bits, a repeated rise, a dropped row, bad times, the duration text and `tests/fixtures/events_reply_sample.txt`.
 - Validation: `./scripts/check-protocol-sync.sh` exits 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
+
+## macOS gap report for the newest log rows
+
+- `DiagnosticsView` shows a gap report in the `Newest log rows` group after a `TAIL` read. It feeds `TailReply.rows` to `LogGaps.report(rows:)`.
+- The report shows the count of missing hours and one line for each gap with its start and end time. It shows `No gaps` for a report without a gap.
+- Tests: `TailReplyTests.gapReportOfFixtureRows` (rows of `tests/fixtures/tail_reply_sample.txt`: 1 gap, 666 missing hours), `TailReplyTests.threeHourStepOfTailRowsGivesOneGap` and `TailReplyTests.hourlyTailRowsGiveNoGap`.
+- Validation: `swift build -c release` passes locally; `swift test` does not run locally (no TestingMacros in the Command Line Tools) and runs on GitHub Actions CI.

@@ -26,12 +26,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Gap report for the newest log rows in the macOS app
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/LogGaps.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/TailReplyTests.swift`, `FEATURES.md`
-  - **Goal:** Show missing hours in the `TAIL` reply without a full log download. Feed `TailReply.rows` to `LogGaps.report(rows:)`. Show the count of missing hours in the `Newest log rows` group. Show one line for each gap with its start and end time. Show `No gaps` for a report without a gap.
-  - **Acceptance:** A unit test checks the gap count of the rows in `tests/fixtures/tail_reply_sample.txt`. A unit test checks that a step of 3 hours in `TAIL` rows gives one gap. A unit test checks that hourly rows give no gap. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-  - **Rank:** [Total: 26, Use: 4, Setup: 5, Harmony: 7, Safety: 10, Effort: S]
-
 - [ ] Gap report in the Android tail screen
   - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/LogGaps.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/TailScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/LogGapsTest.kt`, `FEATURES.md`
   - **Goal:** Show missing hours of the climate log on the phone. Port the macOS `LogGaps.report` to Kotlin. Give one gap for a step above 90 minutes between two neighbour rows. Skip a row with an unreadable timestamp. Use the smaller of the real and the wall-clock difference, so the October clock change gives no false gap. Show the gap count and one line for each gap in `TailScreen`.

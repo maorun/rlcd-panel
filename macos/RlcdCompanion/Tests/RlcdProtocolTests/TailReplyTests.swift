@@ -75,4 +75,36 @@ import Testing
         #expect(TailReply.message("ERR READ_FAILED") == "The panel could not read the log file")
         #expect(TailReply.message("ERR OTHER") == "ERR OTHER")
     }
+
+    private static func tailRows(_ stamps: [String]) throws -> [ClimateRow] {
+        let lines = try fixtureLines()
+        let rows = stamps.map { "\($0),87,4.00,1,21.5,45.0,-3.5,80.0,90" + String(repeating: ",", count: 33) }
+        return try TailReply.parse(lines: ["BEGIN TAIL \(rows.count)", lines[1]] + rows).rows
+    }
+
+    @Test func gapReportOfFixtureRows() throws {
+        let reply = try TailReply.parse(lines: Self.fixtureLines())
+        let report = LogGaps.report(rows: reply.rows)
+        #expect(report.rowCount == 3)
+        #expect(report.gaps.count == 1)
+        #expect(report.missingHours == 666)
+    }
+
+    @Test func threeHourStepOfTailRowsGivesOneGap() throws {
+        let rows = try Self.tailRows(["2026-09-01 01:00:00", "2026-09-01 04:00:00"])
+        let report = LogGaps.report(rows: rows)
+        #expect(report.gaps.count == 1)
+        #expect(report.missingHours == 2)
+        let gap = try #require(report.gaps.first)
+        #expect(gap.end.timeIntervalSince(gap.start) == 3 * 3600)
+        #expect(rows.compactMap { BatteryForecast.parse($0.timestamp) }.min() == gap.start)
+        #expect(rows.compactMap { BatteryForecast.parse($0.timestamp) }.max() == gap.end)
+    }
+
+    @Test func hourlyTailRowsGiveNoGap() throws {
+        let rows = try Self.tailRows((0..<4).map { String(format: "2026-09-01 %02d:00:00", $0) })
+        let report = LogGaps.report(rows: rows)
+        #expect(report.gaps.isEmpty)
+        #expect(report.missingHours == 0)
+    }
 }
