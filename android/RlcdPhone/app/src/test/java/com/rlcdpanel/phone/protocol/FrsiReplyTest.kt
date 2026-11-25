@@ -60,6 +60,38 @@ class FrsiReplyTest {
     }
 
     @Test
+    fun commandHours() {
+        assertEquals("FRSI 0 2", FrsiCommand.line(0, 2, 6))
+        assertEquals("FRSI 0 2 12", FrsiCommand.line(0, 2, 12))
+        assertEquals("FRSI 0 2 3", FrsiCommand.line(0, 2, 3))
+        assertEquals("FRSI 0 2 24", FrsiCommand.line(0, 2, 24))
+        for (h in listOf(2, 25, 0, -6)) {
+            try {
+                FrsiCommand.line(0, 2, h)
+                fail("no error for $h")
+            } catch (e: IllegalArgumentException) {
+                // expected
+            }
+        }
+        assertEquals(listOf(3, 6, 12, 24), FrsiCommand.HOUR_CHOICES)
+    }
+
+    @Test
+    fun skipForLongerWindow() {
+        val reply = parse("SKIP hours=6")
+        assertEquals(FrsiReply.Outcome.Skipped(6), reply.outcome)
+        assertEquals("SKIP: nur 6 h, mindestens 12 h nötig", FrsiText.outcome(reply, 12))
+        assertEquals("SKIP: nur 6 h, mindestens 6 h nötig", FrsiText.outcome(reply))
+    }
+
+    @Test
+    fun badArgHintOnlyForOtherWindows() {
+        assertTrue(FrsiText.status("ERR BAD_ARG", 12).contains("Update"))
+        assertEquals(false, FrsiText.status("ERR BAD_ARG", 6).contains("Update"))
+        assertEquals(false, FrsiText.status("ERR BAD_ARG").contains("Update"))
+    }
+
+    @Test
     fun commandLine() {
         assertEquals("FRSI 0 2", FrsiCommand.line(0, 2))
         for ((r, w) in listOf(1 to 1, 0 to 0, 0 to 11, 11 to 1, 1 to 0)) {

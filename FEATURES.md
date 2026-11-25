@@ -2906,6 +2906,15 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - Tests: `FrsiReplyTest` (fixture, `SKIP`, `UNSTABLE`, proposal range, bad numbers, command line, status texts).
 - Validation: the host has no Java and no Android SDK, so Gradle did not run locally. The CI job `Android phone companion tests and APK` runs `gradle testDebugUnitTest assembleDebug`.
 
+## Hour window picker for the Android FRSI check
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/FrsiReply.kt`, `CalibrationScreen.kt`, `MainActivity.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/FrsiReplyTest.kt`.
+- `FrsiCommand.line(room, wall, hours)` takes the sample window (default 6). 6 hours sends `FRSI <R> <W>`, other values send `FRSI <R> <W> <H>`. A value outside 3 to 24 throws `IllegalArgumentException`. `FrsiCommand.HOUR_CHOICES` lists 3, 6, 12 and 24.
+- `CalibrationScreen` shows the chips `3 h`, `6 h`, `12 h` and `24 h` in the section `Wall factor` (`CalibrationState.frsiHours`). A new choice clears the last result. `frsiReplyHours` keeps the window of the request, so `FrsiText.outcome(reply, requestedHours)` shows `SKIP: nur <n> h, mindestens <H> h nötig`. The measurement text shows the hour count of the reply beside the factor.
+- `FrsiText.status(line, hours)` adds a firmware update hint to `ERR BAD_ARG` for a window other than 6 hours.
+- Tests: `FrsiReplyTest` (`commandHours`, `skipForLongerWindow`, `badArgHintOnlyForOtherWindows`).
+- Validation: the host has no Android SDK, so Gradle did not run locally. The CI job `Android phone companion tests and APK` runs `gradle testDebugUnitTest assembleDebug`.
+
 ## Outdoor slot proposal in the macOS setup assistant
 
 - **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/OutdoorProposal.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/SetupAssistant.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/SetupAssistantView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/OutdoorProposalTests.swift`.

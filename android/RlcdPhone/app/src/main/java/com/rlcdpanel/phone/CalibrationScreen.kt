@@ -33,6 +33,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.CalibrationProposal
 import com.rlcdpanel.phone.protocol.CalibrationReply
+import com.rlcdpanel.phone.protocol.FrsiCommand
 import com.rlcdpanel.phone.protocol.FrsiReply
 import com.rlcdpanel.phone.protocol.FrsiText
 import com.rlcdpanel.phone.protocol.SaltReply
@@ -56,6 +57,10 @@ data class CalibrationState(
     /** Room sensor (0 to 10) and wall slot (1 to 10) of the wall factor section. */
     val frsiRoom: Int = 0,
     val frsiWall: Int = 1,
+    /** Sample window of the wall factor check (3, 6, 12 or 24 hours). */
+    val frsiHours: Int = FrsiCommand.DEFAULT_HOURS,
+    /** Window of the request that produced [frsi]. */
+    val frsiReplyHours: Int = FrsiCommand.DEFAULT_HOURS,
     val frsi: FrsiReply? = null,
     /** Last `SPREAD` reply of the co-location check. */
     val spread: SpreadReply? = null,
@@ -98,6 +103,7 @@ fun CalibrationScreen(
     onApplyTwoPoint: () -> Unit,
     onPickFrsiRoom: (Int) -> Unit,
     onPickFrsiWall: (Int) -> Unit,
+    onPickFrsiHours: (Int) -> Unit,
     onFrsi: () -> Unit,
     onApplyFrsi: () -> Unit,
     onSpread: () -> Unit,
@@ -206,8 +212,25 @@ fun CalibrationScreen(
                     Button(onClick = onFrsi, enabled = !state.isBusy && state.frsiRoom != state.frsiWall) { Text("FRSI") }
                 }
             }
+            item {
+                Row(
+                    modifier = Modifier.horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text("Fenster")
+                    for (h in FrsiCommand.HOUR_CHOICES) {
+                        FilterChip(
+                            selected = state.frsiHours == h,
+                            onClick = { onPickFrsiHours(h) },
+                            enabled = !state.isBusy,
+                            label = { Text("$h h") }
+                        )
+                    }
+                }
+            }
             state.frsi?.let { r ->
-                item { Text(FrsiText.outcome(r)) }
+                item { Text(FrsiText.outcome(r, state.frsiReplyHours)) }
                 r.proposal?.let { p ->
                     item {
                         Card(modifier = Modifier.fillMaxWidth()) {
