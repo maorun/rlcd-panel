@@ -27,11 +27,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Goal:** Let the user select the FRSI sample window in the calibration view. This item needs the firmware item "Hour window argument for the console command FRSI". Change `ConsoleCommand.frsi(room:wall:)` to `frsi(room:wall:hours:)`. Send `FRSI <R> <W>` for 6 hours and `FRSI <R> <W> <H>` for other values. Add a picker with 3, 6, 12 and 24 hours. Show the hour count of the reply beside the factor.
   - **Acceptance:** A unit test checks that 6 hours gives `FRSI 0 2`. A unit test checks that 12 hours gives `FRSI 0 2 12`. A unit test checks that 2 and 25 hours give no command. A unit test parses a `SKIP hours=6` reply for a 12 hour request. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
   - **Rank:** [Total: 29, Use: 3, Setup: 8, Harmony: 8, Safety: 10, Effort: S]
-- [ ] Wall factor check on the Wear OS watch
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/FrsiReply.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/FrsiReplyTest.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/FrsiScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `FEATURES.md`
-  - **Goal:** Let the user measure `wall_frsi_pct` with the watch near the wall sensor. Port the Android `FrsiReply.kt`. Add `FrsiScreen` with a room picker and a wall slot picker. Send `FRSI <R> <W>`. Show the factor, the span, the hours and the proposal `wall_frsi_pct=<N>`. Show the texts for `SKIP`, `UNSTABLE`, `ERR LOW_DELTA`, `ERR NO_OUTDOOR` and `ERR BAD_ARG`. An `Übernehmen` button sends `SET wall_frsi_pct=<N>`, then `CONFIG`. Show the text for `ERR READ_ONLY`.
-  - **Acceptance:** `FrsiReplyTest` reads `tests/fixtures/frsi_reply_sample.txt` and checks the factor 0.70 and the proposal 70. A unit test checks the `SKIP`, `UNSTABLE` and `ERR` replies. A unit test checks that an equal room and wall slot throw `IllegalArgumentException`. A unit test checks that a bad CRC-32 line throws `ParseException`. `gradle testDebugUnitTest` and `gradle assembleDebug` in `wearos/RlcdWatch` pass.
-  - **Rank:** [Total: 28, Use: 3, Setup: 8, Harmony: 8, Safety: 9, Effort: M]
 
 ## Priority 3: Display and Logging (Score 22–27)
 
