@@ -4140,3 +4140,12 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The causes show only while the active mask of the reply equals the alert mask of the newest frame. A changed alert set hides old causes. The tile set can still change while the mask stays equal; a new tap reads again.
 - Android card hints are German like the other cards. The error text `Update the panel firmware` stays English as the request names it.
 - Validation: `swift test` and `scripts/check-protocol-sync.sh` ran locally. The host has no Android SDK, so Gradle runs in CI. The watch does not parse `ALERTS`; no shared Kotlin file changed.
+
+## Door reference slot proposal in the setup assistants
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/DoorProposal.swift`, `.../SetupAssistant.swift`, `.../SetupAssistantView.swift`, `.../AppModel.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/DoorProposal.kt`, `.../protocol/SetupAssistant.kt`, `.../SetupAssistantScreen.kt`, `.../MainActivity.kt`.
+- `DoorProposal.propose` reads the rows of the last `WEEK` reply. Slot 1 (the door room) and each candidate need at least 3 days with a humidity maximum (`minDays`). The sensor value is the mean daily humidity maximum. The outdoor slot and slot 1 are no candidates.
+- The driest candidate is proposed when its mean maximum is at least 3 %RH below the next candidate (`minGapPct`, exactly 3 qualifies) and below the mean maximum of slot 1. At least two candidates are needed. No proposal when `door_ref_slot` already holds the slot, and on Android also without a `CONFIG` reply.
+- Text: `Door reference slot <N> (<name>): <x> %RH, next <x> %RH`. In the `calibrate` step `beginApplyDoor` sends `SET door_ref_slot=<N>` through `ConfigBatch`, then `CONFIG`; the assistant stays in `calibrate`. Android stops with `ERR READ_ONLY` text before the `SET` when `ble_console` is not 2. The assistant never reads `WEEK` by itself.
+- Tests: `DoorProposalTests.swift` and `DoorProposalTest.kt` (same cases: driest maximum, the 2 % and 3 % boundary, outdoor slot, too few days, gap days, active value, name, apply batch, read-only, error on `SET`).
+- Validation: `swift test -Xswiftc -plugin-path ...` (840 tests) and `swift build -c release` passed. The host has no Android SDK, so the Kotlin tests run in CI.

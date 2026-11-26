@@ -88,6 +88,11 @@ struct SetupAssistantView: View {
                 Button("Use slot \(o.slot) as outdoor slot") { model.setupApplyOutdoor() }
                     .disabled(!model.isIdle || !model.canSet)
             }
+            if let d = a.doorProposal(week: model.week, config: model.config) {
+                Text(d.text).font(.caption)
+                Button("Use slot \(d.slot) as door reference") { model.setupApplyDoor() }
+                    .disabled(!model.isIdle || !model.canSet)
+            }
             if model.week.isEmpty {
                 Text("No WEEK data for an outdoor proposal.").font(.caption).foregroundStyle(.secondary)
                 Button("Read week data") { model.refresh() }.disabled(!model.isIdle)

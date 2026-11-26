@@ -405,6 +405,7 @@ class MainActivity : ComponentActivity() {
                     onApply = { withConsolePermission { setupSend { setupAssistant.beginApply() } } },
                     onReadWeek = { withConsolePermission { setupSend { setupAssistant.beginReadWeek() } } },
                     onApplyOutdoor = { withConsolePermission { setupSend { setupAssistant.beginApplyOutdoor(panelConfig) } } },
+                    onApplyDoor = { withConsolePermission { setupSend { setupAssistant.beginApplyDoor(panelConfig) } } },
                     onFinish = { setupAssistant.finish(); refreshSetup() },
                     onRestart = { restartSetup() },
                     onBack = { closeSetup() }
@@ -1146,6 +1147,7 @@ class MainActivity : ComponentActivity() {
             verifyTries = a.verifyTries,
             proposalText = a.proposal?.let { "${it.key} = ${it.value}" },
             outdoorText = a.outdoorProposal(panelConfig)?.text,
+            doorText = a.doorProposal(panelConfig)?.text,
             isScanning = setupState.isScanning,
             isBusy = busy,
             message = message

@@ -62,7 +62,7 @@ class SetupAssistant {
     private val queue = ArrayDeque<String>()
     private var assigning = false
     private var applying = false
-    private var applyingOutdoor = false
+    private var keepStepBatch = false
 
     /** The rows of the last `WEEK` reply of the calibrate step; empty before the user reads it. */
     var week: List<WeekRow> = emptyList()
@@ -168,7 +168,25 @@ class SetupAssistant {
         if (p == null) { notice = "Kein Vorschlag vorhanden"; return null }
         if (config != null && !config.canWrite) { stop = Stop.ReadOnly; return null }
         applying = true
-        applyingOutdoor = true
+        keepStepBatch = true
+        queue.clear()
+        queue.add(p.setLine)
+        queue.add(CONFIG)
+        return nextCommand()
+    }
+
+    /** The door reference slot proposal from the last `WEEK` reply, only in the step `CALIBRATE`. */
+    fun doorProposal(config: PanelConfig?): DoorProposal? =
+        if (step == Step.CALIBRATE && stop == null) DoorProposal.propose(week, config) else null
+
+    /** Sends `SET door_ref_slot=<N>`, then `CONFIG` through [nextCommand]. The assistant stays in `CALIBRATE`. */
+    fun beginApplyDoor(config: PanelConfig?): String? {
+        val p = doorProposal(config)
+        if (!begin() || step != Step.CALIBRATE || applying) return null
+        if (p == null) { notice = "Kein Vorschlag vorhanden"; return null }
+        if (config != null && !config.canWrite) { stop = Stop.ReadOnly; return null }
+        applying = true
+        keepStepBatch = true
         queue.clear()
         queue.add(p.setLine)
         queue.add(CONFIG)
@@ -196,7 +214,7 @@ class SetupAssistant {
         queue.clear()
         assigning = false
         applying = false
-        applyingOutdoor = false
+        keepStepBatch = false
         week = emptyList()
     }
 
@@ -293,7 +311,7 @@ class SetupAssistant {
                     step = Step.VERIFY
                 } else {
                     applying = false
-                    if (applyingOutdoor) applyingOutdoor = false else step = Step.DONE
+                    if (keepStepBatch) keepStepBatch = false else step = Step.DONE
                 }
             }
             command == WEEK -> week = WeekReply.parse(lines)

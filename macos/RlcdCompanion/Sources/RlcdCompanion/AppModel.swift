@@ -953,6 +953,11 @@ final class AppModel: ConsoleLinkDelegate {
         runSetup { [week, config] in $0.beginApplyOutdoor(week: week, config: config) }
     }
 
+    func setupApplyDoor() {
+        guard canSet else { message = "SET needs ble_console=2 or the USB serial link"; return }
+        runSetup { [week, config] in $0.beginApplyDoor(week: week, config: config) }
+    }
+
     private func runSetup(_ action: (inout SetupAssistant) -> ConsoleCommand?) {
         guard var assistant = setup else { return }
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
