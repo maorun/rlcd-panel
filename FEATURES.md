@@ -4009,6 +4009,14 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - Tests: `SaltProgressTest` covers six stable samples, an unstable span, the text `3 von 6 Stunden stabil`, `COMPLETED`, the single fallback after `ERR BAD_ARG` and `TIMEOUT`.
 - Validation: the host has no Android SDK, so Gradle runs in CI (`Wear OS companion tests and APK`).
 
+## Alert limit lines in the Wear OS history screen
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ChartLimits.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/HistoryScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ChartLimitsTest.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/LimitLineGeometryTest.kt`, `scripts/check-protocol-sync.sh`
+- `ChartLimits.kt` is the shared protocol file of the phone (same code, only the `package` line differs; `scripts/check-protocol-sync.sh` lists it). `ChartLimits.from(config)` gives one `ChartLimit` for each active limit of the cached `PanelConfig`: `mold_alert_limit_rh` and `dry_alert_limit_rh` for humidity, `freeze_alert_limit_c` and `heat_alert_limit_c` for temperature. An off value (0 for dry and heat), a value outside the `ConfigSchema` range, a missing key and a missing config give no line.
+- The watch history screen now shows two 24-hour curves (temperature and humidity of the room, from the `HISTORY <N>` rows) with one dashed red line for each active limit and a legend of labels and values. A line widens the Y range. `HistoryChartGeometry` (newest hour right, a missing value or hour breaks the curve) and `LimitLineGeometry` share one Y scale. The temperature chart shows the `Heat (feels-like)` line with this label, because the watch has no feels-like curve. No new command.
+- `ChartLimitsTest` and `LimitLineGeometryTest` cover the lines, off and out-of-range values, the split, the curve geometry and the legend.
+- Validation: the host has no Android SDK, so Gradle runs in CI (`Wear OS companion tests and APK`).
+
 ## Alert limit lines in the Android history chart
 
 - **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ChartLimits.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/HistoryScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/ChartLimitsTest.kt`

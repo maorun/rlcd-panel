@@ -53,11 +53,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test checks the same date as the macOS `BatteryForecastTests` for the same 10-day series. A unit test checks `null` for 6 days. A unit test checks `null` for a rise of 12 % in the series without later data. A unit test checks the limit 10 % for `sensor_battery_limit_pct=0`. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
   - **Rank:** [Total: 26, Use: 6, Setup: 4, Harmony: 6, Safety: 10, Effort: S]
 
-- [ ] Alert limit lines in the Wear OS history screen
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ChartLimits.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/HistoryScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ChartLimitsTest.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
-  - **Goal:** Show the alert limits as lines in the watch history chart, like the Android and macOS charts. Copy `ChartLimits.kt` of the phone into the watch protocol package and add it to the `FILES` list of `scripts/check-protocol-sync.sh`. Draw one dashed line for each active limit of the visible axis (`mold_alert_limit_rh` and `dry_alert_limit_rh` on humidity, `freeze_alert_limit_c` and `heat_alert_limit_c` on temperature) with the cached `PanelConfig`. Draw no line for an off value or a line outside the axis range.
-  - **Acceptance:** `scripts/check-protocol-sync.sh` passes with the new file. A unit test checks two humidity lines for the limits 70 and 40 %RH. A unit test checks no line for `dry_alert_limit_rh=0`. A unit test checks that a line outside the axis range is not drawn. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 25, Use: 6, Setup: 2, Harmony: 7, Safety: 10, Effort: S]
 
 - [ ] Panel screen image on the Android phone
   - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/PanelImage.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/PanelScreen.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/PanelImageTest.kt`, `FEATURES.md`
