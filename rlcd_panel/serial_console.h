@@ -2742,7 +2742,7 @@ public:
                  static_cast<unsigned>(rh_history.countAtOrBelow(static_cast<uint16_t>(cfg.dry_alert_limit_rh * 10u))));
       }
       // heat_h: live sensor with a usable pair history shows the hours at or above heat_alert_limit_c (ClimateHistory::heatHours); 0 = off, unequal sizes and too few pairs give "--".
-      char heat[8] = "--";
+      char heat[12] = "--";
       if (live) {
         const int heat_hours = snap.history->heatHours(i, cfg.heat_alert_limit_c);
         if (heat_hours >= 0) {

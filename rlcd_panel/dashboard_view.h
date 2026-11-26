@@ -1366,7 +1366,7 @@ public:
     if (config == nullptr) {
       return;
     }
-    char text[12];
+    char text[20]; // "HEAT " + 10 digits + "H" + NUL for the full int range
     formatHeat(text, sizeof(text), sb, now_ms, staleTimeoutMs(config), history, 1 + slot, config->heat_alert_limit_c);
     const size_t len = strlen(text);
     if (len == 0) {

@@ -12509,7 +12509,7 @@ void testDashboardStatsHeatHours() {
     h.temperatures[1].push(i < 2 ? 330 : 200);
     h.slots[1].push(i < 2 ? 600 : 500);
   }
-  char text[16];
+  char text[24];
   DashboardView::formatHeat(text, sizeof(text), sb, now, SENSOR_STALE_TIMEOUT_MS, &h, 1, 30);
   assert(strcmp(text, "HEAT 2H") == 0);
   DashboardView::formatHeat(text, sizeof(text), sb, now, SENSOR_STALE_TIMEOUT_MS, &h, 1, 0);
