@@ -90,3 +90,45 @@ import Foundation
         }
     }
 }
+
+@Suite struct SharedFixtureTests {
+    private func fixtureLines(_ name: String) throws -> [String] {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let data = try Data(contentsOf: url.appendingPathComponent("tests/fixtures/\(name)"))
+        var assembler = ReplyAssembler()
+        guard case .frame(let lines)? = assembler.append(data).first else { Issue.record("\(name) is not a valid frame"); return [] }
+        return lines
+    }
+
+    /// Reads tests/fixtures/today_hours_reply_sample.txt (11 columns, two rows).
+    @Test func parsesHoursFixture() throws {
+        let rows = try TodayReply.parse(lines: try fixtureLines("today_hours_reply_sample.txt"))
+        #expect(rows.count == 2)
+        #expect(rows.map(\.sensor) == [0, 1])
+        #expect(rows.map(\.name) == ["onboard", "slot1"])
+        #expect(rows.map(\.hours) == [5, 2])
+        #expect(rows.map(\.moldHours) == [2, 2])
+        #expect(rows.map(\.dryHours) == [3, 0])
+    }
+
+    /// Reads tests/fixtures/today_hours_one_reply_sample.txt (one row of slot 1).
+    @Test func parsesHoursOneFixture() throws {
+        let rows = try TodayReply.parse(lines: try fixtureLines("today_hours_one_reply_sample.txt"))
+        #expect(rows.count == 1)
+        #expect(rows[0].sensor == 1)
+        #expect(rows[0].name == "slot1")
+        #expect(rows[0].hours == 2)
+        #expect(rows[0].moldHours == 2)
+        #expect(rows[0].dryHours == 0)
+    }
+
+    /// Reads tests/fixtures/history_reply_sample.txt.
+    @Test func parsesHistoryFixture() throws {
+        let rows = try HistoryReply.parse(lines: try fixtureLines("history_reply_sample.txt"))
+        #expect(rows.count == 6)
+        #expect(rows[0] == HistoryRow(sensor: 0, ageHours: 0, temperatureC: 21.4, humidityPct: 45.0, noiseDb: 38))
+        #expect(rows[1].noiseDb == nil)
+        #expect(rows[5] == HistoryRow(sensor: 3, ageHours: 0, temperatureC: nil, humidityPct: 70.0, noiseDb: nil))
+    }
+}

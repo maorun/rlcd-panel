@@ -35,12 +35,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test decodes a 15,000-byte buffer with one set pixel at x 3, y 5 and checks the pixel. A unit test checks the exception for 14,999 bytes. A unit test checks the tile rectangles for 1, 4 and 6 valid tiles against the values of `layoutTiles` in `AGENTS.md`. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
   - **Rank:** [Total: 24, Use: 5, Setup: 3, Harmony: 6, Safety: 10, Effort: M]
 
-- [ ] App parser tests for the new TODAY fixtures
-  - **Location:** `macos/RlcdCompanion/Tests/RlcdProtocolTests/TodayReplyTests.swift`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/TodayReplyTest.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/TodayReplyTest.kt`, `tests/fixtures/today_hours_reply_sample.txt`, `tests/fixtures/today_hours_one_reply_sample.txt`
-  - **Goal:** Close a test gap: the firmware writes the 11-column `TODAY` reply, but no app test reads `today_hours_reply_sample.txt` or `today_hours_one_reply_sample.txt`. A change of the firmware fixture can break the app parsers without a failed test. Add one test in each app that parses both fixtures and checks the row count, `moldHours` and `dryHours` of each row. Add the same check for `tests/fixtures/history_reply_sample.txt` to the macOS tests, which do not read it.
-  - **Acceptance:** Each new test passes with the current fixtures. Each new test fails when a column of the fixture header is removed. `swift test` passes. `gradle testDebugUnitTest assembleDebug` passes in both Android projects.
-  - **Rank:** [Total: 23, Use: 1, Setup: 2, Harmony: 10, Safety: 10, Effort: S]
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

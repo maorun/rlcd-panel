@@ -4202,3 +4202,11 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `WeekHistory` stores one more byte for each day and sensor (`0xFF` is the gap marker). `WeekHistory::advance` takes the heat limit as last argument and stores `ClimateHistory::heatHours` with the mold and dry hours at the first hourly write after local midnight. The restore from the daily files leaves gaps, because the daily file has no heat column. `STATE_VERSION` is 84 and the week block is 544 bytes.
 - Tests: the host tests assert the stored hours after `advance`, the gap marker for limit 0, the rejection of 25 and of a count beside a gap pair, the round trip, `swapSensors` and `clear`, the 10-column header, the row format and the `CRC32` line of `WEEK` and `WEEK <N>`. The fixture `week_heat_reply_sample.txt` holds the 10-column reply.
 - The apps parse the 9-column reply only; they need a parser for the 10-column header before they show the heat hours.
+
+## App parser tests for the TODAY hours fixtures
+
+- **Code:** `macos/RlcdCompanion/Tests/RlcdProtocolTests/TodayReplyTests.swift`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/TodayReplyTest.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/TodayReplyTest.kt`, `tests/fixtures/today_hours_reply_sample.txt`, `tests/fixtures/today_hours_one_reply_sample.txt`, `tests/fixtures/history_reply_sample.txt`
+- Each companion app now parses the 11-column firmware fixtures `today_hours_reply_sample.txt` (2 rows) and `today_hours_one_reply_sample.txt` (1 row) and checks the row count, the sensor, `moldHours` and `dryHours` of each row (mold 2 and 2, dry 3 and 0; one row mold 2, dry 0). A change of the header or a column in the firmware fixture now fails an app test.
+- The macOS test `SharedFixtureTests.parsesHistoryFixture` also reads `history_reply_sample.txt` (6 rows, empty fields give `nil`).
+- No parser change: the parsers already accepted the 11-column header.
+- Validation: the tests run in CI only (no `TestingMacros` plugin and no Android SDK on the local host).
