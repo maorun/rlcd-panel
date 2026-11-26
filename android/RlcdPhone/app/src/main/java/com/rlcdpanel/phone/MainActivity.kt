@@ -75,6 +75,7 @@ import com.rlcdpanel.phone.protocol.DiagnosticsReport
 import com.rlcdpanel.phone.protocol.EventCsv
 import com.rlcdpanel.phone.protocol.ReceptionNotice
 import com.rlcdpanel.phone.protocol.RejectsLog
+import com.rlcdpanel.phone.protocol.AlertCausesState
 import com.rlcdpanel.phone.protocol.EventRow
 import com.rlcdpanel.phone.protocol.EventsReply
 import com.rlcdpanel.phone.protocol.JumpAdvice
@@ -162,6 +163,9 @@ class MainActivity : ComponentActivity() {
     private var showEvents by mutableStateOf(false)
     private var eventState by mutableStateOf(EventLogState())
     private var recentEventState by mutableStateOf(EventLogState())
+    private var alertCausesState by mutableStateOf(AlertCausesState())
+    /** True while the permission prompt belongs to the alarm card, so the prompt marks that card and not `Recent events`. */
+    private var alertCausesPending = false
     private var showFinder by mutableStateOf(false)
     private var showSetup by mutableStateOf(false)
     private var setupState by mutableStateOf(SetupState())
@@ -623,6 +627,15 @@ class MainActivity : ComponentActivity() {
                 onOpenDays = { showDays = true },
                 onOpenEvents = { showEvents = true },
                 recentEvents = recentEventState,
+                alertCauses = alertCausesState,
+                // A second tap while the permission dialog waits does nothing.
+                onReadAlertCauses = {
+                    if (pendingConsoleAction == null) {
+                        alertCausesPending = true
+                        withConsolePermission { readAlertCauses() }
+                        alertCausesPending = false
+                    }
+                },
                 // A second tap while the permission dialog waits does nothing.
                 onReadRecentEvents = {
                     if (pendingConsoleAction == null) withConsolePermission { readRecentEvents() }
@@ -665,6 +678,7 @@ class MainActivity : ComponentActivity() {
         if (panelHistory.isReading) panelHistory = PanelHistoryState(message = "Abgebrochen. Erneut lesen.")
         if (eventState.isReading) eventState = EventLogState(message = "Abgebrochen. Erneut lesen.")
         if (recentEventState.isReading) recentEventState = EventLogState(message = "Abgebrochen. Erneut lesen.")
+        if (alertCausesState.isReading) alertCausesState = AlertCausesState(message = "Abgebrochen. Erneut tippen.")
         if (rejectsState.isBusy) {
             rejectsState = RejectsState(
                 message = if (rejectsState.isFixing) "Abgebrochen. Zustand des Panels unbekannt, erneut lesen." else "Abgebrochen. Erneut lesen."
@@ -704,6 +718,7 @@ class MainActivity : ComponentActivity() {
             pendingConsoleAction = null
             if (grants.isNotEmpty() && grants.values.all { it }) action()
             else if (showEvents) eventState = EventLogState(message = "Bluetooth-Berechtigung fehlt")
+            else if (alertCausesState.isReading) alertCausesState = AlertCausesState(message = "Bluetooth-Berechtigung fehlt")
             else if (!hasOpenConsoleScreen()) recentEventState = EventLogState(message = "Bluetooth-Berechtigung fehlt")
             else if (showRejects) rejectsState = RejectsState(message = "Bluetooth-Berechtigung fehlt")
             else if (showHistory) panelHistory = PanelHistoryState(message = "Bluetooth-Berechtigung fehlt")
@@ -785,6 +800,7 @@ class MainActivity : ComponentActivity() {
         eventState = EventLogState()
         // The cancel drops the callback of a running card read, so the card must not stay on "Lese…".
         if (recentEventState.isReading) recentEventState = EventLogState(message = "Abgebrochen. Erneut lesen.")
+        if (alertCausesState.isReading) alertCausesState = AlertCausesState(message = "Abgebrochen. Erneut tippen.")
         showEvents = false
         if (!scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
     }
@@ -819,6 +835,17 @@ class MainActivity : ComponentActivity() {
         recentEventState = EventLogState(isReading = true)
         consoleClient.send(EventsReply.newestCommand(RECENT_EVENT_COUNT)) { reply ->
             recentEventState = eventLogStateOf(reply)
+            if (wasScanning && !hasOpenConsoleScreen() && !scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
+        }
+    }
+
+    /** Sends `ALERTS` after a tap on the alarm card. The scan restarts after the reply when it ran before. */
+    private fun readAlertCauses() {
+        val wasScanning = BleScanService.isScanning.value
+        stopBleScan()
+        alertCausesState = AlertCausesState(isReading = true)
+        consoleClient.send("ALERTS") { reply ->
+            alertCausesState = AlertCausesState.of(reply, panelConfig.tileNames, corruptText = BleConsoleClient.errorText(reply))
             if (wasScanning && !hasOpenConsoleScreen() && !scanPermissionDenied && !BleScanService.isScanning.value) ensurePermissionAndStart()
         }
     }
@@ -1706,6 +1733,7 @@ class MainActivity : ComponentActivity() {
         if (needed.isNotEmpty()) {
             pendingConsoleAction = action
             if (showEvents) eventState = EventLogState(isReading = true)
+            else if (!hasOpenConsoleScreen() && alertCausesPending) alertCausesState = AlertCausesState(isReading = true)
             else if (!hasOpenConsoleScreen()) recentEventState = EventLogState(isReading = true)
             else if (showRejects) rejectsState = RejectsState(isReading = true)
             else if (showHistory) panelHistory = PanelHistoryState(isReading = true)

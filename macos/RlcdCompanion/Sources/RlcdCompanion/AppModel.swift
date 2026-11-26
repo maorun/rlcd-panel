@@ -53,6 +53,10 @@ final class AppModel: ConsoleLinkDelegate {
     var scanResult: ScanReply?
     /// Reply of the last `REJECTS` command, `nil` before a user read.
     var rejectsResult: RejectsReply?
+    /// Reply of the last `ALERTS` command, `nil` before a user read.
+    var alertsResult: AlertsReply?
+    /// Clear text of the last failed `ALERTS` read (for example `Update the panel firmware`), `nil` after a good read.
+    var alertsError: String?
     /// Reply of the last `RECEPTION` command, `nil` before a user read.
     var receptionResult: ReceptionReply?
     /// Last `SELFTEST` result and its verified lines (for the diagnostics report). Cleared on a new run and on a link change.
@@ -544,7 +548,7 @@ final class AppModel: ConsoleLinkDelegate {
         diagnostics = nil
         diagnosticsConfig = nil
         version = nil
-        scanResult = nil; panelImage = nil; configChanged = nil; rejectsResult = nil; receptionResult = nil; tailResult = nil; daysResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
+        scanResult = nil; panelImage = nil; configChanged = nil; rejectsResult = nil; alertsResult = nil; alertsError = nil; receptionResult = nil; tailResult = nil; daysResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         panelTime = nil
@@ -563,7 +567,7 @@ final class AppModel: ConsoleLinkDelegate {
     func disconnectConsole() {
         stopRepeatScan(.user)
         stopSaltWatch(.user)
-        scanResult = nil; panelImage = nil; configChanged = nil; rejectsResult = nil; receptionResult = nil; tailResult = nil; daysResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
+        scanResult = nil; panelImage = nil; configChanged = nil; rejectsResult = nil; alertsResult = nil; alertsError = nil; receptionResult = nil; tailResult = nil; daysResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         panelTime = nil
@@ -579,7 +583,7 @@ final class AppModel: ConsoleLinkDelegate {
     func selectTransport(_ t: Transport) {
         stopRepeatScan(.user)
         stopSaltWatch(.user)
-        scanResult = nil; panelImage = nil; configChanged = nil; rejectsResult = nil; receptionResult = nil; tailResult = nil; daysResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
+        scanResult = nil; panelImage = nil; configChanged = nil; rejectsResult = nil; alertsResult = nil; alertsError = nil; receptionResult = nil; tailResult = nil; daysResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
         transport = t
@@ -1054,6 +1058,16 @@ final class AppModel: ConsoleLinkDelegate {
         guard pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
         message = nil
         queue = [.rejects]
+        sendNext()
+    }
+
+    /// Reads the tiles behind each active alert with `ALERTS`. Runs only on a tap of the alert line, on USB and on BLE.
+    func readAlerts() {
+        guard consoleConnected else { message = "Console not connected"; return }
+        guard pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        message = nil
+        alertsResult = nil; alertsError = nil // the old causes must not stay beside a new read
+        queue = [.alerts]
         sendNext()
     }
 
@@ -1616,6 +1630,7 @@ final class AppModel: ConsoleLinkDelegate {
             if Self.isSaltHistory(cmd) { stopSaltWatch(.replyFailed) }
             if cmd == .screen { panelImage = nil }
             if cmd == .rejects { rejectsResult = nil }
+            if cmd == .alerts { alertsResult = nil; alertsError = message }
             if cmd == .reception { receptionResult = nil }
             if cmd == .configChanged { configChanged = nil }
             if case .tail = cmd { tailResult = nil }
@@ -1691,6 +1706,7 @@ final class AppModel: ConsoleLinkDelegate {
                 configChanged = nil // the keys of the old panel must not get a Reset button
                 panelImage = nil
                 rejectsResult = nil
+                alertsResult = nil; alertsError = nil // the causes of a lost link belong to the old panel
                 receptionResult = nil
                 tailResult = nil
                 daysResult = nil
@@ -1726,8 +1742,10 @@ final class AppModel: ConsoleLinkDelegate {
             switch (cmd, reply) {
             case (_, let .corrupt(e)):
                 message = "Reply rejected: \(e)"
+                if cmd == .alerts { alertsError = message }
                 if cmd == .screen { panelImage = nil } // a rejected frame must not stay next to the error
                 if cmd == .rejects { rejectsResult = nil }
+                if cmd == .alerts { alertsResult = nil }
                 if cmd == .reception { receptionResult = nil }
                 if cmd == .configChanged { configChanged = nil }
                 if case .tail = cmd { tailResult = nil }
@@ -1785,6 +1803,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if cmd == .screen { panelImage = nil } // ERR NO_FRAME must not leave an old image
                 if cmd == .rejects { rejectsResult = nil }
                 if cmd == .reception { receptionResult = nil }
+                if cmd == .alerts { alertsResult = nil; alertsError = AlertsReply.errorText(text); message = alertsError }
                 if cmd == .configChanged { configChanged = nil }
                 if case .tail = cmd { tailResult = nil; message = TailReply.message(text) }
                 if case .days = cmd { daysResult = nil; message = DaysReply.message(text) }
@@ -1858,6 +1877,12 @@ final class AppModel: ConsoleLinkDelegate {
                 rejectsResult = nil // a reply that fails to parse must not leave the old rows
                 rejectsResult = try RejectsReply.parse(lines: lines)
             case (.rejects, .file): message = "Unexpected file reply"
+            case let (.alerts, .frame(lines)):
+                alertsResult = nil // a reply that fails to parse must not leave the old rows
+                alertsError = "Unreadable ALERTS reply"
+                alertsResult = try AlertsReply.parse(lines: lines)
+                alertsError = nil
+            case (.alerts, .file): message = "Unexpected file reply"; alertsError = message
             case let (.reception, .frame(lines)):
                 receptionResult = nil // a reply that fails to parse must not leave the old rows
                 receptionResult = try ReceptionReply.parse(lines: lines)

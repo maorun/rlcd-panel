@@ -28,7 +28,25 @@ struct RlcdCompanionApp: App {
                 Text(line)
             }
             if summary.hasAlert {
-                Label("Alert: " + summary.alertNames.joined(separator: ", "), systemImage: MenuBarSummary.alertSymbol)
+                // One tap sends ALERTS; the menu never polls the panel.
+                Button {
+                    model.readAlerts()
+                } label: {
+                    Label("Alert: " + summary.alertNames.joined(separator: ", "), systemImage: MenuBarSummary.alertSymbol)
+                }
+                .disabled(!model.isIdle)
+                // Causes of an older alert set are not shown: the read must match the alerts of the last frame.
+                if let alerts = model.alertsResult, let frame = model.frame, alerts.activeMask == frame.alerts.rawValue {
+                    ForEach(alerts.causeLines(tileNames: AlertCauses.tileNames(config: model.lastConfig)), id: \.self) { line in
+                        Text(line)
+                    }
+                } else if let error = model.alertsError {
+                    Text(error)
+                } else if !model.consoleConnected {
+                    Text("Connect the console to read the causes")
+                } else {
+                    Text("Click to read the causes")
+                }
             }
             if summary.isStale {
                 Label("Stale", systemImage: "clock.badge.exclamationmark")
