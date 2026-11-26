@@ -452,7 +452,8 @@ class MainActivity : ComponentActivity() {
                     state = historyState,
                     roomName = panelConfig.tileName(historyRoom),
                     sensor = historyRoom,
-                    onRead = { readHistory() }
+                    onRead = { readHistory() },
+                    panelConfig = panelConfig
                 )
                 return@setContent
             }
