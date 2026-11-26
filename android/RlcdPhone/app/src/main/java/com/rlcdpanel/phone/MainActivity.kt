@@ -155,6 +155,7 @@ class MainActivity : ComponentActivity() {
     private var backupLoadJob: Job? = null
     private var showWeek by mutableStateOf(false)
     private var showToday by mutableStateOf(false)
+    private var showPanelPreview by mutableStateOf(false)
     private var todayState by mutableStateOf(TodayState())
     private var showTail by mutableStateOf(false)
     private var showDays by mutableStateOf(false)
@@ -307,6 +308,17 @@ class MainActivity : ComponentActivity() {
                     onBack = { closeWeek() }
                 )
                 BackHandler { closeWeek() }
+                return@setContent
+            }
+            if (showPanelPreview) {
+                PanelPreviewScreen(
+                    frame = snapshot?.frame,
+                    receivedAtMillis = snapshot?.receivedAtMillis,
+                    nowMillis = nowMillis,
+                    panelConfig = panelConfig,
+                    onBack = { showPanelPreview = false }
+                )
+                BackHandler { showPanelPreview = false }
                 return@setContent
             }
             if (showToday) {
@@ -624,6 +636,7 @@ class MainActivity : ComponentActivity() {
                 onOpenHistory = { showHistory = true },
                 onOpenWeek = { showWeek = true },
                 onOpenToday = { showToday = true },
+                onOpenPanelPreview = { showPanelPreview = true },
                 onOpenTail = { showTail = true },
                 onOpenDays = { showDays = true },
                 onOpenEvents = { showEvents = true },
