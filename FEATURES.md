@@ -4112,3 +4112,15 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `DiagnosticsReport.build` takes an optional `ReceptionReply` (Android: `List<ReceptionRow>`). The section `## RECEPTION` has one line `slot <N> <name> <received>/<scans>` for each row. An unnamed slot shows `--`; a name shows as `<hidden>` unless the names toggle is on (macOS) or `includeNames` is true. Without a reply the section is left out.
 - No command is sent for the report: both apps use the last result of the `Run self-test` and reception reads. The data can be older than the report, because the report never refreshes it.
 - Tests: `DiagnosticsReportTests` (macOS) and `DiagnosticsReportTest` (Android) build the sections from `tests/fixtures/selftest_reply_sample.txt` and `tests/fixtures/reception_reply_sample.txt`.
+
+## Console command ALERTS with the cause of each active alert
+
+`STATUS` shows only the alert mask. The user could not see which tile causes an alert. The new console command `ALERTS` shows the tiles behind each alert bit.
+
+- `AlertEvaluator::triggerTiles(onboard, slots, slot_count, now, limits)` returns, for `FREEZER`, `HUMIDITY`, `SENSOR_LOST`, `VENTILATE` and `HEAT`, the mask of tiles that are at or beyond the trigger limit now (bit 0 onboard, bits 1 to 10 slots). It uses the rules of `AlertEvaluator::evaluate` (`climate_alert_tiles`, the delays, no stale or invalid reading), so a tile outside `climate_alert_tiles` gives no bit.
+- `SerialConsoleRunner::showAlerts` replies `BEGIN ALERTS`, the header `alert,active,acked,tiles,limit`, one row for each of the 8 alert bits (`FREEZER`, `HUMIDITY`, `NOISE`, `SENSOR_LOST`, `CHARGE_FULL`, `VENTILATE`, `SENSOR_BATTERY`, `HEAT`) and the `CRC32` line.
+- `active` is the bit of `alert_mask`, `acked` the bit of `alert_ack`. `tiles` is 3 hex digits; it is empty for `NOISE` and `CHARGE_FULL`. `SENSOR_BATTERY` uses the latch `sensor_battery_latch`. A held alert without a tile above the limit gives `tiles=000`.
+- `limit` is the configured trigger limit (`FREEZER` in C, `HUMIDITY` in %RH, `NOISE` in dB, `SENSOR_BATTERY` in %, `HEAT` in C; 0 is off for the last three); it is empty for `SENSOR_LOST`, `CHARGE_FULL` and `VENTILATE`.
+- Extra text, for example `ALERTS 1` and `ALERTSX`, gives `ERR BAD_ARG`. The command mounts no card, changes no state and does not change the RTC layout or `STATE_VERSION`. It runs on USB and on BLE at each `ble_console` level.
+- `tests/fixtures/alerts_reply_sample.txt` holds the reply sample. The tests cover `HUMIDITY` with `tiles=012` for slots 1 and 4, a held alert with `tiles=000`, a tile outside `climate_alert_tiles`, the `acked` column, stale sensor and battery latch tiles, `ERR BAD_ARG`, the BLE gate at `ble_console` 1, a short write, the CRC-32 and the fixture.
+- Validation: the host tests (242 suites) and `arduino-cli compile rlcd_panel` pass. The companion apps do not parse `ALERTS` yet.

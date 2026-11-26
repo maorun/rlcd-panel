@@ -1560,6 +1560,13 @@ void setup() {
       // The RTC copy of the reception history answers: no card access, no state change, so the console keeps running.
       // The BLE scan has stopped while a console command runs, so the registry needs no lock (like FRSI and SPREAD).
       Runner::showReception(sink, g_state.registry, g_state.reception, g_state.config);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::ALERTS) {
+      // The RTC copy of the alert state answers: no card access, no state change. The BLE scan has stopped while a console
+      // command runs, so the registry needs no lock.
+      // The calibrated copy matches chimeOnAlerts(): the slot offsets and the gain move a tile over its limit.
+      const SwitchBotRegistry calibrated = calibratedRegistry();
+      Runner::showAlerts(sink, g_state.alert_mask, g_state.alert_ack, g_onboard_reading, calibrated, nowMs(),
+                         alertLimits(), g_state.sensor_battery_latch, g_state.config);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::HISTORY) {
       // The RTC histories answer: no card access, so the console keeps running.
       Runner::showHistory(sink, g_state.history, g_state.noise_history,
