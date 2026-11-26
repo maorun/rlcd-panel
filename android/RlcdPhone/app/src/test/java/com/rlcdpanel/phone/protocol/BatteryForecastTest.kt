@@ -143,7 +143,8 @@ class BatteryForecastTest {
             row(0, 80 - it).copy(timestamp = text)
         }
         val date = BatteryForecast.estimate(rows, 1, 10.0)
-        assertEquals((begin + 70 * 7 * day).toDouble(), date!!.toDouble(), 3_700_000.0)
+        // The 3 rows after the change are 1 hour closer, so the fit moves the date by about 0.9 day over 490 days. Stay below 2 days.
+        assertEquals((begin + 70 * 7 * day).toDouble(), date!!.toDouble(), 2.0 * day)
     }
 
     @Test
