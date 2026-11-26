@@ -16179,6 +16179,237 @@ void testSerialReceptionFixture() {
   assert(receptionReply(st) == readRepoFile("tests/fixtures/reception_reply_sample.txt"));
 }
 
+namespace {
+// One ALERTS reply: the readings sit in the registry of `st`, the onboard tile in `onboard`.
+std::string alertsReply(const PersistentState& st, uint8_t mask, uint8_t ack, const Shtc3Reading& onboard,
+                        uint32_t now, const AlertLimits& limits, uint16_t battery_latch = 0) {
+  FakeSink sink;
+  TestRunner::showAlerts(sink, mask, ack, onboard, st.registry, now, limits, battery_latch, st.config);
+  return sink.out;
+}
+
+AlertLimits alertsLimits(const DeviceConfig& config) {
+  AlertLimits limits;
+  limits.freezer_trigger_c = config.freeze_alert_limit_c;
+  limits.humidity_trigger_pct = static_cast<float>(config.mold_alert_limit_rh);
+  limits.heat_trigger_c = static_cast<float>(config.heat_alert_limit_c);
+  limits.climate_tiles = config.climate_alert_tiles;
+  limits.outdoor_slot = config.outdoor_slot;
+  return limits;
+}
+} // namespace
+
+void testSerialAlertsParserAndGate() {
+  SerialCommand cmd;
+  assert(parseText("ALERTS", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::ALERTS);
+  assert(parseText("ALERTS 1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("ALERTS ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("ALERTSX", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("ALERTS", cmd) == SerialParseStatus::OK);
+  for (uint8_t level = 0; level < 3; ++level) {
+    assert(std::string(BleConsoleBridge::gate(cmd, level)).empty()); // read command at each level
+  }
+  BleConsoleBridge bridge;
+  bridge.setLevel(1);
+  assert(bridge.onConnect());
+  const char* reply = "";
+  BleConsoleBridge::Action action = BleConsoleBridge::Action::NONE;
+  for (const char c : std::string("ALERTS 1\n")) {
+    action = bridge.feed(static_cast<uint8_t>(c), cmd, reply);
+  }
+  assert(action == BleConsoleBridge::Action::REPLY && std::string(reply) == "ERR BAD_ARG\n");
+  for (const char c : std::string("ALERTS\n")) {
+    action = bridge.feed(static_cast<uint8_t>(c), cmd, reply);
+  }
+  assert(action == BleConsoleBridge::Action::RUN && cmd.kind == SerialCommandKind::ALERTS);
+}
+
+void testSerialAlertsHumidityTiles() {
+  PersistentState st;
+  assert(st.registry.upsert(makeReading(1, 22.0f, 80, 80))); // slot 1 above 70 %RH
+  assert(st.registry.upsert(makeReading(2, 22.0f, 40, 80)));
+  assert(st.registry.upsert(makeReading(3, 22.0f, 50, 80)));
+  assert(st.registry.upsert(makeReading(4, 22.0f, 75, 80))); // slot 4 above 70 %RH
+  const AlertLimits limits = alertsLimits(st.config);
+  const std::string reply = alertsReply(st, ALERT_HUMIDITY, ALERT_NONE, makeOnboard(21.0f, 50.0f), 60000, limits);
+  assert(reply.rfind("BEGIN ALERTS\nalert,active,acked,tiles,limit\n", 0) == 0);
+  assert(reply.find("\nHUMIDITY,1,0,012,70\n") != std::string::npos); // bit 1 and bit 4
+  assert(reply.find("\nFREEZER,0,0,000,0.0\n") != std::string::npos);
+  // the reply changes no state and has the CRC32 line over the body
+  const size_t crc_at = reply.rfind("CRC32 ");
+  assert(crc_at != std::string::npos);
+  const std::string body = reply.substr(0, crc_at);
+  assert(reply == body + historyCrcLine(body) + "\n");
+  // a short write ends the reply without a CRC32 line
+  for (size_t cut_at = 0; cut_at < crc_at; ++cut_at) {
+    FakeSink cut;
+    cut.limit = cut_at;
+    TestRunner::showAlerts(cut, ALERT_HUMIDITY, ALERT_NONE, makeOnboard(21.0f, 50.0f), st.registry, 60000, limits, 0, st.config);
+    assert(cut.out.size() == cut_at && cut.out.find("CRC32") == std::string::npos);
+  }
+}
+
+void testSerialAlertsHeldAlertHasNoTiles() {
+  PersistentState st;
+  // 68 %RH is above the release limit (67) and below the trigger limit (70): the latch holds, no tile triggers.
+  assert(st.registry.upsert(makeReading(1, 22.0f, 68, 80)));
+  const AlertLimits limits = alertsLimits(st.config);
+  const std::string reply = alertsReply(st, ALERT_HUMIDITY, ALERT_NONE, makeOnboard(21.0f, 50.0f), 60000, limits);
+  assert(reply.find("\nHUMIDITY,1,0,000,70\n") != std::string::npos);
+}
+
+void testSerialAlertsTileOutsideMaskGivesNoBit() {
+  PersistentState st;
+  assert(st.registry.upsert(makeReading(1, 22.0f, 80, 80)));
+  assert(st.registry.upsert(makeReading(4, 22.0f, 75, 80)));
+  st.config.climate_alert_tiles = 0x002; // slot 1 only
+  const std::string only_slot1 =
+      alertsReply(st, ALERT_HUMIDITY, ALERT_NONE, makeOnboard(21.0f, 50.0f), 60000, alertsLimits(st.config));
+  assert(only_slot1.find("\nHUMIDITY,1,0,002,70\n") != std::string::npos); // slot 4 has no bit
+  st.config.climate_alert_tiles = 0x001; // onboard only
+  const std::string onboard_only =
+      alertsReply(st, ALERT_HUMIDITY, ALERT_NONE, makeOnboard(21.0f, 50.0f), 60000, alertsLimits(st.config));
+  assert(onboard_only.find("\nHUMIDITY,1,0,000,70\n") != std::string::npos);
+}
+
+void testSerialAlertsAckedColumnAndOtherCauses() {
+  PersistentState st;
+  const uint32_t now = 5000000; // slot 1 (MAC 1) is fresh; slot 2 (MAC 3) sent last at 37035 ms: stale after 30 min
+  SwitchBotReading old_slot = makeReading(1, 22.0f, 50, 80);
+  old_slot.updated_ms = 37035; // stale: older than 30 min at `now`
+  assert(st.registry.upsert(old_slot));
+  SwitchBotReading old_slot3 = makeReading(3, 22.0f, 50, 80);
+  old_slot3.updated_ms = 37035;
+  assert(st.registry.upsert(old_slot3));
+  SwitchBotReading fresh = makeReading(1, 22.0f, 50, 80);
+  fresh.updated_ms = now - 1000;
+  assert(st.registry.upsert(fresh)); // slot 1 stays fresh
+  const AlertLimits limits = alertsLimits(st.config);
+  const uint16_t latch = 0x0001; // low battery latch of slot 1 (bit 0) is tile bit 1
+  const std::string reply = alertsReply(st, static_cast<uint8_t>(ALERT_SENSOR_LOST | ALERT_NOISE_HIGH | ALERT_SENSOR_BATTERY),
+                                        ALERT_NOISE_HIGH, makeOnboard(21.0f, 50.0f), now, limits, latch);
+  assert(reply.find("\nNOISE,1,1,,0\n") != std::string::npos); // acked, no tiles, limit 0 is off
+  assert(reply.find("\nSENSOR_LOST,1,0,004,\n") != std::string::npos); // the stale sensor sits in slot 2 (tile bit 2), no limit column
+  assert(reply.find("\nSENSOR_BATTERY,1,0,002,10\n") != std::string::npos);
+  assert(reply.find("\nCHARGE_FULL,0,0,,\n") != std::string::npos);
+  assert(reply.find("\nFREEZER,0,0,000,0.0\n") != std::string::npos);
+  // an ack bit of an inactive alert still shows in its own column only
+  const std::string inactive = alertsReply(st, ALERT_NONE, ALERT_HEAT, makeOnboard(21.0f, 50.0f), now, limits);
+  assert(inactive.find("\nHEAT,0,1,000,0\n") != std::string::npos);
+}
+
+void testSerialAlertsTriggerTilesMatchEvaluate() {
+  // triggerTiles and evaluate must agree: a climate bit is set exactly when its tile mask is not empty (previous mask 0).
+  const uint32_t now = 5000000;
+  const int16_t cold = TemperatureHistory::encode(-5.0f);
+  for (int variant = 0; variant < 8; ++variant) {
+    ClimateHistory hist;
+    AlertLimits lim;
+    lim.freezer_trigger_c = 0.0f;
+    lim.humidity_trigger_pct = 70.0f;
+    lim.heat_trigger_c = (variant & 1) != 0 ? 30.0f : 0.0f;
+    lim.history = &hist;
+    lim.freeze_delay_h = (variant & 2) != 0 ? 2 : 0;
+    lim.mold_delay_h = (variant & 4) != 0 ? 2 : 0;
+    lim.heat_delay_h = (variant & 1) != 0 ? 2 : 0;
+    lim.climate_tiles = (variant == 7) ? 0x0005 : CLIMATE_TILES_ALL; // onboard and slot 2 only for variant 7
+    SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+    slots[0] = makeReading(1, -3.0f, 85, 80);
+    slots[1] = makeReading(2, 36.0f, 60, 80);
+    slots[2] = makeReading(3, 22.0f, 50, 80);
+    slots[0].updated_ms = now - 10;
+    slots[1].updated_ms = now - 10;
+    slots[2].updated_ms = 10; // stale
+    for (size_t t = 0; t < 3; ++t) { // history of the first two slots and the onboard tile: two hours cold, humid and hot
+      for (int h = 0; h < 2; ++h) {
+        hist.temperatures[t].push(t == 2 ? TemperatureHistory::encode(36.0f) : cold);
+        hist.slots[t].push(HumidityHistory::encode(t == 1 ? 85.0f : 60.0f));
+      }
+    }
+    const Shtc3Reading onboard = makeOnboard(-4.0f, 90.0f);
+    const uint8_t mask = AlertEvaluator::evaluate(ALERT_NONE, onboard, slots, MAX_SWITCHBOT_SENSORS, now, lim);
+    const AlertEvaluator::TriggerTiles tiles = AlertEvaluator::triggerTiles(onboard, slots, MAX_SWITCHBOT_SENSORS, now, lim);
+    assert(((mask & ALERT_FREEZER) != 0) == (tiles.freezer != 0));
+    assert(((mask & ALERT_HUMIDITY) != 0) == (tiles.humidity != 0));
+    assert(((mask & ALERT_HEAT) != 0) == (tiles.heat != 0));
+    assert(((mask & ALERT_SENSOR_LOST) != 0) == (tiles.sensor_lost != 0));
+    assert(tiles.sensor_lost == 0x008); // slot 3
+    // A held alert (previous bit set) stays in the mask while the tiles show only the live trigger.
+    const Shtc3Reading no_reading; // invalid: no usable reading, so the freezer alert holds
+    const uint8_t held = AlertEvaluator::evaluate(ALERT_FREEZER, no_reading, nullptr, 0, now, lim);
+    const AlertEvaluator::TriggerTiles held_tiles = AlertEvaluator::triggerTiles(no_reading, nullptr, 0, now, lim);
+    assert(((held & ALERT_FREEZER) != 0) == ((lim.climate_tiles & CLIMATE_TILES_ALL) != 0) && held_tiles.freezer == 0);
+    if (variant == 0) {
+      assert(tiles.freezer == 0x003 && tiles.humidity == 0x003 && tiles.heat == 0x000); // onboard and slot 1
+    }
+    if (variant == 7) {
+      assert((tiles.freezer & ~0x005u) == 0 && (tiles.humidity & ~0x005u) == 0); // masked tiles give no bit
+    }
+  }
+}
+
+void testSerialAlertsHeatAndFreezerRows() {
+  PersistentState st;
+  st.config.heat_alert_limit_c = 30;
+  assert(st.registry.upsert(makeReading(1, 35.0f, 60, 80)));
+  assert(st.registry.upsert(makeReading(2, -2.0f, 40, 80)));
+  const std::string reply = alertsReply(st, static_cast<uint8_t>(ALERT_HEAT | ALERT_FREEZER), ALERT_NONE,
+                                        makeOnboard(21.0f, 50.0f), 60000, alertsLimits(st.config));
+  assert(reply.find("\nFREEZER,1,0,004,0.0\n") != std::string::npos); // slot 2 is tile bit 2
+  assert(reply.find("\nHEAT,1,0,002,30\n") != std::string::npos);     // slot 1 is tile bit 1
+}
+
+void testSerialAlertsRowOrderAndCount() {
+  PersistentState st;
+  const std::string reply =
+      alertsReply(st, ALERT_NONE, ALERT_NONE, makeOnboard(21.0f, 50.0f), 60000, alertsLimits(st.config));
+  std::vector<std::string> lines;
+  size_t at = 0;
+  while (at < reply.size()) {
+    const size_t end = reply.find('\n', at);
+    lines.push_back(reply.substr(at, end - at));
+    at = end + 1;
+  }
+  const char* names[8] = {"FREEZER", "HUMIDITY", "NOISE", "SENSOR_LOST", "CHARGE_FULL", "VENTILATE", "SENSOR_BATTERY", "HEAT"};
+  assert(lines.size() == 11); // BEGIN, header, 8 rows, CRC32
+  assert(lines[0] == "BEGIN ALERTS" && lines[1] == "alert,active,acked,tiles,limit");
+  for (size_t i = 0; i < 8; ++i) {
+    assert(lines[2 + i].rfind(std::string(names[i]) + ",", 0) == 0);
+  }
+  assert(lines[10].rfind("CRC32 ", 0) == 0);
+}
+
+void testSerialAlertsVentilateRow() {
+  PersistentState st;
+  st.config.outdoor_slot = 2;
+  const uint32_t now = 60000;
+  SwitchBotReading outdoor = makeReading(2, 5.0f, 40, 80);
+  outdoor.updated_ms = now - 1000;
+  assert(st.registry.upsert(makeReading(1, 22.0f, 50, 80)));
+  assert(st.registry.upsert(outdoor));
+  AlertLimits limits = alertsLimits(st.config);
+  const Shtc3Reading humid = makeOnboard(25.0f, 80.0f); // above 70 %RH and far above the outdoor absolute humidity
+  const std::string on = alertsReply(st, ALERT_VENTILATE, ALERT_NONE, humid, now, limits);
+  assert(on.find("\nVENTILATE,1,0,001,\n") != std::string::npos);
+  const std::string dry = alertsReply(st, ALERT_VENTILATE, ALERT_NONE, makeOnboard(21.0f, 50.0f), now, limits);
+  assert(dry.find("\nVENTILATE,1,0,000,\n") != std::string::npos); // held alert, no trigger now
+  const std::string stale = alertsReply(st, ALERT_NONE, ALERT_NONE, humid, now + 4000000, limits);
+  assert(stale.find("\nVENTILATE,0,0,000,\n") != std::string::npos); // the outdoor reading is stale
+}
+
+void testSerialAlertsFixture() {
+  PersistentState st;
+  st.config.noise_alert_limit_db = 60;
+  st.config.heat_alert_limit_c = 30;
+  assert(st.registry.upsert(makeReading(1, 22.0f, 80, 80)));  // above the mold limit
+  assert(st.registry.upsert(makeReading(2, -3.0f, 40, 80)));  // below the freezer limit
+  assert(st.registry.upsert(makeReading(3, 35.0f, 50, 80)));  // feels like 35 C or more
+  assert(st.registry.upsert(makeReading(4, 22.0f, 75, 80)));  // above the mold limit
+  const uint8_t mask = static_cast<uint8_t>(ALERT_FREEZER | ALERT_HUMIDITY | ALERT_NOISE_HIGH | ALERT_SENSOR_BATTERY | ALERT_HEAT);
+  assert(alertsReply(st, mask, ALERT_NOISE_HIGH, makeOnboard(21.0f, 50.0f), 60000, alertsLimits(st.config), 0x0002) ==
+         readRepoFile("tests/fixtures/alerts_reply_sample.txt"));
+}
+
 void testSerialWeekOverBleBridge() {
   BleConsoleBridge bridge;
   bridge.setLevel(1);
@@ -28797,6 +29028,16 @@ int main() {
   testSerialReceptionRows();
   testSerialReceptionFullWindowAndCrc();
   testSerialReceptionFixture();
+  testSerialAlertsParserAndGate();
+  testSerialAlertsHumidityTiles();
+  testSerialAlertsHeldAlertHasNoTiles();
+  testSerialAlertsTileOutsideMaskGivesNoBit();
+  testSerialAlertsAckedColumnAndOtherCauses();
+  testSerialAlertsTriggerTilesMatchEvaluate();
+  testSerialAlertsHeatAndFreezerRows();
+  testSerialAlertsRowOrderAndCount();
+  testSerialAlertsVentilateRow();
+  testSerialAlertsFixture();
   testSerialScreenReply();
   testScanCompletionStopsWhenAllReported();
   testScanCompletionOneSlotMissing();

@@ -121,6 +121,24 @@ public:
   static constexpr float HUMIDITY_TRIGGER_PCT = 70.0f; // alert above this humidity (mold risk)
   static constexpr float HUMIDITY_RELEASE_PCT = 67.0f; // clear at or below this humidity
 
+  // Calls `visit(temperature_c, humidity_pct, tile)` for each usable climate tile: the onboard tile (0) and each valid,
+  // fresh slot (1 to 10) inside AlertLimits::climate_tiles. evaluate() and triggerTiles() share it, so both read the
+  // same tiles.
+  template <typename Visit>
+  static void forEachUsableTile(const Shtc3Reading& onboard, const SwitchBotReading* slots, size_t slot_count,
+                                uint32_t now_ms, const AlertLimits& limits, Visit&& visit) {
+    if (onboard.valid && (limits.climate_tiles & 1) != 0) {
+      visit(onboard.temperature_c, onboard.humidity_pct, static_cast<size_t>(0));
+    }
+    for (size_t i = 0; slots != nullptr && i < slot_count; ++i) {
+      const SwitchBotReading& r = slots[i];
+      if (i < MAX_SWITCHBOT_SENSORS && (limits.climate_tiles & (2u << i)) != 0 && r.valid &&
+          !r.isStale(now_ms, limits.stale_timeout_ms)) {
+        visit(r.temperature_c, static_cast<float>(r.humidity_pct), i + 1);
+      }
+    }
+  }
+
   // Returns the active climate alert mask (ALERT_CLIMATE_MASK bits only; the noise bit is never
   // set here, so combine the result with withClimate()). `previous` is the mask of the last wake cycle: an active
   // alert stays active until a usable sensor passed its release limit and no usable sensor
@@ -139,15 +157,10 @@ public:
       const AlertLimits& limits = AlertLimits{}) {
     Tally tally;
     tally.limits = limits;
-    if (onboard.valid && (limits.climate_tiles & 1) != 0) {
-      tally.add(onboard.temperature_c, onboard.humidity_pct, 0);
-    }
-    for (size_t i = 0; slots != nullptr && i < slot_count; ++i) {
-      const SwitchBotReading& r = slots[i];
-      if (i < MAX_SWITCHBOT_SENSORS && (limits.climate_tiles & (2u << i)) != 0 && r.valid && !r.isStale(now_ms, limits.stale_timeout_ms)) {
-        tally.add(r.temperature_c, static_cast<float>(r.humidity_pct), i + 1);
-      }
-    }
+    forEachUsableTile(onboard, slots, slot_count, now_ms, limits,
+                      [&](float temperature_c, float humidity_pct, size_t tile) {
+                        tally.add(temperature_c, humidity_pct, tile);
+                      });
     uint8_t mask = ALERT_NONE;
     if (SwitchBotRegistry::anyStale(slots, slot_count, now_ms, limits.stale_timeout_ms)) {
       mask |= ALERT_SENSOR_LOST;
@@ -175,6 +188,43 @@ public:
       mask |= ALERT_HUMIDITY;
     }
     return mask;
+  }
+
+  // Tiles that are at or beyond the trigger limit now (bit 0 onboard, bits 1 to 10 slots 1 to 10). The rules
+  // match evaluate(): the climate_tiles mask, the delays, fresh readings only. A held alert whose tiles are all
+  // below the trigger limit gives an empty mask. ventilate is bit 0 while the advice holds without a latch.
+  struct TriggerTiles {
+    uint16_t freezer = 0;
+    uint16_t humidity = 0;
+    uint16_t sensor_lost = 0; // valid slots without a packet for the stale timeout
+    uint16_t ventilate = 0;
+    uint16_t heat = 0;
+  };
+
+  static TriggerTiles triggerTiles(const Shtc3Reading& onboard, const SwitchBotReading* slots, size_t slot_count,
+                                   uint32_t now_ms, const AlertLimits& limits = AlertLimits{}) {
+    TriggerTiles tiles;
+    forEachUsableTile(onboard, slots, slot_count, now_ms, limits,
+                      [&](float temperature_c, float humidity_pct, size_t tile) {
+                        Tally tally;
+                        tally.limits = limits;
+                        tally.add(temperature_c, humidity_pct, tile);
+                        const uint16_t bit = static_cast<uint16_t>(1u << tile);
+                        tiles.freezer = static_cast<uint16_t>(tiles.freezer | (tally.cold_trigger ? bit : 0u));
+                        tiles.humidity = static_cast<uint16_t>(tiles.humidity | (tally.humid_trigger ? bit : 0u));
+                        if (limits.heat_trigger_c > 0.0f && tally.heat_trigger) {
+                          tiles.heat = static_cast<uint16_t>(tiles.heat | bit);
+                        }
+                      });
+    for (size_t i = 0; slots != nullptr && i < slot_count && i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (slots[i].valid && slots[i].isStale(now_ms, limits.stale_timeout_ms)) {
+        tiles.sensor_lost = static_cast<uint16_t>(tiles.sensor_lost | (2u << i));
+      }
+    }
+    if (ventilate(ALERT_NONE, onboard, slots, slot_count, now_ms, limits)) {
+      tiles.ventilate = 1;
+    }
+    return tiles;
   }
 
   // The mute flag or a running snooze: both silence the chime.
