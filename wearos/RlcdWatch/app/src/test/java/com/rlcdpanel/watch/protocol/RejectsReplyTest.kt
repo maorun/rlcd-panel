@@ -1,6 +1,7 @@
 package com.rlcdpanel.watch.protocol
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertThrows
 import org.junit.Test
 
@@ -23,6 +24,7 @@ class RejectsReplyTest {
             log.rows
         )
         assertEquals(1, log.dropped)
+        assertEquals("1 more sensor not listed", RejectsReply.droppedText(log.dropped))
     }
 
     @Test
@@ -47,5 +49,31 @@ class RejectsReplyTest {
     fun missingBeginOrHeaderThrows() {
         assertThrows(ParseException::class.java) { RejectsReply.parse(listOf("BEGIN REJECTS", "a,b,c,d")) }
         assertThrows(ParseException::class.java) { RejectsReply.parse(emptyList()) }
+    }
+
+    @Test
+    fun adviceOfEachFixtureRow() {
+        val advice = RejectsReply.parse(fixtureLines()).rows.map { RejectsReply.advice(it.reason) }
+        assertEquals(
+            listOf(
+                "Free a slot",
+                "Set a fixed MAC or slot_auto_assign=1",
+                "Check jump_limit_c and jump_limit_rh",
+                "Set slot<N>_enabled=1"
+            ),
+            advice
+        )
+    }
+
+    @Test
+    fun weakAdvice() {
+        assertEquals("Move the sensor or lower auto_assign_min_rssi", RejectsReply.advice(RejectReason.WEAK))
+    }
+
+    @Test
+    fun droppedText() {
+        assertEquals("1 more sensor not listed", RejectsReply.droppedText(1))
+        assertEquals("2 more sensors not listed", RejectsReply.droppedText(2))
+        assertNull(RejectsReply.droppedText(0))
     }
 }

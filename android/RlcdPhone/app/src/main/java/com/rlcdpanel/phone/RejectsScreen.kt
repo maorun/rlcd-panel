@@ -30,6 +30,7 @@ import com.rlcdpanel.phone.finder.SlotAssignment
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.RejectAction
 import com.rlcdpanel.phone.protocol.RejectRow
+import com.rlcdpanel.phone.protocol.RejectsReply
 import com.rlcdpanel.phone.protocol.SlotConfig
 
 /** Result of one `REJECTS` read: the rows, the count of lost MACs, or a text that tells why there are none. */
@@ -83,8 +84,8 @@ fun RejectsScreen(
             if (state.rows.any { it.action != null } && !panelConfig.canWrite) {
                 item { Text(SlotAssignment.READ_ONLY_TEXT, color = MaterialTheme.colorScheme.error) }
             }
-            if (state.dropped > 0) {
-                item { Text("${state.dropped} weitere MACs sind nicht in der Liste.", style = MaterialTheme.typography.bodySmall) }
+            RejectsReply.droppedText(state.dropped)?.let { text ->
+                item { Text(text, style = MaterialTheme.typography.bodySmall) }
             }
             if (state.loaded && state.rows.isEmpty()) {
                 item { Text("Keine abgelehnten Pakete.", style = MaterialTheme.typography.bodyMedium) }
@@ -94,7 +95,7 @@ fun RejectsScreen(
                     Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text("${row.mac}  [${row.format}]", style = MaterialTheme.typography.titleSmall)
                         Text("${row.reason.wire}, ${row.count}x", style = MaterialTheme.typography.bodyMedium)
-                        Text(row.fix, style = MaterialTheme.typography.bodySmall)
+                        Text(row.advice, style = MaterialTheme.typography.bodySmall)
                         val enabled = !state.isBusy && panelConfig.canWrite
                         when (row.action) {
                             RejectAction.ASSIGN -> AssignMenu(row, panelConfig, enabled, onFix)

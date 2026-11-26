@@ -1,12 +1,12 @@
 package com.rlcdpanel.watch.protocol
 
 /** Why the panel rejected a packet. [wire] is the text of the `REJECTS` reply. */
-enum class RejectReason(val wire: String, val fix: String) {
-    FULL("FULL", "Free a slot"),
-    UNASSIGNED("UNASSIGNED", "Assign the MAC to a slot"),
-    DISABLED("DISABLED", "Enable the slot in slot_enabled_mask"),
-    JUMP("JUMP", "Check the sensor position"),
-    WEAK("WEAK", "Move the sensor nearer or lower auto_assign_min_rssi");
+enum class RejectReason(val wire: String) {
+    FULL("FULL"),
+    UNASSIGNED("UNASSIGNED"),
+    DISABLED("DISABLED"),
+    JUMP("JUMP"),
+    WEAK("WEAK");
 
     companion object {
         fun fromWire(text: String): RejectReason? = values().firstOrNull { it.wire == text }
@@ -18,7 +18,7 @@ enum class RejectAction { ASSIGN, FREE }
 
 /** One `REJECTS` row. [count] is 1 to 255. */
 data class RejectRow(val mac: String, val format: String, val reason: RejectReason, val count: Int) {
-    val fix: String get() = reason.fix
+    val advice: String get() = RejectsReply.advice(reason)
 
     /** `UNASSIGNED` gives [RejectAction.ASSIGN], `FULL` gives [RejectAction.FREE]; the other reasons give no action. */
     val action: RejectAction?
@@ -35,6 +35,18 @@ data class RejectsLog(val rows: List<RejectRow>, val dropped: Int)
 /** Parser of the `REJECTS` reply (`SerialConsoleRunner::showRejects` of the firmware). */
 object RejectsReply {
     const val HEADER = "mac,format,reason,count"
+
+    /** What the user does to get a sensor accepted for the given reject reason. */
+    fun advice(reason: RejectReason): String = when (reason) {
+        RejectReason.FULL -> "Free a slot"
+        RejectReason.UNASSIGNED -> "Set a fixed MAC or slot_auto_assign=1"
+        RejectReason.DISABLED -> "Set slot<N>_enabled=1"
+        RejectReason.JUMP -> "Check jump_limit_c and jump_limit_rh"
+        RejectReason.WEAK -> "Move the sensor or lower auto_assign_min_rssi"
+    }
+
+    /** Text of the `DROPPED,<N>` row, null without lost MACs. */
+    fun droppedText(count: Int): String? = if (count > 0) "$count more ${if (count == 1) "sensor" else "sensors"} not listed" else null
 
     private val FORMATS = setOf("WOIO", "METER", "BTHOME", "ATC", "THERMOPRO")
     private val MAC = Regex("^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$")

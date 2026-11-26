@@ -7,17 +7,6 @@ public enum RejectReason: String, Equatable, CaseIterable {
     case disabled = "DISABLED"
     case jump = "JUMP"
     case weak = "WEAK"
-
-    /// Short hint for the user.
-    public var fixHint: String {
-        switch self {
-        case .full: "Free a slot"
-        case .unassigned: "Assign to slot"
-        case .disabled: "Set slot<N>_enabled=1"
-        case .jump: "Check the sensor position"
-        case .weak: "Move the sensor nearer or lower auto_assign_min_rssi"
-        }
-    }
 }
 
 public struct RejectRow: Equatable, Identifiable {
@@ -32,6 +21,22 @@ public struct RejectRow: Equatable, Identifiable {
 /// Parsed `REJECTS` reply.
 public struct RejectsReply: Equatable {
     public static let header = "mac,format,reason,count"
+
+    /// What the user does to get a sensor accepted for the given reject reason.
+    public static func advice(_ reason: RejectReason) -> String {
+        switch reason {
+        case .full: "Free a slot"
+        case .unassigned: "Set a fixed MAC or slot_auto_assign=1"
+        case .disabled: "Set slot<N>_enabled=1"
+        case .jump: "Check jump_limit_c and jump_limit_rh"
+        case .weak: "Move the sensor or lower auto_assign_min_rssi"
+        }
+    }
+
+    /// Text of the `DROPPED,<N>` row, `nil` without lost MACs.
+    public static func droppedText(_ count: Int) -> String? {
+        count > 0 ? "\(count) more \(count == 1 ? "sensor" : "sensors") not listed" : nil
+    }
 
     public let rows: [RejectRow]
     /// MACs that the firmware dropped (`DROPPED,<N>` row), 0 without that row.

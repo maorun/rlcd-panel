@@ -86,8 +86,8 @@ struct ScannerView: View {
                 if let rejects = model.rejectsResult {
                     if rejects.rows.isEmpty { Text("No packet rejected.").font(.caption).foregroundStyle(.secondary) }
                     ForEach(rejects.rows) { row in rejectRow(row) }
-                    if rejects.dropped > 0 {
-                        Text("\(rejects.dropped) more sensors not listed.").font(.caption).foregroundStyle(.secondary)
+                    if let text = RejectsReply.droppedText(rejects.dropped) {
+                        Text(text).font(.caption).foregroundStyle(.secondary)
                     }
                 }
             }.frame(maxWidth: .infinity, alignment: .leading)
@@ -95,33 +95,35 @@ struct ScannerView: View {
     }
 
     private func rejectRow(_ r: RejectRow) -> some View {
-        HStack {
-            Text(r.mac).font(.system(.caption, design: .monospaced))
-            Text(r.format).font(.caption2).padding(.horizontal, 4)
-                .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
-            Text(r.reason.rawValue)
-            Text("x\(r.count)").foregroundStyle(.secondary)
-            Text(r.reason.fixHint).foregroundStyle(.secondary)
-            Spacer()
-            switch r.reason {
-            case .full:
-                ForEach(model.freeableSlots, id: \.self) { n in
-                    Button("Free slot \(n)") { model.clearSlot(n) }
-                        .disabled(!model.canSet || !model.isIdle)
-                }
-            case .unassigned:
-                Menu("Assign to slot") {
-                    ForEach(Array(SlotAssignment.slots), id: \.self) { n in
-                        Button(SlotAssignment.menuTitle(slot: n, config: model.config) + (SlotAssignment.warning(slot: n, mac: r.mac, config: model.config) != nil ? " (MAC in use)" : "")) {
-                            model.assign(slot: n, mac: r.mac, name: model.scanNames[r.mac] ?? "")
+        VStack(alignment: .leading, spacing: 2) {
+            HStack {
+                Text(r.mac).font(.system(.caption, design: .monospaced))
+                Text(r.format).font(.caption2).padding(.horizontal, 4)
+                    .background(.quaternary, in: RoundedRectangle(cornerRadius: 3))
+                Text(r.reason.rawValue)
+                Text("x\(r.count)").foregroundStyle(.secondary)
+                Spacer()
+                switch r.reason {
+                case .full:
+                    ForEach(model.freeableSlots, id: \.self) { n in
+                        Button("Free slot \(n)") { model.clearSlot(n) }
+                            .disabled(!model.canSet || !model.isIdle)
+                    }
+                case .unassigned:
+                    Menu("Assign to slot") {
+                        ForEach(Array(SlotAssignment.slots), id: \.self) { n in
+                            Button(SlotAssignment.menuTitle(slot: n, config: model.config) + (SlotAssignment.warning(slot: n, mac: r.mac, config: model.config) != nil ? " (MAC in use)" : "")) {
+                                model.assign(slot: n, mac: r.mac, name: model.scanNames[r.mac] ?? "")
+                            }
                         }
                     }
+                    .disabled(!model.canSet || !model.isIdle)
+                case .disabled, .jump, .weak:
+                    EmptyView()
                 }
-                .disabled(!model.canSet || !model.isIdle)
-            case .disabled, .jump, .weak:
-                EmptyView()
-            }
-        }.font(.callout)
+            }.font(.callout)
+            Text(RejectsReply.advice(r.reason)).font(.caption).foregroundStyle(.secondary)
+        }
     }
 
     private func seriesView(_ s: ScanSeries.Stats) -> some View {
