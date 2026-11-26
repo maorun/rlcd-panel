@@ -1316,21 +1316,63 @@ public:
   }
 
   // Draws the DRY text left of the MOLD text (mold_w px wide) unless dry_alert_limit_rh is 0 or it would come
-  // closer than DRY_GAP_PX to the MAC line of left_chars scale-2 glyphs (0 for none).
-  static void drawDry(
+  // closer than DRY_GAP_PX to the MAC line of left_chars scale-2 glyphs (0 for none). Returns the width in px taken
+  // right of the next text: mold_w, or mold_w + DRY_MOLD_GAP_PX + the DRY width when the DRY text is drawn.
+  static uint16_t drawDry(
       St7305Framebuffer& fb, uint16_t y, const SwitchBotReading& sb, uint32_t now_ms,
       const DeviceConfig* config, const ClimateHistory* history, size_t slot, uint16_t mold_w, size_t left_chars) {
     if (config == nullptr) {
-      return;
+      return mold_w;
     }
     char text[12];
     formatDry(text, sizeof(text), sb, now_ms, staleTimeoutMs(config),
               history != nullptr ? &history->slots[1 + slot] : nullptr, config->dry_alert_limit_rh);
     const size_t len = strlen(text);
     if (len == 0) {
-      return;
+      return mold_w;
     }
     const uint16_t x = static_cast<uint16_t>(COMFORT_RIGHT_X - mold_w - DRY_MOLD_GAP_PX - len * 6);
+    if (left_chars > 0 && x < 10 + left_chars * 12 + DRY_GAP_PX) {
+      return mold_w;
+    }
+    fb.drawText(x, static_cast<uint16_t>(y + MOLD_Y_OFFSET), text, 1, true);
+    return static_cast<uint16_t>(mold_w + DRY_MOLD_GAP_PX + len * 6);
+  }
+
+  // "HEAT 5H" (hourly pairs of the 24 h histories with a feels-like value at or above heat_alert_limit_c) for a live slot,
+  // "HEAT --" for an empty or stale slot or when ClimateHistory::heatHours is unknown. Empty text for limit_c 0.
+  // `sensor` is the history index (1 + slot). Computed on each render; nothing is stored. Widest: "HEAT 24H" = 8 glyphs, 48 px.
+  static void formatHeat(char* out, size_t capacity, const SwitchBotReading& sb, uint32_t now_ms,
+                         uint32_t stale_timeout_ms, const ClimateHistory* history, size_t sensor, uint8_t limit_c) {
+    if (limit_c == 0) {
+      snprintf(out, capacity, "%s", "");
+      return;
+    }
+    const bool future = (now_ms - sb.updated_ms) >= 0xFFFF0000u;
+    const int hours = history != nullptr ? history->heatHours(sensor, limit_c) : -1;
+    if (!sb.valid || (!future && sb.isStale(now_ms, stale_timeout_ms)) || hours < 0) {
+      snprintf(out, capacity, "HEAT --");
+      return;
+    }
+    snprintf(out, capacity, "HEAT %uH", static_cast<unsigned>(hours));
+  }
+
+  // Draws the HEAT text DRY_MOLD_GAP_PX left of the DRY text (or of the MOLD text when no DRY text is drawn), unless
+  // heat_alert_limit_c is 0 or it would come closer than DRY_GAP_PX to the MAC line of left_chars scale-2 glyphs (0 for
+  // none). `taken_w` is the width of the texts to its right, the return value of drawDry.
+  static void drawHeat(
+      St7305Framebuffer& fb, uint16_t y, const SwitchBotReading& sb, uint32_t now_ms,
+      const DeviceConfig* config, const ClimateHistory* history, size_t slot, uint16_t taken_w, size_t left_chars) {
+    if (config == nullptr) {
+      return;
+    }
+    char text[20]; // "HEAT " + 10 digits + "H" + NUL for the full int range
+    formatHeat(text, sizeof(text), sb, now_ms, staleTimeoutMs(config), history, 1 + slot, config->heat_alert_limit_c);
+    const size_t len = strlen(text);
+    if (len == 0) {
+      return;
+    }
+    const uint16_t x = static_cast<uint16_t>(COMFORT_RIGHT_X - taken_w - DRY_MOLD_GAP_PX - len * 6);
     if (left_chars > 0 && x < 10 + left_chars * 12 + DRY_GAP_PX) {
       return;
     }
@@ -1487,7 +1529,8 @@ public:
           drawLine(fb, 10, static_cast<uint16_t>(y + 18), line);
           mac_chars = strlen(line);
         }
-        drawDry(fb, y, sb, now_ms, config, history, i, mold_w, mac_chars);
+        const uint16_t taken_w = drawDry(fb, y, sb, now_ms, config, history, i, mold_w, mac_chars);
+        drawHeat(fb, y, sb, now_ms, config, history, i, taken_w, mac_chars);
         drawWall(fb, y, switchbot_slots, switchbot_count, i, now_ms, config, mac_chars);
         continue;
       }
@@ -1527,7 +1570,8 @@ public:
       drawComfort(fb, y, COMFORT_Y_OFFSET, sb, now_ms, staleTimeoutMs(config));
       drawFeels(fb, y, sb, now_ms, config);
       const uint16_t mold_w = drawMold(fb, y, sb, now_ms, config, history, i);
-      drawDry(fb, y, sb, now_ms, config, history, i, mold_w, strlen(mac_src));
+      const uint16_t taken_w = drawDry(fb, y, sb, now_ms, config, history, i, mold_w, strlen(mac_src));
+      drawHeat(fb, y, sb, now_ms, config, history, i, taken_w, strlen(mac_src));
 
       formatRecords(line, sizeof(line), history, 1 + i, tempUnit(config));
       const bool record_drawn = drawLine(fb, 10, static_cast<uint16_t>(y + 54), line);

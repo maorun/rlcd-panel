@@ -5,6 +5,7 @@
 #include <string.h>
 #include <math.h>
 
+#include "climate_math.h"
 #include "device_config.h"
 #include "ntp_sync.h"
 #include "pcf85063_rtc.h"
@@ -530,6 +531,37 @@ struct ClimateHistory {
       rh_sum += slots[sensor].at(slots[sensor].size() - 1 - k);
     }
     return true;
+  }
+  // Feels-like value (ClimateMath::heatIndexC) of the hourly pair at `index` (0 is the oldest sample) of one sensor:
+  // the temperature and the humidity sample of the same index. NaN for a sensor or an index out of range and for an
+  // invalid pair. The caller checks that both histories have the same size. One rule for heatHours and the heat alert delay.
+  float pairHeatIndexC(size_t sensor, size_t index) const {
+    if (sensor >= SLOT_COUNT || index >= temperatures[sensor].size() || index >= slots[sensor].size()) {
+      return NAN;
+    }
+    return ClimateMath::heatIndexC(static_cast<float>(temperatures[sensor].at(index)) / 10.0f,
+                                   static_cast<float>(slots[sensor].at(index)) / 10.0f);
+  }
+
+  // Count of the hourly pairs of one sensor whose feels-like value (pairHeatIndexC) is at or above `limit_c`.
+  // Returns -1 (unknown) for limit 0 (off), a sensor out of range, unequal history sizes (a skipped push shifts the
+  // pairs) and fewer than MIN_RANGE_SAMPLES pairs. A pair without a usable feels-like value does not count. Read only.
+  int heatHours(size_t sensor, uint8_t limit_c) const {
+    if (limit_c == 0 || sensor >= SLOT_COUNT) {
+      return -1;
+    }
+    const size_t n = temperatures[sensor].size();
+    if (n != slots[sensor].size() || n < HumidityHistory::MIN_RANGE_SAMPLES) {
+      return -1;
+    }
+    int count = 0;
+    for (size_t k = 0; k < n; ++k) {
+      const float feels = pairHeatIndexC(sensor, k);
+      if (!isnan(feels) && feels >= static_cast<float>(limit_c)) {
+        ++count;
+      }
+    }
+    return count;
   }
   uint32_t last_sample_ms = 0;
   bool has_sampled = false;

@@ -331,6 +331,7 @@ inline void renderScene(
   config.wall_frsi_pct = 70; // the stats view shows the WALL text
   if (mode == DisplayMode::SENSOR_STATS) {
     config.dry_alert_limit_rh = 45; // the stats view shows the DRY text (other scenes keep the dry limit off)
+    config.heat_alert_limit_c = 27; // the stats view shows the HEAT text (other scenes keep the heat limit off)
   }
   for (size_t i = 0; i < 5; ++i) {
     memcpy(config.slot_mac[i], slots[i].mac, 6); // a name belongs to the MAC of its sensor

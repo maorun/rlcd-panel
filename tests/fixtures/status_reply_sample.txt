@@ -1,9 +1,9 @@
-SENSOR 0 Onboard temp=21.4 rh=45.0 bat=-- rssi=-- age=120 state=OK mold_h=24 temp_trend=RISE rh_trend=FALL dry_h=2
-SENSOR 1 Wohnzimmer temp=22.1 rh=48.5 bat=87 rssi=-61 age=14 state=OK mold_h=3 temp_trend=STEADY rh_trend=STEADY dry_h=--
-SENSOR 2 Keller temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY mold_h=-- temp_trend=-- rh_trend=-- dry_h=--
-SENSOR 3 Balkon temp=15.0 rh=70.0 bat=80 rssi=-60 age=2000 state=STALE mold_h=-- temp_trend=-- rh_trend=-- dry_h=--
-SENSOR 4 Bad temp=19.5 rh=62.0 bat=9 rssi=-60 age=10 state=BATLOW mold_h=5 temp_trend=FALL rh_trend=RISE dry_h=--
-SENSOR 5 Garage temp=12.0 rh=55.0 bat=80 rssi=-90 age=10 state=OK mold_h=-- temp_trend=-- rh_trend=-- dry_h=--
+SENSOR 0 Onboard temp=21.4 rh=45.0 bat=-- rssi=-- age=120 state=OK mold_h=24 temp_trend=RISE rh_trend=FALL dry_h=2 heat_h=3
+SENSOR 1 Wohnzimmer temp=22.1 rh=48.5 bat=87 rssi=-61 age=14 state=OK mold_h=3 temp_trend=STEADY rh_trend=STEADY dry_h=-- heat_h=--
+SENSOR 2 Keller temp=-- rh=-- bat=-- rssi=-- age=-- state=EMPTY mold_h=-- temp_trend=-- rh_trend=-- dry_h=-- heat_h=--
+SENSOR 3 Balkon temp=15.0 rh=70.0 bat=80 rssi=-60 age=2000 state=STALE mold_h=-- temp_trend=-- rh_trend=-- dry_h=-- heat_h=--
+SENSOR 4 Bad temp=19.5 rh=62.0 bat=9 rssi=-60 age=10 state=BATLOW mold_h=5 temp_trend=FALL rh_trend=RISE dry_h=-- heat_h=--
+SENSOR 5 Garage temp=12.0 rh=55.0 bat=80 rssi=-90 age=10 state=OK mold_h=-- temp_trend=-- rh_trend=-- dry_h=-- heat_h=--
 SD status=OK age=30 free_mb=14820
 RESET reason=POWERON abnormal=0
 RTC trim=0 drift_ppm=5
@@ -21,4 +21,4 @@ LATCH vent=002 dry=000 batlow=008 stale=004 wall=002 window=402 rxlow=202 drift=
 NOISE db=48 band=MODERATE peak_db=71 peak_hour=19 events_sum=12
 CHIME repeat_h=2 bits=02 last_s=3600 next_s=3600 snooze_s=3540
 QUIET start_h=22 end_h=7 active=1 night_interval_s=900
-CRC32 94168035
+CRC32 f2c4dfb3

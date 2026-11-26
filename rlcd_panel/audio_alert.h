@@ -403,9 +403,7 @@ private:
         return false;
       }
       for (size_t k = 0; k < n; ++k) {
-        const float t = static_cast<float>(temps.at(temps.size() - 1 - k)) / 10.0f;
-        const float rh = static_cast<float>(hums.at(hums.size() - 1 - k)) / 10.0f;
-        const float feels = ClimateMath::heatIndexC(t, rh);
+        const float feels = limits.history->pairHeatIndexC(tile, temps.size() - 1 - k);
         if (isnan(feels) || feels < limits.heat_trigger_c) {
           return false;
         }
