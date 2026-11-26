@@ -26,10 +26,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.rlcdpanel.phone.protocol.AlertMonthStat
 import com.rlcdpanel.phone.protocol.AlertTimeline
+import com.rlcdpanel.phone.protocol.BadgeMonthStat
 import com.rlcdpanel.phone.protocol.EventFilter
 import com.rlcdpanel.phone.protocol.EventRow
+import com.rlcdpanel.phone.protocol.EventStats
 import com.rlcdpanel.phone.protocol.EventText
+import java.time.ZoneId
 
 /** Result of one `EVENTS` read: the rows oldest first, the count of lost events, or a text that tells why there are none. */
 data class EventLogState(
@@ -57,12 +61,22 @@ fun EventLogScreen(
     var selectedCategories by remember { mutableStateOf(emptySet<EventFilter.Category>()) }
     val visibleRows = EventFilter.apply(state.newestFirst, selectedCategories)
     // The time of the last row load ends an open interval, so its duration ages only on a reload.
+    val zone = remember { ZoneId.systemDefault() }
     val intervals = remember(state.rows) {
-        AlertTimeline.build(state.rows, System.currentTimeMillis()).asReversed()
+        AlertTimeline.build(state.rows, System.currentTimeMillis(), zone).asReversed()
     }
 
     val badges = remember(state.rows) {
-        AlertTimeline.badges(state.rows, System.currentTimeMillis()).asReversed()
+        AlertTimeline.badges(state.rows, System.currentTimeMillis(), zone).asReversed()
+    }
+
+    // Newest month first; inside a month the alert, event and tile order stays ascending.
+    val alertStats = remember(intervals) {
+        EventStats.alerts(intervals, zone).sortedWith(compareByDescending<AlertMonthStat> { it.month }.thenBy { it.alert })
+    }
+    val badgeStats = remember(badges) {
+        EventStats.badges(badges, zone)
+            .sortedWith(compareByDescending<BadgeMonthStat> { it.month }.thenBy { it.event }.thenBy { it.tile })
     }
 
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -137,6 +151,22 @@ fun EventLogScreen(
                             style = MaterialTheme.typography.bodyMedium,
                             color = if (interval.isOpen) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface
                         )
+                    }
+                }
+            }
+            if (alertStats.isNotEmpty()) {
+                item { Text("Alarm-Statistik je Monat (letzte Ereignisse)", style = MaterialTheme.typography.titleSmall) }
+                items(alertStats, key = { "${it.month}-${it.alert}" }) { stat ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text(EventStats.lineText(stat), modifier = Modifier.padding(10.dp), style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+            if (badgeStats.isNotEmpty()) {
+                item { Text("Badge-Statistik je Monat (letzte Ereignisse)", style = MaterialTheme.typography.titleSmall) }
+                items(badgeStats, key = { "${it.month}-${it.event}-${it.tile}" }) { stat ->
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Text(EventStats.badgeLineText(stat), modifier = Modifier.padding(10.dp), style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }

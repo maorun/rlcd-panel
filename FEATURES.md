@@ -1928,6 +1928,15 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - Validation: `./scripts/check-protocol-sync.sh` and `--self-test` pass. `ConsoleWireTest` covers the chunks for MTU 23 and 185, the names of `tests/fixtures/config_reply_sample.txt` and a bad CRC-32 that keeps the old cache.
 - The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.
 
+## Monthly alert statistics in the Android event log
+
+- **Code:** `android/RlcdPhone/.../protocol/EventStats.kt`, `.../EventLogScreen.kt`, `android/RlcdPhone/app/src/test/.../protocol/EventStatsTest.kt`.
+- `EventStats.alerts(intervals)` and `EventStats.badges(intervals)` take the output of `AlertTimeline.build` and `AlertTimeline.badges` and split each interval at the month boundaries (phone time zone). `AlertMonthStat` holds `rises`, `hours` and `unknownStarts` for each alert and month; `BadgeMonthStat` holds the same for each badge event, tile and month.
+- The rise counts in the month of the start. The hours of an interval add up in each month it covers, so an interval from 31 January 23:00 to 1 February 01:00 gives 1 hour in each month and 1 rise in January. An interval with `startUnknown` counts only in `unknownStarts`, so a guessed start adds no hours. An open interval runs until the time of the last row load.
+- `EventLogScreen` shows the sections `Alarm-Statistik je Monat` and `Badge-Statistik je Monat` (newest month first) after the timelines. A line reads `<month> <name>: <N> x, <H> h` with `, <N> ohne Start` for guessed starts.
+- The data comes from the `EVENTS` ring of the panel (16 events) only, so older months and lost events do not show. The macOS app reads the whole archive and can show more months. The section titles say `(letzte Ereignisse)`.
+- Validation: `EventStatsTest` covers the counts, the month and the year split, the unknown start, the open interval, the badges for each tile, the sort order, the zone, a zero-length interval, the line text and `tests/fixtures/events_reply_sample.txt` (one open `HEAT` interval). The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.
+
 ## Monthly alert statistics in the macOS app
 
 - `AlertStats.load(from:)` (`AlertStats.swift`, `RlcdProtocol`) reads each `events_*` file of the archive folder (local files only, no console command). It parses a file with `EventsReply.parse(file:)` and joins the rows of all good files in name order. `AlertTimeline.build(rows:now:)` then builds the intervals.
