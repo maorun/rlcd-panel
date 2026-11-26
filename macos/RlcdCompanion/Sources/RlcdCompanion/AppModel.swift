@@ -727,7 +727,8 @@ final class AppModel: ConsoleLinkDelegate {
         let text = DiagnosticsReport.build(
             appVersion: version, link: reportLink,
             includeNames: reportIncludeNamesAtStart,
-            sections: reportSections + (selfTestResult == nil ? [] : [.init(command: ConsoleCommand.selfTest.line ?? "SELFTEST", result: .success(selfTestLines))]))
+            sections: reportSections + (selfTestResult == nil ? [] : [.init(command: ConsoleCommand.selfTest.line ?? "SELFTEST", result: .success(selfTestLines))]),
+            reception: receptionResult)
         reportSections = []
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)

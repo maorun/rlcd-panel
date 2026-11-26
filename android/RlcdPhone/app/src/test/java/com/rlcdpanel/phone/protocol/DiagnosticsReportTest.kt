@@ -64,4 +64,50 @@ class DiagnosticsReportTest {
         assertEquals("Self-test: --", l.last())
         assertTrue(l.contains("--"))
     }
+
+    @Test
+    fun selfTestSectionHoldsEveryCheckAndTheSummary() {
+        val reply = SelfTestReply.parse(frame("selftest_reply_sample.txt"))
+        val l = lines(DiagnosticsReport.build(version, status, rejects, selfTest = reply))
+        assertTrue(l.contains("## SELFTEST"))
+        assertEquals(7, l.count { it.startsWith("CHECK ") })
+        assertTrue(l.contains("CHECK shtc3 OK READ"))
+        assertTrue(l.contains("CHECK reception SKIP NO_SLOT"))
+        assertTrue(l.contains("Self-test: passed, 6 ok, 0 failed"))
+    }
+
+    @Test
+    fun receptionSectionHoldsOneLineForEachSlot() {
+        val rows = ReceptionReply.parse(frame("reception_reply_sample.txt"))
+        val shown = lines(DiagnosticsReport.build(version, status, rejects, includeNames = true, reception = rows))
+        assertTrue(shown.contains("## RECEPTION"))
+        assertTrue(shown.contains("slot 1 -- 12/24"))
+        assertTrue(shown.contains("slot 2 Cellar 4/6"))
+        assertTrue(shown.indexOf("slot 1 -- 12/24") < shown.indexOf("slot 2 Cellar 4/6"))
+        val hidden = DiagnosticsReport.build(version, status, rejects, reception = rows)
+        assertTrue(hidden.contains("slot 2 <hidden> 4/6"))
+        assertFalse(hidden.contains("Cellar"))
+    }
+
+    @Test
+    fun emptyReceptionReplyGivesAnEmptySection() {
+        val l = lines(DiagnosticsReport.build(version, status, rejects, reception = emptyList()))
+        assertEquals("## RECEPTION", l.last())
+    }
+
+    @Test
+    fun receptionSectionFollowsSelfTest() {
+        val text = DiagnosticsReport.build(
+            version, status, rejects,
+            selfTest = SelfTestReply.parse(frame("selftest_reply_sample.txt")),
+            reception = ReceptionReply.parse(frame("reception_reply_sample.txt"))
+        )
+        assertTrue(text.indexOf("## SELFTEST") < text.indexOf("## RECEPTION"))
+    }
+
+    @Test
+    fun reportWithoutReceptionHasNoReceptionSection() {
+        val text = DiagnosticsReport.build(version, status, rejects)
+        assertFalse(text.contains("## RECEPTION"))
+    }
 }

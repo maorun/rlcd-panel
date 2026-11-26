@@ -753,7 +753,7 @@ class MainActivity : ComponentActivity() {
 
     /** Sends the diagnostics report as text. Names and MACs stay hidden; the report holds no Wi-Fi data. */
     private fun shareDiagnosticsReport() {
-        val text = DiagnosticsReport.build(versionState.reply, healthState.status, lastRejects, selfTest = selfTestState.reply)
+        val text = DiagnosticsReport.build(versionState.reply, healthState.status, lastRejects, selfTest = selfTestState.reply, reception = receptionState.rows.takeIf { receptionState.hasReply })
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
             putExtra(Intent.EXTRA_TEXT, text)
@@ -2078,7 +2078,7 @@ class MainActivity : ComponentActivity() {
         consoleClient.send(CONSOLE_RECEPTION) { reply ->
             receptionState = when (reply) {
                 is ConsoleReply.Frame -> try {
-                    ReceptionStripState(rows = ReceptionReply.parse(reply.lines))
+                    ReceptionStripState(rows = ReceptionReply.parse(reply.lines), hasReply = true)
                 } catch (e: ParseException) {
                     ReceptionStripState(message = "Antwort nicht lesbar: ${e.line.take(80)}")
                 }

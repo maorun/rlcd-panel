@@ -15,13 +15,15 @@ REJECTED line=7
 
 """
 
-private func rejectsFixture() -> [String] {
+private func fixture(_ name: String) -> [String] {
     let url = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         .deletingLastPathComponent().deletingLastPathComponent()
-        .appendingPathComponent("tests/fixtures/rejects_reply_sample.txt")
+        .appendingPathComponent("tests/fixtures/\(name)")
     return ((try? String(contentsOf: url, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
 }
+
+private func rejectsFixture() -> [String] { fixture("rejects_reply_sample.txt") }
 
 private func sections(
     events: Result<[String], DiagnosticsReport.Failure>? = nil,
@@ -218,5 +220,62 @@ private func sections(
         #expect(all.contains("## EVENTS"))
         #expect(all.contains("## CONFIG"))
         #expect(text.contains("slot1_mac=<hidden>"))
+    }
+
+    @Test func selfTestSectionHoldsEveryCheckAndTheSummary() {
+        let reply = fixture("selftest_reply_sample.txt")
+        let text = DiagnosticsReport.build(
+            appVersion: "1.2", link: .usb, includeNames: false,
+            sections: [.init(command: "SELFTEST", result: .success(reply))])
+        let l = lines(text)
+        #expect(l.contains("## SELFTEST"))
+        for check in reply.filter({ $0.hasPrefix("CHECK ") }) { #expect(l.contains(check)) }
+        #expect(l.filter { $0.hasPrefix("CHECK ") }.count == 7)
+        #expect(l.contains("END SELFTEST pass=6 fail=0"))
+        #expect(l.contains("Self-test: passed, 6 ok, 0 failed"))
+        #expect(!l.contains { $0.hasPrefix("CRC32") })
+    }
+
+    @Test func failedSelfTestIsMarkedFailed() {
+        let reply = ["BEGIN SELFTEST", "CHECK shtc3 FAIL NACK", "END SELFTEST pass=0 fail=1"]
+        let text = DiagnosticsReport.build(
+            appVersion: "1.2", link: .usb, includeNames: false,
+            sections: [.init(command: "SELFTEST", result: .success(reply))])
+        #expect(lines(text).contains("Self-test: FAILED, 0 ok, 1 failed"))
+    }
+
+    @Test func receptionSectionHoldsOneLineForEachSlot() throws {
+        let reply = try ReceptionReply.parse(lines: fixture("reception_reply_sample.txt").filter { !$0.hasPrefix("CRC32") })
+        let shown = lines(DiagnosticsReport.build(appVersion: "1.2", link: .usb, includeNames: true, sections: [], reception: reply))
+        #expect(shown.contains("## RECEPTION"))
+        #expect(shown.contains("slot 1 -- 12/24"))
+        #expect(shown.contains("slot 2 Cellar 4/6"))
+        #expect(shown.firstIndex(of: "slot 1 -- 12/24")! < shown.firstIndex(of: "slot 2 Cellar 4/6")!)
+        #expect(shown.last == "slot 2 Cellar 4/6")
+        let hidden = lines(DiagnosticsReport.build(appVersion: "1.2", link: .usb, includeNames: false, sections: [], reception: reply))
+        #expect(hidden.contains("slot 1 -- 12/24"))
+        #expect(hidden.contains("slot 2 <hidden> 4/6"))
+        #expect(!hidden.joined().contains("Cellar"))
+    }
+
+    @Test func reportWithoutReceptionHasNoReceptionSection() {
+        let text = DiagnosticsReport.build(appVersion: "1.2", link: .usb, includeNames: false, sections: sections())
+        #expect(!lines(text).contains("## RECEPTION"))
+    }
+
+    @Test func receptionSectionFollowsSelfTestSection() throws {
+        let reply = try ReceptionReply.parse(lines: fixture("reception_reply_sample.txt").filter { !$0.hasPrefix("CRC32") })
+        let l = lines(DiagnosticsReport.build(
+            appVersion: "1.2", link: .usb, includeNames: false,
+            sections: [.init(command: "SELFTEST", result: .success(fixture("selftest_reply_sample.txt")))],
+            reception: reply))
+        #expect(l.firstIndex(of: "## SELFTEST")! < l.firstIndex(of: "## RECEPTION")!)
+    }
+
+    @Test func emptyReceptionReplyGivesAnEmptySection() throws {
+        let reply = try ReceptionReply.parse(lines: ["BEGIN RECEPTION", ReceptionReply.header])
+        let l = lines(DiagnosticsReport.build(appVersion: "1.2", link: .usb, includeNames: false, sections: [], reception: reply))
+        #expect(l.contains("## RECEPTION"))
+        #expect(l.last == "## RECEPTION")
     }
 }

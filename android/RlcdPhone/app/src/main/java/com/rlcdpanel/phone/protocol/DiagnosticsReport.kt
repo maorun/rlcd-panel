@@ -9,8 +9,10 @@ object DiagnosticsReport {
     /**
      * Joins the summary lines. The report holds no Wi-Fi or `NTP` data. Sensor names and foreign MACs
      * show as `<hidden>` in the rows, unless [includeNames] is true.
+     * [reception] adds a `## RECEPTION` section after all other sections. A null value leaves it out.
+     * The data is the last read; the report sends no command.
      */
-    fun build(version: VersionReply?, status: StatusReply?, rejects: RejectsLog?, includeNames: Boolean = false, selfTest: SelfTestReply? = null): String {
+    fun build(version: VersionReply?, status: StatusReply?, rejects: RejectsLog?, includeNames: Boolean = false, selfTest: SelfTestReply? = null, reception: List<ReceptionRow>? = null): String {
         val out = ArrayList<String>()
         out.add("RLCD Phone Diagnostics")
         out.add(
@@ -52,6 +54,14 @@ object DiagnosticsReport {
         } else {
             for (c in selfTest.checks) out.add("CHECK ${c.name} ${c.state.wire} ${c.detail}".trimEnd())
             out.add("Self-test: ${if (selfTest.passed) "passed" else "FAILED"}, ${selfTest.pass} ok, ${selfTest.fail} failed")
+        }
+        if (reception != null) {
+            out.add("")
+            out.add("## RECEPTION")
+            for (r in reception) {
+                val name = if (r.name.isEmpty()) "--" else if (includeNames) r.name else HIDDEN
+                out.add("slot ${r.slot} $name ${r.received}/${r.scans}")
+            }
         }
         return out.joinToString("\n") + "\n"
     }

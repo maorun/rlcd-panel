@@ -107,7 +107,9 @@ data class SelfTestRunState(
 data class ReceptionStripState(
     val isBusy: Boolean = false,
     val rows: List<ReceptionRow> = emptyList(),
-    val message: String? = null
+    val message: String? = null,
+    /** True after a parsed `RECEPTION` reply, also an empty one. */
+    val hasReply: Boolean = false
 )
 
 /** One-line texts of the card fields. */

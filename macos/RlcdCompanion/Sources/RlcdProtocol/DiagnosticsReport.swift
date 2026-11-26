@@ -25,7 +25,9 @@ public enum DiagnosticsReport {
 
     /// Joins the sections in the given order. Removes each `CRC32` line. Replaces the value of each name
     /// and MAC key of `ConfigSchema` with `<hidden>`, unless `includeNames` is true.
-    public static func build(appVersion: String, link: Link, includeNames: Bool, sections: [Section]) -> String {
+    /// `reception` adds a `## RECEPTION` section after all other sections. A nil value leaves it out.
+    /// Names show as `<hidden>` unless `includeNames` is true. The data is the last read; the report sends no command.
+    public static func build(appVersion: String, link: Link, includeNames: Bool, sections: [Section], reception: ReceptionReply? = nil) -> String {
         var out = ["RLCD Companion \(appVersion)", "Link: \(link.rawValue)"]
         for s in sections {
             out.append("")
@@ -57,7 +59,20 @@ public enum DiagnosticsReport {
                 }
             }
         }
+        if let reception {
+            out.append("")
+            out.append("## RECEPTION")
+            out.append(contentsOf: receptionLines(reception, includeNames: includeNames))
+        }
         return out.joined(separator: "\n") + "\n"
+    }
+
+    /// `slot <N> <name> <received>/<scans>`. An unnamed slot shows `--`; a name shows as `<hidden>` unless `includeNames`.
+    private static func receptionLines(_ r: ReceptionReply, includeNames: Bool) -> [String] {
+        r.rows.map { row in
+            let name = row.name.isEmpty ? "--" : (includeNames ? row.name : hiddenValue)
+            return "slot \(row.slot) \(name) \(row.received)/\(row.scans)"
+        }
     }
 
     /// `Panel badges: 1 V; 10 D, BAT LOW` (sensor number, then its badges) or `Panel badges: none`.

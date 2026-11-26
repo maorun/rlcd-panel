@@ -4104,3 +4104,11 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The Kotlin copies of `RejectsReply.kt` stay equal except for the `package` line (`scripts/check-protocol-sync.sh`).
 - Tests: each app parses `tests/fixtures/rejects_reply_sample.txt` and checks the advice of the four rows, the advice of `WEAK` and the text of `DROPPED,1`.
 - Validation: `swift test` and `scripts/check-protocol-sync.sh` ran locally. The host has no Android SDK, so Gradle runs in CI.
+
+## Self-test and reception sections in the companion diagnostics report
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/DiagnosticsReport.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/DiagnosticsReport.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt`.
+- Both reports hold the last `SELFTEST` result: the section `## SELFTEST` has each `CHECK <name> <OK|FAIL|SKIP> <detail>` line, the `END SELFTEST` line (macOS) and the line `Self-test: passed|FAILED, <N> ok, <N> failed`. The macOS report has the section only after a run; the Android report shows `Self-test: --` without a run.
+- `DiagnosticsReport.build` takes an optional `ReceptionReply` (Android: `List<ReceptionRow>`). The section `## RECEPTION` has one line `slot <N> <name> <received>/<scans>` for each row. An unnamed slot shows `--`; a name shows as `<hidden>` unless the names toggle is on (macOS) or `includeNames` is true. Without a reply the section is left out.
+- No command is sent for the report: both apps use the last result of the `Run self-test` and reception reads. The data can be older than the report, because the report never refreshes it.
+- Tests: `DiagnosticsReportTests` (macOS) and `DiagnosticsReportTest` (Android) build the sections from `tests/fixtures/selftest_reply_sample.txt` and `tests/fixtures/reception_reply_sample.txt`.
