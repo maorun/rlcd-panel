@@ -38,7 +38,7 @@ data class BadgeInterval(
     /** Badge letter of the panel tile. */
     val badge: String get() = AlertTimeline.BADGE_LETTERS[event] ?: "?"
     /** Room of the tile: `Onboard` or `Slot <N>`. */
-    val room: String get() = if (tile == 0) "Onboard" else "Slot $tile"
+    val room: String get() = AlertTimeline.roomName(tile)
     val durationMs: Long get() = endMs - startMs
 }
 
@@ -84,6 +84,9 @@ object AlertTimeline {
         }
             .map { AlertInterval(it.key, it.startMs, it.endMs, it.isOpen, it.startUnknown) }
             .sortedWith(compareBy({ it.startMs }, { it.alert }))
+
+    /** Room of a tile: `Onboard` for tile 0, else `Slot <N>`. */
+    fun roomName(tile: Int): String = if (tile == 0) "Onboard" else "Slot $tile"
 
     /** Events that set and clear a tile badge, with the panel badge letter. */
     val BADGE_LETTERS = mapOf("WINDOW_OPEN" to "W", "WALL_DAMP" to "C", "DRY_AIR" to "D", "SENSOR_DRIFT" to "S")
