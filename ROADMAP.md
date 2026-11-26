@@ -28,11 +28,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Rank:** [Total: 30, Use: 2, Setup: 8, Harmony: 10, Safety: 10, Effort: S]
 
 
-- [ ] Heat hours in the three app sensor lists
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, the shared `StatusReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, the `StatusReply` tests, `FEATURES.md`
-  - **Goal:** Show the heat hours of each room in the apps. This item needs the firmware item "Heat hours in the stats view and the STATUS SENSOR lines". Add `StatusSensor.heatHours` (`Int?`: `nil` or `null` for `--` and a missing field, `ParseError.badLine` or `ParseException` for a bad or negative number). Show `Heat <N> h` with a warning symbol above 0 beside `Dry <N> h` in the macOS menu bar list, the macOS `Sensor health` rows, the phone `SensorHealthScreen` (`Hitze <N> h`) and the watch sensor health screen.
-  - **Acceptance:** A unit test in each app parses `tests/fixtures/status_reply_sample.txt` with the new field. A unit test checks `nil` or `null` for `heat_h=--` and for a line without the field. A unit test checks the parse error for `heat_h=-1`. `scripts/check-protocol-sync.sh` passes. `swift test` passes. `gradle testDebugUnitTest assembleDebug` passes in both Android projects.
-  - **Rank:** [Total: 26, Use: 7, Setup: 2, Harmony: 7, Safety: 10, Effort: S]
 
 - [ ] Panel screen image on the Android phone
   - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/PanelImage.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/PanelScreen.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/PanelImageTest.kt`, `FEATURES.md`

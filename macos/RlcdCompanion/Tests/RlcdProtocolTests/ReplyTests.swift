@@ -175,6 +175,31 @@ struct ReplyAssemblerTests {
         #expect(throws: ParseError.badLine(negative[0])) { try StatusReply.parse(lines: negative) }
     }
 
+    @Test func heatHoursOfSharedFixtureAndBadFields() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let data = try Data(contentsOf: url.appendingPathComponent("tests/fixtures/status_reply_sample.txt"))
+        var a = ReplyAssembler()
+        guard case .frame(let lines)? = a.append(data).first else { Issue.record("fixture is not a frame"); return }
+        let s = try StatusReply.parse(lines: lines)
+        #expect(s.sensors.map(\.heatHours) == [3, nil, nil, nil, nil, nil])
+        let seven = lines.map { $0.replacingOccurrences(of: "heat_h=3", with: "heat_h=7") }
+        #expect(try StatusReply.parse(lines: seven).sensors[0].heatHours == 7)
+        let without = lines.map { $0.replacingOccurrences(of: " heat_h=3", with: "") }
+        #expect(try StatusReply.parse(lines: without).sensors[0].heatHours == nil)
+        let bad = lines.map { $0.hasPrefix("SENSOR 0 ") ? $0.replacingOccurrences(of: "heat_h=3", with: "heat_h=x") : $0 }
+        #expect(throws: ParseError.badLine(bad[0])) { try StatusReply.parse(lines: bad) }
+        let negative = lines.map { $0.hasPrefix("SENSOR 0 ") ? $0.replacingOccurrences(of: "heat_h=3", with: "heat_h=-1") : $0 }
+        #expect(throws: ParseError.badLine(negative[0])) { try StatusReply.parse(lines: negative) }
+    }
+
+    @Test func heatHoursTextHasWarningAboveZero() {
+        func s(_ h: Int?) -> StatusSensor { StatusSensor(index: 1, name: "A", temperature: nil, humidity: nil, battery: nil, rssi: nil, ageSeconds: nil, state: "OK", heatHours: h) }
+        #expect(s(nil).heatText == nil)
+        #expect(s(0).heatText == "Heat 0 h")
+        #expect(s(3).heatText == "Heat 3 h ⚠")
+    }
+
     @Test func trendsOfSharedFixtureAndBadFields() throws {
         var url = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { url.deleteLastPathComponent() }

@@ -463,6 +463,25 @@ class StatusReplyTest {
     }
 
     @Test
+    fun heatHoursOfFixtureAndBadFields() {
+        val sensors = StatusReply.parse(fixtureLines()).sensors
+        assertEquals(3, sensors[0].heatHours)
+        assertNull(sensors[1].heatHours)
+        val seven = fixtureLines().map { if (it.startsWith("SENSOR 1 ")) it.replace("heat_h=--", "heat_h=7") else it }
+        assertEquals(7, StatusReply.parse(seven).sensors[1].heatHours)
+        val without = fixtureLines().map { it.replace(Regex(" heat_h=\\S+"), "") }
+        assertNull(StatusReply.parse(without).sensors[0].heatHours)
+        for (value in listOf("x", "-1")) {
+            val bad = fixtureLines().map { if (it.startsWith("SENSOR 1 ")) it.replace("heat_h=--", "heat_h=$value") else it }
+            try {
+                StatusReply.parse(bad)
+                fail("expected ParseException")
+            } catch (e: ParseException) {
+            }
+        }
+    }
+
+    @Test
     fun dryHoursOfFixtureAndMissingField() {
         val sensors = StatusReply.parse(fixtureLines()).sensors
         assertEquals(2, sensors[0].dryHours)

@@ -152,6 +152,10 @@ object SensorHealthText {
     fun dry(sensor: StatusSensor): String =
         sensor.dryHours?.let { (if (it > 0) "$WARNING " else "") + "Trocken $it h" } ?: "Trocken --"
 
+    /** Hours at or above `heat_alert_limit_c` (feels-like) in the last 24 hours; the warning mark shows above 0 hours. */
+    fun heat(sensor: StatusSensor): String =
+        sensor.heatHours?.let { (if (it > 0) "$WARNING " else "") + "Hitze $it h" } ?: "Hitze --"
+
     fun trendSymbol(trend: SensorTrend?): String = trend?.symbol ?: "–"
 
     /** `T <value> <arrow>  RH <value> <arrow>`; `↑` rise, `↓` fall, `–` steady and unknown. */
@@ -170,6 +174,8 @@ object SensorHealthText {
     fun isMold(sensor: StatusSensor): Boolean = (sensor.moldHours ?: 0) > 0
 
     fun isDry(sensor: StatusSensor): Boolean = (sensor.dryHours ?: 0) > 0
+
+    fun isHeat(sensor: StatusSensor): Boolean = (sensor.heatHours ?: 0) > 0
 
     /** Panel badges of one sensor row, for example `V · STALE`; null without a `LATCH` line or without a badge. */
     fun badges(latch: LatchState?, sensor: StatusSensor): String? =
@@ -744,6 +750,11 @@ fun SensorHealthScreen(
                                     SensorHealthText.dry(sensor),
                                     fontSize = 10.sp,
                                     color = if (SensorHealthText.isDry(sensor)) Color(0xFFFFB74D) else Color.Unspecified
+                                )
+                                Text(
+                                    SensorHealthText.heat(sensor),
+                                    fontSize = 10.sp,
+                                    color = if (SensorHealthText.isHeat(sensor)) Color(0xFFFFB74D) else Color.Unspecified
                                 )
                                 SensorHealthText.badges(status.latch, sensor)?.let { badges ->
                                     Text("Badges $badges", fontSize = 10.sp, color = Color(0xFFFFB74D))
