@@ -27,13 +27,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** `scripts/check-protocol-sync.sh` passes with `ReceptionReply.kt` in the list. Both `ReceptionReplyTest.kt` files hold the same test cases and parse `tests/fixtures/reception_reply_sample.txt`. A unit test checks `cells` and `newestCells(12)` of one 24-character mask. `gradle testDebugUnitTest assembleDebug` passes in `android/RlcdPhone` and in `wearos/RlcdWatch`.
   - **Rank:** [Total: 30, Use: 2, Setup: 8, Harmony: 10, Safety: 10, Effort: S]
 
-- [ ] Door reference slot proposal in the setup assistants
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/DoorRefProposal.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/SetupAssistant.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/DoorRefProposal.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SetupAssistantScreen.kt`, the new tests, `FEATURES.md`
-  - **Goal:** Help the user select `door_ref_slot` without trial and error. Add `DoorRefProposal.propose(week, config)`: among the occupied slots 2 to 10 except `outdoor_slot`, select the slot whose mean daily humidity maximum of the `WEEK` reply is lowest, with at least 3 days with a humidity pair. Give no proposal for slot 1 without a reading, for fewer than 2 candidates, or when the difference to the next candidate is below 3 %RH. Show the text `Door reference slot <N> (<name>): <x> %RH, next <y> %RH`. Send `SET door_ref_slot=<N>`, then `CONFIG`, only on a user action.
-  - **Acceptance:** A unit test in each app checks the proposal for slots 2, 3 and 4 with the mean maxima 70, 52 and 60 %RH: slot 3. A unit test checks no proposal for a difference of 2 %RH. A unit test checks that `outdoor_slot` is no candidate. A unit test checks no proposal with 2 days of data. `swift test` passes. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
-  - **Rank:** [Total: 28, Use: 5, Setup: 8, Harmony: 5, Safety: 10, Effort: S]
-
-## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Heat hours in the stats view and the STATUS SENSOR lines
   - **Location:** `rlcd_panel/dashboard_view.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/climate_math.h`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`, `tests/fixtures/status_reply_sample.txt`, `docs/display_preview_stats.png`, `AGENTS.md`, `FEATURES.md`
