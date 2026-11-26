@@ -4168,3 +4168,11 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The stats preview scenes set `heat_alert_limit_c` 27; `docs/display_preview_stats.png` and `display_preview_stats2.png` show the text. `tests/fixtures/status_reply_sample.txt` holds the field. The three app parsers read the fields by key and ignore `heat_h` until the follow-up item parses it.
 - Tests: `testClimateHistoryHeatHours`, `testDashboardStatsHeatHours` (text, limit 0 draws no ink, ink only inside the HEAT box, HEAT beside a DRY text, the 4 px MAC-line guard) and `testSerialStatusHeatHours` (`heat_h=2` for the onboard line and a slot, unequal sizes, too few pairs, stale, empty, limit 0).
 - Validation: the host suite (242 suites) and `arduino-cli compile rlcd_panel` ran locally. `swift test` could not run locally because the toolchain lacks the `TestingMacros` plugin (a host issue, not caused by this change); CI runs it.
+
+## Battery change forecast in the Android tail screen
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/BatteryForecast.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/TailScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/BatteryForecastTest.kt`.
+- `BatteryForecast.estimate(rows, sensor, limitPct)` ports `BatteryForecast.swift` with the same rules: a least-squares line over the `batteryPct` of slot 1 to 10 from the rows of the last 60 days before the newest row, only the rows after the last rise of 10 % or more. It gives `null` for the onboard sensor, for less than 7 days of data, for a drop below 3 % and for a line that does not fall. A line that already reached the limit gives the time of the newest row.
+- `BatteryForecast.limitPct(config)` uses `sensor_battery_limit_pct`; a missing key and the value 0 (`BAT LOW` off) give 10 %.
+- The tail screen shows `Battery change near <YYYY-MM-DD>` or `Battery forecast: not enough data` for each named slot in one card above the rows (the tail screen has no row for each slot, so the card replaces the line below each slot row). `TAIL 72` covers 3 days, so the card adds `Read the log archive on the Mac for a longer forecast` when the rows span fewer than 7 days.
+- Validation: `BatteryForecastTest` repeats the series of the macOS `BatteryForecastTests`. It runs in CI only (no Android SDK on the local host).

@@ -21,6 +21,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.rlcdpanel.phone.protocol.BatteryForecast
 import com.rlcdpanel.phone.protocol.LogGaps
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TailCommand
@@ -43,7 +44,13 @@ fun TailScreen(
     onBack: () -> Unit
 ) {
     /** Slots with a configured name (`slotN_name` or the name bound to the fixed MAC); the tile index of slot N is N. */
-    val namedSlots = (1..10).filter { panelConfig.slotName(it) != null || panelConfig.nameForMac(panelConfig.slotMac(it)) != null }
+    val namedSlots = remember(panelConfig) {
+        (1..10).filter { panelConfig.slotName(it) != null || panelConfig.nameForMac(panelConfig.slotMac(it)) != null }
+    }
+    val forecastLimit = BatteryForecast.limitPct(panelConfig)
+    val forecasts = remember(state.rows, forecastLimit, namedSlots) {
+        namedSlots.associateWith { BatteryForecast.text(BatteryForecast.estimate(state.rows, it, forecastLimit)) }
+    }
     val gapReport = remember(state.rows) { LogGaps.report(state.rows) }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         LazyColumn(
@@ -82,6 +89,21 @@ fun TailScreen(
                 item { Text(LogGaps.summaryText(gapReport), style = MaterialTheme.typography.titleSmall) }
                 gapReport.gaps.asReversed().forEach { gap ->
                     item { Text(LogGaps.gapLine(gap), style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+            if (state.rows.isNotEmpty() && namedSlots.isNotEmpty()) {
+                item {
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                            namedSlots.forEach { slot ->
+                                Text(panelConfig.tileName(slot), style = MaterialTheme.typography.titleSmall)
+                                Text(forecasts[slot] ?: BatteryForecast.NOT_ENOUGH_DATA, style = MaterialTheme.typography.bodyMedium)
+                            }
+                            if (BatteryForecast.needsLongerLog(state.rows)) {
+                                Text(BatteryForecast.LONGER_LOG_HINT, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                    }
                 }
             }
             // Newest row first. The index is the key: the panel logs local time, so a clock change can repeat a time stamp.

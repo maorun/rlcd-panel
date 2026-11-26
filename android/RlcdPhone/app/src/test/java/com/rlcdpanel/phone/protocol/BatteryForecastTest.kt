@@ -30,8 +30,8 @@ class BatteryForecastTest {
     }
 
     @Test
-    fun tenDaySeriesGivesTheMacDate() {
-        // 1 % per day from 80 %: the line reaches 10 % on day 70, like on the Mac.
+    fun tenDaySeriesReachesLimitOnDay70() {
+        // 1 % per day from 80 %: the fit reaches 10 % on day 70, the same rule as the macOS knownLineOnePercentPerWeek.
         val rows = (0..9).map { row(it, 80 - it) }
         val date = BatteryForecast.estimate(rows, 1, 10.0)
         assertNotNull(date)
@@ -75,7 +75,8 @@ class BatteryForecastTest {
     @Test
     fun riseOfNinePercentIsNoNewBattery() {
         val rows = listOf(row(0, 60), row(7, 50), row(14, 59), row(21, 49))
-        assertTrue(BatteryForecast.estimate(rows, 1, 10.0)!! > start)
+        // Least-squares line over the 4 rows: slope -84/245 % per day, mean 10.5 days / 54.5 %, limit 10 % at day 140.2917.
+        assertEquals((start + 140.291667 * day).toDouble(), BatteryForecast.estimate(rows, 1, 10.0)!!.toDouble(), 60_000.0)
     }
 
     @Test
@@ -135,7 +136,12 @@ class BatteryForecastTest {
     @Test
     fun lineAcrossDstChangeKeepsTheDate() {
         val begin = PanelClock.parse("2026-10-12T12:00:00")!!
-        val rows = (0..4).map { row(it * 7, 80 - it, base = begin) }
+        // Local wall-clock stamps every 7 days at 12:00 cross the end of CEST on 2026-10-25, so the real step shrinks by 1 hour.
+        val first = java.time.LocalDateTime.of(2026, 10, 12, 12, 0, 0)
+        val rows = (0..4).map {
+            val text = first.plusDays(it * 7L).toString().replace('T', ' ').let { t -> if (t.length == 16) "$t:00" else t }
+            row(0, 80 - it).copy(timestamp = text)
+        }
         val date = BatteryForecast.estimate(rows, 1, 10.0)
         assertEquals((begin + 70 * 7 * day).toDouble(), date!!.toDouble(), 3_700_000.0)
     }
@@ -143,6 +149,8 @@ class BatteryForecastTest {
     @Test
     fun emptyAndUnparsableRowsGiveNull() {
         assertNull(BatteryForecast.estimate(emptyList(), 1, 10.0))
+        val bad = (0..4).map { row(it * 7, 80 - it).copy(timestamp = "not a time") }
+        assertNull(BatteryForecast.estimate(bad, 1, 10.0))
     }
 
     @Test
@@ -155,6 +163,7 @@ class BatteryForecastTest {
     @Test
     fun limitZeroUsesDefault() {
         assertEquals(10.0, BatteryForecast.limitPct(config("sensor_battery_limit_pct=0")), 0.0)
+        assertEquals(10.0, BatteryForecast.limitPct(config("sensor_battery_limit_pct=Infinity")), 0.0)
     }
 
     @Test
