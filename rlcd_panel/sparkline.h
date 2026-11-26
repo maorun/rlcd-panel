@@ -727,18 +727,20 @@ struct ClimateHistory {
 // of a pair marks a day without samples, which the chart shows as a gap. Day 0 is the newest day: the
 // day before the stamped date. A fifth byte per day and sensor holds the hours above mold_alert_limit_rh
 // (0 to 24, 0xFF for a day without humidity samples). A sixth byte per day and sensor holds the hours at or
-// below dry_alert_limit_rh (same range, 0xFF also for limit 0). With the 5-byte day stamp the block needs
-// 467 bytes in the RTC memory.
+// below dry_alert_limit_rh (same range, 0xFF also for limit 0). A seventh byte per day and sensor holds the
+// hours at or above heat_alert_limit_c (same range, 0xFF also for limit 0 and for a day without humidity samples).
+// With the 5-byte day stamp the block needs 544 bytes in the RTC memory.
 class WeekHistory {
 public:
   static constexpr size_t DAYS = 7;
   static constexpr size_t SENSORS = ClimateHistory::SLOT_COUNT;
   static constexpr size_t DAY_SIZE = 4;
   static constexpr size_t STAMP_SIZE = 1 + 2 + 1 + 1; // flag, year (uint16), month, day
-  static constexpr size_t SERIALIZED_SIZE = SENSORS * DAYS * (DAY_SIZE + 2) + STAMP_SIZE;
+  static constexpr size_t SERIALIZED_SIZE = SENSORS * DAYS * (DAY_SIZE + 3) + STAMP_SIZE;
   static constexpr uint8_t GAP = 0xFF;
   static constexpr uint8_t MAX_MOLD_HOURS = 24;
   static constexpr uint8_t MAX_DRY_HOURS = 24;
+  static constexpr uint8_t MAX_HEAT_HOURS = 24;
   static constexpr int TEMPERATURE_BIAS = 128;
   static constexpr uint8_t MAX_HUMIDITY = 200; // 100 %RH in 0.5 %RH steps
   static constexpr uint16_t MIN_TRUSTED_YEAR = 2025;
@@ -747,6 +749,7 @@ public:
     memset(days_, GAP, sizeof(days_));
     memset(mold_, GAP, sizeof(mold_));
     memset(dry_, GAP, sizeof(dry_));
+    memset(heat_, GAP, sizeof(heat_));
   }
 
   // Rounds a value in 0.1 steps to 0.5 steps, half away from zero.
@@ -832,10 +835,20 @@ public:
     return hasDryHours(sensor, day) ? dry_[sensor][day] : 0;
   }
 
-  // Stores one day from values in 0.1 steps. Swaps a reversed pair. `mold_hours` or `dry_hours` above 24 or GAP,
-  // and a day without a humidity pair, store the gap marker for that count.
+  bool hasHeatHours(size_t sensor, size_t day) const {
+    return sensor < SENSORS && day < DAYS && heat_[sensor][day] != GAP;
+  }
+
+  // Hours at or above heat_alert_limit_c (feels-like), 0 to 24; 0 for a gap or an index out of range (check hasHeatHours first).
+  uint8_t heatHours(size_t sensor, size_t day) const {
+    return hasHeatHours(sensor, day) ? heat_[sensor][day] : 0;
+  }
+
+  // Stores one day from values in 0.1 steps. Swaps a reversed pair. `mold_hours`, `dry_hours` or `heat_hours` above 24
+  // or GAP, and a day without a humidity pair, store the gap marker for that count.
   void setDay(size_t sensor, size_t day, bool has_temperature, int16_t t_min, int16_t t_max, bool has_humidity,
-              int16_t h_min, int16_t h_max, uint8_t mold_hours = GAP, uint8_t dry_hours = GAP) {
+              int16_t h_min, int16_t h_max, uint8_t mold_hours = GAP, uint8_t dry_hours = GAP,
+              uint8_t heat_hours = GAP) {
     if (sensor >= SENSORS || day >= DAYS) {
       return;
     }
@@ -854,6 +867,7 @@ public:
     }
     mold_[sensor][day] = (has_humidity && mold_hours <= MAX_MOLD_HOURS) ? mold_hours : GAP;
     dry_[sensor][day] = (has_humidity && dry_hours <= MAX_DRY_HOURS) ? dry_hours : GAP;
+    heat_[sensor][day] = (has_humidity && heat_hours <= MAX_HEAT_HOURS) ? heat_hours : GAP;
   }
 
   // Weekday (0 = Sunday) of day `day` counted back from the stamp, or 0xFF without a stamp.
@@ -871,6 +885,7 @@ public:
       memset(days_[sensor], GAP, sizeof(days_[sensor]));
       memset(mold_[sensor], GAP, sizeof(mold_[sensor]));
       memset(dry_[sensor], GAP, sizeof(dry_[sensor]));
+      memset(heat_[sensor], GAP, sizeof(heat_[sensor]));
     }
   }
 
@@ -891,6 +906,10 @@ public:
     memcpy(dry, dry_[a], sizeof(dry));
     memcpy(dry_[a], dry_[b], sizeof(dry));
     memcpy(dry_[b], dry, sizeof(dry));
+    uint8_t heat[sizeof(heat_[0])];
+    memcpy(heat, heat_[a], sizeof(heat));
+    memcpy(heat_[a], heat_[b], sizeof(heat));
+    memcpy(heat_[b], heat, sizeof(heat));
   }
 
   static constexpr uint16_t ALL_SENSORS = static_cast<uint16_t>((1u << SENSORS) - 1u);
@@ -918,7 +937,7 @@ public:
   // state changed.
   bool advance(const RtcTime& now, const ClimateHistory& history, bool history_fresh,
                uint16_t live_mask = ALL_SENSORS, uint8_t mold_limit_rh = DeviceConfig::DEFAULT_MOLD_ALERT_LIMIT_RH,
-               uint8_t dry_limit_rh = 0) {
+               uint8_t dry_limit_rh = 0, uint8_t heat_limit_c = 0) {
     if (!now.valid || now.oscillator_stopped || now.year < MIN_TRUSTED_YEAR ||
         !NtpTime::isValidDate(now.year, now.month, now.day)) {
       return false;
@@ -943,10 +962,12 @@ public:
           memcpy(days_[s][k], days_[s][k - shift], DAY_SIZE);
           mold_[s][k] = mold_[s][k - shift];
           dry_[s][k] = dry_[s][k - shift];
+          heat_[s][k] = heat_[s][k - shift];
         } else {
           memset(days_[s][k], GAP, DAY_SIZE);
           mold_[s][k] = GAP;
           dry_[s][k] = GAP;
+          heat_[s][k] = GAP;
         }
       }
     }
@@ -963,9 +984,12 @@ public:
                                 ? GAP
                                 : static_cast<uint8_t>(
                                       history.slots[s].countAtOrBelow(static_cast<uint16_t>(dry_limit_rh * 10u)));
+        const int heat_count = history.heatHours(s, heat_limit_c); // -1 for limit 0 and an unknown count
+        const uint8_t heat = heat_count < 0 ? GAP
+                                            : static_cast<uint8_t>(heat_count > MAX_HEAT_HOURS ? MAX_HEAT_HOURS : heat_count);
         setDay(s, 0, has_t, t_lo, t_hi, has_h, h_lo, h_hi,
                static_cast<uint8_t>(hours > MAX_MOLD_HOURS ? MAX_MOLD_HOURS : hours),
-               dry);
+               dry, heat);
       }
     }
     stamp(now);
@@ -1008,7 +1032,7 @@ public:
             return 0;
           }
         }
-        if (mold_[s][k] != GAP || dry_[s][k] != GAP) {
+        if (mold_[s][k] != GAP || dry_[s][k] != GAP || heat_[s][k] != GAP) {
           return 0;
         }
       }
@@ -1058,6 +1082,10 @@ public:
       memcpy(out + pos, dry_[s], DAYS);
       pos += DAYS;
     }
+    for (size_t s = 0; s < SENSORS; ++s) {
+      memcpy(out + pos, heat_[s], DAYS);
+      pos += DAYS;
+    }
     out[pos++] = has_date_ ? 1 : 0;
     out[pos++] = static_cast<uint8_t>(year_ & 0xFF);
     out[pos++] = static_cast<uint8_t>(year_ >> 8);
@@ -1103,6 +1131,15 @@ public:
         w.dry_[s][k] = d;
       }
     }
+    for (size_t s = 0; s < SENSORS; ++s) {
+      for (size_t k = 0; k < DAYS; ++k) {
+        const uint8_t h = in[pos++];
+        if (h != GAP && (h > MAX_HEAT_HOURS || w.days_[s][k][2] == GAP)) {
+          return false;
+        }
+        w.heat_[s][k] = h;
+      }
+    }
     const uint8_t flag = in[pos++];
     const uint16_t year = static_cast<uint16_t>(in[pos] | (in[pos + 1] << 8));
     pos += 2;
@@ -1130,7 +1167,7 @@ public:
               return false;
             }
           }
-          if (w.mold_[s][k] != GAP || w.dry_[s][k] != GAP) {
+          if (w.mold_[s][k] != GAP || w.dry_[s][k] != GAP || w.heat_[s][k] != GAP) {
             return false;
           }
         }
@@ -1151,6 +1188,7 @@ private:
   uint8_t days_[SENSORS][DAYS][DAY_SIZE];
   uint8_t mold_[SENSORS][DAYS];
   uint8_t dry_[SENSORS][DAYS];
+  uint8_t heat_[SENSORS][DAYS];
   bool has_date_ = false;
   uint16_t year_ = 0;
   uint8_t month_ = 0;

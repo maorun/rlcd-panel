@@ -135,4 +135,49 @@ class WeekReplyTest {
         assertEquals(7, old.size)
         assertTrue(old.all { it.moldHours == null })
     }
+
+    @Test
+    fun tenColumnsGiveHeatHours() {
+        val rows = WeekReply.parse(listOf("BEGIN WEEK", WeekReply.HEAT_HEADER, "0,0,2026-11-14,19.5,22.0,40.5,55.0,6,5,3", "0,1,2026-11-13,,,,,,,", "1,0,,10.0,20.0,40.0,60.0,3,,24"))
+        assertEquals(3, rows[0].heatHours)
+        assertEquals(5, rows[0].dryHours)
+        assertNull(rows[1].heatHours)
+        assertEquals(24, rows[2].heatHours)
+    }
+
+    @Test
+    fun sevenToNineColumnsGiveNullHeatHours() {
+        assertNull(WeekReply.parse(listOf("BEGIN WEEK", WeekReply.HEADER, "0,0,,1,2,3,4,5,6"))[0].heatHours)
+        assertNull(WeekReply.parse(listOf("BEGIN WEEK", WeekReply.MOLD_HEADER, "0,0,,1,2,3,4,5"))[0].heatHours)
+        assertNull(WeekReply.parse(listOf("BEGIN WEEK", WeekReply.LEGACY_HEADER, "0,0,,1,2,3,4"))[0].heatHours)
+    }
+
+    @Test
+    fun badHeatHoursAndColumnCountsThrow() {
+        bad("BEGIN WEEK", WeekReply.HEAT_HEADER, "0,0,,1,2,3,4,5,6,25")
+        bad("BEGIN WEEK", WeekReply.HEAT_HEADER, "0,0,,1,2,3,4,5,6,-1")
+        bad("BEGIN WEEK", WeekReply.HEAT_HEADER, "0,0,,1,2,3,4,5,6,x")
+        bad("BEGIN WEEK", WeekReply.HEAT_HEADER, "0,0,,1,2,3,4,5,6,+5")
+        bad("BEGIN WEEK", WeekReply.HEAT_HEADER, "0,0,,1,2,3,4,5,6")
+        bad("BEGIN WEEK", WeekReply.HEADER, "0,0,,1,2,3,4,5,6,7")
+    }
+
+    @Test
+    fun heatFixtureGivesHeatHoursIncludingZeroAndGap() {
+        val reply = ReplyAssembler().append(Fixtures.file("week_heat_reply_sample.txt").readBytes())
+        val rows = WeekReply.parse((reply as? ConsoleReply.Frame)?.lines ?: throw AssertionError("fixture is no valid frame"))
+        assertEquals(42, rows.size)
+        assertEquals(WeekRow(0, 0, "2026-11-17", 15.0, 19.5, 40.0, 55.0, 0, 0, 1), rows[0])
+        assertEquals(0, rows.single { it.sensor == 1 && it.day == 0 }.heatHours)
+        assertEquals(5, rows[41].heatHours)
+        val gap = rows.single { it.sensor == 2 && it.day == 3 }
+        assertNull(gap.heatHours)
+        assertTrue(gap.isGap)
+    }
+
+    @Test
+    fun extraColumnUnderShorterHeaderThrows() {
+        bad("BEGIN WEEK", WeekReply.MOLD_HEADER, "0,0,,1,2,3,4,5,6")
+        bad("BEGIN WEEK", WeekReply.LEGACY_HEADER, "0,0,,1,2,3,4,5,6,7")
+    }
 }

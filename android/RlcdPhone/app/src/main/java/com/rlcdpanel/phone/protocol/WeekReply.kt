@@ -13,7 +13,9 @@ data class WeekRow(
     /** Hours above `mold_alert_limit_rh` (0 to 24). Null for a gap day, an empty field and a reply with 7 columns. */
     val moldHours: Int? = null,
     /** Hours at or below `dry_alert_limit_rh` (0 to 24). Null for a gap day, an empty field and a reply with 7 or 8 columns. */
-    val dryHours: Int? = null
+    val dryHours: Int? = null,
+    /** Hours at or above `heat_alert_limit_c` (0 to 24). Null for a gap day, an empty field and a reply with 7 to 9 columns. */
+    val heatHours: Int? = null
 ) {
     /** A gap day has no temperature pair and no humidity pair. */
     val isGap: Boolean get() = temperatureMinC == null && humidityMinPct == null
@@ -22,6 +24,9 @@ data class WeekRow(
 /** Port of `WeekReply.parse` of `Replies.swift`. The rule set and the errors stay the same. */
 object WeekReply {
     const val HEADER = "sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h,dry_h"
+
+    /** Header of a firmware with the `heat_h` column (10 columns). */
+    const val HEAT_HEADER = "$HEADER,heat_h"
 
     /** Header of a firmware without the `dry_h` column. */
     const val MOLD_HEADER = "sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h"
@@ -52,20 +57,20 @@ object WeekReply {
     /** [lines] hold `BEGIN WEEK`, the header and the rows. A bad line throws [ParseException]. */
     fun parse(lines: List<String>): List<WeekRow> {
         if (lines.firstOrNull() != "BEGIN WEEK") throw ParseException("BEGIN WEEK")
-        if (lines.size < 2 || (lines[1] != HEADER && lines[1] != MOLD_HEADER && lines[1] != LEGACY_HEADER)) throw ParseException(HEADER)
+        if (lines.size < 2 || (lines[1] != HEAT_HEADER && lines[1] != HEADER && lines[1] != MOLD_HEADER && lines[1] != LEGACY_HEADER)) throw ParseException(HEADER)
         val seen = HashSet<Int>()
         return lines.drop(2).map { line ->
             val c = line.split(",")
             val s = c.getOrNull(0)?.toIntOrNull()
             val d = c.getOrNull(1)?.toIntOrNull()
-            val columns = when (lines[1]) { HEADER -> 9; MOLD_HEADER -> 8; else -> 7 }
+            val columns = when (lines[1]) { HEAT_HEADER -> 10; HEADER -> 9; MOLD_HEADER -> 8; else -> 7 }
             if (c.size != columns || s == null || d == null || s !in 0..10 || d !in 0..6 ||
                 !(c[2].isEmpty() || DATE.matches(c[2])) || !seen.add(s * 7 + d)
             ) throw ParseException(line)
             fun hours(index: Int): Int? = c.getOrNull(index)?.takeIf { it.isNotEmpty() }?.let { text ->
                 text.toIntOrNull()?.takeIf { it in 0..24 && text.all { ch -> ch in '0'..'9' } } ?: throw ParseException(line)
             }
-            val row = WeekRow(s, d, c[2], number(c[3], line), number(c[4], line), number(c[5], line), number(c[6], line), hours(7), hours(8))
+            val row = WeekRow(s, d, c[2], number(c[3], line), number(c[4], line), number(c[5], line), number(c[6], line), hours(7), hours(8), hours(9))
             // The firmware sends each value pair or none; a minimum above the maximum is a bad row.
             val tLo = row.temperatureMinC
             val tHi = row.temperatureMaxC

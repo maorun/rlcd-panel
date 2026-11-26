@@ -314,6 +314,8 @@ public struct WeekRow: Hashable {
     public var moldHours: Int? = nil
     /// Hours at or below `dry_alert_limit_rh` (0 to 24). `nil` for a gap day, an empty field and a reply with 7 or 8 columns.
     public var dryHours: Int? = nil
+    /// Hours at or above `heat_alert_limit_c` (0 to 24). `nil` for a gap day, an empty field and a reply with 7 to 9 columns.
+    public var heatHours: Int? = nil
 }
 
 /// An empty date (no stamp) or `YYYY-MM-DD`.
@@ -326,19 +328,21 @@ private func isWeekDate(_ s: String) -> Bool {
 
 public enum WeekReply {
     public static let header = "sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h,dry_h"
+    /// Header of a firmware with the `heat_h` column (10 columns).
+    public static let heatHeader = header + ",heat_h"
     /// Header of a firmware without the `dry_h` column.
     public static let moldHeader = "sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h"
     /// Header of a firmware without the `mold_h` column.
     public static let legacyHeader = "sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct"
 
-    /// `lines` hold `BEGIN WEEK`, the header and the rows. The header `dry_h` gives 9 columns, `mold_h` 8, the old header 7.
+    /// `lines` hold `BEGIN WEEK`, the header and the rows. The header `heat_h` gives 10 columns, `dry_h` 9, `mold_h` 8, the old header 7.
     public static func parse(lines: [String]) throws -> [WeekRow] {
         guard lines.first == "BEGIN WEEK" else { throw ParseError.missingLine("BEGIN WEEK") }
-        guard lines.count >= 2, lines[1] == header || lines[1] == moldHeader || lines[1] == legacyHeader else { throw ParseError.missingLine(header) }
+        guard lines.count >= 2, lines[1] == heatHeader || lines[1] == header || lines[1] == moldHeader || lines[1] == legacyHeader else { throw ParseError.missingLine(header) }
         var seen = Set<Int>()
         return try lines.dropFirst(2).map { line in
             let c = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
-            guard c.count == (lines[1] == header ? 9 : lines[1] == moldHeader ? 8 : 7), let s = Int(c[0]), let d = Int(c[1]),
+            guard c.count == (lines[1] == heatHeader ? 10 : lines[1] == header ? 9 : lines[1] == moldHeader ? 8 : 7), let s = Int(c[0]), let d = Int(c[1]),
                   (0...10).contains(s), (0...6).contains(d), isWeekDate(c[2]),
                   seen.insert(s * 7 + d).inserted else { throw ParseError.badLine(line) }
             func hours(_ index: Int) throws -> Int? {
@@ -347,7 +351,7 @@ public enum WeekReply {
                 return h
             }
             let row = WeekRow(sensor: s, day: d, date: c[2], temperatureMinC: number(c[3]), temperatureMaxC: number(c[4]),
-                              humidityMinPct: number(c[5]), humidityMaxPct: number(c[6]), moldHours: try hours(7), dryHours: try hours(8))
+                              humidityMinPct: number(c[5]), humidityMaxPct: number(c[6]), moldHours: try hours(7), dryHours: try hours(8), heatHours: try hours(9))
             // The firmware sends each value pair or none; a minimum above the maximum is a bad row.
             if let lo = row.temperatureMinC, let hi = row.temperatureMaxC, lo > hi { throw ParseError.badLine(line) }
             if let lo = row.humidityMinPct, let hi = row.humidityMaxPct, lo > hi { throw ParseError.badLine(line) }

@@ -387,6 +387,35 @@ struct ReplyParserTests {
         #expect(try HistoryReply.parse(lines: ["BEGIN HISTORY", HistoryReply.header, "10,23,1,2,3"]).count == 1)
     }
 
+    @Test func weekHeatFixtureKeepsZeroAndGap() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("tests/fixtures/week_heat_reply_sample.txt")
+        let fixture = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
+            .filter { !$0.hasPrefix("CRC32") }
+        let rows = try WeekReply.parse(lines: fixture)
+        #expect(rows.count == 42)
+        #expect(rows[0].heatHours == 1 && rows[0].dryHours == 0 && rows[0].moldHours == 0)
+        #expect(rows.first { $0.sensor == 1 && $0.day == 0 }?.heatHours == 0)
+        #expect(rows.first { $0.sensor == 2 && $0.day == 3 }?.heatHours == nil)
+        #expect(rows[41].heatHours == 5)
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.moldHeader, "0,0,,1,2,3,4,5,6"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.legacyHeader, "0,0,,1,2,3,4,5,6,7"]) }
+    }
+
+    @Test func weekHeatColumn() throws {
+        let rows = try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.heatHeader, "0,0,2026-11-14,19.5,22.0,40.5,55.0,6,5,3", "0,1,2026-11-13,,,,,,,", "1,0,,10.0,20.0,40.0,60.0,3,,24"])
+        #expect(rows[0].heatHours == 3 && rows[0].dryHours == 5 && rows[1].heatHours == nil && rows[2].heatHours == 24)
+        let nine = try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,1,2,3,4,5,6"])
+        #expect(nine[0].heatHours == nil)
+        for tail in ["25", "-1", "x", "+5"] {
+            #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.heatHeader, "0,0,,1,2,3,4,5,6,\(tail)"]) }
+        }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.heatHeader, "0,0,,1,2,3,4,5,6"]) }
+        #expect(throws: ParseError.self) { try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,,1,2,3,4,5,6,7"]) }
+    }
+
     @Test func week() throws {
         let rows = try WeekReply.parse(lines: lines(weekText))
         #expect(rows.count == 3)
