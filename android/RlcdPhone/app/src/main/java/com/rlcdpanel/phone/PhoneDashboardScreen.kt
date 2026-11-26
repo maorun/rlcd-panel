@@ -99,6 +99,7 @@ fun PhoneDashboardScreen(
     onOpenHistory: () -> Unit = {},
     onOpenWeek: () -> Unit = {},
     onOpenToday: () -> Unit = {},
+    onOpenPanelPreview: () -> Unit = {},
     onOpenTail: () -> Unit = {},
     onOpenDays: () -> Unit = {},
     onOpenEvents: () -> Unit = {},
@@ -142,6 +143,7 @@ fun PhoneDashboardScreen(
                         onOpenHistory = onOpenHistory,
                         onOpenWeek = onOpenWeek,
                         onOpenToday = onOpenToday,
+                        onOpenPanelPreview = onOpenPanelPreview,
                         onOpenTail = onOpenTail,
                         onOpenDays = onOpenDays,
                         onOpenEvents = onOpenEvents,
@@ -232,6 +234,7 @@ private fun StatusHeader(
     onOpenHistory: () -> Unit,
     onOpenWeek: () -> Unit,
     onOpenToday: () -> Unit,
+    onOpenPanelPreview: () -> Unit,
     onOpenTail: () -> Unit,
     onOpenDays: () -> Unit,
     onOpenEvents: () -> Unit,
@@ -303,6 +306,14 @@ private fun StatusHeader(
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F), contentColor = Color.White)
             ) {
                 Text("Heute")
+            }
+            Spacer(modifier = Modifier.height(6.dp))
+            Button(
+                onClick = onOpenPanelPreview,
+                modifier = Modifier.fillMaxWidth(),
+                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF37474F), contentColor = Color.White)
+            ) {
+                Text("Panelbild (Vorschau)")
             }
             Spacer(modifier = Modifier.height(6.dp))
             Button(

@@ -20,15 +20,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
 
-
-
-
-- [ ] Panel screen image on the Android phone
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/PanelImage.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/PanelScreen.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MainActivity.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/PanelImageTest.kt`, `FEATURES.md`
-  - **Goal:** Let the phone user see the panel screen. `SCREEN` gives `ERR NOT_OVER_BLE`, so the phone cannot read the framebuffer. Render the four tiles from the newest telemetry frame instead: port `PanelImage.decode` of the macOS app (invariant 4 packing) for a later USB path, and add `PanelPreview.render(frame, config)`, which draws a 400 x 300 bitmap with the tile layout of `DashboardView::layoutTiles` for the valid tiles (names, temperature, humidity). Label the image `Preview from telemetry, not the panel image`. Do not send a console command.
-  - **Acceptance:** A unit test decodes a 15,000-byte buffer with one set pixel at x 3, y 5 and checks the pixel. A unit test checks the exception for 14,999 bytes. A unit test checks the tile rectangles for 1, 4 and 6 valid tiles against the values of `layoutTiles` in `AGENTS.md`. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
-  - **Rank:** [Total: 24, Use: 5, Setup: 3, Harmony: 6, Safety: 10, Effort: M]
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.
