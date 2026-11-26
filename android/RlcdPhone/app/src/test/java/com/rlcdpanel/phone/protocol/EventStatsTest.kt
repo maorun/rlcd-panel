@@ -99,7 +99,8 @@ class EventStatsTest {
             stats
         )
         assertEquals("D", stats.first { it.event == "DRY_AIR" }.badge)
-        assertEquals("Slot 2", stats.first { it.event == "WINDOW_OPEN" }.room)
+        assertEquals("Slot 2", stats.first { it.event == "WINDOW_OPEN" && it.tile == 2 }.room)
+        assertEquals("Slot 1", stats.first { it.event == "WINDOW_OPEN" && it.tile == 1 }.room)
         assertEquals("Onboard", stats.first { it.event == "DRY_AIR" }.room)
     }
 
