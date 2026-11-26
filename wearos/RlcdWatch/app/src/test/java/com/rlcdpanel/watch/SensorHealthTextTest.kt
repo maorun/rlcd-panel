@@ -89,6 +89,17 @@ class SensorHealthTextTest {
     }
 
     @Test
+    fun heatTextAndWarning() {
+        fun heat(hours: Int?) = StatusSensor(1, "A", 20.0, 50.0, 80.0, -60.0, 10.0, "OK", "WOIO", heatHours = hours)
+        assertEquals("Hitze 0 h", SensorHealthText.heat(heat(0)))
+        assertEquals("⚠ Hitze 3 h", SensorHealthText.heat(heat(3)))
+        assertEquals("Hitze --", SensorHealthText.heat(heat(null)))
+        assertFalse(SensorHealthText.isHeat(heat(0)))
+        assertTrue(SensorHealthText.isHeat(heat(3)))
+        assertFalse(SensorHealthText.isHeat(heat(null)))
+    }
+
+    @Test
     fun firmwareLineAndTimeoutText() {
         val v = VersionReply.parse(listOf("VERSION fw=1.0.0 git=abc1234 core=3.3.12 state=68 built=unknown"))
         assertEquals("FW 1.0.0 (abc1234)", SensorHealthText.firmware(v))

@@ -260,7 +260,8 @@ struct MainView: View {
                     let macText = mac.map { " (\($0))" } ?? ""
                     Text("\(x.name)\(x.badge.map { " \($0)" } ?? "")\(macText): \(x.temperature.map { String(format: "%.1f °\(unit)", $0) } ?? "--")\(x.temperature != nil ? x.temperatureTrend?.symbol ?? "" : "") "
                          + "\(x.humidity.map { String(format: "%.1f %%RH", $0) } ?? "--")\(x.humidity != nil ? x.humidityTrend?.symbol ?? "" : "") [\(x.state)]"
-                         + (x.dryHours.map { " Dry \($0) h\($0 > 0 ? " ⚠" : "")" } ?? ""))
+                         + (x.dryHours.map { " Dry \($0) h\($0 > 0 ? " ⚠" : "")" } ?? "")
+                         + (x.heatText.map { " \($0)" } ?? ""))
                 }
                 Text("Power: \(s.powerSource ?? "?") \(s.cellVolts.map { String(format: "%.2f V", $0) } ?? "")")
                 Text("Reset: \(s.resetReason ?? "--"), SD: \(s.sdStatus ?? "--")")

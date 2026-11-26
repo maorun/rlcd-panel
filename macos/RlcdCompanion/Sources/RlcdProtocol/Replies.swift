@@ -48,7 +48,7 @@ public enum SensorTrend: String, Equatable {
     }
 }
 
-/// `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...> format=<...> mac=<...> mold_h=<N|--> ... dry_h=<N|-->`.
+/// `SENSOR <index> <name> temp=<C> rh=<%RH> bat=<%> rssi=<dBm> age=<s> state=<...> format=<...> mac=<...> mold_h=<N|--> ... dry_h=<N|--> heat_h=<N|-->`.
 public struct StatusSensor: Equatable {
     public let index: Int
     public let name: String
@@ -66,6 +66,8 @@ public struct StatusSensor: Equatable {
     public let moldHours: Int?
     /// `dry_h=` of the `SENSOR` line: hourly samples at or below `dry_alert_limit_rh`; `nil` for `--` and a missing field.
     public let dryHours: Int?
+    /// `heat_h=` of the `SENSOR` line: hourly pairs at or above `heat_alert_limit_c` (feels-like); `nil` for `--` and a missing field.
+    public let heatHours: Int?
     /// `temp_trend=` of the `SENSOR` line; `nil` for `--` and a missing field.
     public let temperatureTrend: SensorTrend?
     /// `rh_trend=` of the `SENSOR` line; `nil` for `--` and a missing field.
@@ -84,6 +86,7 @@ public struct StatusSensor: Equatable {
         mac: String? = nil,
         moldHours: Int? = nil,
         dryHours: Int? = nil,
+        heatHours: Int? = nil,
         temperatureTrend: SensorTrend? = nil,
         humidityTrend: SensorTrend? = nil
     ) {
@@ -99,12 +102,16 @@ public struct StatusSensor: Equatable {
         self.mac = mac
         self.moldHours = moldHours
         self.dryHours = dryHours
+        self.heatHours = heatHours
         self.temperatureTrend = temperatureTrend
         self.humidityTrend = humidityTrend
     }
 
     /// The protocol source badge of `format`, `nil` without a known format.
     public var badge: String? { SensorHealth.badge(forFormat: format) }
+
+    /// `Heat <N> h` with a warning symbol above 0 hours; `nil` without a value.
+    public var heatText: String? { heatHours.map { "Heat \($0) h" + ($0 > 0 ? " ⚠" : "") } }
 }
 
 /// Parsed `STATUS` reply. Unknown lines are kept in `otherLines`, so a newer firmware does not break the parser.
@@ -157,11 +164,12 @@ public struct StatusReply: Equatable {
                 }
                 let moldHours = try hours("mold_h")
                 let dryHours = try hours("dry_h")
+                let heatHours = try hours("heat_h")
                 sensors.append(StatusSensor(
                     index: idx, name: String(words[2]), temperature: number(f["temp"]),
                     humidity: number(f["rh"]), battery: number(f["bat"]), rssi: number(f["rssi"]),
                     ageSeconds: number(f["age"]), state: f["state"] ?? "", format: sourceFormat(f["format"]),
-                    mac: sourceFormat(f["mac"]), moldHours: moldHours, dryHours: dryHours,
+                    mac: sourceFormat(f["mac"]), moldHours: moldHours, dryHours: dryHours, heatHours: heatHours,
                     temperatureTrend: try SensorTrend.parse(f["temp_trend"], line: line),
                     humidityTrend: try SensorTrend.parse(f["rh_trend"], line: line)))
             case "SD":

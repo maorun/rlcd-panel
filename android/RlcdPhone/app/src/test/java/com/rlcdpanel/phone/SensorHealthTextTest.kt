@@ -41,6 +41,20 @@ class SensorHealthTextTest {
         assertTrue(SensorHealthText.isMold(row(3)))
     }
 
+    private fun heatRow(heatHours: Int?) = SensorHealth(
+        1, "A", -60.0, 80.0, 10.0, "OK", "WOIO", null, SensorHealth.Verdict.GOOD, null, null, null, null, heatHours
+    )
+
+    @Test
+    fun heatTextAndWarning() {
+        assertEquals("Hitze --", SensorHealthText.heat(heatRow(null)))
+        assertEquals("Hitze 0 h", SensorHealthText.heat(heatRow(0)))
+        assertEquals("⚠ Hitze 3 h", SensorHealthText.heat(heatRow(3)))
+        assertFalse(SensorHealthText.isHeat(heatRow(null)))
+        assertFalse(SensorHealthText.isHeat(heatRow(0)))
+        assertTrue(SensorHealthText.isHeat(heatRow(3)))
+    }
+
     private fun dryRow(dryHours: Int?) = SensorHealth(
         1, "A", -60.0, 80.0, 10.0, "OK", "WOIO", null, SensorHealth.Verdict.GOOD, null, null, null, dryHours
     )

@@ -414,6 +414,14 @@ struct DiagnosticsView: View {
                                 .accessibilityLabel("Dry hours")
                         }
                     }
+                    if let heat = live?.heatHours {
+                        Text("Heat \(heat) h")
+                        if heat > 0 {
+                            Image(systemName: "exclamationmark.triangle").foregroundStyle(.orange)
+                                .help("Hours at or above heat_alert_limit_c (feels-like) in the last 24 hours")
+                                .accessibilityLabel("Heat hours")
+                        }
+                    }
                     Text("RSSI \(r.rssi.map { String(format: "%.0f", $0) } ?? "--")")
                     Text("bat \(r.battery.map { String(format: "%.0f %%", $0) } ?? "--")")
                     Text("age \(r.ageSeconds.map { String(format: "%.0f s", $0) } ?? "--")")

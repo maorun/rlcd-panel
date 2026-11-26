@@ -197,4 +197,11 @@ class SensorHealthTest {
         val rows = SensorHealth.rows(status(lines), null)
         assertEquals(listOf<Int?>(4, null, null), rows.map { it.dryHours })
     }
+
+    @Test
+    fun heatHoursFollowTheSlot() {
+        val lines = listOf("SENSOR 1 A temp=1 rh=1 bat=1 rssi=-60 age=9 state=OK heat_h=4", "SENSOR 2 B temp=1 rh=1 bat=1 rssi=-60 age=9 state=OK heat_h=--", "SENSOR 3 C temp=1 rh=1 bat=1 rssi=-60 age=9 state=OK")
+        val rows = SensorHealth.rows(status(lines), null)
+        assertEquals(listOf<Int?>(4, null, null), rows.map { it.heatHours })
+    }
 }
