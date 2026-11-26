@@ -21,12 +21,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 
 
-- [ ] Add ReceptionReply.kt to the protocol sync check
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ReceptionReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ReceptionReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, the two `ReceptionReplyTest.kt` files, `scripts/check-protocol-sync.sh`, `FEATURES.md`
-  - **Goal:** Remove the only protocol file that the phone and the watch hold in two different versions. The phone `ReceptionRow` has `cells: List<Boolean>` and `percent`; the watch has `mask: String` and `newestCells`. Make one file with `mask`, `cells`, `percent`, `isLow` and `newestCells(count)`. Use it in both apps without a change of the screen texts. Add `ReceptionReply.kt` to the `FILES` list of `scripts/check-protocol-sync.sh`.
-  - **Acceptance:** `scripts/check-protocol-sync.sh` passes with `ReceptionReply.kt` in the list. Both `ReceptionReplyTest.kt` files hold the same test cases and parse `tests/fixtures/reception_reply_sample.txt`. A unit test checks `cells` and `newestCells(12)` of one 24-character mask. `gradle testDebugUnitTest assembleDebug` passes in `android/RlcdPhone` and in `wearos/RlcdWatch`.
-  - **Rank:** [Total: 30, Use: 2, Setup: 8, Harmony: 10, Safety: 10, Effort: S]
-
 
 
 - [ ] Panel screen image on the Android phone
