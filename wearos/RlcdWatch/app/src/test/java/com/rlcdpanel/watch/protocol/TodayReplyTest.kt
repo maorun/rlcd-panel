@@ -135,4 +135,32 @@ class TodayReplyTest {
         val row = TodayRow(0, "onboard", 5, 1.0, 2.0, 1.5, 1.0, 2.0, 1.5, 3, null)
         assertEquals("Mold 3 h · Dry -- h", com.rlcdpanel.watch.TodayScreenText.moldDry(row))
     }
+
+    private fun hoursFixture(name: String): List<TodayRow> {
+        val reply = ReplyAssembler().append(Fixtures.file(name).readBytes())
+        val lines = (reply as? ConsoleReply.Frame)?.lines ?: throw AssertionError("$name is no valid frame")
+        return TodayReply.parse(lines)
+    }
+
+    @Test
+    fun hoursFixtureGivesMoldAndDry() {
+        val rows = hoursFixture("today_hours_reply_sample.txt")
+        assertEquals(2, rows.size)
+        assertEquals(listOf(0, 1), rows.map { it.sensor })
+        assertEquals(listOf("onboard", "slot1"), rows.map { it.name })
+        assertEquals(listOf(5, 2), rows.map { it.hours })
+        assertEquals(listOf(2, 2), rows.map { it.moldHours })
+        assertEquals(listOf(3, 0), rows.map { it.dryHours })
+    }
+
+    @Test
+    fun hoursOneFixtureGivesMoldAndDry() {
+        val rows = hoursFixture("today_hours_one_reply_sample.txt")
+        assertEquals(1, rows.size)
+        assertEquals(1, rows[0].sensor)
+        assertEquals("slot1", rows[0].name)
+        assertEquals(2, rows[0].hours)
+        assertEquals(2, rows[0].moldHours)
+        assertEquals(0, rows[0].dryHours)
+    }
 }
