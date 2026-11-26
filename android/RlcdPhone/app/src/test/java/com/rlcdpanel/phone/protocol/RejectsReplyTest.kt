@@ -24,6 +24,7 @@ class RejectsReplyTest {
             log.rows
         )
         assertEquals(1, log.dropped)
+        assertEquals("1 more sensor not listed", RejectsReply.droppedText(log.dropped))
     }
 
     @Test
@@ -40,14 +41,29 @@ class RejectsReplyTest {
     }
 
     @Test
-    fun fixTextOfEachReason() {
-        assertEquals("Free a slot", RejectReason.FULL.fix)
-        assertEquals("Assign the MAC to a slot", RejectReason.UNASSIGNED.fix)
-        assertEquals("Enable the slot in slot_enabled_mask", RejectReason.DISABLED.fix)
-        assertEquals("Check the sensor position", RejectReason.JUMP.fix)
-        assertEquals("Move the sensor nearer or lower auto_assign_min_rssi", RejectReason.WEAK.fix)
-        val row = RejectsReply.parse(reply("AA:00:00:00:00:02,BTHOME,WEAK,3")).rows.single()
-        assertEquals(RejectReason.WEAK.fix, row.fix)
+    fun adviceOfEachFixtureRow() {
+        val advice = RejectsReply.parse(fixtureLines()).rows.map { RejectsReply.advice(it.reason) }
+        assertEquals(
+            listOf(
+                "Free a slot",
+                "Set a fixed MAC or slot_auto_assign=1",
+                "Check jump_limit_c and jump_limit_rh",
+                "Set slot<N>_enabled=1"
+            ),
+            advice
+        )
+    }
+
+    @Test
+    fun weakAdvice() {
+        assertEquals("Move the sensor or lower auto_assign_min_rssi", RejectsReply.advice(RejectReason.WEAK))
+    }
+
+    @Test
+    fun droppedText() {
+        assertEquals("1 more sensor not listed", RejectsReply.droppedText(1))
+        assertEquals("2 more sensors not listed", RejectsReply.droppedText(2))
+        assertNull(RejectsReply.droppedText(0))
     }
 
     @Test

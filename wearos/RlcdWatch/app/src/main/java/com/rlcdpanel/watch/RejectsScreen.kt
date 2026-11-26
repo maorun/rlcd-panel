@@ -25,6 +25,7 @@ import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
 import com.rlcdpanel.watch.protocol.RejectRow
+import com.rlcdpanel.watch.protocol.RejectsReply
 
 /** Result of one `REJECTS` read: the rows, the count of lost MACs, or a text that tells why there are none. */
 data class RejectsState(
@@ -45,9 +46,6 @@ object RejectsText {
 
     /** `METER FULL x2`: format, reason and count. */
     fun detail(row: RejectRow): String = "${row.format} ${row.reason.wire} x${row.count}"
-
-    /** `DROPPED 3`; null when no MAC was lost. */
-    fun dropped(count: Int): String? = if (count > 0) "DROPPED $count" else null
 }
 
 @Composable
@@ -101,7 +99,7 @@ fun RejectsScreen(
                 if (state.loaded && state.rows.isEmpty() && state.dropped == 0) {
                     item { Text(RejectsText.EMPTY, fontSize = 10.sp, color = Color(0xFFB0BEC5)) }
                 }
-                RejectsText.dropped(state.dropped)?.let { text ->
+                RejectsReply.droppedText(state.dropped)?.let { text ->
                     item { Text(text, fontSize = 10.sp, color = Color(0xFFFFB74D)) }
                 }
                 items(state.rows) { row ->
@@ -109,6 +107,7 @@ fun RejectsScreen(
                         Column(verticalArrangement = Arrangement.spacedBy(1.dp)) {
                             Text(RejectsText.shortMac(row.mac), fontSize = 12.sp)
                             Text(RejectsText.detail(row), fontSize = 10.sp, color = Color(0xFFB0BEC5))
+                            Text(row.advice, fontSize = 10.sp, color = Color(0xFFFFB74D))
                         }
                     }
                 }

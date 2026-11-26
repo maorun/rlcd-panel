@@ -1966,7 +1966,7 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 
 - `ConsoleCommand.rejects` sends `REJECTS`. The app sends it only on the `Read rejects` button, on USB and on BLE.
 - `RejectsReply.parse` (`RejectsReply.swift`) reads the header `mac,format,reason,count`, one row for each MAC and the optional last row `DROPPED,<N>`. It throws `ParseError.badLine` for a wrong column count, an unknown format, an unknown reason, a count outside 1 to 255, an invalid or repeated MAC, and a misplaced `DROPPED` row.
-- `RejectReason` (`FULL`, `UNASSIGNED`, `DISABLED`, `JUMP`, `WEAK`) gives the fix hint: `Free a slot`, `Assign to slot`, `Set slot<N>_enabled=1`, `Check the sensor position`, `Move the sensor nearer or lower auto_assign_min_rssi`.
+- `RejectReason` (`FULL`, `UNASSIGNED`, `DISABLED`, `JUMP`, `WEAK`) has no hint text; `RejectsReply.advice(reason)` gives it (see the section `Advice in the REJECTS screens`).
 - `ScannerView` shows the box `Rejected sensors` with MAC, format badge, reason, count and hint. A `FULL` row shows the `Free slot <N>` buttons of `AppModel.freeableSlots`. An `UNASSIGNED` row shows the `Assign to slot` menu of `SlotAssignment`.
 - `RejectsReplyTests` cover the fixture `tests/fixtures/rejects_reply_sample.txt`, an empty log, the bad rows, the hints and the command line.
 - Validation: `swift build` and `swift build -c release` pass. `swift test` does not run locally (Command Line Tools have no Testing macros); a `swiftc` harness checked the parser cases. CI runs `swift test`.
@@ -2009,7 +2009,7 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - A slot that already holds the MAC keeps its updates at each RSSI. A slot with a fixed MAC (`slotN_mac`) takes its packet without a limit.
 - `PersistentState` stores the limit as 1 `int8` byte at the end of the config trailer (after the rejected line numbers). `RejectLog::restore` accepts the reason 5 and rejects a higher one. `applyConfig` and `deserialize` pass the limit to the registry. `STATE_VERSION` is 67.
 - The console command `REJECTS` shows `WEAK` in the reason column.
-- `docs/config.example.ini` lists `auto_assign_min_rssi=0`. The macOS `ConfigSchema.entries` holds the key (range -100 to -40, 0 is off). `RejectReason.weak` in `RejectsReply.swift` gives the hint `Move the sensor nearer or lower auto_assign_min_rssi`.
+- `docs/config.example.ini` lists `auto_assign_min_rssi=0`. The macOS `ConfigSchema.entries` holds the key (range -100 to -40, 0 is off). `RejectsReply.advice(.weak)` in `RejectsReply.swift` gives the advice `Move the sensor or lower auto_assign_min_rssi`.
 - Tests: `testAutoAssignMinRssi` in `tests/test_firmware_logic.cpp` (limit -70: RSSI -80 gives no slot and one `WEAK` row, -60 gives a slot, a held slot updates at -90, a fixed MAC slot takes -95, -101, -39 and 5 are rejected lines, trailer round trip, bad trailer byte). `testConfigExampleTemplateInSync` passes. `ConfigSchemaTests` cover the range.
 
 ## Alert acknowledge buttons in the macOS diagnostics view
@@ -2067,7 +2067,7 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - **Code:** `android/RlcdPhone/.../protocol/RejectsReply.kt`, `RejectsScreen.kt`, `SensorHealthScreen.kt`, `MainActivity.kt`, `tests/fixtures/rejects_reply_sample.txt`.
 - The phone could not show which sensor the panel blocks. The `Rejected packets` button of the sensor health screen opens `RejectsScreen`. A tap on `Read rejected packets` sends `REJECTS` over the BLE console. The app sends nothing else on its own.
 - `RejectsReply.parse` reads `BEGIN REJECTS`, the header `mac,format,reason,count`, rows and one optional `DROPPED,<N>` row at the end. A wrong column count, an invalid MAC, an unknown format, an unknown reason, a count of 0 or above 255, a repeated or early `DROPPED` row and a missing header throw `ParseException`.
-- Each row shows the MAC, the format, the reason, the count and one fix text: `FULL` gives `Free a slot`, `UNASSIGNED` gives `Assign the MAC to a slot`, `DISABLED` gives `Enable the slot in slot_enabled_mask`, `JUMP` gives `Check the sensor position`, `WEAK` gives `Move the sensor nearer or lower auto_assign_min_rssi`. The screen shows the count of lost MACs when `DROPPED` is above 0.
+- Each row shows the MAC, the format, the reason, the count and one advice text from `RejectsReply.advice` (see the section `Advice in the REJECTS screens`).
 - A failed CRC-32, a timeout or an `ERR` reply gives one error text through `BleConsoleClient.errorText`. The command is not repeated. A read that `onStop` aborts shows `Abgebrochen. Erneut lesen.`
 - `RejectsReplyTest` reads `tests/fixtures/rejects_reply_sample.txt` and covers each row, the reasons, the counts, the dropped count, the CRC-32 frame, the fix texts and the error cases.
 - The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.
@@ -4094,3 +4094,13 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `ConfigSchemaTest` (Wear OS) reads `docs/config.example.ini` and `rlcd_panel/device_config.h` from the repository. It checks that `ConfigSchema.entries.size` equals `DeviceConfigParser::KEY_COUNT`, that the template and the schema hold the same keys (each key once), that each active template value passes `ConfigSchema.validate` and equals the schema default, that the schema keys follow the order of `tests/fixtures/config_backup_sample.ini`, that each commented template key (names and MACs) has an empty default, and that the ranges and off values of ten sample keys equal the macOS `ConfigSchema.swift`. A key that the template has and the schema lacks fails the test.
 - The delay keys `heat_alert_delay_h`, `dry_alert_delay_h` and `mold_alert_delay_h` accept 0 (off) and 1 to 12 in the Wear OS test and in the new macOS test `delayKeysAcceptOffAndOneToTwelve`.
 - Validation: the host has no Android SDK and its Swift toolchain lacks the `TestingMacros` plugin, so Gradle and `swift test` run in CI. A local script check confirmed 104 schema keys in the fixture order and equal defaults.
+
+## Advice in the REJECTS screens
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/RejectsReply.swift`, `ScannerView.swift`, `android/RlcdPhone/.../protocol/RejectsReply.kt`, `RejectsScreen.kt`, `wearos/RlcdWatch/.../protocol/RejectsReply.kt`, `RejectsScreen.kt`.
+- The user did not know how to get a rejected sensor accepted. `RejectsReply.advice(reason)` gives one text for each reason: `FULL` gives `Free a slot`, `UNASSIGNED` gives `Set a fixed MAC or slot_auto_assign=1`, `DISABLED` gives `Set slot<N>_enabled=1`, `JUMP` gives `Check jump_limit_c and jump_limit_rh`, `WEAK` gives `Move the sensor or lower auto_assign_min_rssi`. This replaces `RejectReason.fixHint` (Swift) and `RejectReason.fix` (Kotlin).
+- `RejectsReply.droppedText(N)` gives `<N> more sensors not listed` (`1 more sensor not listed` for 1) for the `DROPPED,<N>` row and null for 0. The three screens show it.
+- The macOS `ScannerView`, the phone `RejectsScreen` and the watch `RejectsScreen` show the advice below each row. The watch showed `DROPPED <N>` before; `RejectsText.dropped` is removed.
+- The Kotlin copies of `RejectsReply.kt` stay equal except for the `package` line (`scripts/check-protocol-sync.sh`).
+- Tests: each app parses `tests/fixtures/rejects_reply_sample.txt` and checks the advice of the four rows, the advice of `WEAK` and the text of `DROPPED,1`.
+- Validation: `swift test` and `scripts/check-protocol-sync.sh` ran locally. The host has no Android SDK, so Gradle runs in CI.

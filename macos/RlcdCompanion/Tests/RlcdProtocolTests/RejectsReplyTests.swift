@@ -18,6 +18,7 @@ import Testing
         #expect(r.rows.map(\.count) == [2, 1, 1, 255])
         #expect(r.rows.map(\.format) == ["METER", "ATC", "WOIO", "THERMOPRO"])
         #expect(r.dropped == 1)
+        #expect(RejectsReply.droppedText(r.dropped) == "1 more sensor not listed")
     }
 
     @Test func emptyLogGivesNoRows() throws {
@@ -62,12 +63,30 @@ import Testing
         #expect(r.rows[0].mac == "AA:00:00:00:00:01")
     }
 
-    @Test func fixHints() {
-        #expect(RejectReason.full.fixHint == "Free a slot")
-        #expect(RejectReason.unassigned.fixHint == "Assign to slot")
-        #expect(RejectReason.disabled.fixHint == "Set slot<N>_enabled=1")
-        #expect(RejectReason.jump.fixHint == "Check the sensor position")
-        #expect(RejectReason.weak.fixHint == "Move the sensor nearer or lower auto_assign_min_rssi")
+    @Test func adviceOfEachFixtureRow() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("tests/fixtures/rejects_reply_sample.txt")
+        let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
+            .filter { !$0.hasPrefix("CRC32") }
+        let r = try RejectsReply.parse(lines: lines)
+        #expect(r.rows.map { RejectsReply.advice($0.reason) } == [
+            "Free a slot",
+            "Set a fixed MAC or slot_auto_assign=1",
+            "Check jump_limit_c and jump_limit_rh",
+            "Set slot<N>_enabled=1",
+        ])
+    }
+
+    @Test func weakAdvice() {
+        #expect(RejectsReply.advice(.weak) == "Move the sensor or lower auto_assign_min_rssi")
+    }
+
+    @Test func droppedText() {
+        #expect(RejectsReply.droppedText(1) == "1 more sensor not listed")
+        #expect(RejectsReply.droppedText(2) == "2 more sensors not listed")
+        #expect(RejectsReply.droppedText(0) == nil)
     }
 
     @Test func weakReasonParses() throws {

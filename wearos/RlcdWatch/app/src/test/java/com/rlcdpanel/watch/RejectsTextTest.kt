@@ -12,10 +12,4 @@ class RejectsTextTest {
         assertEquals("00:13", RejectsText.shortMac(row.mac))
         assertEquals("METER FULL x2", RejectsText.detail(row))
     }
-
-    @Test
-    fun droppedTextOnlyForPositiveCount() {
-        assertEquals(null, RejectsText.dropped(0))
-        assertEquals("DROPPED 3", RejectsText.dropped(3))
-    }
 }
