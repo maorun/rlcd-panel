@@ -2497,7 +2497,7 @@ public:
 
   // Sends the 7-day minimum and maximum of each sensor from the RTC copy as CSV: one row per sensor (0 onboard, 1 to 10 a
   // slot) and day (day 0 is the day before the stamp). The date is empty without a stamp, a gap day gives empty value
-  // fields. `only_sensor` 0 to 10 sends only the 7 rows of that sensor, -1 sends all. Values are in 0.5 steps; `mold_h` is the hour count above mold_alert_limit_rh (empty for a gap day); `dry_h` is the hour count at or below dry_alert_limit_rh (empty for a gap day and for limit 0). The card and the state stay untouched. A short write ends the reply, so the host
+  // fields. `only_sensor` 0 to 10 sends only the 7 rows of that sensor, -1 sends all. Values are in 0.5 steps; `mold_h` is the hour count above mold_alert_limit_rh (empty for a gap day); `dry_h` is the hour count at or below dry_alert_limit_rh (empty for a gap day and for limit 0); `heat_h` is the hour count at or above heat_alert_limit_c (empty for a gap day and for limit 0). The card and the state stay untouched. A short write ends the reply, so the host
   // sees no CRC32 line.
   static void showWeek(Sink& sink, const WeekHistory& week, int only_sensor = -1) {
     SerialCrc32 crc;
@@ -2509,7 +2509,7 @@ public:
       crc.update(reinterpret_cast<const uint8_t*>(text), len);
       return true;
     };
-    if (!emit("BEGIN WEEK\n") || !emit("sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h,dry_h\n")) {
+    if (!emit("BEGIN WEEK\n") || !emit("sensor,day,date,temp_min_c,temp_max_c,rh_min_pct,rh_max_pct,mold_h,dry_h,heat_h\n")) {
       return;
     }
     for (size_t s = 0; s < WeekHistory::SENSORS; ++s) {
@@ -2542,8 +2542,12 @@ public:
         if (week.hasDryHours(s, d)) {
           snprintf(dry, sizeof(dry), "%u", static_cast<unsigned>(week.dryHours(s, d)));
         }
-        char line[96];
-        snprintf(line, sizeof(line), "%u,%u,%s,%s,%s,%s,%s,%s,%s\n", static_cast<unsigned>(s), static_cast<unsigned>(d), date, f[0], f[1], f[2], f[3], mold, dry);
+        char heat[4] = "";
+        if (week.hasHeatHours(s, d)) {
+          snprintf(heat, sizeof(heat), "%u", static_cast<unsigned>(week.heatHours(s, d)));
+        }
+        char line[104];
+        snprintf(line, sizeof(line), "%u,%u,%s,%s,%s,%s,%s,%s,%s,%s\n", static_cast<unsigned>(s), static_cast<unsigned>(d), date, f[0], f[1], f[2], f[3], mold, dry, heat);
         if (!emit(line)) {
           return;
         }

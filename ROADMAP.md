@@ -41,12 +41,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** Each new test passes with the current fixtures. Each new test fails when a column of the fixture header is removed. `swift test` passes. `gradle testDebugUnitTest assembleDebug` passes in both Android projects.
   - **Rank:** [Total: 23, Use: 1, Setup: 2, Harmony: 10, Safety: 10, Effort: S]
 
-- [ ] Weekly heat hours in the WEEK reply
-  - **Location:** `rlcd_panel/sparkline.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/week_reply_sample.txt`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, the shared `WeekReply.kt`, the `WeekReply` tests, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Keep the heat hours of the last 7 days. This item needs the firmware item "Heat hours in the stats view and the STATUS SENSOR lines". Add one byte of heat hours for each day and sensor to `WeekHistory` (77 bytes after the dry bytes, 0 to 24, `0xFF` for a gap day and for `heat_alert_limit_c` 0). `WeekHistory::advance` stores `ClimateHistory::heatHours` with the mold and dry hours. Add the column `heat_h` after `dry_h` to the `WEEK` reply (10 columns). Let the Swift and Kotlin `WeekReply.parse` accept 7, 8, 9 or 10 columns, with the header as the selector. Merge the app parsers before the firmware change. Increase `STATE_VERSION` by 1.
-  - **Acceptance:** A host test checks the stored hours of one day after `advance`. A host test checks `0xFF` for limit 0. A host test checks that the RTC restore rejects 25. A host test checks the 10-column header. App unit tests parse the old 9-column fixture and a new 10-column row. `scripts/check-protocol-sync.sh` passes. The host test suite passes. `arduino-cli compile rlcd_panel` passes. `swift test` passes. `gradle testDebugUnitTest assembleDebug` passes in both Android projects.
-  - **Rank:** [Total: 22, Use: 5, Setup: 1, Harmony: 8, Safety: 8, Effort: L]
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

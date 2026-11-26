@@ -1234,7 +1234,7 @@ void logWeekSummary(uint32_t now) {
   g_state.week.advance(
       g_rtc_time, g_state.history, g_state.history.freshWithin24h(now),
       WeekHistory::liveSensors(g_onboard_reading.valid, g_state.registry, now), config().mold_alert_limit_rh,
-      config().dry_alert_limit_rh);
+      config().dry_alert_limit_rh, config().heat_alert_limit_c);
 }
 
 AlertLimits alertLimits() {
