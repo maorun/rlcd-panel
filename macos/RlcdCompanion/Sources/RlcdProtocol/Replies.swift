@@ -662,6 +662,8 @@ public enum ConsoleCommand: Equatable {
     case eventsNewest(Int)
     /// `REJECTS`: the packets that the last BLE scan rejected (works on USB and on BLE).
     case rejects
+    /// `ALERTS`: the tiles behind each active alert (RTC copy only; USB and BLE at each `ble_console` level).
+    case alerts
     /// `RECEPTION`: the scan mask of each occupied registry slot (RTC copy only; USB and BLE at each `ble_console` level).
     case reception
     /// `CONFIG CHANGED`: the keys that differ from the default (USB and BLE at each `ble_console` level).
@@ -841,6 +843,7 @@ public enum ConsoleCommand: Equatable {
         case .version: return "VERSION"
         case .scan: return "SCAN"
         case .rejects: return "REJECTS"
+        case .alerts: return "ALERTS"
         case .reception: return "RECEPTION"
         case .selfTest: return "SELFTEST"
         case .screen: return "SCREEN"

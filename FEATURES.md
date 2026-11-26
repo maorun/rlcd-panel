@@ -4124,3 +4124,19 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - Extra text, for example `ALERTS 1` and `ALERTSX`, gives `ERR BAD_ARG`. The command mounts no card, changes no state and does not change the RTC layout or `STATE_VERSION`. It runs on USB and on BLE at each `ble_console` level.
 - `tests/fixtures/alerts_reply_sample.txt` holds the reply sample. The tests cover `HUMIDITY` with `tiles=012` for slots 1 and 4, a held alert with `tiles=000`, a tile outside `climate_alert_tiles`, the `acked` column, stale sensor and battery latch tiles, `ERR BAD_ARG`, the BLE gate at `ble_console` 1, a short write, the CRC-32 and the fixture.
 - Validation: the host tests (242 suites) and `arduino-cli compile rlcd_panel` pass. The companion apps do not parse `ALERTS` yet.
+
+## Alert causes in the macOS menu bar and the Android dashboard
+
+`STATUS` and the telemetry frame show only the alert mask. The macOS menu bar and the Android dashboard now show the tiles behind each active alert, for example `HUMIDITY: Bad, Keller`.
+
+- `AlertsReply.parse` (Swift `AlertsReply.swift`, Kotlin `AlertsReply.kt`) parses the `ALERTS` reply: `BEGIN ALERTS`, the header `alert,active,acked,tiles,limit` and one row for each alert. A wrong column count, an unknown alert name, a flag other than `0` or `1`, a tile mask that is not 3 hex digits or above `7FF`, a bad limit and a repeated alert throw `ParseError.badLine` or `ParseException`.
+- `AlertsReply.causeText(alert, tileNames)` gives `<ALERT>: <name>, <name>` for an active alert, the bare alert name for an alert without tiles (`NOISE`), `<ALERT>: no tile above the limit` for a held alert with mask `000`, and `Tile <N>` for a tile without a name. It gives `nil` or `null` for an inactive alert.
+- `AlertsReply.errorText("ERR UNKNOWN")` gives `Update the panel firmware` for a panel without the command.
+- `AlertCauses.tileNames(config:)` (macOS) and `PanelConfig.tileNames` (Android) give the tile names from the config reply, else the default titles.
+- macOS: the alert line of the menu bar extra is a button. A click sends `ALERTS` (`AppModel.readAlerts`, `ConsoleCommand.alerts`) and lists one cause line below it. Without a read the menu shows `Tap to read the causes`. The menu never polls the panel.
+- Android: a tap on the `ALARM` card of the dashboard sends `ALERTS` through `AlertCausesState` (`MainActivity.readAlertCauses`). The card lists the cause lines, or the error text. The scan restarts after the reply.
+- The firmware command comes from the item "Console command ALERTS with the cause of each active alert" (`tests/fixtures/alerts_reply_sample.txt`).
+- Tests: both apps parse `tests/fixtures/alerts_reply_sample.txt`, check `HUMIDITY: Bad, Keller`, the masks `0G1` and `800`, a repeated row, the held alert and `ERR UNKNOWN`. `AlertCausesTest` checks the card state on Android.
+- The causes show only while the active mask of the reply equals the alert mask of the newest frame. A changed alert set hides old causes. The tile set can still change while the mask stays equal; a new tap reads again.
+- Android card hints are German like the other cards. The error text `Update the panel firmware` stays English as the request names it.
+- Validation: `swift test` and `scripts/check-protocol-sync.sh` ran locally. The host has no Android SDK, so Gradle runs in CI. The watch does not parse `ALERTS`; no shared Kotlin file changed.

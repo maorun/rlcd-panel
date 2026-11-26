@@ -4,6 +4,7 @@ package com.rlcdpanel.phone
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -47,6 +48,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.rlcdpanel.phone.protocol.AlertCausesState
 import com.rlcdpanel.phone.protocol.AlertMask
 import com.rlcdpanel.phone.protocol.ClimateMath
 import com.rlcdpanel.phone.protocol.ComfortZone
@@ -103,6 +105,9 @@ fun PhoneDashboardScreen(
     /** Result of the last `EVENTS 3` read of the card `Recent events`. */
     recentEvents: EventLogState = EventLogState(),
     onReadRecentEvents: () -> Unit = {},
+    /** Result of the last `ALERTS` read; the alarm card reads it on a tap. */
+    alertCauses: AlertCausesState = AlertCausesState(),
+    onReadAlertCauses: () -> Unit = {},
     onOpenSetup: () -> Unit = {},
     /** Protocol source badge of each tile index, from the last sensor health read; tile 0 is always the onboard sensor. */
     sourceBadges: Map<Int, String> = emptyMap(),
@@ -145,7 +150,7 @@ fun PhoneDashboardScreen(
                 }
 
                 if (snapshot != null && !snapshot.frame.alerts.isEmpty) {
-                    item { AlertBadges(alerts = snapshot.frame.alerts) }
+                    item { AlertBadges(alerts = snapshot.frame.alerts, causes = alertCauses, onTap = onReadAlertCauses) }
                 }
 
                 item {
@@ -336,9 +341,9 @@ private fun StatusHeader(
 }
 
 @Composable
-private fun AlertBadges(alerts: AlertMask) {
+private fun AlertBadges(alerts: AlertMask, causes: AlertCausesState, onTap: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier.fillMaxWidth().clickable(enabled = !causes.isReading, onClick = onTap),
         colors = CardDefaults.cardColors(containerColor = Color(0xFFB71C1C))
     ) {
         Column(modifier = Modifier.padding(12.dp)) {
@@ -349,6 +354,8 @@ private fun AlertBadges(alerts: AlertMask) {
                 fontWeight = FontWeight.SemiBold,
                 color = Color(0xFFFFCDD2)
             )
+            val detail = causes.cardLines(alerts.rawValue)
+            for (line in detail) Text(text = line, fontSize = 13.sp, color = Color.White)
         }
     }
 }
