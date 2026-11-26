@@ -46,8 +46,8 @@ public struct SetupAssistant {
     public private(set) var pending: ConsoleCommand?
 
     private var batch: ConfigBatch?
-    /// True while the batch of the outdoor proposal runs: the assistant stays in step `calibrate` after its `CONFIG`.
-    private var outdoorBatch = false
+    /// True while the batch of the outdoor or door proposal runs: the assistant stays in step `calibrate` after its `CONFIG`.
+    private var keepStepBatch = false
     private let now: () -> Date
     private var lastActionAt: Date
 
@@ -158,7 +158,24 @@ public struct SetupAssistant {
         guard let proposal = outdoorProposal(week: week, config: config) else { notice = "No outdoor proposal"; return nil }
         let change = ConfigChange(key: "outdoor_slot", old: config?.values["outdoor_slot"] ?? "", new: String(proposal.slot))
         batch = ConfigBatch(changes: [change])
-        outdoorBatch = true
+        keepStepBatch = true
+        return nextCommand()
+    }
+
+    /// Proposal for `door_ref_slot` from the `WEEK` reply, `nil` without a clear candidate.
+    public func doorProposal(week: [WeekRow], config current: ConfigReply?) -> DoorProposal? {
+        guard step == .calibrate else { return nil }
+        return DoorProposal.propose(week: week, config: current ?? config)
+    }
+
+    /// Sends `SET door_ref_slot=<N>` through `ConfigBatch`, then `CONFIG`.
+    public mutating func beginApplyDoor(week: [WeekRow], config current: ConfigReply? = nil) -> ConsoleCommand? {
+        guard begin(), step == .calibrate, pending == nil, batch == nil else { return nil }
+        if let current { config = current }
+        guard let proposal = doorProposal(week: week, config: config) else { notice = "No door proposal"; return nil }
+        let change = ConfigChange(key: "door_ref_slot", old: config?.values["door_ref_slot"] ?? "", new: String(proposal.slot))
+        batch = ConfigBatch(changes: [change])
+        keepStepBatch = true
         return nextCommand()
     }
 
@@ -201,7 +218,7 @@ public struct SetupAssistant {
         stop = .linkLost(reason)
         pending = nil
         batch = nil
-        outdoorBatch = false
+        keepStepBatch = false
     }
 
     /// The command could not go out (no console line). Ends the assistant, so it does not wait for a reply.
@@ -228,7 +245,7 @@ public struct SetupAssistant {
             stop = .timeout
             pending = nil
             batch = nil
-            outdoorBatch = false
+            keepStepBatch = false
             return false
         }
         lastActionAt = current
@@ -243,7 +260,7 @@ public struct SetupAssistant {
     private mutating func fail(_ text: String) {
         stop = .reply(text)
         batch = nil
-        outdoorBatch = false
+        keepStepBatch = false
     }
 
     private mutating func receive(frame lines: [String], for command: ConsoleCommand) throws {
@@ -258,7 +275,7 @@ public struct SetupAssistant {
             batch?.receiveFrame()
             guard batch?.isFinished == true else { return }
             batch = nil
-            if outdoorBatch { outdoorBatch = false; return }
+            if keepStepBatch { keepStepBatch = false; return }
             step = step == .assign ? .verify : .done
         case .status:
             let parsed = try StatusReply.parse(lines: lines)

@@ -41,6 +41,8 @@ data class SetupState(
     val proposalText: String? = null,
     /** Text of the outdoor slot proposal, null without one. */
     val outdoorText: String? = null,
+    /** Text of the door reference slot proposal, null without one. */
+    val doorText: String? = null,
     val isScanning: Boolean = false,
     val isBusy: Boolean = false,
     val message: String? = null
@@ -70,6 +72,7 @@ fun SetupAssistantScreen(
     onApply: () -> Unit,
     onReadWeek: () -> Unit,
     onApplyOutdoor: () -> Unit,
+    onApplyDoor: () -> Unit,
     onFinish: () -> Unit,
     onRestart: () -> Unit,
     onBack: () -> Unit
@@ -155,6 +158,10 @@ fun SetupAssistantScreen(
                             OutlinedButton(onClick = onReadWeek, enabled = !state.isBusy) { Text("Wochendaten lesen (Außensensor)") }
                             if (state.outdoorText != null) {
                                 Button(onClick = onApplyOutdoor, enabled = !state.isBusy) { Text("Als Außensensor übernehmen") }
+                            }
+                            state.doorText?.let { Text(it) }
+                            if (state.doorText != null) {
+                                Button(onClick = onApplyDoor, enabled = !state.isBusy) { Text("Als Türreferenz übernehmen") }
                             }
                             OutlinedButton(onClick = onFinish, enabled = !state.isBusy) { Text("Ohne Kalibrierung beenden") }
                         }
