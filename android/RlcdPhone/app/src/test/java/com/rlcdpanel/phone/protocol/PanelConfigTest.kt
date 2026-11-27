@@ -21,11 +21,31 @@ class PanelConfigTest {
     }
 
     @Test
+    fun toleratesMalformedRejectedLine() {
+        val parsed = PanelConfig.parseConfigReply(
+            listOf("temp_unit=C", "REJECTED line=9 reason=", "REJECTED line=x", "REJECTED line=11 reason=BAD_VALUE extra=1"),
+        )
+        assertEquals(listOf(9, 11), parsed.rejectedLines)
+        assertEquals(listOf<String?>(null, "BAD_VALUE"), parsed.rejectedReasons)
+    }
+
+    @Test
+    fun parsesOldAndNewRejectedLineForms() {
+        val parsed = PanelConfig.parseConfigReply(
+            listOf("temp_unit=C", "SOURCE SD", "REJECTED line=7", "REJECTED line=9 reason=UNKNOWN_KEY", "REJECTED line=12 reason=DUPLICATE_MAC"),
+        )
+        assertEquals(listOf(7, 9, 12), parsed.rejectedLines)
+        assertEquals(listOf<String?>(null, "UNKNOWN_KEY", "DUPLICATE_MAC"), parsed.rejectedReasons)
+        assertEquals("temp_unit=C\n", parsed.text)
+    }
+
+    @Test
     fun parsesConfigReply() {
         val reply = sampleReply() as ConsoleReply.Frame
         val parsed = PanelConfig.parseConfigReply(reply.lines)
         assertEquals("SD", parsed.source)
         assertEquals(listOf(12, 31), parsed.rejectedLines)
+        assertEquals(listOf<String?>("BAD_VALUE", "DUPLICATE_MAC"), parsed.rejectedReasons)
         assertFalse(parsed.text.contains("REJECTED"))
         val config = PanelConfig.parseText(parsed.text)
         assertEquals("Office", config.tileName(0))
@@ -68,7 +88,7 @@ class PanelConfigTest {
         val before = ConfigCache.file(dir).readText()
 
         val bad = ReplyAssembler().append(
-            Fixtures.file("config_reply_sample.txt").readText().replace("CRC32 4f72fbea", "CRC32 00000000").toByteArray()
+            Fixtures.file("config_reply_sample.txt").readText().replace("CRC32 70a35dc5", "CRC32 00000000").toByteArray()
         )
         assertTrue(bad is ConsoleReply.Corrupt)
         assertEquals(null, ConfigCache.store(dir, bad!!, 2_000L))

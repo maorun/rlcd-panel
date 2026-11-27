@@ -1251,7 +1251,7 @@ struct SerialStatusSnapshot {
 //   LIST -> "FILE <name> <bytes>" per file, then "END LIST <count>"
 //   INFO -> "INFO total=<bytes> used=<bytes> files=<count>"
 //   DUMP -> "BEGIN <name> <bytes>", exactly <bytes> raw bytes, then "CRC32 <8 hex digits>"
-//   CONFIG -> "key=value" per DeviceConfig setting, "SOURCE <SD|DEFAULT>", "REJECTED line=<n>" for each of the first four rejected lines, then "CRC32 <8 hex
+//   CONFIG -> "key=value" per DeviceConfig setting, "SOURCE <SD|DEFAULT>", "REJECTED line=<n> reason=<UNKNOWN_KEY|BAD_VALUE|DUPLICATE_MAC>" for each of the first four rejected lines, then "CRC32 <8 hex
 //   digits>" over all lines before it. showConfig() sends it from the RTC copy: no card access,
 //   so execute() ignores CONFIG.
 //   CONFIG <key> -> the single line "<key>=<value>" of that key (an empty name or MAC gives "<key>=") and "CRC32 <8 hex digits>" over it;
@@ -1376,7 +1376,7 @@ public:
   static void showConfig(Sink& sink, const DeviceConfig& config, bool from_sd,
                          const ConfigRejects& rejects = ConfigRejects{}) {
     // Static: 1.4 KB text buffer does not fit the default Arduino loopTask stack.
-    static char text[DeviceConfigText::MAX_SIZE + 16 + ConfigRejects::MAX_LINES * 20];
+    static char text[DeviceConfigText::MAX_SIZE + 16 + ConfigRejects::MAX_LINES * 48];
     size_t len = DeviceConfigText::format(config, text, DeviceConfigText::MAX_SIZE);
     if (len == 0) {
       return;
@@ -1384,7 +1384,8 @@ public:
     len += static_cast<size_t>(snprintf(text + len, sizeof(text) - len, "SOURCE %s\n", from_sd ? "SD" : "DEFAULT"));
     for (size_t i = 0; from_sd && i < rejects.recorded(); ++i) {
       len += static_cast<size_t>(
-          snprintf(text + len, sizeof(text) - len, "REJECTED line=%u\n", static_cast<unsigned>(rejects.lines[i])));
+          snprintf(text + len, sizeof(text) - len, "REJECTED line=%u reason=%s\n",
+                   static_cast<unsigned>(rejects.lines[i]), ConfigRejects::reasonText(rejects.reasons[i])));
     }
     SerialCrc32 crc;
     crc.update(reinterpret_cast<const uint8_t*>(text), len);

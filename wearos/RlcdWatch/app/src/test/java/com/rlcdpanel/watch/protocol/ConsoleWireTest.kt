@@ -71,12 +71,31 @@ class ConsoleWireTest {
     }
 
     @Test
+    fun toleratesMalformedRejectedLine() {
+        val parsed = PanelConfig.parseConfigReply(
+            listOf("temp_unit=C", "REJECTED line=9 reason=", "REJECTED line=x", "REJECTED line=11 reason=BAD_VALUE extra=1"),
+        )
+        assertEquals(listOf(9, 11), parsed.rejectedLines)
+        assertEquals(listOf<String?>(null, "BAD_VALUE"), parsed.rejectedReasons)
+    }
+
+    @Test
+    fun parsesOldAndNewRejectedLineForms() {
+        val parsed = PanelConfig.parseConfigReply(
+            listOf("temp_unit=C", "SOURCE SD", "REJECTED line=7", "REJECTED line=9 reason=UNKNOWN_KEY", "REJECTED line=12 reason=DUPLICATE_MAC"),
+        )
+        assertEquals(listOf(7, 9, 12), parsed.rejectedLines)
+        assertEquals(listOf<String?>(null, "UNKNOWN_KEY", "DUPLICATE_MAC"), parsed.rejectedReasons)
+        assertEquals("temp_unit=C\n", parsed.text)
+    }
+
+    @Test
     fun badCrcKeepsOldCache() {
         val dir = tmp.newFolder()
         ConfigCache.store(dir, ReplyAssembler().append(sampleBytes())!!, 1_000L)
         val before = ConfigCache.file(dir).readText()
 
-        val badText = String(sampleBytes()).replace("CRC32 4f72fbea", "CRC32 00000000").toByteArray()
+        val badText = String(sampleBytes()).replace("CRC32 70a35dc5", "CRC32 00000000").toByteArray()
         val bad = ReplyAssembler().append(badText)
         assertTrue(bad is ConsoleReply.Corrupt)
         assertNull(ConfigCache.store(dir, bad!!, 2_000L))

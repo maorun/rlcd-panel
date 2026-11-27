@@ -4236,3 +4236,10 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `AlertLimits.plan` refuses 13 and sends `SET freeze_alert_delay_h=<N>` in list order, after `SET freeze_alert_limit_c`. The Android and Wear OS `valueText` gives `Aus` for 0.
 - Unit tests check the values 0, 1 and 12, the rejected values 13, `x`, an empty text, 1.5 and -1, the key order, the `SET` order, the texts and the range against `ConfigSchema`.
 - Validation: the host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
+
+## Rejected line reasons in the console command CONFIG
+
+- The console command `CONFIG` names the reason of each rejected `config.ini` line: `REJECTED line=<N> reason=<UNKNOWN_KEY|BAD_VALUE|DUPLICATE_MAC>`. The line count of the reply does not change (one line for each of the first four rejected lines, only with `SOURCE SD`). `ConfigRejects::reasons` (4 bytes, `CheckReason` as a byte: `UNKNOWN_KEY` 0, `BAD_VALUE` 1, `DUPLICATE_MAC` 2) is filled by `ConfigParseResult::rejects()`; `ConfigRejects::reasonText` gives the text. A power-on takes the reasons from the parse of the card; a timer wakeup keeps the RTC copy.
+- RTC state: `PersistentState::config_rejects.reasons` is stored in `PowerManager::REJECT_REASONS_SIZE` (4 bytes) just before the checksum. A reason above 2 makes the RTC check reject the record. `STATE_VERSION` is 85.
+- Apps: the macOS `ConfigReply.parse`, and the Kotlin `PanelConfig.parseConfigReply` of the phone and the watch accept the old line `REJECTED line=<N>` and the new line. The reason is the optional field `rejectedReasons` (`nil` or `null` for an old firmware line; an unknown reason text of a newer firmware is kept). A bad number or an empty reason throws `ParseError.badLine` on macOS; the Kotlin parsers skip a line without a number.
+- Validation: host tests check `REJECTED line=4 reason=DUPLICATE_MAC` for two slots with the same MAC, the line count, the RTC round trip and the RTC reject of reason 3. `tests/fixtures/config_reply_sample.txt` holds the new lines. Each app has a unit test for both line forms (Android and Wear OS run in CI only).
