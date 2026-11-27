@@ -1,6 +1,5 @@
 package com.rlcdpanel.phone.protocol
 
-import com.rlcdpanel.phone.finder.SlotAssignment
 import java.util.Locale
 
 /**
@@ -31,6 +30,9 @@ data class OutdoorProposal(
     private class Stats(val range: Double, val minimum: Double)
 
     companion object {
+        /** The registry slots 1 to 10. */
+        private val SLOTS = 1..10
+
         /** A slot needs at least this many days with a temperature pair. */
         const val MIN_DAYS = 3
         /** The best range must be at least this factor above the range of the next slot. */
@@ -51,7 +53,7 @@ data class OutdoorProposal(
         fun propose(week: List<WeekRow>, config: PanelConfig?): OutdoorProposal? {
             if (config == null) return null
             val onboard = stats(week, 0) ?: return null
-            val ranked = SlotAssignment.SLOTS.mapNotNull { slot -> stats(week, slot)?.let { slot to it } }
+            val ranked = SLOTS.mapNotNull { slot -> stats(week, slot)?.let { slot to it } }
                 .sortedByDescending { it.second.range }
             val best = ranked.firstOrNull() ?: return null
             if (best.second.range <= 0) return null

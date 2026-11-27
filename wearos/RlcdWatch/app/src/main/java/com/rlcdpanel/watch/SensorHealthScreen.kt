@@ -36,7 +36,10 @@ import com.rlcdpanel.watch.protocol.NoiseState
 import com.rlcdpanel.watch.protocol.BleRejectState
 import com.rlcdpanel.watch.protocol.NtpState
 import com.rlcdpanel.watch.protocol.DriftWatch
+import com.rlcdpanel.watch.protocol.DoorProposal
 import com.rlcdpanel.watch.protocol.JumpAdvice
+import com.rlcdpanel.watch.protocol.OutdoorProposal
+import com.rlcdpanel.watch.protocol.WeekRow
 import com.rlcdpanel.watch.protocol.ReceptionRate
 import com.rlcdpanel.watch.protocol.ReplyError
 import com.rlcdpanel.watch.protocol.PanelConfig
@@ -65,6 +68,19 @@ data class SensorHealthState(
     val jumpAdvice: List<JumpAdvice> = emptyList(),
     val jumpBusy: Boolean = false,
     val jumpMessage: String? = null
+)
+
+private data class SetupRow(val id: String, val text: String, val key: String, val slot: Int)
+
+/**
+ * State of the `Setup proposals` chip. [week] holds the rows of the last `WEEK` read (null before a read); the
+ * proposals are a pure function of [week] and the cached config, so an applied proposal drops out at once.
+ */
+data class SetupProposalState(
+    val isReading: Boolean = false,
+    val isApplying: Boolean = false,
+    val week: List<WeekRow>? = null,
+    val message: String? = null
 )
 
 /**
@@ -279,6 +295,9 @@ fun SensorHealthScreen(
     onOpenSpread: () -> Unit = {},
     onOpenCalib: () -> Unit = {},
     onApplyJumpAdvice: (JumpAdvice) -> Unit = {},
+    setupState: SetupProposalState = SetupProposalState(),
+    onReadSetupProposals: () -> Unit = {},
+    onApplySetupProposal: (String, String) -> Unit = { _, _ -> },
     onOpenFrsi: () -> Unit = {},
     onOpenAlertLimits: () -> Unit = {},
     onOpenToday: () -> Unit = {},
@@ -641,6 +660,44 @@ fun SensorHealthScreen(
                     }
                 }
                 state.jumpMessage?.let { message ->
+                    item { Text(message, fontSize = 10.sp, color = Color(0xFFB0BEC5), textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 12.dp)) }
+                }
+                item {
+                    Chip(
+                        onClick = onReadSetupProposals,
+                        enabled = !setupState.isReading && !setupState.isApplying && !state.isReading && !state.isMuting,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text(if (setupState.isReading) "Lese Panel ..." else "Setup proposals", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                setupState.week?.let { week ->
+                    val outdoor = OutdoorProposal.propose(week, panelConfig)
+                    val door = DoorProposal.propose(week, panelConfig)
+                    val proposals = listOfNotNull(
+                        outdoor?.let { SetupRow("outdoor", it.text, "outdoor_slot", it.slot) },
+                        door?.let { SetupRow("door", it.text, "door_ref_slot", it.slot) }
+                    )
+                    if (proposals.isEmpty() && setupState.message == null) {
+                        item { Text("No proposal", fontSize = 10.sp, color = Color(0xFFB0BEC5), textAlign = TextAlign.Center) }
+                    }
+                    items(proposals, key = { "setup-${it.id}" }) { row ->
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(row.text, fontSize = 10.sp, color = Color(0xFFFFB74D), textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 12.dp))
+                            Chip(
+                                onClick = { onApplySetupProposal(row.key, row.slot.toString()) },
+                                enabled = panelConfig.canWrite && !setupState.isApplying && !setupState.isReading && !state.isReading && !state.isMuting,
+                                modifier = Modifier.fillMaxWidth(0.85f),
+                                colors = ChipDefaults.secondaryChipColors(),
+                                label = { Text(if (setupState.isApplying) "Sende ..." else "Apply", fontSize = 12.sp, maxLines = 1) }
+                            )
+                            if (!panelConfig.canWrite) {
+                                Text("Set ble_console=2 to apply", fontSize = 10.sp, color = Color(0xFFB0BEC5), textAlign = TextAlign.Center)
+                            }
+                        }
+                    }
+                }
+                setupState.message?.let { message ->
                     item { Text(message, fontSize = 10.sp, color = Color(0xFFB0BEC5), textAlign = TextAlign.Center, modifier = Modifier.padding(horizontal = 12.dp)) }
                 }
                 slotClearState.message?.let { message ->
