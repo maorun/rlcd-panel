@@ -46,12 +46,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test reads `tests/fixtures/history_reply_sample.txt` and checks the proposal of the phone test. A unit test checks the `SET` line of each proposal. `scripts/check-protocol-sync.sh` passes. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
   - **Rank:** [Total: 29, Use: 4, Setup: 9, Harmony: 9, Safety: 7, Effort: M]
 
-- [ ] Wear OS diagnostics report share
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/DiagnosticsReport.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/DiagnosticsReportTest.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
-  - **Goal:** Let the watch user send one support report. The phone has `DiagnosticsReport.kt`, the watch has none. Copy the file and add it to `FILES` of the sync check. Build the report from the last `STATUS`, `VERSION`, `SELFTEST` and `RECEPTION` replies in memory. Send it with a share intent to the paired phone (`Intent.ACTION_SEND`, `text/plain`). Do not send a console command for the report.
-  - **Acceptance:** A unit test builds the report from the fixtures and checks the section order of the phone test. A unit test checks the text `not read` for a missing reply. `scripts/check-protocol-sync.sh` passes. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 28, Use: 3, Setup: 8, Harmony: 8, Safety: 9, Effort: S]
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Heat hours in the week chart view of the panel
