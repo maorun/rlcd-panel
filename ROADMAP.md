@@ -22,23 +22,8 @@ Do the work in priority order, unless the maintainer gives a different order.
 ## Priority 2: Configuration and Control (Score 28–33)
 
 
-- [ ] Heat badge masks in the three app sensor lists
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt`, the three sensor health views, the test files, `FEATURES.md`
-  - **Goal:** Show the hot rooms in the apps. Depends on `Heat badge latch in the climate tiles`. Parse `heat=` of the `LATCH` line (`nil` or `null` for a missing field, `ParseError.badLine` or `ParseException` for bad hex). Show a heat symbol in the row of each tile with its bit set.
-  - **Acceptance:** A unit test in each app parses the new fixture line. A unit test checks `nil` or `null` for an old line. `scripts/check-protocol-sync.sh` passes. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 30, Use: 7, Setup: 3, Harmony: 10, Safety: 10, Effort: S]
 
-- [ ] Heat hours column in the console command TODAY
-  - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/sparkline.h`, `tests/test_firmware_logic.cpp`, `tests/fixtures/today_heat_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Show the heat hours of the current day. `TODAY` has `mold_h` and `dry_h`, but no heat column. Add `ClimateHistory::heatHoursNewest(sensor, count, limit_c)` (pairs among the newest `count` samples with `ClimateMath::heatIndexC` at or above the limit, -1 for limit 0, unequal history sizes and no pair). Append the column `heat_h` (12 columns). Write an empty field for -1. Keep `today_hours_reply_sample.txt` for the app parsers and add a new 12-column fixture. Do not change the RTC layout or `STATE_VERSION`.
-  - **Acceptance:** A host test checks `heat_h` 2 for two hot pairs since midnight. A host test checks an empty field for limit 0. A host test checks the 12-column header. A host test checks `TODAY 1` with the filtered row and the `CRC32` line. The host test suite passes. `arduino-cli compile rlcd_panel` passes.
-  - **Rank:** [Total: 29, Use: 6, Setup: 3, Harmony: 10, Safety: 10, Effort: S]
 
-- [ ] Wear OS door reference and outdoor slot proposals
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/DoorProposal.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/OutdoorProposal.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/DoorProposalTest.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/OutdoorProposalTest.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
-  - **Goal:** Let the watch user set `outdoor_slot` and `door_ref_slot` from a proposal. The phone and macOS setup assistants have both proposals, the watch has none. Copy both files from the phone and add them to `FILES` of the sync check. Show a `Setup proposals` chip that sends `HISTORY` and `CONFIG` only on a tap. Show each proposal with an `Apply` chip that sends one `SET` and then `CONFIG`. Map `ERR READ_ONLY` to `Set ble_console=2`.
-  - **Acceptance:** A unit test reads `tests/fixtures/history_reply_sample.txt` and checks the proposal of the phone test. A unit test checks the `SET` line of each proposal. `scripts/check-protocol-sync.sh` passes. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 29, Use: 4, Setup: 9, Harmony: 9, Safety: 7, Effort: M]
 
 ## Priority 3: Display and Logging (Score 22–27)
 
