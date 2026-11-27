@@ -390,14 +390,16 @@ public struct TodayRow: Hashable {
     public let moldHours: Int?
     /// Hours of the day at or below the dry limit; `nil` for an empty field and for the old header.
     public let dryHours: Int?
+    /// Hours of the day at or above the heat limit; `nil` for an empty field and for a header without `heat_h`.
+    public let heatHours: Int?
 
     public init(sensor: Int, name: String, hours: Int, temperatureMinC: Double?, temperatureMaxC: Double?,
                 temperatureMeanC: Double?, humidityMinPct: Double?, humidityMaxPct: Double?, humidityMeanPct: Double?,
-                moldHours: Int? = nil, dryHours: Int? = nil) {
+                moldHours: Int? = nil, dryHours: Int? = nil, heatHours: Int? = nil) {
         self.sensor = sensor; self.name = name; self.hours = hours
         self.temperatureMinC = temperatureMinC; self.temperatureMaxC = temperatureMaxC; self.temperatureMeanC = temperatureMeanC
         self.humidityMinPct = humidityMinPct; self.humidityMaxPct = humidityMaxPct; self.humidityMeanPct = humidityMeanPct
-        self.moldHours = moldHours; self.dryHours = dryHours
+        self.moldHours = moldHours; self.dryHours = dryHours; self.heatHours = heatHours
     }
 }
 
@@ -406,12 +408,14 @@ public enum TodayReply {
     public static let header = "sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct"
     /// New header (11 columns) with the mold and dry hours.
     public static let headerWithHours = header + ",mold_h,dry_h"
+    /// Newest header (12 columns) with the heat hours.
+    public static let headerWithHeat = headerWithHours + ",heat_h"
 
     /// `lines` hold `BEGIN TODAY`, the header and the rows (without the `CRC32` line).
     public static func parse(lines: [String]) throws -> [TodayRow] {
         guard lines.first == "BEGIN TODAY" else { throw ParseError.missingLine("BEGIN TODAY") }
-        guard lines.count >= 2, lines[1] == header || lines[1] == headerWithHours else { throw ParseError.missingLine(header) }
-        let columns = lines[1] == headerWithHours ? 11 : 9
+        guard lines.count >= 2, lines[1] == header || lines[1] == headerWithHours || lines[1] == headerWithHeat else { throw ParseError.missingLine(header) }
+        let columns = lines[1] == headerWithHeat ? 12 : lines[1] == headerWithHours ? 11 : 9
         var seen = Set<Int>()
         return try lines.dropFirst(2).map { line in
             let c = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
@@ -422,18 +426,19 @@ public enum TodayReply {
                 guard let d = plainDecimal(field) else { throw ParseError.badLine(line) }
                 return d
             }
-            var counts: [Int?] = [nil, nil]
-            if columns == 11 {
-                counts = try c[9...10].map { field -> Int? in
+            var counts: [Int?] = [nil, nil, nil]
+            if columns >= 11 {
+                let parsed = try c[9...].map { field -> Int? in
                     if field.isEmpty { return nil }
                     guard let n = plainInt(field), (0...24).contains(n), n <= h else { throw ParseError.badLine(line) }
                     return n
                 }
+                counts.replaceSubrange(0..<parsed.count, with: parsed)
             }
             return TodayRow(sensor: s, name: c[1], hours: h,
                             temperatureMinC: values[0], temperatureMaxC: values[1], temperatureMeanC: values[2],
                             humidityMinPct: values[3], humidityMaxPct: values[4], humidityMeanPct: values[5],
-                            moldHours: counts[0], dryHours: counts[1])
+                            moldHours: counts[0], dryHours: counts[1], heatHours: counts[2])
         }
     }
 

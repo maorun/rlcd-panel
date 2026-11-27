@@ -220,12 +220,12 @@ struct DiagnosticsView: View {
         }
     }
 
-    /// `Mold <N> h  Dry <N> h` with a warning symbol above 0; `--` without values.
+    /// `Mold <N> h  Dry <N> h  Heat <N> h` with a warning symbol above 0; `--` without values.
     private func todayHours(_ row: TodayRow) -> String {
         func part(_ label: String, _ n: Int?) -> String? {
             n.map { "\(label) \($0) h" + ($0 > 0 ? " ⚠" : "") }
         }
-        let text = [part("Mold", row.moldHours), part("Dry", row.dryHours)].compactMap { $0 }.joined(separator: "  ")
+        let text = [part("Mold", row.moldHours), part("Dry", row.dryHours), part("Heat", row.heatHours)].compactMap { $0 }.joined(separator: "  ")
         return text.isEmpty ? "--" : text
     }
 

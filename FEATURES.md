@@ -4360,3 +4360,12 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The text is dropped when the label line is wider than the box (`CHART_W`, 6 px per glyph), so the line never leaves the box.
 - The RTC layout, the `WEEK` reply and `STATE_VERSION` do not change. The preview scene passes heat limit 27 C to `WeekHistory::advance`.
 - Host tests cover `HEAT 7H` for 3 days with 2, 2 and 3 hours, the empty text without a day, the full label line and the dropped heat text for a line that is too wide.
+
+## App parsers for the TODAY heat hours column
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/TodayReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/TodayScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/TodayReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/TodayScreen.kt`, the three `TodayReply` test files
+- `TodayReply.parse` of the macOS, Android and Wear OS apps accepts the headers with 9, 11 and 12 columns. The header selects the column count (`TodayReply.headerWithHeat`, Kotlin `HEADER_V3`).
+- `TodayRow.heatHours` (`Int?`) is `nil` or `null` for an empty field and for the 9-column and 11-column headers. A negative value, a non-digit, a value above 24 and a value above `hours` throw `ParseError.badLine` or `ParseException`.
+- The today views show `Heat <N> h` (macOS, with a warning symbol above 0), `Hitze <N> h` (Android, `TodayText.heat`, `⚠` above 0) and `Heat <N> h` (Wear OS, `TodayScreenText.heat`), `--` for `nil` or `null`. The Android and Wear OS `TodayReply.kt` files stay equal except for the `package` line, so `scripts/check-protocol-sync.sh` passes without a change.
+- Tests: each app reads `tests/fixtures/today_heat_reply_sample.txt` and checks `heatHours` 2 and 0, checks `nil` or `null` for the 11-column and 9-column fixtures and for an empty field, and checks the error for negative and bad values.
+- Validation: `swift test` in `macos/RlcdCompanion` (889 tests) and `swift build -c release` pass; the local Command Line Tools need `-Xswiftc -plugin-path` for `TestingMacros`. `scripts/check-protocol-sync.sh` passes. The Android and Wear OS unit tests are not run locally (no Android SDK); CI runs them.
