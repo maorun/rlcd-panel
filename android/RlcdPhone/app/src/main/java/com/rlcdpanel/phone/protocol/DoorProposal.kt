@@ -1,6 +1,5 @@
 package com.rlcdpanel.phone.protocol
 
-import com.rlcdpanel.phone.finder.SlotAssignment
 import java.util.Locale
 
 /**
@@ -23,6 +22,9 @@ data class DoorProposal(
     val setLine: String get() = "SET door_ref_slot=$slot"
 
     companion object {
+        /** The registry slots 1 to 10. */
+        private val SLOTS = 1..10
+
         /** Slot 1 and each candidate need at least this many days with a humidity maximum. */
         const val MIN_DAYS = 3
         /** The best mean maximum must be at least this far (%RH) below the mean of the next slot. */
@@ -39,7 +41,7 @@ data class DoorProposal(
             if (config == null) return null
             val door = meanMax(week, 1) ?: return null
             val outdoor = config.values["outdoor_slot"]?.trim()?.toIntOrNull() ?: 0
-            val ranked = SlotAssignment.SLOTS.filter { it != 1 && it != outdoor }
+            val ranked = SLOTS.filter { it != 1 && it != outdoor }
                 .mapNotNull { slot -> meanMax(week, slot)?.let { slot to it } }
                 .sortedBy { it.second }
             if (ranked.size < 2) return null
