@@ -1956,6 +1956,25 @@ public:
     }
   }
 
+  // Sum of the heat hours over the days with a value: "HEAT <N>H" (0 to 168); empty text without such a day.
+  static void formatWeekHeat(const WeekHistory& week, size_t sensor, char* out, size_t capacity) {
+    if (out == nullptr || capacity == 0) {
+      return;
+    }
+    out[0] = '\0';
+    uint16_t sum = 0;
+    bool found = false;
+    for (size_t k = 0; k < WeekHistory::DAYS; ++k) {
+      if (week.hasHeatHours(sensor, k)) {
+        sum = static_cast<uint16_t>(sum + week.heatHours(sensor, k));
+        found = true;
+      }
+    }
+    if (found) {
+      snprintf(out, capacity, "HEAT %uH", static_cast<unsigned>(sum));
+    }
+  }
+
   // Seven bars (daily minimum to maximum) of the temperature and of the humidity of one sensor. It
   // reads only the RTC copy. A day without samples leaves a gap; with no valid day the box shows NO DATA.
   static void renderWeekChart(
@@ -1984,7 +2003,7 @@ public:
       const uint16_t label_y = humidity ? CHART_HUMIDITY_LABEL_Y : CHART_TEMP_LABEL_Y;
       Sparkline::Scale scale;
       const bool ok = Sparkline::computeWeekScale(w, sensor, humidity, scale);
-      char range_text[48] = "";
+      char range_text[64] = "";
       if (ok) {
         const float lo = weekExtreme(w, sensor, humidity, false) / 10.0f;
         const float hi = weekExtreme(w, sensor, humidity, true) / 10.0f;
@@ -1993,9 +2012,11 @@ public:
                    static_cast<double>(hi));
           char mold[16];
           char dry[16];
+          char heat[16];
           formatWeekMold(w, sensor, mold, sizeof(mold));
           formatWeekDry(w, sensor, dry, sizeof(dry));
-          // Defensive bound: range_text holds at most 42 bytes (with drawChartFrame prefix 51 glyphs, inside CHART_W).
+          formatWeekHeat(w, sensor, heat, sizeof(heat));
+          // Defensive bound: range_text holds at most 51 bytes with the heat text (buffer 64); the heat text also needs the whole line inside CHART_W.
           size_t used = strlen(range_text);
           if (mold[0] != '\0' && used + 2 + strlen(mold) < sizeof(range_text)) {
             snprintf(range_text + used, sizeof(range_text) - used, "  %s", mold);
@@ -2003,6 +2024,13 @@ public:
           }
           if (dry[0] != '\0' && used + 2 + strlen(dry) < sizeof(range_text)) {
             snprintf(range_text + used, sizeof(range_text) - used, "  %s", dry);
+            used = strlen(range_text);
+          }
+          // The heat text needs the whole label line ("HUMIDITY " + range) inside the box (6 px per glyph).
+          constexpr size_t LABEL_PREFIX = 9;
+          if (heat[0] != '\0' && used + 2 + strlen(heat) < sizeof(range_text) &&
+              (LABEL_PREFIX + used + 2 + strlen(heat)) * 6U <= CHART_W) {
+            snprintf(range_text + used, sizeof(range_text) - used, "  %s", heat);
           }
         } else {
           snprintf(range_text, sizeof(range_text), "MIN %.1f MAX %.1f %c",

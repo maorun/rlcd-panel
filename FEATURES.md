@@ -4351,3 +4351,12 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - **Deviation from the roadmap text:** The roadmap named `HISTORY`. The phone and macOS proposals use the `WEEK` rows with a minimum of 3 days (`WeekRow`), so the watch uses `WEEK` and `CONFIG` too and keeps one proposal logic in all three apps.
 - Tests: `DoorProposalTest` and `OutdoorProposalTest` (same cases as the phone and macOS tests, the `SET` line of each proposal, a check against `tests/fixtures/week_reply_sample.txt`).
 - Validation: `scripts/check-protocol-sync.sh` passes locally. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.
+
+## Heat hours in the week chart view of the panel
+
+- **Code:** `rlcd_panel/dashboard_view.h`, `tests/test_firmware_logic.cpp`, `tools/preview_scenes.h`, `docs/display_preview_chart_week.png`
+- The week chart now shows how many hours of the week a room felt too hot. The humidity label line shows `HEAT <N>H` after the `DRY <N>H` text, separated by two spaces.
+- `DashboardView::formatWeekHeat` adds the hours of the days with `hasHeatHours` (0 to 168 h). It gives an empty text when no day has a value.
+- The text is dropped when the label line is wider than the box (`CHART_W`, 6 px per glyph), so the line never leaves the box.
+- The RTC layout, the `WEEK` reply and `STATE_VERSION` do not change. The preview scene passes heat limit 27 C to `WeekHistory::advance`.
+- Host tests cover `HEAT 7H` for 3 days with 2, 2 and 3 hours, the empty text without a day, the full label line and the dropped heat text for a line that is too wide.
