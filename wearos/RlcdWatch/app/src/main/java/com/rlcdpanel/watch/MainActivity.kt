@@ -67,6 +67,7 @@ import com.rlcdpanel.watch.protocol.DaysReply
 import com.rlcdpanel.watch.protocol.MoldSummary
 import com.rlcdpanel.watch.protocol.HistoryReply
 import com.rlcdpanel.watch.protocol.SaltCommand
+import com.rlcdpanel.watch.protocol.SaltPicker
 import com.rlcdpanel.watch.protocol.SaltProgress
 import com.rlcdpanel.watch.protocol.SaltReply
 import com.rlcdpanel.watch.protocol.SaltText
@@ -485,6 +486,9 @@ class MainActivity : ComponentActivity() {
                 SaltScreen(
                     state = saltState,
                     roomName = panelConfig.tileName(saltRoom),
+                    sensors = SaltPicker.sensors(panelConfig, saltRoom).map { it to panelConfig.tileName(it) },
+                    selected = saltRoom,
+                    onSelect = { selectSaltSensor(it) },
                     currentConfig = if (saltConfigStale) emptyMap() else panelConfig.values,
                     onRead = { readSalt(it) },
                     onApply = { applySalt(it) },
@@ -1256,6 +1260,16 @@ onApply = { applySpread(it) }
             return
         }
         startSaltRead()
+    }
+
+    /** Picks the sensor of the salt test. Both replies go; a running read or apply keeps the sensor. */
+    private fun selectSaltSensor(sensor: Int) {
+        if (sensor == saltRoom || sensor !in 0..SaltCommand.MAX_SENSOR) return
+        if (saltState.isReading || saltState.isApplying || pendingSaltRead || saltProgress.isRunning) return
+        saltRoom = sensor
+        saltState = saltState.selectSensor()
+        saltWatchText = null
+        isSaltWatchReady = false
     }
 
     /** A failed CRC-32, a timeout or an `ERR` reply gives one text. The command is not repeated. */

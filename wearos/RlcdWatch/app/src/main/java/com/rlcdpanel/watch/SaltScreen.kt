@@ -22,6 +22,10 @@ import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.rememberScrollState
+import androidx.wear.compose.material.CompactChip
 import com.rlcdpanel.watch.protocol.CalibrationBatch
 import com.rlcdpanel.watch.protocol.SaltReply
 import com.rlcdpanel.watch.protocol.SaltText
@@ -41,6 +45,9 @@ data class SaltState(
     val applyMessage: String? = null,
     val applyIsError: Boolean = false
 ) {
+    /** A new sensor was picked: both salt results and all texts belong to the old sensor, so all of them go. */
+    fun selectSensor(): SaltState = SaltState()
+
     /** Start of a read of one salt: the results stay, the old messages go. */
     fun reading(): SaltState = SaltState(isReading = true, naCl = naCl, mgCl2 = mgCl2)
 
@@ -100,6 +107,10 @@ object SaltScreenText {
 fun SaltScreen(
     state: SaltState,
     roomName: String,
+    /** Sensor numbers of the picker with their names, and the selected one. */
+    sensors: List<Pair<Int, String>> = emptyList(),
+    selected: Int = 0,
+    onSelect: (Int) -> Unit = {},
     /** Active `config.ini` values of the cached `CONFIG` read; empty until a read. */
     currentConfig: Map<String, String>,
     onRead: (Boolean) -> Unit,
@@ -127,6 +138,23 @@ fun SaltScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(6.dp)
             ) {
+                if (sensors.size > 1) {
+                    item {
+                        Row(
+                            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            sensors.forEach { (sensor, name) ->
+                                CompactChip(
+                                    onClick = { if (sensor != selected) onSelect(sensor) },
+                                    enabled = !busy && !isWatching,
+                                    colors = if (sensor == selected) ChipDefaults.primaryChipColors() else ChipDefaults.secondaryChipColors(),
+                                    label = { Text(name, fontSize = 10.sp, maxLines = 1) }
+                                )
+                            }
+                        }
+                    }
+                }
                 item { Text("Salztest: $roomName", fontSize = 12.sp, maxLines = 1, textAlign = TextAlign.Center) }
                 item {
                     Chip(

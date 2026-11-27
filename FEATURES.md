@@ -4220,3 +4220,11 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The onboard tile shows the cell as `BAT: <N> %` without the voltage and a slot tile has no battery line, because the frame carries neither. The dew point and VPD use double math where the firmware uses float, so a value on an exact 0.05 boundary can round differently.
 - The frame carries no 24-hour history, trend, badge, clock or stale age, so the preview leaves out the curves, trend marks, badges, clock and `STALE` badge. A slot reading that the frame holds as valid is never drawn stale.
 - Validation: `PanelRendererTest` checks the one-pixel decode, the 14,999-byte error, the layout for 1 to 6 tiles, the tile selection and the rendered text of the `one_tile_onboard` and `six_valid` vectors of `tests/fixtures/ble_telemetry_vectors.txt`. It runs in CI only (no Android SDK on the local host).
+
+## Sensor picker in the Wear OS salt screen
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/SaltPicker.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SaltScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/SaltTextTest.kt`
+- The salt screen shows a row of chips at the top: the onboard sensor and each slot 1 to 10 with a fixed MAC (`slotN_mac`) or a name (`slotN_name`) in `PanelConfig`. The names come from `PanelConfig.tileName` (`Slot <N>` without a name). `SaltPicker` is watch only and not in `check-protocol-sync.sh`.
+- The focused room of the dashboard is the first selection. It stays in the list even without a MAC or a name. The picker hides with only one entry.
+- A tap on another sensor calls `SaltState.selectSensor()`: both the NaCl and the MgCl2 reply and all texts go, like the Android screen. The chips are off while a read, an apply or the salt watch runs, and the watch text goes with the change.
+- Tests: `SaltTextTest` checks the list for slots 2, 7 and 10, the selected sensor in the list, the cleared `SaltState` and the line `SALT 7 MGCL2`.
