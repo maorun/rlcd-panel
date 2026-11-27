@@ -442,6 +442,11 @@ struct DiagnosticsView: View {
                         .help("Sensor drift: open the calibration and read the spread")
                         .accessibilityLabel("Sensor drift, open calibration")
                     }
+                    if model.diagnostics?.latch?.hasHeat(sensor: r.slot) == true {
+                        Image(systemName: "thermometer.sun.fill").foregroundStyle(.red)
+                            .help("Hot room (heat badge)")
+                            .accessibilityLabel("Hot room")
+                    }
                     Text(r.verdict.rawValue).font(.caption.bold())
                         .foregroundStyle(r.verdict == .good ? Color.green : r.verdict == .empty ? Color.secondary : Color.orange)
                     Text(r.advice).font(.caption).foregroundStyle(.secondary)

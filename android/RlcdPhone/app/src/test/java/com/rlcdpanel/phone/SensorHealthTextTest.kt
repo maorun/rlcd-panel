@@ -3,6 +3,7 @@ package com.rlcdpanel.phone
 import com.rlcdpanel.phone.protocol.AwakeState
 import com.rlcdpanel.phone.protocol.ConsoleReply
 import com.rlcdpanel.phone.protocol.Fixtures
+import com.rlcdpanel.phone.protocol.LatchState
 import com.rlcdpanel.phone.protocol.MemoryState
 import com.rlcdpanel.phone.protocol.NoiseState
 import com.rlcdpanel.phone.protocol.QuietHoursState
@@ -16,6 +17,7 @@ import com.rlcdpanel.phone.protocol.StatusReply
 import com.rlcdpanel.phone.protocol.WakeState
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -26,6 +28,16 @@ class SensorHealthTextTest {
             ?: throw AssertionError("fixture gave no reply")
 
     private fun fixtureLines(): List<String> = (fixtureReply() as ConsoleReply.Frame).lines
+
+    @Test
+    fun heatMark() {
+        val latch = StatusReply.parse(fixtureLines()).latch
+        assertEquals("⚠ Heat", SensorHealthText.heatMark(latch, 0))
+        assertNull(SensorHealthText.heatMark(latch, 1))
+        assertNull(SensorHealthText.heatMark(null, 0))
+        assertNull(SensorHealthText.heatMark(LatchState(0, 0, 0, 0), 0))
+        assertNull(SensorHealthText.heatMark(LatchState(0, 0, 0, 0, heat = 0x7FF), 11))
+    }
 
     private fun row(moldHours: Int?) = SensorHealth(
         1, "A", -60.0, 80.0, 10.0, "OK", "WOIO", null, SensorHealth.Verdict.GOOD, moldHours

@@ -171,6 +171,10 @@ object SensorHealthText {
     fun driftMark(latch: LatchState?, sensor: StatusSensor): String? =
         if (DriftWatch.isDrifting(latch?.drift, sensor.index)) "$WARNING ${DriftWatch.TEXT}" else null
 
+    /** Heat mark of one sensor row (tile 0 onboard, 1 to 10 slots); null without a `LATCH` line, without `heat` and for an unflagged sensor. */
+    fun heatMark(latch: LatchState?, sensor: StatusSensor): String? =
+        if (latch?.hasHeat(sensor.index) == true) "$WARNING Heat" else null
+
     fun isMold(sensor: StatusSensor): Boolean = (sensor.moldHours ?: 0) > 0
 
     fun isDry(sensor: StatusSensor): Boolean = (sensor.dryHours ?: 0) > 0
@@ -772,6 +776,9 @@ fun SensorHealthScreen(
                                     Text(mark, fontSize = 10.sp, color = Color(0xFFFFB74D))
                                 }
                                 SensorHealthText.driftMark(status.latch, sensor)?.let { mark ->
+                                    Text(mark, fontSize = 10.sp, color = Color(0xFFFFB74D))
+                                }
+                                SensorHealthText.heatMark(status.latch, sensor)?.let { mark ->
                                     Text(mark, fontSize = 10.sp, color = Color(0xFFFFB74D))
                                 }
                             }

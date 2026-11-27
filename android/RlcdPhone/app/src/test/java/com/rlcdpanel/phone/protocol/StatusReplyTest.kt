@@ -451,6 +451,25 @@ class StatusReplyTest {
     }
 
     @Test
+    fun parsesHeatMask() {
+        val latch = StatusReply.parse(fixtureLines()).latch!!
+        assertEquals(0x001, latch.heat)
+        assertEquals(true, latch.hasHeat(0))
+        assertEquals(false, latch.hasHeat(1))
+        assertEquals(false, latch.hasHeat(11))
+        val old = replace("LATCH ", "LATCH vent=002 dry=000 batlow=008 stale=004 drift=002").latch!!
+        assertNull(old.heat)
+        assertEquals(false, old.hasHeat(0))
+        for (extra in listOf("heat=800", "heat=", "heat=00g", "heat=1")) {
+            try {
+                replace("LATCH ", "LATCH vent=002 dry=000 batlow=008 stale=004 $extra")
+                fail("expected ParseException for $extra")
+            } catch (e: ParseException) {
+            }
+        }
+    }
+
+    @Test
     fun parsesDriftMask() {
         val latch = StatusReply.parse(fixtureLines()).latch!!
         assertEquals(0x002, latch.drift)
