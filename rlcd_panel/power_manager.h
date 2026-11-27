@@ -645,7 +645,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 84;
+  static constexpr uint8_t STATE_VERSION = 85;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -717,7 +717,9 @@ public:
   static constexpr size_t SNOOZE_SIZE = 4 + 2;
   static constexpr size_t RECEPTION_LOW_SIZE = 2;
   static constexpr size_t DRIFT_SIZE = 2;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + WINDOW_SIZE + WALL_SIZE + SNOOZE_SIZE + RECEPTION_LOW_SIZE + DRIFT_SIZE + 4;
+  // Reasons of the rejected config.ini lines (just before the checksum): one CheckReason byte for each of the four lines.
+  static constexpr size_t REJECT_REASONS_SIZE = ConfigRejects::MAX_LINES;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + WINDOW_SIZE + WALL_SIZE + SNOOZE_SIZE + RECEPTION_LOW_SIZE + DRIFT_SIZE + REJECT_REASONS_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -1108,6 +1110,9 @@ public:
     out[pos++] = static_cast<uint8_t>((state.reception_low >> 8) & 0xFF);
     out[pos++] = static_cast<uint8_t>(state.drift_tiles & 0xFF);
     out[pos++] = static_cast<uint8_t>((state.drift_tiles >> 8) & 0xFF);
+    for (size_t i = 0; i < ConfigRejects::MAX_LINES; ++i) {
+      out[pos++] = state.config_rejects.reasons[i];
+    }
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -1580,6 +1585,13 @@ public:
     pos += 2;
     if ((s.drift_tiles & ~DriftLatch::ALL_MASK) != 0) {
       return false; // a bit above bit 10 is corrupt
+    }
+    for (size_t i = 0; i < ConfigRejects::MAX_LINES; ++i) {
+      s.config_rejects.reasons[i] = data[pos++];
+      if (s.config_rejects.reasons[i] > static_cast<uint8_t>(CheckReason::DUPLICATE_MAC) ||
+          (i >= s.config_rejects.recorded() && s.config_rejects.reasons[i] != 0)) {
+        return false; // a reason above DUPLICATE_MAC, or a reason of an unused entry, is corrupt
+      }
     }
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       if ((s.drift_tiles & (2u << i)) != 0 && !s.registry.slot(i).valid) {

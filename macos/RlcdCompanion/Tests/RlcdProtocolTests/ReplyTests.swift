@@ -662,3 +662,23 @@ struct ReplyParserTests {
         #expect(ConsoleCommand.today.line == "TODAY")
     }
 }
+
+struct ConfigRejectedLineFormTests {
+    @Test func parsesOldAndNewRejectedLineForms() throws {
+        let reply = try ConfigReply.parse(lines: [
+            "temp_unit=C", "SOURCE SD", "REJECTED line=7",
+            "REJECTED line=9 reason=UNKNOWN_KEY", "REJECTED line=12 reason=DUPLICATE_MAC",
+        ])
+        #expect(reply.rejectedLines == [7, 9, 12])
+        #expect(reply.rejectedReasons == [nil, "UNKNOWN_KEY", "DUPLICATE_MAC"])
+        #expect(reply.values["temp_unit"] == "C")
+    }
+
+    @Test func toleratesMalformedRejectedLine() throws {
+        let reply = try ConfigReply.parse(lines: [
+            "temp_unit=C", "REJECTED line=9 reason=", "REJECTED line=x", "REJECTED line=11 reason=BAD_VALUE extra=1",
+        ])
+        #expect(reply.rejectedLines == [9, 11])
+        #expect(reply.rejectedReasons == [nil, "BAD_VALUE"])
+    }
+}

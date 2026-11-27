@@ -570,12 +570,17 @@ public struct ConfigReply: Equatable {
     /// `SD` or `DEFAULT`.
     public let source: String?
     public let rejectedLines: [Int]
+    /// Reason of each rejected line, same order as `rejectedLines`: `UNKNOWN_KEY`, `BAD_VALUE`, `DUPLICATE_MAC`
+    /// or another text of a newer firmware; `nil` for an old firmware line `REJECTED line=<N>` without a reason.
+    public let rejectedReasons: [String?]
 
-    public init(values: [String: String], keys: [String] = [], source: String? = nil, rejectedLines: [Int] = []) {
+    public init(values: [String: String], keys: [String] = [], source: String? = nil, rejectedLines: [Int] = [],
+                rejectedReasons: [String?]? = nil) {
         self.values = values
         self.keys = keys.isEmpty ? Array(values.keys) : keys
         self.source = source
         self.rejectedLines = rejectedLines
+        self.rejectedReasons = rejectedReasons ?? Array(repeating: nil, count: rejectedLines.count)
     }
 
     public static func parse(lines: [String]) throws -> ConfigReply {
@@ -583,11 +588,22 @@ public struct ConfigReply: Equatable {
         var keys: [String] = []
         var source: String?
         var rejected: [Int] = []
+        var reasons: [String?] = []
         for line in lines {
             if line.hasPrefix("SOURCE ") {
                 source = String(line.dropFirst(7))
-            } else if line.hasPrefix("REJECTED line="), let n = Int(line.dropFirst(14)) {
-                rejected.append(n)
+            } else if line.hasPrefix("REJECTED line=") {
+                // "REJECTED line=<N>" (old firmware) or "REJECTED line=<N> reason=<TEXT>"; a line without a number
+                // and extra fields of a newer firmware are tolerated, as in the Kotlin parsers.
+                let parts = line.dropFirst(14).split(separator: " ", omittingEmptySubsequences: true)
+                if let first = parts.first, let n = Int(first) {
+                    rejected.append(n)
+                    if parts.count > 1, parts[1].hasPrefix("reason="), parts[1].count > 7 {
+                        reasons.append(String(parts[1].dropFirst(7)))
+                    } else {
+                        reasons.append(nil)
+                    }
+                }
             } else if let eq = line.firstIndex(of: "=") {
                 let k = String(line[..<eq])
                 if values[k] == nil { keys.append(k) }
@@ -597,7 +613,7 @@ public struct ConfigReply: Equatable {
             }
         }
         guard !values.isEmpty else { throw ParseError.missingLine("key=value") }
-        return ConfigReply(values: values, keys: keys, source: source, rejectedLines: rejected)
+        return ConfigReply(values: values, keys: keys, source: source, rejectedLines: rejected, rejectedReasons: reasons)
     }
 
     /// Unit of the `STATUS` temperatures (`temp_unit`): `C` or `F`; `nil` when the reply has no valid key.

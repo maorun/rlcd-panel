@@ -109,6 +109,7 @@ data class PanelConfig(
         fun parseConfigReply(lines: List<String>): ConfigReply {
             val settings = mutableListOf<String>()
             val rejected = mutableListOf<Int>()
+            val reasons = mutableListOf<String?>()
             var source: String? = null
             var size = 0
             for (raw in lines) {
@@ -117,13 +118,20 @@ data class PanelConfig(
                 if (size > MAX_CONFIG_BYTES) return ConfigReply("", null, emptyList())
                 when {
                     line.startsWith("SOURCE ") -> source = line.removePrefix("SOURCE ").trim()
-                    line.startsWith("REJECTED line=") ->
-                        line.removePrefix("REJECTED line=").toIntOrNull()?.let { rejected.add(it) }
+                    line.startsWith("REJECTED line=") -> {
+                        // "REJECTED line=<N>" (old firmware) or "REJECTED line=<N> reason=<TEXT>"
+                        val parts = line.removePrefix("REJECTED line=").trim().split(' ').filter { it.isNotEmpty() }
+                        val number = parts.firstOrNull()?.toIntOrNull()
+                        if (number != null) {
+                            rejected.add(number)
+                            reasons.add(parts.getOrNull(1)?.takeIf { it.startsWith("reason=") && it.length > 7 }?.removePrefix("reason="))
+                        }
+                    }
                     line.startsWith("REJECTED ") -> {}
                     KEY_VALUE.matches(line) -> settings.add(line)
                 }
             }
-            return ConfigReply(settings.joinToString("\n", postfix = "\n").takeIf { settings.isNotEmpty() } ?: "", source, rejected)
+            return ConfigReply(settings.joinToString("\n", postfix = "\n").takeIf { settings.isNotEmpty() } ?: "", source, rejected, reasons)
         }
 
         /** Reads the cache first, then the external file, then the bundled asset. */
@@ -160,7 +168,13 @@ data class PanelConfig(
 }
 
 /** A parsed `CONFIG` reply: the `key=value` text, the `SOURCE` word and the numbers of the rejected lines. */
-data class ConfigReply(val text: String, val source: String?, val rejectedLines: List<Int>)
+data class ConfigReply(
+    val text: String,
+    val source: String?,
+    val rejectedLines: List<Int>,
+    /** Reason of each rejected line (`UNKNOWN_KEY`, `BAD_VALUE`, `DUPLICATE_MAC`); `null` for an old firmware line without a reason. */
+    val rejectedReasons: List<String?> = emptyList(),
+)
 
 /** Cache state for the screen: when the panel config was read and which lines the panel rejected. */
 data class ConfigCacheInfo(val readAtMillis: Long, val rejectedLines: List<Int>)

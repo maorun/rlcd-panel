@@ -9,6 +9,6 @@ slot3_mac=B0:E9:FE:00:00:03
 outdoor_slot=3
 sensor_battery_limit_pct=10
 SOURCE SD
-REJECTED line=12
-REJECTED line=31
-CRC32 4f72fbea
+REJECTED line=12 reason=BAD_VALUE
+REJECTED line=31 reason=DUPLICATE_MAC
+CRC32 70a35dc5

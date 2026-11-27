@@ -443,6 +443,9 @@ struct DeviceConfig {
   }
 };
 
+// Reason of a rejected line (DeviceConfigCheck, the console command CONFIG and the RTC state).
+enum class CheckReason : uint8_t { UNKNOWN_KEY = 0, BAD_VALUE = 1, DUPLICATE_MAC = 2 };
+
 // Rejected lines of the last parse: the total count (saturates at 255) and the 1-based line
 // numbers of the first four. It lives in the RTC state and feeds the diagnostics view and the
 // console command CONFIG.
@@ -450,15 +453,23 @@ struct ConfigRejects {
   static constexpr size_t MAX_LINES = 4;
   uint8_t count = 0;
   uint16_t lines[MAX_LINES] = {0, 0, 0, 0};
+  // CheckReason of each recorded line as a byte (0 UNKNOWN_KEY, 1 BAD_VALUE, 2 DUPLICATE_MAC).
+  uint8_t reasons[MAX_LINES] = {0, 0, 0, 0};
+
+  // Text of a reason byte for the console reply; a value above 2 gives BAD_VALUE.
+  static const char* reasonText(uint8_t reason) {
+    switch (reason) {
+      case static_cast<uint8_t>(CheckReason::UNKNOWN_KEY): return "UNKNOWN_KEY";
+      case static_cast<uint8_t>(CheckReason::DUPLICATE_MAC): return "DUPLICATE_MAC";
+      default: return "BAD_VALUE";
+    }
+  }
 
   // Number of valid entries in `lines`.
   size_t recorded() const {
     return count < MAX_LINES ? count : MAX_LINES;
   }
 };
-
-// Reason of a rejected line, for the host check (DeviceConfigCheck). It is no RTC state.
-enum class CheckReason : uint8_t { UNKNOWN_KEY = 0, BAD_VALUE = 1, DUPLICATE_MAC = 2 };
 
 // Outcome of one parse. `file_ok` is false for a file above the size limit; the config then keeps
 // all defaults. `keys_set` counts distinct keys with an accepted value. `rejected` counts lines
@@ -477,6 +488,10 @@ struct ConfigParseResult {
     ConfigRejects r;
     r.count = rejected;
     memcpy(r.lines, rejected_lines, sizeof(r.lines));
+    // An unused entry keeps reason 0, so the RTC check can require it.
+    for (size_t i = 0; i < r.recorded(); ++i) {
+      r.reasons[i] = static_cast<uint8_t>(rejected_reasons[i]);
+    }
     return r;
   }
 };
@@ -1529,11 +1544,7 @@ public:
 
 private:
   static const char* reasonText(CheckReason r) {
-    switch (r) {
-      case CheckReason::UNKNOWN_KEY: return "UNKNOWN_KEY";
-      case CheckReason::DUPLICATE_MAC: return "DUPLICATE_MAC";
-      default: return "BAD_VALUE";
-    }
+    return ConfigRejects::reasonText(static_cast<uint8_t>(r));
   }
 
   // Copies the trimmed key of the 1-based line `line_no` to `key` ("--" for a line without "=").
