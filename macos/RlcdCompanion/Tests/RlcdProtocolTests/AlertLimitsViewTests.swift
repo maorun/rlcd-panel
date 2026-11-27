@@ -4,10 +4,10 @@ import Testing
 private func config(_ pairs: [String: String]) -> ConfigReply { ConfigReply(values: pairs) }
 
 @Suite struct AlertLimitsViewTests {
-    @Test func fixedOrderOfTheNineKeys() {
+    @Test func fixedOrderOfTheTenKeys() {
         #expect(AlertLimits.limits.map(\.key) == [
             "mold_alert_limit_rh", "mold_alert_delay_h", "dry_alert_limit_rh", "dry_alert_delay_h",
-            "freeze_alert_limit_c", "heat_alert_limit_c", "heat_alert_delay_h",
+            "freeze_alert_limit_c", "freeze_alert_delay_h", "heat_alert_limit_c", "heat_alert_delay_h",
             "ventilate_limit_rh", "sensor_battery_limit_pct",
         ])
     }
@@ -17,7 +17,7 @@ private func config(_ pairs: [String: String]) -> ConfigReply { ConfigReply(valu
             #expect(ConfigSchema.entry(for: limit.key)?.defaultValue == limit.defaultText)
             #expect(AlertLimits.error(limit, limit.defaultText) == nil)
         }
-        #expect(AlertLimits.limits.map(\.defaultText) == ["70", "0", "0", "0", "0.0", "0", "0", "60", "10"])
+        #expect(AlertLimits.limits.map(\.defaultText) == ["70", "0", "0", "0", "0.0", "0", "0", "0", "60", "10"])
     }
 
     @Test func hugeAndMalformedNumbersGiveAnErrorWithoutCrash() {
@@ -27,7 +27,7 @@ private func config(_ pairs: [String: String]) -> ConfigReply { ConfigReply(valu
         }
         #expect(AlertLimits.error(mold, "70.5") == "Mold alert: whole number needed")
         #expect(AlertLimits.error(mold, "96") == "Mold alert: allowed 40 to 95 %RH")
-        let freeze = AlertLimits.limits[4]
+        let freeze = AlertLimits.limits.first { $0.key == "freeze_alert_limit_c" }!
         #expect(AlertLimits.error(freeze, "1.25") == "Freeze alert: number with one decimal at most needed")
     }
 
@@ -50,6 +50,12 @@ private func config(_ pairs: [String: String]) -> ConfigReply { ConfigReply(valu
         #expect(err("freeze_alert_limit_c", "15") == nil)
         #expect(err("freeze_alert_limit_c", "15.1") != nil)
         #expect(err("freeze_alert_limit_c", "-20.1") != nil)
+        #expect(err("freeze_alert_delay_h", "0") == nil)
+        #expect(err("freeze_alert_delay_h", "1") == nil)
+        #expect(err("freeze_alert_delay_h", "12") == nil)
+        #expect(err("freeze_alert_delay_h", "13") != nil)
+        #expect(err("freeze_alert_delay_h", "1.5") != nil)
+        #expect(err("freeze_alert_delay_h", "-1") != nil)
         #expect(err("heat_alert_limit_c", "0") == nil)
         #expect(err("heat_alert_limit_c", "26") != nil)
         #expect(err("heat_alert_limit_c", "27") == nil)
@@ -146,5 +152,16 @@ private func config(_ pairs: [String: String]) -> ConfigReply { ConfigReply(valu
         #expect(edits.isEmpty)
         // An invalid text stays so the form shows the error.
         #expect(AlertLimits.updated(edits: [:], limit: mold, text: "x", config: cfg) == ["mold_alert_limit_rh": "x"])
+    }
+
+    @Test func freezeDelayBatchOrderAndWireText() {
+        let keys = AlertLimits.limits.map(\.key)
+        #expect(keys.firstIndex(of: "freeze_alert_delay_h") == keys.firstIndex(of: "freeze_alert_limit_c")! + 1)
+        let plan = AlertLimits.plan(edits: ["freeze_alert_delay_h": "3", "freeze_alert_limit_c": "1.5"], config: nil)
+        guard case let .commands(cmds) = plan else { Issue.record("no commands"); return }
+        #expect(cmds.map(\.line) == ["SET freeze_alert_limit_c=1.5", "SET freeze_alert_delay_h=3"])
+        guard case .invalid = AlertLimits.plan(edits: ["freeze_alert_delay_h": "13"], config: nil) else {
+            Issue.record("13 accepted"); return
+        }
     }
 }

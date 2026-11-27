@@ -2,7 +2,7 @@ package com.rlcdpanel.watch.protocol
 
 import java.util.Locale
 
-/** The nine alert limit keys of `config.ini` with the ranges of `DeviceConfigParser` (`device_config.h`). */
+/** The ten alert limit keys of `config.ini` with the ranges of `DeviceConfigParser` (`device_config.h`). */
 object AlertLimits {
     /** One key. [offValue] is the value that switches the limit off outside [min]..[max], null without one. */
     data class Limit(
@@ -30,6 +30,7 @@ object AlertLimits {
         Limit("dry_alert_limit_rh", "Trockene Luft", "%RH", 20.0, 45.0, 0.0, offValue = 0),
         Limit("dry_alert_delay_h", "Verzögerung Trockenalarm (h)", "h", 0.0, 12.0, 0.0),
         Limit("freeze_alert_limit_c", "Frost-Alarm", "°C", -20.0, 15.0, 0.0, decimal = true),
+        Limit("freeze_alert_delay_h", "Verzögerung Frostalarm (h)", "h", 0.0, 12.0, 0.0),
         Limit("heat_alert_limit_c", "Hitze-Alarm", "°C", 27.0, 45.0, 0.0, offValue = 0),
         Limit("heat_alert_delay_h", "Verzögerung Hitzealarm (h)", "h", 0.0, 12.0, 0.0),
         Limit("ventilate_limit_rh", "Lüften-Grenze", "%RH", 50.0, 80.0, 60.0),

@@ -1,6 +1,6 @@
 import Foundation
 
-/// The nine alert limit keys of `config.ini` for the alert limits view. Ranges come from `ConfigSchema`
+/// The ten alert limit keys of `config.ini` for the alert limits view. Ranges come from `ConfigSchema`
 /// (same limits as `DeviceConfigParser`); the order is fixed. Mirrors the Android `AlertLimits`.
 public enum AlertLimits {
     public struct Limit: Equatable, Sendable {
@@ -32,6 +32,7 @@ public enum AlertLimits {
         Limit(key: "dry_alert_limit_rh", label: "Dry air", unit: "%RH", decimal: false),
         Limit(key: "dry_alert_delay_h", label: "Dry air delay", unit: "h", decimal: false),
         Limit(key: "freeze_alert_limit_c", label: "Freeze alert", unit: "°C", decimal: true),
+        Limit(key: "freeze_alert_delay_h", label: "Freeze alert delay", unit: "h", decimal: false),
         Limit(key: "heat_alert_limit_c", label: "Heat alert", unit: "°C", decimal: false),
         Limit(key: "heat_alert_delay_h", label: "Heat alert delay", unit: "h", decimal: false),
         Limit(key: "ventilate_limit_rh", label: "Ventilation limit", unit: "%RH", decimal: false),

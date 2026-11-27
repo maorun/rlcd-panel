@@ -4047,7 +4047,7 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 ## Alert limits view in the macOS app
 
 - **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/AlertLimits.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AlertLimitsView.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/AppModel.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/Views.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/AlertLimitsViewTests.swift`
-- `AlertLimits.limits` lists nine keys in a fixed order: `mold_alert_limit_rh`, `mold_alert_delay_h`, `dry_alert_limit_rh`, `dry_alert_delay_h`, `freeze_alert_limit_c`, `heat_alert_limit_c`, `heat_alert_delay_h`, `ventilate_limit_rh`, `sensor_battery_limit_pct`. `AlertLimits.error` checks one input with `ConfigSchema.validate` (so the ranges and off values equal the firmware); a comma counts as a decimal point and only `freeze_alert_limit_c` takes one decimal.
+- `AlertLimits.limits` lists ten keys in a fixed order: `mold_alert_limit_rh`, `mold_alert_delay_h`, `dry_alert_limit_rh`, `dry_alert_delay_h`, `freeze_alert_limit_c`, `freeze_alert_delay_h`, `heat_alert_limit_c`, `heat_alert_delay_h`, `ventilate_limit_rh`, `sensor_battery_limit_pct`. `AlertLimits.error` checks one input with `ConfigSchema.validate` (so the ranges and off values equal the firmware); a comma counts as a decimal point and only `freeze_alert_limit_c` takes one decimal.
 - `AlertLimits.plan` gives one `SET <key>=<value>` for each changed key in the fixed order, no command for an unchanged value, and refuses the whole list when one value is invalid. `AppModel.applyAlertLimits` sends the commands through `ConfigBatch`, then `CONFIG`; the first `ERR` stops the remaining `SET` commands.
 - `AlertLimitsView` shows the cached value (else the firmware default) of each key. The edit fields and `Apply` need a console that takes `SET` (USB, or BLE with `ble_console=2`); otherwise the view is read-only with a hint. A bad field shows a warning symbol and `Apply` stays off. The view sends commands only on the `Apply` click.
 - No firmware change, no RTC layout change. Tests: `AlertLimitsViewTests` (order, ranges, plan, unchanged value, invalid value, comma, batch order with `CONFIG` last, stop after `ERR`, edit gate).
@@ -4228,3 +4228,11 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The focused room of the dashboard is the first selection. It stays in the list even without a MAC or a name. The picker hides with only one entry.
 - A tap on another sensor calls `SaltState.selectSensor()`: both the NaCl and the MgCl2 reply and all texts go, like the Android screen. The chips are off while a read, an apply or the salt watch runs, and the watch text goes with the change.
 - Tests: `SaltTextTest` checks the list for slots 2, 7 and 10, the selected sensor in the list, the cleared `SaltState` and the line `SALT 7 MGCL2`.
+
+## Freeze alert delay in the three alert limit screens
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/AlertLimits.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertLimits.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AlertLimits.kt`, and the three `AlertLimits` tests.
+- The three `AlertLimits` lists hold `freeze_alert_delay_h` directly after `freeze_alert_limit_c` (macOS label `Freeze alert delay`, Android and Wear OS label `Verzögerung Frostalarm (h)`). The value is a whole number of hours from 0 to 12; 0 is off. The screens show the new field without a code change, because they build their fields from the list.
+- `AlertLimits.plan` refuses 13 and sends `SET freeze_alert_delay_h=<N>` in list order, after `SET freeze_alert_limit_c`. The Android and Wear OS `valueText` gives `Aus` for 0.
+- Unit tests check the values 0, 1 and 12, the rejected values 13, `x`, an empty text, 1.5 and -1, the key order, the `SET` order, the texts and the range against `ConfigSchema`.
+- Validation: the host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.
