@@ -11,14 +11,16 @@ data class DaysSensor(
     /** Hours above `mold_alert_limit_rh` (0 to 24). Null for an empty field. */
     val moldHours: Int?,
     /** Hours at or below `dry_alert_limit_rh` (0 to 24). Null for an empty field and for a `daily_v5` row. */
-    val dryHours: Int? = null
+    val dryHours: Int? = null,
+    /** Hours at or above `heat_alert_limit_c` (0 to 24). Null for an empty field and for a `daily_v5` or `daily_v6` row. */
+    val heatHours: Int? = null
 ) {
-    /** True without a temperature pair, a humidity pair, mold hours and dry hours. */
+    /** True without a temperature pair, a humidity pair, mold hours, dry hours and heat hours. */
     val isEmpty: Boolean
-        get() = temperatureMinC == null && humidityMinPct == null && moldHours == null && dryHours == null
+        get() = temperatureMinC == null && humidityMinPct == null && moldHours == null && dryHours == null && heatHours == null
 }
 
-/** One `DAYS` row: a line of `daily_v6_YYYY.csv` (or of `daily_v5_YYYY.csv` with empty dry hours). [sensors] holds the onboard sensor, then slots 1 to 10. */
+/** One `DAYS` row: a line of `daily_v7_YYYY.csv` (or of `daily_v6_YYYY.csv` and `daily_v5_YYYY.csv` with empty heat or dry hours). [sensors] holds the onboard sensor, then slots 1 to 10. */
 data class DaysRow(
     /** `YYYY-MM-DD`. */
     val date: String,
@@ -27,11 +29,12 @@ data class DaysRow(
 
 /**
  * Parser of the `DAYS <N>` reply (`SerialConsoleRunner::showDays` of the firmware). The column layout and the
- * value rules are those of `SdLogCodec::parseDailyRow`: 94 columns under the `daily_v6` header, 83 columns under the `daily_v5` header, an empty field is a missing value, a sensor
+ * value rules are those of `SdLogCodec::parseDailyRow`: 105 columns under the `daily_v7` header, 94 columns under the `daily_v6` header, 83 columns under the `daily_v5` header, an empty field is a missing value, a sensor
  * needs both values of a pair. The mean and noise columns are not read.
  */
 object DaysReply {
-    const val COLUMNS = 94
+    const val COLUMNS = 105
+    const val COLUMNS_V6 = 94
     const val COLUMNS_V5 = 83
     const val SENSOR_COUNT = 11
     const val MAX_ROWS = 31
@@ -40,11 +43,13 @@ object DaysReply {
             (1..10).joinToString(",") { "s${it}_temp_min_c,s${it}_temp_max_c,s${it}_temp_mean_c,s${it}_rh_min,s${it}_rh_max,s${it}_rh_mean" } +
             ",noise_min_db,noise_max_db,noise_peak_db,noise_peak_hour,noise_events_sum," +
             (0..10).joinToString(",") { "mold_h_$it" }
-    val HEADER = HEADER_V5 + "," + (0..10).joinToString(",") { "dry_h_$it" }
+    val HEADER_V6 = HEADER_V5 + "," + (0..10).joinToString(",") { "dry_h_$it" }
+    val HEADER = HEADER_V6 + "," + (0..10).joinToString(",") { "heat_h_$it" }
 
     private const val NOISE_COLUMNS = 5
     private const val MOLD_FIRST = 1 + 6 * SENSOR_COUNT + NOISE_COLUMNS
     private const val DRY_FIRST = COLUMNS_V5
+    private const val HEAT_FIRST = COLUMNS_V6
     private const val MAX_HOURS = 24
 
     private val BEGIN = Regex("^BEGIN DAYS (0|[1-9][0-9]?)$")
@@ -81,7 +86,7 @@ object DaysReply {
         return m in 1..12 && d in 1..days[m - 1]
     }
 
-    /** Hours 0 to 24 of one mold or dry field; an empty field is null. */
+    /** Hours 0 to 24 of one mold, dry or heat field; an empty field is null. */
     private fun hours(text: String, line: String): Int? {
         if (text.isEmpty()) return null
         if (!HOURS.matches(text)) throw ParseException(line)
@@ -101,15 +106,16 @@ object DaysReply {
             val hHi = tenths(c[col + 4], 0.0, 100.0, line)
             if ((tLo == null) != (tHi == null) || (hLo == null) != (hHi == null)) throw ParseException(line)
             val mold = hours(c[MOLD_FIRST + s], line)
-            val dry = if (columns == COLUMNS) hours(c[DRY_FIRST + s], line) else null
-            DaysSensor(tLo, tHi, hLo, hHi, mold, dry)
+            val dry = if (columns >= COLUMNS_V6) hours(c[DRY_FIRST + s], line) else null
+            val heat = if (columns == COLUMNS) hours(c[HEAT_FIRST + s], line) else null
+            DaysSensor(tLo, tHi, hLo, hHi, mold, dry, heat)
         }
         return DaysRow(c[0], sensors)
     }
 
     /**
      * [lines] hold `BEGIN DAYS <n>`, the header and the rows, without the `CRC32` line (oldest row first).
-     * The `daily_v6` header gives 94 columns, the `daily_v5` header 83 columns (no dry hours). A wrong header, a count that differs from the row count, a wrong column count, a bad date or a bad value
+     * The `daily_v7` header gives 105 columns, the `daily_v6` header 94 columns (no heat hours), the `daily_v5` header 83 columns (no dry and heat hours). A wrong header, a count that differs from the row count, a wrong column count, a bad date or a bad value
      * throws [ParseException].
      */
     fun parse(lines: List<String>): List<DaysRow> {
@@ -117,6 +123,7 @@ object DaysReply {
             ?: throw ParseException(lines.firstOrNull() ?: "BEGIN DAYS")
         val columns = when (lines.getOrNull(1)) {
             HEADER -> COLUMNS
+            HEADER_V6 -> COLUMNS_V6
             HEADER_V5 -> COLUMNS_V5
             else -> throw ParseException(lines.getOrNull(1) ?: HEADER)
         }

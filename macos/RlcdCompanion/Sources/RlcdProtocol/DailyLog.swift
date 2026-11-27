@@ -10,8 +10,9 @@ public struct DailySensorStats: Equatable {
     public let rhMean: Double?
 }
 
-/// One row of `daily_v1_YYYY.csv` to `daily_v6_YYYY.csv`. The noise peak fields exist only in
-/// `daily_v2` to `daily_v6`; the mold hours only in `daily_v4` to `daily_v6`; the dry hours only in `daily_v6`.
+/// One row of `daily_v1_YYYY.csv` to `daily_v7_YYYY.csv`. The noise peak fields exist only in
+/// `daily_v2` to `daily_v7`; the mold hours only in `daily_v4` to `daily_v7`; the dry hours only in `daily_v6` and `daily_v7`.
+/// The heat hours of `daily_v7` (`heat_h_0` to `heat_h_10`) are checked for the column count but not read yet.
 public struct DailyRow: Equatable {
     public let date: String
     /// Onboard sensor first, then slots 1 to 3 (slots 1 to 5 in `daily_v3` and `daily_v4`).
@@ -24,7 +25,7 @@ public struct DailyRow: Equatable {
     /// Hours above `mold_alert_limit_rh` for each sensor (`daily_v4` only; empty for `daily_v1` to `daily_v3`).
     /// `nil` for an empty or stale sensor.
     public let moldHours: [Int?]
-    /// Hours at or below `dry_alert_limit_rh` for each sensor (`daily_v6` only; empty for older files).
+    /// Hours at or below `dry_alert_limit_rh` for each sensor (`daily_v6` and `daily_v7`; empty for older files).
     /// `nil` for an empty field (empty or stale sensor, or limit 0).
     public let dryHours: [Int?]
 
@@ -54,7 +55,7 @@ public struct DailyFolder: Equatable {
 }
 
 public struct DailyLog: Equatable {
-    public enum Format: Equatable { case v1, v2, v3, v4, v5, v6 }
+    public enum Format: Equatable { case v1, v2, v3, v4, v5, v6, v7 }
 
     public static let sensorNames = ["onboard", "s1", "s2", "s3", "s4", "s5", "s6", "s7", "s8", "s9", "s10"]
     private static let statColumns = ["temp_min_c", "temp_max_c", "temp_mean_c", "rh_min", "rh_max", "rh_mean"]
@@ -62,10 +63,10 @@ public struct DailyLog: Equatable {
     public let format: Format
     public let rows: [DailyRow]
 
-    /// Sensors in the rows of a format: `daily_v5` and `daily_v6` have 11 sensors, `daily_v3` and `daily_v4` have 6 sensors.
+    /// Sensors in the rows of a format: `daily_v5` to `daily_v7` have 11 sensors, `daily_v3` and `daily_v4` have 6 sensors.
     private static func sensorCount(_ format: Format) -> Int {
         switch format {
-        case .v5, .v6: return sensorNames.count
+        case .v5, .v6, .v7: return sensorNames.count
         case .v3, .v4: return 6
         default: return 4
         }
@@ -76,12 +77,13 @@ public struct DailyLog: Equatable {
         names += ["noise_min_db", "noise_max_db"]
         if format != .v1 { names += ["noise_peak_db", "noise_peak_hour", "noise_events_sum"] }
         if format == .v4 { names += (0..<6).map { "mold_h_\($0)" } }
-        if format == .v5 || format == .v6 { names += (0..<sensorNames.count).map { "mold_h_\($0)" } }
-        if format == .v6 { names += (0..<sensorNames.count).map { "dry_h_\($0)" } }
+        if format == .v5 || format == .v6 || format == .v7 { names += (0..<sensorNames.count).map { "mold_h_\($0)" } }
+        if format == .v6 || format == .v7 { names += (0..<sensorNames.count).map { "dry_h_\($0)" } }
+        if format == .v7 { names += (0..<sensorNames.count).map { "heat_h_\($0)" } }
         return names.joined(separator: ",")
     }
 
-    /// The header row selects the format (27, 30, 42, 48, 83 or 94 columns). An unknown header throws `missingLine`; a row with a
+    /// The header row selects the format (27, 30, 42, 48, 83, 94 or 105 columns). An unknown header throws `missingLine`; a row with a
     /// wrong column count or a non-numeric field throws `badLine`. An empty field gives `nil`.
     public static func parse(text: String) throws -> DailyLog {
         let lines = text.split(whereSeparator: \.isNewline).map(String.init).filter { !$0.isEmpty }
@@ -96,12 +98,14 @@ public struct DailyLog: Equatable {
         case header(.v4): format = .v4
         case header(.v5): format = .v5
         case header(.v6): format = .v6
+        case header(.v7): format = .v7
         default: throw ParseError.missingLine("header")
         }
         let sensorTotal = sensorCount(format)
-        let moldCount = (format == .v4 ? 6 : ((format == .v5 || format == .v6) ? sensorNames.count : 0))
-        let dryCount = format == .v6 ? sensorNames.count : 0
-        let columns = 1 + sensorTotal * statColumns.count + (format == .v1 ? 2 : 5) + moldCount + dryCount
+        let moldCount = (format == .v4 ? 6 : ((format == .v5 || format == .v6 || format == .v7) ? sensorNames.count : 0))
+        let dryCount = (format == .v6 || format == .v7) ? sensorNames.count : 0
+        let heatCount = format == .v7 ? sensorNames.count : 0 // checked for the column count, not read yet
+        let columns = 1 + sensorTotal * statColumns.count + (format == .v1 ? 2 : 5) + moldCount + dryCount + heatCount
         let rows = try lines.dropFirst().map { line -> DailyRow in
             let f = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
             guard f.count == columns, isDate(f[0]) else { throw ParseError.badLine(line) }
@@ -133,7 +137,7 @@ public struct DailyLog: Equatable {
         return DailyLog(format: format, rows: rows)
     }
 
-    /// True for `daily_v1_YYYY.csv` to `daily_v6_YYYY.csv`; the check of `LogArchive` decides the name.
+    /// True for `daily_v1_YYYY.csv` to `daily_v7_YYYY.csv`; the check of `LogArchive` decides the name.
     public static func isDailyFileName(_ name: String) -> Bool {
         LogArchive.isValidName(name) && name.hasPrefix("daily_")
     }

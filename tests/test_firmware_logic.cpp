@@ -17773,13 +17773,24 @@ namespace {
 std::string daysRow(int year, int month, int day) {
   char t[24];
   snprintf(t, sizeof(t), "%04d-%02d-%02d", year, month, day);
-  return std::string(t) + std::string(93, ',') + "\n";
+  return std::string(t) + std::string(104, ',') + "\n";
+}
+// The same row in the 94 columns of daily_v6 (no heat hours) and in the 83 columns of daily_v5 (no dry and heat hours)
+std::string v6Row(int year, int month, int day) {
+  std::string r = daysRow(year, month, day);
+  r.erase(r.size() - 12); // the 11 heat fields: 11 commas and the newline
+  return r + "\n";
+}
+std::string v5Row(int year, int month, int day) {
+  std::string r = daysRow(year, month, day);
+  r.erase(r.size() - 23); // the 22 dry and heat fields and the newline
+  return r + "\n";
 }
 // A row with onboard values: temperature 18.0 / 24.5 / 21.2 C, humidity 40.0 / 55.5 / 47.8 %RH
 std::string daysFixtureRow(int year, int month, int day) {
   char t[24];
   snprintf(t, sizeof(t), "%04d-%02d-%02d", year, month, day);
-  return std::string(t) + ",18.0,24.5,21.2,40.0,55.5,47.8" + std::string(87, ',') + "\n";
+  return std::string(t) + ",18.0,24.5,21.2,40.0,55.5,47.8" + std::string(98, ',') + "\n";
 }
 std::string daysHeader() {
   char h[SdLogCodec::DAILY_HEADER_SIZE];
@@ -17829,7 +17840,7 @@ void testSerialDaysRows() {
   // 5 rows, DAYS 3: the 3 newest oldest first, CRC over all bytes before it
   {
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2026.csv"] =
+    storage.tail_files["daily_v7_2026.csv"] =
         header + daysRow(2026, 3, 1) + daysRow(2026, 3, 2) + daysRow(2026, 3, 3) + daysRow(2026, 3, 4) + daysRow(2026, 3, 5);
     int open_mounts = -1;
     const std::string out = daysOutput(storage, 3, daysNow(2026), &open_mounts);
@@ -17840,8 +17851,8 @@ void testSerialDaysRows() {
   // 2 rows in the current year and 3 in the previous year: 5 rows across the year change
   {
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2026.csv"] = header + daysRow(2026, 1, 1) + daysRow(2026, 1, 2);
-    storage.tail_files["daily_v6_2025.csv"] = header + daysRow(2025, 12, 29) + daysRow(2025, 12, 30) + daysRow(2025, 12, 31);
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 1, 1) + daysRow(2026, 1, 2);
+    storage.tail_files["daily_v7_2025.csv"] = header + daysRow(2025, 12, 29) + daysRow(2025, 12, 30) + daysRow(2025, 12, 31);
     const std::string out = daysOutput(storage, 5, daysNow(2026));
     const std::string body = "BEGIN DAYS 5\n" + header + daysRow(2025, 12, 29) + daysRow(2025, 12, 30) + daysRow(2025, 12, 31) +
                              daysRow(2026, 1, 1) + daysRow(2026, 1, 2);
@@ -17850,8 +17861,8 @@ void testSerialDaysRows() {
   // The previous file holds more rows than needed: only its newest rows join
   {
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2026.csv"] = header + daysRow(2026, 1, 1);
-    storage.tail_files["daily_v6_2025.csv"] = header + daysRow(2025, 12, 29) + daysRow(2025, 12, 30) + daysRow(2025, 12, 31);
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 1, 1);
+    storage.tail_files["daily_v7_2025.csv"] = header + daysRow(2025, 12, 29) + daysRow(2025, 12, 30) + daysRow(2025, 12, 31);
     const std::string out = daysOutput(storage, 3, daysNow(2026));
     const std::string body = "BEGIN DAYS 3\n" + header + daysRow(2025, 12, 30) + daysRow(2025, 12, 31) + daysRow(2026, 1, 1);
     assert(out == body + crcLine(body));
@@ -17859,17 +17870,17 @@ void testSerialDaysRows() {
   // Enough rows in the current file: the previous file stays unread
   {
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2026.csv"] = header + daysRow(2026, 1, 1) + daysRow(2026, 1, 2);
-    storage.tail_files["daily_v6_2025.csv"] = header + daysRow(2025, 12, 31);
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 1, 1) + daysRow(2026, 1, 2);
+    storage.tail_files["daily_v7_2025.csv"] = header + daysRow(2025, 12, 31);
     const std::string out = daysOutput(storage, 2, daysNow(2026));
-    assert(storage.tail_read_count.count("daily_v6_2025.csv") == 0);
+    assert(storage.tail_read_count.count("daily_v7_2025.csv") == 0);
     const std::string body = "BEGIN DAYS 2\n" + header + daysRow(2026, 1, 1) + daysRow(2026, 1, 2);
     assert(out == body + crcLine(body));
   }
   // No current file: the previous year file answers
   {
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2025.csv"] = header + daysRow(2025, 12, 31);
+    storage.tail_files["daily_v7_2025.csv"] = header + daysRow(2025, 12, 31);
     const std::string out = daysOutput(storage, 2, daysNow(2026));
     const std::string body = "BEGIN DAYS 1\n" + header + daysRow(2025, 12, 31);
     assert(out == body + crcLine(body));
@@ -17877,8 +17888,8 @@ void testSerialDaysRows() {
   // A bad row (wrong column count, bad date) and a line without newline count as no row
   {
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2026.csv"] = header + daysRow(2026, 3, 1) + "2026-03-02,1,2\n" + "2026-13-40" + std::string(93, ',') +
-                                              "\n" + daysRow(2026, 3, 3) + "2026-03-04" + std::string(93, ',');
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 3, 1) + "2026-03-02,1,2\n" + "2026-13-40" + std::string(104, ',') +
+                                              "\n" + daysRow(2026, 3, 3) + "2026-03-04" + std::string(104, ',');
     const std::string out = daysOutput(storage, 5, daysNow(2026));
     const std::string body = "BEGIN DAYS 2\n" + header + daysRow(2026, 3, 1) + daysRow(2026, 3, 3);
     assert(out == body + crcLine(body));
@@ -17892,7 +17903,7 @@ void testSerialDaysRows() {
       big += daysRow(2026, 1 + day / 28 % 12, 1 + day % 28);
       ++day;
     }
-    storage.tail_files["daily_v6_2026.csv"] = big;
+    storage.tail_files["daily_v7_2026.csv"] = big;
     const std::string out = daysOutput(storage, 31, daysNow(2026));
     // the 31 newest rows of the file, oldest first (the last 31 generated days)
     std::string expect = "BEGIN DAYS 31\n" + header;
@@ -17900,87 +17911,111 @@ void testSerialDaysRows() {
       expect += daysRow(2026, 1 + d / 28 % 12, 1 + d % 28);
     }
     assert(out == expect + crcLine(expect));
-    assert(storage.tail_read_count["daily_v6_2025.csv"] == 0);
+    assert(storage.tail_read_count["daily_v7_2025.csv"] == 0);
   }
 }
 
 void testSerialDaysDailyV5Fallback() {
   const std::string header = daysHeader();
-  const std::string pad(11, ',');
-  // DAYS 2 with a daily_v6 file: the daily_v6 header, the rows as stored and a CRC32 line over all bytes before it
+  // DAYS 2 with a daily_v7 file: the daily_v7 header, the rows as stored and a CRC32 line over all bytes before it
   {
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2026.csv"] = header + daysRow(2026, 3, 1) + daysRow(2026, 3, 2) + daysRow(2026, 3, 3);
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 3, 1) + daysRow(2026, 3, 2) + daysRow(2026, 3, 3);
     const std::string out = daysOutput(storage, 2, daysNow(2026));
     const std::string body = "BEGIN DAYS 2\n" + header + daysRow(2026, 3, 2) + daysRow(2026, 3, 3);
     assert(out == body + crcLine(body));
-    assert(header.find(",mold_h_10,dry_h_0,") != std::string::npos && header.find(",dry_h_10\n") != std::string::npos);
-    assert(storage.tail_read_count.count("daily_v5_2026.csv") == 0); // an existing daily_v6 file needs no fallback
+    assert(header.find(",dry_h_10,heat_h_0,") != std::string::npos && header.find(",heat_h_10\n") != std::string::npos);
+    assert(storage.tail_read_count.count("daily_v6_2026.csv") == 0 && storage.tail_read_count.count("daily_v5_2026.csv") == 0);
   }
-  // Without a daily_v6 file the daily_v5 file of the same year answers; each row gets 11 empty dry fields
+  // Without a daily_v7 file the daily_v6 file of the same year answers; each row gets 11 empty heat fields
   {
     FakeConsoleStorage storage;
-    std::string v5header = header.substr(0, header.size() - 1);
-    v5header.erase(v5header.find(",dry_h_0"));
-    v5header += "\n";
-    auto v5row = [](int y, int m, int d) {
-      std::string r = daysRow(y, m, d);
-      r.erase(r.size() - 12); // the 11 padding commas and the newline
-      return r + "\n";
-    };
-    storage.tail_files["daily_v5_2026.csv"] = v5header + v5row(2026, 3, 1) + v5row(2026, 3, 2);
+    storage.tail_files["daily_v6_2026.csv"] = header + v6Row(2026, 3, 1) + v6Row(2026, 3, 2);
     const std::string out = daysOutput(storage, 2, daysNow(2026));
     const std::string body = "BEGIN DAYS 2\n" + header + daysRow(2026, 3, 1) + daysRow(2026, 3, 2);
     assert(out == body + crcLine(body));
   }
-  auto v5Row = [](int y, int m, int d) {
-    std::string r = daysRow(y, m, d);
-    r.erase(r.size() - 12); // the 11 padding commas and the newline
-    return r + "\n";
-  };
-  // Format change within the year: the daily_v5 file holds the older days, the daily_v6 file the newer ones
+  // A daily_v5 row (83 columns) gets 22 empty fields (11 dry and 11 heat hours)
   {
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v5_2026.csv"] = header + v5Row(2026, 3, 1) + v5Row(2026, 3, 2) + v5Row(2026, 3, 3);
-    storage.tail_files["daily_v6_2026.csv"] = header + daysRow(2026, 3, 4) + daysRow(2026, 3, 5);
-    storage.tail_files["daily_v6_2025.csv"] = header + daysRow(2025, 12, 31);
+    storage.tail_files["daily_v5_2026.csv"] = header + v5Row(2026, 3, 1) + v5Row(2026, 3, 2);
+    const std::string out = daysOutput(storage, 2, daysNow(2026));
+    const std::string body = "BEGIN DAYS 2\n" + header + daysRow(2026, 3, 1) + daysRow(2026, 3, 2);
+    assert(out == body + crcLine(body));
+  }
+  // A row with values keeps them and gets only the heat padding: the dry fields of a daily_v6 row stay as stored
+  {
+    FakeConsoleStorage storage;
+    std::string row = v6Row(2026, 3, 1);
+    row.insert(row.size() - 11, "7"); // dry_h_0 = 7, the column count stays 94
+    storage.tail_files["daily_v6_2026.csv"] = header + row;
+    std::string expect_row = row.substr(0, row.size() - 1) + std::string(11, ',') + "\n";
+    const std::string out = daysOutput(storage, 1, daysNow(2026));
+    const std::string body = "BEGIN DAYS 1\n" + header + expect_row;
+    assert(out == body + crcLine(body));
+  }
+  // Format change within the year: the daily_v6 file holds the older days, the daily_v7 file the newer ones
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["daily_v6_2026.csv"] = header + v6Row(2026, 3, 1) + v6Row(2026, 3, 2) + v6Row(2026, 3, 3);
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 3, 4) + daysRow(2026, 3, 5);
+    storage.tail_files["daily_v7_2025.csv"] = header + daysRow(2025, 12, 31);
     int open_mounts = -1;
     const std::string out = daysOutput(storage, 4, daysNow(2026), &open_mounts);
     const std::string body = "BEGIN DAYS 4\n" + header + daysRow(2026, 3, 2) + daysRow(2026, 3, 3) + daysRow(2026, 3, 4) + daysRow(2026, 3, 5);
     assert(out == body + crcLine(body));
-    assert(open_mounts == 0 && storage.tail_read_count.count("daily_v6_2025.csv") == 0);
-    // Enough rows in the daily_v6 file: the daily_v5 file stays unread
+    assert(open_mounts == 0 && storage.tail_read_count.count("daily_v7_2025.csv") == 0);
+    // Enough rows in the daily_v7 file: the daily_v6 file stays unread
     FakeConsoleStorage enough;
     enough.tail_files = storage.tail_files;
     const std::string two = daysOutput(enough, 2, daysNow(2026));
     const std::string two_body = "BEGIN DAYS 2\n" + header + daysRow(2026, 3, 4) + daysRow(2026, 3, 5);
-    assert(two == two_body + crcLine(two_body) && enough.tail_read_count.count("daily_v5_2026.csv") == 0);
+    assert(two == two_body + crcLine(two_body) && enough.tail_read_count.count("daily_v6_2026.csv") == 0);
   }
-  // The rows run on through the year change: daily_v6 and daily_v5 of the current year, then the daily_v5 file of the previous year
+  // All three formats in one year: daily_v5, daily_v6 and daily_v7 rows join oldest first
   {
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2026.csv"] = header + daysRow(2026, 1, 3);
-    storage.tail_files["daily_v5_2026.csv"] = header + v5Row(2026, 1, 1) + v5Row(2026, 1, 2);
+    storage.tail_files["daily_v5_2026.csv"] = header + v5Row(2026, 3, 1);
+    storage.tail_files["daily_v6_2026.csv"] = header + v6Row(2026, 3, 2);
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 3, 3);
+    const std::string out = daysOutput(storage, 3, daysNow(2026));
+    const std::string body = "BEGIN DAYS 3\n" + header + daysRow(2026, 3, 1) + daysRow(2026, 3, 2) + daysRow(2026, 3, 3);
+    assert(out == body + crcLine(body));
+  }
+  // The rows run on through the year change: daily_v7, v6 and v5 of the current year, then the files of the previous year
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 1, 3);
+    storage.tail_files["daily_v6_2026.csv"] = header + v6Row(2026, 1, 2);
+    storage.tail_files["daily_v5_2026.csv"] = header + v5Row(2026, 1, 1);
     storage.tail_files["daily_v5_2025.csv"] = header + v5Row(2025, 12, 30) + v5Row(2025, 12, 31);
     const std::string out = daysOutput(storage, 5, daysNow(2026));
     const std::string body = "BEGIN DAYS 5\n" + header + daysRow(2025, 12, 30) + daysRow(2025, 12, 31) + daysRow(2026, 1, 1) +
                              daysRow(2026, 1, 2) + daysRow(2026, 1, 3);
     assert(out == body + crcLine(body));
   }
+  // A read error of the daily_v6 file of the same year gives ERR READ_FAILED
+  {
+    FakeConsoleStorage storage;
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 3, 5);
+    storage.tail_files["daily_v6_2026.csv"] = header + v6Row(2026, 3, 4);
+    storage.tail_fail_name = "daily_v6_2026.csv";
+    assert(daysOutput(storage, 2, daysNow(2026)) == "ERR READ_FAILED\n");
+  }
   // A read error of the daily_v5 file of the same year gives ERR READ_FAILED
   {
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2026.csv"] = header + daysRow(2026, 3, 5);
-    storage.tail_files["daily_v5_2026.csv"] = header + v5Row(2026, 3, 4);
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 3, 5);
+    storage.tail_files["daily_v5_2026.csv"] = header + v5Row(2026, 3, 3);
     storage.tail_fail_name = "daily_v5_2026.csv";
-    assert(daysOutput(storage, 2, daysNow(2026)) == "ERR READ_FAILED\n");
+    assert(daysOutput(storage, 3, daysNow(2026)) == "ERR READ_FAILED\n");
   }
-  // A daily_v6 file with a read error does not fall back to daily_v5
+  // A daily_v7 file with a read error does not fall back to daily_v6
   {
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2026.csv"] = header + daysRow(2026, 3, 1);
-    storage.tail_files["daily_v5_2026.csv"] = header + daysRow(2026, 3, 2);
-    storage.tail_fail_name = "daily_v6_2026.csv";
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 3, 1);
+    storage.tail_files["daily_v6_2026.csv"] = header + v6Row(2026, 3, 2);
+    storage.tail_fail_name = "daily_v7_2026.csv";
     assert(daysOutput(storage, 1, daysNow(2026)) == "ERR READ_FAILED\n");
   }
 }
@@ -17994,13 +18029,13 @@ void testSerialDaysNonWholeWindowStopsTheChain() {
     big += "bad line\n";
   }
   big += daysRow(2026, 3, 4) + daysRow(2026, 3, 5);
-  storage.tail_files["daily_v6_2026.csv"] = big;
+  storage.tail_files["daily_v7_2026.csv"] = big;
   storage.tail_files["daily_v5_2026.csv"] = header + daysRow(2026, 3, 1);
-  storage.tail_files["daily_v6_2025.csv"] = header + daysRow(2025, 12, 31);
+  storage.tail_files["daily_v7_2025.csv"] = header + daysRow(2025, 12, 31);
   const std::string out = daysOutput(storage, 5, daysNow(2026));
   const std::string body = "BEGIN DAYS 2\n" + header + daysRow(2026, 3, 4) + daysRow(2026, 3, 5);
   assert(out == body + crcLine(body));
-  assert(storage.tail_read_count.count("daily_v5_2026.csv") == 0 && storage.tail_read_count.count("daily_v6_2025.csv") == 0);
+  assert(storage.tail_read_count.count("daily_v5_2026.csv") == 0 && storage.tail_read_count.count("daily_v7_2025.csv") == 0);
 }
 
 void testSerialDaysErrors() {
@@ -18019,7 +18054,7 @@ void testSerialDaysErrors() {
   }
   {
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2026.csv"] = header + daysRow(2026, 3, 1);
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 3, 1);
     RtcTime invalid = daysNow(2026);
     invalid.valid = false;
     int open_mounts = -1;
@@ -18028,17 +18063,17 @@ void testSerialDaysErrors() {
   }
   {
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2026.csv"] = header + daysRow(2026, 3, 1);
-    storage.tail_fail_name = "daily_v6_2026.csv";
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 3, 1);
+    storage.tail_fail_name = "daily_v7_2026.csv";
     int open_mounts = -1;
     assert(daysOutput(storage, 3, daysNow(2026), &open_mounts) == "ERR READ_FAILED\n");
     assert(open_mounts == 0);
   }
   {
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2026.csv"] = header + daysRow(2026, 3, 1);
-    storage.tail_files["daily_v6_2025.csv"] = header + daysRow(2025, 12, 31);
-    storage.tail_fail_name = "daily_v6_2025.csv";
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 3, 1);
+    storage.tail_files["daily_v7_2025.csv"] = header + daysRow(2025, 12, 31);
+    storage.tail_fail_name = "daily_v7_2025.csv";
     int open_mounts = -1;
     assert(daysOutput(storage, 3, daysNow(2026), &open_mounts) == "ERR READ_FAILED\n");
     assert(open_mounts == 0);
@@ -18046,15 +18081,15 @@ void testSerialDaysErrors() {
   {
     // The file changes between the count read and the output read
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2026.csv"] = header + daysRow(2026, 3, 1);
-    storage.fail_second_read_name = "daily_v6_2026.csv";
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 3, 1);
+    storage.fail_second_read_name = "daily_v7_2026.csv";
     int open_mounts = -1;
     assert(daysOutput(storage, 1, daysNow(2026), &open_mounts) == "BEGIN DAYS 1\n" + header + "ERR READ_FAILED\n");
     assert(open_mounts == 0);
   }
   {
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2026.csv"] = header + daysRow(2026, 3, 1);
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 3, 1);
     assert(daysOutput(storage, 0, daysNow(2026)) == "ERR BAD_ARG\n");
     assert(daysOutput(storage, 32, daysNow(2026)) == "ERR BAD_ARG\n");
     assert(storage.mounts == 0);
@@ -18062,7 +18097,7 @@ void testSerialDaysErrors() {
   {
     // A short write ends the reply without a CRC32 line and the card is unmounted
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2026.csv"] = header + daysRow(2026, 3, 1) + daysRow(2026, 3, 2);
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 3, 1) + daysRow(2026, 3, 2);
     FakeSink sink;
     sink.limit = 40;
     TestRunner::showDays(storage, sink, 2, daysNow(2026));
@@ -18072,7 +18107,7 @@ void testSerialDaysErrors() {
   {
     // A short write inside the row output: no CRC32 line, the card is unmounted
     FakeConsoleStorage storage;
-    storage.tail_files["daily_v6_2026.csv"] = header + daysRow(2026, 3, 1) + daysRow(2026, 3, 2);
+    storage.tail_files["daily_v7_2026.csv"] = header + daysRow(2026, 3, 1) + daysRow(2026, 3, 2);
     FakeSink sink;
     sink.limit = ("BEGIN DAYS 2\n" + header).size() + 20;
     TestRunner::showDays(storage, sink, 2, daysNow(2026));
@@ -18084,13 +18119,13 @@ void testSerialDaysErrors() {
 void testSerialDaysFixture() {
   // The reply equals the shared fixture and each row parses with SdLogCodec::parseDailyRow
   FakeConsoleStorage storage;
-  storage.tail_files["daily_v6_2026.csv"] = daysHeader() + daysFixtureRow(2026, 1, 1) + daysFixtureRow(2026, 1, 2);
-  storage.tail_files["daily_v6_2025.csv"] = daysHeader() + daysFixtureRow(2025, 12, 31);
+  storage.tail_files["daily_v7_2026.csv"] = daysHeader() + daysFixtureRow(2026, 1, 1) + daysFixtureRow(2026, 1, 2);
+  storage.tail_files["daily_v7_2025.csv"] = daysHeader() + daysFixtureRow(2025, 12, 31);
   const std::string out = daysOutput(storage, 3, daysNow(2026));
   std::string here = __FILE__;
   const size_t cut = here.rfind("tests/");
   const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
-  const std::string path = root + "tests/fixtures/days_reply_v6_sample.txt";
+  const std::string path = root + "tests/fixtures/days_reply_v7_sample.txt";
   if (getenv("GENERATE_DAYS_FIXTURE") != nullptr) {
     std::ofstream gen(path, std::ios::binary);
     gen << out;
@@ -20232,7 +20267,7 @@ void testDailySummaryRowFormat() {
   const size_t len = SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, stats, buf, sizeof(buf));
   assert(len == strlen(buf));
   const std::string expected = std::string("2026-03-08,20.0,22.5,21.2,40.0,50.0,45.0,-3.5,-3.5,-3.5,80.0,80.0,80.0") +
-                               std::string(54, ',') + ",40,55,55,14,7,0,1,,,,,,,,," + std::string(11, ',') + "\n";
+                               std::string(54, ',') + ",40,55,55,14,7,0,1,,,,,,,,," + std::string(22, ',') + "\n";
   assert(expected == buf);
 
   // Header and row have the same column count, 94.
@@ -20240,14 +20275,14 @@ void testDailySummaryRowFormat() {
   const size_t hl = SdLogCodec::formatDailyHeader(header, sizeof(header));
   assert(hl == strlen(header) && header[hl - 1] == '\n');
   assert(strncmp(header, "date,onboard_temp_min_c,", 24) == 0);
-  assert(strstr(header, ",noise_min_db,noise_max_db,noise_peak_db,noise_peak_hour,noise_events_sum,mold_h_0,mold_h_1,mold_h_2,mold_h_3,mold_h_4,mold_h_5,mold_h_6,mold_h_7,mold_h_8,mold_h_9,mold_h_10,dry_h_0,dry_h_1,dry_h_2,dry_h_3,dry_h_4,dry_h_5,dry_h_6,dry_h_7,dry_h_8,dry_h_9,dry_h_10\n") != nullptr);
-  assert(std::count(header, header + hl, ',') == 93 && std::count(buf, buf + len, ',') == 93);
+  assert(strstr(header, ",noise_min_db,noise_max_db,noise_peak_db,noise_peak_hour,noise_events_sum,mold_h_0,mold_h_1,mold_h_2,mold_h_3,mold_h_4,mold_h_5,mold_h_6,mold_h_7,mold_h_8,mold_h_9,mold_h_10,dry_h_0,dry_h_1,dry_h_2,dry_h_3,dry_h_4,dry_h_5,dry_h_6,dry_h_7,dry_h_8,dry_h_9,dry_h_10,heat_h_0,heat_h_1,heat_h_2,heat_h_3,heat_h_4,heat_h_5,heat_h_6,heat_h_7,heat_h_8,heat_h_9,heat_h_10\n") != nullptr);
+  assert(std::count(header, header + hl, ',') == 104 && std::count(buf, buf + len, ',') == 104);
 
   // Sensors without samples and no valid noise: empty fields, same column count.
   NoiseHistory silent;
   silent.pushInvalid();
   const size_t empty_len = SdLogCodec::formatDailyRow(2026, 12, 31, ClimateHistory{}, silent, DailyNoiseStats{}, buf, sizeof(buf));
-  assert(empty_len > 0 && std::string(buf) == "2026-12-31" + std::string(93, ',') + "\n");
+  assert(empty_len > 0 && std::string(buf) == "2026-12-31" + std::string(104, ',') + "\n");
 
   // Bad arguments.
   assert(SdLogCodec::formatDailyRow(2026, 3, 8, h, noise, stats, nullptr, 256) == 0);
@@ -20275,10 +20310,10 @@ void testDailySummaryRowFormat() {
   DailyNoiseStats loud_stats;
   loud_stats.add(140, 23, 65535);
   assert(SdLogCodec::formatDailyRow(2099, 12, 31, wide, loud, loud_stats, buf, sizeof(buf)) > 0);
-  assert(std::string(buf).find(",140,140,23,65535,24,24,24,24,24,24,24,24,24,24,24" + std::string(11, ',') + "\n") != std::string::npos);
+  assert(std::string(buf).find(",140,140,23,65535,24,24,24,24,24,24,24,24,24,24,24" + std::string(22, ',') + "\n") != std::string::npos);
   // With a dry limit every history of 24 samples at 100 %RH is dry for 0 hours; the widest row still fits.
   assert(SdLogCodec::formatDailyRow(2099, 12, 31, wide, loud, loud_stats, buf, sizeof(buf), 70, 45) > 0);
-  assert(std::string(buf).find(",24,24,24,24,24,24,24,24,24,24,24,0,0,0,0,0,0,0,0,0,0,0\n") != std::string::npos);
+  assert(std::string(buf).find(",24,24,24,24,24,24,24,24,24,24,24,0,0,0,0,0,0,0,0,0,0,0" + std::string(11, ',') + "\n") != std::string::npos);
   // The widest row: 24 mold hours and 24 dry hours in every history still fit the row buffer
   ClimateHistory dry_wide = wide;
   for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
@@ -20287,7 +20322,7 @@ void testDailySummaryRowFormat() {
     }
   }
   assert(SdLogCodec::formatDailyRow(2099, 12, 31, dry_wide, loud, loud_stats, buf, sizeof(buf), 70, 100) > 0);
-  assert(std::string(buf).find(",24,24,24,24,24,24,24,24,24,24,24,24,24,24,24,24,24,24,24,24,24,24\n") != std::string::npos);
+  assert(std::string(buf).find(",24,24,24,24,24,24,24,24,24,24,24,24,24,24,24,24,24,24,24,24,24,24" + std::string(11, ',') + "\n") != std::string::npos);
   assert(strlen(buf) < SdLogCodec::MAX_ROW_SIZE);
   assert(strlen(buf) < SdLogCodec::MAX_ROW_SIZE);
   char wide_header[SdLogCodec::DAILY_HEADER_SIZE];
@@ -20309,12 +20344,12 @@ void testDailyMoldHours() {
   h.slots[2].pushPercent(50.0f); // samples, none above the limit: 0 hours
   char buf[SdLogCodec::MAX_ROW_SIZE];
   const size_t len = SdLogCodec::formatDailyRow(2026, 11, 14, h, NoiseHistory{}, DailyNoiseStats{}, buf, sizeof(buf));
-  assert(len > 0 && std::count(buf, buf + len, ',') == 93);
+  assert(len > 0 && std::count(buf, buf + len, ',') == 104);
   // onboard 5, s1 empty, s2 0, s3 to s10 empty, then 11 empty dry fields (limit 0)
-  assert(std::string(buf).find(",,,,,,5,,0" + std::string(19, ',') + "\n") != std::string::npos);
+  assert(std::string(buf).find(",,,,,,5,,0" + std::string(30, ',') + "\n") != std::string::npos);
   // Another limit changes the count: above 60 %RH, 6 samples.
   assert(SdLogCodec::formatDailyRow(2026, 11, 14, h, NoiseHistory{}, DailyNoiseStats{}, buf, sizeof(buf), 60) > 0);
-  assert(std::string(buf).find(",,,,,,7,,0" + std::string(19, ',') + "\n") != std::string::npos);
+  assert(std::string(buf).find(",,,,,,7,,0" + std::string(30, ',') + "\n") != std::string::npos);
 }
 
 void testDailyDryHours() {
@@ -20330,32 +20365,93 @@ void testDailyDryHours() {
   }
   char buf[SdLogCodec::MAX_ROW_SIZE];
   const size_t len = SdLogCodec::formatDailyRow(2026, 11, 14, h, NoiseHistory{}, DailyNoiseStats{}, buf, sizeof(buf), 70, 45);
-  assert(len > 0 && std::count(buf, buf + len, ',') == 93 && buf[len - 1] == '\n');
-  // The last 11 fields are dry_h_0 to dry_h_10: onboard 4, s1 1, s2 0, s3 5, s4 to s10 empty
-  assert(std::string(buf, len).find(",4,1,0,5" + std::string(7, ',') + "\n") != std::string::npos);
+  assert(len > 0 && std::count(buf, buf + len, ',') == 104 && buf[len - 1] == '\n');
+  // The dry_h_0 to dry_h_10 fields come before the 11 heat fields (limit 0, empty): onboard 4, s1 1, s2 0, s3 5, s4 to s10 empty
+  assert(std::string(buf, len).find(",4,1,0,5" + std::string(7, ',') + std::string(11, ',') + "\n") != std::string::npos);
   WeekHistory::RestoreRow row;
   assert(SdLogCodec::parseDailyRow(buf, len, row));
   assert(row.dry_h[0] == 4 && row.dry_h[1] == 1 && row.dry_h[2] == 0 && row.dry_h[3] == 5 && row.dry_h[4] == WeekHistory::GAP);
 
-  // The header holds the 94 columns and ends with dry_h_10
+  // The header holds the 105 columns: dry_h_10 is followed by heat_h_0 to heat_h_10
   char header[SdLogCodec::DAILY_HEADER_SIZE];
   const size_t hl = SdLogCodec::formatDailyHeader(header, sizeof(header));
-  assert(hl > 0 && std::count(header, header + hl, ',') == 93 && SdLogCodec::DAILY_COLUMNS == 94);
+  assert(hl > 0 && std::count(header, header + hl, ',') == 104 && SdLogCodec::DAILY_COLUMNS == 105);
   assert(std::string(header, hl).find(",mold_h_10,dry_h_0,") != std::string::npos);
-  assert(std::string(header, hl).rfind(",dry_h_10\n") == hl - 10);
+  assert(std::string(header, hl).find(",dry_h_10,heat_h_0,") != std::string::npos);
+  assert(std::string(header, hl).rfind(",heat_h_10\n") == hl - 11);
 
   // Limit 0: every dry field is empty, also for a history with samples
   assert(SdLogCodec::formatDailyRow(2026, 11, 14, h, NoiseHistory{}, DailyNoiseStats{}, buf, sizeof(buf), 70, 0) > 0);
-  assert(std::string(buf).find(",,,,,,7,,0" + std::string(19, ',') + "\n") == std::string::npos); // the mold fields differ
+  assert(std::string(buf).find(",,,,,,7,,0" + std::string(30, ',') + "\n") == std::string::npos); // the mold fields differ
   const std::string text(buf);
-  assert(text.size() > 12 && text.compare(text.size() - 12, 12, ",,,,,,,,,,,\n") == 0);
+  assert(text.size() > 24 && text.compare(text.size() - 23, 23, std::string(22, ',') + "\n") == 0);
   assert(SdLogCodec::parseDailyRow(buf, strlen(buf), row) && row.dry_h[0] == WeekHistory::GAP && row.dry_h[3] == WeekHistory::GAP);
+}
+
+void testDailyHeatHours() {
+  // Hot pairs: 30 C at 60 %RH feels like about 31 C, 20 C at 50 %RH stays at 20 C
+  ClimateHistory h;
+  for (int i = 0; i < 4; ++i) {
+    h.temperatures[0].pushCelsius(30.0f);
+    h.slots[0].pushPercent(60.0f);
+  }
+  for (int i = 0; i < 3; ++i) {
+    h.temperatures[0].pushCelsius(20.0f);
+    h.slots[0].pushPercent(50.0f);
+  }
+  for (int i = 0; i < 5; ++i) {
+    h.temperatures[1].pushCelsius(35.0f);
+    h.slots[1].pushPercent(70.0f);
+  }
+  h.temperatures[2].pushCelsius(35.0f); // one pair only: fewer than MIN_RANGE_SAMPLES, unknown
+  h.slots[2].pushPercent(70.0f);
+  for (int i = 0; i < 5; ++i) {
+    h.temperatures[3].pushCelsius(35.0f); // unequal history sizes: unknown
+  }
+  h.slots[3].pushPercent(70.0f);
+  char buf[SdLogCodec::MAX_ROW_SIZE];
+  const size_t len = SdLogCodec::formatDailyRow(2026, 11, 14, h, NoiseHistory{}, DailyNoiseStats{}, buf, sizeof(buf), 70, 0, 27);
+  assert(len > 0 && std::count(buf, buf + len, ',') == 104 && buf[len - 1] == '\n');
+  // The last 11 fields are heat_h_0 to heat_h_10: onboard 4, s1 5, the rest empty
+  const std::string text(buf, len);
+  assert(text.compare(text.size() - 14, 14, ",4,5" + std::string(9, ',') + "\n") == 0);
+
+  // The parser keeps the heat hours
+  WeekHistory::RestoreRow row;
+  assert(SdLogCodec::parseDailyRow(buf, len, row));
+  assert(row.heat_h[0] == 4 && row.heat_h[1] == 5 && row.heat_h[2] == WeekHistory::GAP && row.heat_h[3] == WeekHistory::GAP);
+
+  // Limit 0 (the default argument): every heat field is empty
+  assert(SdLogCodec::formatDailyRow(2026, 11, 14, h, NoiseHistory{}, DailyNoiseStats{}, buf, sizeof(buf), 70, 0, 0) > 0);
+  const std::string off(buf);
+  assert(off.compare(off.size() - 12, 12, std::string(11, ',') + "\n") == 0);
+  assert(SdLogCodec::parseDailyRow(buf, strlen(buf), row) && row.heat_h[0] == WeekHistory::GAP);
+
+  // A history with no pair above the limit counts 0 hours, 24 hot pairs count 24 and the widest row still fits
+  ClimateHistory hot;
+  for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
+    for (int k = 0; k < 24; ++k) {
+      hot.temperatures[i].pushCelsius(40.0f);
+      hot.slots[i].pushPercent(100.0f);
+    }
+  }
+  NoiseHistory loud;
+  loud.push(140);
+  DailyNoiseStats loud_stats;
+  loud_stats.add(140, 23, 65535);
+  assert(SdLogCodec::formatDailyRow(2099, 12, 31, hot, loud, loud_stats, buf, sizeof(buf), 70, 100, 45) > 0);
+  assert(std::string(buf).find(",24,24,24,24,24,24,24,24,24,24,24\n") != std::string::npos);
+  assert(strlen(buf) < SdLogCodec::MAX_ROW_SIZE);
 }
 
 void testDailySummaryFileNames() {
   char path[SdLogCodec::MAX_PATH_SIZE];
   assert(SdLogCodec::formatDailyFilename(2026, path, sizeof(path)) > 0);
-  assert(strcmp(path, "/sdcard/daily_v6_2026.csv") == 0);
+  assert(strcmp(path, "/sdcard/daily_v7_2026.csv") == 0);
+  assert(SdLogCodec::formatDailyFilenameV6(2026, path, sizeof(path)) > 0 && strcmp(path, "/sdcard/daily_v6_2026.csv") == 0);
+  assert(SdLogCodec::formatDailyFilenameV6(1999, path, sizeof(path)) == 0 && path[0] == '\0');
+  assert(SdLogCodec::formatDailyFilenameV6(2026, path, 10) == 0);
+  assert(SdLogCodec::formatDailyFilename(2026, path, sizeof(path)) > 0);
   assert(SdLogCodec::formatDailyFilenameV5(2026, path, sizeof(path)) > 0 && strcmp(path, "/sdcard/daily_v5_2026.csv") == 0);
   assert(SdLogCodec::formatDailyFilenameV5(1999, path, sizeof(path)) == 0 && path[0] == '\0');
   assert(SdLogCodec::formatDailyFilenameV5(2026, path, 10) == 0);
@@ -20376,7 +20472,8 @@ void testDailySummaryFileNames() {
   assert(SdLogCodec::parseDailyFileName("daily_v4_2026.csv", year) && year == 2026);
   assert(SdLogCodec::parseDailyFileName("daily_v5_2026.csv", year) && year == 2026);
   assert(SdLogCodec::parseDailyFileName("daily_v6_2026.csv", year) && year == 2026);
-  assert(!SdLogCodec::parseDailyFileName("daily_v7_2026.csv", year));
+  assert(SdLogCodec::parseDailyFileName("daily_v7_2026.csv", year) && year == 2026);
+  assert(!SdLogCodec::parseDailyFileName("daily_v8_2026.csv", year) && !SdLogCodec::parseDailyFileName("daily_v7_2100.csv", year));
   assert(!SdLogCodec::parseDailyFileName("daily_v6_2100.csv", year));
   assert(!SdLogCodec::parseDailyFileName("daily_v2_2100.csv", year));
   assert(!SdLogCodec::parseDailyFileName("daily_v2_2026.txt", year));
@@ -20391,6 +20488,7 @@ void testDailySummaryFileNames() {
   assert(SdLogCodec::isConsoleFileName("daily_v4_2026.csv"));
   assert(SdLogCodec::isConsoleFileName("daily_v5_2026.csv"));
   assert(SdLogCodec::isConsoleFileName("daily_v6_2026.csv") && !SdLogCodec::isLogFileName("daily_v6_2026.csv"));
+  assert(SdLogCodec::isConsoleFileName("daily_v7_2026.csv") && !SdLogCodec::isLogFileName("daily_v7_2026.csv"));
   assert(!SdLogCodec::isLogFileName("daily_v2_2026.csv"));
   assert(SdLogCodec::isConsoleFileName("climate_v2_202611.csv"));
   assert(!SdLogCodec::isConsoleFileName("daily_v1_2026.csv/.."));
@@ -20418,6 +20516,8 @@ void testDailySummaryRetention() {
   assert(!SdLogCodec::shouldDeleteFile("daily_v2_2025.csv", stopped, 12));
   assert(SdLogCodec::shouldDeleteFile("daily_v6_2025.csv", now, 12));
   assert(!SdLogCodec::shouldDeleteFile("daily_v6_2026.csv", now, 12));
+  assert(SdLogCodec::shouldDeleteFile("daily_v7_2025.csv", now, 12) && !SdLogCodec::shouldDeleteFile("daily_v7_2026.csv", now, 12));
+  assert(!SdLogCodec::shouldDeleteFile("daily_v7_2025.csv", now, 0));
   assert(!SdLogCodec::shouldDeleteFile("daily_v6_2025.csv", now, 0));
   assert(!SdLogCodec::shouldDeleteFile("notes_2025.csv", now, 12));
   // The hourly rule is the same as before.
@@ -20603,7 +20703,9 @@ void testDailySummaryConsole() {
   assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "daily_v5_2026.csv") == 0);
   assert(parseText("DUMP daily_v6_2026.csv", cmd) == SerialParseStatus::OK);
   assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "daily_v6_2026.csv") == 0);
-  assert(parseText("DUMP daily_v7_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
+  assert(parseText("DUMP daily_v7_2026.csv", cmd) == SerialParseStatus::OK);
+  assert(cmd.kind == SerialCommandKind::DUMP && strcmp(cmd.file, "daily_v7_2026.csv") == 0);
+  assert(parseText("DUMP daily_v8_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP daily_v1_1999.csv", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP daily_v1_2026.csv ", cmd) == SerialParseStatus::BAD_NAME);
   assert(parseText("DUMP ../daily_v1_2026.csv", cmd) == SerialParseStatus::BAD_NAME);
@@ -20687,9 +20789,9 @@ void testDailyNoisePeakStats() {
   // Row of a day with a peak and of a day without a reading.
   char buf[SdLogCodec::MAX_ROW_SIZE];
   assert(SdLogCodec::formatDailyRow(2026, 5, 10, ClimateHistory{}, NoiseHistory{}, one, buf, sizeof(buf)) > 0);
-  assert(std::string(buf) == "2026-05-10" + std::string(68, ',') + ",72,9,6" + std::string(22, ',') + "\n");
+  assert(std::string(buf) == "2026-05-10" + std::string(68, ',') + ",72,9,6" + std::string(33, ',') + "\n");
   assert(SdLogCodec::formatDailyRow(2026, 5, 10, ClimateHistory{}, NoiseHistory{}, DailyNoiseStats{}, buf, sizeof(buf)) > 0);
-  assert(std::string(buf) == "2026-05-10" + std::string(93, ',') + "\n");
+  assert(std::string(buf) == "2026-05-10" + std::string(104, ',') + "\n");
 }
 
 void testDailyNoisePeakRtcRoundTrip() {
@@ -27894,13 +27996,13 @@ void testDailySlots4And5() {
   NoiseHistory noise;
   char buf[SdLogCodec::MAX_ROW_SIZE];
   const size_t len = SdLogCodec::formatDailyRow(2026, 11, 14, h, noise, DailyNoiseStats{}, buf, sizeof(buf));
-  assert(len > 0 && std::count(buf, buf + len, ',') == 93);
+  assert(len > 0 && std::count(buf, buf + len, ',') == 104);
   // Slot 5 (s5): its six fields come before slots 6-10, noise, and mold hours.
   assert(strstr(buf, ",10.0,20.0,15.0,40.0,40.0,40.0") != nullptr);
   char header[SdLogCodec::DAILY_HEADER_SIZE];
   assert(SdLogCodec::formatDailyHeader(header, sizeof(header)) > 0);
   assert(strstr(header, ",s4_temp_min_c,") != nullptr && strstr(header, ",s5_rh_mean,s6_temp_min_c,") != nullptr);
-  assert(std::count(header, header + strlen(header), ',') == 93);
+  assert(std::count(header, header + strlen(header), ',') == 104);
 }
 
 void testUsbTempOffset() {
@@ -28173,7 +28275,7 @@ static std::string dailyCsvRow(
 
 void testParseDailyRow() {
   WeekHistory::RestoreRow row;
-  assert(SdLogCodec::DAILY_COLUMNS == 94 && SdLogCodec::DAILY_COLUMNS_V5 == 83);
+  assert(SdLogCodec::DAILY_COLUMNS == 105 && SdLogCodec::DAILY_COLUMNS_V6 == 94 && SdLogCodec::DAILY_COLUMNS_V5 == 83);
   const std::string good = dailyCsvRow("2026-03-08", "18.5", "24.0", "40.0", "55.5");
   assert(SdLogCodec::parseDailyRow(good.c_str(), good.size(), row));
   assert(row.day == NtpTime::daysFromCivil(2026, 3, 8));
@@ -28195,14 +28297,20 @@ void testParseDailyRow() {
   assert(!SdLogCodec::parseDailyRow(shortRow.c_str(), shortRow.size(), row));
   const std::string longRow = good.substr(0, good.size() - 1) + ",\n";
   assert(!SdLogCodec::parseDailyRow(longRow.c_str(), longRow.size(), row));
-  // A v5 row (83 columns) restores with dry gaps; 94 columns parse; 84 to 93 and 95 columns are rejected
+  // A v5 row (83 columns) restores with dry and heat gaps; 94 and 105 columns parse; 84 to 93, 95 to 104 and 106 columns are rejected
   assert(SdLogCodec::parseDailyRow(good.c_str(), good.size(), row));
   for (size_t k = 0; k < WeekHistory::SENSORS; ++k) {
-    assert(row.dry_h[k] == WeekHistory::GAP);
+    assert(row.dry_h[k] == WeekHistory::GAP && row.heat_h[k] == WeekHistory::GAP);
   }
-  for (size_t extra = 1; extra <= 12; ++extra) {
+  for (size_t extra = 1; extra <= 23; ++extra) {
     const std::string wide = good.substr(0, good.size() - 1) + std::string(extra, ',') + "\n";
-    assert(SdLogCodec::parseDailyRow(wide.c_str(), wide.size(), row) == (extra == 11));
+    assert(SdLogCodec::parseDailyRow(wide.c_str(), wide.size(), row) == (extra == 11 || extra == 22));
+  }
+  // A v6 row (94 columns) has dry gaps only where its fields are empty and always heat gaps
+  const std::string v6 = good.substr(0, good.size() - 1) + std::string(11, ',') + "\n";
+  assert(SdLogCodec::parseDailyRow(v6.c_str(), v6.size(), row));
+  for (size_t k = 0; k < WeekHistory::SENSORS; ++k) {
+    assert(row.heat_h[k] == WeekHistory::GAP);
   }
   const std::string bad = dailyCsvRow("2026-03-08", "abc", "24.0", "40.0", "55.5");
   assert(!SdLogCodec::parseDailyRow(bad.c_str(), bad.size(), row));
@@ -28328,6 +28436,66 @@ void testWeekRestoreDryHours() {
   assert(!SdLogCodec::parseDailyRow(bad.c_str(), bad.size(), parsed));
   std::string letters = dailyCsvRowV6("2026-03-09", "12.0", "16.0", "40.0", "50.0", "x", "");
   assert(!SdLogCodec::parseDailyRow(letters.c_str(), letters.size(), parsed));
+}
+
+static std::string dailyCsvRowV7(const char* date, const char* t_min, const char* t_max, const char* rh_min,
+                                 const char* rh_max, const char* dry_onboard, const char* heat_onboard, const char* heat_s1) {
+  std::string row = dailyCsvRowV6(date, t_min, t_max, rh_min, rh_max, dry_onboard, "");
+  row.erase(row.size() - 1); // the newline
+  row += std::string(",") + heat_onboard + "," + heat_s1 + std::string(9, ',') + "\n"; // heat_h_0 to heat_h_10
+  return row;
+}
+
+void testWeekRestoreHeatHours() {
+  // Three days from daily_v7 rows: the heat hours of the onboard sensor, a gap beside an empty humidity pair
+  std::string text = "header line\n";
+  text += dailyCsvRowV7("2026-03-07", "10.0", "14.0", "30.0", "40.0", "", "5", "");
+  text += dailyCsvRowV7("2026-03-08", "11.0", "15.0", "31.0", "41.0", "", "0", "");
+  text += dailyCsvRowV7("2026-03-09", "12.0", "16.0", "", "", "", "7", "");
+  WeekHistory w;
+  assert(weekRestoreFromText(w, text, restoreNow(10, 0, 5)) == 3);
+  assert(w.hasHeatHours(0, 0) == false);                // 9 March: no humidity pair, so no heat value
+  assert(w.hasHeatHours(0, 1) && w.heatHours(0, 1) == 0); // 8 March
+  assert(w.hasHeatHours(0, 2) && w.heatHours(0, 2) == 5); // 7 March
+  assert(!w.hasHeatHours(1, 1));                        // a count beside an empty humidity pair stays a gap
+  assert(!w.hasHeatHours(1, 2));                        // an empty field is a gap
+  assert(!w.hasDryHours(0, 2));                         // the dry field of these rows is empty
+
+  // The restored heat hours survive the RTC round trip
+  uint8_t block[WeekHistory::SERIALIZED_SIZE];
+  w.serialize(block);
+  WeekHistory back;
+  assert(back.restore(block) && back.heatHours(0, 2) == 5 && back.heatHours(0, 1) == 0);
+
+  // A count of 25 and a letter reject the row
+  WeekHistory::RestoreRow parsed;
+  std::string bad = dailyCsvRowV7("2026-03-09", "12.0", "16.0", "40.0", "50.0", "", "25", "");
+  assert(!SdLogCodec::parseDailyRow(bad.c_str(), bad.size(), parsed));
+  std::string letters = dailyCsvRowV7("2026-03-09", "12.0", "16.0", "40.0", "50.0", "", "x", "");
+  assert(!SdLogCodec::parseDailyRow(letters.c_str(), letters.size(), parsed));
+  std::string three = dailyCsvRowV7("2026-03-09", "12.0", "16.0", "40.0", "50.0", "", "100", "");
+  assert(!SdLogCodec::parseDailyRow(three.c_str(), three.size(), parsed));
+}
+
+void testWeekRestoreDailyV6HeatGaps() {
+  // A daily_v6 row (94 columns) restores the dry hours and leaves every heat value a gap
+  const std::string text = dailyCsvRowV6("2026-03-09", "14.0", "18.0", "44.0", "54.0", "6", "");
+  WeekHistory w;
+  assert(weekRestoreFromText(w, text, restoreNow(10, 0, 5)) == 1);
+  assert(w.hasDryHours(0, 0) && w.dryHours(0, 0) == 6);
+  for (size_t s = 0; s < WeekHistory::SENSORS; ++s) {
+    assert(!w.hasHeatHours(s, 0));
+  }
+  // A daily_v6 row and a later daily_v7 row of the same day: the later row wins and brings the heat hours
+  std::string both = text + dailyCsvRowV7("2026-03-09", "14.0", "18.0", "44.0", "54.0", "6", "3", "");
+  WeekHistory w2;
+  assert(weekRestoreFromText(w2, both, restoreNow(10, 0, 5)) == 1);
+  assert(w2.hasHeatHours(0, 0) && w2.heatHours(0, 0) == 3 && w2.dryHours(0, 0) == 6);
+  // Swapped order: the daily_v6 row wins and the heat hours turn into a gap
+  std::string swapped = dailyCsvRowV7("2026-03-09", "14.0", "18.0", "44.0", "54.0", "6", "3", "") + text;
+  WeekHistory w3;
+  assert(weekRestoreFromText(w3, swapped, restoreNow(10, 0, 5)) == 1);
+  assert(!w3.hasHeatHours(0, 0));
 }
 
 void testWeekRestoreDailyV5ThenV6SameDay() {
@@ -29645,6 +29813,8 @@ int main() {
   testWeekRestoreDryHours();
   testWeekRestoreDailyV5DryGaps();
   testWeekRestoreDailyV5ThenV6SameDay();
+  testWeekRestoreHeatHours();
+  testWeekRestoreDailyV6HeatGaps();
   testWeekHistoryStoresMoldHours();
   testWeekHistoryStoresDryHours();
   testWeekHistoryRestoreChecksDryHours();
@@ -30098,6 +30268,7 @@ testSerialConfigNegativeSmallOffset();
   testDailySummaryRowFormat();
   testDailyMoldHours();
   testDailyDryHours();
+  testDailyHeatHours();
   testDailySummaryFileNames();
   testDailySummaryRetention();
   testDailyNoisePeakStats();

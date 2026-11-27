@@ -21,18 +21,27 @@ class DaysReplyTest {
 
     private fun replyV5(vararg rows: String) = listOf("BEGIN DAYS ${rows.size}", DaysReply.HEADER_V5) + rows
 
+    private fun replyV6(vararg rows: String) = listOf("BEGIN DAYS ${rows.size}", DaysReply.HEADER_V6) + rows
+
+    /** First heat column of sensor 0. */
+    private val heatFirst = DaysReply.COLUMNS_V6
+
     /** First dry column of sensor 0. */
     private val dryFirst = DaysReply.COLUMNS_V5
 
     @Test
-    fun headersHave94And83Columns() {
-        assertEquals(94, DaysReply.COLUMNS)
+    fun headersHave105And94And83Columns() {
+        assertEquals(105, DaysReply.COLUMNS)
+        assertEquals(94, DaysReply.COLUMNS_V6)
         assertEquals(83, DaysReply.COLUMNS_V5)
         assertEquals(DaysReply.COLUMNS, DaysReply.HEADER.split(",").size)
+        assertEquals(DaysReply.COLUMNS_V6, DaysReply.HEADER_V6.split(",").size)
         assertEquals(DaysReply.COLUMNS_V5, DaysReply.HEADER_V5.split(",").size)
         assertEquals(DaysReply.COLUMNS, row().split(",").size)
-        assertTrue(DaysReply.HEADER.startsWith(DaysReply.HEADER_V5 + ",dry_h_0,"))
-        assertTrue(DaysReply.HEADER.endsWith(",dry_h_10"))
+        assertTrue(DaysReply.HEADER_V6.startsWith(DaysReply.HEADER_V5 + ",dry_h_0,"))
+        assertTrue(DaysReply.HEADER_V6.endsWith(",dry_h_10"))
+        assertTrue(DaysReply.HEADER.startsWith(DaysReply.HEADER_V6 + ",heat_h_0,"))
+        assertTrue(DaysReply.HEADER.endsWith(",heat_h_10"))
     }
 
     @Test
@@ -54,17 +63,60 @@ class DaysReplyTest {
     }
 
     @Test
-    fun daily5ReplyHasNullDryHours() {
+    fun daily5ReplyHasNullDryAndHeatHours() {
         val r = DaysReply.parse(replyV5(row(columns = DaysReply.COLUMNS_V5))).single()
         assertEquals(DaysSensor(18.0, 24.5, 40.0, 55.5, 3), r.sensors[0])
         r.sensors.forEach { assertNull(it.dryHours) }
+        r.sensors.forEach { assertNull(it.heatHours) }
     }
 
     @Test
-    fun rowWith93ColumnsUnderTheV6HeaderThrows() {
-        assertThrows(ParseException::class.java) { DaysReply.parse(reply(row(columns = 93))) }
-        // A v6 row under the v5 header and a v5 row under the v6 header are both wrong.
+    fun daily6ReplyKeepsDryHoursAndHasNullHeatHours() {
+        val c = row(columns = DaysReply.COLUMNS_V6).split(",").toMutableList()
+        c[dryFirst + 1] = "6"
+        val r = DaysReply.parse(replyV6(c.joinToString(","))).single()
+        assertEquals(6, r.sensors[1].dryHours)
+        r.sensors.forEach { assertNull(it.heatHours) }
+    }
+
+    @Test
+    fun parsesHeatHoursOfASensor() {
+        val c = row().split(",").toMutableList()
+        c[heatFirst] = "0"
+        c[heatFirst + 3] = "12"
+        c[heatFirst + 10] = "24"
+        val r = DaysReply.parse(reply(c.joinToString(","))).single()
+        assertEquals(0, r.sensors[0].heatHours)
+        assertNull(r.sensors[1].heatHours)
+        assertEquals(12, r.sensors[3].heatHours)
+        assertEquals(24, r.sensors[10].heatHours)
+        assertEquals(false, r.sensors[3].isEmpty)
+        assertNull(r.sensors[3].dryHours)
+    }
+
+    @Test
+    fun emptyHeatFieldIsNull() {
+        val r = DaysReply.parse(reply(row())).single()
+        r.sensors.forEach { assertNull(it.heatHours) }
+    }
+
+    @Test
+    fun badHeatValuesThrow() {
+        for (bad in listOf("25", "x", "-1", "007", "100")) {
+            val c = row().split(",").toMutableList()
+            c[heatFirst] = bad
+            assertThrows(ParseException::class.java) { DaysReply.parse(reply(c.joinToString(","))) }
+        }
+    }
+
+    @Test
+    fun rowsWithAWrongColumnCountForTheHeaderThrow() {
+        assertThrows(ParseException::class.java) { DaysReply.parse(reply(row(columns = 104))) }
+        assertThrows(ParseException::class.java) { DaysReply.parse(reply(row(columns = 106))) }
+        // A v7 row under the v6 or v5 header, a v6 row under the v7 header and a v5 row under the v7 header are all wrong.
+        assertThrows(ParseException::class.java) { DaysReply.parse(replyV6(row())) }
         assertThrows(ParseException::class.java) { DaysReply.parse(replyV5(row())) }
+        assertThrows(ParseException::class.java) { DaysReply.parse(reply(row(columns = DaysReply.COLUMNS_V6))) }
         assertThrows(ParseException::class.java) { DaysReply.parse(reply(row(columns = DaysReply.COLUMNS_V5))) }
     }
 
@@ -85,7 +137,27 @@ class DaysReplyTest {
         rows.forEach { r ->
             assertEquals(DaysSensor(18.0, 24.5, 40.0, 55.5, null), r.sensors[0])
             r.sensors.forEach { assertNull(it.dryHours) }
+            r.sensors.forEach { assertNull(it.heatHours) }
         }
+    }
+
+    @Test
+    fun v7FixtureParsesWithEmptyHeatFields() {
+        val lines = Fixtures.file("days_reply_v7_sample.txt").readLines().filter { !it.startsWith("CRC32") }
+        assertEquals(DaysReply.HEADER, lines[1])
+        val rows = DaysReply.parse(lines)
+        assertEquals(listOf("2025-12-31", "2026-01-01", "2026-01-02"), rows.map { it.date })
+        rows.forEach { r ->
+            assertEquals(DaysSensor(18.0, 24.5, 40.0, 55.5, null), r.sensors[0])
+            r.sensors.forEach { assertNull(it.heatHours) }
+        }
+    }
+
+    @Test
+    fun v7FixtureCrcMatches() {
+        val text = Fixtures.file("days_reply_v7_sample.txt").readText()
+        val lines = text.lines().filter { it.isNotEmpty() && !it.startsWith("CRC32") }
+        assertEquals(ConsoleReply.Frame(lines), ReplyAssembler().append(text.toByteArray()))
     }
 
     @Test

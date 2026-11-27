@@ -1,15 +1,15 @@
 import Foundation
 
-/// Parsed `DAYS <N>` reply: the newest daily summary rows of the `daily_v6` or `daily_v5` log, oldest first.
+/// Parsed `DAYS <N>` reply: the newest daily summary rows of the `daily_v7`, `daily_v6` or `daily_v5` log, oldest first.
 public struct DaysReply: Equatable {
     /// Row counts that the picker of the daily chart offers.
     public static let rowChoices = [7, 14, 31]
 
     public let rows: [DailyRow]
 
-    /// `lines` hold `BEGIN DAYS <n>`, the `daily_v6` or `daily_v5` header and `n` rows (without the `CRC32` line).
+    /// `lines` hold `BEGIN DAYS <n>`, the `daily_v7`, `daily_v6` or `daily_v5` header and `n` rows (without the `CRC32` line).
     /// Throws `badLine` for a bad count, a row count that differs from `n`, a wrong column count or a bad value,
-    /// and `missingLine` for a header that is neither the `daily_v6` nor the `daily_v5` header.
+    /// and `missingLine` for a header that is none of the `daily_v7`, `daily_v6` and `daily_v5` headers.
     public static func parse(lines: [String]) throws -> DaysReply {
         guard let first = lines.first, first.hasPrefix("BEGIN DAYS ") else { throw ParseError.missingLine("BEGIN DAYS") }
         guard let count = plainInt(String(first.dropFirst("BEGIN DAYS ".count))), (0...31).contains(count) else {
@@ -17,7 +17,7 @@ public struct DaysReply: Equatable {
         }
         guard lines.count >= 2 else { throw ParseError.missingLine("header") }
         let log = try DailyLog.parse(text: lines.dropFirst().joined(separator: "\n"))
-        guard log.format == .v5 || log.format == .v6 else { throw ParseError.missingLine("header") }
+        guard log.format == .v5 || log.format == .v6 || log.format == .v7 else { throw ParseError.missingLine("header") }
         guard log.rows.count == count else { throw ParseError.badLine(first) }
         return DaysReply(rows: log.rows)
     }

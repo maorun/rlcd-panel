@@ -51,7 +51,7 @@ public enum LogArchive {
     }
 
     /// Accepts only the firmware file name patterns: `climate_v2|v3|v4|v5|v6_YYYYMM.csv`,
-    /// `daily_v1|v2|v3|v4|v5|v6_YYYY.csv` and `events_v1_YYYY.csv`. A path, a space or a line end is never valid.
+    /// `daily_v1|v2|v3|v4|v5|v6|v7_YYYY.csv` and `events_v1_YYYY.csv`. A path, a space or a line end is never valid.
     public static func isValidName(_ name: String) -> Bool { period(of: name) != nil }
 
     static func period(of name: String) -> Period? {
@@ -66,7 +66,7 @@ public enum LogArchive {
         case ("climate", "v2"), ("climate", "v3"), ("climate", "v4"), ("climate", "v5"), ("climate", "v6"):
             guard let stamp = digits(parts[2], 6), (2000...2099).contains(stamp / 100), (1...12).contains(stamp % 100) else { return nil }
             return .month(year: stamp / 100, month: stamp % 100)
-        case ("daily", "v1"), ("daily", "v2"), ("daily", "v3"), ("daily", "v4"), ("daily", "v5"), ("daily", "v6"), ("events", "v1"):
+        case ("daily", "v1"), ("daily", "v2"), ("daily", "v3"), ("daily", "v4"), ("daily", "v5"), ("daily", "v6"), ("daily", "v7"), ("events", "v1"):
             guard let year = digits(parts[2], 4), (2000...2099).contains(year) else { return nil }
             return .year(year)
         default:

@@ -117,6 +117,59 @@ struct DailyLogTests {
         #expect(DailyLog.isDailyFileName("daily_v6_2026.csv"))
     }
 
+    /// Header of `SdLogCodec::formatDailyHeader` (v7): the v6 header plus heat_h_0 to heat_h_10.
+    private func headerV7() -> String {
+        headerV6() + "," + (0..<DailyLog.sensorNames.count).map { "heat_h_\($0)" }.joined(separator: ",")
+    }
+
+    private func v7Line(dry: [String], heat: [String]) -> String {
+        v6Line(dry: dry) + "," + heat.joined(separator: ",")
+    }
+
+    @Test func parsesDailyV7WithHeatColumns() throws {
+        var dry = Array(repeating: "", count: 11)
+        dry[2] = "5"
+        var heat = Array(repeating: "", count: 11)
+        heat[0] = "4"
+        let log = try DailyLog.parse(text: headerV7() + "\n" + v7Line(dry: dry, heat: heat) + "\n")
+        #expect(log.format == .v7)
+        #expect(log.rows.count == 1)
+        #expect(log.rows[0].sensors.count == 11)
+        #expect(log.rows[0].moldHours[0] == 7)
+        #expect(log.rows[0].dryHours[2] == 5)
+        #expect(log.rows[0].dryHours[0] == nil)
+        #expect(DailyLog.isDailyFileName("daily_v7_2026.csv"))
+        #expect(headerV7().split(separator: ",").count == 105)
+        #expect(headerV7().hasSuffix(",heat_h_10"))
+    }
+
+    @Test func dailyV7RowWith104ColumnsIsBad() throws {
+        let short = v7Line(dry: Array(repeating: "", count: 11), heat: Array(repeating: "", count: 10))
+        #expect(throws: ParseError.badLine(short)) { try DailyLog.parse(text: headerV7() + "\n" + short + "\n") }
+        // A v6 row (94 columns) under the v7 header is wrong, and a v7 row under the v6 header too.
+        let v6 = v6Line(dry: Array(repeating: "", count: 11))
+        #expect(throws: ParseError.badLine(v6)) { try DailyLog.parse(text: headerV7() + "\n" + v6 + "\n") }
+        let v7 = v7Line(dry: Array(repeating: "", count: 11), heat: Array(repeating: "", count: 11))
+        #expect(throws: ParseError.badLine(v7)) { try DailyLog.parse(text: headerV6() + "\n" + v7 + "\n") }
+    }
+
+    @Test func dailyV7RowReplacesV6RowOfSameDate() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rlcd-daily-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: dir) }
+        var dry = Array(repeating: "", count: 11)
+        dry[2] = "5"
+        var newDry = Array(repeating: "", count: 11)
+        newDry[2] = "9"
+        try (headerV6() + "\n" + v6Line(dry: dry) + "\n").write(to: dir.appendingPathComponent("daily_v6_2026.csv"), atomically: true, encoding: .utf8)
+        try (headerV7() + "\n" + v7Line(dry: newDry, heat: Array(repeating: "", count: 11)) + "\n")
+            .write(to: dir.appendingPathComponent("daily_v7_2026.csv"), atomically: true, encoding: .utf8)
+        let result = DailyLog.load(from: dir)
+        #expect(result.rows.count == 1)
+        #expect(result.rows[0].dryHours[2] == 9)
+        #expect(result.failedFiles.isEmpty)
+    }
+
     @Test func dailyV6RowReplacesV5RowOfSameDate() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent("rlcd-daily-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
