@@ -302,7 +302,8 @@ fun SensorHealthScreen(
     onCancelSwap: () -> Unit = {},
     onSwapSlots: () -> Unit = {},
     versionState: VersionReadState = VersionReadState(),
-    onReadVersion: () -> Unit = {}
+    onReadVersion: () -> Unit = {},
+    onShareReport: () -> Unit = {}
 ) {
     val listState = rememberScalingLazyListState()
     MaterialTheme {
@@ -443,6 +444,14 @@ fun SensorHealthScreen(
                         modifier = Modifier.fillMaxWidth(0.85f),
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text("Self-test", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                item {
+                    Chip(
+                        onClick = onShareReport,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text("Bericht teilen", fontSize = 12.sp, maxLines = 1) }
                     )
                 }
                 item {

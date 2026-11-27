@@ -4,6 +4,7 @@ import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
@@ -39,6 +40,8 @@ import com.rlcdpanel.watch.protocol.CalibrationBatch
 import com.rlcdpanel.watch.protocol.ConfigCache
 import com.rlcdpanel.watch.protocol.PanelClock
 import com.rlcdpanel.watch.protocol.VersionReply
+import com.rlcdpanel.watch.protocol.DiagnosticsReport
+import com.rlcdpanel.watch.protocol.RejectsLog
 import com.rlcdpanel.watch.protocol.ParseException
 import com.rlcdpanel.watch.protocol.StatusReply
 import com.rlcdpanel.watch.protocol.ConsoleReply
@@ -703,7 +706,8 @@ onApply = { applySpread(it) }
                     onCancelSwap = { if (!slotSwapState.isSending) slotSwapState = SlotSwapState() },
                     onSwapSlots = { swapSlots() },
                     versionState = versionState,
-                    onReadVersion = { readVersion() }
+                    onReadVersion = { readVersion() },
+                    onShareReport = { shareDiagnosticsReport() }
                 )
                 return@setContent
             }
@@ -2584,5 +2588,30 @@ onApply = { applySpread(it) }
     companion object {
         const val CHANNEL_ID = "rlcd_ventilation_channel"
         const val NOTIFICATION_ID_WALL_BASE = 2000
+    }
+
+    /**
+     * Shares the text report of the replies read before with the paired phone. It sends no console
+     * command: missing replies show as `not read`.
+     */
+    private fun shareDiagnosticsReport() {
+        val rejects = rejectsState.takeIf { it.loaded }?.let { RejectsLog(it.rows, it.dropped) }
+        val reception = receptionState.takeIf { it.loaded }?.rows
+        val text = DiagnosticsReport.build(
+            version = versionState.reply,
+            status = healthState.status,
+            rejects = rejects,
+            selfTest = selfTestState.reply,
+            reception = reception,
+            missing = "not read",
+            showMissingReception = true,
+            title = "RLCD Watch Diagnostics"
+        )
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "RLCD Diagnostics")
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        startActivity(Intent.createChooser(send, "Bericht teilen"))
     }
 }

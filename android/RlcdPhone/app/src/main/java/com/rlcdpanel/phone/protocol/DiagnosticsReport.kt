@@ -10,18 +10,21 @@ object DiagnosticsReport {
      * Joins the summary lines. The report holds no Wi-Fi or `NTP` data. Sensor names and foreign MACs
      * show as `<hidden>` in the rows, unless [includeNames] is true.
      * [reception] adds a `## RECEPTION` section after all other sections. A null value leaves it out.
+     * [missing] replaces `--` for a reply that was not read (the watch passes `not read`).
+     * With [showMissingReception] a null [reception] gives the section with the [missing] text.
+     * [title] is the first line of the report.
      * The data is the last read; the report sends no command.
      */
-    fun build(version: VersionReply?, status: StatusReply?, rejects: RejectsLog?, includeNames: Boolean = false, selfTest: SelfTestReply? = null, reception: List<ReceptionRow>? = null): String {
+    fun build(version: VersionReply?, status: StatusReply?, rejects: RejectsLog?, includeNames: Boolean = false, selfTest: SelfTestReply? = null, reception: List<ReceptionRow>? = null, missing: String = "--", showMissingReception: Boolean = false, title: String = "RLCD Phone Diagnostics"): String {
         val out = ArrayList<String>()
-        out.add("RLCD Phone Diagnostics")
+        out.add(title)
         out.add(
-            if (version == null) "Firmware: --"
+            if (version == null) "Firmware: $missing"
             else "Firmware: ${version.firmware} (${version.git}), state ${version.state}, built ${version.built}"
         )
         if (status == null) {
-            out.add("Sensors: --")
-            out.add("SD: --")
+            out.add("Sensors: $missing")
+            out.add("SD: $missing")
         } else {
             for (s in status.sensors) out.add(sensorLine(s, includeNames))
             out.add(
@@ -39,7 +42,7 @@ object DiagnosticsReport {
         out.add("")
         out.add("## REJECTS")
         if (rejects == null) {
-            out.add("--")
+            out.add(missing)
         } else {
             out.add(RejectsReply.HEADER)
             for (r in rejects.rows) {
@@ -50,15 +53,16 @@ object DiagnosticsReport {
         out.add("")
         out.add("## SELFTEST")
         if (selfTest == null) {
-            out.add("Self-test: --")
+            out.add("Self-test: $missing")
         } else {
             for (c in selfTest.checks) out.add("CHECK ${c.name} ${c.state.wire} ${c.detail}".trimEnd())
             out.add("Self-test: ${if (selfTest.passed) "passed" else "FAILED"}, ${selfTest.pass} ok, ${selfTest.fail} failed")
         }
-        if (reception != null) {
+        if (reception != null || showMissingReception) {
             out.add("")
             out.add("## RECEPTION")
-            for (r in reception) {
+            if (reception == null) out.add(missing)
+            else for (r in reception) {
                 val name = if (r.name.isEmpty()) "--" else if (includeNames) r.name else HIDDEN
                 out.add("slot ${r.slot} $name ${r.received}/${r.scans}")
             }

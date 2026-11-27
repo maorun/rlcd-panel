@@ -4335,3 +4335,10 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The RTC layout and `STATE_VERSION` do not change. No card access, no state change.
 - Host tests: `testSerialTodayHeat` checks `heat_h` 2 for two hot pairs since midnight, an empty field for limit 0, unequal sizes and no pair, the 12-column header, `TODAY 1` with the filtered row and the `CRC32` line, and both fixtures.
 - Validation: 242 host test suites and `arduino-cli compile rlcd_panel` pass. Not run on the board.
+
+## Wear OS diagnostics report share
+
+- **Code:** `wearos/RlcdWatch/.../protocol/DiagnosticsReport.kt`, `SensorHealthScreen.kt`, `MainActivity.kt`, `DiagnosticsReportTest.kt`, `scripts/check-protocol-sync.sh`
+- `DiagnosticsReport.kt` is a copy of the phone file (only the `package` line differs) and sits in `FILES` of the sync check. The new parameters `missing` (text for a reply that was not read, default `--`) and `showMissingReception` (a null `reception` gives the `## RECEPTION` section with the `missing` text) keep the phone report unchanged.
+- The chip `Bericht teilen` in `SensorHealthScreen` builds the report from the last `STATUS`, `VERSION`, `REJECTS`, `SELFTEST` and `RECEPTION` replies in memory (`MainActivity.shareDiagnosticsReport`) and sends it with `Intent.ACTION_SEND` (`text/plain`) through a chooser. It sends no console command. A missing reply shows `not read`. The report hides sensor names and MACs.
+- `DiagnosticsReportTest` reads the shared fixtures, checks the section order of the phone report and the text `not read`.
