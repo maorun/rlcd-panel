@@ -495,6 +495,7 @@ void renderDashboard() {
   info.wall_tiles = g_state.wall_tiles;
   info.reception_low = g_state.reception_low;
   info.drift_tiles = g_state.drift_tiles;
+  info.heat_tiles = g_state.heat_tiles;
   info.sensor_battery_latch = g_state.sensor_battery_latch;
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;
@@ -1006,6 +1007,12 @@ void refreshSensors() {
   drift_tile_mask = static_cast<uint16_t>(drift_tile_mask & SpreadMath::freshMask(calibrated, nowMs(), config().staleTimeoutMs()));
   // The outdoor slot leaves the check too (`updateDrift` clears its mask bit and records the closing event).
   g_state.updateDrift(drift_tile_mask, g_rtc_time, SpreadMath::Limits::fromConfig(config()), config().outdoor_slot);
+  // The heat badge latch has no chime. The event time needs g_rtc_time.
+  const uint16_t previous_heat_tiles = g_state.heat_tiles;
+  g_state.heat_tiles = HeatLatch::update(
+      g_state.heat_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
+      config().heat_alert_limit_c, config().climate_alert_tiles, config().staleTimeoutMs());
+  g_state.recordHeatChanges(previous_heat_tiles, g_state.heat_tiles, g_rtc_time);
   const uint16_t previous_wall_tiles = g_state.wall_tiles;
   g_state.wall_tiles = WallLatch::update(
       g_state.wall_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
@@ -1622,6 +1629,7 @@ void setup() {
       snap.stale_slots = g_state.stale_slots;
       snap.reception_low = g_state.reception_low;
       snap.drift_tiles = g_state.drift_tiles;
+      snap.heat_tiles = g_state.heat_tiles;
       snap.noise_history = g_state.noise_history;
       snap.noise_band = g_state.noise_band;
       snap.daily_noise = g_state.daily.noise;

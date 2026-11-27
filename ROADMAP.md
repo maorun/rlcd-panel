@@ -19,12 +19,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 1: Sensor Setup and Calibration (Score 34–40)
 
-- [ ] Heat badge latch in the climate tiles
-  - **Location:** `rlcd_panel/heat_latch.h` (new), `rlcd_panel/dashboard_view.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/serial_console.h`, `rlcd_panel/sd_logger.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`, `tests/test_firmware_logic.cpp`, `tests/fixtures/status_reply_sample.txt`, `docs/display_preview_heat.png`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Show which room is too hot, not only that `ALERT_HEAT` is active. Add `HeatLatch` with one bit for each tile in `PersistentState::heat_tiles` (bit 0 onboard, bits 1 to 10 slots, 2 bytes just before the checksum). Set the bit when `ClimateMath::heatIndexC` of a tile in `climate_alert_tiles` is at or above `heat_alert_limit_c`. Release it 2 C below the limit. Clear it for limit 0, an empty or stale tile and an invalid reading. Draw the inverted `H` badge beside the other badges in each tile style. Record `EventCode::HEAT_TILE` 27 (detail low byte the tile, high byte 1 hot, 0 good); `EventRing::MAX_CODE` becomes 27. Append ` heat=<3 hex digits>` to the `STATUS` line `LATCH`. Reject a bit above bit 10 or of an empty slot. `resetSlot` clears and `swapSlotsByUser` swaps the bit. Increase `STATE_VERSION` by 1.
-  - **Acceptance:** A host test checks the set at the limit and the release at the limit minus 2 C. A host test checks one event for each changed bit. A host test checks the clear for a stale tile. A host test checks the RTC reject of bit 11. A host test checks the `LATCH` field. `./scripts/generate-display-preview.sh` creates `docs/display_preview_heat.png`. The host test suite passes. `arduino-cli compile rlcd_panel` passes.
-  - **Rank:** [Total: 34, Use: 9, Setup: 4, Harmony: 10, Safety: 9, Effort: M]
-
 ## Priority 2: Configuration and Control (Score 28–33)
 
 
