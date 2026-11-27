@@ -64,4 +64,31 @@ struct WeekMoldTests {
         let rows = try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.header, "0,0,2026-11-17,15.0,19.5,40.0,55.0,0,0", "0,1,2026-11-16,15.0,19.5,40.0,55.0,0,0"])
         #expect(WeekReply.drySum(rows: rows, sensor: 0) == 0)
     }
+
+    private func fixtureRows(named name: String) throws -> [WeekRow] {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let data = try Data(contentsOf: url.appendingPathComponent("tests/fixtures/\(name)"))
+        var assembler = ReplyAssembler()
+        guard case .frame(let lines)? = assembler.append(data).first else { Issue.record("fixture is not a valid frame"); return [] }
+        return try WeekReply.parse(lines: lines)
+    }
+
+    @Test func heatLabelSumsFixtureDays() throws {
+        let rows = try fixtureRows(named: "week_heat_reply_sample.txt")
+        #expect(WeekReply.heatLabel(rows: rows, sensor: 0) == "HEAT 20 h")
+        // Sensor 1 has an empty field on day 2.
+        #expect(WeekReply.heatLabel(rows: rows, sensor: 1) == "HEAT 16 h")
+    }
+
+    @Test func heatLabelIsNilForNineColumnFixture() throws {
+        let rows = try fixtureRows(named: "week_reply_sample.txt")
+        #expect(WeekReply.heatLabel(rows: rows, sensor: 0) == nil)
+        #expect(WeekReply.heatLabel(rows: [], sensor: 0) == nil)
+    }
+
+    @Test func heatLabelOfZeroHoursIsZeroNotNil() throws {
+        let rows = try WeekReply.parse(lines: ["BEGIN WEEK", WeekReply.heatHeader, "0,0,2026-11-17,15.0,19.5,40.0,55.0,0,0,0"])
+        #expect(WeekReply.heatLabel(rows: rows, sensor: 0) == "HEAT 0 h")
+    }
 }

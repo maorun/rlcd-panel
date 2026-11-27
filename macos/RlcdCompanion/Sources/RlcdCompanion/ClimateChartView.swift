@@ -303,6 +303,9 @@ struct WeekChartView: View {
                     if let dry = WeekReply.drySum(rows: rows, sensor: sensor) {
                         Text("Dry \(dry) h").font(.caption).foregroundStyle(.secondary)
                     }
+                    if let heat = WeekReply.heatLabel(rows: rows, sensor: sensor) {
+                        Text(heat).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
             }
         }

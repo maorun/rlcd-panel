@@ -83,4 +83,21 @@ class WeekChartModelTest {
         assertEquals("0 bis 24, max. 7 h", WeekChartModel.moldLabel(WeekChartModel.mold(fixtureRows(), 0)))
         assertNull(WeekChartModel.moldLabel(WeekChartModel.mold(fixtureRows(), 9)))
     }
+
+    private fun heatRows() = WeekReply.parse(
+        (ReplyAssembler().append(Fixtures.file("week_heat_reply_sample.txt").readBytes()) as ConsoleReply.Frame).lines
+    )
+
+    @Test
+    fun heatLabelSumsFixtureDays() {
+        assertEquals("HEAT 20 h", WeekChartModel.heatLabel(heatRows(), 0))
+        // Sensor 1 has an empty field on day 2.
+        assertEquals("HEAT 16 h", WeekChartModel.heatLabel(heatRows(), 1))
+    }
+
+    @Test
+    fun heatLabelIsNullForNineColumnFixture() {
+        assertNull(WeekChartModel.heatLabel(fixtureRows(), 0))
+        assertNull(WeekChartModel.heatLabel(emptyList(), 0))
+    }
 }

@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 ## Priority 2: Configuration and Control (Score 28–33)
 
 
-- [ ] Heat hours in the three week charts
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/WeekMold.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/WeekScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/WeekScreen.kt`, the test files of the three apps, `FEATURES.md`
-  - **Goal:** Show the weekly heat hours that the `WEEK` reply sends. The three `WeekReply` parsers read `heatHours`, but no week chart shows it. Add the label `HEAT <N> h` (sum over the days with a value, 0 to 168) beside the mold and dry labels of each sensor. Show no label when no day has a value.
-  - **Acceptance:** A unit test in each app reads `tests/fixtures/week_heat_reply_sample.txt` and checks the sum label. A unit test checks no label for the 9-column fixture. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 30, Use: 7, Setup: 3, Harmony: 10, Safety: 10, Effort: S]
-
 - [ ] Heat badge masks in the three app sensor lists
   - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt`, the three sensor health views, the test files, `FEATURES.md`
   - **Goal:** Show the hot rooms in the apps. Depends on `Heat badge latch in the climate tiles`. Parse `heat=` of the `LATCH` line (`nil` or `null` for a missing field, `ParseError.badLine` or `ParseException` for bad hex). Show a heat symbol in the row of each tile with its bit set.

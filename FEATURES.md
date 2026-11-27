@@ -4291,3 +4291,10 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `BleScanService` passes the merged 11-tile frame of `computeTransition`, so a tile index of page 1 names slot 6 to 10.
 - Tests: `AlertNotificationTest` covers the three texts, `NOISE HIGH`, the `climate_alert_tiles` mask, a frame without a usable tile, a null frame, default tile names, bad bits, the mask overload and a merged second page.
 - Validation: the host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only. The tests were not run locally, so I did not see them fail before the implementation.
+
+## Heat hours in the three week charts
+
+- `WeekReply.heatLabel(rows:sensor:)` (macOS), `WeekChartModel.heatLabel(rows, sensor)` (Android) and `WeekMoldText.heat(rows)` (Wear OS) give `HEAT <N> h`: the sum of `heatHours` over the days with a value (0 to 168). They give no label (`nil` or `null`) when no day has a value, for a reply with fewer than 10 columns and for limit 0.
+- macOS `WeekChartView` shows the label under the mold and dry labels of each sensor, Android `WeekScreen` below the dry bars, Wear OS `WeekScreen` after the `Trocken <N> h` line.
+- Tests: the three suites read `tests/fixtures/week_heat_reply_sample.txt` (sensor 0 gives `HEAT 20 h`, sensor 1 with an empty day gives `HEAT 16 h`) and check no label for the 9-column `week_reply_sample.txt`.
+- Validation: `swift test` passes (878 tests). The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only; the Android and Wear OS tests were not run locally.
