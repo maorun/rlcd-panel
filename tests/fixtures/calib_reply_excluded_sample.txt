@@ -1,0 +1,7 @@
+REFERENCE slot1
+SENSOR onboard hours=12 temp_offset=-1.0 rh_offset=0.0 temp_diff=-1.6 rh_diff=0.5
+SKIP slot2 stale
+SKIP slot3 outdoor
+SKIP slot4 hours=3
+temp_offset_c=-0.4
+CRC32 e57343b9

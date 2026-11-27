@@ -20,13 +20,17 @@ struct CalibrationView: View {
                 }
                 if let c = model.calibration {
                     Text("Reference: \(c.reference)").font(.caption)
-                    if c.sensors.isEmpty && c.skipped.isEmpty {
+                    if c.sensors.isEmpty && c.skipped.isEmpty && c.excluded.isEmpty {
                         Text("No other sensor.").font(.caption).foregroundStyle(.secondary)
                     }
                     ForEach(Array(c.sensors.enumerated()), id: \.offset) { _, s in sensorRow(s) }
                     if let u = c.usb { usbRow(u) }
                     ForEach(Array(c.skipped.enumerated()), id: \.offset) { _, s in
                         Text("\(s.name): \(s.hours) h, too few common hours (6 needed)")
+                            .font(.caption).foregroundStyle(.secondary)
+                    }
+                    ForEach(Array(c.excluded.enumerated()), id: \.offset) { _, e in
+                        Text("\(e.name): \(e.reason == .outdoor ? "outdoor sensor" : "stale"), left out")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                     ForEach(c.proposals, id: \.key) { p in proposalRow(p) }

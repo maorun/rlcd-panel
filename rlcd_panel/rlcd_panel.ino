@@ -1513,8 +1513,8 @@ void setup() {
       }
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::CALIB) {
       // The RTC histories answer: no card access, so the console keeps running.
-      Runner::showCalib(sink, command.reference, g_state.history,
-                                                               g_state.config);
+      // The BLE scan has stopped while a console command runs, so the registry needs no lock (like FRSI).
+      Runner::showCalib(sink, command.reference, g_state.history, g_state.config, g_state.registry, nowMs());
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SALT) {
       // The RTC histories answer: no card access, so the console keeps running.
       Runner::showSalt(sink, command.reference, g_state.history, g_state.config, command.salt_mgcl2);
