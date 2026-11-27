@@ -14,6 +14,13 @@ import Testing
         "slot3_rh_offset_pct=-2.0",
     ]
 
+    @Test func parsesStaleAndOutdoorSkipLines() throws {
+        let r = try CalibrationReply.parse(lines: ["REFERENCE slot1", "SKIP slot2 stale", "SKIP slot3 outdoor", "SKIP slot4 hours=2"])
+        #expect(r.excluded == [.init(name: "slot2", reason: .stale), .init(name: "slot3", reason: .outdoor)])
+        #expect(r.skipped == [.init(name: "slot4", hours: 2)])
+        #expect(throws: ParseError.self) { try CalibrationReply.parse(lines: ["REFERENCE slot1", "SKIP slot2 old"]) }
+    }
+
     @Test func parsesRecordedReply() throws {
         let r = try CalibrationReply.parse(lines: Self.good)
         #expect(r.reference == "onboard")
@@ -188,6 +195,22 @@ import Testing
         var url = URL(fileURLWithPath: #filePath)
         for _ in 0..<5 { url.deleteLastPathComponent() }
         return try Data(contentsOf: url.appendingPathComponent("tests/fixtures/calib_reply_sample.txt"))
+    }
+
+    /// Reads tests/fixtures/calib_reply_excluded_sample.txt: the stale and outdoor `SKIP` forms (Kotlin tests read it too).
+    @Test func excludedFixture() throws {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let data = try Data(contentsOf: url.appendingPathComponent("tests/fixtures/calib_reply_excluded_sample.txt"))
+        var assembler = ReplyAssembler()
+        guard case .frame(let lines)? = assembler.append(data).first else {
+            Issue.record("fixture is not a valid frame"); return
+        }
+        let r = try CalibrationReply.parse(lines: lines)
+        #expect(r.excluded == [.init(name: "slot2", reason: .stale), .init(name: "slot3", reason: .outdoor)])
+        #expect(r.skipped == [.init(name: "slot4", hours: 3)])
+        #expect(r.sensors.count == 1)
+        #expect(r.proposals == [CalibrationReply.Proposal(key: "temp_offset_c", value: "-0.4")])
     }
 
     /// The Kotlin test `CalibrationReplyTest.sharedFixtureGivesTheSwiftValues` asserts the same values.

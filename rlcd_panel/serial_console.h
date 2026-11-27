@@ -1302,7 +1302,9 @@ struct SerialStatusSnapshot {
 //   usb_temp_offset=<x> usb_temp_diff=<x|-->", the USB mean difference minus the battery mean difference; the onboard
 //   temp_offset_c proposal uses the battery hours when 3 or more exist; the proposal usb_temp_offset_c needs 3 USB and
 //   3 battery hours), the "key=value" lines to paste into config.ini, then "CRC32 <8 hex digits>"
-//   over all lines before it. showCalib() works on the RTC history: no card access, so execute() ignores CALIB.
+//   over all lines before it. A stale slot and the outdoor_slot get "SKIP <name> stale" or "SKIP <name> outdoor" (outdoor wins)
+//   instead of the SENSOR line and the proposal lines; a stale or outdoor reference gives "ERR BAD_REF" (no CRC32 line).
+//   showCalib() works on the RTC history: no card access, so execute() ignores CALIB.
 //   SALT N -> "SALT <name> hours=<n> rh_mean=<x> rh_span=<x> temp_mean=<x> reference=<x>" for the last 6 hourly samples of
 //   sensor N (0 onboard, 1 to 10 a slot) in a closed box with saturated sodium chloride, the line "<key>=<value>" (the active
 //   humidity offset plus reference minus mean, clamped to the key range) and "CRC32 <8 hex digits>" over the lines before it.
@@ -1487,7 +1489,10 @@ public:
   // Sends the mean differences of every sensor to the reference and the offsets that would remove them.
   // The hourly samples are paired by age (newest with newest), and only the hours with a sample in both
   // histories count. The samples already contain the active offsets. The card stays untouched.
-  static void showCalib(Sink& sink, uint8_t reference, const ClimateHistory& history, const DeviceConfig& config) {
+  // A stale slot and the outdoor slot are no calibration partners (like SPREAD and DriftLatch): the reply sends
+  // "SKIP <name> stale" or "SKIP <name> outdoor" for them, and a stale or outdoor reference gives "ERR BAD_REF".
+  static void showCalib(Sink& sink, uint8_t reference, const ClimateHistory& history, const DeviceConfig& config,
+                        const SwitchBotRegistry& registry, uint32_t now_ms) {
     static const char* const names[ClimateHistory::SLOT_COUNT] = {
         "onboard", "slot1", "slot2", "slot3", "slot4", "slot5",
         "slot6", "slot7", "slot8", "slot9", "slot10"};
@@ -1496,6 +1501,12 @@ public:
         "slot6_", "slot7_", "slot8_", "slot9_", "slot10_"};
     constexpr size_t CALIB_SOURCE_COUNT = 1 + DeviceConfig::OFFSET_SLOT_COUNT;
     if (reference >= CALIB_SOURCE_COUNT) {
+      return;
+    }
+    const uint16_t fresh = SpreadMath::freshMask(registry, now_ms, config.staleTimeoutMs());
+    const uint16_t outdoor = SpreadMath::outdoorMask(config.outdoor_slot);
+    if (((outdoor | static_cast<uint16_t>(~fresh)) >> reference) & 1u) {
+      send(sink, "ERR BAD_REF\n");
       return;
     }
     static char text[2048];
@@ -1507,6 +1518,17 @@ public:
     size_t slen_usb = 0;
     for (size_t s = 0; s < CALIB_SOURCE_COUNT; ++s) {
       if (s == reference) {
+        continue;
+      }
+      const bool is_outdoor = ((outdoor >> s) & 1u) != 0;
+      if (is_outdoor || ((fresh >> s) & 1u) == 0) {
+        if (len < sizeof(text)) {
+          const int n = snprintf(text + len, sizeof(text) - len, "SKIP %s %s\n", names[s],
+                                 is_outdoor ? "outdoor" : "stale");
+          if (n > 0) {
+            len += static_cast<size_t>(n);
+          }
+        }
         continue;
       }
       const size_t hours = commonHours(history, reference, s);

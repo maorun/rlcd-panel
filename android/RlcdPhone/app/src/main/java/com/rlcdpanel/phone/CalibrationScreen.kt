@@ -93,6 +93,9 @@ object CalibrationText {
 
     fun skipped(s: CalibrationReply.Skipped): String = "SKIP ${s.name}: nur ${s.hours} h"
 
+    fun excluded(e: CalibrationReply.Excluded): String =
+        "SKIP ${e.name}: " + if (e.reason == CalibrationReply.Reason.OUTDOOR) "Außensensor" else "veraltet"
+
     /** Proposals that the screen lists as cards; the USB proposal has its own checkbox. */
     fun cardProposals(reply: CalibrationReply): List<CalibrationProposal> =
         reply.proposals.filter { it.key != CalibrationReply.USB_KEY }
@@ -330,6 +333,7 @@ fun CalibrationScreen(
                 item { Text("Referenz: ${reply.reference}", style = MaterialTheme.typography.titleMedium) }
                 items(reply.sensors) { Text(CalibrationText.sensor(it)) }
                 items(reply.skipped) { Text(CalibrationText.skipped(it)) }
+                items(reply.excluded) { Text(CalibrationText.excluded(it)) }
                 reply.usb?.let { u -> item { Text(CalibrationText.usb(u)) } }
                 reply.usbProposal?.let { x ->
                     item {

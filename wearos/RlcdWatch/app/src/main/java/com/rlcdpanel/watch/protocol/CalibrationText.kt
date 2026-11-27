@@ -24,7 +24,8 @@ object CalibrationText {
     /** One row for each `SENSOR` line, then one for each `SKIP` line with `--` for the missing values. */
     fun rows(reply: CalibrationReply): List<Row> =
         reply.sensors.map { Row(it.name, "${it.hours} h", it.tempDiff.toString(), it.rhDiff.toString()) } +
-            reply.skipped.map { Row(it.name, "-- h", "--", "--") }
+            reply.skipped.map { Row(it.name, "-- h", "--", "--") } +
+            reply.excluded.map { Row(it.name, if (it.reason == CalibrationReply.Reason.OUTDOOR) "außen" else "veraltet", "--", "--") }
 
     fun line(row: Row): String =
         if (row.tempDiff == "--") "${row.name}: ${row.hours}, T --, RH --"

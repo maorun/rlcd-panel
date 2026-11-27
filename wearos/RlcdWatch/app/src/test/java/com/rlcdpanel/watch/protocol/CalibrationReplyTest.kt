@@ -31,6 +31,38 @@ class CalibrationReplyTest {
         assertEquals("slot2: -- h, T --, RH --", CalibrationText.line(skipped))
     }
 
+    private fun excludedSample(): CalibrationReply {
+        val frame = ReplyAssembler().append(Fixtures.file("calib_reply_excluded_sample.txt").readBytes()) as ConsoleReply.Frame
+        return CalibrationReply.parse(frame.lines)
+    }
+
+    @Test
+    fun staleAndOutdoorSkipLinesAreParsedAndShownWithoutValues() {
+        val r = excludedSample()
+        assertEquals(
+            listOf(
+                CalibrationReply.Excluded("slot2", CalibrationReply.Reason.STALE),
+                CalibrationReply.Excluded("slot3", CalibrationReply.Reason.OUTDOOR)
+            ),
+            r.excluded
+        )
+        assertEquals(listOf(CalibrationReply.Skipped("slot4", 3)), r.skipped)
+        val rows = CalibrationText.rows(r)
+        assertEquals(
+            listOf("onboard", "slot4", "slot2", "slot3"),
+            rows.map { it.name }
+        )
+        assertEquals("veraltet", rows[2].hours)
+        assertEquals("außen", rows[3].hours)
+        assertEquals("slot3: außen, T --, RH --", CalibrationText.line(rows[3]))
+        try {
+            CalibrationReply.parse(listOf("REFERENCE slot1", "SKIP slot2 old"))
+            org.junit.Assert.fail("no error")
+        } catch (e: ParseException) {
+            assertEquals("SKIP slot2 old", e.line)
+        }
+    }
+
     @Test
     fun usbLineExistsOnlyWithTheLine() {
         assertEquals("USB 6 h, Batterie 6 h, usb_temp_offset -2.0, Diff -1.2", CalibrationText.usb(sample().usb!!))

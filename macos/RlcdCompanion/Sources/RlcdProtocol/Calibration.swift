@@ -18,6 +18,13 @@ public struct CalibrationReply: Equatable, Sendable {
         public let hours: Int
     }
 
+    /// `SKIP <name> stale` or `SKIP <name> outdoor`: a stale slot and the outdoor slot get no `SENSOR` line and no proposal.
+    public struct Excluded: Equatable, Sendable {
+        public enum Reason: String, Equatable, Sendable { case stale, outdoor }
+        public let name: String
+        public let reason: Reason
+    }
+
     /// One `key=value` line for `config.ini`.
     public struct Proposal: Equatable, Sendable {
         public let key: String
@@ -37,15 +44,17 @@ public struct CalibrationReply: Equatable, Sendable {
     public let reference: String
     public let sensors: [Sensor]
     public let skipped: [Skipped]
+    public let excluded: [Excluded]
     /// `nil` when the reply has no `USB` line, for example for `CALIB 0` or an onboard sensor with too few common hours.
     public let usb: UsbSplit?
     /// Only keys that `ConfigSchema.validate` accepts with the proposed value.
     public let proposals: [Proposal]
 
-    init(reference: String, sensors: [Sensor], skipped: [Skipped], usb: UsbSplit?, proposals: [Proposal]) {
+    init(reference: String, sensors: [Sensor], skipped: [Skipped], excluded: [Excluded] = [], usb: UsbSplit?, proposals: [Proposal]) {
         self.reference = reference
         self.sensors = sensors
         self.skipped = skipped
+        self.excluded = excluded
         self.usb = usb
         self.proposals = proposals
     }
@@ -55,6 +64,7 @@ public struct CalibrationReply: Equatable, Sendable {
         var reference: String?
         var sensors: [Sensor] = []
         var skipped: [Skipped] = []
+        var excluded: [Excluded] = []
         var proposals: [Proposal] = []
         var usb: UsbSplit?
         for line in lines {
@@ -68,8 +78,12 @@ public struct CalibrationReply: Equatable, Sendable {
                 sensors.append(try sensor(line))
             } else if line.hasPrefix("SKIP ") {
                 let words = line.split(separator: " ")
-                guard words.count == 3, let hours = hours(fields(line)["hours"]) else { throw ParseError.badLine(line) }
-                skipped.append(Skipped(name: String(words[1]), hours: hours))
+                if words.count == 3, let reason = Excluded.Reason(rawValue: String(words[2])) {
+                    excluded.append(Excluded(name: String(words[1]), reason: reason))
+                } else {
+                    guard words.count == 3, let hours = hours(fields(line)["hours"]) else { throw ParseError.badLine(line) }
+                    skipped.append(Skipped(name: String(words[1]), hours: hours))
+                }
             } else if let eq = line.firstIndex(of: "="), !line.contains(" ") {
                 let key = String(line[..<eq]), value = String(line[line.index(after: eq)...])
                 if isOffsetKey(key), ConfigSchema.validate(key: key, value: value) == nil {
@@ -79,7 +93,7 @@ public struct CalibrationReply: Equatable, Sendable {
             }
         }
         guard let reference else { throw ParseError.missingLine("REFERENCE") }
-        return CalibrationReply(reference: reference, sensors: sensors, skipped: skipped, usb: usb, proposals: proposals)
+        return CalibrationReply(reference: reference, sensors: sensors, skipped: skipped, excluded: excluded, usb: usb, proposals: proposals)
     }
 
     private static func isOffsetKey(_ key: String) -> Bool {

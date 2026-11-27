@@ -23,6 +23,38 @@ class CalibrationReplyTest {
         }
     }
 
+    @Test
+    fun excludedFixtureGivesTheSameValuesAsTheWatchAndSwift() {
+        val frame = ReplyAssembler().append(Fixtures.file("calib_reply_excluded_sample.txt").readBytes()) as ConsoleReply.Frame
+        val r = CalibrationReply.parse(frame.lines)
+        assertEquals(
+            listOf(
+                CalibrationReply.Excluded("slot2", CalibrationReply.Reason.STALE),
+                CalibrationReply.Excluded("slot3", CalibrationReply.Reason.OUTDOOR)
+            ),
+            r.excluded
+        )
+        assertEquals(listOf(CalibrationReply.Skipped("slot4", 3)), r.skipped)
+        assertEquals(1, r.sensors.size)
+        assertEquals(listOf(CalibrationProposal("temp_offset_c", "-0.4")), r.proposals)
+    }
+
+    @Test
+    fun parsesStaleAndOutdoorSkipLines() {
+        val r = CalibrationReply.parse(
+            listOf("REFERENCE slot1", "SKIP slot2 stale", "SKIP slot3 outdoor", "SKIP slot4 hours=2")
+        )
+        assertEquals(
+            listOf(
+                CalibrationReply.Excluded("slot2", CalibrationReply.Reason.STALE),
+                CalibrationReply.Excluded("slot3", CalibrationReply.Reason.OUTDOOR)
+            ),
+            r.excluded
+        )
+        assertEquals(listOf(CalibrationReply.Skipped("slot4", 2)), r.skipped)
+        assertBad("SKIP slot2 old")
+    }
+
     /** The Swift test `CalibrationTests.sharedFixture` asserts the same values. */
     @Test
     fun sharedFixtureGivesTheSwiftValues() {

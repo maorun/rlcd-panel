@@ -8,6 +8,7 @@ data class CalibrationReply(
     val reference: String,
     val sensors: List<Sensor>,
     val skipped: List<Skipped>,
+    val excluded: List<Excluded> = emptyList(),
     /** Null without a `USB` line. */
     val usb: UsbSplit?,
     /** Only keys with a value that the key range accepts. */
@@ -28,6 +29,11 @@ data class CalibrationReply(
 
     data class Skipped(val name: String, val hours: Long)
 
+    /** `SKIP <name> stale` or `SKIP <name> outdoor`: a stale slot and the outdoor slot get no `SENSOR` line and no proposal. */
+    data class Excluded(val name: String, val reason: Reason)
+
+    enum class Reason { STALE, OUTDOOR }
+
     data class UsbSplit(val usbHours: Long, val batHours: Long, val usbTempOffset: Double, val usbTempDiff: Double?)
 
     companion object {
@@ -38,6 +44,7 @@ data class CalibrationReply(
             var reference: String? = null
             val sensors = mutableListOf<Sensor>()
             val skipped = mutableListOf<Skipped>()
+            val excluded = mutableListOf<Excluded>()
             val proposals = mutableListOf<CalibrationProposal>()
             var usb: UsbSplit? = null
             for (line in lines) {
@@ -51,9 +58,18 @@ data class CalibrationReply(
                     line.startsWith("SENSOR ") -> sensors.add(sensor(line))
                     line.startsWith("SKIP ") -> {
                         val words = line.split(' ').filter { it.isNotEmpty() }
-                        val h = if (words.size == 3) hours(fields(line)["hours"]) else null
-                        if (h == null) throw ParseException(line)
-                        skipped.add(Skipped(words[1], h))
+                        val reason = if (words.size == 3) when (words[2]) {
+                            "stale" -> Reason.STALE
+                            "outdoor" -> Reason.OUTDOOR
+                            else -> null
+                        } else null
+                        if (reason != null) {
+                            excluded.add(Excluded(words[1], reason))
+                        } else {
+                            val h = if (words.size == 3) hours(fields(line)["hours"]) else null
+                            if (h == null) throw ParseException(line)
+                            skipped.add(Skipped(words[1], h))
+                        }
                     }
                     line.contains('=') && !line.contains(' ') -> {
                         val key = line.substringBefore('=')
@@ -66,7 +82,7 @@ data class CalibrationReply(
                     }
                 }
             }
-            return CalibrationReply(reference ?: throw ParseException("REFERENCE"), sensors, skipped, usb, proposals)
+            return CalibrationReply(reference ?: throw ParseException("REFERENCE"), sensors, skipped, excluded, usb, proposals)
         }
 
         private fun isOffsetKey(key: String) = key.endsWith("temp_offset_c") || key.endsWith("rh_offset_pct")

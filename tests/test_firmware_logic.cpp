@@ -16880,9 +16880,10 @@ void fillCalib(ClimateHistory& h, size_t sensor, int hours, float temp, float rh
   }
 }
 
-std::string calibOutput(uint8_t reference, const ClimateHistory& h, const DeviceConfig& cfg) {
+std::string calibOutput(uint8_t reference, const ClimateHistory& h, const DeviceConfig& cfg,
+                        const SwitchBotRegistry& reg = SwitchBotRegistry(), uint32_t now_ms = 0) {
   FakeSink sink;
-  TestRunner::showCalib(sink, reference, h, cfg);
+  TestRunner::showCalib(sink, reference, h, cfg, reg, now_ms);
   return sink.out;
 }
 
@@ -17156,13 +17157,97 @@ void testSerialCalibReferenceOnboardUnchanged() {
   assert(calibCrcOk(out));
 }
 
+void testSerialCalibSkipsStaleAndOutdoor() {
+  ClimateHistory h;
+  fillCalib(h, 0, 10, 21.0f, 50.0f);
+  fillCalib(h, 1, 10, 20.0f, 50.0f);
+  fillCalib(h, 2, 10, 21.4f, 52.1f);
+  fillCalib(h, 3, 10, 5.0f, 80.0f);
+  const uint32_t now = 10UL * 60UL * 60UL * 1000UL;
+  auto makeReg = [](uint32_t slot2_updated_ms) {
+    SwitchBotRegistry r;
+    for (uint8_t i = 0; i < 3; ++i) {
+      SwitchBotReading x;
+      x.valid = true;
+      x.mac[5] = static_cast<uint8_t>(i + 1);
+      x.temperature_c = 20.0f;
+      x.humidity_pct = 50;
+      x.updated_ms = i == 1 ? slot2_updated_ms : 10UL * 60UL * 60UL * 1000UL - 1000;
+      assert(r.upsert(x));
+    }
+    return r;
+  };
+  SwitchBotRegistry reg = makeReg(now - 1000);
+  DeviceConfig cfg;
+  const std::string base = calibOutput(1, h, cfg, reg, now);
+  // outdoor_slot 0 and fresh slots: the old bytes (no SKIP stale or outdoor)
+  assert(base.find("stale") == std::string::npos && base.find("outdoor") == std::string::npos);
+  assert(base.find("SENSOR slot3 hours=10") != std::string::npos);
+  assert(calibOutput(1, h, cfg) == base);
+  // outdoor slot 3
+  cfg.outdoor_slot = 3;
+  std::string out = calibOutput(1, h, cfg, reg, now);
+  // exact reply: the order stays, slot3 has no SENSOR line and no proposal lines
+  assert(out.substr(0, out.rfind("CRC32 ")) ==
+      "REFERENCE slot1\n"
+      "SENSOR onboard hours=10 temp_offset=-1.9 rh_offset=0.0 temp_diff=1.0 rh_diff=0.0\n"
+      "USB hours=0 bat_hours=10 usb_temp_offset=0.0 usb_temp_diff=--\n"
+      "SENSOR slot2 hours=10 temp_offset=0.0 rh_offset=0.0 temp_diff=1.4 rh_diff=2.1\n"
+      "SKIP slot3 outdoor\n"
+      "SKIP slot4 hours=0\n"
+      "SKIP slot5 hours=0\n"
+      "SKIP slot6 hours=0\n"
+      "SKIP slot7 hours=0\n"
+      "SKIP slot8 hours=0\n"
+      "SKIP slot9 hours=0\n"
+      "SKIP slot10 hours=0\n"
+      "temp_offset_c=-2.9\n"
+      "rh_offset_pct=0.0\n"
+      "slot2_temp_offset_c=-1.4\n"
+      "slot2_rh_offset_pct=-2.1\n");
+  assert(calibCrcOk(out));
+  assert(calibOutput(3, h, cfg, reg, now) == "ERR BAD_REF\n");
+  // stale slot 2
+  cfg.outdoor_slot = 0;
+  reg = makeReg(0);
+  out = calibOutput(1, h, cfg, reg, now);
+  assert(out.substr(0, out.rfind("CRC32 ")) ==
+      "REFERENCE slot1\n"
+      "SENSOR onboard hours=10 temp_offset=-1.9 rh_offset=0.0 temp_diff=1.0 rh_diff=0.0\n"
+      "USB hours=0 bat_hours=10 usb_temp_offset=0.0 usb_temp_diff=--\n"
+      "SKIP slot2 stale\n"
+      "SENSOR slot3 hours=10 temp_offset=0.0 rh_offset=0.0 temp_diff=-15.0 rh_diff=30.0\n"
+      "SKIP slot4 hours=0\n"
+      "SKIP slot5 hours=0\n"
+      "SKIP slot6 hours=0\n"
+      "SKIP slot7 hours=0\n"
+      "SKIP slot8 hours=0\n"
+      "SKIP slot9 hours=0\n"
+      "SKIP slot10 hours=0\n"
+      "temp_offset_c=-2.9\n"
+      "rh_offset_pct=0.0\n"
+      "slot3_temp_offset_c=5.0\n"
+      "slot3_rh_offset_pct=-10.0\n");
+  assert(calibCrcOk(out));
+  assert(calibOutput(2, h, cfg, reg, now) == "ERR BAD_REF\n");
+  // outdoor wins over stale when both apply; the stale timeout follows the config
+  cfg.outdoor_slot = 2;
+  assert(calibOutput(1, h, cfg, reg, now).find("SKIP slot2 outdoor\n") != std::string::npos);
+  // an empty slot counts as fresh, so outdoor_slot on an empty slot still gives the outdoor SKIP
+  cfg.outdoor_slot = 5;
+  assert(calibOutput(1, h, cfg, reg, now).find("SKIP slot5 outdoor\n") != std::string::npos);
+  assert(calibOutput(5, h, cfg, reg, now) == "ERR BAD_REF\n");
+  // the onboard reference is never stale or outdoor
+  assert(calibOutput(0, h, cfg, reg, now).rfind("REFERENCE onboard\n", 0) == 0);
+}
+
 void testSerialCalibShortWriteAndNoCard() {
   ClimateHistory h;
   fillCalib(h, 0, 10, 20.0f, 50.0f);
   fillCalib(h, 1, 10, 20.0f, 50.0f);
   FakeSink sink;
   sink.limit = 5;
-  TestRunner::showCalib(sink, 0, h, DeviceConfig{});
+  TestRunner::showCalib(sink, 0, h, DeviceConfig{}, SwitchBotRegistry(), 0);
   assert(sink.out.size() == 5 && sink.out.find("CRC32") == std::string::npos);
   // execute() ignores CALIB: no mount, no output
   FakeConsoleStorage storage;
@@ -29579,6 +29664,7 @@ testSerialConfigNegativeSmallOffset();
   testResetSlotKeepsUsbMask();
   testSerialCalibUsbSplit();
   testSerialCalibReferenceOnboardUnchanged();
+  testSerialCalibSkipsStaleAndOutdoor();
   testSerialCalibShortWriteAndNoCard();
   testSaltReferenceTable();
   testWallFactor();
