@@ -551,17 +551,33 @@ struct ClimateHistory {
       return -1;
     }
     const size_t n = temperatures[sensor].size();
-    if (n != slots[sensor].size() || n < HumidityHistory::MIN_RANGE_SAMPLES) {
+    if (n < HumidityHistory::MIN_RANGE_SAMPLES) {
       return -1;
     }
-    int count = 0;
-    for (size_t k = 0; k < n; ++k) {
-      const float feels = pairHeatIndexC(sensor, k);
+    return heatHoursNewest(sensor, n, limit_c); // -1 for unequal history sizes
+  }
+
+  // Like heatHours, but only over the newest `count` hourly pairs (count above the size counts all). Returns -1 (unknown)
+  // for limit 0 (off), a sensor out of range, unequal history sizes and no pair (count 0 or empty histories). Unlike
+  // heatHours there is no minimum pair count, so TODAY can count one hot pair since midnight. A pair without a usable
+  // feels-like value does not count. Read only.
+  int heatHoursNewest(size_t sensor, size_t count, uint8_t limit_c) const {
+    if (limit_c == 0 || sensor >= SLOT_COUNT) {
+      return -1;
+    }
+    const size_t n = temperatures[sensor].size();
+    if (n != slots[sensor].size() || n == 0 || count == 0) {
+      return -1;
+    }
+    const size_t m = count < n ? count : n;
+    int hot = 0;
+    for (size_t k = 0; k < m; ++k) {
+      const float feels = pairHeatIndexC(sensor, n - 1 - k);
       if (!isnan(feels) && feels >= static_cast<float>(limit_c)) {
-        ++count;
+        ++hot;
       }
     }
-    return count;
+    return hot;
   }
   uint32_t last_sample_ms = 0;
   bool has_sampled = false;

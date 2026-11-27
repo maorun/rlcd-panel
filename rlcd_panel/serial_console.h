@@ -1898,10 +1898,12 @@ public:
   // Minimum, maximum and mean of the hourly samples of each sensor since the last local midnight of `now` (see TODAY above). `now_ms`
   // is the RTC-backed clock of `history.last_sample_ms`. The card and the state stay untouched.
   // `only_sensor` 0 to 10 sends only the row of that sensor (-1 sends every row).
-  // `mold_limit_rh` and `dry_limit_rh` (whole %RH, the config keys mold_alert_limit_rh and dry_alert_limit_rh) feed mold_h and dry_h. The defaults (mold 70, dry 0) only serve host tests; the sketch always passes both config values.
+  // `mold_limit_rh` and `dry_limit_rh` (whole %RH, the config keys mold_alert_limit_rh and dry_alert_limit_rh) feed mold_h and dry_h.
+  // `heat_limit_c` (whole C, the key heat_alert_limit_c) feeds heat_h (ClimateHistory::heatHoursNewest over the same pairs
+  // since midnight; empty for limit 0 and an unknown count). The defaults (mold 70, dry 0, heat 0) only serve host tests; the sketch always passes the config values.
   static void showToday(Sink& sink, const ClimateHistory& history, const RtcTime& now, uint32_t now_ms,
                         int only_sensor = -1, uint8_t mold_limit_rh = DeviceConfig::DEFAULT_MOLD_ALERT_LIMIT_RH,
-                        uint8_t dry_limit_rh = 0) {
+                        uint8_t dry_limit_rh = 0, uint8_t heat_limit_c = 0) {
     static const char* const names[ClimateHistory::SLOT_COUNT] = {
         "onboard", "slot1", "slot2", "slot3", "slot4", "slot5",
         "slot6", "slot7", "slot8", "slot9", "slot10"};
@@ -1920,7 +1922,7 @@ public:
     char text[1536];
     size_t len = static_cast<size_t>(snprintf(
         text, sizeof(text),
-        "BEGIN TODAY\nsensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct,mold_h,dry_h\n"));
+        "BEGIN TODAY\nsensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct,mold_h,dry_h,heat_h\n"));
     for (size_t i = 0; i < ClimateHistory::SLOT_COUNT; ++i) {
       if (only_sensor >= 0 && i != static_cast<size_t>(only_sensor)) {
         continue;
@@ -1973,12 +1975,18 @@ public:
                    static_cast<unsigned>(hh.countAtOrBelowNewest(h_n, static_cast<uint16_t>(dry_limit_rh * 10u))));
         }
       }
-      const int row = snprintf(text + len, sizeof(text) - len, "%u,%s,%u,%s,%s,%s,%s,%s,%s,%s,%s\n",
+      // Hot pairs among the newest samples since midnight (the larger of the two counts, like `hours`).
+      char heat_field[12] = "";
+      const int heat = history.heatHoursNewest(i, t_n > h_n ? t_n : h_n, heat_limit_c);
+      if (heat >= 0) {
+        snprintf(heat_field, sizeof(heat_field), "%u", static_cast<unsigned>(heat));
+      }
+      const int row = snprintf(text + len, sizeof(text) - len, "%u,%s,%u,%s,%s,%s,%s,%s,%s,%s,%s,%s\n",
                                static_cast<unsigned>(i), names[i], static_cast<unsigned>(t_n > h_n ? t_n : h_n),
                                t_field[0], t_field[1], t_field[2], h_field[0], h_field[1], h_field[2], mold_field,
-                               dry_field);
+                               dry_field, heat_field);
       if (row < 0 || static_cast<size_t>(row) >= sizeof(text) - len) {
-        break; // cannot happen with 11 rows of at most 80 bytes; never read past the buffer
+        break; // cannot happen with 11 rows of at most 90 bytes (text holds 1536); never read past the buffer
       }
       len += static_cast<size_t>(row);
     }

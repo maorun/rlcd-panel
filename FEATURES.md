@@ -4317,3 +4317,13 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The Wear OS and phone copies of `StatusReply.kt` stay equal apart from the `package` line (`scripts/check-protocol-sync.sh`).
 - Tests: `DiagnosticsTests` (macOS), `StatusReplyTest` (phone and watch) and `SensorHealthTextTest` (phone and watch) read `tests/fixtures/status_reply_sample.txt` (`heat=001`), check `nil` or `null` for an old line, the bounds and bad hex.
 - Validation: `swift test` and `swift build -c release` pass locally. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` for the phone and the watch runs in CI only.
+
+## Heat hours column in the console command TODAY
+
+- **Code:** `rlcd_panel/serial_console.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/rlcd_panel.ino`, `tests/test_firmware_logic.cpp`, `tests/fixtures/today_heat_reply_sample.txt`, `tests/fixtures/today_heat_one_reply_sample.txt`
+- `ClimateHistory::heatHoursNewest(sensor, count, limit_c)` counts the hourly pairs among the newest `count` samples whose `ClimateMath::heatIndexC` (`pairHeatIndexC`) is at or above the limit. It returns -1 for limit 0, a sensor out of range, unequal history sizes and no pair. Unlike `heatHours` it has no minimum pair count.
+- The console command `TODAY` appends the column `heat_h` (12 columns, header `...,mold_h,dry_h,heat_h`). `heat_h` counts the pairs over the same samples since midnight (the larger of the two sample counts, like `hours`) with `heat_alert_limit_c`. An unknown count (-1) gives an empty field. `showToday(..., dry_limit_rh, heat_limit_c)` takes the limit; the sketch passes `config().heat_alert_limit_c`.
+- `tests/fixtures/today_hours_reply_sample.txt` and `today_hours_one_reply_sample.txt` stay as the 11-column samples of the app parsers. `today_heat_reply_sample.txt` and `today_heat_one_reply_sample.txt` hold the 12-column replies. The macOS, Android and Wear OS `TodayReply` parsers accept only the 9-column and 11-column headers. Do not flash this firmware before the roadmap item `App parsers for the TODAY heat hours column` ships, or the today screens show a parse error.
+- The RTC layout and `STATE_VERSION` do not change. No card access, no state change.
+- Host tests: `testSerialTodayHeat` checks `heat_h` 2 for two hot pairs since midnight, an empty field for limit 0, unequal sizes and no pair, the 12-column header, `TODAY 1` with the filtered row and the `CRC32` line, and both fixtures.
+- Validation: 242 host test suites and `arduino-cli compile rlcd_panel` pass. Not run on the board.

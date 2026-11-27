@@ -1542,7 +1542,8 @@ void setup() {
       }
       Runner::showToday(sink, g_state.history, today_now, nowMs(),
                         command.today_one ? static_cast<int>(command.reference) : -1,
-                        g_state.config.mold_alert_limit_rh, g_state.config.dry_alert_limit_rh);
+                        g_state.config.mold_alert_limit_rh, g_state.config.dry_alert_limit_rh,
+                        g_state.config.heat_alert_limit_c);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::TAIL) {
       // The card answers: showTail mounts and unmounts it. The BLE scan has stopped while a console command runs. No state change.
       RtcTime tail_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again
