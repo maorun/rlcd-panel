@@ -51,4 +51,48 @@ class TailScreenTextTest {
         assertEquals("Keine MicroSD-Karte im Panel", TailScreenText.errorText("ERR NO_CARD"))
         assertNull(TailScreenText.errorText("ERR OTHER"))
     }
+
+    private fun battery(dayOffset: Int, pct: Int, slot: Int = 1): TailRow {
+        val start = PanelClock.parse("2026-09-01T12:00:00")!!
+        val slots = MutableList(TailReply.SLOT_COUNT) { empty }
+        slots[slot - 1] = TailSensor(20.0, 50.0, pct)
+        val stamp = PanelClock.format(start + dayOffset * 86_400_000L)!!.replace('T', ' ')
+        return TailRow(stamp, null, null, null, empty, slots)
+    }
+
+    @Test
+    fun forecastLineShowsNameAndDateForEachSlotWithAForecast() {
+        val rows = (0..9).map { battery(it, 80 - it) }
+        val lines = TailScreenText.forecastLines(rows, listOf("Onboard", "Keller"), 10.0)
+        assertEquals(listOf("Keller: change near 2026-11-10"), lines)
+    }
+
+    @Test
+    fun forecastLineUsesTheSlotNumberWithoutAName() {
+        val rows = (0..9).map { battery(it, 80 - it, slot = 3) }
+        assertEquals(listOf("Slot 3: change near 2026-11-10"), TailScreenText.forecastLines(rows, emptyList(), 10.0))
+    }
+
+    @Test
+    fun noForecastLinesForShortOrFlatRows() {
+        assertEquals(emptyList<String>(), TailScreenText.forecastLines(emptyList(), emptyList(), 10.0))
+        assertEquals(emptyList<String>(), TailScreenText.forecastLines((0..5).map { battery(it, 80 - it) }, emptyList(), 10.0))
+    }
+
+    @Test
+    fun hintOnlyForRowsOfLessThanSevenDays() {
+        assertEquals("Battery forecast: read more rows", TailScreenText.forecastHint(listOf(battery(0, 80), battery(3, 79))))
+        assertEquals("Battery forecast: read more rows", TailScreenText.forecastHint(emptyList()))
+        assertNull(TailScreenText.forecastHint(listOf(battery(0, 80), battery(7, 76))))
+    }
+
+    @Test
+    fun forecastLinesKeepTheSlotOrder() {
+        val rows = (0..9).map { d ->
+            val base = battery(d, 80 - d, slot = 3)
+            base.copy(slots = base.slots.toMutableList().also { it[0] = TailSensor(20.0, 50.0, 70 - d) })
+        }
+        val lines = TailScreenText.forecastLines(rows, listOf("Onboard", "Eins", "Zwei", "Drei"), 10.0)
+        assertEquals(listOf("Eins: change near 2026-10-31", "Drei: change near 2026-11-10"), lines)
+    }
 }

@@ -62,6 +62,7 @@ import com.rlcdpanel.watch.protocol.CalibrationText
 import com.rlcdpanel.watch.protocol.SpreadApply
 import com.rlcdpanel.watch.protocol.SpreadCommand
 import com.rlcdpanel.watch.protocol.SpreadReply
+import com.rlcdpanel.watch.protocol.BatteryForecast
 import com.rlcdpanel.watch.protocol.TailReply
 import com.rlcdpanel.watch.protocol.TodayCommand
 import com.rlcdpanel.watch.protocol.TodayReply
@@ -584,7 +585,7 @@ onApply = { applySpread(it) }
 
             if (showSensorHealth && showTail) {
                 BackHandler { closeTail() }
-                TailScreen(state = tailState, roomNames = panelConfig.tileNames, onRead = { readTail() })
+                TailScreen(state = tailState, roomNames = panelConfig.tileNames, forecastLimitPct = BatteryForecast.limitPct(panelConfig), onRead = { readTail() })
                 return@setContent
             }
 
