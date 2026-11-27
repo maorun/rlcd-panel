@@ -486,26 +486,36 @@ struct DiagnosticsView: View {
                 Text("No slot holds a sensor.").font(.caption).foregroundStyle(.secondary)
             }
             ForEach(r.rows) { row in
-                HStack(spacing: 6) {
-                    Text("slot \(row.slot)\(row.name.isEmpty ? "" : " \(row.name)")").font(.caption)
-                        .frame(width: 110, alignment: .leading)
-                    HStack(spacing: 1) {
-                        ForEach(0..<ReceptionReply.maxScans, id: \.self) { i in
-                            Rectangle()
-                                .fill(i < row.cells.count ? (row.cells[i] ? Color.accentColor : Color.secondary.opacity(0.25)) : Color.clear)
-                                .frame(width: 6, height: 12)
+                VStack(alignment: .leading, spacing: 2) {
+                    HStack(spacing: 6) {
+                        Text("slot \(row.slot)\(row.name.isEmpty ? "" : " \(row.name)")").font(.caption)
+                            .frame(width: 110, alignment: .leading)
+                        HStack(spacing: 1) {
+                            ForEach(0..<ReceptionReply.maxScans, id: \.self) { i in
+                                Rectangle()
+                                    .fill(i < row.cells.count ? (row.cells[i] ? Color.accentColor : Color.secondary.opacity(0.25)) : Color.clear)
+                                    .frame(width: 6, height: 12)
+                            }
+                        }
+                        .accessibilityElement(children: .ignore)
+                        .accessibilityLabel("Slot \(row.slot): \(row.received) of \(row.scans) scans received")
+                        Text(row.scans > 0 ? "\(row.received)/\(row.scans)" : "--").font(.caption.monospacedDigit())
+                        if row.isWeak {
+                            Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
+                                .accessibilityLabel("Weak reception")
                         }
                     }
-                    .accessibilityElement(children: .ignore)
-                    .accessibilityLabel("Slot \(row.slot): \(row.received) of \(row.scans) scans received")
-                    Text(row.scans > 0 ? "\(row.received)/\(row.scans)" : "--").font(.caption.monospacedDigit())
-                    if row.isWeak {
-                        Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.orange)
-                            .accessibilityLabel("Weak reception")
+                    if let advice = ReceptionWatch.advice(for: row, rssi: receptionRssi(slot: row.slot)) {
+                        Text(advice).font(.caption).foregroundStyle(.orange)
                     }
                 }
             }
         }
+    }
+
+    /// RSSI (dBm, rounded) of the `STATUS` `SENSOR` line of a registry slot; `nil` without a `STATUS` read or a value.
+    private func receptionRssi(slot: Int) -> Int? {
+        model.status?.sensors.first { $0.index == slot }?.rssi.flatMap { $0.isFinite ? Int($0.rounded()) : nil }
     }
 
     @ViewBuilder private func reset(_ m: ResetMetrics?) -> some View {
