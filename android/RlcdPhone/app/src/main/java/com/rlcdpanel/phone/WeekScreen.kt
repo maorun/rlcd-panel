@@ -95,6 +95,10 @@ object WeekChartModel {
     fun moldLabel(hours: List<Int?>): String? = hoursLabel(hours)
     fun dryLabel(hours: List<Int?>): String? = hoursLabel(hours)
 
+    /** `HEAT <N> h` with the sum of `heatHours` of the sensor over the days with a value; null when no day has one. */
+    fun heatLabel(rows: List<WeekRow>, sensor: Int): String? =
+        rows.filter { it.sensor == sensor }.mapNotNull { it.heatHours }.takeIf { it.isNotEmpty() }?.let { "HEAT ${it.sum()} h" }
+
     /** `MM-DD` of the day, or empty without a date. */
     fun dayLabel(rows: List<WeekRow>, sensor: Int, day: Int): String =
         rows.firstOrNull { it.sensor == sensor && it.day == day }?.date?.takeIf { it.length == 10 }?.substring(5) ?: ""
@@ -203,6 +207,9 @@ fun WeekScreen(
                         WeekChartModel.dryLabel(dry)?.let { label ->
                             Text("Trockenstunden (h)", style = MaterialTheme.typography.labelMedium)
                             HourBars(dry, MaterialTheme.colorScheme.tertiary, outline)
+                            Text(label, style = MaterialTheme.typography.bodySmall)
+                        }
+                        WeekChartModel.heatLabel(state.rows, sensor)?.let { label ->
                             Text(label, style = MaterialTheme.typography.bodySmall)
                         }
                         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {

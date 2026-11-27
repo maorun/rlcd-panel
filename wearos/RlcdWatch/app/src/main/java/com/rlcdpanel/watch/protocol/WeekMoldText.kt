@@ -8,6 +8,9 @@ object WeekMoldText {
     /** `Trocken <N> h` with the sum of `dryHours` over the days with a value; `null` when no day has one. */
     fun dry(rows: List<WeekRow>): String? = sum("Trocken", rows.mapNotNull { it.dryHours })
 
+    /** `HEAT <N> h` with the sum of `heatHours` over the days with a value; `null` when no day has one. */
+    fun heat(rows: List<WeekRow>): String? = sum("HEAT", rows.mapNotNull { it.heatHours })
+
     private fun sum(label: String, values: List<Int>): String? =
         if (values.isEmpty()) null else "$label ${values.sum()} h"
 }

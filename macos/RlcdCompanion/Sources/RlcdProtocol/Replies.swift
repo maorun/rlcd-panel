@@ -365,6 +365,13 @@ public enum WeekReply {
         let values = rows.filter { $0.sensor == sensor }.compactMap(\.dryHours)
         return values.isEmpty ? nil : values.reduce(0, +)
     }
+
+    /// `HEAT <N> h` with the sum of the heat hours of `sensor` over the days with a value (0 to 168).
+    /// `nil` without such a day, also for a reply with fewer than 10 columns.
+    public static func heatLabel(rows: [WeekRow], sensor: Int) -> String? {
+        let values = rows.filter { $0.sensor == sensor }.compactMap(\.heatHours)
+        return values.isEmpty ? nil : "HEAT \(values.reduce(0, +)) h"
+    }
 }
 
 /// One `TODAY` row: the range of one sensor since local midnight. An empty field gives `nil`.

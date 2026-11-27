@@ -83,4 +83,22 @@ class WeekMoldTextTest {
         assertEquals("Trocken 18 h", WeekMoldText.dry(fixtureRows().filter { it.sensor == 0 }))
         assertEquals("Trocken 24 h", WeekMoldText.dry(fixtureRows().filter { it.sensor == 1 }))
     }
+
+    private fun heatRows(): List<WeekRow> {
+        val reply = ReplyAssembler().append(Fixtures.file("week_heat_reply_sample.txt").readBytes())
+        val lines = (reply as? ConsoleReply.Frame)?.lines ?: throw AssertionError("fixture is no valid frame")
+        return WeekReply.parse(lines)
+    }
+
+    @Test
+    fun heatSumsFixtureDays() {
+        assertEquals("HEAT 20 h", WeekMoldText.heat(heatRows().filter { it.sensor == 0 }))
+        assertEquals("HEAT 16 h", WeekMoldText.heat(heatRows().filter { it.sensor == 1 }))
+    }
+
+    @Test
+    fun heatIsNullForNineColumnFixture() {
+        assertNull(WeekMoldText.heat(fixtureRows().filter { it.sensor == 0 }))
+        assertNull(WeekMoldText.heat(emptyList()))
+    }
 }
