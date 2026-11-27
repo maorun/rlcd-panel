@@ -1,0 +1,5 @@
+BEGIN TODAY
+sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct,mold_h,dry_h,heat_h
+0,onboard,5,27.0,31.0,29.0,50.0,50.0,50.0,0,0,2
+1,slot1,2,21.0,22.0,21.5,45.0,46.0,45.5,0,0,0
+CRC32 055698a3
