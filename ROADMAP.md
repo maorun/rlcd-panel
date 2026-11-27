@@ -40,12 +40,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test in each app reads `tests/fixtures/today_heat_reply_sample.txt` and checks `heatHours`. A unit test checks `nil` or `null` for the 11-column fixture. A unit test checks `ParseError.badLine` or `ParseException` for a negative value. `scripts/check-protocol-sync.sh` passes. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
   - **Rank:** [Total: 29, Use: 6, Setup: 3, Harmony: 10, Safety: 10, Effort: S]
 
-- [ ] Wear OS door reference and outdoor slot proposals
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/DoorProposal.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/OutdoorProposal.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/DoorProposalTest.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/OutdoorProposalTest.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
-  - **Goal:** Let the watch user set `outdoor_slot` and `door_ref_slot` from a proposal. The phone and macOS setup assistants have both proposals, the watch has none. Copy both files from the phone and add them to `FILES` of the sync check. Show a `Setup proposals` chip that sends `HISTORY` and `CONFIG` only on a tap. Show each proposal with an `Apply` chip that sends one `SET` and then `CONFIG`. Map `ERR READ_ONLY` to `Set ble_console=2`.
-  - **Acceptance:** A unit test reads `tests/fixtures/history_reply_sample.txt` and checks the proposal of the phone test. A unit test checks the `SET` line of each proposal. `scripts/check-protocol-sync.sh` passes. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 29, Use: 4, Setup: 9, Harmony: 9, Safety: 7, Effort: M]
-
 ## Priority 3: Display and Logging (Score 22–27)
 
 - [ ] Heat hours in the week chart view of the panel
