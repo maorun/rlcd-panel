@@ -42,12 +42,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Heat hours columns in the daily log (daily_v7)
-  - **Location:** `rlcd_panel/sd_logger.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/serial_console.h`, `scripts/dump-logs.sh`, `macos/RlcdCompanion/Sources/RlcdProtocol/DailyLog.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/LogArchive.swift`, the Kotlin `DaysReply.kt` of the phone and the watch, `tests/test_firmware_logic.cpp`, `tests/fixtures/days_reply_v7_sample.txt`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Keep the heat hours of each day on the card. Add `heat_h_0` to `heat_h_10` after the dry hours (105 columns, `DAILY_COLUMNS`) in `daily_v7_YYYY.csv`. Keep `daily_v6` files unchanged. `DAYS` sends the `daily_v7` header and fills 11 empty fields for each `daily_v6` row. Add `heat_h` to `WeekHistory::RestoreRow`. Add `daily_v7` to the name pattern of `LIST`, `DUMP`, the retention, `dump-logs.sh` and `LogArchive.swift`.
-  - **Acceptance:** A host test checks the 105-column row. A host test checks the restore of the heat hours from `daily_v7` and gaps from `daily_v6`. A host test checks the `DAYS` reply across a `daily_v6` and a `daily_v7` file. `./scripts/dump-logs.sh --self-test` passes. A unit test in each app parses the new fixture. The host test suite passes. `arduino-cli compile rlcd_panel` passes. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass. `scripts/check-protocol-sync.sh` passes.
-  - **Rank:** [Total: 27, Use: 5, Setup: 3, Harmony: 10, Safety: 9, Effort: L]
-
 - [ ] Android heat hours in the days screen
   - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/DaysReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/DaysReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/DaysScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/DaysReplyTest.kt`, `FEATURES.md`
   - **Goal:** Show the heat hours of each day on the phone. Depends on `Heat hours columns in the daily log (daily_v7)`. Accept 83, 94 and 105 columns by the header. Add `DaysRow.heatHours` (`null` for fewer columns and an empty field). Show `Heat <N> h` beside mold and dry hours of each day.

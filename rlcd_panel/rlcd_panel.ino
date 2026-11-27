@@ -1222,7 +1222,8 @@ void logDailySummary(uint32_t now, bool card_ok) {
     g_state.daily.markDone(g_rtc_time);
   } else if (action == DailyAction::WRITE && card_ok) {
     const SdLogResult result = SdLogger::appendDaily(g_rtc_time, g_state.history, g_state.noise_history, g_state.daily.noise,
-                                                       config().mold_alert_limit_rh, config().dry_alert_limit_rh);
+                                                       config().mold_alert_limit_rh, config().dry_alert_limit_rh,
+                                                       config().heat_alert_limit_c);
     if (result == SdLogResult::OK) {
       g_state.daily.markDone(g_rtc_time);
     } else {

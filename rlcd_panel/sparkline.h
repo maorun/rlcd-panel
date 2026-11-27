@@ -1025,9 +1025,11 @@ public:
     int16_t rh_max[SENSORS] = {};
     uint8_t mold_h[SENSORS]; // hours above the limit, GAP for an empty field
     uint8_t dry_h[SENSORS];  // hours at or below the dry limit, GAP for an empty field and for a daily_v5 row
+    uint8_t heat_h[SENSORS]; // hours at or above the heat limit, GAP for an empty field and for a daily_v5 or daily_v6 row
     RestoreRow() {
       memset(mold_h, GAP, sizeof(mold_h));
       memset(dry_h, GAP, sizeof(dry_h));
+      memset(heat_h, GAP, sizeof(heat_h));
     }
   };
 
@@ -1069,7 +1071,7 @@ public:
         const bool has_t = (rows[i].temp_mask & (1u << s)) != 0;
         const bool has_h = (rows[i].rh_mask & (1u << s)) != 0;
         setDay(s, k, has_t, rows[i].temp_min[s], rows[i].temp_max[s], has_h, rows[i].rh_min[s],
-               rows[i].rh_max[s], rows[i].mold_h[s], rows[i].dry_h[s]);
+               rows[i].rh_max[s], rows[i].mold_h[s], rows[i].dry_h[s], rows[i].heat_h[s]);
       }
       if (!filled[k]) {
         filled[k] = true;

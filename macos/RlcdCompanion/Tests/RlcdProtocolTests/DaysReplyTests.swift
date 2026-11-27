@@ -41,6 +41,22 @@ import Testing
         #expect(reply.rows.allSatisfy { $0.dryHours.allSatisfy { $0 == nil } }) // the sample leaves the dry fields empty
     }
 
+    /// The `daily_v7` reply of the firmware: 105 columns, the dry and heat hours stay empty in the sample.
+    @Test func parsesDailyV7Fixture() throws {
+        let url = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+            .deletingLastPathComponent().deletingLastPathComponent()
+            .appendingPathComponent("tests/fixtures/days_reply_v7_sample.txt")
+        let lines = try String(contentsOf: url, encoding: .utf8).split(separator: "\n").map(String.init)
+            .filter { !$0.hasPrefix("CRC32") }
+        #expect(lines[1].hasSuffix(",dry_h_10,heat_h_0,heat_h_1,heat_h_2,heat_h_3,heat_h_4,heat_h_5,heat_h_6,heat_h_7,heat_h_8,heat_h_9,heat_h_10"))
+        let reply = try DaysReply.parse(lines: lines)
+        #expect(reply.rows.map(\.date) == ["2025-12-31", "2026-01-01", "2026-01-02"])
+        #expect(reply.rows[0].sensors[0].tempMinC == 18.0)
+        #expect(reply.rows[0].sensors[0].rhMax == 55.5)
+        #expect(reply.rows.allSatisfy { $0.dryHours.count == 11 && $0.dryHours.allSatisfy { $0 == nil } })
+    }
+
     @Test func emptyPairGivesNil() throws {
         let row = try DaysReply.parse(lines: Self.fixtureLines()).rows[0]
         let empty = DailySensorStats(tempMinC: nil, tempMaxC: nil, tempMeanC: nil, rhMin: nil, rhMax: nil, rhMean: nil)
