@@ -267,6 +267,7 @@ fun SensorHealthScreen(
     onOpenWeek: () -> Unit = {},
     onOpenSignal: (StatusSensor) -> Unit = {},
     onOpenRejects: () -> Unit = {},
+    onOpenAlertCauses: () -> Unit = {},
     onOpenReception: () -> Unit = {},
     onOpenConfigChanged: () -> Unit = {},
     onOpenSelfTest: () -> Unit = {},
@@ -398,6 +399,14 @@ fun SensorHealthScreen(
                         modifier = Modifier.fillMaxWidth(0.85f),
                         colors = ChipDefaults.secondaryChipColors(),
                         label = { Text("Mold (31 days)", fontSize = 12.sp, maxLines = 1) }
+                    )
+                }
+                item {
+                    Chip(
+                        onClick = onOpenAlertCauses,
+                        modifier = Modifier.fillMaxWidth(0.85f),
+                        colors = ChipDefaults.secondaryChipColors(),
+                        label = { Text("Alert causes", fontSize = 12.sp, maxLines = 1) }
                     )
                 }
                 item {

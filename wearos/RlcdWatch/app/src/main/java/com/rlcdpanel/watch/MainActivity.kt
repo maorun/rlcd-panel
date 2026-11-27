@@ -48,6 +48,8 @@ import com.rlcdpanel.watch.protocol.ConfigChangedReply
 import com.rlcdpanel.watch.protocol.ConfigReset
 import com.rlcdpanel.watch.protocol.ReceptionReply
 import com.rlcdpanel.watch.protocol.RejectsReply
+import com.rlcdpanel.watch.protocol.AlertsReply
+import com.rlcdpanel.watch.protocol.AlertCauseRows
 import com.rlcdpanel.watch.protocol.SelfTestReply
 import com.rlcdpanel.watch.protocol.SlotClearCommand
 import com.rlcdpanel.watch.protocol.SlotSwapCommand
@@ -165,6 +167,9 @@ class MainActivity : ComponentActivity() {
     private var showRejects by mutableStateOf(false)
     private var rejectsState by mutableStateOf(RejectsState())
     private var pendingRejectsRead = false
+    private var showAlertCauses by mutableStateOf(false)
+    private var alertCausesState by mutableStateOf(AlertCausesUiState())
+    private var pendingAlertCausesRead = false
     private var showReception by mutableStateOf(false)
     private var receptionState by mutableStateOf(ReceptionState())
     private var pendingReceptionRead = false
@@ -226,6 +231,7 @@ class MainActivity : ComponentActivity() {
         val week = pendingWeekRead
         val salt = pendingSaltRead
         val rejects = pendingRejectsRead
+        val alertCauses = pendingAlertCausesRead
         val reception = pendingReceptionRead
         val configChanged = pendingConfigChangedRead
         val selfTest = pendingSelfTestRead
@@ -243,6 +249,7 @@ class MainActivity : ComponentActivity() {
         pendingWeekRead = false
         pendingSaltRead = false
         pendingRejectsRead = false
+        pendingAlertCausesRead = false
         pendingReceptionRead = false
         pendingConfigChangedRead = false
         pendingSelfTestRead = false
@@ -266,6 +273,8 @@ class MainActivity : ComponentActivity() {
                 startWeekRead()
             } else if (salt) {
                 startSaltRead()
+            } else if (alertCauses) {
+                startAlertCausesRead()
             } else if (rejects) {
                 startRejectsRead()
             } else if (reception) {
@@ -304,6 +313,8 @@ class MainActivity : ComponentActivity() {
             weekState = WeekState(message = "Bluetooth-Berechtigung fehlt")
         } else if (salt) {
             saltState = saltState.withFailure(pendingSaltMagnesium, "Bluetooth-Berechtigung fehlt")
+        } else if (alertCauses) {
+            alertCausesState = AlertCausesUiState(message = "Bluetooth-Berechtigung fehlt")
         } else if (rejects) {
             rejectsState = RejectsState(message = "Bluetooth-Berechtigung fehlt")
         } else if (reception) {
@@ -612,6 +623,12 @@ onApply = { applySpread(it) }
                 return@setContent
             }
 
+            if (showSensorHealth && showAlertCauses) {
+                BackHandler { closeAlertCauses() }
+                AlertCausesScreen(state = alertCausesState, onRead = { readAlertCauses() })
+                return@setContent
+            }
+
             if (showSensorHealth && showRejects) {
                 BackHandler { closeRejects() }
                 RejectsScreen(state = rejectsState, onRead = { readRejects() })
@@ -646,6 +663,7 @@ onApply = { applySpread(it) }
                         startSignal()
                     },
                     onOpenRejects = { showRejects = true },
+                    onOpenAlertCauses = { showAlertCauses = true },
                     onOpenReception = { showReception = true },
                     onOpenConfigChanged = { showConfigChanged = true },
                     onOpenSelfTest = { showSelfTest = true },
@@ -762,6 +780,9 @@ onApply = { applySpread(it) }
         historyState = HistoryState()
         rejectsState = RejectsState()
         pendingRejectsRead = false
+        alertCausesState = AlertCausesUiState()
+        pendingAlertCausesRead = false
+        showAlertCauses = false
         receptionState = ReceptionState()
         pendingReceptionRead = false
         showReception = false
@@ -876,7 +897,7 @@ onApply = { applySpread(it) }
 
     /** Asks for BLUETOOTH_CONNECT and BLUETOOTH_SCAN (SDK 31 and later), then sends `CONFIG` once. */
     private fun readPanelConfig() {
-        if (isReadingConfig || healthState.isReading || pendingClockRead || pendingVersionRead || versionState.isReading || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingSaltRead || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
+        if (isReadingConfig || healthState.isReading || pendingClockRead || pendingVersionRead || versionState.isReading || pendingWeekRead || pendingHistoryRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingSaltRead || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
         isReadingConfig = true
         configStatus = null
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -893,7 +914,7 @@ onApply = { applySpread(it) }
 
     /** Asks for the console permissions, then sends `TIME` once. Only a tap in the sensor health screen calls it. The watch never sends `TIME SET`. */
     private fun readClock() {
-        if (clockState.isReadingClock || pendingClockRead || pendingVersionRead || versionState.isReading || pendingHealthRead || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || healthState.isReading || healthState.isMuting || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
+        if (clockState.isReadingClock || pendingClockRead || pendingVersionRead || versionState.isReading || pendingHealthRead || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || healthState.isReading || healthState.isMuting || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
         clockState = ClockReadState(isReadingClock = true)
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
@@ -933,7 +954,7 @@ onApply = { applySpread(it) }
 
     /** Asks for the console permissions, then sends `VERSION` once. Only a tap in the sensor health screen calls it. */
     private fun readVersion() {
-        if (versionState.isReading || pendingVersionRead || pendingClockRead || pendingHealthRead || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || healthState.isReading || healthState.isMuting || clockState.isReadingClock || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
+        if (versionState.isReading || pendingVersionRead || pendingClockRead || pendingHealthRead || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || healthState.isReading || healthState.isMuting || clockState.isReadingClock || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
         versionState = VersionReadState(isReading = true)
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
@@ -976,7 +997,7 @@ onApply = { applySpread(it) }
 
     /** Asks for the console permissions, then sends `HISTORY <N>` once. Only a tap in the history screen calls it. */
     private fun readHistory() {
-        if (historyState.isReading || healthState.isMuting || clockState.isReadingClock || pendingHistoryRead || pendingWeekRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
+        if (historyState.isReading || healthState.isMuting || clockState.isReadingClock || pendingHistoryRead || pendingWeekRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
         historyState = HistoryState(isReading = true)
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
@@ -1104,7 +1125,7 @@ onApply = { applySpread(it) }
 
     /** Asks for the console permissions, then sends `WEEK <N>` for the selected sensor once. Only a tap in the week screen calls it. */
     private fun readWeek() {
-        if (weekState.isReading || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
+        if (weekState.isReading || pendingWeekRead || pendingHistoryRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
         weekState = WeekState(isReading = true)
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
@@ -1246,7 +1267,7 @@ onApply = { applySpread(it) }
 
     /** Asks for the console permissions, then sends `SALT <N>` or, for [magnesium], `SALT <N> MGCL2` once. Only a tap in the salt screen calls it. It sends no `SET`. */
     private fun readSalt(magnesium: Boolean) {
-        if (saltState.isReading || saltState.isApplying || pendingSaltRead || healthState.isMuting || clockState.isReadingClock || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
+        if (saltState.isReading || saltState.isApplying || pendingSaltRead || healthState.isMuting || clockState.isReadingClock || pendingWeekRead || pendingHistoryRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
         saltState = saltState.reading()
         pendingSaltMagnesium = magnesium
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -1330,7 +1351,7 @@ onApply = { applySpread(it) }
 
     /** Asks for the console permissions, then sends `REJECTS` once. Only a tap in the rejects screen calls it. */
     private fun readRejects() {
-        if (rejectsState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
+        if (rejectsState.isReading || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
         rejectsState = RejectsState(isReading = true)
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
@@ -1364,6 +1385,48 @@ onApply = { applySpread(it) }
         }
     }
 
+    private fun closeAlertCauses() {
+        consoleClient.cancel()
+        pendingAlertCausesRead = false
+        alertCausesState = AlertCausesUiState()
+        showAlertCauses = false
+    }
+
+    /** Asks for the console permissions, then sends `ALERTS` once. Only a tap in the alert causes screen calls it. */
+    private fun readAlertCauses() {
+        if (alertCausesState.isReading || pendingAlertCausesRead || pendingSpreadRead || spreadState.isReading || pendingCalibRead || pendingTodayRead || todayState.isReading || selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || pendingRejectsRead || rejectsState.isReading || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
+        alertCausesState = AlertCausesUiState(isReading = true)
+        val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
+        } else {
+            emptyList()
+        }.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
+        if (needed.isNotEmpty()) {
+            pendingAlertCausesRead = true
+            consolePermissionLauncher.launch(needed.toTypedArray())
+            return
+        }
+        startAlertCausesRead()
+    }
+
+    private fun startAlertCausesRead() {
+        if (consoleClient.isRunning) {
+            alertCausesState = AlertCausesUiState(message = "Panel-Verbindung ist belegt")
+            return
+        }
+        consoleClient.send("ALERTS") { reply ->
+            alertCausesState = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    AlertCausesUiState(lines = AlertCauseRows.lines(AlertsReply.parse(reply.lines), panelConfig.tileNames))
+                } catch (e: ParseException) {
+                    AlertCausesUiState(message = "Antwort nicht lesbar")
+                }
+                is ConsoleReply.Status -> AlertCausesUiState(message = AlertsReply.errorText(reply.line))
+                else -> AlertCausesUiState(message = BleConsoleClient.errorText(reply))
+            }
+        }
+    }
+
     private fun closeReception() {
         consoleClient.cancel()
         pendingReceptionRead = false
@@ -1373,7 +1436,7 @@ onApply = { applySpread(it) }
 
     /** Asks for the console permissions, then sends `RECEPTION` once. Only a tap in the reception screen calls it. */
     private fun readReception() {
-        if (receptionState.isReading || pendingReceptionRead || rejectsState.isReading || pendingRejectsRead || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
+        if (receptionState.isReading || pendingReceptionRead || rejectsState.isReading || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
         receptionState = ReceptionState(isReading = true)
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             listOf(Manifest.permission.BLUETOOTH_CONNECT, Manifest.permission.BLUETOOTH_SCAN)
@@ -1446,7 +1509,7 @@ onApply = { applySpread(it) }
     /** Asks for the console permissions, then sends `CONFIG CHANGED` once. Only a tap in the settings screen calls it. */
     private fun readConfigChanged() {
         if (configChangedState.isReading || pendingConfigChangedRead) return
-        if (selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSpreadRead || spreadState.isReading || pendingTodayRead || todayState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || rejectsState.isReading || pendingSelfTestRead || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) {
+        if (selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSpreadRead || spreadState.isReading || pendingTodayRead || todayState.isReading || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || rejectsState.isReading || pendingSelfTestRead || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) {
             configChangedState = ConfigChangedState(message = "Panel-Verbindung ist belegt")
             return
         }
@@ -1492,7 +1555,7 @@ onApply = { applySpread(it) }
     /** Asks for the console permissions, then sends `SPREAD` once. Only a tap in the co-location screen calls it. */
     private fun readSpread() {
         if (spreadState.isReading || pendingSpreadRead) return
-        if (selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSelfTestRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) {
+        if (selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSelfTestRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) {
             spreadState = SpreadState(message = "Panel-Verbindung ist belegt")
             return
         }
@@ -1576,7 +1639,7 @@ onApply = { applySpread(it) }
 
     private fun calibBusy(): Boolean =
         selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSelfTestRead ||
-            pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading ||
+            pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading ||
             pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead ||
             versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading ||
             isReadingConfig || pendingSaltRead || saltState.isReading || pendingSpreadRead || spreadState.isReading || spreadState.isApplying ||
@@ -1702,7 +1765,7 @@ onApply = { applySpread(it) }
             frsiState = picked.copy(reply = null, confirming = false, message = FrsiApply.DIFFERENT_TEXT)
             return
         }
-        if (selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSelfTestRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingSpreadRead || spreadState.isReading || spreadState.isApplying || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) {
+        if (selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSelfTestRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingSpreadRead || spreadState.isReading || spreadState.isApplying || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) {
             frsiState = picked.copy(reply = null, confirming = false, message = "Panel-Verbindung ist belegt")
             return
         }
@@ -1777,7 +1840,7 @@ onApply = { applySpread(it) }
     /** Asks for the console permissions, then sends `DAYS 31` once. Only a tap in the mold screen calls it. */
     private fun readMold() {
         if (moldState.isReading || pendingMoldRead) return
-        if (tailState.isReading || pendingTailRead || todayState.isReading || pendingTodayRead || spreadState.isReading || pendingSpreadRead || selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSelfTestRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) {
+        if (tailState.isReading || pendingTailRead || todayState.isReading || pendingTodayRead || spreadState.isReading || pendingSpreadRead || selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSelfTestRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) {
             moldState = MoldSummaryState(message = "Panel-Verbindung ist belegt")
             return
         }
@@ -1825,7 +1888,7 @@ onApply = { applySpread(it) }
     /** Asks for the console permissions, then sends `TAIL 6` once. Only a tap in the tail screen calls it. */
     private fun readTail() {
         if (tailState.isReading || pendingTailRead) return
-        if (moldState.isReading || pendingMoldRead || todayState.isReading || pendingTodayRead || spreadState.isReading || pendingSpreadRead || selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSelfTestRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) {
+        if (moldState.isReading || pendingMoldRead || todayState.isReading || pendingTodayRead || spreadState.isReading || pendingSpreadRead || selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSelfTestRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) {
             tailState = TailState(message = "Panel-Verbindung ist belegt")
             return
         }
@@ -1874,7 +1937,7 @@ onApply = { applySpread(it) }
     private fun readToday() {
         if (todayState.isReading || pendingTodayRead) return
         val sensor = todayState.sensor
-        if (spreadState.isReading || pendingSpreadRead || selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSelfTestRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) {
+        if (spreadState.isReading || pendingSpreadRead || selfTestState.isRunning || clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingSelfTestRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) {
             todayState = TodayState(message = "Panel-Verbindung ist belegt", sensor = sensor)
             return
         }
@@ -1931,7 +1994,7 @@ onApply = { applySpread(it) }
     /** Asks for the console permissions, then sends `SELFTEST` once. Only the confirm chip of the self-test screen calls it. */
     private fun readSelfTest() {
         if (selfTestState.isRunning || pendingSelfTestRead) return
-        if (clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) {
+        if (clockState.isReadingClock || healthState.isMuting || chimeState.isTesting || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingWeekRead || pendingHistoryRead || pendingEventsRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) {
             selfTestState = SelfTestUiState(confirming = true, message = "Panel-Verbindung ist belegt")
             return
         }
@@ -1977,7 +2040,7 @@ onApply = { applySpread(it) }
 
     /** Asks for the console permissions, then sends `EVENTS 8` or, for [all], `EVENTS` once. Only a tap in the event log screen calls it. */
     private fun readEvents(all: Boolean) {
-        if (eventState.isReading || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
+        if (eventState.isReading || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || healthState.isReading || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
         eventState = eventState.copy(isReading = true, message = null)
         pendingEventsAll = all
         val needed = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
@@ -2015,7 +2078,7 @@ onApply = { applySpread(it) }
 
     /** Asks for the console permissions, then sends `STATUS` once. Only a tap in the sensor health screen calls it. */
     private fun readSensorHealth() {
-        if (healthState.isReading || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
+        if (healthState.isReading || pendingHealthRead || pendingClockRead || pendingVersionRead || versionState.isReading || pendingWeekRead || pendingHistoryRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
         chimeState = chimeState.copy(message = null)
         if (!rtcTrimState.isBusy) rtcTrimState = RtcTrimState()
         if (!slotClearState.isSending) slotClearState = SlotClearState()
@@ -2093,7 +2156,7 @@ onApply = { applySpread(it) }
      * keeps the old state and is not retried.
      */
     private fun setMute(on: Boolean) {
-        if (healthState.isReading || healthState.isMuting || pendingClockRead || pendingVersionRead || versionState.isReading || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || clockState.isReadingClock || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
+        if (healthState.isReading || healthState.isMuting || pendingClockRead || pendingVersionRead || versionState.isReading || pendingWeekRead || pendingHistoryRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || clockState.isReadingClock || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingSaltRead || saltState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
                 ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
@@ -2125,7 +2188,7 @@ onApply = { applySpread(it) }
      */
     private fun testChime() {
         if (chimeState.isTesting || healthState.isReading || healthState.isMuting || pendingClockRead || pendingVersionRead || versionState.isReading || pendingHealthRead ||
-            pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || clockState.isReadingClock || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning
+            pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || clockState.isReadingClock || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning
         ) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
@@ -2146,7 +2209,7 @@ onApply = { applySpread(it) }
      */
     private fun trimRtc() {
         if (rtcTrimState.isBusy || chimeState.isTesting || healthState.isReading || healthState.isMuting || pendingClockRead || pendingVersionRead || versionState.isReading || pendingHealthRead ||
-            pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || clockState.isReadingClock || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning
+            pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || clockState.isReadingClock || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning
         ) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
@@ -2177,7 +2240,7 @@ onApply = { applySpread(it) }
     /** Sends `IDENTIFY` once. Only a tap on the `Panel finden` chip calls it. A failed command is not retried. */
     private fun identifyPanel() {
         if (chimeState.isTesting || healthState.isReading || healthState.isMuting || pendingClockRead || pendingVersionRead || versionState.isReading || pendingHealthRead ||
-            pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || clockState.isReadingClock || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning
+            pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading || pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || clockState.isReadingClock || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading || isReadingConfig || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning
         ) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
             (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
@@ -2199,7 +2262,7 @@ onApply = { applySpread(it) }
      */
     private fun clearSlot(slot: Int) {
         if (slotClearState.isSending || slotSwapState.isSending || slotClearState.confirming != slot || healthState.isReading || healthState.isMuting || chimeState.isTesting || pendingHealthRead ||
-            pendingClockRead || pendingVersionRead || versionState.isReading || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading ||
+            pendingClockRead || pendingVersionRead || versionState.isReading || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading ||
             pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || clockState.isReadingClock || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading ||
             isReadingConfig || pendingSaltRead || saltState.isReading || pendingSpreadRead || spreadState.isReading || spreadState.isApplying ||
             pendingTodayRead || todayState.isReading || selfTestState.isRunning || rejectsState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning
@@ -2254,7 +2317,7 @@ onApply = { applySpread(it) }
         val second = slotSwapState.second ?: return
         val line = SlotSwapCommand.line(first, second) ?: return
         if (slotSwapState.isSending || slotClearState.isSending || healthState.isReading || healthState.isMuting || chimeState.isTesting || pendingHealthRead ||
-            pendingClockRead || pendingVersionRead || versionState.isReading || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingRejectsRead || pendingReceptionRead || receptionState.isReading ||
+            pendingClockRead || pendingVersionRead || versionState.isReading || pendingEventsRead || pendingWeekRead || pendingHistoryRead || pendingAlertCausesRead || alertCausesState.isReading || pendingRejectsRead || pendingReceptionRead || receptionState.isReading ||
             pendingConfigChangedRead || configChangedState.isReading || pendingSelfTestRead || clockState.isReadingClock || pendingMoldRead || pendingTailRead || tailState.isReading || moldState.isReading ||
             isReadingConfig || pendingSaltRead || saltState.isReading || pendingSpreadRead || spreadState.isReading || spreadState.isApplying ||
             pendingTodayRead || todayState.isReading || selfTestState.isRunning || rejectsState.isReading || pendingFrsiRead || frsiState.isReading || frsiState.isApplying || consoleClient.isRunning
