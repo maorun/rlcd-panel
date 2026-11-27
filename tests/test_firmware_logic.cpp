@@ -10034,6 +10034,87 @@ void testWeekChartDrySum() {
   }
 }
 
+void testWeekChartHeatSum() {
+  char out[16];
+  WeekHistory w;
+  DashboardView::formatWeekHeat(w, 1, out, sizeof(out));
+  assert(out[0] == '\0');
+  // Days of 2, 2 and 3 h give 7 h; a gap day adds nothing
+  w.setDay(1, 0, true, 100, 200, true, 400, 600, WeekHistory::GAP, WeekHistory::GAP, 2);
+  w.setDay(1, 1, true, 100, 200, true, 400, 600, WeekHistory::GAP, WeekHistory::GAP, 2);
+  w.setDay(1, 2, true, 100, 200, true, 400, 600, WeekHistory::GAP, WeekHistory::GAP, 3);
+  w.setDay(1, 3, true, 100, 200, true, 400, 600);
+  DashboardView::formatWeekHeat(w, 1, out, sizeof(out));
+  assert(strcmp(out, "HEAT 7H") == 0);
+  DashboardView::formatWeekHeat(w, 0, out, sizeof(out));
+  assert(out[0] == '\0');
+  DashboardView::formatWeekHeat(w, 99, out, sizeof(out));
+  assert(out[0] == '\0');
+
+  Shtc3Reading onboard;
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  BatteryReading battery;
+  SystemInfo info;
+  info.chart_sensor = 1;
+  // Full line: 60 glyphs fill CHART_W exactly and keep the heat text
+  WeekHistory all;
+  for (size_t d = 0; d < WeekHistory::DAYS; ++d) {
+    all.setDay(1, d, true, 100, 200, true, 400, 550, 24, 24, 24);
+  }
+  St7305Framebuffer a;
+  a.clear(false);
+  DashboardView::renderMode(a, DisplayMode::WEEK_CHART, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info,
+                            "12:00", 0, nullptr, nullptr, nullptr, &all);
+  St7305Framebuffer expected;
+  expected.clear(false);
+  expected.drawText(DashboardView::CHART_X, DashboardView::CHART_HUMIDITY_LABEL_Y,
+                    "HUMIDITY MIN 40.0 MAX 55.0 %  MOLD 168H  DRY 168H  HEAT 168H", 1, true);
+  for (uint16_t y = DashboardView::CHART_HUMIDITY_LABEL_Y; y < DashboardView::CHART_HUMIDITY_LABEL_Y + 7; ++y) {
+    for (uint16_t x = DashboardView::CHART_X; x < DashboardView::CHART_X + DashboardView::CHART_W; ++x) {
+      assert(a.getPixel(x, y) == expected.getPixel(x, y));
+    }
+    for (uint16_t x = DashboardView::CHART_X + DashboardView::CHART_W; x < RLCD_WIDTH; ++x) {
+      assert(!a.getPixel(x, y));
+    }
+  }
+  // A wider range (100.0 / 100.0) makes the line 62 glyphs: the heat text drops
+  WeekHistory wide;
+  for (size_t d = 0; d < WeekHistory::DAYS; ++d) {
+    wide.setDay(1, d, true, 100, 200, true, 1000, 1000, 24, 24, 24);
+  }
+  St7305Framebuffer b;
+  b.clear(false);
+  DashboardView::renderMode(b, DisplayMode::WEEK_CHART, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info,
+                            "12:00", 0, nullptr, nullptr, nullptr, &wide);
+  St7305Framebuffer expected_wide;
+  expected_wide.clear(false);
+  expected_wide.drawText(DashboardView::CHART_X, DashboardView::CHART_HUMIDITY_LABEL_Y,
+                         "HUMIDITY MIN 100.0 MAX 100.0 %  MOLD 168H  DRY 168H", 1, true);
+  for (uint16_t y = DashboardView::CHART_HUMIDITY_LABEL_Y; y < DashboardView::CHART_HUMIDITY_LABEL_Y + 7; ++y) {
+    for (uint16_t x = DashboardView::CHART_X; x < RLCD_WIDTH; ++x) {
+      assert(b.getPixel(x, y) == expected_wide.getPixel(x, y));
+    }
+  }
+  // Boundary: 61 glyphs (MIN 55.0 MAX 100.0) are 366 px, so the heat text drops
+  WeekHistory edge;
+  for (size_t d = 0; d < WeekHistory::DAYS; ++d) {
+    edge.setDay(1, d, true, 100, 200, true, 550, 1000, 24, 24, 24);
+  }
+  St7305Framebuffer e;
+  e.clear(false);
+  DashboardView::renderMode(e, DisplayMode::WEEK_CHART, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, info,
+                            "12:00", 0, nullptr, nullptr, nullptr, &edge);
+  St7305Framebuffer expected_edge;
+  expected_edge.clear(false);
+  expected_edge.drawText(DashboardView::CHART_X, DashboardView::CHART_HUMIDITY_LABEL_Y,
+                         "HUMIDITY MIN 55.0 MAX 100.0 %  MOLD 168H  DRY 168H", 1, true);
+  for (uint16_t y = DashboardView::CHART_HUMIDITY_LABEL_Y; y < DashboardView::CHART_HUMIDITY_LABEL_Y + 7; ++y) {
+    for (uint16_t x = DashboardView::CHART_X; x < RLCD_WIDTH; ++x) {
+      assert(e.getPixel(x, y) == expected_edge.getPixel(x, y));
+    }
+  }
+}
+
 void testWeekChartRendering() {
   Shtc3Reading onboard;
   SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
@@ -29556,6 +29637,7 @@ int main() {
   testWeekChartRendering();
   testWeekChartMoldSum();
   testWeekChartDrySum();
+  testWeekChartHeatSum();
   testWeekHistoryResetSlotClearsSensor();
   testParseDailyRow();
   testWeekRestoreFromDailyRows();

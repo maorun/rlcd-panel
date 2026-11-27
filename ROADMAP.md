@@ -48,12 +48,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Heat hours in the week chart view of the panel
-  - **Location:** `rlcd_panel/dashboard_view.h`, `rlcd_panel/sparkline.h`, `tests/test_firmware_logic.cpp`, `tools/preview_scenes.h`, `docs/display_preview_chart_week.png`, `AGENTS.md`, `FEATURES.md`
-  - **Goal:** Show the weekly heat hours on the panel. `WeekHistory` stores heat hours, but the `WEEK_CHART` view shows only `MOLD` and `DRY`. Add `DashboardView::formatWeekHeat` (`HEAT <N>H`, sum over the days with `hasHeatHours`, empty without such a day). Append it to the humidity label line after the `DRY` text, separated by two spaces. Do not draw it when the line is wider than the box.
-  - **Acceptance:** A host test checks `HEAT 7H` for 3 days with 2, 2 and 3 hours. A host test checks the empty text without a day. A host test checks that a full label line drops the heat text. `./scripts/generate-display-preview.sh` creates the chart image. The host test suite passes. `arduino-cli compile rlcd_panel` passes.
-  - **Rank:** [Total: 27, Use: 6, Setup: 2, Harmony: 9, Safety: 10, Effort: S]
-
 - [ ] Heat hours columns in the daily log (daily_v7)
   - **Location:** `rlcd_panel/sd_logger.h`, `rlcd_panel/sparkline.h`, `rlcd_panel/serial_console.h`, `scripts/dump-logs.sh`, `macos/RlcdCompanion/Sources/RlcdProtocol/DailyLog.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/LogArchive.swift`, the Kotlin `DaysReply.kt` of the phone and the watch, `tests/test_firmware_logic.cpp`, `tests/fixtures/days_reply_v7_sample.txt`, `AGENTS.md`, `FEATURES.md`
   - **Goal:** Keep the heat hours of each day on the card. Add `heat_h_0` to `heat_h_10` after the dry hours (105 columns, `DAILY_COLUMNS`) in `daily_v7_YYYY.csv`. Keep `daily_v6` files unchanged. `DAYS` sends the `daily_v7` header and fills 11 empty fields for each `daily_v6` row. Add `heat_h` to `WeekHistory::RestoreRow`. Add `daily_v7` to the name pattern of `LIST`, `DUMP`, the retention, `dump-logs.sh` and `LogArchive.swift`.
