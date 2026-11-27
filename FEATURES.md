@@ -3320,6 +3320,14 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `AppModel.checkReceptionNotifications` feeds it with each `STATUS` reply (also while notifications are off, so a rise does not repeat later) and posts one `UserNotifications` notification `Weak signal: <name>` for each rising slot (`rlcd_panel_reception_<slot>`; name from the `ConfigReply`, else `Slot <N>`). A panel change resets the baseline. Notifications appear only on `STATUS` reads.
 - Validation: `ReceptionWatchTests` (11 tests, including a read of `tests/fixtures/status_reply_sample.txt` with `rxlow=202`) cover the rules. `swift build` passes locally; `swift test` runs in CI only, because the local host lacks TestingMacros. The notification is not tested on a panel.
 
+## Weak signal advice in the macOS reception strip
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/ReceptionWatch.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/ReceptionTests.swift`
+- The Mac app tells the user what to do for a weak slot.
+- `ReceptionWatch.advice(rate:rssi:)` gives `nil` for a rate of 50 % or more. Below 50 %, an RSSI below -85 dBm gives `Move the sensor nearer to the panel`; -85 dBm or better, and an unknown RSSI, give `Check the sensor battery`.
+- `ReceptionWatch.advice(for:rssi:)` takes a `ReceptionRow` and gives text only when `ReceptionRow.isWeak` is true, so the warning symbol and the text always agree. `DiagnosticsView` shows the text in orange below each row of the reception strip (`Read scan pattern`). The rate is `ReceptionRow.percent`; the RSSI comes from the `SENSOR` line of the last `STATUS` read. Without a `STATUS` read the battery text shows.
+- Validation: `ReceptionTests` (9 tests in `ReceptionTests.swift`) cover both texts, the limits -85 and -86 dBm, the missing RSSI, no text at 50 % and above, and the agreement of `advice(for:rssi:)` with `isWeak` for every scan count from 1 to 24. `swift build` and `swift build -c release` pass locally; `swift test` runs in CI only, because the local host lacks TestingMacros. The advice logic also ran in a standalone compile. `scripts/check-protocol-sync.sh` passes.
+
 ## Sensor drift notification on the Wear OS watch
 
 - **Code:** `wearos/RlcdWatch/.../protocol/StatusReply.kt`, `DriftWatch.kt`, `MainActivity.kt`, `SensorHealthScreen.kt`; tests `DriftWatchTest`, `StatusReplyTest`, `SensorHealthTextTest`.

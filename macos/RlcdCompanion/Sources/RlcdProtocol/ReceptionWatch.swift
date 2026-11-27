@@ -26,4 +26,24 @@ public struct ReceptionWatch {
     public static func notificationBody(slot: Int, config: ConfigReply?) -> String {
         "Weak signal: \(EventText.roomName(tile: slot, config: config))"
     }
+
+    /// A rate below this share (in percent) is weak; same limit as `ReceptionMetrics.Rate.warnBelowPercent`.
+    public static let adviceBelowPercent = ReceptionMetrics.Rate.warnBelowPercent
+    /// An RSSI below this value (in dBm) points to a distance problem.
+    public static let farRssiBelowDbm = -85
+
+    /// What to do for a weak slot. `nil` for a rate of 50 % or more. Below 50 %, an RSSI below -85 dBm gives
+    /// the move advice, a better or unknown RSSI gives the battery advice.
+    public static func advice(rate: Int, rssi: Int?) -> String? {
+        guard rate < adviceBelowPercent else { return nil }
+        if let rssi, rssi < farRssiBelowDbm { return "Move the sensor nearer to the panel" }
+        return "Check the sensor battery"
+    }
+
+    /// Advice for one `RECEPTION` row. The weak rule is `ReceptionRow.isWeak` (exact compare), so the strip
+    /// warning symbol and the text always agree. An unknown RSSI (no `STATUS` read) gives the battery text.
+    public static func advice(for row: ReceptionRow, rssi: Int?) -> String? {
+        guard row.isWeak else { return nil }
+        return advice(rate: row.percent, rssi: rssi)
+    }
 }
