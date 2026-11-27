@@ -25,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.DriftWatch
 import com.rlcdpanel.phone.protocol.RtcTrimReply
 import com.rlcdpanel.phone.protocol.JumpAdvice
+import com.rlcdpanel.phone.protocol.LatchState
 import com.rlcdpanel.phone.protocol.ConfigCache
 import com.rlcdpanel.phone.protocol.ConfigCacheInfo
 import com.rlcdpanel.phone.protocol.AwakeState
@@ -159,6 +160,9 @@ object SensorHealthText {
     fun isDry(row: SensorHealth): Boolean = (row.dryHours ?: 0) > 0
     fun heat(row: SensorHealth): String =
         row.heatHours?.let { (if (it > 0) "⚠ " else "") + "Hitze $it h" } ?: "Hitze --"
+    /** Heat mark of one tile (0 onboard, 1 to 10 slots); null without a `LATCH` line, without `heat` and for an unflagged tile. */
+    fun heatMark(latch: LatchState?, tile: Int): String? = if (latch?.hasHeat(tile) == true) "⚠ Heat" else null
+
     fun isHeat(row: SensorHealth): Boolean = (row.heatHours ?: 0) > 0
     fun trendSymbol(trend: SensorTrend?): String = trend?.symbol ?: "–"
     fun trend(row: SensorHealth, temperature: Double?, humidity: Double?): String =
@@ -391,6 +395,9 @@ fun SensorHealthScreen(
                             if (DriftWatch.isDrifting(state.status?.latch?.drift, 0)) {
                                 Text("⚠ ${DriftWatch.TEXT}: ${panelConfig.tileName(0)}", color = MaterialTheme.colorScheme.error)
                             }
+                            SensorHealthText.heatMark(state.status?.latch, 0)?.let {
+                                Text("$it: ${panelConfig.tileName(0)}", color = MaterialTheme.colorScheme.error)
+                            }
                             for ((warn, text) in lines) {
                                 Text(
                                     (if (warn) "⚠ " else "") + text,
@@ -410,6 +417,9 @@ fun SensorHealthScreen(
                         )
                         if (DriftWatch.isDrifting(state.status?.latch?.drift, row.slot)) {
                             Text("⚠ ${DriftWatch.TEXT}", color = MaterialTheme.colorScheme.error)
+                        }
+                        SensorHealthText.heatMark(state.status?.latch, row.slot)?.let {
+                            Text(it, color = MaterialTheme.colorScheme.error)
                         }
                         Text(SensorHealthText.rssi(row))
                         Text(SensorHealthText.rate(row))

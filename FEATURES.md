@@ -4307,3 +4307,13 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The Wear OS app has no week CSV export, so it does not change.
 - Tests: `CsvExportTests` export `tests/fixtures/week_heat_reply_sample.txt` and check the header, the first row, the gap day and the 9-column fixture. `WeekCsvTest` does the same for the phone.
 - Validation: the host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.
+
+## Heat badge masks in the three app sensor lists
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DiagnosticsView.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`
+- The apps show which room is hot. The field `heat=<3 hex digits>` of the `STATUS` line `LATCH` (bit 0 onboard tile, bits 1 to 10 slots) is parsed by `LatchMetrics.heat` (macOS, `Int?`) and `LatchState.heat` (Android and Wear OS, `Int?`). A missing field gives `nil` or `null`; a value that is not 3 hex digits or above `7FF` throws `ParseError.badLine` or `ParseException`. `badges` and `hasBadges` do not change.
+- `LatchMetrics.hasHeat(sensor:)` and `LatchState.hasHeat(sensor)` read one bit; a tile outside 0 to 10 and a missing field give false.
+- macOS: `DiagnosticsView` shows a red thermometer symbol in the sensor health row of each slot with its bit set. Android: `SensorHealthText.heatMark` gives `⚠ Heat`; `SensorHealthScreen` shows it in the card of each flagged slot and in the panel card for the onboard tile. Wear OS: `SensorHealthText.heatMark` gives the same text in the row of each flagged sensor.
+- The Wear OS and phone copies of `StatusReply.kt` stay equal apart from the `package` line (`scripts/check-protocol-sync.sh`).
+- Tests: `DiagnosticsTests` (macOS), `StatusReplyTest` (phone and watch) and `SensorHealthTextTest` (phone and watch) read `tests/fixtures/status_reply_sample.txt` (`heat=001`), check `nil` or `null` for an old line, the bounds and bad hex.
+- Validation: `swift test` and `swift build -c release` pass locally. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` for the phone and the watch runs in CI only.

@@ -373,6 +373,36 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         }
     }
 
+    @Test func parsesHeatFromSharedFixture() throws {
+        let m = try #require(try LatchMetrics.parse(lines: lines(try statusFixtureText())))
+        #expect(m.heat == 0x001)
+        #expect(m.hasHeat(sensor: 0))
+        #expect(!m.hasHeat(sensor: 1))
+        #expect(!m.hasHeat(sensor: 11))
+    }
+
+    @Test func heatBoundsAndSensorRange() throws {
+        let base = "LATCH vent=000 dry=000 batlow=000 stale=000 wall=000 window=000 rxlow=000 drift=000"
+        let all = try LatchMetrics.parse(line: base + " heat=7FF")
+        #expect(all.heat == 0x7ff)
+        #expect((0...10).allSatisfy { all.hasHeat(sensor: $0) })
+        #expect(!all.hasHeat(sensor: -1))
+        #expect(!all.hasHeat(sensor: 11))
+    }
+
+    @Test func heatIsNilWithoutField() throws {
+        let m = try LatchMetrics.parse(line: "LATCH vent=002 dry=000 batlow=008 stale=004 wall=002 window=402 rxlow=202 drift=002")
+        #expect(m.heat == nil)
+        #expect(!m.hasHeat(sensor: 0))
+    }
+
+    @Test func heatRejectsBadFields() {
+        let base = "LATCH vent=000 dry=000 batlow=000 stale=000 wall=000 window=000 rxlow=000 drift=000"
+        for bad in [base + " heat=zzz", base + " heat=800", base + " heat=00", base + " heat=0x1", base + " heat="] {
+            #expect(throws: ParseError.badLine(bad)) { try LatchMetrics.parse(line: bad) }
+        }
+    }
+
     @Test func receptionLowRejectsBadFields() {
         let base = "LATCH vent=000 dry=000 batlow=000 stale=000 wall=000 window=000"
         for bad in [base + " rxlow=zzz", base + " rxlow=400", base + " rxlow=00", base + " rxlow=0x1", base + " rxlow="] {
