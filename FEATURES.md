@@ -4274,3 +4274,13 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - Events: `EventCode::HEAT_TILE` 27 (`PersistentState::recordHeatChanges`) records one event for each changed bit, with the tile in the low byte of the detail and 1 (hot) or 0 (good again) in the high byte. `EventRing::MAX_CODE` is 27.
 - Console: the `STATUS` line `LATCH` ends with ` heat=<3 hex digits>`. The three app parsers read the line by key and ignore the new field.
 - Acceptance criteria: host tests check the set at the limit, the hold above the release point, the release at the limit minus 2 C, the feels-like value at a high humidity, the clear for a stale or empty slot and an invalid reading, the tile mask, limit 0, one event for each changed bit, the RTC reject of bit 11 and of an empty slot, `resetSlot` and `swapSlotsByUser`, the `LATCH` field, and the `H` badge in each tile style. `./scripts/generate-display-preview.sh` creates `docs/display_preview_heat.png`.
+
+## Room name in the Android alert notification
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/service/AlertNotification.kt`, `BleScanService.postAlertNotification`.
+- `AlertNotification.text(bit, frame, config)` names the room that caused a climate alert: `FREEZER: <room> <T> °C` (coldest tile), `HUMIDITY: <room> <N> %RH` (most humid tile) and `HEAT: <room> feels like <T> °C` (highest `ClimateMath.heatIndexC`). The room name comes from `PanelConfig.tileName`.
+- Only tiles with a valid reading and a set bit in `climate_alert_tiles` count (default all tiles). The other alert bits, a missing frame and a frame without a usable tile keep the generic alert name.
+- `BleScanService` loads `PanelConfig` once per notification and uses the text for each per-bit notification and for the notification of the other alerts (`AlertNotification.text(mask, ...)` joins the texts with a comma).
+- `BleScanService` passes the merged 11-tile frame of `computeTransition`, so a tile index of page 1 names slot 6 to 10.
+- Tests: `AlertNotificationTest` covers the three texts, `NOISE HIGH`, the `climate_alert_tiles` mask, a frame without a usable tile, a null frame, default tile names, bad bits, the mask overload and a merged second page.
+- Validation: the host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only. The tests were not run locally, so I did not see them fail before the implementation.

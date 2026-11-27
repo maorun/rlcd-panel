@@ -34,12 +34,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test in each app reads `tests/fixtures/week_heat_reply_sample.txt` and checks the sum label. A unit test checks no label for the 9-column fixture. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
   - **Rank:** [Total: 30, Use: 7, Setup: 3, Harmony: 10, Safety: 10, Effort: S]
 
-- [ ] Room name in the Android alert notification
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/BleScanService.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/AlertNotice.kt` (new), `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/AlertNoticeTest.kt`, `FEATURES.md`
-  - **Goal:** Tell the user which room caused an alert. `BleScanService` writes only the alert names (`AlertMask.names`) as the text of `RLCD Alarm`. Add `AlertNotice.text(bit, frame, config)`. For `HEAT` name the tile with the highest `ClimateMath.heatIndexC`: `HEAT: <room> feels like <T> °C`. For `FREEZER` name the coldest tile. For `HUMIDITY` name the most humid tile. Use only the tiles of `climate_alert_tiles` with a valid mask bit. Keep the old text for the other bits and for a frame without a usable tile.
-  - **Acceptance:** A unit test checks the `HEAT` text for a frame with two hot tiles. A unit test checks the `FREEZER` and `HUMIDITY` texts. A unit test checks the old text for `NOISE`. A unit test checks the old text when `climate_alert_tiles` excludes each tile. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
-  - **Rank:** [Total: 30, Use: 9, Setup: 1, Harmony: 10, Safety: 10, Effort: S]
-
 - [ ] Heat badge masks in the three app sensor lists
   - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/Diagnostics.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/StatusReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/StatusReply.kt`, the three sensor health views, the test files, `FEATURES.md`
   - **Goal:** Show the hot rooms in the apps. Depends on `Heat badge latch in the climate tiles`. Parse `heat=` of the `LATCH` line (`nil` or `null` for a missing field, `ParseError.badLine` or `ParseException` for bad hex). Show a heat symbol in the row of each tile with its bit set.
