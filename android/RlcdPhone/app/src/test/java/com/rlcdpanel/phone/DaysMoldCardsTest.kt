@@ -63,4 +63,33 @@ class DaysMoldCardsTest {
         assertNull(DaysMoldCards.dryLine(listOf(dayRow("2026-01-01", 4)), 1))
         assertNull(DaysMoldCards.dryLine(emptyList(), 0))
     }
+
+    private fun heatRow(date: String, heat: Int?) =
+        DaysRow(date, List(DaysReply.SENSOR_COUNT) { if (it == 0) DaysSensor(null, null, null, null, 0, null, heat) else sensorWith(null) })
+
+    @Test
+    fun heatLineSumsTheHeatHours() {
+        val rows = listOf(heatRow("2026-01-01", 2), heatRow("2026-01-02", null), heatRow("2026-01-03", 3))
+        assertEquals("Heat 5 h", DaysMoldCards.heatLine(rows, 0))
+        assertEquals("Heat 0 h", DaysMoldCards.heatLine(listOf(heatRow("2026-01-01", 0)), 0))
+    }
+
+    @Test
+    fun heatLineIsNullWithoutHeatValue() {
+        assertNull(DaysMoldCards.heatLine(listOf(heatRow("2026-01-01", null)), 0))
+        assertNull(DaysMoldCards.heatLine(listOf(heatRow("2026-01-01", 4)), 1))
+        assertNull(DaysMoldCards.heatLine(emptyList(), 0))
+    }
+
+    @Test
+    fun heatLineIsNullForTheV6Fixture() {
+        val lines = Fixtures.file("days_reply_v6_sample.txt").readLines().filter { !it.startsWith("CRC32") }
+        assertNull(DaysMoldCards.heatLine(DaysReply.parse(lines), 0))
+    }
+
+    @Test
+    fun heatLineIsNullForTheV7Fixture() {
+        val lines = Fixtures.file("days_reply_v7_sample.txt").readLines().filter { !it.startsWith("CRC32") }
+        assertNull(DaysMoldCards.heatLine(DaysReply.parse(lines), 0))
+    }
 }

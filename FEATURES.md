@@ -4380,3 +4380,11 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The macOS `DailyLog` and `DaysReply` and the Android and Wear OS `DaysReply` accept the `daily_v7` header. They check the column count but do not read the heat hours yet; separate roadmap items add `heatHours`.
 - Tests: host tests check the 105-column row, the restore of the heat hours from `daily_v7` and the gaps from `daily_v6`, and the `DAYS` reply across `daily_v6` and `daily_v7` files. `DailyLogTests`, `DaysReplyTests`, `LogArchiveTests` and the Kotlin `DaysReplyTest` read `days_reply_v7_sample.txt`.
 - Validation: 242 host test suites, `arduino-cli compile rlcd_panel`, `scripts/dump-logs.sh --self-test`, `scripts/check-protocol-sync.sh` (and `--self-test`) and `swift build -c release` pass. The Android and Wear OS unit tests are not run locally (no Android SDK); CI runs them.
+
+## Android heat hours in the days screen
+
+- **Code:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/DaysScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/DaysMoldCardsTest.kt`
+- `DaysMoldCards.heatLine(rows, sensor)` gives `Heat <N> h` (sum of `DaysSensor.heatHours` of the sensor over the rows). It gives `null` when no row holds a heat value, for example for `days_reply_v6_sample.txt` and `days_reply_v7_sample.txt`. The room card shows it below the mold and dry hours.
+- `DaysReply.kt` is unchanged: it already reads `heatHours` from `daily_v7` and throws `ParseException` for a value of 25 (`DaysReplyTest`).
+- Tests: `DaysMoldCardsTest` checks the sum, 0 hours, `null` without a value, `null` for another sensor and `null` for both fixtures.
+- Validation: `scripts/check-protocol-sync.sh` passes. The Android unit tests are not run locally (no Android SDK); CI runs them.

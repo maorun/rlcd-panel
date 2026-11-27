@@ -27,12 +27,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Android heat hours in the days screen
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/DaysReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/DaysReply.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/DaysScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/DaysReplyTest.kt`, `FEATURES.md`
-  - **Goal:** Show the heat hours of each day on the phone. Depends on `Heat hours columns in the daily log (daily_v7)`. Accept 83, 94 and 105 columns by the header. Add `DaysRow.heatHours` (`null` for fewer columns and an empty field). Show `Heat <N> h` beside mold and dry hours of each day.
-  - **Acceptance:** A unit test parses `tests/fixtures/days_reply_v7_sample.txt`. A unit test checks `null` for `days_reply_v6_sample.txt`. A unit test checks `ParseException` for a value of 25. `scripts/check-protocol-sync.sh` passes. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
-  - **Rank:** [Total: 27, Use: 6, Setup: 2, Harmony: 9, Safety: 10, Effort: S]
-
 - [ ] macOS heat hours in the daily charts
   - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/DailyLog.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DailyChartView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/DailyLogTests.swift`, `FEATURES.md`
   - **Goal:** Prepare the macOS daily charts for the heat hours of `daily_v7`. Depends on `Heat hours columns in the daily log (daily_v7)`. Add `DailyRow.heatHours` (one `Int?` for each sensor, `[]` for older files). Show a heat bar chart for each sensor below the dry hours chart. Show no chart when all values are `nil`.
