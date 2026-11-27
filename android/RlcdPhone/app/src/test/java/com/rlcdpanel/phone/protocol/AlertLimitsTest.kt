@@ -66,6 +66,32 @@ class AlertLimitsTest {
     }
 
     @Test
+    fun freezeDelayRangeIs0To12AndRejects13() {
+        for (ok in listOf("0", "1", "12")) assertNull(ok, error("freeze_alert_delay_h", ok))
+        for (bad in listOf("13", "x", "", "1.5", "-1")) assertNotNull(bad, error("freeze_alert_delay_h", bad))
+        assertTrue(AlertLimits.plan(mapOf("freeze_alert_delay_h" to "13"), PanelConfig()) is AlertLimits.Plan.Invalid)
+    }
+
+    @Test
+    fun freezeDelayWireTextOrderAndDisplayTexts() {
+        val keys = AlertLimits.LIMITS.map { it.key }
+        assertEquals(keys.indexOf("freeze_alert_limit_c") + 1, keys.indexOf("freeze_alert_delay_h"))
+        assertEquals(
+            listOf("SET freeze_alert_limit_c=1.5", "SET freeze_alert_delay_h=3"),
+            commands(AlertLimits.plan(mapOf("freeze_alert_delay_h" to "3", "freeze_alert_limit_c" to "1.5"), PanelConfig()))
+        )
+        val l = limit("freeze_alert_delay_h")
+        assertEquals("Verzögerung Frostalarm (h)", l.label)
+        assertEquals("Aus", AlertLimits.valueText(l, "0"))
+        assertEquals("3 h", AlertLimits.valueText(l, "3"))
+        val entry = ConfigSchema.entry("freeze_alert_delay_h")!!
+        val kind = entry.kind as ConfigKind.Integer
+        assertEquals(kind.off, l.min.toInt())
+        assertEquals(kind.max, l.max.toInt())
+        assertEquals(entry.defaultValue, l.default.toInt().toString())
+    }
+
+    @Test
     fun heatDelayAcceptsZeroOneAndTwelve() {
         for (ok in listOf("0", "1", "12")) assertNull(ok, error("heat_alert_delay_h", ok))
     }
@@ -205,7 +231,7 @@ class AlertLimitsTest {
     @Test
     fun shownValueFallsBackToFirmwareDefaults() {
         val expected = mapOf(
-            "mold_alert_limit_rh" to 70.0, "mold_alert_delay_h" to 0.0, "dry_alert_limit_rh" to 0.0, "dry_alert_delay_h" to 0.0, "freeze_alert_limit_c" to 0.0,
+            "mold_alert_limit_rh" to 70.0, "mold_alert_delay_h" to 0.0, "dry_alert_limit_rh" to 0.0, "dry_alert_delay_h" to 0.0, "freeze_alert_limit_c" to 0.0, "freeze_alert_delay_h" to 0.0,
             "heat_alert_limit_c" to 0.0, "heat_alert_delay_h" to 0.0, "ventilate_limit_rh" to 60.0, "sensor_battery_limit_pct" to 10.0
         )
         for (limit in AlertLimits.LIMITS) assertEquals(limit.key, expected[limit.key]!!, AlertLimits.shown(limit, PanelConfig()), 0.0)
