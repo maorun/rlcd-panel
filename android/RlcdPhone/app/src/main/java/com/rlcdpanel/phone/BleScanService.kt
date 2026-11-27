@@ -28,6 +28,7 @@ import com.rlcdpanel.phone.protocol.StaleWatch
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryHistory
 import com.rlcdpanel.phone.protocol.TelemetryHistoryStore
+import com.rlcdpanel.phone.service.AlertNotification
 import com.rlcdpanel.phone.widget.ClimateWidget
 import com.rlcdpanel.phone.widget.ClimateWidgetModel
 import com.rlcdpanel.phone.widget.WidgetSnapshotStore
@@ -225,7 +226,7 @@ class BleScanService : Service() {
 
         if (!transition.risingAlerts.isEmpty) {
             vibrateAlert()
-            postAlertNotification(transition.risingAlerts)
+            postAlertNotification(transition.risingAlerts, transition.snapshot.frame)
         }
     }
 
@@ -326,13 +327,14 @@ class BleScanService : Service() {
         manager.notify(NOTIFICATION_ID, buildForegroundNotification(text))
     }
 
-    private fun postAlertNotification(rising: AlertMask) {
+    private fun postAlertNotification(rising: AlertMask, frame: TelemetryFrame) {
         // The Acknowledge action needs the BLE console write level, so read the config only for an acknowledgeable bit.
         val candidateBits = AckCommand.actionBits(rising)
-        val canWrite = rising.rawValue != 0 && PanelConfig.load(this).canWrite
+        val panelConfig = PanelConfig.load(this)
+        val canWrite = rising.rawValue != 0 && panelConfig.canWrite
         val ackBits = if (canWrite) candidateBits else emptyList()
         val ackMask = ackBits.fold(0) { mask, bit -> mask or (1 shl bit) }
-        val otherText = AlertMask(rising.rawValue and ackMask.inv()).names.joinToString(", ")
+        val otherText = AlertNotification.text(AlertMask(rising.rawValue and ackMask.inv()), frame, panelConfig)
         val manager = getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
             ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
@@ -365,7 +367,7 @@ class BleScanService : Service() {
             val builder = NotificationCompat.Builder(this, ALERT_CHANNEL_ID)
                 .setSmallIcon(android.R.drawable.ic_dialog_info)
                 .setContentTitle("RLCD Alarm")
-                .setContentText(AlertMask(1 shl bit).names.joinToString(", "))
+                .setContentText(AlertNotification.text(bit, frame, panelConfig))
                 .setContentIntent(openApp)
                 .setPriority(NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
