@@ -4254,3 +4254,12 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `AlertCauseRows.lines` gives one row for each active alert: the alert name, the tile names of the `tiles` mask (names from `PanelConfig.tileNames`), the limit with its unit and `Acked` for an acknowledged alert. A reply without an active row shows `No active alert`. An `ERR` reply and a bad reply show an error text.
 - Tests: `AlertCausesTest` (copy of the Android test plus the mask `006`, the empty reply and the row texts with unit and `Acked`) and `AlertsReplyTest` read `tests/fixtures/alerts_reply_sample.txt`.
 - Validation: `scripts/check-protocol-sync.sh` and its `--self-test` ran locally. The host has no Android SDK, so Gradle runs in CI.
+
+## Battery change forecast in the Wear OS tail screen
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/BatteryForecast.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/TailScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `scripts/check-protocol-sync.sh`.
+- The watch shows when a sensor battery needs a change. `BatteryForecast.kt` is a copy of the Android file and sits in `FILES` of `scripts/check-protocol-sync.sh`.
+- `TailScreenText.forecastLines` gives one line `<name>: change near <YYYY-MM-DD>` for each slot 1 to 10 with a forecast, in slot order. A slot without a name shows `Slot <N>`. The limit is `BatteryForecast.limitPct(config)` (`sensor_battery_limit_pct`, else 10 %).
+- `TailScreenText.forecastHint` gives `Battery forecast: read more rows` when the rows span fewer than 7 days (`BatteryForecast.needsLongerLog`). `TailScreen` shows both texts in one card between the gap report and the room cards. The card is absent when there is no line and no hint. The watch reads 6 rows, so the hint shows for a normal read; a forecast needs rows over 7 days or more.
+- Tests: `BatteryForecastTest` is the phone test (same series, same dates) plus the fixture `tests/fixtures/tail_reply_sample.txt`. `TailScreenTextTest` covers the forecast lines, the slot number fallback and the hint.
+- Validation: `./scripts/check-protocol-sync.sh` and `--self-test` exit 0. The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs on GitHub Actions CI.

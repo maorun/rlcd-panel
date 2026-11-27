@@ -24,6 +24,7 @@ import androidx.wear.compose.material.PositionIndicator
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
+import com.rlcdpanel.watch.protocol.BatteryForecast
 import com.rlcdpanel.watch.protocol.LogGaps
 import com.rlcdpanel.watch.protocol.TailReply
 import com.rlcdpanel.watch.protocol.TailRow
@@ -74,6 +75,21 @@ object TailScreenText {
         return "$t °C  $h %"
     }
 
+    const val FORECAST_HINT = "Battery forecast: read more rows"
+
+    /**
+     * One line `<name>: change near <date>` for each slot 1 to 10 with a battery forecast, in slot order.
+     * [names] hold the tile names by tile index; a slot without a name entry shows `Slot <N>`.
+     */
+    fun forecastLines(rows: List<TailRow>, names: List<String>, limitPct: Double): List<String> =
+        (1..TailReply.SLOT_COUNT).mapNotNull { slot ->
+            val estimate = BatteryForecast.estimate(rows, slot, limitPct) ?: return@mapNotNull null
+            "${names.getOrNull(slot) ?: "Slot $slot"}: ${BatteryForecast.text(estimate).replace("Battery change near", "change near")}"
+        }
+
+    /** The hint to read more rows when [rows] span fewer than 7 days, else null. */
+    fun forecastHint(rows: List<TailRow>): String? = if (BatteryForecast.needsLongerLog(rows)) FORECAST_HINT else null
+
     private fun sensorOf(row: TailRow, tile: Int): TailSensor? =
         if (tile == 0) row.onboard else row.slots.getOrNull(tile - 1)
 
@@ -97,10 +113,15 @@ object TailScreenText {
 fun TailScreen(
     state: TailState,
     roomNames: List<String>,
+    forecastLimitPct: Double = BatteryForecast.DEFAULT_LIMIT_PCT,
     onRead: () -> Unit
 ) {
     val listState = rememberScalingLazyListState()
     val gapReport = remember(state.rows) { LogGaps.report(state.rows) }
+    val forecastLines = remember(state.rows, roomNames, forecastLimitPct) {
+        TailScreenText.forecastLines(state.rows, roomNames, forecastLimitPct)
+    }
+    val forecastHint = remember(state.rows) { TailScreenText.forecastHint(state.rows) }
     val rooms = remember(state.rows, roomNames) { TailScreenText.roomLines(state.rows, roomNames) }
     MaterialTheme {
         Scaffold(
@@ -166,6 +187,14 @@ fun TailScreen(
                             textAlign = TextAlign.Center,
                             modifier = Modifier.padding(horizontal = 12.dp)
                         )
+                    }
+                    if (forecastLines.isNotEmpty() || forecastHint != null) {
+                        item {
+                            Card(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth(0.95f)) {
+                                forecastLines.forEach { Text(it, fontSize = 10.sp, color = Color.White) }
+                                forecastHint?.let { Text(it, fontSize = 10.sp, color = Color(0xFFB0BEC5)) }
+                            }
+                        }
                     }
                     items(rooms) { room ->
                         Card(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth(0.95f)) {

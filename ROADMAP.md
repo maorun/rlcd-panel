@@ -27,11 +27,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Wear OS battery change forecast in the tail screen
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/BatteryForecast.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/TailScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/BatteryForecastTest.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
-  - **Goal:** Show on the watch when a sensor battery needs a change. The phone has `BatteryForecast.kt` from the `TAIL` rows, but the watch has no copy. Copy the file to the watch package and add it to `FILES` of the sync check. Show one line `<name>: change near <date>` for each slot 1 to 10 with a forecast below the `TailScreen` gap report. Show `Battery forecast: read more rows` when `BatteryForecast.needsLongerLog` is true. Use the limit of `BatteryForecast.limitPct(config)`.
-  - **Acceptance:** A unit test reads `tests/fixtures/tail_reply_sample.txt` and checks the forecast text of the phone test. A unit test checks the hint text for rows of less than 7 days. `scripts/check-protocol-sync.sh` passes. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 32, Use: 7, Setup: 6, Harmony: 9, Safety: 10, Effort: S]
 
 - [ ] Wear OS monthly alert statistics in the event log
   - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/EventStats.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/EventLogScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/EventStatsTest.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
