@@ -28,10 +28,13 @@ import androidx.wear.compose.material.PositionIndicator
 import androidx.wear.compose.material.Scaffold
 import androidx.wear.compose.material.Text
 import androidx.wear.compose.material.TimeText
+import com.rlcdpanel.watch.protocol.AlertMonthStat
 import com.rlcdpanel.watch.protocol.AlertTimeline
 import com.rlcdpanel.watch.protocol.BadgeInterval
+import com.rlcdpanel.watch.protocol.BadgeMonthStat
 import com.rlcdpanel.watch.protocol.EventFilter
 import com.rlcdpanel.watch.protocol.EventRow
+import com.rlcdpanel.watch.protocol.EventStats
 import com.rlcdpanel.watch.protocol.EventText
 import java.time.Instant
 import java.time.ZoneId
@@ -100,6 +103,17 @@ object BadgeChips {
     }
 }
 
+/** Text lines of the monthly alert and badge statistics, newest month first. */
+object EventLogStats {
+    fun lines(rows: List<EventRow>, nowMs: Long, zone: ZoneId = ZoneId.systemDefault()): List<String> {
+        val alerts = EventStats.alerts(AlertTimeline.build(rows, nowMs, zone), zone)
+            .sortedWith(compareByDescending<AlertMonthStat> { it.month }.thenBy { it.alert })
+        val badges = EventStats.badges(AlertTimeline.badges(rows, nowMs, zone), zone)
+            .sortedWith(compareByDescending<BadgeMonthStat> { it.month }.thenBy { it.event }.thenBy { it.tile })
+        return alerts.map(EventStats::lineText) + badges.map(EventStats::badgeLineText)
+    }
+}
+
 @Composable
 fun EventLogScreen(
     state: EventLogState,
@@ -112,6 +126,9 @@ fun EventLogScreen(
     // Intervals come from all rows, newest first; the clock is read once per read result.
     val intervals = remember(state.rows) { AlertTimeline.build(state.rows, System.currentTimeMillis()).asReversed().take(EventLogState.MAX_INTERVALS) }
     val badges = remember(state.rows) { BadgeChips.newest(state.rows, System.currentTimeMillis()) }
+    var showStats by remember { mutableStateOf(false) }
+    // Statistics use every interval of the rows, newest month first.
+    val statsText = remember(state.rows) { EventLogStats.lines(state.rows, System.currentTimeMillis()) }
     MaterialTheme {
         Scaffold(
             timeText = { TimeText() },
@@ -155,6 +172,24 @@ fun EventLogScreen(
                             label = { Text(chip.label, fontSize = 12.sp, maxLines = 1) },
                             secondaryLabel = { Text(chip.secondary, fontSize = 10.sp, maxLines = 1) }
                         )
+                    }
+                }
+                if (state.loaded && statsText.isNotEmpty()) {
+                    item {
+                        Chip(
+                            onClick = { showStats = !showStats },
+                            modifier = Modifier.fillMaxWidth(0.85f),
+                            colors = ChipDefaults.secondaryChipColors(),
+                            label = { Text(if (showStats) "Stats ausblenden" else "Stats", fontSize = 12.sp, maxLines = 1) }
+                        )
+                    }
+                    if (showStats) {
+                        item { Text("Statistik je Monat (letzte Ereignisse)", fontSize = 10.sp, color = Color(0xFFB0BEC5), textAlign = TextAlign.Center) }
+                        items(statsText) { line ->
+                            Card(onClick = {}, enabled = false, modifier = Modifier.fillMaxWidth(0.95f)) {
+                                Text(line, fontSize = 11.sp)
+                            }
+                        }
                     }
                 }
                 item {

@@ -1939,6 +1939,13 @@ The `BLE` line of `STATUS` gives only counters and the MAC of the last reject. T
 - The data comes from the `EVENTS` ring of the panel (16 events) only, so older months and lost events do not show. The macOS app reads the whole archive and can show more months. The section titles say `(letzte Ereignisse)`.
 - Validation: `EventStatsTest` covers the counts, the month and the year split, the unknown start, the open interval, the badges for each tile, the sort order, the zone, a zero-length interval, the line text and `tests/fixtures/events_reply_sample.txt` (one open `HEAT` interval). The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.
 
+## Monthly alert statistics in the Wear OS event log
+
+- **Code:** `wearos/RlcdWatch/.../protocol/EventStats.kt` (copy of the phone file, listed in `FILES` of `scripts/check-protocol-sync.sh`), `.../EventLogScreen.kt` (`EventLogStats.lines`), `wearos/RlcdWatch/app/src/test/.../protocol/EventStatsTest.kt` and `.../EventLogStatsTest.kt`.
+- The event log has a `Stats` chip after the timelines. A tap shows the lines of `EventStats.lineText` and `EventStats.badgeLineText`, newest month first, alerts before badges. A line reads `<month> <name>: <N> x, <H> h` with `, <N> ohne Start` for guessed starts. An open interval runs until the time of the last read.
+- The data comes from the `EVENTS` ring (16 events), so older months do not show.
+- Validation: `EventStatsTest` is the phone test (counts, month and year split, unknown start, open interval, badges, `tests/fixtures/events_reply_sample.txt`); `EventLogStatsTest` covers the line order. The local machine has no Android SDK. CI runs `gradle testDebugUnitTest assembleDebug`.
+
 ## Monthly alert statistics in the macOS app
 
 - `AlertStats.load(from:)` (`AlertStats.swift`, `RlcdProtocol`) reads each `events_*` file of the archive folder (local files only, no console command). It parses a file with `EventsReply.parse(file:)` and joins the rows of all good files in name order. `AlertTimeline.build(rows:now:)` then builds the intervals.
