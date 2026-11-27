@@ -50,6 +50,8 @@ object TodayText {
     fun mold(row: TodayRow): String = hours("Schimmel", row.moldHours)
 
     fun dry(row: TodayRow): String = hours("Trocken", row.dryHours)
+
+    fun heat(row: TodayRow): String = hours("Hitze", row.heatHours)
 }
 
 @Composable
@@ -116,6 +118,7 @@ fun TodayScreen(
                             Text(TodayText.humidity(row), style = MaterialTheme.typography.bodyMedium)
                             Text(TodayText.mold(row), style = MaterialTheme.typography.bodyMedium)
                             Text(TodayText.dry(row), style = MaterialTheme.typography.bodyMedium)
+                            Text(TodayText.heat(row), style = MaterialTheme.typography.bodyMedium)
                         }
                     }
                 }

@@ -132,3 +132,53 @@ import Foundation
         #expect(rows[5] == HistoryRow(sensor: 3, ageHours: 0, temperatureC: nil, humidityPct: 70.0, noiseDb: nil))
     }
 }
+
+@Suite struct TodayHeatTests {
+    private func frame(_ body: String) -> [String] { body.split(separator: "\n", omittingEmptySubsequences: false).map(String.init) }
+    private let head = "BEGIN TODAY\n" + TodayReply.headerWithHeat
+    private func fixtureLines(_ name: String) throws -> [String] {
+        var url = URL(fileURLWithPath: #filePath)
+        for _ in 0..<5 { url.deleteLastPathComponent() }
+        let data = try Data(contentsOf: url.appendingPathComponent("tests/fixtures/\(name)"))
+        var assembler = ReplyAssembler()
+        guard case .frame(let lines)? = assembler.append(data).first else { Issue.record("bad fixture"); return [] }
+        return lines
+    }
+
+    @Test func heatFixtureGivesHeatHours() throws {
+        let rows = try TodayReply.parse(lines: try fixtureLines("today_heat_reply_sample.txt"))
+        #expect(rows.map(\.heatHours) == [2, 0])
+        #expect(rows.map(\.moldHours) == [0, 0])
+    }
+
+    @Test func heatOneFixtureGivesHeatHours() throws {
+        let rows = try TodayReply.parse(lines: try fixtureLines("today_heat_one_reply_sample.txt"))
+        #expect(rows.count == 1)
+        #expect(rows[0].sensor == 1)
+        #expect(rows[0].heatHours == 0)
+    }
+
+    @Test func elevenColumnFixtureGivesNilHeat() throws {
+        let rows = try TodayReply.parse(lines: try fixtureLines("today_hours_reply_sample.txt"))
+        #expect(rows.allSatisfy { $0.heatHours == nil })
+        let old = try TodayReply.parse(lines: try fixtureLines("today_reply_sample.txt"))
+        #expect(old.allSatisfy { $0.heatHours == nil })
+    }
+
+    @Test func emptyHeatFieldGivesNil() throws {
+        let rows = try TodayReply.parse(lines: frame(head + "\n0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,2,3,"))
+        #expect(rows[0].heatHours == nil)
+        #expect(rows[0].dryHours == 3)
+    }
+
+    @Test func badHeatValuesThrow() {
+        for tail in ["-1", "x", "6", "25", "01x"] {
+            #expect(throws: ParseError.self) {
+                _ = try TodayReply.parse(lines: frame(head + "\n0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,2,3," + tail))
+            }
+        }
+        #expect(throws: ParseError.self) {
+            _ = try TodayReply.parse(lines: frame(head + "\n0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,2,3"))
+        }
+    }
+}

@@ -15,15 +15,19 @@ data class TodayRow(
     /** Hours of the day above the mold limit; null for an empty field and for the old header. */
     val moldHours: Int? = null,
     /** Hours of the day at or below the dry limit; null for an empty field and for the old header. */
-    val dryHours: Int? = null
+    val dryHours: Int? = null,
+    /** Hours of the day at or above the heat limit; null for an empty field and for a header without `heat_h`. */
+    val heatHours: Int? = null
 )
 
 /** Reply of the console command `TODAY`. */
 object TodayReply {
     const val HEADER = "sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct"
     const val HEADER_V2 = "$HEADER,mold_h,dry_h"
+    const val HEADER_V3 = "$HEADER_V2,heat_h"
     const val COLUMNS = 9
     const val COLUMNS_V2 = 11
+    const val COLUMNS_V3 = 12
 
     /** Text of `ERR NO_TIME` (invalid, stopped or untrusted RTC time). */
     const val NO_TIME_TEXT = "Panel clock not set"
@@ -54,8 +58,12 @@ object TodayReply {
     fun parse(lines: List<String>): List<TodayRow> {
         if (lines.firstOrNull() != "BEGIN TODAY") throw ParseException("BEGIN TODAY")
         val header = lines.getOrNull(1)
-        if (header != HEADER && header != HEADER_V2) throw ParseException(HEADER)
-        val columns = if (header == HEADER_V2) COLUMNS_V2 else COLUMNS
+        if (header != HEADER && header != HEADER_V2 && header != HEADER_V3) throw ParseException(HEADER)
+        val columns = when (header) {
+            HEADER_V3 -> COLUMNS_V3
+            HEADER_V2 -> COLUMNS_V2
+            else -> COLUMNS
+        }
         val seen = HashSet<Int>()
         return lines.drop(2).map { line ->
             val c = line.split(",")
@@ -66,8 +74,9 @@ object TodayReply {
                 s, c[1], h,
                 number(c[3], line), number(c[4], line), number(c[5], line),
                 number(c[6], line), number(c[7], line), number(c[8], line),
-                if (columns == COLUMNS_V2) hourCount(c[9], h, line) else null,
-                if (columns == COLUMNS_V2) hourCount(c[10], h, line) else null
+                if (columns >= COLUMNS_V2) hourCount(c[9], h, line) else null,
+                if (columns >= COLUMNS_V2) hourCount(c[10], h, line) else null,
+                if (columns == COLUMNS_V3) hourCount(c[11], h, line) else null
             )
             val tLo = row.temperatureMinC
             val tHi = row.temperatureMaxC

@@ -163,4 +163,45 @@ class TodayReplyTest {
         assertEquals(2, rows[0].moldHours)
         assertEquals(0, rows[0].dryHours)
     }
+
+    private val h3 = TodayReply.HEADER_V3
+
+    private fun heatFixture(name: String): List<TodayRow> {
+        val reply = ReplyAssembler().append(Fixtures.file(name).readBytes())
+        val lines = (reply as? ConsoleReply.Frame)?.lines ?: throw AssertionError("$name is no valid frame")
+        return TodayReply.parse(lines)
+    }
+
+    @Test
+    fun heatFixtureGivesHeatHours() {
+        val rows = heatFixture("today_heat_reply_sample.txt")
+        assertEquals(listOf(2, 0), rows.map { it.heatHours })
+        assertEquals(listOf(0, 0), rows.map { it.moldHours })
+    }
+
+    @Test
+    fun elevenColumnFixtureGivesNullHeat() {
+        assertTrue(heatFixture("today_hours_reply_sample.txt").all { it.heatHours == null })
+        assertTrue(heatFixture("today_reply_sample.txt").all { it.heatHours == null })
+    }
+
+    @Test
+    fun emptyHeatFieldGivesNull() {
+        val rows = TodayReply.parse(listOf("BEGIN TODAY", h3, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,2,3,"))
+        assertNull(rows[0].heatHours)
+        assertEquals(3, rows[0].dryHours)
+    }
+
+    @Test
+    fun badHeatValuesThrow() {
+        for (v in listOf("-1", "x", "6", "25")) bad("BEGIN TODAY", h3, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,2,3,$v")
+        bad("BEGIN TODAY", h3, "0,onboard,5,13.0,17.0,15.0,43.0,47.0,45.0,2,3")
+    }
+
+    @Test
+    fun heatText() {
+        val row = TodayRow(0, "onboard", 5, 1.0, 2.0, 1.5, 1.0, 2.0, 1.5, 3, 0, 2)
+        assertEquals("Heat 2 h", com.rlcdpanel.watch.TodayScreenText.heat(row))
+        assertEquals("Heat -- h", com.rlcdpanel.watch.TodayScreenText.heat(row.copy(heatHours = null)))
+    }
 }
