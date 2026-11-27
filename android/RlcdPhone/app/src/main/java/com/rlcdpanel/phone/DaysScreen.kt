@@ -99,6 +99,12 @@ object DaysMoldCards {
         val hours = rows.mapNotNull { it.sensors[sensor].dryHours }
         return if (hours.isEmpty()) null else "Trocken ${hours.sum()} h"
     }
+
+    /** `Heat <N> h` (sum of the heat hours of [sensor] over [rows]), or null when no row holds a heat value. */
+    fun heatLine(rows: List<DaysRow>, sensor: Int): String? {
+        val hours = rows.mapNotNull { it.sensors[sensor].heatHours }
+        return if (hours.isEmpty()) null else "Heat ${hours.sum()} h"
+    }
 }
 
 @Composable
@@ -198,6 +204,7 @@ fun DaysScreen(
                         Text(room.name, style = MaterialTheme.typography.titleMedium)
                         DaysMoldCards.lines(room).forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
                         DaysMoldCards.dryLine(state.rows, room.sensor)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                        DaysMoldCards.heatLine(state.rows, room.sensor)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
                     }
                 }
             }
