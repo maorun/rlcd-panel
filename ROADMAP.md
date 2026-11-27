@@ -22,12 +22,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 ## Priority 2: Configuration and Control (Score 28–33)
 
 
-- [ ] Wear OS monthly alert statistics in the event log
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/EventStats.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/EventLogScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/EventStatsTest.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
-  - **Goal:** Show on the watch how often each alert occurred. The phone has `EventStats.kt`, the watch has no copy. Copy the file, add it to `FILES` of the sync check and show a `Stats` chip in the event log. Show one row for each alert with a rise: name, rise count and the sum of the active hours of the `ALERT_RISE` and `ALERT_FALL` pairs. Show `--` for an alert that is still active.
-  - **Acceptance:** A unit test parses `tests/fixtures/events_reply_sample.txt` and checks the counts of the phone test. A unit test checks `--` for an open pair. `scripts/check-protocol-sync.sh` passes. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 30, Use: 6, Setup: 5, Harmony: 9, Safety: 10, Effort: S]
-
 - [ ] Heat hours in the three week charts
   - **Location:** `macos/RlcdCompanion/Sources/RlcdCompanion/ClimateChartView.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/WeekMold.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/WeekScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/WeekScreen.kt`, the test files of the three apps, `FEATURES.md`
   - **Goal:** Show the weekly heat hours that the `WEEK` reply sends. The three `WeekReply` parsers read `heatHours`, but no week chart shows it. Add the label `HEAT <N> h` (sum over the days with a value, 0 to 168) beside the mold and dry labels of each sensor. Show no label when no day has a value.
