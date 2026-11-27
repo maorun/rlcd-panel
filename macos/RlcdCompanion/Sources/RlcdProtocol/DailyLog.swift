@@ -12,7 +12,6 @@ public struct DailySensorStats: Equatable {
 
 /// One row of `daily_v1_YYYY.csv` to `daily_v7_YYYY.csv`. The noise peak fields exist only in
 /// `daily_v2` to `daily_v7`; the mold hours only in `daily_v4` to `daily_v7`; the dry hours only in `daily_v6` and `daily_v7`.
-/// The heat hours of `daily_v7` (`heat_h_0` to `heat_h_10`) are checked for the column count but not read yet.
 public struct DailyRow: Equatable {
     public let date: String
     /// Onboard sensor first, then slots 1 to 3 (slots 1 to 5 in `daily_v3` and `daily_v4`).
@@ -28,9 +27,12 @@ public struct DailyRow: Equatable {
     /// Hours at or below `dry_alert_limit_rh` for each sensor (`daily_v6` and `daily_v7`; empty for older files).
     /// `nil` for an empty field (empty or stale sensor, or limit 0).
     public let dryHours: [Int?]
+    /// Hours at or above the heat limit for each sensor (`daily_v7`; empty for older files).
+    /// `nil` for an empty field (empty or stale sensor, or limit 0).
+    public let heatHours: [Int?]
 
     public init(date: String, sensors: [DailySensorStats], noiseMinDb: Int?, noiseMaxDb: Int?, noisePeakDb: Int?,
-                noisePeakHour: Int?, noiseEventsSum: Int?, moldHours: [Int?], dryHours: [Int?] = []) {
+                noisePeakHour: Int?, noiseEventsSum: Int?, moldHours: [Int?], dryHours: [Int?] = [], heatHours: [Int?] = []) {
         self.date = date
         self.sensors = sensors
         self.noiseMinDb = noiseMinDb
@@ -40,6 +42,7 @@ public struct DailyRow: Equatable {
         self.noiseEventsSum = noiseEventsSum
         self.moldHours = moldHours
         self.dryHours = dryHours
+        self.heatHours = heatHours
     }
 }
 
@@ -104,7 +107,7 @@ public struct DailyLog: Equatable {
         let sensorTotal = sensorCount(format)
         let moldCount = (format == .v4 ? 6 : ((format == .v5 || format == .v6 || format == .v7) ? sensorNames.count : 0))
         let dryCount = (format == .v6 || format == .v7) ? sensorNames.count : 0
-        let heatCount = format == .v7 ? sensorNames.count : 0 // checked for the column count, not read yet
+        let heatCount = format == .v7 ? sensorNames.count : 0
         let columns = 1 + sensorTotal * statColumns.count + (format == .v1 ? 2 : 5) + moldCount + dryCount + heatCount
         let rows = try lines.dropFirst().map { line -> DailyRow in
             let f = line.split(separator: ",", omittingEmptySubsequences: false).map(String.init)
@@ -132,7 +135,8 @@ public struct DailyLog: Equatable {
                 noisePeakHour: format != .v1 ? try integer(n + 3) : nil,
                 noiseEventsSum: format != .v1 ? try integer(n + 4) : nil,
                 moldHours: moldCount > 0 ? try (0..<moldCount).map { try integer(n + 5 + $0) } : [],
-                dryHours: dryCount > 0 ? try (0..<dryCount).map { try integer(n + 5 + moldCount + $0) } : [])
+                dryHours: dryCount > 0 ? try (0..<dryCount).map { try integer(n + 5 + moldCount + $0) } : [],
+                heatHours: heatCount > 0 ? try (0..<heatCount).map { try integer(n + 5 + moldCount + dryCount + $0) } : [])
         }
         return DailyLog(format: format, rows: rows)
     }

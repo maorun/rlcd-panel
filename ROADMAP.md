@@ -27,12 +27,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] macOS heat hours in the daily charts
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/DailyLog.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DailyChartView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/DailyLogTests.swift`, `FEATURES.md`
-  - **Goal:** Prepare the macOS daily charts for the heat hours of `daily_v7`. Depends on `Heat hours columns in the daily log (daily_v7)`. Add `DailyRow.heatHours` (one `Int?` for each sensor, `[]` for older files). Show a heat bar chart for each sensor below the dry hours chart. Show no chart when all values are `nil`.
-  - **Acceptance:** A unit test parses `tests/fixtures/days_reply_v7_sample.txt` and checks `heatHours`. A unit test checks `[]` for a `daily_v6` file. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass.
-  - **Rank:** [Total: 27, Use: 6, Setup: 1, Harmony: 10, Safety: 10, Effort: S]
-
 - [ ] Wear OS sensor battery forecast in the tile
   - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/tile/ClimateTileModel.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/tile/ClimateTileService.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/ClimateTileModelTest.kt`, `FEATURES.md`
   - **Goal:** Show the next battery change in the watch tile. Keep the last forecast of the tail screen in `TelemetryCache` (slot, date). Show `Battery: <name> <date>` below the alert names when the date is within 30 days. Show nothing for an older or missing forecast.

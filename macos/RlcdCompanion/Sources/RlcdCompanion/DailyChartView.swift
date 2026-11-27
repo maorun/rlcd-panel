@@ -66,6 +66,27 @@ struct DailyChartView: View {
         }
     }
 
+    private func heatPoints(_ sensor: Int) -> [Point] {
+        folder.rows.compactMap { row in
+            guard let date = Self.parser.date(from: row.date), sensor < row.heatHours.count,
+                  let hours = row.heatHours[sensor] else { return nil }
+            return Point(id: "\(row.date)-Heat", date: date, series: "Heat", value: Double(hours))
+        }
+    }
+
+    /// Heat hours (`daily_v7`) as one bar series.
+    private func heatChart(_ heat: [Point]) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Hours at or above heat limit").font(.caption).foregroundStyle(.secondary)
+            Chart(heat) {
+                BarMark(x: .value("Day", $0.date, unit: .day), y: .value("Hours", $0.value))
+                    .foregroundStyle(.red)
+            }
+            .chartYScale(domain: 0...24)
+            .frame(height: 110)
+        }
+    }
+
     /// Mold hours and, for `daily_v6` rows, dry hours as two bar series beside each other.
     private func hoursChart(mold: [Point], dry: [Point]) -> some View {
         VStack(alignment: .leading, spacing: 2) {
@@ -181,6 +202,8 @@ struct DailyChartView: View {
                         let mold = moldPoints(sensor)
                         let dry = dryPoints(sensor)
                         if !mold.isEmpty || !dry.isEmpty { hoursChart(mold: mold, dry: dry) } // mold: daily_v4 and newer, dry: daily_v6
+                        let heat = heatPoints(sensor)
+                        if !heat.isEmpty { heatChart(heat) } // heat: daily_v7
                     }
                 }
                 Text("Noise").font(.headline)

@@ -55,6 +55,7 @@ import Testing
         #expect(reply.rows[0].sensors[0].tempMinC == 18.0)
         #expect(reply.rows[0].sensors[0].rhMax == 55.5)
         #expect(reply.rows.allSatisfy { $0.dryHours.count == 11 && $0.dryHours.allSatisfy { $0 == nil } })
+        #expect(reply.rows.allSatisfy { $0.heatHours.count == 11 && $0.heatHours.allSatisfy { $0 == nil } })
     }
 
     @Test func emptyPairGivesNil() throws {
