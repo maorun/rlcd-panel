@@ -138,6 +138,9 @@ struct DailyLogTests {
         #expect(log.rows[0].moldHours[0] == 7)
         #expect(log.rows[0].dryHours[2] == 5)
         #expect(log.rows[0].dryHours[0] == nil)
+        #expect(log.rows[0].heatHours.count == 11)
+        #expect(log.rows[0].heatHours[0] == 4)
+        #expect(log.rows[0].heatHours[1] == nil)
         #expect(DailyLog.isDailyFileName("daily_v7_2026.csv"))
         #expect(headerV7().split(separator: ",").count == 105)
         #expect(headerV7().hasSuffix(",heat_h_10"))
@@ -185,6 +188,11 @@ struct DailyLogTests {
         #expect(result.rows.count == 1)
         #expect(result.rows[0].dryHours[2] == 5)
         #expect(result.failedFiles.isEmpty)
+    }
+
+    @Test func dailyV6HasNoHeatHours() throws {
+        let line = v6Line(dry: Array(repeating: "", count: 11))
+        #expect(try DailyLog.parse(text: headerV6() + "\n" + line + "\n").rows[0].heatHours.isEmpty)
     }
 
     @Test func dailyV5HasNoDryHours() throws {

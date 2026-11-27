@@ -4377,7 +4377,7 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `SdLogCodec::parseDailyRow` accepts 105, 94 and 83 columns. `WeekHistory::RestoreRow::heat_h` feeds `WeekHistory::restore`; rows of `daily_v6` and `daily_v5` leave the heat hours as gaps.
 - `DAYS <N>` sends the `daily_v7` header. It reads `daily_v7`, `daily_v6` and `daily_v5` files (current year, then previous year). Each `daily_v6` row gets 11 empty `heat_h` fields, each `daily_v5` row 22 empty `dry_h` and `heat_h` fields.
 - `LIST`, `DUMP`, the retention, `scripts/dump-logs.sh` and `LogArchive.swift` accept `daily_v7`.
-- The macOS `DailyLog` and `DaysReply` and the Android and Wear OS `DaysReply` accept the `daily_v7` header. They check the column count but do not read the heat hours yet; separate roadmap items add `heatHours`.
+- The macOS `DailyLog`, `DaysReply` and the Android and Wear OS `DaysReply` accept the `daily_v7` header. The macOS `DailyRow.heatHours` reads the heat hours (see "Heat hours in the macOS daily charts"); the Android and Wear OS parsers do not read them yet.
 - Tests: host tests check the 105-column row, the restore of the heat hours from `daily_v7` and the gaps from `daily_v6`, and the `DAYS` reply across `daily_v6` and `daily_v7` files. `DailyLogTests`, `DaysReplyTests`, `LogArchiveTests` and the Kotlin `DaysReplyTest` read `days_reply_v7_sample.txt`.
 - Validation: 242 host test suites, `arduino-cli compile rlcd_panel`, `scripts/dump-logs.sh --self-test`, `scripts/check-protocol-sync.sh` (and `--self-test`) and `swift build -c release` pass. The Android and Wear OS unit tests are not run locally (no Android SDK); CI runs them.
 
@@ -4388,3 +4388,10 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `DaysReply.kt` is unchanged: it already reads `heatHours` from `daily_v7` and throws `ParseException` for a value of 25 (`DaysReplyTest`).
 - Tests: `DaysMoldCardsTest` checks the sum, 0 hours, `null` without a value, `null` for another sensor and `null` for both fixtures.
 - Validation: `scripts/check-protocol-sync.sh` passes. The Android unit tests are not run locally (no Android SDK); CI runs them.
+
+## Heat hours in the macOS daily charts
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/DailyLog.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DailyChartView.swift`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/DailyLogTests.swift`, `DaysReplyTests.swift`
+- `DailyRow.heatHours` holds one `Int?` for each sensor (`daily_v7`). An empty field gives `nil`. A `daily_v1` to `daily_v6` row gives `[]`.
+- `DailyChartView` shows one red bar chart (0 to 24 h) of the heat hours below the mold and dry hours chart of each sensor. The chart does not appear when all values are `nil` or the rows have no heat hours.
+- Tests: `DailyLogTests` check `heatHours` of a `daily_v7` row and `[]` for a `daily_v6` row. `DaysReplyTests` check 11 `nil` values in `tests/fixtures/days_reply_v7_sample.txt`.
