@@ -111,7 +111,7 @@ int main(int argc, char** argv) {
       }
       St7305Framebuffer fb;
       preview::renderScene(fb, scene.mode, scene.low_battery, scene.quiet_hours, scene.long_runtime,
-                           scene.battery_empty, scene.ventilate, scene.invert, scene.tiles, scene.stats_page, scene.dry, scene.muted, scene.window, scene.wall, scene.identify, scene.weak, scene.drift);
+                           scene.battery_empty, scene.ventilate, scene.invert, scene.tiles, scene.stats_page, scene.dry, scene.muted, scene.window, scene.wall, scene.identify, scene.weak, scene.drift, scene.heat);
       if (!exportFramebufferToBmp(fb, path)) {
         return 1;
       }
