@@ -33,12 +33,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Wear OS alert causes from the console command ALERTS
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AlertsReply.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AlertCauses.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/AlertsReplyTest.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
-  - **Goal:** Show on the watch why an alert is active. The phone has `AlertsReply.kt` and `AlertCauses.kt`, but the watch has neither file. Copy both files to the watch package and add them to `FILES` of `scripts/check-protocol-sync.sh`. Add an `Alert causes` chip in the sensor health screen that sends `ALERTS` only on a tap. Show one row for each active alert: alert name, the tile names of the `tiles` mask (names from `PanelConfig`) and the limit with its unit. Show `Acked` for an acknowledged alert. Show `No active alert` for a reply without an active row.
-  - **Acceptance:** A unit test parses `tests/fixtures/alerts_reply_sample.txt` and checks the row texts. A unit test checks the tile names for the mask `006`. A unit test checks `No active alert` for a reply with all `active` fields 0. `scripts/check-protocol-sync.sh` passes. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 33, Use: 7, Setup: 7, Harmony: 9, Safety: 10, Effort: S]
-
 - [ ] Wear OS battery change forecast in the tail screen
   - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/BatteryForecast.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/TailScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/BatteryForecastTest.kt`, `scripts/check-protocol-sync.sh`, `FEATURES.md`
   - **Goal:** Show on the watch when a sensor battery needs a change. The phone has `BatteryForecast.kt` from the `TAIL` rows, but the watch has no copy. Copy the file to the watch package and add it to `FILES` of the sync check. Show one line `<name>: change near <date>` for each slot 1 to 10 with a forecast below the `TailScreen` gap report. Show `Battery forecast: read more rows` when `BatteryForecast.needsLongerLog` is true. Use the limit of `BatteryForecast.limitPct(config)`.

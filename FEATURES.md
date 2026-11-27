@@ -4243,3 +4243,12 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - RTC state: `PersistentState::config_rejects.reasons` is stored in `PowerManager::REJECT_REASONS_SIZE` (4 bytes) just before the checksum. A reason above 2 makes the RTC check reject the record. `STATE_VERSION` is 85.
 - Apps: the macOS `ConfigReply.parse`, and the Kotlin `PanelConfig.parseConfigReply` of the phone and the watch accept the old line `REJECTED line=<N>` and the new line. The reason is the optional field `rejectedReasons` (`nil` or `null` for an old firmware line; an unknown reason text of a newer firmware is kept). A bad number or an empty reason throws `ParseError.badLine` on macOS; the Kotlin parsers skip a line without a number.
 - Validation: host tests check `REJECTED line=4 reason=DUPLICATE_MAC` for two slots with the same MAC, the line count, the RTC round trip and the RTC reject of reason 3. `tests/fixtures/config_reply_sample.txt` holds the new lines. Each app has a unit test for both line forms (Android and Wear OS run in CI only).
+
+## Alert causes on the Wear OS watch
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/AlertsReply.kt`, `AlertCauses.kt`, `AlertCauseRows.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/AlertCausesScreen.kt`, `SensorHealthScreen.kt`, `MainActivity.kt`, `scripts/check-protocol-sync.sh`.
+- `AlertsReply.kt` and `AlertCauses.kt` are copies of the Android files and are in `FILES` of `scripts/check-protocol-sync.sh`.
+- The sensor health screen has an `Alert causes` chip. The screen sends `ALERTS` only on a tap on `Read causes` (`MainActivity.readAlertCauses`); the watch never polls.
+- `AlertCauseRows.lines` gives one row for each active alert: the alert name, the tile names of the `tiles` mask (names from `PanelConfig.tileNames`), the limit with its unit and `Acked` for an acknowledged alert. A reply without an active row shows `No active alert`. An `ERR` reply and a bad reply show an error text.
+- Tests: `AlertCausesTest` (copy of the Android test plus the mask `006`, the empty reply and the row texts with unit and `Acked`) and `AlertsReplyTest` read `tests/fixtures/alerts_reply_sample.txt`.
+- Validation: `scripts/check-protocol-sync.sh` and its `--self-test` ran locally. The host has no Android SDK, so Gradle runs in CI.
