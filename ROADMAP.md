@@ -28,12 +28,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test in each app parses the new fixture line. A unit test checks `nil` or `null` for an old line. `scripts/check-protocol-sync.sh` passes. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
   - **Rank:** [Total: 30, Use: 7, Setup: 3, Harmony: 10, Safety: 10, Effort: S]
 
-- [ ] Heat hours column in the three week CSV exports
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/CsvExport.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/WeekCsv.kt`, the test files, `FEATURES.md`
-  - **Goal:** Keep the heat hours in the CSV export of the week. `WeekReply.header` stays the 9-column header, so the export drops `heat_h`. Write the 10-column header `WeekReply.heatHeader` and `heat_h` as the last column. Write an empty field for `nil` or `null`.
-  - **Acceptance:** A unit test exports the rows of `tests/fixtures/week_heat_reply_sample.txt` and checks the header and one row. A unit test checks an empty field for a gap day. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
-  - **Rank:** [Total: 29, Use: 5, Setup: 3, Harmony: 9, Safety: 10, Effort: S]
-
 - [ ] Heat hours column in the console command TODAY
   - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/sparkline.h`, `tests/test_firmware_logic.cpp`, `tests/fixtures/today_heat_reply_sample.txt`, `AGENTS.md`, `FEATURES.md`
   - **Goal:** Show the heat hours of the current day. `TODAY` has `mold_h` and `dry_h`, but no heat column. Add `ClimateHistory::heatHoursNewest(sensor, count, limit_c)` (pairs among the newest `count` samples with `ClimateMath::heatIndexC` at or above the limit, -1 for limit 0, unequal history sizes and no pair). Append the column `heat_h` (12 columns). Write an empty field for -1. Keep `today_hours_reply_sample.txt` for the app parsers and add a new 12-column fixture. Do not change the RTC layout or `STATE_VERSION`.

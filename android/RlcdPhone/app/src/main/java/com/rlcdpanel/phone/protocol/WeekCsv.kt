@@ -4,7 +4,7 @@ import java.util.Locale
 
 /** CSV text of the `WEEK` rows for the share intent. The rows keep the order of the reply. */
 object WeekCsv {
-    const val HEADER = WeekReply.HEADER + ",name"
+    const val HEADER = WeekReply.HEAT_HEADER + ",name"
 
     /** One header line, then one line for each row. Each line ends with a newline. */
     fun format(rows: List<WeekRow>, panelConfig: PanelConfig): String {
@@ -17,6 +17,7 @@ object WeekCsv {
                     number(row.humidityMinPct), number(row.humidityMaxPct),
                     row.moldHours?.toString() ?: "",
                     row.dryHours?.toString() ?: "",
+                    row.heatHours?.toString() ?: "",
                     panelConfig.tileName(row.sensor)
                 ).joinToString(",") { EventCsv.quote(it) }
             ).append('\n')

@@ -4298,3 +4298,12 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - macOS `WeekChartView` shows the label under the mold and dry labels of each sensor, Android `WeekScreen` below the dry bars, Wear OS `WeekScreen` after the `Trocken <N> h` line.
 - Tests: the three suites read `tests/fixtures/week_heat_reply_sample.txt` (sensor 0 gives `HEAT 20 h`, sensor 1 with an empty day gives `HEAT 16 h`) and check no label for the 9-column `week_reply_sample.txt`.
 - Validation: `swift test` passes (878 tests). The host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only; the Android and Wear OS tests were not run locally.
+
+## Heat hours column in the week CSV exports
+
+- **Code:** `macos/RlcdCompanion/Sources/RlcdProtocol/CsvExport.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/WeekCsv.kt`
+- The macOS `CsvExport.week` writes the 10-column header `WeekReply.heatHeader` and `heat_h` as the last column. The Android `WeekCsv.format` writes `WeekReply.HEAT_HEADER` plus `,name` (`heat_h` before `name`).
+- A `nil` or `null` value (gap day, limit 0, 7 to 9 column reply) gives an empty field. `WeekReply.header` stays the 9-column header of the parsers.
+- The Wear OS app has no week CSV export, so it does not change.
+- Tests: `CsvExportTests` export `tests/fixtures/week_heat_reply_sample.txt` and check the header, the first row, the gap day and the 9-column fixture. `WeekCsvTest` does the same for the phone.
+- Validation: the host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.
