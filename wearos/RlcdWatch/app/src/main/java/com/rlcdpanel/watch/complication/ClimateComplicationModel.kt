@@ -1,5 +1,6 @@
 package com.rlcdpanel.watch.complication
 
+import com.rlcdpanel.watch.protocol.ClimateMath
 import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.protocol.TelemetryFrame
@@ -122,6 +123,57 @@ data class VentilationComplicationModel(
             return VentilationComplicationModel(
                 word = word,
                 title = VentilationGuide.shortDifference(advice),
+                roomName = roomName
+            )
+        }
+    }
+}
+
+/**
+ * Content of the feels-like complication. [text] is the heat index rounded to whole degrees
+ * (`27°`) or `--`; [value] is the heat index clamped to [MIN_VALUE] to [MAX_VALUE] for the ranged
+ * type, 20 for `--`. Both show `--` for an empty cache, a failed decode, a stale frame, a room
+ * without reading and an invalid heat index.
+ */
+data class FeelsComplicationModel(
+    val text: String,
+    val value: Float,
+    val roomName: String = ""
+) {
+    val isEmpty: Boolean get() = text == PLACEHOLDER
+
+    companion object {
+        const val PLACEHOLDER = "--"
+        const val MIN_VALUE = 20f
+        const val MAX_VALUE = 45f
+
+        fun empty(roomName: String = "") = FeelsComplicationModel(PLACEHOLDER, MIN_VALUE, roomName)
+
+        /** Reads the focused room from [cache]. It does not scan BLE. */
+        fun build(
+            cache: TelemetryCache,
+            nowMillis: Long,
+            config: PanelConfig = PanelConfig()
+        ): FeelsComplicationModel {
+            val focused = cache.focusedRoom()
+            val roomName = config.tileName(focused)
+            val cached = cache.read(page = focused / TelemetryFrame.TILES_PER_PAGE)
+            if (cached == null || cached.isStale(nowMillis)) {
+                return empty(roomName)
+            }
+            val tile = cached.frame.tiles.getOrNull(focused % TelemetryFrame.TILES_PER_PAGE)
+            val temperature = tile?.temperatureC
+            val humidity = tile?.humidityPct
+            if (temperature == null || humidity == null) {
+                return empty(roomName)
+            }
+            val feels = ClimateMath.heatIndexC(temperature, humidity)
+            if (feels == null || !feels.isFinite()) {
+                return empty(roomName)
+            }
+            return FeelsComplicationModel(
+                text = "${feels.roundToInt()}°",
+                value = feels.coerceIn(MIN_VALUE.toDouble(), MAX_VALUE.toDouble()).toFloat(),
                 roomName = roomName
             )
         }

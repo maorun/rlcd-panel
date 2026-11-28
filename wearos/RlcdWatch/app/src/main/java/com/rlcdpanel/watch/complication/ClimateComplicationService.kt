@@ -65,14 +65,15 @@ class ClimateComplicationService : ComplicationDataSourceService() {
 
     companion object {
         /**
-         * Asks the system to redraw each complication of this service and of
-         * [VentilationComplicationService] after the cache, the focus or the outdoor source changed.
+         * Asks the system to redraw each complication of this service, of
+         * [VentilationComplicationService] and of [FeelsComplicationService] after the cache, the focus or the outdoor source changed.
          */
         fun requestUpdate(context: Context) {
             ComplicationDataSourceUpdateRequester
                 .create(context, ComponentName(context, ClimateComplicationService::class.java))
                 .requestUpdateAll()
             VentilationComplicationService.requestUpdate(context)
+            FeelsComplicationService.requestUpdate(context)
         }
     }
 }

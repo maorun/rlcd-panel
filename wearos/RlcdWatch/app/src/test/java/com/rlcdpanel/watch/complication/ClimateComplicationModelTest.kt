@@ -1,6 +1,7 @@
 package com.rlcdpanel.watch.complication
 
 import com.rlcdpanel.watch.protocol.Checksums
+import com.rlcdpanel.watch.protocol.ClimateMath
 import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.protocol.TelemetryCacheStore
@@ -337,5 +338,79 @@ class ClimateComplicationModelTest {
         val model = VentilationComplicationModel.build(cache, 60_000L)
         assertEquals("Zu", model.word)
         assertEquals(expectedDifference(-3.0, 65.0, 22.0, 40.0), model.title)
+    }
+
+    /** "two_tiles" with tile 0 set to [tempC] and [rh]; the CRC-8 is new. */
+    private fun cacheWithReading(tempC: Double, rh: Double, receivedAt: Long = 0L): TelemetryCache {
+        val bytes = payload("two_tiles")
+        val raw = Math.round(tempC * 100).toInt()
+        bytes[5] = (raw and 0xFF).toByte()
+        bytes[6] = ((raw shr 8) and 0xFF).toByte()
+        bytes[7] = Math.round(rh * 2).toInt().toByte()
+        bytes[bytes.size - 1] = Checksums.crc8(bytes, offset = 0, length = bytes.size - 1).toByte()
+        val cache = TelemetryCache(MemoryStore())
+        assertTrue(cache.save(bytes, receivedAt))
+        cache.saveFocusedRoom(0)
+        return cache
+    }
+
+    @Test
+    fun feelsTextUsesHeatIndexOfFocusedRoom() {
+        val expected = Math.round(ClimateMath.heatIndexC(32.0, 70.0)!!).toInt()
+        val model = FeelsComplicationModel.build(cacheWithReading(32.0, 70.0), 60_000L)
+        assertFalse(model.isEmpty)
+        assertEquals("$expected°", model.text)
+        assertTrue(expected > 32)
+        assertEquals(expected.toFloat(), model.value, 1f)
+    }
+
+    @Test
+    fun feelsEqualsAirTemperatureBelowHeatIndexRange() {
+        val model = FeelsComplicationModel.build(cacheWith("two_tiles", 0L, focus = 0), 60_000L)
+        assertEquals("22°", model.text)
+        assertEquals(22f, model.value, 0.01f)
+    }
+
+    @Test
+    fun feelsRangeValueIsClampedTo20And45() {
+        assertEquals(20f, FeelsComplicationModel.MIN_VALUE, 0f)
+        assertEquals(45f, FeelsComplicationModel.MAX_VALUE, 0f)
+        val cold = FeelsComplicationModel.build(cacheWith("two_tiles", 0L, focus = 1), 60_000L)
+        assertEquals("-3°", cold.text)
+        assertEquals(20f, cold.value, 0f)
+        val hot = FeelsComplicationModel.build(cacheWithReading(40.0, 90.0), 60_000L)
+        assertFalse(hot.isEmpty)
+        assertEquals(45f, hot.value, 0f)
+    }
+
+    @Test
+    fun feelsShowsPlaceholderForEmptyCacheStaleFrameAndEmptyTile() {
+        val empty = FeelsComplicationModel.build(TelemetryCache(MemoryStore()), 0L)
+        assertTrue(empty.isEmpty)
+        assertEquals("--", empty.text)
+        assertEquals(20f, empty.value, 0f)
+        val cache = cacheWith("two_tiles", 0L)
+        assertFalse(FeelsComplicationModel.build(cache, 35L * 60_000L).isEmpty)
+        assertEquals("--", FeelsComplicationModel.build(cache, 36L * 60_000L).text)
+        assertEquals("--", FeelsComplicationModel.build(cacheWith("two_tiles", 0L, focus = 2), 1_000L).text)
+    }
+
+    @Test
+    fun feelsShowsPlaceholderForInvalidHeatIndex() {
+        // 70 C passes the frame decode (-50 to 100 C) but is above the heat index range (max 60 C).
+        val model = FeelsComplicationModel.build(cacheWithReading(70.0, 50.0), 1_000L)
+        assertTrue(model.isEmpty)
+        assertEquals("--", model.text)
+    }
+
+    @Test
+    fun feelsKeepsRoomNameFromPanelConfig() {
+        val config = PanelConfig.parseText("slot1_name=Wohnzimmer\nslot1_mac=B0:E9:FE:00:00:01\n")
+        val stale = FeelsComplicationModel.build(cacheWith("two_tiles", 0L, focus = 1), 36L * 60_000L, config)
+        assertTrue(stale.isEmpty)
+        assertEquals("Wohnzimmer", stale.roomName)
+        val fresh = FeelsComplicationModel.build(cacheWith("two_tiles", 0L, focus = 1), 60_000L, config)
+        assertFalse(fresh.isEmpty)
+        assertEquals("Wohnzimmer", fresh.roomName)
     }
 }
