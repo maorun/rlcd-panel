@@ -183,6 +183,11 @@ final class AppModel: ConsoleLinkDelegate {
     var restore: ConfigBackup.Parsed?
     var restoreFileName: String?
     var showRestore = false
+    /// Stored config profiles, sorted by name, and the profile whose diff the review sheet shows.
+    var profileList: [ConfigProfile] = ConfigProfileStore(store: UserDefaults.standard).profiles()
+    var profileReview: ConfigProfile?
+    /// Name typed in the profile field of the config editor.
+    var profileName = ""
     var pendingPattern: Int?
     var showingPatternAlert = false
     private var downloadStats = (saved: 0, failed: 0)
@@ -1305,6 +1310,62 @@ final class AppModel: ConsoleLinkDelegate {
         batchSummary = nil
         if changes.contains(where: { SlotAssignment.isMacKey($0.key) }) { scanResult = nil; rejectsResult = nil; receptionResult = nil }
         batch = ConfigBatch(changes: changes)
+        sendNextBatchCommand()
+    }
+
+    // MARK: Config profiles (named key sets, for example Winter and Summer)
+
+    /// Stored profiles of the editor (`UserDefaults`); `profileList` is read again after each save and delete.
+    private let profileStore = ConfigProfileStore(store: UserDefaults.standard)
+
+    /// Saves the changed keys of the form as profile `name`. Excluded keys (names, MACs, offsets, gains) drop out.
+    func saveProfile(name: String) {
+        do {
+            let profile = try ConfigProfile.make(name: name, changes: changes)
+            guard profileStore.save(profile) else { message = "Profile limit \(ConfigProfileStore.maxProfiles) reached. Delete one first"; return }
+            profileList = profileStore.profiles()
+            message = "Profile saved: \(profile.name) (\(profile.values.count) keys)"
+        } catch let failure as ConfigProfile.Failure {
+            message = failure.text
+        } catch {
+            message = error.localizedDescription
+        }
+    }
+
+    func deleteProfile(_ name: String) {
+        profileStore.remove(name: name)
+        profileList = profileStore.profiles()
+        if profileReview?.name == name { profileReview = nil }
+    }
+
+    /// Opens the review sheet; nothing is sent before the user confirms.
+    func reviewProfile(_ profile: ConfigProfile) { profileReview = profile }
+
+    /// Plan of the reviewed profile against the last `CONFIG` reply.
+    var profilePlan: ConfigProfile.Plan? {
+        guard let config, let profileReview else { return nil }
+        return profileReview.plan(current: config.values)
+    }
+
+    var profileWarning: String? {
+        guard transport == .bluetooth, let c = profilePlan?.changes.first(where: { $0.key == "ble_console" }), (Int(c.new) ?? 0) < 2 else { return nil }
+        return "ble_console below 2 over BLE stops SET. Apply it alone, or use the USB serial link."
+    }
+
+    var canApplyProfile: Bool {
+        canSet && profilePlan?.canApply == true && draft.isEmpty && alertLimitEdits.isEmpty // the CONFIG reply of the batch drops unsaved edits
+            && pendingCommand == nil && queue.isEmpty && batch == nil
+    }
+
+    func closeProfileReview() { profileReview = nil }
+
+    /// Sends only the keys that differ from the panel through `ConfigBatch` (`SET` commands, then `CONFIG`).
+    func applyProfile() {
+        guard canApplyProfile, let plan = profilePlan else { message = "Profile apply not allowed"; return }
+        profileReview = nil
+        message = nil
+        batchSummary = nil
+        batch = ConfigBatch(changes: plan.changes)
         sendNextBatchCommand()
     }
 

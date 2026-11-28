@@ -30,6 +30,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.ConfigCategory
 import com.rlcdpanel.phone.protocol.ConfigPlan
+import com.rlcdpanel.phone.protocol.ConfigProfile
+import com.rlcdpanel.phone.protocol.ConfigProfileStore
 import com.rlcdpanel.phone.protocol.ConfigResetPlan
 import com.rlcdpanel.phone.protocol.ConfigSchema
 import com.rlcdpanel.phone.protocol.PanelConfig
@@ -55,6 +57,7 @@ fun ConfigEditorScreen(
     onApply: (List<String>) -> Unit,
     status: StatusReply? = null,
     measuredConfig: Map<String, String> = emptyMap(),
+    profileStore: ConfigProfileStore? = null,
     onReadChanged: () -> Unit = {},
     onBack: () -> Unit
 ) {
@@ -77,6 +80,50 @@ fun ConfigEditorScreen(
     val commands = (plan as? ConfigPlan.Commands)?.commands.orEmpty()
     // Warnings never block the apply button: they only name a conflict between valid values.
     val warnings = ConfigSchema.warnings(panelConfig.values + edits.filterKeys { it in ConfigSchema.keys })
+    // Named profiles (for example Winter and Summer): the changed keys of the form, without names, MACs, offsets and gains.
+    var profiles by remember { mutableStateOf(profileStore?.profiles().orEmpty()) }
+    var profileName by remember { mutableStateOf("") }
+    var profileMessage by remember { mutableStateOf<String?>(null) }
+    var reviewProfile by remember { mutableStateOf<ConfigProfile?>(null) }
+    reviewProfile?.let { profile ->
+        // The diff against the last CONFIG reply. Nothing is sent before the user confirms.
+        val profilePlan = profile.plan(panelConfig.values)
+        AlertDialog(
+            onDismissRequest = { reviewProfile = null },
+            title = { Text("Profil ${profile.name} anwenden") },
+            text = {
+                Column {
+                    Text(
+                        profilePlan.changes.joinToString("\n") { it.text }.ifEmpty { "Das Panel hat diese Werte schon" }
+                    )
+                    profilePlan.problems.forEach { (key, text) ->
+                        Text("$key: $text", color = MaterialTheme.colorScheme.error)
+                    }
+                    // A level below 2 makes the console read-only: later commands over BLE get no reply.
+                    if (profilePlan.changes.any { it.key == "ble_console" && (it.new.toIntOrNull() ?: 0) < 2 }) {
+                        Text(
+                            "ble_console unter 2 stoppt SET über BLE. Einzeln anwenden oder USB nutzen.",
+                            color = MaterialTheme.colorScheme.tertiary
+                        )
+                    }
+                    if (profilePlan.skipped.isNotEmpty()) {
+                        Text(
+                            "Übersprungen (unbekannt oder nicht im Profil erlaubt): " + profilePlan.skipped.joinToString(", "),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = { onApply(profilePlan.commands); reviewProfile = null },
+                    // An empty cache would compare with the schema defaults: read CONFIG first.
+                    enabled = writable && !state.isBusy && panelConfig.values.isNotEmpty() && profilePlan.canApply
+                ) { Text("Anwenden (${profilePlan.commands.size})") }
+            },
+            dismissButton = { TextButton(onClick = { reviewProfile = null }) { Text("Abbrechen") } }
+        )
+    }
     pendingReset?.let { reset ->
         AlertDialog(
             onDismissRequest = { pendingReset = null },
@@ -133,6 +180,46 @@ fun ConfigEditorScreen(
             }
             state.message?.let {
                 item { Text(it, color = if (state.isError) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onBackground) }
+            }
+            if (profileStore != null) {
+                item(key = "profiles") {
+                    Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Profile", style = MaterialTheme.typography.titleMedium)
+                        OutlinedTextField(
+                            value = profileName,
+                            onValueChange = { profileName = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("Profilname") },
+                            supportingText = { Text("Ein Profil enthält die geänderten Keys des Formulars. Namen, MACs, Offsets und Gains werden nie gespeichert.") },
+                            singleLine = true
+                        )
+                        OutlinedButton(
+                            onClick = {
+                                val changes = (plan as? ConfigPlan.Commands)?.changes.orEmpty()
+                                profileMessage = when (val made = ConfigProfile.make(profileName, changes)) {
+                                    is ConfigProfile.Made.Failed -> made.text
+                                    is ConfigProfile.Made.Ok ->
+                                        if (profileStore.save(made.profile)) {
+                                            profiles = profileStore.profiles()
+                                            "Profil gespeichert: ${made.profile.name} (${made.profile.values.size} Keys)"
+                                        } else "Höchstens ${ConfigProfileStore.MAX_PROFILES} Profile. Zuerst eines löschen"
+                                }
+                            },
+                            enabled = profileName.isNotEmpty() && commands.isNotEmpty() && problems.isEmpty()
+                        ) { Text("Änderungen als Profil speichern") }
+                        profileMessage?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                        for (profile in profiles) {
+                            Row(
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text("${profile.name} (${profile.values.size})", modifier = Modifier.weight(1f))
+                                OutlinedButton(onClick = { reviewProfile = profile }) { Text("Prüfen") }
+                                TextButton(onClick = { profileStore.remove(profile.name); profiles = profileStore.profiles() }) { Text("Löschen") }
+                            }
+                        }
+                    }
+                }
             }
             for (category in ConfigCategory.values()) {
                 item(key = "head_${category.name}") {
