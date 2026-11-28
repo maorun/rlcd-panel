@@ -40,11 +40,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Monthly heat summary in the three apps
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/MoldSummary.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DailyChartView.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/MoldSummary.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/DaysScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/MoldSummary.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MoldSummaryScreen.kt`, the matching test files, `FEATURES.md`
-  - **Goal:** Show the heat hours of each month like the mold hours. Add the sum of the `heat_h` columns for each room and month. Count a day only when the field has a value. Show `--` for a month without a heat value, for example a `daily_v6` month.
-  - **Acceptance:** Unit tests read `tests/fixtures/days_reply_v7_sample.txt` and `days_reply_v6_sample.txt`. `swift test` passes. The CI jobs of the phone and the watch pass.
-  - **Rank:** [Total: 27, Use: 6, Setup: 2, Harmony: 9, Safety: 10, Effort: M]
 - [ ] Mute and snooze actions in the Wear OS tile
   - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/tile/ClimateTileService.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/tile/ClimateTileModel.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/tile/ClimateTileModelTest.kt`, `FEATURES.md`
   - **Goal:** Let the user silence the panel from the tile. Add two clickables: `Mute` and `Snooze 60`. Each opens `MainActivity` with an action extra that sends `MUTE 1` or `SNOOZE 60` over the BLE console and shows the reply. Show the actions only when the cache has a frame younger than 35 minutes.

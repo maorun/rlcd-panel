@@ -129,10 +129,10 @@ struct DailyChartView: View {
         }
     }
 
-    /// One line for each room that holds a mold value; none for a room without one (older files, empty sensor).
+    /// One line for each room that holds a mold or heat value; none for a room without either (older files, empty sensor).
     @ViewBuilder private func moldSummary(_ rows: [DailyRow]) -> some View {
         let lines = MoldSummary.summarize(rows: rows).compactMap { room in
-            MoldSummary.lineText(room).map { (DailyLog.sensorNames[room.sensor], $0) }
+            MoldSummary.chartLine(room).map { (DailyLog.sensorNames[room.sensor], $0) }
         }
         if !lines.isEmpty {
             VStack(alignment: .leading, spacing: 2) {

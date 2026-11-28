@@ -14,7 +14,9 @@ data class MoldRoomSummary(
     val moldDays: Int,
     /** `YYYY-MM-DD` of the day with the most mold hours; on a tie the newest day. */
     val worstDate: String?,
-    val worstHours: Int?
+    val worstHours: Int?,
+    /** Sum of the `heat_h` values of the rows; `null` when no row holds one (for example a `daily_v6` month). */
+    val heatHours: Int? = null
 )
 
 /** Builds the mold summary of the watch and phone apps from the rows of one `DAYS 31` reply. */
@@ -37,7 +39,9 @@ object MoldSummary {
         var days = 0
         var worstDate: String? = null
         var worstHours: Int? = null
+        var heat: Int? = null
         for (row in rows) {
+            row.sensors[sensor].heatHours?.let { heat = (heat ?: 0) + it }
             val hours = row.sensors[sensor].moldHours ?: continue
             total = (total ?: 0) + hours
             if (hours > 0) {
@@ -49,11 +53,14 @@ object MoldSummary {
                 }
             }
         }
-        return MoldRoomSummary(sensor, name, total, days, worstDate, worstHours)
+        return MoldRoomSummary(sensor, name, total, days, worstDate, worstHours, heat)
     }
 
     /** `<sum> h`, or `--` without a mold value. */
     fun totalText(room: MoldRoomSummary): String = room.totalHours?.let { "$it h" } ?: EMPTY
+
+    /** `<sum> h` of the heat hours, or `--` without a heat value. */
+    fun heatText(room: MoldRoomSummary): String = room.heatHours?.let { "$it h" } ?: EMPTY
 
     /** `<n> Tage`, or `--` without a mold value. */
     fun daysText(room: MoldRoomSummary): String =
