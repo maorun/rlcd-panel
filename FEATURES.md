@@ -1787,6 +1787,15 @@ The Wear OS app shows the radio signal of one sensor. The sensor health screen s
 - No `config.ini` key and no firmware change.
 - Tests: `ClimateComplicationModelTest` (text of the `two_tiles` vector for two rooms, empty cache, frame of 36 minutes, bad CRC-8, room without reading, ranged value 0 to 100, alert mark `!21.4°` for mask 0x02, no mark for mask 0, a stale frame and an empty cache, text length of 7 or less for `!-10.5°`). The local machine has no Android SDK, so CI runs `gradle testDebugUnitTest assembleDebug`.
 
+## Feels-like temperature complication on the Wear OS watch face
+
+- `FeelsComplicationService` (`complication` package, extends `ComplicationDataSourceService`) shows the feels-like temperature of the focused room on the watch face. It supports `SHORT_TEXT` (`<T>°` with the title `FEELS`) and `RANGED_VALUE` (the value clamped to 20 to 45 C, text `<T>°`). A tap opens `MainActivity`.
+- `FeelsComplicationModel.build` reads the focused room from `TelemetryCache` and calls `ClimateMath.heatIndexC` (below 26.7 C or 40 %RH the result is the air temperature). It does not scan BLE. An empty cache, a failed decode, a frame older than 35 minutes, a room without a valid reading and an invalid heat index give `--` and the ranged value 20.
+- `ClimateComplicationService.requestUpdate` also asks the system to redraw the feels-like complication, so each caller (`BleScanService`, `MainActivity`) refreshes it with the other complications.
+- The service is registered in `AndroidManifest.xml` with the types `SHORT_TEXT,RANGED_VALUE` and `UPDATE_PERIOD_SECONDS` 0.
+- No `config.ini` key and no firmware change. `ClimateMath.kt` stays equal to the phone copy.
+- Tests: `ClimateComplicationModelTest` (text of a hot room against `ClimateMath.heatIndexC`, air temperature below the heat index range, ranged value clamped to 20 and 45, empty cache, frame of 35 and 36 minutes, room without reading, invalid heat index, room name). The local machine has no Android SDK, so CI runs `gradle testDebugUnitTest assembleDebug`.
+
 ## Ventilation advice complication on the Wear OS watch face
 
 - `VentilationComplicationService` (`complication` package, extends `ComplicationDataSourceService`) is a second complication data source next to `ClimateComplicationService`. It supports only `SHORT_TEXT`: the text is one word (`Lüften`, `Zu` or `--`), the title is the absolute humidity difference of the focused room minus the outdoor air in g/m3 (`+2.3`, `-1.4`, `--`). A tap opens `MainActivity`.
