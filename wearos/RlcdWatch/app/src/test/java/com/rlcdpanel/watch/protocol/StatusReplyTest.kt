@@ -342,7 +342,7 @@ class StatusReplyTest {
     @Test
     fun parsesLatchLine() {
         val latch = StatusReply.parse(fixtureLines()).latch!!
-        assertEquals(LatchState(0x002, 0x000, 0x008, 0x004, 0x002, 0x402, 0x202, 0x002, 0x001), latch)
+        assertEquals(LatchState(0x002, 0x000, 0x008, 0x004, 0x002, 0x402, 0x202, 0x002, 0x001, 0x000), latch)
         assertEquals(0x202, latch.receptionLow)
         assertEquals(0x002, latch.wall)
         assertEquals(0x402, latch.window)
