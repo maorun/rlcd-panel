@@ -149,6 +149,7 @@ final class AppModel: ConsoleLinkDelegate {
     private var windowWatch = WindowWatch()
     private var dryWatch = DryWatch()
     private var driftWatch = DriftWatch()
+    private var stuckWatch = StuckWatch()
     private var receptionWatch = ReceptionWatch()
     private static let silenceNotificationId = "rlcd_panel_silence"
     /// Login item logic; the state comes from `SMAppService` on each refresh.
@@ -415,6 +416,19 @@ final class AppModel: ConsoleLinkDelegate {
         }
     }
 
+    /// Feeds `StuckWatch` with the `stuck=` mask of each `STATUS` reply and posts one notification for each rising bit.
+    private func checkStuckNotifications(_ latch: LatchMetrics?) {
+        let tiles = stuckWatch.update(mask: latch?.stuck)
+        guard notificationsEnabled, Bundle.main.bundleIdentifier != nil else { return }
+        for tile in tiles {
+            let content = UNMutableNotificationContent()
+            content.title = "RLCD Panel Alert"
+            content.body = StuckWatch.notificationBody(tile: tile, config: lastConfig)
+            content.sound = .default
+            UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: "rlcd_panel_stuck_\(tile)", content: content, trigger: nil))
+        }
+    }
+
     /// Feeds `ReceptionWatch` with the `rxlow=` mask of each `STATUS` reply and posts one notification for each rising slot.
     /// `ReceptionWatch` runs on each reply, so a rise read while notifications are off does not repeat later.
     private func checkReceptionNotifications(_ latch: LatchMetrics?) {
@@ -542,6 +556,7 @@ final class AppModel: ConsoleLinkDelegate {
         windowWatch = WindowWatch()
         dryWatch = DryWatch()
         driftWatch = DriftWatch()
+        stuckWatch = StuckWatch()
         receptionWatch = ReceptionWatch()
         config = nil
         lastConfig = nil // names and unit belong to the old panel
@@ -1850,6 +1865,7 @@ final class AppModel: ConsoleLinkDelegate {
                 checkWindowLatchNotifications(diagnostics?.latch)
                 checkDryNotifications(diagnostics?.latch)
                 checkDriftNotifications(diagnostics?.latch)
+                checkStuckNotifications(diagnostics?.latch)
                 checkReceptionNotifications(diagnostics?.latch)
             case let (.version, .frame(lines)):
                 version = nil

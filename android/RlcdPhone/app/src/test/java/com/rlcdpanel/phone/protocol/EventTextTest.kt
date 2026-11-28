@@ -52,6 +52,17 @@ class EventTextTest {
     }
 
     @Test
+    fun sensorStuckGivesFrozenAndGood() {
+        assertEquals("Sensor frozen (tile 3)", EventText.describe(row("SENSOR_STUCK", 0x0103)))
+        assertEquals("Sensor frozen (Onboard)", EventText.describe(row("SENSOR_STUCK", 0x0100)))
+        assertEquals("Sensor good again (tile 10)", EventText.describe(row("SENSOR_STUCK", 0x000A)))
+        assertEquals("Sensor good again (Onboard)", EventText.describe(row("SENSOR_STUCK", 0x0000)))
+        assertEquals("SENSOR_STUCK,11", EventText.describe(row("SENSOR_STUCK", 0x000B)))
+        assertEquals("SENSOR_STUCK,512", EventText.describe(row("SENSOR_STUCK", 0x0200)))
+        assertEquals(EventFilter.Category.SENSORS, EventFilter.category("SENSOR_STUCK"))
+    }
+
+    @Test
     fun scanFaultGivesFailedAndBack() {
         assertEquals("BLE scan start failed", EventText.describe(row("SCAN_FAULT", 1)))
         assertEquals("BLE scan works again", EventText.describe(row("SCAN_FAULT", 0)))

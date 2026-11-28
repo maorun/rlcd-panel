@@ -36,6 +36,7 @@ import com.rlcdpanel.watch.protocol.NoiseState
 import com.rlcdpanel.watch.protocol.BleRejectState
 import com.rlcdpanel.watch.protocol.NtpState
 import com.rlcdpanel.watch.protocol.DriftWatch
+import com.rlcdpanel.watch.protocol.StuckWatch
 import com.rlcdpanel.watch.protocol.DoorProposal
 import com.rlcdpanel.watch.protocol.JumpAdvice
 import com.rlcdpanel.watch.protocol.OutdoorProposal
@@ -190,6 +191,10 @@ object SensorHealthText {
     /** Heat mark of one sensor row (tile 0 onboard, 1 to 10 slots); null without a `LATCH` line, without `heat` and for an unflagged sensor. */
     fun heatMark(latch: LatchState?, sensor: StatusSensor): String? =
         if (latch?.hasHeat(sensor.index) == true) "$WARNING Heat" else null
+
+    /** Frozen reading mark of one sensor row (tile 0 onboard, 1 to 10 slots); null without a `LATCH` line, without `stuck` and for an unflagged sensor. */
+    fun stuckMark(latch: LatchState?, sensor: StatusSensor): String? =
+        if (StuckWatch.isStuck(latch?.stuck, sensor.index)) "$WARNING ${StuckWatch.TEXT}" else null
 
     fun isMold(sensor: StatusSensor): Boolean = (sensor.moldHours ?: 0) > 0
 
@@ -845,6 +850,9 @@ fun SensorHealthScreen(
                                     Text(mark, fontSize = 10.sp, color = Color(0xFFFFB74D))
                                 }
                                 SensorHealthText.heatMark(status.latch, sensor)?.let { mark ->
+                                    Text(mark, fontSize = 10.sp, color = Color(0xFFFFB74D))
+                                }
+                                SensorHealthText.stuckMark(status.latch, sensor)?.let { mark ->
                                     Text(mark, fontSize = 10.sp, color = Color(0xFFFFB74D))
                                 }
                             }

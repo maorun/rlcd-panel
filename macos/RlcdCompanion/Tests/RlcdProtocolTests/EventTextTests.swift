@@ -211,6 +211,12 @@ private func row(_ event: String, _ detail: Int) -> EventRow {
         #expect(EventText.describe(row("SENSOR_DRIFT", 0x000B)) == "SENSOR_DRIFT,11")
         #expect(EventText.describe(row("SENSOR_DRIFT", 0x0200)) == "SENSOR_DRIFT,512")
         #expect(EventFilter.category(of: "SENSOR_DRIFT") == .sensors)
+        #expect(EventText.describe(row("SENSOR_STUCK", 0x0103)) == "Sensor frozen (Slot 3)")
+        #expect(EventText.describe(row("SENSOR_STUCK", 0x0000)) == "Sensor good again (Onboard)")
+        #expect(EventText.describe(row("SENSOR_STUCK", 0x000B)) == "SENSOR_STUCK,11")
+        #expect(EventText.describe(row("SENSOR_STUCK", 0x0200)) == "SENSOR_STUCK,512")
+        #expect(EventText.describe(row("SENSOR_STUCK", 0x0102), config: named) == "Sensor frozen (Slot 2)")
+        #expect(EventText.describe(row("SENSOR_STUCK", 0x0001), config: named) == "Sensor good again (Kitchen)")
     }
 
     @Test func slotStaleGivesLostAndBack() {

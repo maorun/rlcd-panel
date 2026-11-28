@@ -69,6 +69,7 @@ import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.TelemetryFrame
 import com.rlcdpanel.phone.protocol.TelemetryHistory
 import com.rlcdpanel.phone.protocol.DriftWatch
+import com.rlcdpanel.phone.protocol.StuckWatch
 import com.rlcdpanel.phone.protocol.DryWatch
 import com.rlcdpanel.phone.protocol.WallText
 import com.rlcdpanel.phone.protocol.DiagnosticsReport
@@ -137,6 +138,7 @@ class MainActivity : ComponentActivity() {
     private val wallWatch = WallWatch()
     private val windowWatch = WindowWatch()
     private val driftWatch = DriftWatch()
+    private val stuckWatch = StuckWatch()
     private val dryWatch = DryWatch()
     private val receptionNotice = ReceptionNotice()
     private var panelConfig by mutableStateOf(PanelConfig())
@@ -1560,6 +1562,7 @@ class MainActivity : ComponentActivity() {
             val status = StatusReply.parse(reply.lines)
             checkWindowNotifications(status)
             checkDriftNotifications(status)
+            checkStuckNotifications(status)
             checkDryNotifications(status)
             checkReceptionNotifications(status)
             chimeState.copy(
@@ -2275,6 +2278,7 @@ class MainActivity : ComponentActivity() {
                 val status = StatusReply.parse(reply.lines)
                 checkWindowNotifications(status)
                 checkDriftNotifications(status)
+                checkStuckNotifications(status)
                 checkDryNotifications(status)
                 checkReceptionNotifications(status)
                 val limit = panelConfig.values["sensor_battery_limit_pct"]?.toDoubleOrNull()
@@ -2521,6 +2525,17 @@ class MainActivity : ComponentActivity() {
                 message = DriftWatch.message(panelConfig.tileName(tileIndex)),
                 notificationId = DriftWatch.notificationId(tileIndex),
                 openCalibration = true
+            )
+        }
+    }
+
+    /** Posts one notification for each frozen reading bit of `LATCH` that rose since the previous `STATUS` read. */
+    private fun checkStuckNotifications(status: StatusReply) {
+        for (tileIndex in stuckWatch.update(status.latch?.stuck)) {
+            postVentilationNotification(
+                title = "RLCD Alarm",
+                message = StuckWatch.message(panelConfig.tileName(tileIndex)),
+                notificationId = StuckWatch.notificationId(tileIndex)
             )
         }
     }

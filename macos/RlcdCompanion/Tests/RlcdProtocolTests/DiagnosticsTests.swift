@@ -396,6 +396,12 @@ private func lines(_ text: String) -> [String] { text.split(separator: "\n").map
         #expect(!m.hasHeat(sensor: 0))
     }
 
+    @Test func parsesStuckFromSharedFixture() throws {
+        let m = try #require(try LatchMetrics.parse(lines: lines(try statusFixtureText())))
+        #expect(m.stuck == 0x000)
+        #expect(!m.hasStuck(sensor: 0))
+    }
+
     @Test func heatRejectsBadFields() {
         let base = "LATCH vent=000 dry=000 batlow=000 stale=000 wall=000 window=000 rxlow=000 drift=000"
         for bad in [base + " heat=zzz", base + " heat=800", base + " heat=00", base + " heat=0x1", base + " heat="] {

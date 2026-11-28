@@ -30,6 +30,15 @@ class SensorHealthTextTest {
     private fun fixtureLines(): List<String> = (fixtureReply() as ConsoleReply.Frame).lines
 
     @Test
+    fun stuckMark() {
+        assertEquals("⚠ Sensor frozen", SensorHealthText.stuckMark(LatchState(0, 0, 0, 0, stuck = 0x001), 0))
+        assertNull(SensorHealthText.stuckMark(LatchState(0, 0, 0, 0, stuck = 0x001), 1))
+        assertNull(SensorHealthText.stuckMark(null, 0))
+        assertNull(SensorHealthText.stuckMark(LatchState(0, 0, 0, 0), 0))
+        assertNull(SensorHealthText.stuckMark(LatchState(0, 0, 0, 0, stuck = 0x7FF), 11))
+    }
+
+    @Test
     fun heatMark() {
         val latch = StatusReply.parse(fixtureLines()).latch
         assertEquals("⚠ Heat", SensorHealthText.heatMark(latch, 0))

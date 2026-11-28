@@ -42,6 +42,17 @@ class SensorHealthTextTest {
     }
 
     @Test
+    fun stuckMark() {
+        fun row(index: Int) = StatusSensor(index, "A", 20.0, 50.0, 80.0, -60.0, 10.0, "OK", "WOIO", null)
+        val latch = LatchState(0, 0, 0, 0, stuck = 0x001)
+        assertEquals("${SensorHealthText.WARNING} Sensor frozen", SensorHealthText.stuckMark(latch, row(0)))
+        assertNull(SensorHealthText.stuckMark(latch, row(1)))
+        assertNull(SensorHealthText.stuckMark(null, row(0)))
+        assertNull(SensorHealthText.stuckMark(LatchState(0, 0, 0, 0), row(0)))
+        assertNull(SensorHealthText.stuckMark(LatchState(0, 0, 0, 0, stuck = 0x7FF), row(11)))
+    }
+
+    @Test
     fun heatMark() {
         val latch = StatusReply.parse(fixtureLines()).latch
         fun row(index: Int) = StatusSensor(index, "A", 20.0, 50.0, 80.0, -60.0, 10.0, "OK", "WOIO", null)
