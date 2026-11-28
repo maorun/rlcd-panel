@@ -898,6 +898,10 @@ public:
   static constexpr uint8_t MAX_LIMIT_PCT = 50;
   static constexpr uint8_t RELEASE_MARGIN_PCT = 5;
 
+  // Latch bits (bit i is slot i + 1) as a tile mask (bit 0 onboard, bits 1 to 10 slots). The console command ALERTS
+  // and the diagnostics alert lines share it.
+  static uint16_t tileMask(uint16_t latch) { return static_cast<uint16_t>((latch & ALL_MASK) << 1); }
+
   static uint16_t update(uint16_t previous, const SwitchBotReading* slots, size_t slot_count, uint32_t now_ms,
                          uint8_t limit_pct, uint32_t stale_timeout_ms = SENSOR_STALE_TIMEOUT_MS) {
     if (limit_pct == LIMIT_OFF || limit_pct > MAX_LIMIT_PCT || slots == nullptr) {

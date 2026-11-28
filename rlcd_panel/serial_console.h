@@ -2574,7 +2574,7 @@ public:
     }
     const AlertEvaluator::TriggerTiles trigger =
         AlertEvaluator::triggerTiles(onboard, slots, MAX_SWITCHBOT_SENSORS, now_ms, limits);
-    const uint16_t battery_tiles = static_cast<uint16_t>((battery_latch & SensorBatteryLatch::ALL_MASK) << 1);
+    const uint16_t battery_tiles = SensorBatteryLatch::tileMask(battery_latch);
     struct Row {
       const char* name;
       uint8_t bit;

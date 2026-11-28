@@ -464,6 +464,8 @@ void updateStatsPages() {
   g_mode_controller.setDashboardPages(tiles > 6 ? 2 : 1);
 }
 
+AlertLimits alertLimits(); // defined below; the diagnostics view reads the trigger tiles
+
 void renderDashboard() {
   updateStatsPages(); // before the first render: a restored page falls back without active slots
   SwitchBotReading snapshot[MAX_SWITCHBOT_SENSORS];
@@ -514,6 +516,10 @@ void renderDashboard() {
   info.cycle_tenths = g_cycles.cycleTenths();
   info.shtc3 = g_state.shtc3;
   info.reception = &g_state.reception;
+  info.alert_mask = g_state.alert_mask;
+  if (g_mode_controller.mode() == DisplayMode::SYSTEM_DIAGNOSTICS) { // only this view draws the alert lines
+    info.alert_tiles = AlertEvaluator::triggerTiles(g_onboard_reading, snapshot, MAX_SWITCHBOT_SENSORS, nowMs(), alertLimits());
+  }
 
   DashboardView::renderMode(
       g_framebuffer,
