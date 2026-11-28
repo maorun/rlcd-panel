@@ -20,17 +20,36 @@ data class DaysSensor(
         get() = temperatureMinC == null && humidityMinPct == null && moldHours == null && dryHours == null && heatHours == null
 }
 
+/** The noise summary of one `DAYS` row (the same for all sensors). An empty field is null. */
+data class DaysNoise(
+    /** Lowest noise level of the day in dB. */
+    val minDb: Int? = null,
+    /** Highest noise level of the day in dB. */
+    val maxDb: Int? = null,
+    /** Peak level in dB. Null for an empty field and for a day without a valid reading. */
+    val peakDb: Int? = null,
+    /** Local hour 0 to 23 of the peak. Null for an empty field. */
+    val peakHour: Int? = null,
+    /** Sum of the noise events of the day. Null for an empty field. */
+    val eventsSum: Int? = null
+) {
+    /** True when no noise field has a value. */
+    val isEmpty: Boolean
+        get() = minDb == null && maxDb == null && peakDb == null && peakHour == null && eventsSum == null
+}
+
 /** One `DAYS` row: a line of `daily_v7_YYYY.csv` (or of `daily_v6_YYYY.csv` and `daily_v5_YYYY.csv` with empty heat or dry hours). [sensors] holds the onboard sensor, then slots 1 to 10. */
 data class DaysRow(
     /** `YYYY-MM-DD`. */
     val date: String,
-    val sensors: List<DaysSensor>
+    val sensors: List<DaysSensor>,
+    val noise: DaysNoise = DaysNoise()
 )
 
 /**
  * Parser of the `DAYS <N>` reply (`SerialConsoleRunner::showDays` of the firmware). The column layout and the
  * value rules are those of `SdLogCodec::parseDailyRow`: 105 columns under the `daily_v7` header, 94 columns under the `daily_v6` header, 83 columns under the `daily_v5` header, an empty field is a missing value, a sensor
- * needs both values of a pair. The mean and noise columns are not read.
+ * needs both values of a pair. The mean columns are not read. The five noise columns give [DaysRow.noise].
  */
 object DaysReply {
     const val COLUMNS = 105
@@ -47,7 +66,12 @@ object DaysReply {
     val HEADER = HEADER_V6 + "," + (0..10).joinToString(",") { "heat_h_$it" }
 
     private const val NOISE_COLUMNS = 5
-    private const val MOLD_FIRST = 1 + 6 * SENSOR_COUNT + NOISE_COLUMNS
+    private const val NOISE_FIRST = 1 + 6 * SENSOR_COUNT
+    private const val MOLD_FIRST = NOISE_FIRST + NOISE_COLUMNS
+    private const val NOISE_DB_MIN = -50
+    private const val NOISE_DB_MAX = 255
+    private const val NOISE_MAX_HOUR = 23
+    private const val NOISE_MAX_EVENTS = 65535
     private const val DRY_FIRST = COLUMNS_V5
     private const val HEAT_FIRST = COLUMNS_V6
     private const val MAX_HOURS = 24
@@ -55,6 +79,7 @@ object DaysReply {
     private val BEGIN = Regex("^BEGIN DAYS (0|[1-9][0-9]?)$")
     private val DATE = Regex("^([0-9]{4})-([0-9]{2})-([0-9]{2})$")
     private val DECIMAL = Regex("^-?[0-9]+(\\.[0-9])?$")
+    private val INTEGER = Regex("^-?[0-9]{1,5}$")
     private val HOURS = Regex("^[0-9]{1,2}$")
 
     /** `DAYS <N>` for [rows] 1 to 31, `null` for each other value. */
@@ -93,6 +118,14 @@ object DaysReply {
         return text.toInt().also { if (it > MAX_HOURS) throw ParseException(line) }
     }
 
+    /** Integer in [lo, hi] of one noise field; an empty field is null. */
+    private fun noiseValue(text: String, lo: Int, hi: Int, line: String): Int? {
+        if (text.isEmpty()) return null
+        val v = INTEGER.matchEntire(text)?.let { text.toIntOrNull() } ?: throw ParseException(line)
+        if (v < lo || v > hi) throw ParseException(line)
+        return v
+    }
+
     private fun row(line: String, columns: Int): DaysRow {
         val c = line.split(",")
         if (c.size != columns) throw ParseException(line)
@@ -110,7 +143,14 @@ object DaysReply {
             val heat = if (columns == COLUMNS) hours(c[HEAT_FIRST + s], line) else null
             DaysSensor(tLo, tHi, hLo, hHi, mold, dry, heat)
         }
-        return DaysRow(c[0], sensors)
+        val noise = DaysNoise(
+            minDb = noiseValue(c[NOISE_FIRST], NOISE_DB_MIN, NOISE_DB_MAX, line),
+            maxDb = noiseValue(c[NOISE_FIRST + 1], NOISE_DB_MIN, NOISE_DB_MAX, line),
+            peakDb = noiseValue(c[NOISE_FIRST + 2], NOISE_DB_MIN, NOISE_DB_MAX, line),
+            peakHour = noiseValue(c[NOISE_FIRST + 3], 0, NOISE_MAX_HOUR, line),
+            eventsSum = noiseValue(c[NOISE_FIRST + 4], 0, NOISE_MAX_EVENTS, line)
+        )
+        return DaysRow(c[0], sensors, noise)
     }
 
     /**

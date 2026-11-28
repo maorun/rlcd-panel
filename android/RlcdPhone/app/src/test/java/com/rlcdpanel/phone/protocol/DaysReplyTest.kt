@@ -271,4 +271,57 @@ class DaysReplyTest {
         val text = Fixtures.file("days_reply_sample.txt").readText()
         assertEquals(ConsoleReply.Frame(fixtureLines()), ReplyAssembler().append(text.toByteArray()))
     }
+
+    /** First noise column (`noise_min_db`). */
+    private val noiseFirst = 1 + 6 * DaysReply.SENSOR_COUNT
+
+    private fun withNoise(line: String, vararg values: String): String {
+        val c = line.split(",").toMutableList()
+        values.forEachIndexed { i, v -> c[noiseFirst + i] = v }
+        return c.joinToString(",")
+    }
+
+    @Test
+    fun noiseFieldsOfTheV7FixtureAreEmpty() {
+        val lines = Fixtures.file("days_reply_v7_sample.txt").readLines().filter { !it.startsWith("CRC32") }
+        DaysReply.parse(lines).forEach { assertEquals(DaysNoise(), it.noise); assertTrue(it.noise.isEmpty) }
+    }
+
+    @Test
+    fun noiseFieldsOfAFixtureRowAreRead() {
+        val lines = Fixtures.file("days_reply_v7_sample.txt").readLines().filter { !it.startsWith("CRC32") }
+        val full = listOf(lines[0], lines[1], withNoise(lines[2], "31", "68", "74", "19", "12"), withNoise(lines[3], "35", "", "", "", ""), lines[4])
+        val rows = DaysReply.parse(full)
+        assertEquals(DaysNoise(31, 68, 74, 19, 12), rows[0].noise)
+        assertEquals(DaysNoise(35, null, null, null, null), rows[1].noise)
+        assertTrue(rows[2].noise.isEmpty)
+    }
+
+    @Test
+    fun noiseFieldsOfV6AndV5RowsAreRead() {
+        val v6 = replyV6(MutableList(DaysReply.COLUMNS_V6) { "" }.also { it[0] = "2026-01-02"; it[noiseFirst] = "40"; it[noiseFirst + 3] = "7" }.joinToString(","))
+        assertEquals(DaysNoise(minDb = 40, peakHour = 7), DaysReply.parse(v6)[0].noise)
+        val v5 = replyV5(MutableList(DaysReply.COLUMNS_V5) { "" }.also { it[0] = "2026-01-02"; it[noiseFirst + 1] = "55" }.joinToString(","))
+        assertEquals(DaysNoise(maxDb = 55), DaysReply.parse(v5)[0].noise)
+    }
+
+    @Test
+    fun badNoiseFieldsThrow() {
+        listOf(
+            arrayOf("x", "", "", "", ""),
+            arrayOf("", "6.5", "", "", ""),
+            arrayOf("", "", "300", "", ""),
+            arrayOf("", "", "", "24", ""),
+            arrayOf("", "", "", "-1", ""),
+            arrayOf("", "", "", "", "65536")
+        ).forEach { v ->
+            assertThrows(ParseException::class.java) { DaysReply.parse(reply(withNoise(row(), *v))) }
+        }
+    }
+
+    @Test
+    fun noiseEdgeValuesAreAccepted() {
+        assertEquals(DaysNoise(-50, 255, 255, 23, 65535), DaysReply.parse(reply(withNoise(row(), "-50", "255", "255", "23", "65535")))[0].noise)
+        assertEquals(DaysNoise(0, 0, 0, 0, 0), DaysReply.parse(reply(withNoise(row(), "0", "0", "0", "0", "0")))[0].noise)
+    }
 }
