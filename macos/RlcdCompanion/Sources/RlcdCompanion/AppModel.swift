@@ -192,6 +192,16 @@ final class AppModel: ConsoleLinkDelegate {
     private var timeout: Task<Void, Never>?
 
     private let pin = PanelPin(store: UserDefaults.standard)
+    /// Applied offset proposals that the user can check after the wait of the record (`UserDefaults`).
+    let calibrationChecks = CalibrationCheckStore(store: UserDefaults.standard)
+    /// Verdict of the last check for each sensor name; a new apply of the sensor clears it.
+    var calibrationCheckResults: [String: CalibrationCheckResult] = [:]
+    /// Records of the stored applies, read again after each apply and each check.
+    var calibrationCheckRecords: [CalibrationCheckRecord] = []
+    /// The apply that waits for the end of its batch.
+    private var pendingCheckApply: (source: CalibrationCheckRecord.Source, argument: Int, changes: [ConfigChange])?
+    /// The check that waits for its reply.
+    private var runningCheck: CalibrationCheckRecord?
     let scanner = BluetoothScanner()
     private let serial = SerialLink()
     private let notificationDelegate = NotificationActionDelegate()
@@ -630,6 +640,7 @@ final class AppModel: ConsoleLinkDelegate {
         pendingCommand = nil
         queue.removeAll()
         assembler.reset()
+        endCheck(unavailable: "No reply (link lost)")
         endBatchAfterLoss()
     }
 
@@ -640,6 +651,7 @@ final class AppModel: ConsoleLinkDelegate {
         guard let b = batch else { return }
         batchSummary = b.summary + " (no reply)"
         batch = nil
+        storeCalibrationCheck(applied: b) // the SET commands that ran already changed the panel
         assigningMac = nil
         clearCalibration()
     }
@@ -678,7 +690,7 @@ final class AppModel: ConsoleLinkDelegate {
 
     /// Sends `STATUS`, `VERSION` and `TIME` for the diagnostics panel. Runs only on the user's button press.
     func refreshDiagnostics() {
-        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { return }
+        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil, runningCheck == nil else { return }
         message = nil
         diagnostics = nil // a failed reply must not leave values of an older reply
         diagnosticsConfig = nil
@@ -1339,6 +1351,11 @@ final class AppModel: ConsoleLinkDelegate {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
         message = nil
         batchSummary = nil
+        if case let .measured(m, _)? = salt?.outcome, let n = CalibrationCheckRecord.sensorNumber(m.name) {
+            pendingCheckApply = (.salt, n, changes)
+        } else {
+            pendingCheckApply = nil
+        }
         batch = ConfigBatch(changes: changes)
         sendNextBatchCommand()
     }
@@ -1368,6 +1385,11 @@ final class AppModel: ConsoleLinkDelegate {
         guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
         message = nil
         batchSummary = nil
+        if case let .measured(m, _)? = salt?.outcome, let n = CalibrationCheckRecord.sensorNumber(m.name) {
+            pendingCheckApply = (.salt, n, changes)
+        } else {
+            pendingCheckApply = nil
+        }
         batch = ConfigBatch(changes: changes)
         sendNextBatchCommand()
     }
@@ -1390,6 +1412,7 @@ final class AppModel: ConsoleLinkDelegate {
         message = nil
         batchSummary = nil
         respreadAfterBatch = true
+        pendingCheckApply = (.spread, spreadReplyHours, changes)
         batch = ConfigBatch(changes: changes)
         sendNextBatchCommand()
     }
@@ -1485,6 +1508,7 @@ final class AppModel: ConsoleLinkDelegate {
         // No canSet gate: the firmware answers ERR READ_ONLY on BLE with ble_console 1, and the batch summary shows it.
         message = nil
         batchSummary = nil
+        pendingCheckApply = (.calib, calibration.flatMap { CalibrationCheckRecord.sensorNumber($0.reference) } ?? calibrationReference, changes)
         batch = ConfigBatch(changes: changes)
         sendNextBatchCommand()
     }
@@ -1644,6 +1668,7 @@ final class AppModel: ConsoleLinkDelegate {
             guard !Task.isCancelled else { return }
             guard let self else { return }
             message = "No reply to \(cmd.line ?? "command")"
+            if runningCheck?.command == cmd { endCheck(unavailable: "No reply") }
             failReport(reason: "no reply", pending: cmd)
             if case .dump = cmd { archiveSummary = "Download stopped, saved \(downloadStats.saved), failed \(downloadStats.failed)" }
             if cmd == .scan { scanResult = nil; stopRepeatScan(.scanFailed) } // no reply ends the repeat
@@ -1672,6 +1697,7 @@ final class AppModel: ConsoleLinkDelegate {
         if b.isFinished {
             batchSummary = b.summary
             batch = nil
+            storeCalibrationCheck(applied: b)
             if b.applied.contains(JumpAdvice.key) { jumpAdviceApplied = true } // any batch that changed the limit
             if rereadChangedAfterBatch, !b.configFailed {
                 rereadChangedAfterBatch = false
@@ -1702,11 +1728,60 @@ final class AppModel: ConsoleLinkDelegate {
             b = batch ?? b
             batchSummary = b.summary + " (link lost)"
             batch = nil
+            storeCalibrationCheck(applied: b)
             rereadChangedAfterBatch = false
             respreadAfterBatch = false
             assigningMac = nil
             clearCalibration()
         }
+    }
+
+    /// Stores the record of the `SET` commands that the panel applied, also when a later `SET` failed: the applied keys
+    /// already changed the panel. Only offset keys count; a gain key has no deviation limit, so a gain-only apply stores nothing.
+    private func storeCalibrationCheck(applied b: ConfigBatch) {
+        defer { pendingCheckApply = nil }
+        guard let apply = pendingCheckApply else { return }
+        let done = apply.changes.filter { b.applied.contains($0.key) }
+        guard !done.isEmpty else { return }
+        calibrationChecks.record(applied: done, source: apply.source, argument: apply.argument)
+        for sensor in Set(done.compactMap { CalibrationCheckRecord.sensorName(ofKey: $0.key) }) { calibrationCheckResults[sensor] = nil }
+        calibrationCheckRecords = calibrationChecks.records()
+    }
+
+    /// Reads the stored records. Runs when the calibration view opens.
+    func loadCalibrationChecks() { calibrationCheckRecords = calibrationChecks.records() }
+
+    /// The check button of a record: before the wait it shows `Too early: <h> h` and sends nothing; later it sends
+    /// the command of the apply again. Runs only on the user's button press.
+    func checkCalibration(sensor: String) {
+        guard let record = calibrationChecks.record(sensor: sensor) else { calibrationCheckRecords = calibrationChecks.records(); return }
+        if let hours = calibrationChecks.status(of: record) { calibrationCheckResults[sensor] = .tooEarly(hours: hours); return }
+        guard let cmd = record.command else { return }
+        guard consoleConnected, pendingCommand == nil, queue.isEmpty, batch == nil else { message = "Wait for the running command"; return }
+        message = nil
+        batchSummary = nil
+        runningCheck = record
+        queue = [cmd]
+        sendNext()
+    }
+
+    /// Ends a running check without a reply and shows the reason.
+    private func endCheck(unavailable text: String) {
+        guard let record = runningCheck else { return }
+        runningCheck = nil
+        calibrationCheckResults[record.sensor] = .unavailable(text)
+    }
+
+    /// Ends the running check when `cmd` is its command, so a later user read of the same command is no check reply.
+    private func endCheck(ifRunning cmd: ConsoleCommand, unavailable text: String) {
+        if runningCheck?.command == cmd { endCheck(unavailable: text) }
+    }
+
+    private func finishCalibrationCheck(_ cmd: ConsoleCommand, calib: CalibrationReply? = nil,
+                                        spread: SpreadReply? = nil, salt: SaltReply? = nil) {
+        guard let record = runningCheck, record.command == cmd else { return }
+        runningCheck = nil
+        calibrationCheckResults[record.sensor] = CalibrationCheck.evaluate(record, now: calibrationChecks.now, calib: calib, spread: spread, salt: salt)
     }
 
     private var activeLink: ConsoleLink { transport == .usb ? serial : scanner }
@@ -1762,6 +1837,7 @@ final class AppModel: ConsoleLinkDelegate {
             switch (cmd, reply) {
             case (_, let .corrupt(e)):
                 message = "Reply rejected: \(e)"
+                endCheck(ifRunning: cmd, unavailable: "Reply rejected")
                 if cmd == .alerts { alertsError = message }
                 if cmd == .screen { panelImage = nil } // a rejected frame must not stay next to the error
                 if cmd == .rejects { rejectsResult = nil }
@@ -1801,10 +1877,16 @@ final class AppModel: ConsoleLinkDelegate {
                     finishDownload(cmd, text: text)
                 }
                 if cmd == .list { archiveFiles = [] }
-                if case .calib = cmd { calibration = nil }
-                if case .salt = cmd { salt = nil }
+                // A failed check keeps the proposals and the salt reading of the user.
+                let wasCheck = runningCheck?.command == cmd
+                if let record = runningCheck, wasCheck {
+                    runningCheck = nil
+                    calibrationCheckResults[record.sensor] = .unavailable(text)
+                }
+                if case .calib = cmd, !wasCheck { calibration = nil }
+                if case .salt = cmd, !wasCheck { salt = nil }
                 if case .saltMagnesium = cmd { saltMagnesium = nil }
-                if case let .spread(hours) = cmd {
+                if case let .spread(hours) = cmd, !wasCheck {
                     spread = nil
                     if let text = ConsoleCommand.spreadErrorMessage(hours: hours, text: text) { message = text }
                 }
@@ -1932,14 +2014,22 @@ final class AppModel: ConsoleLinkDelegate {
             case (.screen, .frame): message = "Unexpected frame reply"
             case let (.calib, .frame(lines)):
                 // The assistant reads its own CALIB reply; the shared calibration view must not show it.
-                if setup?.pending == cmd { break }
-                calibration = nil
+                if setup?.pending == cmd {
+                    // A check of the same command ends here too, so it never waits for a later reply.
+                    if runningCheck?.command == cmd, let parsed = try? CalibrationReply.parse(lines: lines) { finishCalibrationCheck(cmd, calib: parsed) }
+                    break
+                }
                 let parsed = try CalibrationReply.parse(lines: lines)
+                // A check reply only gives the verdict; the proposals and the selection of the user stay.
+                if runningCheck?.command == cmd { finishCalibrationCheck(cmd, calib: parsed); break }
+                calibration = nil
                 calibration = parsed
                 calibrationSelection = Set(parsed.proposals.map(\.key))
             case let (.salt, .frame(lines)):
+                let parsed = try SaltReply.parse(lines: lines)
+                if runningCheck?.command == cmd { finishCalibrationCheck(cmd, salt: parsed); break }
                 salt = nil
-                salt = try SaltReply.parse(lines: lines)
+                salt = parsed
             case let (.saltMagnesium, .frame(lines)):
                 saltMagnesium = nil
                 saltMagnesium = try SaltReply.parse(lines: lines)
@@ -1949,8 +2039,10 @@ final class AppModel: ConsoleLinkDelegate {
                 if todayKeepOnly != nil { message = nil } // the fallback notice is no error after a good read
             case (.today, .file), (.todaySensor, .file): message = "Unexpected file reply"
             case let (.spread, .frame(lines)):
+                let parsed = try SpreadReply.parse(lines: lines)
+                if runningCheck?.command == cmd { finishCalibrationCheck(cmd, spread: parsed); break }
                 spread = nil
-                spread = try SpreadReply.parse(lines: lines)
+                spread = parsed
             case let (.frsi, .frame(lines)):
                 frsi = nil
                 frsi = try FrsiReply.parse(lines: lines)
@@ -1973,7 +2065,9 @@ final class AppModel: ConsoleLinkDelegate {
                     queue.removeAll()
                     finishDownload(cmd, text: "not saved: \(error.localizedDescription)")
                 }
-            case (_, .file): message = "Unexpected file reply"
+            case (_, .file):
+                message = "Unexpected file reply"
+                endCheck(ifRunning: cmd, unavailable: "Unexpected file reply")
             case (.list, _): message = "Unexpected reply"
             case (.dump, _):
                 queue.removeAll()
@@ -1984,6 +2078,10 @@ final class AppModel: ConsoleLinkDelegate {
             }
         } catch {
             message = "Reply not understood: \(error)"
+            if let record = runningCheck, record.command == cmd {
+                runningCheck = nil
+                calibrationCheckResults[record.sensor] = .unavailable("Reply not understood")
+            }
             if cmd == .scan { stopRepeatScan(.scanFailed) }
             if Self.isSaltHistory(cmd) { stopSaltWatch(.replyFailed) }
         }
