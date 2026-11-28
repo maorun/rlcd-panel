@@ -24,7 +24,7 @@ data class AlertInterval(
 
 /** One badge interval from the event ring: a set row paired with the next clear row of the same tile. Times are epoch milliseconds. */
 data class BadgeInterval(
-    /** Event code: `WINDOW_OPEN`, `WALL_DAMP`, `DRY_AIR` or `SENSOR_DRIFT`. */
+    /** Event code: `WINDOW_OPEN`, `WALL_DAMP`, `DRY_AIR`, `SENSOR_DRIFT` or `HEAT_TILE`. */
     val event: String,
     /** Tile 0 (onboard) to 10 (slot 10), the low byte of the detail. */
     val tile: Int,
@@ -89,10 +89,10 @@ object AlertTimeline {
     fun roomName(tile: Int): String = if (tile == 0) "Onboard" else "Slot $tile"
 
     /** Events that set and clear a tile badge, with the panel badge letter. */
-    val BADGE_LETTERS = mapOf("WINDOW_OPEN" to "W", "WALL_DAMP" to "C", "DRY_AIR" to "D", "SENSOR_DRIFT" to "S")
+    val BADGE_LETTERS = mapOf("WINDOW_OPEN" to "W", "WALL_DAMP" to "C", "DRY_AIR" to "D", "SENSOR_DRIFT" to "S", "HEAT_TILE" to "H")
 
     /**
-     * Pairs each set row of `WINDOW_OPEN`, `WALL_DAMP`, `DRY_AIR` and `SENSOR_DRIFT` with the next clear row of the
+     * Pairs each set row of `WINDOW_OPEN`, `WALL_DAMP`, `DRY_AIR`, `SENSOR_DRIFT` and `HEAT_TILE` with the next clear row of the
      * same badge and tile. The detail low byte is the tile (0 to 10), the high byte the state (1 set, 0 clear). The
      * pairing rules are those of [build]. Rows with an invalid detail and other codes are ignored. The result is
      * sorted by start, then by event code, then by tile. Port of `AlertTimeline.badges` of `AlertTimeline.swift`.

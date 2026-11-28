@@ -4460,3 +4460,12 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - No RTC state and no `STATE_VERSION` change: each command calculates the warnings from the config. `tests/fixtures/config_reply_sample.txt` stays without a `WARN` line.
 - The macOS `ConfigReply.parse` ignores `WARN` lines. The Kotlin parsers ignore them because the line is no `key=value` line.
 - Validation: host tests (`testDeviceConfigWarnings`, `testSerialConfigWarnLines`), `./tests/test_scripts.sh`, `swift test` and `arduino-cli compile rlcd_panel`.
+
+## Heat badge event texts and filters in the three apps
+
+- **Code:** `EventText`, `EventFilter` and `AlertTimeline` of `macos/RlcdCompanion/Sources/RlcdProtocol`, `android/RlcdPhone/.../protocol` and `wearos/RlcdWatch/.../protocol`, `EventStats.kt` (comment only).
+- `EventText.describe` shows the firmware event `HEAT_TILE` 27 as `Heat (<room>)` for the high byte 1 and `Heat good again (<room>)` for the high byte 0. The macOS app uses the room name of the config. The Kotlin apps use `Onboard` or `tile <N>`, like `DRY_AIR`. A tile above 10, a high byte above 1 and a detail above 16 bits give the raw text `HEAT_TILE,<detail>`.
+- `EventFilter` puts `HEAT_TILE` in the category `climate`.
+- The badge intervals of the alert timelines (`AlertTimeline.badges`) pair `HEAT_TILE` set and clear rows with the badge letter `H`, like `DRY_AIR`. A row with an invalid detail is ignored.
+- Tests: `EventTextTests`, `EventFilterTests` and `BadgeIntervalTests` (macOS) and `EventTextTest`, `EventFilterTest` and `AlertTimelineTest` (phone and watch) cover both states, a bad detail, the filter category and one interval.
+- Validation: `swift test` (910 tests) and `swift build -c release` pass in `macos/RlcdCompanion`; `./scripts/check-protocol-sync.sh` passes. The Gradle runs need the Android SDK and run in CI.

@@ -149,6 +149,20 @@ class AlertTimelineTest {
     private fun badges(vararg rows: EventRow) = AlertTimeline.badges(rows.toList(), now, zone)
 
     @Test
+    fun heatTileSetAndClearGiveOneInterval() {
+        val intervals = badges(
+            row("2026-01-01 08:00:00", "HEAT_TILE", 0x0103),
+            row("2026-01-01 09:00:00", "HEAT_TILE", 0x0003),
+            row("2026-01-01 09:30:00", "HEAT_TILE", 0x020B)
+        )
+        assertEquals(
+            listOf(BadgeInterval("HEAT_TILE", 3, ms("2026-01-01 08:00:00"), ms("2026-01-01 09:00:00"), false, false)),
+            intervals
+        )
+        assertEquals("H", intervals[0].badge)
+    }
+
+    @Test
     fun badgeSetAndClearGiveOneInterval() {
         val intervals = badges(
             row("2026-01-01 08:00:00", "DRY_AIR", 0x0103),
