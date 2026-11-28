@@ -116,11 +116,20 @@ class SpreadReplyTest {
         val proposal = SpreadApply.proposalFor(fixtureMeasured(), 2)!!
         val sent = mutableListOf<String>()
         var result: CalibrationBatch.Result? = null
+        // The firmware batch mode: SET BEGIN, two queued SET lines, SET COMMIT, then CONFIG.
         SpreadApply.batch(proposal).run({ line, cb ->
             sent.add(line)
-            cb(ConsoleReply.Status("OK"))
+            cb(
+                when {
+                    line == "CONFIG" -> ConsoleReply.Frame(emptyList())
+                    line.startsWith("SET slot") -> ConsoleReply.Status("OK QUEUED x")
+                    else -> ConsoleReply.Status("OK")
+                }
+            )
         }) { result = it }
-        assertEquals(listOf("SET slot2_temp_offset_c=-1.0", "SET slot2_rh_offset_pct=-5.0", "CONFIG"), sent)
+        assertEquals(
+            listOf("SET BEGIN", "SET slot2_temp_offset_c=-1.0", "SET slot2_rh_offset_pct=-5.0", "SET COMMIT", "CONFIG"), sent
+        )
         assertEquals(null, result!!.failure)
     }
 
@@ -133,7 +142,8 @@ class SpreadReplyTest {
             sent.add(line)
             cb(ConsoleReply.Status("ERR READ_ONLY"))
         }) { result = it }
-        assertEquals(listOf("SET slot2_temp_offset_c=-1.0"), sent)
+        // ERR READ_ONLY to SET BEGIN selects the single SET lines, which stop at the first ERR
+        assertEquals(listOf("SET BEGIN", "SET slot2_temp_offset_c=-1.0"), sent)
         assertEquals(emptyList<String>(), result!!.applied)
         assertTrue(SpreadApply.isReadOnly(result!!))
     }
@@ -145,9 +155,20 @@ class SpreadReplyTest {
         var result: CalibrationBatch.Result? = null
         SpreadApply.batch(proposal).run({ line, cb ->
             sent.add(line)
-            cb(ConsoleReply.Status(if (sent.size == 1) "OK SET" else "ERR BAD_VALUE"))
+            cb(
+                ConsoleReply.Status(
+                    when (sent.size) {
+                        1 -> "OK SET BEGIN"
+                        2 -> "OK QUEUED slot2_temp_offset_c"
+                        3 -> "ERR BAD_VALUE"
+                        else -> "OK SET ABORT"
+                    }
+                )
+            )
         }) { result = it }
-        assertEquals(2, sent.size)
+        assertEquals(
+            listOf("SET BEGIN", "SET slot2_temp_offset_c=-1.0", "SET slot2_rh_offset_pct=-5.0", "SET ABORT"), sent
+        )
         assertEquals("slot2_rh_offset_pct" to "ERR BAD_VALUE", result!!.failure)
         assertFalse(SpreadApply.isReadOnly(result!!))
     }
