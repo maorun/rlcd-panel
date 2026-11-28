@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Checks that the shared protocol sources of the Wear OS app and the Android phone app stay equal.
-# The package line is removed before the comparison. Exit codes: 0 equal, 1 differences, 2 usage error or missing file.
+# The package line is removed before the comparison. An equal pair outside FILES prints UNLISTED <name>. Exit codes: 0 equal, 1 differences, 2 usage error or missing file.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -21,6 +21,25 @@ compare_dirs() {
     fi
     if ! diff -q <(sed '/^package /d' "${watch_dir}/${name}") <(sed '/^package /d' "${phone_dir}/${name}") >/dev/null; then
       echo "DIFFERS ${name}"
+      status=1
+    fi
+  done
+  return "${status}"
+}
+
+# check_unlisted <watch dir> <phone dir>: prints UNLISTED <name> for each equal pair outside FILES, returns 1 for such a pair.
+# A different pair outside FILES is no error.
+check_unlisted() {
+  local watch_dir="$1" phone_dir="$2" path name listed status=0
+  for path in "${watch_dir}"/*.kt; do
+    [[ -f "${path}" ]] || continue
+    name="$(basename "${path}")"
+    [[ -f "${phone_dir}/${name}" ]] || continue
+    for listed in "${FILES[@]}"; do
+      if [[ "${listed}" == "${name}" ]]; then continue 2; fi
+    done
+    if diff -q <(sed '/^package /d' "${path}") <(sed '/^package /d' "${phone_dir}/${name}") >/dev/null; then
+      echo "UNLISTED ${name}"
       status=1
     fi
   done
@@ -84,7 +103,19 @@ self_test() {
   status=0
   compare_files "${tmp}/adv_watch.kt" "${tmp}/none.kt" >/dev/null 2>&1 || status=$?
   if [[ "${status}" -ne 2 ]]; then echo "SELF-TEST FAILED: missing file pair gave exit ${status}" >&2; return 1; fi
-  echo "SELF-TEST OK: good pair exit 0, bad pair exit 1, missing file exit 2"
+  status=0
+  check_unlisted "${tmp}/good_watch" "${tmp}/good_phone" >/dev/null || status=$?
+  if [[ "${status}" -ne 0 ]]; then echo "SELF-TEST FAILED: listed files gave unlisted exit ${status}" >&2; return 1; fi
+  printf 'package a.watch\n\nobject U\n' > "${tmp}/good_watch/Unlisted.kt"
+  printf 'package b.phone\n\nobject U\n' > "${tmp}/good_phone/Unlisted.kt"
+  status=0
+  check_unlisted "${tmp}/good_watch" "${tmp}/good_phone" >/dev/null || status=$?
+  if [[ "${status}" -ne 1 ]]; then echo "SELF-TEST FAILED: unlisted equal pair gave exit ${status}" >&2; return 1; fi
+  echo "extra" >> "${tmp}/good_phone/Unlisted.kt"
+  status=0
+  check_unlisted "${tmp}/good_watch" "${tmp}/good_phone" >/dev/null || status=$?
+  if [[ "${status}" -ne 0 ]]; then echo "SELF-TEST FAILED: unlisted different pair gave exit ${status}" >&2; return 1; fi
+  echo "SELF-TEST OK: good pair exit 0, bad pair exit 1, missing file exit 2, unlisted equal pair exit 1, unlisted different pair exit 0"
 }
 
 case "${1:-}" in
@@ -93,8 +124,10 @@ case "${1:-}" in
     compare_dirs "${REPO_ROOT}/${WATCH_DIR}" "${REPO_ROOT}/${PHONE_DIR}" || status=$?
     adv=0
     compare_files "${REPO_ROOT}/${WATCH_ADV}" "${REPO_ROOT}/${PHONE_ADV}" || adv=$?
+    unlisted=0
+    check_unlisted "${REPO_ROOT}/${WATCH_DIR}" "${REPO_ROOT}/${PHONE_DIR}" || unlisted=$?
     if [[ "${status}" -eq 2 || "${adv}" -eq 2 ]]; then exit 2; fi
-    exit $(( status | adv ))
+    exit $(( status | adv | unlisted ))
     ;;
   --self-test) self_test ;;
   *) echo "usage: $0 [--self-test]" >&2; exit 2 ;;

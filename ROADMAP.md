@@ -28,11 +28,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 ## Priority 3: Display and Logging (Score 22–27)
 
 
-- [ ] Self-test of check-protocol-sync.sh against an unlisted shared file
-  - **Location:** `scripts/check-protocol-sync.sh`, `.github/workflows/ci.yml`, `FEATURES.md`
-  - **Goal:** Find a protocol file that exists in both apps but is not in `FILES`. Add a check: list the `.kt` files with the same name in both `protocol` directories, remove the package line, and print `UNLISTED <name>` for an equal pair outside `FILES`. Exit 1 for an unlisted equal pair. Keep a different pair outside `FILES` as no error.
-  - **Acceptance:** The `--self-test` checks one unlisted equal pair (exit 1) and one unlisted different pair (exit 0). `./scripts/check-protocol-sync.sh` passes for the current tree after the needed `FILES` entries.
-  - **Rank:** [Total: 24, Use: 1, Setup: 4, Harmony: 9, Safety: 10, Effort: S]
 
 - [ ] Parser fuzz test for the console reply assemblers
   - **Location:** `macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyAssemblerTests.swift`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/ReplyAssemblerTest.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ReplyAssemblerTest.kt`, `FEATURES.md`
