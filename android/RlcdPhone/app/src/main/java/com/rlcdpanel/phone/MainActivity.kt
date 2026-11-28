@@ -316,6 +316,7 @@ class MainActivity : ComponentActivity() {
                     receivedAtMillis = snapshot?.receivedAtMillis,
                     nowMillis = nowMillis,
                     panelConfig = panelConfig,
+                    latch = healthState.status?.latch,
                     onBack = { showPanelPreview = false }
                 )
                 BackHandler { showPanelPreview = false }

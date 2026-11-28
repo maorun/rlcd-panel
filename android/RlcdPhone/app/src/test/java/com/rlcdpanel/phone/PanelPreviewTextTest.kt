@@ -21,5 +21,6 @@ class PanelPreviewTextTest {
     fun labelAndLimitsNameWhatTheImageIs() {
         assertEquals("Preview from telemetry, not the panel image", PanelPreviewText.LABEL)
         assertTrue(PanelPreviewText.LIMITS.contains("NO SIGNAL"))
+        assertTrue(PanelPreviewText.LIMITS.contains("LATCH"))
     }
 }

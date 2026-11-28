@@ -23,6 +23,7 @@ import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
+import com.rlcdpanel.phone.protocol.LatchState
 import com.rlcdpanel.phone.protocol.PanelConfig
 import com.rlcdpanel.phone.protocol.PanelFramebuffer
 import com.rlcdpanel.phone.protocol.PanelRenderer
@@ -33,8 +34,8 @@ object PanelPreviewText {
 
     /** Hint under the image: what the telemetry frame cannot show. */
     const val LIMITS = "Die Vorschau zeigt Temperatur, Feuchte, Namen und den Akku aus dem Broadcast. " +
-        "Kurven, Trendpfeile, Badges (außer [I2C]), Warnbanner, Uhr, STALE-Anzeige und die zweite Seite " +
-        "ab 7 Kacheln trägt der Broadcast nicht. Der Akku zeigt nur Prozent ohne Spannung, ein Slot ohne Akkuzeile. " +
+        "Kurven, Trendpfeile, Warnbanner, Uhr, STALE-Anzeige und die zweite Seite " +
+        "ab 7 Kacheln trägt der Broadcast nicht. Die Badges V, D, W, C, R und S erscheinen nur nach einer STATUS-Antwort (LATCH-Zeile). Der Akku zeigt nur Prozent ohne Spannung, ein Slot ohne Akkuzeile. " +
         "Ein veralteter Sensor erscheint als NO SIGNAL, ohne feste MAC und ohne Namen gar nicht."
 
     /** Age line under the image: whole minutes since the frame arrived, `< 1 min` below one minute. */
@@ -56,6 +57,7 @@ fun PanelPreviewScreen(
     receivedAtMillis: Long?,
     nowMillis: Long,
     panelConfig: PanelConfig,
+    latch: LatchState? = null,
     onBack: () -> Unit
 ) {
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -68,8 +70,8 @@ fun PanelPreviewScreen(
             if (frame == null) {
                 Text(PanelPreviewText.NO_FRAME, style = MaterialTheme.typography.bodyMedium)
             } else {
-                val image = remember(frame, panelConfig) {
-                    PanelPreviewText.bitmap(PanelRenderer.render(frame, panelConfig)).asImageBitmap()
+                val image = remember(frame, panelConfig, latch) {
+                    PanelPreviewText.bitmap(PanelRenderer.render(frame, panelConfig, latch)).asImageBitmap()
                 }
                 Image(
                     bitmap = image,
