@@ -4420,3 +4420,11 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `tests/test_scripts.sh` runs the self-test (exit 0), runs a copy with a broken `-s` argument (exit 1) and checks `--help`.
 - The CI job `Host tests` runs `./scripts/install-phone-apk.sh --self-test`.
 - Validation: `./scripts/install-phone-apk.sh --self-test`, `./tests/test_scripts.sh` and `./scripts/check-protocol-sync.sh` pass.
+
+## Unlisted shared protocol file check
+
+- `scripts/check-protocol-sync.sh` lists the `.kt` files with the same name in both `protocol` directories (`check_unlisted`). It removes the `package` line and prints `UNLISTED <name>` for an equal pair that is not in `FILES`. It exits with 1 for such a pair. A different pair outside `FILES` is no error.
+- The current tree has no unlisted shared file, so no new `FILES` entry is needed.
+- `--self-test` also checks one unlisted equal pair (exit 1), one unlisted different pair (exit 0) and the listed files (exit 0).
+- The CI job `Host tests` runs the check and the self-test, no change in `.github/workflows/ci.yml`.
+- Validation: `./scripts/check-protocol-sync.sh`, `./scripts/check-protocol-sync.sh --self-test` and `./tests/test_scripts.sh` pass.
