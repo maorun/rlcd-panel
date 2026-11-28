@@ -40,11 +40,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Mute and snooze actions in the Wear OS tile
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/tile/ClimateTileService.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/tile/ClimateTileModel.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/tile/ClimateTileModelTest.kt`, `FEATURES.md`
-  - **Goal:** Let the user silence the panel from the tile. Add two clickables: `Mute` and `Snooze 60`. Each opens `MainActivity` with an action extra that sends `MUTE 1` or `SNOOZE 60` over the BLE console and shows the reply. Show the actions only when the cache has a frame younger than 35 minutes.
-  - **Acceptance:** Unit tests cover the action extras and the hidden actions for an old cache. The CI job `Wear OS companion tests and APK` passes.
-  - **Rank:** [Total: 26, Use: 6, Setup: 2, Harmony: 8, Safety: 10, Effort: S]
 - [ ] Desktop widget for the macOS app
   - **Location:** `macos/RlcdCompanion/Package.swift`, `macos/RlcdCompanion/Sources/RlcdWidget/`, `macos/RlcdCompanion/Sources/RlcdProtocol/WidgetSnapshot.swift`, `scripts/build-app.sh`, `macos/RlcdCompanion/Tests/RlcdProtocolTests/WidgetSnapshotTests.swift`, `FEATURES.md`
   - **Goal:** Show the rooms on the macOS desktop without the menu. Add a WidgetKit extension with a small and a medium widget. The app writes a `WidgetSnapshot` (rooms, temperatures, humidity, alert names, frame time) to the shared app group after each telemetry frame. The widget shows `--` for a snapshot older than 35 minutes. `scripts/build-app.sh` signs and embeds the extension.
