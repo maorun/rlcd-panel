@@ -1,5 +1,6 @@
 package com.rlcdpanel.watch.tile
 
+import com.rlcdpanel.watch.protocol.CachedBatteryForecast
 import com.rlcdpanel.watch.protocol.CachedMeteo
 import com.rlcdpanel.watch.protocol.CachedOutdoor
 import com.rlcdpanel.watch.protocol.CachedTelemetry
@@ -187,5 +188,41 @@ class ClimateTileModelTest {
             CachedTelemetry(humidRoom, 0L), 0, config, 60_000L, slotOutdoor, null
         )
         assertNull(model.advice)
+    }
+
+    private val day = 86_400_000L
+    private val now = 1_800_000_000_000L
+
+    private fun withForecast(forecast: CachedBatteryForecast?) =
+        ClimateTileModel.build(CachedTelemetry(twoTiles, now), 0, config, now + 1_000L, forecast = forecast)
+
+    @Test
+    fun batteryLineShowsNameAndDateForForecast10DaysAhead() {
+        val date = com.rlcdpanel.watch.protocol.PanelClock.format(now + 10 * day)!!.substring(0, 10)
+        assertEquals("Battery: Slot 1 $date", withForecast(CachedBatteryForecast(1, now + 10 * day)).batteryLine)
+    }
+
+    @Test
+    fun noBatteryLineForForecast40DaysAhead() {
+        assertNull(withForecast(CachedBatteryForecast(1, now + 40 * day)).batteryLine)
+    }
+
+    @Test
+    fun noBatteryLineForOldForecast() {
+        assertNull(withForecast(CachedBatteryForecast(1, now - 5 * day)).batteryLine)
+    }
+
+    @Test
+    fun noBatteryLineForEmptyCache() {
+        val empty = com.rlcdpanel.watch.protocol.TelemetryCache(EmptyStore()).readBatteryForecast()
+        assertNull(empty)
+        assertNull(withForecast(empty).batteryLine)
+    }
+
+    private class EmptyStore : com.rlcdpanel.watch.protocol.TelemetryCacheStore {
+        override fun getString(key: String): String? = null
+        override fun getLong(key: String, default: Long): Long = default
+        override fun getInt(key: String, default: Int): Int = default
+        override fun put(strings: Map<String, String>, longs: Map<String, Long>, ints: Map<String, Int>) {}
     }
 }

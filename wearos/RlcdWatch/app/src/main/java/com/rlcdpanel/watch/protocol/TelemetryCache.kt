@@ -59,6 +59,9 @@ data class CachedOutdoor(val slotIndex: Int?, val meteo: CachedMeteo?) {
     }
 }
 
+/** Next battery change of one sensor: [slotIndex] is the tile index (1 to 10), [dateMillis] the forecast date. */
+data class CachedBatteryForecast(val slotIndex: Int, val dateMillis: Long)
+
 /**
  * Cache of the last valid telemetry payload (hex text) and its receive time, one entry for each
  * telemetry page, plus the focused room index. The Wear OS tile reads it and does not scan BLE.
@@ -145,12 +148,34 @@ class TelemetryCache(private val store: TelemetryCacheStore) {
         return CachedOutdoor(slot, meteo)
     }
 
+    /** Stores the next battery change that the tail screen found (tile index and date). */
+    fun saveBatteryForecast(slotIndex: Int, dateMillis: Long) {
+        store.put(emptyMap(), mapOf(KEY_FORECAST_DATE to dateMillis), mapOf(KEY_FORECAST_SLOT to slotIndex))
+    }
+
+    /** Removes the stored forecast, for a tail read without any forecast. */
+    fun clearBatteryForecast() {
+        store.put(emptyMap(), mapOf(KEY_FORECAST_DATE to NO_TIME), mapOf(KEY_FORECAST_SLOT to NO_SLOT))
+    }
+
+    /** Last stored forecast, or null for an empty cache or a slot outside 1 to 10. */
+    fun readBatteryForecast(): CachedBatteryForecast? {
+        val slot = store.getInt(KEY_FORECAST_SLOT, NO_SLOT)
+        val date = store.getLong(KEY_FORECAST_DATE, NO_TIME)
+        if (slot !in 1 until TelemetryFrame.TOTAL_TILES || date == NO_TIME) {
+            return null
+        }
+        return CachedBatteryForecast(slot, date)
+    }
+
     companion object {
         const val PREFS_NAME = "rlcd_telemetry_cache"
 
         /** Freshness rule of `OutdoorResolver`: a frame older than 35 minutes is stale. */
         const val MAX_AGE_MILLIS: Long = 35L * 60L * 1000L
 
+        private const val KEY_FORECAST_SLOT = "battery_forecast_slot"
+        private const val KEY_FORECAST_DATE = "battery_forecast_date"
         private const val KEY_FOCUS = "focused_room"
         private const val NO_TIME = -1L
         private const val NO_SLOT = -1

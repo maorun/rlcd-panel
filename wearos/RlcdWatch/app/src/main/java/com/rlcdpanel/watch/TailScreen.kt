@@ -87,6 +87,12 @@ object TailScreenText {
             "${names.getOrNull(slot) ?: "Slot $slot"}: ${BatteryForecast.text(estimate).replace("Battery change near", "change near")}"
         }
 
+    /** Slot (tile index) and date of the earliest battery forecast of [rows], or null without a forecast. */
+    fun nextForecast(rows: List<TailRow>, limitPct: Double): Pair<Int, Long>? =
+        (1..TailReply.SLOT_COUNT).mapNotNull { slot ->
+            BatteryForecast.estimate(rows, slot, limitPct)?.let { slot to it }
+        }.minByOrNull { it.second }
+
     /** The hint to read more rows when [rows] span fewer than 7 days, else null. */
     fun forecastHint(rows: List<TailRow>): String? = if (BatteryForecast.needsLongerLog(rows)) FORECAST_HINT else null
 

@@ -68,6 +68,7 @@ import com.rlcdpanel.watch.protocol.SpreadCommand
 import com.rlcdpanel.watch.protocol.SpreadReply
 import com.rlcdpanel.watch.protocol.BatteryForecast
 import com.rlcdpanel.watch.protocol.TailReply
+import com.rlcdpanel.watch.protocol.TailRow
 import com.rlcdpanel.watch.protocol.TodayCommand
 import com.rlcdpanel.watch.protocol.TodayReply
 import com.rlcdpanel.watch.protocol.DaysReply
@@ -1938,7 +1939,7 @@ onApply = { applySpread(it) }
         consoleClient.send(TailScreenText.COMMAND) { reply ->
             tailState = when (reply) {
                 is ConsoleReply.Frame -> try {
-                    TailState(rows = TailReply.parse(reply.lines), hasRead = true)
+                    TailReply.parse(reply.lines).also { saveTileForecast(it) }.let { TailState(rows = it, hasRead = true) }
                 } catch (e: ParseException) {
                     TailState(message = "Antwort nicht lesbar")
                 }
@@ -1947,6 +1948,17 @@ onApply = { applySpread(it) }
                 })
             }
         }
+    }
+
+    /** Keeps the next battery change of a tail read for the tile and redraws it. */
+    private fun saveTileForecast(rows: List<TailRow>) {
+        val next = TailScreenText.nextForecast(rows, BatteryForecast.limitPct(panelConfig))
+        if (next != null) {
+            telemetryCache.saveBatteryForecast(next.first, next.second)
+        } else {
+            telemetryCache.clearBatteryForecast()
+        }
+        ClimateTileService.requestUpdate(this)
     }
 
     private fun closeToday() {
