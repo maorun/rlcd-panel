@@ -1843,6 +1843,15 @@ void setup() {
       Runner::showPattern(sink, g_framebuffer, g_panel,
                                                                 command.reference, &g_state.frame);
       g_frame_rendered = false; // the framebuffer holds the pattern, not a render: SCREEN gives ERR NO_FRAME
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::REBOOT) {
+      // USB only (BleConsoleBridge::gate). Save the RTC copy, reply, flush the serial output, restart. No card access. The restart
+      // is a software reset: the next boot records RESET with the reason SW (a power-on start, see PowerManager::stateSurvives).
+      Runner::reboot(sink, []() {
+                       if (!PowerPlatform::saveState(g_state)) {
+                         Serial.println("RTC state save failed");
+                       }
+                     }, []() { Serial.flush(); delay(50); },
+                     []() { esp_restart(); });
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::IDENTIFY) {
       // Raw flush like PATTERN (no display_invert); one note under the BEEP rules. No card access. The next wake cycle
       // renders the normal view again.

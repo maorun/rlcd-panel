@@ -768,6 +768,8 @@ public enum ConsoleCommand: Equatable {
     case days(Int)
     /// `HELP`: the transport rules of each command word (no card access; USB and BLE at each `ble_console` level).
     case help
+    /// `REBOOT`: restarts the panel (USB serial only). The firmware answers `OK REBOOT` and restarts; `ERR NOT_OVER_BLE` on BLE, `ERR BAD_ARG` for extra text.
+    case reboot
     /// `TODAY`: minimum, maximum and mean of each sensor since local midnight (RTC copy only, USB and BLE).
     case today
     /// `TODAY N` (N 0 to 10): the row of one sensor only. An older firmware answers `ERR BAD_ARG`.
@@ -835,6 +837,16 @@ public enum ConsoleCommand: Equatable {
         case "ERR FIXED_MAC": return "A slot with a fixed MAC cannot be swapped"
         case "ERR SLOT_OFF": return "A disabled slot cannot be swapped"
         case "ERR READ_ONLY": return "Set ble_console=2 to apply"
+        default: return reply
+        }
+    }
+
+    /// Text for the replies of `REBOOT`; unknown text stays as it is.
+    public static func rebootMessage(_ reply: String) -> String {
+        switch reply {
+        case "OK REBOOT": return "Panel restarting"
+        case "ERR NOT_OVER_BLE": return "Restart needs the USB serial link"
+        case "ERR BAD_ARG": return "The panel rejected the command"
         default: return reply
         }
     }
@@ -931,6 +943,7 @@ public enum ConsoleCommand: Equatable {
         case .ackAll: return "ACK ALL"
         case .rtcTrim: return "RTC TRIM"
         case .ntpSync: return "NTP SYNC"
+        case .reboot: return "REBOOT"
         case .identify: return "IDENTIFY"
         case let .slotClear(slot):
             guard SlotAssignment.slots.contains(slot) else { return nil }

@@ -17106,7 +17106,7 @@ void testSerialHelpGateClosedWithoutRow() {
   assert(none.kind == SerialCommandKind::NONE);
   assert(std::string(BleConsoleBridge::gate(none, 1)).empty());
   SerialCommand unknown;
-  unknown.kind = static_cast<SerialCommandKind>(static_cast<uint8_t>(SerialCommandKind::SET_COMMIT) + 1); // a kind without a row
+  unknown.kind = static_cast<SerialCommandKind>(static_cast<uint8_t>(SerialCommandKind::REBOOT) + 1); // a kind without a row
   assert(SerialCommandRules::find(unknown) == nullptr);
   for (uint8_t level = 0; level < 3; ++level) {
     assert(std::string(BleConsoleBridge::gate(unknown, level)) == "ERR NOT_OVER_BLE\n");
@@ -30790,6 +30790,60 @@ void testSlotEnabledFeature() {
   DashboardView::renderSensorStats(stats_fb, bat_rd, stats_slots, 10, "12:00", 10000, false, nullptr, nullptr, &st_cfg);
 }
 
+void testRebootCommand() {
+  SerialCommand cmd;
+  assert(parseText("REBOOT", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::REBOOT);
+  assert(parseText("REBOOT 1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("REBOOT ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("REBOOTX", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("reboot", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("REBOOT", cmd) == SerialParseStatus::OK);
+  FakeConsoleStorage storage;
+  FakeSink none;
+  TestRunner::execute(storage, none, cmd); // no card access
+  assert(none.out.empty() && storage.mounts == 0);
+  // BLE refusal at each level, also through the bridge (the command never runs)
+  const SerialCommandRule* reboot_rule = SerialCommandRules::find(cmd);
+  assert(reboot_rule != nullptr && reboot_rule->ble == 0 && !reboot_rule->write && !reboot_rule->card);
+  for (uint8_t level = 0; level <= 2; ++level) {
+    assert(std::string(BleConsoleBridge::gate(cmd, level)) == "ERR NOT_OVER_BLE\n");
+  }
+  for (uint8_t level = 1; level <= 2; ++level) {
+    BleConsoleBridge bridge;
+    bridge.setLevel(level);
+    assert(bridge.onConnect());
+    SerialCommand fed;
+    const char* reply = "";
+    BleConsoleBridge::Action action = BleConsoleBridge::Action::NONE;
+    for (const char c : std::string("REBOOT\n")) {
+      action = bridge.feed(static_cast<uint8_t>(c), fed, reply);
+    }
+    assert(action == BleConsoleBridge::Action::REPLY && std::string(reply) == "ERR NOT_OVER_BLE\n");
+  }
+  // extra text over BLE gives the parse error, not a run
+  {
+    BleConsoleBridge bridge;
+    bridge.setLevel(2);
+    assert(bridge.onConnect());
+    SerialCommand fed;
+    const char* reply = "";
+    BleConsoleBridge::Action action = BleConsoleBridge::Action::NONE;
+    for (const char c : std::string("REBOOT 1\n")) {
+      action = bridge.feed(static_cast<uint8_t>(c), fed, reply);
+    }
+    assert(action == BleConsoleBridge::Action::REPLY && std::string(reply) == "ERR BAD_ARG\n");
+  }
+  // Order: save, reply, flush, restart; the reply is out before the flush.
+  FakeSink sink;
+  std::string order;
+  TestRunner::reboot(sink, [&] { order += "S"; assert(sink.out.empty()); },
+                     [&] { order += "F"; assert(sink.out == "OK REBOOT\n"); }, [&] { order += "R"; });
+  assert(order == "SFR" && sink.out == "OK REBOOT\n");
+  // the next boot records RESET with the software reason
+  assert(ResetReasonCodec::recordsEvent(ResetReason::SW) && ResetReasonCodec::eventDetail(ResetReason::SW, false) == 3);
+  assert(std::string(ResetReasonCodec::text(ResetReason::SW)) == "SW");
+}
+
 void testNtpSyncCommand() {
   SerialCommand cmd;
   assert(parseText("NTP SYNC", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::NTP_SYNC);
@@ -32062,6 +32116,7 @@ testSerialConfigNegativeSmallOffset();
   testRtcTrimFailuresKeepBaseline();
   testRtcTrimParserAndGate();
   testNtpSyncCommand();
+  testRebootCommand();
   testRtcTrimStatusLine();
   testRtcDriftIntervalPersistence();
   testDiagnosticsRtcDriftLine();

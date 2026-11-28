@@ -31,7 +31,7 @@ import Testing
         .timeSet(Date(timeIntervalSince1970: 1_800_000_000)), .beep(1), .pattern(1), .mute(true), .snooze(5),
         .ack(1), .ackAll, .rtcTrim, .ntpSync, .identify, .slotClear(1), .slotSwap(1, 2),
         .set(key: "display_invert", value: "0"), .setBegin, .setCommit, .setAbort, .calib(1), .salt(1), .saltMagnesium(1),
-        .frsi(room: 0, wall: 1, hours: 6), .spread(hours: 12), .tail(3), .days(3), .today, .todaySensor(1), .help,
+        .frsi(room: 0, wall: 1, hours: 6), .spread(hours: 12), .tail(3), .days(3), .today, .todaySensor(1), .help, .reboot,
     ]
 
     /// The longest fixture word that starts the command text.
@@ -58,7 +58,7 @@ import Testing
         ("HISTORY", 1), ("VERSION", 1), ("SET", 2), ("SET BEGIN", 2), ("SET ABORT", 2), ("SET COMMIT", 2), ("EVENTS", 1), ("PATTERN", 1), ("SCAN", 0), ("MUTE", 2), ("SCREEN", 0),
         ("SALT", 1), ("RTC TRIM", 2), ("WEEK", 1), ("SLOT CLEAR", 2), ("SLOT SWAP", 2), ("SLOT REPLACE", 2), ("REJECTS", 1),
         ("ACK", 2), ("IDENTIFY", 1), ("SNOOZE", 2), ("NTP SYNC", 0), ("FRSI", 1), ("SELFTEST", 1), ("SPREAD", 1),
-        ("TAIL", 1), ("TODAY", 1), ("DAYS", 1), ("RECEPTION", 1), ("ALERTS", 1), ("DUMP", 0), ("VERIFY", 0), ("HELP", 1),
+        ("TAIL", 1), ("TODAY", 1), ("DAYS", 1), ("RECEPTION", 1), ("ALERTS", 1), ("DUMP", 0), ("VERIFY", 0), ("HELP", 1), ("REBOOT", 0),
     ]
 
     @Test func fixtureRowsKeepOrderAndBleRules() throws {

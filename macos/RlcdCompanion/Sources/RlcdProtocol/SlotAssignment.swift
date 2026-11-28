@@ -99,6 +99,9 @@ public enum SlotAssignment {
     /// `NTP SYNC` answers `ERR NOT_OVER_BLE` on BLE: send it on the USB serial link only.
     public static func ntpSyncAllowed(onUsb: Bool) -> Bool { onUsb }
 
+    /// `REBOOT` answers `ERR NOT_OVER_BLE` on BLE: send it on the USB serial link only.
+    public static func rebootAllowed(onUsb: Bool) -> Bool { onUsb }
+
     /// Seconds to wait for the reply of a command.
     public static func timeoutSeconds(for command: ConsoleCommand) -> Int {
         switch command {

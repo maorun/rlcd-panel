@@ -246,6 +246,17 @@ struct ReplyAssemblerTests {
         #expect(ConsoleCommand.ackMessage("OK ACK ALL zz") == "OK ACK ALL zz")
     }
 
+    @Test func rebootCommandAndTexts() {
+        #expect(ConsoleCommand.reboot.line == "REBOOT")
+        #expect(SlotAssignment.timeoutSeconds(for: .reboot) == SlotAssignment.defaultTimeoutSeconds)
+        #expect(SlotAssignment.rebootAllowed(onUsb: true))
+        #expect(!SlotAssignment.rebootAllowed(onUsb: false))
+        #expect(ConsoleCommand.rebootMessage("OK REBOOT") == "Panel restarting")
+        #expect(ConsoleCommand.rebootMessage("ERR NOT_OVER_BLE") == "Restart needs the USB serial link")
+        #expect(ConsoleCommand.rebootMessage("ERR BAD_ARG") == "The panel rejected the command")
+        #expect(ConsoleCommand.rebootMessage("ERR FOO") == "ERR FOO")
+    }
+
     @Test func ntpSyncCommandAndTexts() {
         #expect(ConsoleCommand.ntpSync.line == "NTP SYNC")
         #expect(SlotAssignment.timeoutSeconds(for: .ntpSync) == 30)

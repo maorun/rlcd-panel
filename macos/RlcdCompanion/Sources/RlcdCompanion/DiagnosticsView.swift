@@ -154,6 +154,11 @@ struct DiagnosticsView: View {
                             .disabled(!model.consoleConnected || !model.isIdle)
                         if let r = model.identifyResult { Text(r).font(.caption.monospaced()) }
                     }
+                    HStack {
+                        Button("Restart panel") { model.showingRebootAlert = true }
+                            .disabled(!model.consoleConnected || !model.canSet || !model.isIdle || model.transport != .usb)
+                        if model.consoleConnected, model.transport != .usb { Text("USB only").font(.caption).foregroundStyle(.secondary) }
+                    }
                     if let r = model.lastPatternResult {
                         Text("Display pattern reply: \(r)").font(.caption.monospaced())
                     }
@@ -177,6 +182,16 @@ struct DiagnosticsView: View {
             }
         } message: {
             Text("The panel will show this test pattern until the next wake cycle.")
+        }
+        .confirmationDialog(
+            "Restart the panel?",
+            isPresented: $model.showingRebootAlert,
+            titleVisibility: .visible
+        ) {
+            Button("Restart", role: .destructive) { model.restartPanel() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("The panel restarts like after a power-on. The USB link drops for a moment.")
         }
     }
 
