@@ -102,6 +102,9 @@ struct ConfigEditorView: View {
                 }
             }
             Text(problem ?? entry.description).font(.caption2).foregroundStyle(problem == nil ? Color.secondary : Color.red)
+            ForEach(model.configWarnings.filter { $0.key == entry.key }, id: \.id) { w in
+                Label(w.text, systemImage: "exclamationmark.triangle.fill").font(.caption2).foregroundStyle(.orange)
+            }
             if entry.key == "night_wake_interval_s" { runtimePreview(reply) }
         }
     }
@@ -124,6 +127,9 @@ struct ConfigEditorView: View {
             }
             ForEach(model.changes.filter { model.problems[$0.key] != nil }, id: \.key) { c in
                 Text("\(c.key): \(model.problems[c.key] ?? "")").foregroundStyle(.red)
+            }
+            ForEach(model.configWarnings, id: \.id) { w in
+                Text("\(w.key): \(w.text)").foregroundStyle(.orange)
             }
             if let w = model.bleConsoleWarning { Text(w).foregroundStyle(.orange) }
             HStack {

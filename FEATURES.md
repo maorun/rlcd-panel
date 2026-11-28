@@ -4466,7 +4466,7 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The console command `CONFIG` sends one line `WARN key=<key> reason=<REASON>` for each warning after the `REJECTED` lines and before `CRC32`. The reply for `CONFIG <key>` and `CONFIG CHANGED` does not change.
 - `scripts/check-config.sh` prints the same lines after `REJECTED count=<N>`. A warning does not change the exit code.
 - No RTC state and no `STATE_VERSION` change: each command calculates the warnings from the config. `tests/fixtures/config_reply_sample.txt` stays without a `WARN` line.
-- The macOS `ConfigReply.parse` ignores `WARN` lines. The Kotlin parsers ignore them because the line is no `key=value` line.
+- The macOS and Kotlin `CONFIG` parsers read them into `ConfigReply.warnings` (see the config editor warnings below).
 - Validation: host tests (`testDeviceConfigWarnings`, `testSerialConfigWarnLines`), `./tests/test_scripts.sh`, `swift test` and `arduino-cli compile rlcd_panel`.
 
 ## Heat badge event texts and filters in the three apps
@@ -4506,3 +4506,15 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `rlcd_panel.ino` fills `SystemInfo::alert_mask` and `alert_tiles` on each render. Calculated on each render, no RTC state, `STATE_VERSION` does not change.
 - `docs/display_preview_diagnostics.png` shows two alert lines (`HUMIDITY GARTEN`, `SENSOR BAT GARTEN`).
 - Validation: host tests (`testDiagnosticsAlertLines`: zero, one and four active alerts) and `arduino-cli compile rlcd_panel`.
+
+## Config warnings in the macOS and Android config editors
+
+- **Code:** `ConfigWarning`, `ConfigSchema.warnings` and `ConfigReply.warnings` (`ConfigSchema.swift`, `Replies.swift`), `AppModel.configWarnings` and `ConfigEditorView` on macOS; `ConfigWarning`, `ConfigSchema.warnings` and `PanelConfig.parseConfigReply` (`ConfigSchema.kt`, `PanelConfig.kt`, shared with the watch copy) and `ConfigEditorScreen` on Android.
+- The `CONFIG` reply parsers read the firmware lines `WARN key=<key> reason=<REASON>` into `ConfigReply.warnings` in reply order. A line without both fields is dropped, the field order is free, and a reply without `WARN` lines gives an empty list. The `WARN` line stays no setting.
+- `ConfigSchema.warnings(values:)` (Kotlin: `ConfigSchema.warnings(values)`) calculates the four rules of `DeviceConfigWarnings::collect` in the firmware order on the edited values: `DOOR_IS_OUTDOOR`, `WALL_WITHOUT_OUTDOOR`, `NIGHT_SHORTER` and `OUTDOOR_ALERTS`. A key that the values lack has the schema default. A value that is no whole number (a zero fraction like `3.0` counts) skips its rules. The form shows the warnings while the user types, so the user sees a conflict before the batch.
+- Each warning shows below the description of its key in the editor (orange text with a warning symbol on macOS, tertiary text with `⚠` on Android). The macOS diff sheet lists them too. A warning never blocks `Apply` and never changes the `SET` batch or the problem list.
+- macOS only: with no edit, a `WARN` line of the reply with a reason that the schema does not know (a newer firmware) shows as well, with the text `Conflict: <REASON>`. With an edit, only the schema rules count, because only the firmware can calculate the other reasons. The Android cache keeps the `CONFIG` settings only, so the phone editor shows the schema rules; the phone parser still reads the `WARN` lines.
+- `tests/fixtures/config_reply_warn_sample.txt` holds a `CONFIG` reply with three `WARN` lines; `config_reply_sample.txt` stays without a `WARN` line. The macOS `ConfigWarningSharedFixtureTests` and the phone `PanelConfigTest` read both files.
+- The Wear OS app has the same parser and schema copy (`scripts/check-protocol-sync.sh`) but no editor.
+- Tests: `ConfigSchemaTests`, `ConfigRejectedLineFormTests` and `ConfigWarningSharedFixtureTests` (macOS); `ConfigSchemaTest` and `PanelConfigTest` (phone). Each rule, the parser and a reply without `WARN` lines have a test.
+- Validation: `swift test` (945 tests) and `./scripts/check-protocol-sync.sh` pass. The Gradle runs need the Android SDK and run in CI.

@@ -27,11 +27,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 2: Configuration and Control (Score 28–33)
 
-- [ ] Config warnings in the macOS and Android config editors
-  - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `macos/RlcdCompanion/Sources/RlcdProtocol/Replies.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/ConfigEditorView.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigSchema.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/ConfigEditorScreen.kt`, the matching test files, `FEATURES.md`
-  - **Goal:** Show the conflict warnings before the user sends a batch. Needs the entry "Warnings for conflicting config.ini keys". Parse the `WARN` lines of the `CONFIG` reply. Calculate the same four rules on the edited values in `ConfigSchema.warnings`. Show each warning beside the key in the editor. Do not block the `SET` batch.
-  - **Acceptance:** Unit tests cover each rule, the `WARN` line parser and a reply without `WARN` lines. A shared test reads `tests/fixtures/config_reply_sample.txt`. `swift test` in `macos/RlcdCompanion` passes. The CI job of the phone passes.
-  - **Rank:** [Total: 33, Use: 5, Setup: 9, Harmony: 9, Safety: 10, Effort: M]
 - [ ] Calibration age of each sensor
   - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/rlcd_panel.ino`, `macos/RlcdCompanion/Sources/RlcdProtocol/Calibration.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/CalibrationView.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/CalibrationReply.kt`, `tests/test_firmware_logic.cpp`, `tests/fixtures/calib_age_reply_sample.txt`, `FEATURES.md`
   - **Goal:** Show when the user calibrated each sensor last. After a successful `SET` of an offset or gain key of a sensor, write the RTC date to NVS (namespace `rlcd`, key `cal_d<sensor>`, one write for each `SET`). Add `CALIB AGE`: `BEGIN CALIB AGE`, header `sensor,name,date,days`, one row for each sensor, `CRC32` line. An unknown date gives empty fields. The apps show `Calibrated <N> days ago` and a warning above 365 days.

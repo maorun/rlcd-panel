@@ -368,4 +368,63 @@ struct ConfigSchemaTests {
             #expect(ConfigSchema.entries.first { $0.key == key }?.defaultValue == "0", "\(key) default")
         }
     }
+
+    @Test func warningRuleDoorIsOutdoor() {
+        let noTiles = "climate_alert_tiles"
+        #expect(ConfigSchema.warnings(values: ["door_ref_slot": "3", "outdoor_slot": "3", noTiles: "0"]).map(\.reason) == ["DOOR_IS_OUTDOOR"])
+        #expect(ConfigSchema.warnings(values: ["door_ref_slot": "0", "outdoor_slot": "0"]).isEmpty)
+        #expect(ConfigSchema.warnings(values: ["door_ref_slot": "2", "outdoor_slot": "3", noTiles: "0"]).isEmpty)
+    }
+
+    @Test func warningRuleWallWithoutOutdoor() {
+        #expect(ConfigSchema.warnings(values: ["wall_frsi_pct": "70"]).map(\.reason) == ["WALL_WITHOUT_OUTDOOR"])
+        #expect(ConfigSchema.warnings(values: ["wall_frsi_pct": "70", "outdoor_slot": "2", "climate_alert_tiles": "0"]).isEmpty)
+        #expect(ConfigSchema.warnings(values: ["wall_frsi_pct": "0"]).isEmpty)
+    }
+
+    @Test func warningRuleNightShorter() {
+        #expect(ConfigSchema.warnings(values: ["night_wake_interval_s": "60", "wake_interval_s": "120"]).map(\.key) == ["night_wake_interval_s"])
+        #expect(ConfigSchema.warnings(values: ["night_wake_interval_s": "120", "wake_interval_s": "120"]).isEmpty)
+        #expect(ConfigSchema.warnings(values: ["night_wake_interval_s": "0", "wake_interval_s": "120"]).isEmpty)
+        // wake_interval_s missing: the schema default 60 applies.
+        #expect(ConfigSchema.warnings(values: ["night_wake_interval_s": "60"]).isEmpty)
+    }
+
+    @Test func warningRuleOutdoorAlerts() {
+        // The default mask 2047 holds every tile, so an outdoor slot alone warns.
+        #expect(ConfigSchema.warnings(values: ["outdoor_slot": "3"]).map(\.reason) == ["OUTDOOR_ALERTS"])
+        #expect(ConfigSchema.warnings(values: ["outdoor_slot": "3", "climate_alert_tiles": "2039"]).isEmpty) // bit 3 cleared
+        #expect(ConfigSchema.warnings(values: ["outdoor_slot": "0"]).isEmpty)
+        #expect(ConfigSchema.warnings(values: ["outdoor_slot": "10", "climate_alert_tiles": "1024"]).map(\.reason) == ["OUTDOOR_ALERTS"])
+    }
+
+    @Test func warningsKeepFirmwareOrderAndSkipBadNumbers() {
+        let all = ConfigSchema.warnings(values: ["door_ref_slot": "3", "outdoor_slot": "3", "night_wake_interval_s": "60",
+                                                 "wake_interval_s": "120", "climate_alert_tiles": "2047"])
+        #expect(all.map(\.reason) == ["DOOR_IS_OUTDOOR", "NIGHT_SHORTER", "OUTDOOR_ALERTS"])
+        #expect(ConfigSchema.warnings(values: ["door_ref_slot": "x", "outdoor_slot": "x"]).isEmpty)
+        #expect(ConfigSchema.warnings(values: ["outdoor_slot": "3", "climate_alert_tiles": "99999999999999999999"]).isEmpty)
+    }
+
+    @Test func wholeNumbersWithZeroFractionCountLikeOnAndroid() {
+        #expect(ConfigSchema.warnings(values: ["door_ref_slot": "3.0", "outdoor_slot": "+3", "climate_alert_tiles": "0"]).map(\.reason) == ["DOOR_IS_OUTDOOR"])
+        #expect(ConfigSchema.warnings(values: ["door_ref_slot": "3.5", "outdoor_slot": "3.5", "climate_alert_tiles": "0"]).isEmpty)
+        #expect(ConfigSchema.warnings(values: ["door_ref_slot": " 3", "outdoor_slot": "3", "climate_alert_tiles": "0"]).isEmpty)
+    }
+
+    @Test func warningsFollowTheDraftAndDoNotBlockTheBatch() throws {
+        let reply = try ConfigReply.parse(lines: ["outdoor_slot=3", "climate_alert_tiles=2039"])
+        #expect(ConfigSchema.warnings(config: reply, draft: [:]).isEmpty)
+        let draft = ["climate_alert_tiles": "2047"]
+        #expect(ConfigSchema.warnings(config: reply, draft: draft).map(\.reason) == ["OUTDOOR_ALERTS"])
+        let changes = ConfigSchema.diff(old: reply.values, new: reply.values.merging(draft) { _, n in n })
+        #expect(ConfigSchema.problems(changes: changes, allValues: reply.values).isEmpty)
+        #expect(ConfigSchema.batch(for: changes).count == 1)
+    }
+
+    @Test func reportedWarningOfNewerFirmwareShowsWithoutDraft() throws {
+        let reply = try ConfigReply.parse(lines: ["temp_unit=C", "WARN key=temp_unit reason=FUTURE_RULE", "WARN key=door_ref_slot reason=DOOR_IS_OUTDOOR"])
+        #expect(ConfigSchema.warnings(config: reply, draft: [:]) == [ConfigWarning(key: "temp_unit", reason: "FUTURE_RULE")])
+        #expect(ConfigSchema.warnings(config: reply, draft: ["temp_unit": "F"]).isEmpty)
+    }
 }

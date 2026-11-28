@@ -585,9 +585,12 @@ public struct ConfigReply: Equatable {
     /// Reason of each rejected line, same order as `rejectedLines`: `UNKNOWN_KEY`, `BAD_VALUE`, `DUPLICATE_MAC`
     /// or another text of a newer firmware; `nil` for an old firmware line `REJECTED line=<N>` without a reason.
     public let rejectedReasons: [String?]
+    /// `WARN key=<key> reason=<REASON>` lines of the firmware, in reply order. Empty for an old firmware.
+    public let warnings: [ConfigWarning]
 
     public init(values: [String: String], keys: [String] = [], source: String? = nil, rejectedLines: [Int] = [],
-                rejectedReasons: [String?]? = nil) {
+                rejectedReasons: [String?]? = nil, warnings: [ConfigWarning] = []) {
+        self.warnings = warnings
         self.values = values
         self.keys = keys.isEmpty ? Array(values.keys) : keys
         self.source = source
@@ -601,6 +604,7 @@ public struct ConfigReply: Equatable {
         var source: String?
         var rejected: [Int] = []
         var reasons: [String?] = []
+        var warnings: [ConfigWarning] = []
         for line in lines {
             if line.hasPrefix("SOURCE ") {
                 source = String(line.dropFirst(7))
@@ -617,8 +621,13 @@ public struct ConfigReply: Equatable {
                     }
                 }
             } else if line.hasPrefix("WARN ") {
-                // "WARN key=<key> reason=<REASON>" of the firmware: no setting, the parser ignores it.
-                continue
+                // "WARN key=<key> reason=<REASON>": no setting. A line without both fields is dropped.
+                var key: String?, reason: String?
+                for part in line.dropFirst(5).split(separator: " ", omittingEmptySubsequences: true) {
+                    if part.hasPrefix("key=") { key = String(part.dropFirst(4)) }
+                    if part.hasPrefix("reason=") { reason = String(part.dropFirst(7)) }
+                }
+                if let key, let reason, !key.isEmpty, !reason.isEmpty { warnings.append(ConfigWarning(key: key, reason: reason)) }
             } else if let eq = line.firstIndex(of: "=") {
                 let k = String(line[..<eq])
                 if values[k] == nil { keys.append(k) }
@@ -628,7 +637,8 @@ public struct ConfigReply: Equatable {
             }
         }
         guard !values.isEmpty else { throw ParseError.missingLine("key=value") }
-        return ConfigReply(values: values, keys: keys, source: source, rejectedLines: rejected, rejectedReasons: reasons)
+        return ConfigReply(values: values, keys: keys, source: source, rejectedLines: rejected, rejectedReasons: reasons,
+                           warnings: warnings)
     }
 
     /// Unit of the `STATUS` temperatures (`temp_unit`): `C` or `F`; `nil` when the reply has no valid key.
