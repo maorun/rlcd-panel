@@ -2,9 +2,11 @@ package com.rlcdpanel.watch.protocol
 
 /**
  * Sends the selected proposals as `SET` commands, then `CONFIG`. The first `ERR` reply stops the `SET` commands and
- * suppresses `CONFIG`, like the `ConfigBatch` of the macOS app. [send] takes one command and gives its reply.
+ * suppresses `CONFIG`, like the `ConfigBatch` of the macOS app. [send] takes one command and gives its reply. With two or more
+ * proposals it uses the firmware batch mode (`SET BEGIN` ... `SET COMMIT`) when the panel answers `SET BEGIN` with `OK`
+ * and the old single `SET` lines otherwise (see [ConfigBatch]); [batchMode] false always sends single lines.
  */
-class CalibrationBatch(private val proposals: List<CalibrationProposal>) {
+class CalibrationBatch(private val proposals: List<CalibrationProposal>, private val batchMode: Boolean = true) {
     data class Result(
         val applied: List<String>,
         /** Key and reply text of the first failed `SET`, or null. */
@@ -22,30 +24,14 @@ class CalibrationBatch(private val proposals: List<CalibrationProposal>) {
     }
 
     fun run(send: (String, (ConsoleReply) -> Unit) -> Unit, done: (Result) -> Unit) {
-        val applied = mutableListOf<String>()
-        fun config() {
-            send("CONFIG") { reply ->
-                done(Result(applied, null, reply as? ConsoleReply.Frame, reply !is ConsoleReply.Frame))
-            }
+        ConfigBatch(proposals.map { it.key to it.value }, batchMode).run(send) { r ->
+            done(Result(r.applied, r.failure, r.config, r.configFailed))
         }
-        fun step(i: Int) {
-            if (i >= proposals.size) return config()
-            val p = proposals[i]
-            send("SET ${p.key}=${p.value}") { reply ->
-                val status = (reply as? ConsoleReply.Status)?.line
-                when {
-                    status != null && status.startsWith("OK") -> { applied.add(p.key); step(i + 1) }
-                    status != null -> done(Result(applied, p.key to status, null, false))
-                    else -> done(Result(applied, p.key to UNKNOWN_STATE, null, false))
-                }
-            }
-        }
-        step(0)
     }
 
     companion object {
         /** A timeout or a corrupt reply: the panel may have applied the `SET`. */
-        const val UNKNOWN_STATE = "Keine gültige Antwort, Zustand unbekannt. CONFIG lesen"
+        const val UNKNOWN_STATE = ConfigBatch.UNKNOWN_STATE
 
         /** `ERR READ_ONLY` needs the console level 2. */
         fun failureText(status: String): String =
