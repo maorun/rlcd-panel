@@ -905,6 +905,18 @@ public:
     }
   }
 
+  // Copies all days, mold, dry and heat hours of one sensor from `src` (console SLOT REPLACE keeps the week of a slot
+  // while resetSlot clears it). A bad index changes nothing.
+  void copySensor(const WeekHistory& src, size_t sensor) {
+    if (sensor >= SENSORS) {
+      return;
+    }
+    memcpy(days_[sensor], src.days_[sensor], sizeof(days_[sensor]));
+    memcpy(mold_[sensor], src.mold_[sensor], sizeof(mold_[sensor]));
+    memcpy(dry_[sensor], src.dry_[sensor], sizeof(dry_[sensor]));
+    memcpy(heat_[sensor], src.heat_[sensor], sizeof(heat_[sensor]));
+  }
+
   // Swaps all days, mold hours and dry hours of two sensors (console SLOT SWAP). An equal or bad index changes nothing.
   void swapSensors(size_t a, size_t b) {
     if (a >= SENSORS || b >= SENSORS || a == b) {

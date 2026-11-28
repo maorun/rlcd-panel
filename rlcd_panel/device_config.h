@@ -610,6 +610,32 @@ public:
     return result;
   }
 
+  static int hexDigit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    return -1;
+  }
+
+  // Exactly "AA:BB:CC:DD:EE:FF" (17 characters, upper or lower case hex, ':' only).
+  static bool parseMac(const char* s, size_t n, uint8_t (&out)[DeviceConfig::MAC_BYTES]) {
+    if (n != DeviceConfig::MAC_BYTES * 3 - 1) {
+      return false;
+    }
+    uint8_t mac[DeviceConfig::MAC_BYTES];
+    for (size_t i = 0; i < DeviceConfig::MAC_BYTES; ++i) {
+      const char* p = s + i * 3;
+      const int hi = hexDigit(p[0]);
+      const int lo = hexDigit(p[1]);
+      if (hi < 0 || lo < 0 || (i + 1 < DeviceConfig::MAC_BYTES && p[2] != ':')) {
+        return false;
+      }
+      mac[i] = static_cast<uint8_t>(hi * 16 + lo);
+    }
+    memcpy(out, mac, sizeof(mac));
+    return true;
+  }
+
 private:
   struct SeenMask {
     uint64_t lo = 0;
@@ -911,31 +937,6 @@ private:
     return true;
   }
 
-  static int hexDigit(char c) {
-    if (c >= '0' && c <= '9') return c - '0';
-    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
-    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
-    return -1;
-  }
-
-  // Exactly "AA:BB:CC:DD:EE:FF" (17 characters, upper or lower case hex, ':' only).
-  static bool parseMac(const char* s, size_t n, uint8_t (&out)[DeviceConfig::MAC_BYTES]) {
-    if (n != DeviceConfig::MAC_BYTES * 3 - 1) {
-      return false;
-    }
-    uint8_t mac[DeviceConfig::MAC_BYTES];
-    for (size_t i = 0; i < DeviceConfig::MAC_BYTES; ++i) {
-      const char* p = s + i * 3;
-      const int hi = hexDigit(p[0]);
-      const int lo = hexDigit(p[1]);
-      if (hi < 0 || lo < 0 || (i + 1 < DeviceConfig::MAC_BYTES && p[2] != ':')) {
-        return false;
-      }
-      mac[i] = static_cast<uint8_t>(hi * 16 + lo);
-    }
-    memcpy(out, mac, sizeof(mac));
-    return true;
-  }
 
   // Keys slot1_mac to slot3_mac (index 22..24), slot4_mac, slot5_mac (index 42, 43) and
   // slot6_mac to slot10_mac (index 62..66). An empty value clears the fixed MAC. A malformed
