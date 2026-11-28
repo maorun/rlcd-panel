@@ -29,7 +29,7 @@ struct ConfigSchemaTests {
         let (active, commented) = try templateKeys()
         let template = Set(active.keys).union(commented)
         #expect(Set(ConfigSchema.keys) == template)
-        #expect(ConfigSchema.keys.count == 106)
+        #expect(ConfigSchema.keys.count == 107)
         #expect(Set(ConfigSchema.keys).count == ConfigSchema.keys.count)
         for e in ConfigSchema.entries {
             if let v = active[e.key] {
@@ -330,8 +330,14 @@ struct ConfigSchemaTests {
             default: Issue.record("\(key) has no numeric kind")
             }
         }
-        // The other 22 keys are the enum, 11 names and 10 MACs.
-        #expect(expected.count + 22 == ConfigSchema.keys.count)
+        // The other 23 keys are the 2 enums, 11 names and 10 MACs.
+        #expect(expected.count + 23 == ConfigSchema.keys.count)
+    }
+
+    @Test func bootDisplayModeAcceptsZeroToFiveWithoutThree() {
+        for ok in ["0", "1", "2", "4", "5"] { #expect(ConfigSchema.validate(key: "boot_display_mode", value: ok) == nil, "boot_display_mode=\(ok)") }
+        for bad in ["3", "6", "-1", "x", ""] { #expect(ConfigSchema.validate(key: "boot_display_mode", value: bad) != nil, "boot_display_mode=\(bad)") }
+        #expect(ConfigSchema.entries.first { $0.key == "boot_display_mode" }?.defaultValue == "0")
     }
 
     @Test func unboundNamesListsNameWithoutMac() throws {

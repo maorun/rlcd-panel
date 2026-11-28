@@ -1470,6 +1470,7 @@ void setup() {
   g_mic_cal = MicCalibrationStore::load();
   ++g_state.boot_count;
   loadConfigFromCard(cause);
+  g_mode_controller.setMode(PowerManager::startMode(cause, g_mode_controller.mode(), config().boot_display_mode)); // a power-on takes boot_display_mode
 
   Wire.begin(PIN_I2C_SDA, PIN_I2C_SCL);
   g_rtc.begin(Wire);

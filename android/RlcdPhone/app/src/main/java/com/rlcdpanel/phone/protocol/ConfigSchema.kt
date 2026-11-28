@@ -105,6 +105,7 @@ object ConfigSchema {
         add(e("heat_alert_delay_h", c, "h", "Raise the heat alert only when the newest hourly readings of the tile also give a feels-like value at or above the heat limit. 0 is off. A short warm peak gives no chime."))
         add(e("freeze_alert_delay_h", c, "h", "Raise the freezer alert only when the newest hourly temperature samples of the tile are also at or below the freezer limit. 0 is off. A short cold stream, for example an open freezer door, gives no chime."))
         add(e("stuck_alert_h", c, "h", "Show the F badge on a tile whose hourly samples stay unchanged for this many hours while new packets arrive. 0 is off."))
+        add(e("boot_display_mode", c, "", "Select the first view after a power-on. 0 is dashboard, 1 stats, 2 diagnostics, 4 climate chart, 5 week chart. 3 (spectrum) is not allowed because it needs the microphone. A timer or KEY wakeup keeps the current view."))
         add(e("heat_alert_limit_c", c, "°C", "Start the heat alert at this feels-like temperature. 0 is off."))
         add(e("dry_alert_limit_rh", c, "%RH", "Show the dry air badge at or below this humidity. 0 is off."))
         add(e("window_drop_c", c, "°C", "Show the W badge on a tile that falls by this temperature within 15 minutes. 0 is off. The badge ends when the tile rises by half the limit or after 2 hours."))
