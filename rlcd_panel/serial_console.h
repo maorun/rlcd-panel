@@ -41,7 +41,7 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, SLOT_REPLACE, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST, SPREAD, TAIL, TODAY, DAYS, RECEPTION, ALERTS, HELP, VERIFY, SET_BEGIN, SET_ABORT, SET_COMMIT };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, SLOT_REPLACE, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST, SPREAD, TAIL, TODAY, DAYS, RECEPTION, ALERTS, HELP, VERIFY, SET_BEGIN, SET_ABORT, SET_COMMIT, REBOOT };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
@@ -137,6 +137,7 @@ struct SerialCommandRules {
       {"DUMP", "DUMP climate_v5_202601.csv", SerialCommandKind::DUMP, false, 0, false, true},
       {"VERIFY", "VERIFY climate_v6_202601.csv", SerialCommandKind::VERIFY, false, 0, false, true},
       {"HELP", "HELP", SerialCommandKind::HELP, false, 1, false, false},
+      {"REBOOT", "REBOOT", SerialCommandKind::REBOOT, false, 0, false, false},
   };
   static constexpr size_t COUNT = sizeof(ROWS) / sizeof(ROWS[0]);
 
@@ -359,6 +360,13 @@ public:
         return SerialParseStatus::BAD_ARG; // HELP takes no argument
       }
       out.kind = SerialCommandKind::HELP;
+      return SerialParseStatus::OK;
+    }
+    if (matches(line, cmd_len, "REBOOT")) {
+      if (len != cmd_len) {
+        return SerialParseStatus::BAD_ARG; // REBOOT takes no argument
+      }
+      out.kind = SerialCommandKind::REBOOT;
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "IDENTIFY")) {
@@ -1243,7 +1251,7 @@ struct SelfTestChecks {
 //   ble_console 1: the read commands; SET, MUTE, SNOOZE, ACK, SLOT CLEAR, SLOT SWAP, SLOT REPLACE, TIME SET and RTC TRIM reply "ERR READ_ONLY"
 //   ble_console 2: also SET, MUTE, SNOOZE, ACK, SLOT CLEAR, SLOT SWAP, SLOT REPLACE, TIME SET and RTC TRIM
 //   DUMP (a monthly file is too large for BLE), VERIFY (it reads a whole log file from the card), SCREEN (15,000 bytes), SCAN (the scan stops the BLE stack that carries
-//   the console) and NTP SYNC (the Wi-Fi sync blocks the loop and shares the radio with the console) reply "ERR NOT_OVER_BLE" at each level.
+//   the console) and NTP SYNC (the Wi-Fi sync blocks the loop and shares the radio with the console) and REBOOT (the restart drops the link) reply "ERR NOT_OVER_BLE" at each level.
 // Only one central connects. A disconnect clears the partial line.
 class BleConsoleBridge {
 public:
@@ -3554,6 +3562,19 @@ public:
     send(sink, line);
   }
 
+  // REBOOT: restarts the panel on request (USB only, "ERR NOT_OVER_BLE" on BLE through BleConsoleBridge::gate). Order: `save()`
+  // writes the RTC state, then the reply "OK REBOOT" goes out, `flush()` empties the serial output, `restart()` calls esp_restart() and
+  // does not return on the board. A failed `save()` does not stop the restart (the RTC copy is not valid after a software reset anyway:
+  // PowerManager::stateSurvives is false, so the start counts as a power-on and the next boot records RESET with the reason SW).
+  // No card access, no RTC layout change, STATE_VERSION does not change; execute() ignores it.
+  template <typename Save, typename Flush, typename Restart>
+  static void reboot(Sink& sink, Save save, Flush flush, Restart restart) {
+    save();
+    send(sink, "OK REBOOT\n");
+    flush();
+    restart();
+  }
+
   // SNOOZE <M>: starts a timed mute of `minutes` (0 ends it) and replies "OK SNOOZE <M>". No card access. One
   // MUTE_CHANGE event (detail low byte 2 a snooze start, 0 an end; source in the high byte) records a start, and an end
   // of a snooze that was still active. A new snooze while another runs restarts the timer and records the start again.
@@ -4011,7 +4032,8 @@ public:
         command.kind == SerialCommandKind::SELFTEST || command.kind == SerialCommandKind::SPREAD ||
         command.kind == SerialCommandKind::TAIL || command.kind == SerialCommandKind::TODAY ||
         command.kind == SerialCommandKind::DAYS || command.kind == SerialCommandKind::RECEPTION ||
-        command.kind == SerialCommandKind::ALERTS || command.kind == SerialCommandKind::HELP) {
+        command.kind == SerialCommandKind::ALERTS || command.kind == SerialCommandKind::HELP ||
+        command.kind == SerialCommandKind::REBOOT) {
       return;
     }
     if (!storage.mount()) {
@@ -4055,6 +4077,7 @@ public:
       case SerialCommandKind::RECEPTION:
       case SerialCommandKind::ALERTS:
       case SerialCommandKind::HELP:
+      case SerialCommandKind::REBOOT:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
       case SerialCommandKind::SET_BEGIN:

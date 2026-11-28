@@ -192,6 +192,8 @@ final class AppModel: ConsoleLinkDelegate {
     var profileName = ""
     var pendingPattern: Int?
     var showingPatternAlert = false
+    /// The `Restart panel` confirmation of `DiagnosticsView`.
+    var showingRebootAlert = false
     private var downloadStats = (saved: 0, failed: 0)
     private var pendingCommand: ConsoleCommand?
     private var queue: [ConsoleCommand] = []
@@ -852,6 +854,16 @@ final class AppModel: ConsoleLinkDelegate {
         message = nil
         identifyResult = nil
         queue = [.identify]
+        sendNext()
+    }
+
+    /// Restarts the panel (`REBOOT`). Runs only after the confirmation of the user and on USB. The panel answers `OK REBOOT`
+    /// and restarts, so no `STATUS` follows: the serial link drops and returns with the new boot.
+    func restartPanel() {
+        guard isIdle, canSet else { return }
+        guard SlotAssignment.rebootAllowed(onUsb: transport == .usb) else { message = ConsoleCommand.rebootMessage("ERR NOT_OVER_BLE"); return }
+        message = nil
+        queue = [.reboot]
         sendNext()
     }
 
@@ -1962,6 +1974,7 @@ final class AppModel: ConsoleLinkDelegate {
                 }
                 if case .slotSwap = cmd { message = ConsoleCommand.slotSwapMessage(text) }
                 if cmd == .ntpSync { message = ConsoleCommand.ntpSyncMessage(text) }
+                if cmd == .reboot { message = ConsoleCommand.rebootMessage(text) }
                 // A file that the card no longer holds (log retention) does not stop the other files.
                 var keepQueue = false
                 var saltRetry: ConsoleCommand?
@@ -2177,7 +2190,9 @@ final class AppModel: ConsoleLinkDelegate {
                 queue.removeAll()
                 finishDownload(cmd, text: "unexpected reply")
             case (.set, .frame), (.setBegin, .frame), (.setCommit, .frame), (.setAbort, .frame): batch?.receive(status: "ERR UNEXPECTED_REPLY")
-            case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.snooze, .frame), (.ack, .frame), (.ackAll, .frame), (.rtcTrim, .frame), (.ntpSync, .frame), (.identify, .frame), (.slotClear, .frame), (.slotSwap, .frame):
+            // Each other command ends with a status line; a frame (or, before this case, a file) is not expected. A `default` keeps the
+            // tuple switch small enough for the compiler to check (one more explicit pair made it time out).
+            default:
                 message = "Unexpected frame reply"
             }
         } catch {
