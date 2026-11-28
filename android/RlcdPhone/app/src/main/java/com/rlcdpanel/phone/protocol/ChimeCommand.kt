@@ -5,6 +5,8 @@ object ChimeCommand {
     const val STATUS = "STATUS"
     const val IDENTIFY = "IDENTIFY"
     const val READ_ONLY_TEXT = "Set ble_console=2 to apply"
+    /** Short text of the Quick Settings tile for `ERR READ_ONLY`. */
+    const val TILE_READ_ONLY_TEXT = "Set ble_console=2"
 
     /** Alert names of the bits 0 to 7 (`AlertMask`). */
     val ALERT_NAMES = listOf(
@@ -41,6 +43,11 @@ object ChimeCommand {
             else -> fallback(reply)
         }
     }
+
+    /** Like [failureText], but words `ERR READ_ONLY` as [TILE_READ_ONLY_TEXT] for the tile. */
+    fun tileFailureText(reply: ConsoleReply, fallback: (ConsoleReply) -> String): String? =
+        if ((reply as? ConsoleReply.Status)?.line.let { it == "ERR READ_ONLY" || it?.startsWith("ERR READ_ONLY ") == true }) TILE_READ_ONLY_TEXT
+        else failureText(reply, fallback)
 
     /** Text for `OK BEEP <bit> <ms>`. */
     fun okText(line: String): String {

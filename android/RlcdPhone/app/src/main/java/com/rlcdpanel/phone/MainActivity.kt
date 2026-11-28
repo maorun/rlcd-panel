@@ -1583,6 +1583,7 @@ class MainActivity : ComponentActivity() {
         }
         return try {
             val status = StatusReply.parse(reply.lines)
+            status.muted?.let { MuteStateStore.save(applicationContext, it) }
             checkWindowNotifications(status)
             checkDriftNotifications(status)
             checkStuckNotifications(status)

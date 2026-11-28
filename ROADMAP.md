@@ -47,11 +47,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Goal:** Write a batch of keys to the card in one file write. Add `SET BEGIN`, `SET ABORT` and `SET COMMIT`. After `SET BEGIN`, each `SET` checks the value and keeps it in RAM (reply `OK QUEUED <key>`, at most 32 keys). `SET COMMIT` writes all keys through one `config.tmp` write, applies the config and records one `CONFIG_SET` event for each key. A link loss, 60 s without a line or `SET ABORT` drops the queue. The apps use the batch mode when the reply to `SET BEGIN` is `OK`, else the old single `SET` lines.
   - **Acceptance:** Host tests cover queue, commit, abort, the timeout, a full queue and a failed write without a state change. App tests cover both paths. The host test command, `arduino-cli compile rlcd_panel` and `swift test` pass.
   - **Rank:** [Total: 30, Use: 4, Setup: 8, Harmony: 9, Safety: 9, Effort: M]
-- [ ] Quick Settings tile for mute in the Android app
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/MuteTileService.kt`, `android/RlcdPhone/app/src/main/AndroidManifest.xml`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ChimeCommand.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/MuteTileModelTest.kt`, `FEATURES.md`
-  - **Goal:** Let the user mute the panel from the Quick Settings. Add a `TileService` that shows the mute state of the last `STATUS` reply. A tap sends `MUTE 0` or `MUTE 1` over the BLE console and reads `STATUS` again. Show `ERR READ_ONLY` as `Set ble_console=2`. Show the state `unavailable` without a cached reply.
-  - **Acceptance:** Unit tests cover the tile model for each state and the error text. The CI job `Android phone companion tests and APK` passes.
-  - **Rank:** [Total: 28, Use: 7, Setup: 3, Harmony: 8, Safety: 10, Effort: S]
 
 ## Priority 3: Display and Logging (Score 22–27)
 
