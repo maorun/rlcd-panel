@@ -27,12 +27,16 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.rlcdpanel.phone.protocol.DaysNoise
 import com.rlcdpanel.phone.protocol.DaysReply
 import com.rlcdpanel.phone.protocol.DaysRow
 import com.rlcdpanel.phone.protocol.MoldRoomSummary
 import com.rlcdpanel.phone.protocol.MoldSummary
 import com.rlcdpanel.phone.protocol.PanelConfig
+import java.util.Locale
 
 /** Result of one `DAYS` read: the rows (oldest first), or a text that tells why there are none. */
 data class DaysState(
@@ -76,6 +80,42 @@ object DaysChartModel {
         val available = DaysReply.sensors(rows)
         return if (selected in available) selected else available.firstOrNull()
     }
+}
+
+/** The noise chart of the days: one bar from the minimum to the maximum and one peak mark for each day. */
+object DaysNoiseModel {
+    const val MIN_SPAN_DB = 10.0
+    const val NO_HOUR = "--"
+
+    /** The noise summaries in row order (oldest first). */
+    fun days(rows: List<DaysRow>): List<DaysNoise> = rows.map { it.noise }
+
+    /** True when at least one day holds a level (minimum, maximum or peak) that the chart can draw. */
+    fun hasData(rows: List<DaysRow>): Boolean = rows.any { it.noise.minDb != null || it.noise.maxDb != null || it.noise.peakDb != null }
+
+    /** Bars: a day needs both the minimum and the maximum, with the minimum not above the maximum, else the day is a gap (null on both sides). */
+    fun bars(rows: List<DaysRow>): DaysSeries {
+        val pairs = rows.map { r ->
+            if (r.noise.minDb != null && r.noise.maxDb != null && r.noise.minDb <= r.noise.maxDb) r.noise else null
+        }
+        return DaysSeries(pairs.map { it?.minDb?.toDouble() }, pairs.map { it?.maxDb?.toDouble() })
+    }
+
+    /** Peak marks in dB: null for a day without a peak. */
+    fun peaks(rows: List<DaysRow>): List<Double?> = rows.map { it.noise.peakDb?.toDouble() }
+
+    /** Scale over the bars and the peak marks, at least [MIN_SPAN_DB] wide; null without any value. */
+    fun scale(rows: List<DaysRow>): Pair<Double, Double>? {
+        val low = rows.map { r -> listOfNotNull(r.noise.minDb, r.noise.peakDb).minOrNull()?.toDouble() }
+        val high = rows.map { r -> listOfNotNull(r.noise.maxDb, r.noise.peakDb).maxOrNull()?.toDouble() }
+        return DaysSeries(low, high).scale(MIN_SPAN_DB)
+    }
+
+    /** `HH` of the peak hour below the bar, [NO_HOUR] for a day without a peak hour. */
+    fun hourLabel(noise: DaysNoise): String = noise.peakHour?.let { String.format(Locale.ROOT, "%02d", it) } ?: NO_HOUR
+
+    /** One text line with the range of the scale, or null without a value. */
+    fun rangeText(rows: List<DaysRow>): String? = scale(rows)?.let { String.format(Locale.ROOT, "%.0f bis %.0f dB", it.first, it.second) }
 }
 
 /** Text of the mold cards above the rows: one card for each room that holds a mold value. */
@@ -128,6 +168,64 @@ private fun RangeBars(series: DaysSeries, range: Pair<Double, Double>?, color: C
 }
 
 @Composable
+private fun NoiseBars(
+    bars: DaysSeries,
+    peaks: List<Double?>,
+    range: Pair<Double, Double>?,
+    color: Color,
+    markColor: Color,
+    outline: Color,
+    modifier: Modifier = Modifier
+) {
+    Canvas(modifier = modifier.fillMaxWidth().height(90.dp)) {
+        val n = bars.low.size
+        val slot = size.width / n
+        val barW = slot * 0.7f
+        val inset = (slot - barW) / 2f
+        for (i in 0 until n) {
+            val x = i * slot + inset
+            val lo = bars.low[i]
+            val hi = bars.high[i]
+            val peak = peaks[i]
+            if (range == null) {
+                drawRect(outline, Offset(x, 0f), Size(barW, size.height), style = Stroke(width = 1f))
+                continue
+            }
+            val span = (range.second - range.first).toFloat()
+            fun yOf(v: Double) = size.height * (1f - ((v - range.first).toFloat() / span))
+            if (lo != null && hi != null) {
+                val top = yOf(hi)
+                val bottom = yOf(lo)
+                drawRect(color, Offset(x, top), Size(barW, (bottom - top).coerceAtLeast(2f)))
+            } else if (peak == null) {
+                drawRect(outline, Offset(x, 0f), Size(barW, size.height), style = Stroke(width = 1f))
+            }
+            if (peak != null) {
+                val y = yOf(peak)
+                drawLine(markColor, Offset(x - inset / 2f, y), Offset(x + barW + inset / 2f, y), strokeWidth = 3f)
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoiseHourLabels(days: List<DaysNoise>, modifier: Modifier = Modifier) {
+    Row(modifier = modifier.fillMaxWidth()) {
+        days.forEach { d ->
+            Text(
+                DaysNoiseModel.hourLabel(d),
+                modifier = Modifier.weight(1f),
+                style = MaterialTheme.typography.labelSmall,
+                fontSize = 8.sp,
+                maxLines = 1,
+                softWrap = false,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
 private fun MoldBars(hours: List<Int?>, color: Color, outline: Color, modifier: Modifier = Modifier) {
     Canvas(modifier = modifier.fillMaxWidth().height(60.dp)) {
         val slot = size.width / hours.size
@@ -159,6 +257,7 @@ fun DaysScreen(
 ) {
     val barColor = MaterialTheme.colorScheme.primary
     val outline = MaterialTheme.colorScheme.outline
+    val markColor = MaterialTheme.colorScheme.tertiary
     val sensor = DaysChartModel.effectiveSensor(state.rows, selectedSensor)
     val moldCards = remember(state.rows, panelConfig) { DaysMoldCards.cards(state.rows, panelConfig) }
     Surface(modifier = Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
@@ -202,6 +301,24 @@ fun DaysScreen(
                         DaysMoldCards.lines(room).forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
                         DaysMoldCards.dryLine(state.rows, room.sensor)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
                         Text(DaysMoldCards.heatLine(room), style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
+            if (DaysNoiseModel.hasData(state.rows)) {
+                item {
+                    val noiseRange = DaysNoiseModel.scale(state.rows)
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text("Lärm, ${state.rows.size} Tage", style = MaterialTheme.typography.titleMedium)
+                            Text("Pegel (dB), Strich = Spitze, Zahl = Spitzenstunde", style = MaterialTheme.typography.labelMedium)
+                            NoiseBars(DaysNoiseModel.bars(state.rows), DaysNoiseModel.peaks(state.rows), noiseRange, barColor, markColor, outline)
+                            NoiseHourLabels(DaysNoiseModel.days(state.rows))
+                            DaysNoiseModel.rangeText(state.rows)?.let { Text(it, style = MaterialTheme.typography.bodySmall) }
+                            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(DaysReply.dayLabel(state.rows.first().date), style = MaterialTheme.typography.labelSmall)
+                                Text(DaysReply.dayLabel(state.rows.last().date), style = MaterialTheme.typography.labelSmall)
+                            }
+                        }
                     }
                 }
             }
