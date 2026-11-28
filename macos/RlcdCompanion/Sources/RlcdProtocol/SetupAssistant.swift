@@ -102,7 +102,7 @@ public struct SetupAssistant {
         self.status = status
         self.config = config
         self.slot = slot
-        batch = ConfigBatch(commands: commands)
+        batch = ConfigBatch(commands: commands, batchMode: false) // the assistant keeps single SET lines
         return nextCommand()
     }
 
@@ -141,7 +141,7 @@ public struct SetupAssistant {
         if let current { config = current }
         let changes = calibrationChanges
         guard !changes.isEmpty else { notice = "No proposal selected"; return nil }
-        batch = ConfigBatch(changes: changes)
+        batch = ConfigBatch(changes: changes, batchMode: false)
         return nextCommand()
     }
 
@@ -157,7 +157,7 @@ public struct SetupAssistant {
         if let current { config = current }
         guard let proposal = outdoorProposal(week: week, config: config) else { notice = "No outdoor proposal"; return nil }
         let change = ConfigChange(key: "outdoor_slot", old: config?.values["outdoor_slot"] ?? "", new: String(proposal.slot))
-        batch = ConfigBatch(changes: [change])
+        batch = ConfigBatch(changes: [change], batchMode: false)
         keepStepBatch = true
         return nextCommand()
     }
@@ -174,7 +174,7 @@ public struct SetupAssistant {
         if let current { config = current }
         guard let proposal = doorProposal(week: week, config: config) else { notice = "No door proposal"; return nil }
         let change = ConfigChange(key: "door_ref_slot", old: config?.values["door_ref_slot"] ?? "", new: String(proposal.slot))
-        batch = ConfigBatch(changes: [change])
+        batch = ConfigBatch(changes: [change], batchMode: false)
         keepStepBatch = true
         return nextCommand()
     }

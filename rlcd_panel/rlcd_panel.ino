@@ -679,6 +679,10 @@ void scanOnce(bool full_scan) {
   portEXIT_CRITICAL(&g_registry_mux);
 }
 
+// Queue of the console batch mode (SET BEGIN ... SET COMMIT). RAM only, never saved. A lost BLE link drops it (below); the
+// loop drops it after SetBatch::TIMEOUT_MS without a line.
+static SetBatch g_set_batch;
+
 // BLE console service (Nordic UART layout). The BLE task only queues the RX bytes and the
 // connection events; serve() runs in the loop task, so the commands (card, I2C, scan) never run in
 // the BLE callbacks. A disconnect clears the partial line. One central at a time.
@@ -747,6 +751,9 @@ public:
     ingress_.clear();
     portEXIT_CRITICAL(&mux_);
     bridge_.onDisconnect(); // no stale central or partial line for the next start
+    if (g_set_batch.active() && g_set_batch.transport() == 1) {
+      g_set_batch.clear(); // the owner of the queue is gone
+    }
   }
 
   bool pending() {
@@ -766,6 +773,9 @@ public:
       portEXIT_CRITICAL(&mux_);
       if ((step.events & BleConsoleIngress::EVENT_DISCONNECT) != 0) {
         bridge_.onDisconnect();
+        if (g_set_batch.active() && g_set_batch.transport() == 1) {
+          g_set_batch.clear(); // a link loss drops the queue before the next central runs a line
+        }
         if (advertising_ != nullptr) {
           advertising_->start();
         }
@@ -1535,11 +1545,44 @@ void setup() {
   ble_console.setLevel(PowerManager::bleConsoleAllowed(g_state.battery, config().ble_console) ? config().ble_console : 0);
   const bool wants_grace =
       cause != WakeupCause::TIMER || console_active;
+  // The new config.ini text takes effect as after a KEY wakeup (SET and SET COMMIT): parse it and apply it inside the
+  // registry lock, then card status, event, and the sleep and listen settings.
+  auto apply_sd_config = [](const RtcTime& at, const char* text, size_t len) {
+    DeviceConfig loaded;
+    const ConfigParseResult parsed = DeviceConfigParser::parse(text, len, loaded);
+    portENTER_CRITICAL(&g_registry_mux);
+    g_state.applyConfig(loaded, parsed.file_ok, parsed.rejects());
+    portEXIT_CRITICAL(&g_registry_mux);
+    setSdStatusLogged(SdStatus::OK, at);
+    g_state.events.record(at, EventCode::CONFIG_LOAD, static_cast<uint16_t>(parsed.rejects().count));
+    g_power_config = PowerManager::powerConfig(config(), g_state.battery, quietHours(), g_rtc_time);
+  };
   // One parsed command, shared by the USB serial console and the BLE console: only the sink differs.
   auto run_console = [&](auto& sink, SerialParseStatus status, const SerialCommand& command) {
     using Runner = SerialConsoleRunner<SdLogStorage, std::decay_t<decltype(sink)>>;
     constexpr uint8_t transport = std::is_same_v<std::decay_t<decltype(sink)>, SerialSink> ? 0 : 1; // 0 USB, 1 BLE
-    if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::CONFIG) {
+    // Batch mode: an expired queue is gone before the line runs; each line keeps a running queue alive.
+    // Only the transport that started the queue keeps it alive, queues, commits or aborts. A line of the other transport runs as usual.
+    g_set_batch.expire(nowMs());
+    if (g_set_batch.ownedBy(transport)) {
+      g_set_batch.touch(nowMs());
+    }
+    if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SET_BEGIN) {
+      Runner::batchBegin(sink, g_set_batch, nowMs(), transport); // RAM only: no card access, no state change
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SET_ABORT) {
+      Runner::batchAbort(sink, g_set_batch, transport);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SET_COMMIT) {
+      RtcTime commit_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again
+      if (!g_rtc.readTime(commit_now)) {
+        commit_now = g_rtc_time;
+      }
+      Runner::commitBatch(
+          console_storage, sink, g_set_batch,
+          [&commit_now, &apply_sd_config](const char* text, size_t len) { apply_sd_config(commit_now, text, len); },
+          &g_state.events, &commit_now, transport);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SET && g_set_batch.ownedBy(transport)) {
+      Runner::queueSet(sink, g_set_batch, command, nowMs()); // check the value, keep it in RAM: no card access
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::CONFIG) {
       // The RTC copy answers: no card access, so the console keeps running.
       if (command.config_changed) {
         Runner::showConfigChanged(sink, g_state.config);
@@ -1637,17 +1680,8 @@ void setup() {
         set_now = g_rtc_time;
       }
       Runner::setConfig(
-          console_storage, sink, command, [&set_now](const char* text, size_t len) {
-            DeviceConfig loaded;
-            const ConfigParseResult parsed = DeviceConfigParser::parse(text, len, loaded);
-            portENTER_CRITICAL(&g_registry_mux);
-            g_state.applyConfig(loaded, parsed.file_ok, parsed.rejects());
-            portEXIT_CRITICAL(&g_registry_mux);
-            // Same follow-up as a KEY wakeup: card status, event, and the sleep and listen settings.
-            setSdStatusLogged(SdStatus::OK, set_now);
-            g_state.events.record(set_now, EventCode::CONFIG_LOAD, static_cast<uint16_t>(parsed.rejects().count));
-            g_power_config = PowerManager::powerConfig(config(), g_state.battery, quietHours(), g_rtc_time);
-          },
+          console_storage, sink, command,
+          [&set_now, &apply_sd_config](const char* text, size_t len) { apply_sd_config(set_now, text, len); },
           &g_state.events, &set_now, transport);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::STATUS) {
       // The RTC copy answers: no card access, so the console keeps running.
@@ -1929,6 +1963,7 @@ void setup() {
     } else {
       ble_console.start(); // no-op while running
     }
+    g_set_batch.expire(nowMs()); // 60 s without a line drop the batch queue, also without a new line
     if (ble_console.level() != 0 && ble_console.pending()) {
       ble_console.serve(run_console); // one command per loop pass
     }

@@ -213,7 +213,7 @@ struct ConfigSchemaTests {
         var b = ConfigBatch(changes: [
             ConfigChange(key: "wake_interval_s", old: "60", new: "90"),
             ConfigChange(key: "temp_unit", old: "C", new: "F"),
-        ])
+        ], batchMode: false)
         #expect(b.next()?.line == "SET temp_unit=F")
         #expect(b.next() == nil) // a reply is open
         b.receive(status: "OK SET temp_unit")
@@ -234,7 +234,7 @@ struct ConfigSchemaTests {
             ConfigChange(key: "temp_unit", old: "C", new: "F"),
             ConfigChange(key: "wake_interval_s", old: "60", new: "90"),
             ConfigChange(key: "ble_console", old: "2", new: "1"),
-        ])
+        ], batchMode: false)
         #expect(b.next()?.line == "SET temp_unit=F")
         b.receive(status: "OK SET temp_unit")
         #expect(b.next()?.line == "SET wake_interval_s=90")

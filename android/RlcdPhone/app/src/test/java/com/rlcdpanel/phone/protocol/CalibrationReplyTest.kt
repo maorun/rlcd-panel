@@ -190,7 +190,7 @@ class CalibrationReplyTest {
         val sent = mutableListOf<String>()
         var result: CalibrationBatch.Result? = null
         val proposals = CalibrationReply.parse(fixtureLines()).proposals
-        CalibrationBatch(proposals).run(
+        CalibrationBatch(proposals, batchMode = false).run(
             send = { command, cb ->
                 sent.add(command)
                 cb(ConsoleReply.Status("ERR READ_ONLY"))
@@ -209,7 +209,7 @@ class CalibrationReplyTest {
     fun goodBatchSendsConfigLast() {
         val sent = mutableListOf<String>()
         var result: CalibrationBatch.Result? = null
-        CalibrationBatch(CalibrationReply.parse(fixtureLines()).proposals).run(
+        CalibrationBatch(CalibrationReply.parse(fixtureLines()).proposals, batchMode = false).run(
             send = { command, cb ->
                 sent.add(command)
                 cb(if (command == "CONFIG") ConsoleReply.Frame(listOf("SOURCE SD")) else ConsoleReply.Status("OK SET x"))
@@ -224,7 +224,7 @@ class CalibrationReplyTest {
     private fun runBatch(replies: (String) -> ConsoleReply): Pair<List<String>, CalibrationBatch.Result> {
         val sent = mutableListOf<String>()
         var result: CalibrationBatch.Result? = null
-        CalibrationBatch(CalibrationReply.parse(fixtureLines()).proposals).run(
+        CalibrationBatch(CalibrationReply.parse(fixtureLines()).proposals, batchMode = false).run(
             send = { command, cb -> sent.add(command); cb(replies(command)) },
             done = { result = it }
         )
@@ -288,7 +288,8 @@ class CalibrationReplyTest {
     fun batchOfSlot7SendsGainThenOffsetThenConfig() {
         val sent = mutableListOf<String>()
         CalibrationBatch(
-            listOf(CalibrationProposal("slot7_rh_gain", "1.066"), CalibrationProposal("slot7_rh_offset_pct", "0.8"))
+            listOf(CalibrationProposal("slot7_rh_gain", "1.066"), CalibrationProposal("slot7_rh_offset_pct", "0.8")),
+            batchMode = false
         ).run({ command, callback -> sent.add(command); callback(ConsoleReply.Status("OK")) }, {})
         assertEquals(listOf("SET slot7_rh_gain=1.066", "SET slot7_rh_offset_pct=0.8", "CONFIG"), sent)
     }
@@ -300,7 +301,8 @@ class CalibrationReplyTest {
         CalibrationBatch(
             listOf(CalibrationProposal("slot7_rh_gain", "1.066"), CalibrationProposal("slot7_rh_offset_pct", "0.8"))
         ).run({ command, callback -> sent.add(command); callback(ConsoleReply.Status("ERR READ_ONLY")) }, { result = it })
-        assertEquals(listOf("SET slot7_rh_gain=1.066"), sent)
+        // ERR READ_ONLY to SET BEGIN selects the single SET lines, which stop at the first ERR
+        assertEquals(listOf("SET BEGIN", "SET slot7_rh_gain=1.066"), sent)
         assertTrue(result!!.summary.startsWith("Set ble_console=2 to apply"))
     }
 

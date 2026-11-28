@@ -54,7 +54,7 @@ struct SlotAssignmentTests {
 
     @Test func batchRunsThroughConfigBatch() throws {
         let commands = try #require(SlotAssignment.batch(slot: 1, mac: mac, name: "HALL"))
-        var run = ConfigBatch(commands: commands)
+        var run = ConfigBatch(commands: commands, batchMode: false)
         #expect(run.next()?.line == "SET slot1_mac=AA:BB:CC:DD:EE:01")
         run.receive(status: "OK SET slot1_mac")
         #expect(run.next()?.line == "SET slot1_name=HALL")
@@ -66,7 +66,7 @@ struct SlotAssignmentTests {
     }
 
     @Test func errorOnMacSkipsName() throws {
-        var run = ConfigBatch(commands: try #require(SlotAssignment.batch(slot: 1, mac: mac, name: "HALL")))
+        var run = ConfigBatch(commands: try #require(SlotAssignment.batch(slot: 1, mac: mac, name: "HALL")), batchMode: false)
         _ = run.next()
         run.receive(status: "ERR BAD_VALUE")
         #expect(run.next() == .config)
@@ -75,7 +75,7 @@ struct SlotAssignmentTests {
     }
 
     @Test func errorOnNameKeepsAppliedMac() throws {
-        var run = ConfigBatch(commands: try #require(SlotAssignment.batch(slot: 1, mac: mac, name: "HALL")))
+        var run = ConfigBatch(commands: try #require(SlotAssignment.batch(slot: 1, mac: mac, name: "HALL")), batchMode: false)
         _ = run.next()
         run.receive(status: "OK SET slot1_mac")
         _ = run.next()

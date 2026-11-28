@@ -746,6 +746,12 @@ public enum ConsoleCommand: Equatable {
     /// `SLOT SWAP A B` (A and B 1 to 10, different): swaps the registry data of two slots. The firmware answers `ERR FIXED_MAC` or `ERR SLOT_OFF` and changes nothing.
     case slotSwap(Int, Int)
     case set(key: String, value: String)
+    /// `SET BEGIN`: starts the batch mode. The firmware answers `OK SET BEGIN`; an older firmware answers `ERR` and the app sends single `SET` lines.
+    case setBegin
+    /// `SET COMMIT`: writes the queued keys in one file write. The firmware answers `OK SET COMMIT <N>`.
+    case setCommit
+    /// `SET ABORT`: drops the queue. The firmware answers `OK SET ABORT`.
+    case setAbort
     case calib(Int)
     case salt(Int)
     /// `SALT N MGCL2`: the same check against saturated magnesium chloride.
@@ -945,6 +951,9 @@ public enum ConsoleCommand: Equatable {
             guard (0...10).contains(room), (1...10).contains(wall), room != wall,
                   (ConsoleCommand.frsiMinHours...ConsoleCommand.frsiMaxHours).contains(hours) else { return nil }
             return hours == ConsoleCommand.frsiDefaultHours ? "FRSI \(room) \(wall)" : "FRSI \(room) \(wall) \(hours)"
+        case .setBegin: return "SET BEGIN"
+        case .setCommit: return "SET COMMIT"
+        case .setAbort: return "SET ABORT"
         case let .set(key, value):
             let text = "SET \(key)=\(value)"
             let bad = CharacterSet.whitespacesAndNewlines.union(.controlCharacters)

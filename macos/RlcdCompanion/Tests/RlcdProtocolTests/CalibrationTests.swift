@@ -285,7 +285,7 @@ import Testing
 
     @Test func readOnlyErrorStopsBatch() throws {
         let r = try CalibrationReply.parse(lines: Self.good)
-        var batch = ConfigBatch(changes: r.changes(selecting: Set(r.proposals.map(\.key)), current: [:]))
+        var batch = ConfigBatch(changes: r.changes(selecting: Set(r.proposals.map(\.key)), current: [:]), batchMode: false)
         _ = batch.next()
         batch.receive(status: "ERR READ_ONLY")
         #expect(batch.failure?.reply == "ERR READ_ONLY")
@@ -749,9 +749,11 @@ private func loadSpreadFixture() throws -> Data {
     var sent: [ConsoleCommand] = []
     while let c = batch.next() {
         sent.append(c)
-        if case let .set(k, _) = c { batch.receive(status: "OK SET \(k)") } else { batch.receive(status: "OK CONFIG") }
+        // The batch mode of the firmware: BEGIN, queued SET lines, COMMIT, then CONFIG.
+        if case let .set(k, _) = c { batch.receive(status: "OK QUEUED \(k)") } else { batch.receive(status: "OK") }
     }
     let keys = sent.compactMap { c -> String? in if case let .set(k, _) = c { return k } else { return nil } }
+    #expect(sent.first == .setBegin && sent.contains(.setCommit))
     let order = ConfigSchema.entries.map(\.key)
     #expect(keys == keys.sorted { order.firstIndex(of: $0)! < order.firstIndex(of: $1)! })
     #expect(Set(keys) == ["temp_offset_c", "rh_offset_pct", "slot1_temp_offset_c", "slot1_rh_offset_pct"])

@@ -11826,6 +11826,266 @@ void testDeviceConfigEditor() {
   assert(edit(std::string(DeviceConfigParser::MAX_FILE_SIZE + 1, '#'), "wake_interval_s", "90") == "<TOO_LARGE>");
 }
 
+void testSerialSetBatch() {
+  // parser: three words without '=', each other text keeps its old status
+  {
+    SerialCommand cmd;
+    assert(parseText("SET BEGIN", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SET_BEGIN);
+    assert(parseText("SET ABORT", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SET_ABORT);
+    assert(parseText("SET COMMIT", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SET_COMMIT);
+    assert(parseText("SET BEGINX", cmd) == SerialParseStatus::BAD_KEY);
+    assert(parseText("SET BEGIN 1", cmd) == SerialParseStatus::BAD_KEY);
+    assert(parseText("SET COMMIT now", cmd) == SerialParseStatus::BAD_KEY);
+    assert(parseText("SET begin", cmd) == SerialParseStatus::BAD_KEY);
+    assert(parseText("SET ", cmd) == SerialParseStatus::BAD_KEY);
+    assert(parseText("SET wake_interval_s=90", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SET);
+    // the transport rules: write commands, READ_ONLY at level 1, run at level 2
+    assert(parseText("SET BEGIN", cmd) == SerialParseStatus::OK);
+    assert(std::string(BleConsoleBridge::gate(cmd, 1)) == "ERR READ_ONLY\n" && std::string(BleConsoleBridge::gate(cmd, 2)).empty());
+    assert(parseText("SET COMMIT", cmd) == SerialParseStatus::OK);
+    assert(std::string(BleConsoleBridge::gate(cmd, 1)) == "ERR READ_ONLY\n" && std::string(BleConsoleBridge::gate(cmd, 2)).empty());
+    assert(parseText("SET ABORT", cmd) == SerialParseStatus::OK);
+    assert(std::string(BleConsoleBridge::gate(cmd, 1)) == "ERR READ_ONLY\n" && std::string(BleConsoleBridge::gate(cmd, 2)).empty());
+  }
+  SerialCommand set_wake;
+  SerialCommand set_invert;
+  SerialCommand set_unit;
+  assert(parseText("SET wake_interval_s=90", set_wake) == SerialParseStatus::OK);
+  assert(parseText("SET display_invert=0", set_invert) == SerialParseStatus::OK);
+  assert(parseText("SET temp_unit=F", set_unit) == SerialParseStatus::OK);
+  // queue and commit: one file write, one apply, one event for each key
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    st.has_config = true;
+    st.config_text = "# keep me\nwake_interval_s=30\ndisplay_invert=1\n";
+    SetBatch batch;
+    assert(!TestRunner::queueSet(sink, batch, set_wake, 100) && sink.out == "ERR NO_BATCH\n"); // no queue: no entry
+    sink.out.clear();
+    TestRunner::batchBegin(sink, batch, 1000, 1);
+    assert(sink.out == "OK SET BEGIN\n" && batch.active() && batch.count() == 0 && batch.transport() == 1);
+    sink.out.clear();
+    assert(TestRunner::queueSet(sink, batch, set_wake, 1100));
+    assert(TestRunner::queueSet(sink, batch, set_invert, 1200));
+    assert(TestRunner::queueSet(sink, batch, set_unit, 1300));
+    assert(sink.out == "OK QUEUED wake_interval_s\nOK QUEUED display_invert\nOK QUEUED temp_unit\n");
+    assert(batch.count() == 3 && st.mounts == 0 && st.config_text == "# keep me\nwake_interval_s=30\ndisplay_invert=1\n");
+    // a repeated key keeps one entry with the newest value
+    SerialCommand set_wake2;
+    assert(parseText("SET wake_interval_s=120", set_wake2) == SerialParseStatus::OK);
+    assert(TestRunner::queueSet(sink, batch, set_wake2, 1400) && batch.count() == 3);
+    sink.out.clear();
+    EventRing ring;
+    RtcTime now;
+    now.valid = true;
+    now.year = 2026;
+    int applied = 0;
+    PersistentState state;
+    assert(TestRunner::commitBatch(st, sink, batch,
+                                   [&](const char* text, size_t len) {
+                                     DeviceConfig loaded;
+                                     const ConfigParseResult pr = DeviceConfigParser::parse(text, len, loaded);
+                                     state.applyConfig(loaded, pr.file_ok, pr.rejects());
+                                     ++applied;
+                                   },
+                                   &ring, &now, 1));
+    assert(sink.out == "OK SET COMMIT 3\n" && applied == 1 && !batch.active() && batch.count() == 0);
+    assert(st.config_text == "# keep me\nwake_interval_s=120\ndisplay_invert=0\ntemp_unit=F\n");
+    assert(st.mounts == 1 && st.unmounts == 1 && !st.has_tmp);
+    assert(state.config.wake_interval_s == 120 && !state.config.display_invert && state.config_from_sd);
+    assert(ring.size() == 3);
+    for (size_t i = 0; i < 3; ++i) {
+      assert(ring.at(i).code == EventCode::CONFIG_SET && (ring.at(i).detail >> 8) == 1);
+    }
+    assert(std::string(DeviceConfigParser::KEYS[ring.at(0).detail & 0xFF]) == "wake_interval_s");
+    assert(std::string(DeviceConfigParser::KEYS[ring.at(1).detail & 0xFF]) == "display_invert");
+    assert(std::string(DeviceConfigParser::KEYS[ring.at(2).detail & 0xFF]) == "temp_unit");
+    // a second commit has no queue
+    sink.out.clear();
+    assert(!TestRunner::commitBatch(st, sink, batch, [](const char*, size_t) {}));
+    assert(sink.out == "ERR NO_BATCH\n" && st.mounts == 1);
+  }
+  // an empty queue commits nothing and does not touch the card
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    SetBatch batch;
+    batch.begin(0, 0);
+    assert(TestRunner::commitBatch(st, sink, batch, [](const char*, size_t) {}));
+    assert(sink.out == "OK SET COMMIT 0\n" && st.mounts == 0 && !batch.active());
+  }
+  // a bad value is refused when queued: no entry
+  {
+    FakeSink sink;
+    SetBatch batch;
+    batch.begin(0, 0);
+    SerialCommand bad = set_wake;
+    strcpy(bad.set_value, "5");
+    assert(!TestRunner::queueSet(sink, batch, bad, 1));
+    assert(sink.out == "ERR BAD_VALUE\n" && batch.count() == 0);
+  }
+  // abort drops the queue; the file is untouched; abort without a queue is an error
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    st.has_config = true;
+    st.config_text = "wake_interval_s=30\n";
+    SetBatch batch;
+    TestRunner::batchAbort(sink, batch);
+    assert(sink.out == "ERR NO_BATCH\n");
+    sink.out.clear();
+    TestRunner::batchBegin(sink, batch, 0, 0);
+    assert(TestRunner::queueSet(sink, batch, set_wake, 1));
+    sink.out.clear();
+    TestRunner::batchAbort(sink, batch);
+    assert(sink.out == "OK SET ABORT\n" && !batch.active() && batch.count() == 0);
+    assert(st.mounts == 0 && st.config_text == "wake_interval_s=30\n");
+    sink.out.clear();
+    assert(!TestRunner::commitBatch(st, sink, batch, [](const char*, size_t) {}));
+    assert(sink.out == "ERR NO_BATCH\n");
+    // SET BEGIN while a queue runs starts an empty queue
+    TestRunner::batchBegin(sink, batch, 0, 0);
+    assert(TestRunner::queueSet(sink, batch, set_wake, 1));
+    TestRunner::batchBegin(sink, batch, 5, 0);
+    assert(batch.active() && batch.count() == 0);
+  }
+  // a queue belongs to the transport that started it: the other transport can neither commit nor abort it
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    st.has_config = true;
+    st.config_text = "wake_interval_s=30\n";
+    SetBatch batch;
+    TestRunner::batchBegin(sink, batch, 0, 1); // BLE owns it
+    assert(TestRunner::queueSet(sink, batch, set_wake, 1));
+    assert(batch.ownedBy(1) && !batch.ownedBy(0));
+    sink.out.clear();
+    int applied = 0;
+    assert(!TestRunner::commitBatch(st, sink, batch, [&](const char*, size_t) { ++applied; }, nullptr, nullptr, 0));
+    assert(sink.out == "ERR NO_BATCH\n" && applied == 0 && st.mounts == 0 && batch.active() && batch.count() == 1);
+    sink.out.clear();
+    TestRunner::batchAbort(sink, batch, 0);
+    assert(sink.out == "ERR NO_BATCH\n" && batch.active() && batch.count() == 1);
+    sink.out.clear();
+    assert(TestRunner::commitBatch(st, sink, batch, [&](const char*, size_t) { ++applied; }, nullptr, nullptr, 1));
+    assert(sink.out == "OK SET COMMIT 1\n" && applied == 1 && st.config_text == "wake_interval_s=90\n");
+  }
+  // SET BEGIN of the other transport does not take a running queue over; the same transport restarts its queue
+  {
+    FakeSink sink;
+    SetBatch batch;
+    assert(TestRunner::batchBegin(sink, batch, 0, 1));
+    assert(TestRunner::queueSet(sink, batch, set_wake, 1));
+    sink.out.clear();
+    assert(!TestRunner::batchBegin(sink, batch, 5, 0));
+    assert(sink.out == "ERR BATCH_BUSY\n" && batch.ownedBy(1) && batch.count() == 1);
+    sink.out.clear();
+    assert(TestRunner::batchBegin(sink, batch, 6, 1));
+    assert(sink.out == "OK SET BEGIN\n" && batch.ownedBy(1) && batch.count() == 0);
+    // after the queue ended, the other transport may start its own
+    batch.clear();
+    assert(TestRunner::batchBegin(sink, batch, 7, 0) && batch.ownedBy(0));
+    // an expired queue frees the slot
+    batch.begin(0, 1);
+    assert(batch.expire(SetBatch::TIMEOUT_MS) && TestRunner::batchBegin(sink, batch, SetBatch::TIMEOUT_MS, 0));
+  }
+  // the timeout: 60 s without a line drop the queue; a line keeps it; a clock wrap is safe
+  {
+    SetBatch batch;
+    batch.begin(1000, 0);
+    assert(!batch.expire(1000 + SetBatch::TIMEOUT_MS - 1) && batch.active());
+    batch.touch(1000 + SetBatch::TIMEOUT_MS - 1);
+    assert(!batch.expire(1000 + 2 * SetBatch::TIMEOUT_MS - 2) && batch.active());
+    assert(batch.expire(1000 + 2 * SetBatch::TIMEOUT_MS - 1) && !batch.active());
+    assert(!batch.expire(5000000)); // nothing to drop
+    const uint32_t near_wrap = 0xFFFFFF00u;
+    batch.begin(near_wrap, 0);
+    assert(!batch.expire(near_wrap + SetBatch::TIMEOUT_MS - 1) && batch.expire(near_wrap + SetBatch::TIMEOUT_MS));
+    // an expired queue refuses the next key and the commit
+    FakeConsoleStorage st;
+    FakeSink sink;
+    batch.begin(0, 0);
+    assert(batch.expire(SetBatch::TIMEOUT_MS));
+    assert(!TestRunner::commitBatch(st, sink, batch, [](const char*, size_t) {}));
+    assert(sink.out == "ERR NO_BATCH\n" && st.mounts == 0);
+    assert(batch.add("wake_interval_s", "90", 0) == SetBatch::Queue::NOT_ACTIVE);
+  }
+  // a full queue: the 33rd distinct key is refused and the queue stays; a repeated key still fits
+  {
+    FakeSink sink;
+    SetBatch batch;
+    batch.begin(0, 0);
+    size_t filled = 0;
+    for (size_t i = 0; i < DeviceConfigParser::KEY_COUNT && filled < SetBatch::MAX_KEYS; ++i) {
+      if (std::string(DeviceConfigParser::KEYS[i]) == "wake_interval_s") {
+        continue;
+      }
+      assert(batch.add(DeviceConfigParser::KEYS[i], "0", 1) == SetBatch::Queue::OK);
+      ++filled;
+    }
+    assert(filled == SetBatch::MAX_KEYS && batch.count() == SetBatch::MAX_KEYS);
+    assert(!TestRunner::queueSet(sink, batch, set_wake, 2));
+    assert(sink.out == "ERR BATCH_FULL\n" && batch.count() == SetBatch::MAX_KEYS && batch.active());
+    assert(batch.add(DeviceConfigParser::KEYS[0], "1", 3) == SetBatch::Queue::OK && batch.count() == SetBatch::MAX_KEYS);
+    assert(batch.add("no_such_key", "1", 3) == SetBatch::Queue::BAD_KEY);
+  }
+  // a failed write: no apply, no event, the old file stays, the queue stays; the retry after the fault succeeds
+  const FakeConsoleStorage::Fail steps[] = {FakeConsoleStorage::Fail::READ, FakeConsoleStorage::Fail::WRITE,
+                                            FakeConsoleStorage::Fail::REMOVE, FakeConsoleStorage::Fail::RENAME};
+  for (const FakeConsoleStorage::Fail step : steps) {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    st.has_config = true;
+    st.config_text = "wake_interval_s=30\n";
+    st.fail = step;
+    SetBatch batch;
+    batch.begin(0, 0);
+    assert(TestRunner::queueSet(sink, batch, set_wake, 1));
+    assert(TestRunner::queueSet(sink, batch, set_invert, 1));
+    sink.out.clear();
+    EventRing ring;
+    RtcTime now;
+    now.valid = true;
+    int applied = 0;
+    assert(!TestRunner::commitBatch(st, sink, batch, [&](const char*, size_t) { ++applied; }, &ring, &now, 0));
+    assert(sink.out == "ERR WRITE_FAILED\n" && applied == 0 && ring.size() == 0 && st.unmounts == 1);
+    assert(st.has_config && st.config_text == "wake_interval_s=30\n" && !st.has_tmp);
+    assert(batch.active() && batch.count() == 2);
+    st.fail = FakeConsoleStorage::Fail::NONE;
+    sink.out.clear();
+    assert(TestRunner::commitBatch(st, sink, batch, [&](const char*, size_t) { ++applied; }, &ring, &now, 0));
+    assert(sink.out == "OK SET COMMIT 2\n" && applied == 1 && ring.size() == 2 && !batch.active());
+    assert(st.config_text == "wake_interval_s=90\ndisplay_invert=0\n");
+  }
+  // no card: no apply, the queue stays
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    st.card = false;
+    SetBatch batch;
+    batch.begin(0, 0);
+    assert(TestRunner::queueSet(sink, batch, set_wake, 1));
+    sink.out.clear();
+    int applied = 0;
+    assert(!TestRunner::commitBatch(st, sink, batch, [&](const char*, size_t) { ++applied; }));
+    assert(sink.out == "ERR NO_CARD\n" && applied == 0 && batch.active() && batch.count() == 1);
+  }
+  // a file above the limit: ERR TOO_LARGE, no write, no apply, the queue stays
+  {
+    FakeConsoleStorage st;
+    FakeSink sink;
+    st.has_config = true;
+    st.config_text = "#" + std::string(DeviceConfigParser::MAX_FILE_SIZE - 2, 'x') + "\n";
+    SetBatch batch;
+    batch.begin(0, 0);
+    assert(TestRunner::queueSet(sink, batch, set_wake, 1));
+    sink.out.clear();
+    int applied = 0;
+    assert(!TestRunner::commitBatch(st, sink, batch, [&](const char*, size_t) { ++applied; }));
+    assert(sink.out == "ERR TOO_LARGE\n" && applied == 0 && !st.has_tmp && batch.active() && batch.count() == 1);
+  }
+}
+
 void testSerialSetConfigFlow() {
   SerialCommand cmd;
   assert(parseText("SET wake_interval_s=90", cmd) == SerialParseStatus::OK);
@@ -16716,7 +16976,7 @@ std::string receptionReply(PersistentState& st) {
 // The HELP tests: one rule table that the parser tests and BleConsoleBridge::gate share.
 void testSerialHelpTableMatchesParser() {
   // every command kind has a row; each row sample parses to its kind and starts with its word
-  const uint8_t last = static_cast<uint8_t>(SerialCommandKind::HELP);
+  const uint8_t last = static_cast<uint8_t>(SerialCommandKind::SET_COMMIT);
   for (uint8_t k = 1; k <= last; ++k) {
     bool found = false;
     for (size_t i = 0; i < SerialCommandRules::COUNT; ++i) {
@@ -16757,7 +17017,7 @@ void testSerialHelpTableMatchesParser() {
     // the card flag is exact: the commands that mount the card in execute() or in the sketch
     const bool mounts_card = r.kind == SerialCommandKind::LIST || r.kind == SerialCommandKind::INFO ||
                              r.kind == SerialCommandKind::DUMP || r.kind == SerialCommandKind::SET ||
-                             r.kind == SerialCommandKind::SLOT_REPLACE || r.kind == SerialCommandKind::SELFTEST ||
+                             r.kind == SerialCommandKind::SLOT_REPLACE || r.kind == SerialCommandKind::SET_COMMIT || r.kind == SerialCommandKind::SELFTEST ||
                              r.kind == SerialCommandKind::TAIL || r.kind == SerialCommandKind::DAYS ||
                              r.kind == SerialCommandKind::VERIFY;
     assert(r.card == mounts_card);
@@ -16769,7 +17029,7 @@ void testSerialHelpGateClosedWithoutRow() {
   assert(none.kind == SerialCommandKind::NONE);
   assert(std::string(BleConsoleBridge::gate(none, 1)).empty());
   SerialCommand unknown;
-  unknown.kind = static_cast<SerialCommandKind>(static_cast<uint8_t>(SerialCommandKind::VERIFY) + 1); // a kind without a row
+  unknown.kind = static_cast<SerialCommandKind>(static_cast<uint8_t>(SerialCommandKind::SET_COMMIT) + 1); // a kind without a row
   assert(SerialCommandRules::find(unknown) == nullptr);
   for (uint8_t level = 0; level < 3; ++level) {
     assert(std::string(BleConsoleBridge::gate(unknown, level)) == "ERR NOT_OVER_BLE\n");
@@ -31507,6 +31767,7 @@ testSerialConfigRunsWithoutMountingCard();
 testSerialSetParser();
 testDeviceConfigEditor();
 testSerialSetConfigFlow();
+testSerialSetBatch();
 testSerialConfigRoundTrip();
 testSerialConfigRejectedLines();
 testDeviceConfigWarnings();
@@ -31759,6 +32020,6 @@ testSerialConfigNegativeSmallOffset();
   testTemperatureHistoryNewestAtOrBelow();
   testFreezeAlertDelay();
   testFreezeAlertDelayConfig();
-  printf("All 244 firmware logic test suites passed.\n");
+  printf("All 245 firmware logic test suites passed.\n");
   return 0;
 }

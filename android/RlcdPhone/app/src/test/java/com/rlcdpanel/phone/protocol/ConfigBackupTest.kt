@@ -262,7 +262,7 @@ class ConfigBackupTest {
         )
         val sent = mutableListOf<String>()
         var result: CalibrationBatch.Result? = null
-        CalibrationBatch(plan.proposals).run(
+        CalibrationBatch(plan.proposals, batchMode = false).run(
             send = { command, reply ->
                 sent.add(command)
                 reply(
@@ -286,7 +286,7 @@ class ConfigBackupTest {
         val plan = ConfigRestorePlan.build(parse("wake_interval_s=300\nble_console=2\n"), full())
         val sent = mutableListOf<String>()
         var result: CalibrationBatch.Result? = null
-        CalibrationBatch(plan.proposals).run(
+        CalibrationBatch(plan.proposals, batchMode = false).run(
             send = { command, reply ->
                 sent.add(command)
                 reply(if (command == "CONFIG") ConsoleReply.Frame(listOf("SOURCE SD")) else ConsoleReply.Status("OK SET"))
