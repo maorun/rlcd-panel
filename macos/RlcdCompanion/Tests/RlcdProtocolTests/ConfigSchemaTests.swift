@@ -29,7 +29,7 @@ struct ConfigSchemaTests {
         let (active, commented) = try templateKeys()
         let template = Set(active.keys).union(commented)
         #expect(Set(ConfigSchema.keys) == template)
-        #expect(ConfigSchema.keys.count == 105)
+        #expect(ConfigSchema.keys.count == 106)
         #expect(Set(ConfigSchema.keys).count == ConfigSchema.keys.count)
         for e in ConfigSchema.entries {
             if let v = active[e.key] {
@@ -318,7 +318,7 @@ struct ConfigSchemaTests {
             "slot6_rh_gain": (0.9, 1.1), "slot7_rh_gain": (0.9, 1.1), "slot8_rh_gain": (0.9, 1.1),
             "slot9_rh_gain": (0.9, 1.1), "slot10_rh_gain": (0.9, 1.1),
             "slot_release_h": (0, 168), "night_wake_interval_s": (60, 1800), "chime_repeat_h": (0, 24),
-            "heat_alert_limit_c": (27, 45), "wall_frsi_pct": (50, 95), "ble_broadcast_enabled": (0, 1), "ble_console": (0, 2), "slot_auto_assign": (0, 1), "auto_assign_min_rssi": (-100, -40), "window_drop_c": (1, 5), "mold_alert_delay_h": (1, 12), "reception_low_pct": (30, 80), "dry_alert_delay_h": (1, 12), "jump_limit_c": (3, 20), "jump_limit_rh": (10, 50), "drift_limit_c": (0.3, 2), "drift_limit_rh": (2, 10), "heat_alert_delay_h": (1, 12), "freeze_alert_delay_h": (1, 12),
+            "heat_alert_limit_c": (27, 45), "wall_frsi_pct": (50, 95), "ble_broadcast_enabled": (0, 1), "ble_console": (0, 2), "slot_auto_assign": (0, 1), "auto_assign_min_rssi": (-100, -40), "window_drop_c": (1, 5), "mold_alert_delay_h": (1, 12), "reception_low_pct": (30, 80), "dry_alert_delay_h": (1, 12), "jump_limit_c": (3, 20), "jump_limit_rh": (10, 50), "drift_limit_c": (0.3, 2), "drift_limit_rh": (2, 10), "heat_alert_delay_h": (1, 12), "freeze_alert_delay_h": (1, 12), "stuck_alert_h": (6, 48),
             "slot1_enabled": (0, 1), "slot2_enabled": (0, 1), "slot3_enabled": (0, 1), "slot4_enabled": (0, 1), "slot5_enabled": (0, 1),
             "slot6_enabled": (0, 1), "slot7_enabled": (0, 1), "slot8_enabled": (0, 1), "slot9_enabled": (0, 1), "slot10_enabled": (0, 1),
         ]

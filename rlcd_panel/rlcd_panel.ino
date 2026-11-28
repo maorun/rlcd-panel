@@ -343,6 +343,7 @@ bool g_reset_event_pending = false; // a start that is no deep sleep wakeup wait
 uint16_t g_reset_event_detail = 0;  // ResetReason of that start
 int8_t g_pending_scan_fault = -1; // scan start result (1 fault, 0 back) before the RTC time is known; -1 none
 int32_t g_pending_sd_event = -1; // SD_FAULT detail of the config load, recorded once the RTC time is known
+uint16_t g_packet_mask = 0; // bit i is slot i + 1: the slot got a packet in this wake cycle (StuckLatch)
 uint8_t g_pending_slot_release = 0; // mask of the slots releaseDeadSlots cleared, recorded once the RTC time is known
 
 void updateRtc() {
@@ -496,6 +497,7 @@ void renderDashboard() {
   info.reception_low = g_state.reception_low;
   info.drift_tiles = g_state.drift_tiles;
   info.heat_tiles = g_state.heat_tiles;
+  info.stuck_tiles = g_state.stuck_tiles;
   info.sensor_battery_latch = g_state.sensor_battery_latch;
   info.loopback = g_loopback;
   info.spectrum = g_spectrum;
@@ -1013,6 +1015,12 @@ void refreshSensors() {
       g_state.heat_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
       config().heat_alert_limit_c, config().climate_alert_tiles, config().staleTimeoutMs());
   g_state.recordHeatChanges(previous_heat_tiles, g_state.heat_tiles, g_rtc_time);
+  // The frozen reading latch has no chime. A slot counts as live when it got a packet in this wake cycle.
+  const uint16_t previous_stuck_tiles = g_state.stuck_tiles;
+  g_state.stuck_tiles = StuckLatch::update(
+      g_state.stuck_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(), config().stuck_alert_h,
+      &g_state.history, g_packet_mask, config().climate_alert_tiles, config().staleTimeoutMs());
+  g_state.recordStuckChanges(previous_stuck_tiles, g_state.stuck_tiles, g_rtc_time);
   const uint16_t previous_wall_tiles = g_state.wall_tiles;
   g_state.wall_tiles = WallLatch::update(
       g_state.wall_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
@@ -1458,6 +1466,11 @@ void setup() {
     BLEDevice::deinit(false);
     portENTER_CRITICAL(&g_registry_mux);
     g_state.reception.recordScan(g_state.registry, packets_before);
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if (g_state.registry.slot(i).packet_count != packets_before[i]) {
+        g_packet_mask = static_cast<uint16_t>(g_packet_mask | (1u << i));
+      }
+    }
     g_state.recordStaleChanges(g_rtc_time, nowMs(), config().staleTimeoutMs());
     g_state.recordReceptionChanges(g_rtc_time, config().reception_low_pct);
     portEXIT_CRITICAL(&g_registry_mux);
@@ -1632,6 +1645,7 @@ void setup() {
       snap.reception_low = g_state.reception_low;
       snap.drift_tiles = g_state.drift_tiles;
       snap.heat_tiles = g_state.heat_tiles;
+      snap.stuck_tiles = g_state.stuck_tiles;
       snap.noise_history = g_state.noise_history;
       snap.noise_band = g_state.noise_band;
       snap.daily_noise = g_state.daily.noise;

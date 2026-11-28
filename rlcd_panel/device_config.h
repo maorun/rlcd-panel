@@ -125,6 +125,9 @@ struct DeviceConfig {
   static constexpr uint8_t MAX_HEAT_ALERT_DELAY_H = 12;
   static constexpr uint8_t DEFAULT_FREEZE_ALERT_DELAY_H = 0; // 0 raises ALERT_FREEZER at once
   static constexpr uint8_t MAX_FREEZE_ALERT_DELAY_H = 12;
+  static constexpr uint8_t DEFAULT_STUCK_ALERT_H = 0; // 0 switches the F badge off
+  static constexpr uint8_t MIN_STUCK_ALERT_H = 6;
+  static constexpr uint8_t MAX_STUCK_ALERT_H = 48;
   static constexpr uint8_t DEFAULT_RECEPTION_LOW_PCT = 50; // below this reception rate the R badge sets, 0 = off
   static constexpr uint8_t MIN_RECEPTION_LOW_PCT = 30;
   static constexpr uint8_t MAX_RECEPTION_LOW_PCT = 80;
@@ -208,6 +211,7 @@ struct DeviceConfig {
   float drift_limit_c = DEFAULT_DRIFT_LIMIT_C; // SPREAD OUTLIER and drift badge limit in C, 0.3..2.0 in 0.1 C steps (no off value)
   float drift_limit_rh = DEFAULT_DRIFT_LIMIT_RH; // same in %RH, 2.0..10.0 in 0.5 %RH steps
   uint8_t freeze_alert_delay_h = DEFAULT_FREEZE_ALERT_DELAY_H; // ALERT_FREEZER rises only when the newest N hourly temperature samples of the tile are also at or below freeze_alert_limit_c, 0 = off, else 1..12
+  uint8_t stuck_alert_h = DEFAULT_STUCK_ALERT_H; // F badge: the newest N hourly samples of the tile are equal, 0 = off, else 6..48
   uint8_t heat_alert_delay_h = DEFAULT_HEAT_ALERT_DELAY_H; // ALERT_HEAT rises only when the newest N hourly pairs of the tile also give a feels-like value at or above heat_alert_limit_c, 0 = off, else 1..12
   uint8_t mold_alert_delay_h = DEFAULT_MOLD_ALERT_DELAY_H; // ALERT_HUMIDITY rises only when the newest N hourly samples of the tile are also above mold_alert_limit_rh, 0 = off, else 1..12
   int8_t auto_assign_min_rssi = DEFAULT_AUTO_ASSIGN_MIN_RSSI; // a new MAC with a weaker RSSI in dBm gets no free slot, 0 = off, else -100..-40
@@ -402,6 +406,7 @@ struct DeviceConfig {
            (auto_assign_min_rssi == 0 ||
             (auto_assign_min_rssi >= MIN_AUTO_ASSIGN_MIN_RSSI && auto_assign_min_rssi <= MAX_AUTO_ASSIGN_MIN_RSSI)) &&
            mold_alert_delay_h <= MAX_MOLD_ALERT_DELAY_H && dry_alert_delay_h <= MAX_DRY_ALERT_DELAY_H && heat_alert_delay_h <= MAX_HEAT_ALERT_DELAY_H && freeze_alert_delay_h <= MAX_FREEZE_ALERT_DELAY_H &&
+           (stuck_alert_h == 0 || (stuck_alert_h >= MIN_STUCK_ALERT_H && stuck_alert_h <= MAX_STUCK_ALERT_H)) &&
            (reception_low_pct == 0 || (reception_low_pct >= MIN_RECEPTION_LOW_PCT && reception_low_pct <= MAX_RECEPTION_LOW_PCT)) &&
            slot_auto_assign <= MAX_SLOT_AUTO_ASSIGN && (slot_enabled_mask & ~SLOT_ENABLED_ALL) == 0 &&
            (night_wake_interval_s == 0 ||
@@ -436,7 +441,7 @@ struct DeviceConfig {
            temp_unit == d.temp_unit && chime_repeat_h == d.chime_repeat_h &&
            heat_alert_limit_c == d.heat_alert_limit_c && dry_alert_limit_rh == d.dry_alert_limit_rh && wall_frsi_pct == d.wall_frsi_pct && window_drop_c == d.window_drop_c && ble_broadcast_enabled == d.ble_broadcast_enabled &&
            ble_console == d.ble_console && slot_auto_assign == d.slot_auto_assign &&
-           auto_assign_min_rssi == d.auto_assign_min_rssi && mold_alert_delay_h == d.mold_alert_delay_h && reception_low_pct == d.reception_low_pct && dry_alert_delay_h == d.dry_alert_delay_h && heat_alert_delay_h == d.heat_alert_delay_h && freeze_alert_delay_h == d.freeze_alert_delay_h &&
+           auto_assign_min_rssi == d.auto_assign_min_rssi && mold_alert_delay_h == d.mold_alert_delay_h && reception_low_pct == d.reception_low_pct && dry_alert_delay_h == d.dry_alert_delay_h && heat_alert_delay_h == d.heat_alert_delay_h && freeze_alert_delay_h == d.freeze_alert_delay_h && stuck_alert_h == d.stuck_alert_h &&
            jump_limit_c == d.jump_limit_c && jump_limit_rh == d.jump_limit_rh &&
            drift_limit_c == d.drift_limit_c && drift_limit_rh == d.drift_limit_rh &&
            slot_enabled_mask == d.slot_enabled_mask;
@@ -507,7 +512,7 @@ struct ConfigParseResult {
 class DeviceConfigParser {
 public:
   static constexpr size_t MAX_FILE_SIZE = 8192;
-  static constexpr size_t KEY_COUNT = 105;
+  static constexpr size_t KEY_COUNT = 106;
   // Every key that applyLine accepts. docs/config.example.ini lists each of them; a host test checks
   // that file against this table and checks that the parser knows each entry.
   static constexpr const char* KEYS[KEY_COUNT] = {
@@ -543,6 +548,7 @@ public:
       "auto_assign_min_rssi", "window_drop_c", "mold_alert_delay_h",
       "reception_low_pct", "dry_alert_delay_h", "jump_limit_c", "jump_limit_rh",
       "drift_limit_c", "drift_limit_rh", "heat_alert_delay_h", "freeze_alert_delay_h",
+      "stuck_alert_h",
   };
   static constexpr size_t MAX_NUMBER_CHARS = 15;
 
@@ -824,6 +830,17 @@ private:
   // freeze_alert_delay_h: 0 (off) or 1 to 12 h.
   static bool parseFreezeAlertDelay(const char* s, size_t n, uint8_t& out) {
     return parseIntIn(s, n, 0, DeviceConfig::MAX_FREEZE_ALERT_DELAY_H, out);
+  }
+
+  // stuck_alert_h: 0 (off) or 6 to 48 h.
+  static bool parseStuckAlert(const char* s, size_t n, uint8_t& out) {
+    uint8_t v = 0;
+    if (!parseIntIn(s, n, 0, DeviceConfig::MAX_STUCK_ALERT_H, v) ||
+        (v != 0 && v < DeviceConfig::MIN_STUCK_ALERT_H)) {
+      return false;
+    }
+    out = v;
+    return true;
   }
 
   // heat_alert_delay_h: 0 (off) or 1 to 12 h.
@@ -1220,6 +1237,9 @@ private:
     } else if (keyIs(key, key_len, "freeze_alert_delay_h")) {
       index = 104;
       ok = parseFreezeAlertDelay(val, val_len, cfg.freeze_alert_delay_h);
+    } else if (keyIs(key, key_len, "stuck_alert_h")) {
+      index = 105;
+      ok = parseStuckAlert(val, val_len, cfg.stuck_alert_h);
     } else if (keyIs(key, key_len, "ble_console")) {
       index = 39;
       ok = parseIntIn(val, val_len, 0, DeviceConfig::MAX_BLE_CONSOLE, cfg.ble_console);
@@ -1313,6 +1333,7 @@ public:
     ok = ok && putFloat(out, cap, pos, "drift_limit_rh", cfg.drift_limit_rh);
     ok = ok && putInt(out, cap, pos, "heat_alert_delay_h", cfg.heat_alert_delay_h);
     ok = ok && putInt(out, cap, pos, "freeze_alert_delay_h", cfg.freeze_alert_delay_h);
+    ok = ok && putInt(out, cap, pos, "stuck_alert_h", cfg.stuck_alert_h);
     ok = ok && putInt(out, cap, pos, "ble_broadcast_enabled", cfg.ble_broadcast_enabled);
     ok = ok && putInt(out, cap, pos, "ble_console", cfg.ble_console);
     ok = ok && putInt(out, cap, pos, "slot_auto_assign", cfg.slot_auto_assign);
