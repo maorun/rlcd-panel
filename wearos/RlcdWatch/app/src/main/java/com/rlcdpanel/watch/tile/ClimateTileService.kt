@@ -3,6 +3,7 @@ package com.rlcdpanel.watch.tile
 import android.content.Context
 import androidx.wear.protolayout.ActionBuilders
 import androidx.wear.protolayout.ColorBuilders.argb
+import androidx.wear.protolayout.DimensionBuilders.dp
 import androidx.wear.protolayout.DimensionBuilders.sp
 import androidx.wear.protolayout.LayoutElementBuilders
 import androidx.wear.protolayout.ModifiersBuilders
@@ -40,7 +41,9 @@ data class ClimateTileModel(
     val isEmpty: Boolean,
     val advice: String? = null,
     /** `Battery: <name> <date>` or null when the tile shows no battery forecast. */
-    val batteryLine: String? = null
+    val batteryLine: String? = null,
+    /** Mute and snooze actions; empty unless the cache holds a frame younger than 35 minutes. */
+    val actions: List<TileAction> = emptyList()
 ) {
     companion object {
         const val OPEN_HINT = "Open the app"
@@ -73,7 +76,8 @@ data class ClimateTileModel(
             // A page 1 frame holds the rooms 6 to 10 at the indices 0 to 4.
             val tile = cached.frame.tiles.getOrNull(focusedRoom % TelemetryFrame.TILES_PER_PAGE)
             if (tile == null || !tile.isValid) {
-                return empty(name)
+                // The panel still silences for a fresh frame, so the actions stay.
+                return empty(name).copy(actions = TileAction.values().toList())
             }
             val alertNames = cached.frame.alerts.names
             return ClimateTileModel(
@@ -86,7 +90,8 @@ data class ClimateTileModel(
                 hint = null,
                 isEmpty = false,
                 advice = adviceTitle(tile.temperatureC, tile.humidityPct, focusedRoom, outdoor, outdoorCached, nowMillis),
-                batteryLine = batteryLine(forecast, config, nowMillis)
+                batteryLine = batteryLine(forecast, config, nowMillis),
+                actions = TileAction.values().toList()
             )
         }
 
@@ -202,11 +207,44 @@ class ClimateTileService : TileService() {
             column.addContent(text(model.age, 11f, GREY))
         }
 
+        if (model.actions.isNotEmpty()) {
+            val row = LayoutElementBuilders.Row.Builder()
+            model.actions.forEach { row.addContent(actionButton(it)) }
+            column.addContent(row.build())
+        }
+
         return LayoutElementBuilders.Box.Builder()
             .setModifiers(ModifiersBuilders.Modifiers.Builder().setClickable(openApp).build())
             .setHorizontalAlignment(LayoutElementBuilders.HORIZONTAL_ALIGN_CENTER)
             .setVerticalAlignment(LayoutElementBuilders.VERTICAL_ALIGN_CENTER)
             .addContent(column.build())
+            .build()
+    }
+
+    /** A tap opens [MainActivity] with the action id as extra; the activity sends the command. */
+    private fun actionButton(action: TileAction): LayoutElementBuilders.LayoutElement {
+        val clickable = ModifiersBuilders.Clickable.Builder()
+            .setId("action_${action.id}")
+            .setOnClick(
+                ActionBuilders.LaunchAction.Builder()
+                    .setAndroidActivity(
+                        ActionBuilders.AndroidActivity.Builder()
+                            .setPackageName(packageName)
+                            .setClassName(MainActivity::class.java.name)
+                            .addKeyToExtraMapping(TileAction.EXTRA_KEY, ActionBuilders.stringExtra(action.id))
+                            .build()
+                    )
+                    .build()
+            )
+            .build()
+        return LayoutElementBuilders.Box.Builder()
+            .setModifiers(
+                ModifiersBuilders.Modifiers.Builder()
+                    .setClickable(clickable)
+                    .setPadding(ModifiersBuilders.Padding.Builder().setAll(dp(4f)).build())
+                    .build()
+            )
+            .addContent(text(action.label, 12f, ADVICE, maxLines = 1))
             .build()
     }
 

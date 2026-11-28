@@ -225,4 +225,59 @@ class ClimateTileModelTest {
         override fun getInt(key: String, default: Int): Int = default
         override fun put(strings: Map<String, String>, longs: Map<String, Long>, ints: Map<String, Int>) {}
     }
+
+    @Test
+    fun freshFrameOffersMuteAndSnooze() {
+        val model = ClimateTileModel.build(CachedTelemetry(twoTiles, 0L), 0, config, 60_000L)
+        assertEquals(listOf(TileAction.MUTE, TileAction.SNOOZE_60), model.actions)
+    }
+
+    @Test
+    fun actionsStayForFrameOfExactly35Minutes() {
+        val model = ClimateTileModel.build(CachedTelemetry(twoTiles, 0L), 0, config, 35L * 60_000L)
+        assertEquals(2, model.actions.size)
+    }
+
+    @Test
+    fun oldCacheHidesActions() {
+        val model = ClimateTileModel.build(CachedTelemetry(twoTiles, 0L), 0, config, 35L * 60_000L + 1_000L)
+        assertTrue(model.actions.isEmpty())
+    }
+
+    @Test
+    fun emptyCacheAndFutureFrameHideActions() {
+        assertTrue(ClimateTileModel.build(null, 0, config, 0L).actions.isEmpty())
+        assertTrue(ClimateTileModel.build(CachedTelemetry(twoTiles, 10_000L), 0, config, 5_000L).actions.isEmpty())
+    }
+
+    @Test
+    fun freshFrameWithoutRoomReadingKeepsActions() {
+        val model = ClimateTileModel.build(CachedTelemetry(twoTiles, 0L), 2, config, 1_000L)
+        assertTrue(model.isEmpty)
+        assertEquals(2, model.actions.size)
+    }
+
+    @Test
+    fun actionExtrasCarryCommandsAndRoundTrip() {
+        assertEquals("MUTE 1", TileAction.MUTE.command)
+        assertEquals("SNOOZE 60", TileAction.SNOOZE_60.command)
+        assertEquals("Mute", TileAction.MUTE.label)
+        assertEquals("Snooze 60", TileAction.SNOOZE_60.label)
+        TileAction.values().forEach { assertEquals(it, TileAction.fromId(it.id)) }
+        assertNull(TileAction.fromId(null))
+        assertNull(TileAction.fromId("unknown"))
+        assertEquals(TileAction.values().size, TileAction.values().map { it.id }.toSet().size)
+    }
+
+    @Test
+    fun replyTextWordsMuteSnoozeAndErrors() {
+        val fallback = { _: com.rlcdpanel.watch.protocol.ConsoleReply -> "fallback" }
+        fun text(line: String) = TileAction.replyText(com.rlcdpanel.watch.protocol.ConsoleReply.Status(line), fallback)
+        assertEquals("Stumm", text("OK MUTE 1"))
+        assertEquals("Stumm für 60 min", text("OK SNOOZE 60"))
+        assertEquals("Set ble_console=2 to apply", text("ERR READ_ONLY"))
+        assertEquals("fallback", text("ERR BAD_ARG"))
+        val timeout = com.rlcdpanel.watch.protocol.ConsoleReply.Corrupt(com.rlcdpanel.watch.protocol.ReplyError.Timeout)
+        assertEquals("Panel not in range", TileAction.replyText(timeout) { com.rlcdpanel.watch.SensorHealthText.muteFallback(it) })
+    }
 }

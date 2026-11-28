@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
+import android.widget.Toast
 import android.os.Bundle
 import android.os.VibrationEffect
 import android.os.Vibrator
@@ -29,6 +30,7 @@ import androidx.lifecycle.lifecycleScope
 import com.rlcdpanel.watch.complication.ClimateComplicationService
 import com.rlcdpanel.watch.console.BleConsoleClient
 import com.rlcdpanel.watch.protocol.ChimeCommand
+import com.rlcdpanel.watch.tile.TileAction
 import com.rlcdpanel.watch.protocol.RtcTrimReply
 import com.rlcdpanel.watch.protocol.AlertMask
 import com.rlcdpanel.watch.protocol.AlertTransitions
@@ -362,6 +364,45 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleTileAction(intent)
+    }
+
+    /**
+     * Sends `MUTE 1` or `SNOOZE 60` once for a tap on a tile action and shows the reply as a toast.
+     * An intent without a known [TileAction] extra sends nothing. A failed command is not retried.
+     * The command runs on its own client with the application context, so `onStop` (screen off)
+     * does not cancel it. One command runs at a time, so a double tap sends once.
+     */
+    private fun handleTileAction(intent: Intent?) {
+        val action = TileAction.fromId(intent?.getStringExtra(TileAction.EXTRA_KEY)) ?: return
+        intent?.removeExtra(TileAction.EXTRA_KEY)
+        val app = applicationContext
+        if (consoleClient.isRunning || !tileActionInFlight.compareAndSet(false, true)) {
+            Toast.makeText(app, "Panel busy", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S &&
+            (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED ||
+                ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED)
+        ) {
+            tileActionInFlight.set(false)
+            Toast.makeText(app, "Bluetooth-Berechtigung fehlt", Toast.LENGTH_LONG).show()
+            return
+        }
+        try {
+            BleConsoleClient(app).send(action.command) { reply ->
+                tileActionInFlight.set(false)
+                Toast.makeText(app, TileAction.replyText(reply) { SensorHealthText.muteFallback(it) }, Toast.LENGTH_LONG).show()
+            }
+        } catch (_: SecurityException) {
+            tileActionInFlight.set(false)
+            Toast.makeText(app, "Bluetooth-Berechtigung fehlt", Toast.LENGTH_LONG).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         consoleClient = BleConsoleClient(this)
@@ -375,6 +416,7 @@ class MainActivity : ComponentActivity() {
         }
         createNotificationChannel()
         restoreRoomStates()
+        if (savedInstanceState == null) handleTileAction(intent)
 
         // Periodic background fetch of Open-Meteo weather
         lifecycleScope.launch {
@@ -2739,6 +2781,8 @@ onApply = { applySpread(it) }
     }
 
     companion object {
+        private val tileActionInFlight = java.util.concurrent.atomic.AtomicBoolean(false)
+
         const val CHANNEL_ID = "rlcd_ventilation_channel"
         const val NOTIFICATION_ID_WALL_BASE = 2000
     }
