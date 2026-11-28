@@ -51,6 +51,8 @@ struct CalibrationView: View {
                 saltSection
                 Divider()
                 frsiSection
+                Divider()
+                reportSection
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
         .onAppear { model.loadCalibrationChecks() }
@@ -200,6 +202,16 @@ struct CalibrationView: View {
                 }
             }
             twoPointSection
+        }
+    }
+
+    /// Markdown record of the last reads (`VERSION`, `CONFIG CHANGED`, `SPREAD`, `SALT`); a part not read shows `--`.
+    private var reportSection: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Calibration report").font(.headline)
+            Text("Uses the last reads of VERSION, CONFIG CHANGED, spread and salt check. Read them first; a missing part shows --. Any SET clears the CONFIG CHANGED read, so read it again after an apply.")
+                .font(.caption).foregroundStyle(.secondary)
+            Button("Save report…") { model.saveCalibrationReport() }
         }
     }
 
