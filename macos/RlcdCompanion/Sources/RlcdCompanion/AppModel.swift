@@ -2004,6 +2004,8 @@ final class AppModel: ConsoleLinkDelegate {
                 daysResult = nil // a reply that fails to parse must not leave the old rows
                 daysResult = try DaysReply.parse(lines: lines)
             case (.days, .file): message = "Unexpected file reply"
+            case (.help, .frame): break // the app has no HELP view yet; the reply ends the command
+            case (.help, .file): message = "Unexpected file reply"
             case let (.selfTest, .frame(lines)):
                 selfTestResult = nil // a reply that fails to parse must not leave an old result
                 selfTestLines = []
