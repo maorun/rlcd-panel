@@ -8,6 +8,11 @@ public struct DailySensorStats: Equatable {
     public let rhMin: Double?
     public let rhMax: Double?
     public let rhMean: Double?
+
+    /// True when at least one of the six fields holds a value.
+    var hasValue: Bool {
+        [tempMinC, tempMaxC, tempMeanC, rhMin, rhMax, rhMean].contains { $0 != nil }
+    }
 }
 
 /// One row of `daily_v1_YYYY.csv` to `daily_v7_YYYY.csv`. The noise peak fields exist only in
@@ -55,6 +60,27 @@ public struct DailyFolder: Equatable {
         self.rows = rows
         self.failedFiles = failedFiles
     }
+}
+
+/// Summary of one calendar month of one sensor. A month without a usable row is a gap: `days` is 0 and all values are `nil`.
+public struct MonthSummary: Equatable {
+    /// `YYYY-MM`.
+    public let month: String
+    /// Rows of the month that hold a value for the sensor.
+    public let days: Int
+    /// Smallest daily minimum, largest daily maximum and mean of the daily means.
+    public let tempMinC: Double?
+    public let tempMaxC: Double?
+    public let tempMeanC: Double?
+    public let rhMin: Double?
+    public let rhMax: Double?
+    public let rhMean: Double?
+    /// Sum of the hour fields of the month. `nil` when no row holds a value (older file format, limit 0, empty sensor).
+    public let moldHours: Int?
+    public let dryHours: Int?
+    public let heatHours: Int?
+
+    public var isGap: Bool { days == 0 }
 }
 
 public struct DailyLog: Equatable {
@@ -139,6 +165,47 @@ public struct DailyLog: Equatable {
                 heatHours: heatCount > 0 ? try (0..<heatCount).map { try integer(n + 5 + moldCount + dryCount + $0) } : [])
         }
         return DailyLog(format: format, rows: rows)
+    }
+
+    /// One entry for each calendar month from the oldest to the newest row, oldest first. A month without a row of the
+    /// sensor is a gap entry (`MonthSummary.isGap`). Rows of `daily_v5` to `daily_v7` may be mixed: a missing hour
+    /// column gives no value, so a month of `daily_v5` rows has `nil` dry and heat hours. A sensor beyond the row width
+    /// and an empty sensor give no value for that row. Empty for no rows. A row with a date outside
+    /// 2000 to 2099 is ignored. The mean is the unweighted mean of the daily means. The rows must hold one row for each date, as `load` gives them; a repeated date counts twice. Hour sums count only rows that hold a temperature or humidity value for the sensor.
+    public static func monthSummary(rows: [DailyRow], sensor: Int) -> [MonthSummary] {
+        func key(_ date: String) -> Int? {
+            let p = date.split(separator: "-")
+            guard p.count == 3, let y = Int(p[0]), let m = Int(p[1]),
+                  (2000...2099).contains(y), (1...12).contains(m) else { return nil } // same range as `isDate`
+            return y * 12 + (m - 1)
+        }
+        func text(_ k: Int) -> String { String(format: "%04d-%02d", k / 12, k % 12 + 1) }
+        var byMonth: [Int: [DailyRow]] = [:]
+        for row in rows { if let k = key(row.date) { byMonth[k, default: []].append(row) } }
+        guard let first = byMonth.keys.min(), let last = byMonth.keys.max() else { return [] }
+        return (first...last).map { k in
+            let used = (byMonth[k] ?? []).filter { sensor >= 0 && sensor < $0.sensors.count && $0.sensors[sensor].hasValue }
+            guard !used.isEmpty else {
+                return MonthSummary(month: text(k), days: 0, tempMinC: nil, tempMaxC: nil, tempMeanC: nil,
+                                    rhMin: nil, rhMax: nil, rhMean: nil, moldHours: nil, dryHours: nil, heatHours: nil)
+            }
+            let stats = used.map { $0.sensors[sensor] }
+            func mean(_ v: [Double?]) -> Double? {
+                let x = v.compactMap { $0 }
+                return x.isEmpty ? nil : x.reduce(0, +) / Double(x.count)
+            }
+            func sum(_ f: (DailyRow) -> [Int?]) -> Int? {
+                let x = used.compactMap { r -> Int? in let h = f(r); return sensor < h.count ? h[sensor] : nil }
+                return x.isEmpty ? nil : x.reduce(0, +)
+            }
+            return MonthSummary(
+                month: text(k), days: used.count,
+                tempMinC: stats.compactMap(\.tempMinC).min(), tempMaxC: stats.compactMap(\.tempMaxC).max(),
+                tempMeanC: mean(stats.map(\.tempMeanC)),
+                rhMin: stats.compactMap(\.rhMin).min(), rhMax: stats.compactMap(\.rhMax).max(),
+                rhMean: mean(stats.map(\.rhMean)),
+                moldHours: sum { $0.moldHours }, dryHours: sum { $0.dryHours }, heatHours: sum { $0.heatHours })
+        }
     }
 
     /// True for `daily_v1_YYYY.csv` to `daily_v7_YYYY.csv`; the check of `LogArchive` decides the name.

@@ -9,6 +9,13 @@ enum DailySource: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// Time scale of the daily charts.
+enum DailyScale: String, CaseIterable, Identifiable {
+    case days = "Days"
+    case months = "Months"
+    var id: String { rawValue }
+}
+
 /// One chart pair for each sensor: daily minimum, mean and maximum of temperature and humidity, and the daily noise
 /// peak for rows of `daily_v2` to `daily_v6`, and the mold hours (`daily_v4` to `daily_v6`) and dry hours (`daily_v6`)
 /// of each sensor as two bar series. The source `Card files` reads only the rows that `DailyLog.load`
@@ -17,6 +24,14 @@ struct DailyChartView: View {
     @Bindable var model: AppModel
     var temperatureUnit = "°C"
     var limits: [ChartLimit] = []
+
+    /// View state as a class: `@State` needs the SwiftUI macro plugin, which the command line tools lack.
+    private final class ViewState: ObservableObject {
+        @Published var scale = DailyScale.days
+    }
+
+    @StateObject private var state = ViewState()
+    private var scale: DailyScale { state.scale }
 
     private struct Point: Identifiable {
         let id: String
@@ -143,6 +158,87 @@ struct DailyChartView: View {
         }
     }
 
+    /// Months shown in the year overview (the newest twelve).
+    private static let overviewMonths = 12
+
+    private struct MonthPoint: Identifiable {
+        let id: String
+        let month: String
+        let series: String
+        let value: Double
+    }
+
+    private func monthRange(_ months: [MonthSummary], _ low: KeyPath<MonthSummary, Double?>,
+                            _ mean: KeyPath<MonthSummary, Double?>, _ high: KeyPath<MonthSummary, Double?>) -> [MonthPoint] {
+        months.flatMap { m -> [MonthPoint] in
+            [("Min", low), ("Mean", mean), ("Max", high)].compactMap { name, path in
+                m[keyPath: path].map { MonthPoint(id: "\(m.month)-\(name)", month: m.month, series: name, value: $0) }
+            }
+        }
+    }
+
+    private func monthHours(_ months: [MonthSummary]) -> [MonthPoint] {
+        months.flatMap { m -> [MonthPoint] in
+            [("Mold", m.moldHours), ("Dry", m.dryHours), ("Heat", m.heatHours)].compactMap { name, hours in
+                hours.map { MonthPoint(id: "\(m.month)-\(name)", month: m.month, series: name, value: Double($0)) }
+            }
+        }
+    }
+
+    /// Minimum, mean and maximum of each month; a month without a row has no mark.
+    private func monthChart(_ title: String, _ data: [MonthPoint], months: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text(title).font(.caption).foregroundStyle(.secondary)
+            Chart(data) {
+                PointMark(x: .value("Month", $0.month), y: .value(title, $0.value))
+                    .foregroundStyle(by: .value("Series", $0.series))
+            }
+            .chartXScale(domain: months)
+            .chartYScale(domain: .automatic(includesZero: false))
+            .frame(height: 110)
+        }
+    }
+
+    private func monthHoursChart(_ data: [MonthPoint], months: [String]) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Hours per month: mold / dry / heat (each day counts with the limit of its day; older files add no dry or heat hours)").font(.caption).foregroundStyle(.secondary)
+            Chart(data) {
+                BarMark(x: .value("Month", $0.month), y: .value("Hours", $0.value))
+                    .foregroundStyle(by: .value("Series", $0.series))
+                    .position(by: .value("Series", $0.series))
+            }
+            .chartXScale(domain: months)
+            .frame(height: 110)
+        }
+    }
+
+    @ViewBuilder private func yearOverview(_ rows: [DailyRow]) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if model.dailySource == .panel {
+                Text("The panel source holds at most \(DaysReply.rowChoices.max() ?? 31) days; use the card files for a full year.")
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            let all = (0..<DailyLog.sensorNames.count).map { DailyLog.monthSummary(rows: rows, sensor: $0) }
+            if all.allSatisfy({ $0.allSatisfy { $0.isGap } }) {
+                Text("No monthly data").font(.caption).foregroundStyle(.secondary)
+            }
+            ForEach(0..<all.count, id: \.self) { sensor in
+                let months = Array(all[sensor].suffix(Self.overviewMonths))
+                if months.contains(where: { !$0.isGap }) {
+                    let names = months.map(\.month)
+                    Text(DailyLog.sensorNames[sensor]).font(.headline)
+                    HStack(alignment: .top) {
+                        monthChart("Temperature (\(temperatureUnit))",
+                                   monthRange(months, \.tempMinC, \.tempMeanC, \.tempMaxC), months: names)
+                        monthChart("Humidity (%RH)", monthRange(months, \.rhMin, \.rhMean, \.rhMax), months: names)
+                    }
+                    let hours = monthHours(months)
+                    if !hours.isEmpty { monthHoursChart(hours, months: names) }
+                }
+            }
+        }
+    }
+
     private var folder: DailyFolder {
         switch model.dailySource {
         case .card: model.dailyFolder ?? DailyFolder(rows: [], failedFiles: [])
@@ -154,6 +250,10 @@ struct DailyChartView: View {
         HStack {
             Picker("Source", selection: $model.dailySource) {
                 ForEach(DailySource.allCases) { Text($0.rawValue).tag($0) }
+            }
+            .pickerStyle(.segmented).fixedSize()
+            Picker("Scale", selection: $state.scale) {
+                ForEach(DailyScale.allCases) { Text($0.rawValue).tag($0) }
             }
             .pickerStyle(.segmented).fixedSize()
             if model.dailySource == .panel {
@@ -190,24 +290,29 @@ struct DailyChartView: View {
         } else {
             VStack(alignment: .leading, spacing: 8) {
                 moldSummary(folder.rows)
-                ForEach(0..<DailyLog.sensorNames.count, id: \.self) { sensor in
-                    let temp = points(sensor) { [("Min", $0.tempMinC), ("Mean", $0.tempMeanC), ("Max", $0.tempMaxC)] }
-                    let rh = points(sensor) { [("Min", $0.rhMin), ("Mean", $0.rhMean), ("Max", $0.rhMax)] }
-                    if !temp.isEmpty || !rh.isEmpty { // slots 4 and 5 exist only in daily_v3 rows
-                        Text(DailyLog.sensorNames[sensor]).font(.headline)
-                        HStack(alignment: .top) {
-                            chart("Temperature (\(temperatureUnit))", temp, limits: ChartLimits.temperature(limits))
-                            chart("Humidity (%RH)", rh, limits: ChartLimits.humidity(limits))
+                if scale == .months { yearOverview(folder.rows) }
+                if scale == .days {
+                    ForEach(0..<DailyLog.sensorNames.count, id: \.self) { sensor in
+                        let temp = points(sensor) { [("Min", $0.tempMinC), ("Mean", $0.tempMeanC), ("Max", $0.tempMaxC)] }
+                        let rh = points(sensor) { [("Min", $0.rhMin), ("Mean", $0.rhMean), ("Max", $0.rhMax)] }
+                        if !temp.isEmpty || !rh.isEmpty { // slots 4 and 5 exist only in daily_v3 rows
+                            Text(DailyLog.sensorNames[sensor]).font(.headline)
+                            HStack(alignment: .top) {
+                                chart("Temperature (\(temperatureUnit))", temp, limits: ChartLimits.temperature(limits))
+                                chart("Humidity (%RH)", rh, limits: ChartLimits.humidity(limits))
+                            }
+                            let mold = moldPoints(sensor)
+                            let dry = dryPoints(sensor)
+                            if !mold.isEmpty || !dry.isEmpty { hoursChart(mold: mold, dry: dry) } // mold: daily_v4 and newer, dry: daily_v6
+                            let heat = heatPoints(sensor)
+                            if !heat.isEmpty { heatChart(heat) } // heat: daily_v7
                         }
-                        let mold = moldPoints(sensor)
-                        let dry = dryPoints(sensor)
-                        if !mold.isEmpty || !dry.isEmpty { hoursChart(mold: mold, dry: dry) } // mold: daily_v4 and newer, dry: daily_v6
-                        let heat = heatPoints(sensor)
-                        if !heat.isEmpty { heatChart(heat) } // heat: daily_v7
                     }
                 }
-                Text("Noise").font(.headline)
-                chart("Daily noise peak (dB)", noisePeaks)
+                if scale == .days {
+                    Text("Noise").font(.headline)
+                    chart("Daily noise peak (dB)", noisePeaks)
+                }
                 if !folder.failedFiles.isEmpty {
                     Text("Unreadable: \(folder.failedFiles.joined(separator: ", "))")
                         .font(.caption).foregroundStyle(.red)
