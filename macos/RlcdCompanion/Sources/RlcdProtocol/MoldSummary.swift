@@ -11,6 +11,17 @@ public struct MoldRoomSummary: Equatable {
     /// `YYYY-MM-DD` of the day with the most mold hours; on a tie the newest day.
     public let worstDate: String?
     public let worstHours: Int?
+    /// Sum of the `heat_h` values of the rows; `nil` when no row holds a heat value (for example a `daily_v6` month).
+    public let heatHours: Int?
+
+    public init(sensor: Int, totalHours: Int?, moldDays: Int, worstDate: String?, worstHours: Int?, heatHours: Int? = nil) {
+        self.sensor = sensor
+        self.totalHours = totalHours
+        self.moldDays = moldDays
+        self.worstDate = worstDate
+        self.worstHours = worstHours
+        self.heatHours = heatHours
+    }
 }
 
 /// Builds the mold summary of the daily charts from `DailyRow.moldHours` (archive folder or `DAYS` reply).
@@ -24,7 +35,9 @@ public enum MoldSummary {
         var days = 0
         var worstDate: String?
         var worstHours: Int?
+        var heat: Int?
         for row in rows {
+            if sensor < row.heatHours.count, let h = row.heatHours[sensor] { heat = (heat ?? 0) + h }
             guard sensor < row.moldHours.count, let hours = row.moldHours[sensor] else { continue }
             total = (total ?? 0) + hours
             if hours > 0 {
@@ -41,12 +54,24 @@ public enum MoldSummary {
                 }
             }
         }
-        return MoldRoomSummary(sensor: sensor, totalHours: total, moldDays: days, worstDate: worstDate, worstHours: worstHours)
+        return MoldRoomSummary(sensor: sensor, totalHours: total, moldDays: days, worstDate: worstDate, worstHours: worstHours, heatHours: heat)
     }
 
     /// One summary for each sensor 0 to 10, in sensor order.
     public static func summarize(rows: [DailyRow]) -> [MoldRoomSummary] {
         (0..<DailyLog.sensorNames.count).map { summarize(rows: rows, sensor: $0) }
+    }
+
+    /// `Heat <N> h`, or `Heat --` without a heat value.
+    public static func heatText(_ room: MoldRoomSummary) -> String {
+        room.heatHours.map { "Heat \($0) h" } ?? "Heat --"
+    }
+
+    /// Text of the daily chart line: the mold line with `, Heat <N> h` appended, `Heat <N> h` alone for a room without a
+    /// mold value, `nil` without a mold value and without a heat value (no line). A mold value without a heat value gives `Heat --`.
+    public static func chartLine(_ room: MoldRoomSummary) -> String? {
+        guard let mold = lineText(room) else { return room.heatHours == nil ? nil : heatText(room) }
+        return "\(mold), \(heatText(room))"
     }
 
     /// Text of the chart line, or `nil` without a mold value (no line).

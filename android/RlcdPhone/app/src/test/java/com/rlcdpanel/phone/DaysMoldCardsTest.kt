@@ -5,6 +5,7 @@ import com.rlcdpanel.phone.protocol.DaysRow
 import com.rlcdpanel.phone.protocol.DaysSensor
 import com.rlcdpanel.phone.protocol.Fixtures
 import com.rlcdpanel.phone.protocol.MoldRoomSummary
+import com.rlcdpanel.phone.protocol.MoldSummary
 import com.rlcdpanel.phone.protocol.PanelConfig
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -64,32 +65,37 @@ class DaysMoldCardsTest {
         assertNull(DaysMoldCards.dryLine(emptyList(), 0))
     }
 
-    private fun heatRow(date: String, heat: Int?) =
-        DaysRow(date, List(DaysReply.SENSOR_COUNT) { if (it == 0) DaysSensor(null, null, null, null, 0, null, heat) else sensorWith(null) })
+    @Test
+    fun roomWithHeatValueAndNoMoldValueHasACardWithoutMoldLines() {
+        val rows = listOf(
+            DaysRow("2026-01-01", List(DaysReply.SENSOR_COUNT) { if (it == 0) DaysSensor(null, null, null, null, null, null, 4) else DaysSensor(null, null, null, null, null) })
+        )
+        val cards = DaysMoldCards.cards(rows, PanelConfig())
+        assertEquals(1, cards.size)
+        assertEquals(4, cards[0].heatHours)
+        assertTrue(DaysMoldCards.lines(cards[0]).isEmpty())
+        assertEquals("Hitzestunden: 4 h", DaysMoldCards.heatLine(cards[0]))
+    }
+
+    private fun roomWithHeat(heat: Int?) = MoldRoomSummary(0, "Keller", 0, 0, null, null, heat)
 
     @Test
-    fun heatLineSumsTheHeatHours() {
-        val rows = listOf(heatRow("2026-01-01", 2), heatRow("2026-01-02", null), heatRow("2026-01-03", 3))
-        assertEquals("Heat 5 h", DaysMoldCards.heatLine(rows, 0))
-        assertEquals("Heat 0 h", DaysMoldCards.heatLine(listOf(heatRow("2026-01-01", 0)), 0))
+    fun heatLineShowsTheSumOfTheHeatHours() {
+        assertEquals("Hitzestunden: 5 h", DaysMoldCards.heatLine(roomWithHeat(5)))
+        assertEquals("Hitzestunden: 0 h", DaysMoldCards.heatLine(roomWithHeat(0)))
     }
 
     @Test
-    fun heatLineIsNullWithoutHeatValue() {
-        assertNull(DaysMoldCards.heatLine(listOf(heatRow("2026-01-01", null)), 0))
-        assertNull(DaysMoldCards.heatLine(listOf(heatRow("2026-01-01", 4)), 1))
-        assertNull(DaysMoldCards.heatLine(emptyList(), 0))
+    fun heatLineShowsDashesWithoutHeatValue() {
+        assertEquals("Hitzestunden: --", DaysMoldCards.heatLine(roomWithHeat(null)))
     }
 
     @Test
-    fun heatLineIsNullForTheV6Fixture() {
-        val lines = Fixtures.file("days_reply_v6_sample.txt").readLines().filter { !it.startsWith("CRC32") }
-        assertNull(DaysMoldCards.heatLine(DaysReply.parse(lines), 0))
-    }
-
-    @Test
-    fun heatLineIsNullForTheV7Fixture() {
-        val lines = Fixtures.file("days_reply_v7_sample.txt").readLines().filter { !it.startsWith("CRC32") }
-        assertNull(DaysMoldCards.heatLine(DaysReply.parse(lines), 0))
+    fun heatLineIsDashesForTheV6AndV7Fixtures() {
+        for (name in listOf("days_reply_v6_sample.txt", "days_reply_v7_sample.txt")) {
+            val lines = Fixtures.file(name).readLines().filter { !it.startsWith("CRC32") }
+            val room = MoldSummary.build(DaysReply.parse(lines), PanelConfig()).single()
+            assertEquals("Hitzestunden: --", DaysMoldCards.heatLine(room))
+        }
     }
 }

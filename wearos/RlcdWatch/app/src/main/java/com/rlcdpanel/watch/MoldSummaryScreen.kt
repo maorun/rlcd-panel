@@ -97,6 +97,7 @@ fun MoldSummaryScreen(
                         Text("${room.name}  ${MoldSummary.totalText(room)}", fontSize = 12.sp, maxLines = 1, color = Color.White)
                         Text("Tage mit Schimmel: ${MoldSummary.daysText(room)}", fontSize = 10.sp, maxLines = 1)
                         Text("Schlimmster Tag: ${MoldSummary.worstText(room)}", fontSize = 10.sp, maxLines = 1)
+                        Text("Hitzestunden: ${MoldSummary.heatText(room)}", fontSize = 10.sp, maxLines = 1)
                     }
                 }
             }

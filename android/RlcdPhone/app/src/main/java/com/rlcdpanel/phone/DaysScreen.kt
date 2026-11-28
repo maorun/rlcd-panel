@@ -82,13 +82,13 @@ object DaysChartModel {
 object DaysMoldCards {
     const val NONE = "Keine Schimmelstunden"
 
-    /** Rooms with a mold value, most mold hours first; a room without a mold value has no card. */
+    /** Rooms with a mold value or a heat value, most mold hours first; a room with neither has no card. */
     fun cards(rows: List<DaysRow>, panelConfig: PanelConfig): List<MoldRoomSummary> =
-        MoldSummary.build(rows, panelConfig).filter { it.totalHours != null }
+        MoldSummary.build(rows, panelConfig).filter { it.totalHours != null || it.heatHours != null }
 
-    /** One text line for each fact of the card: [NONE] alone for a room with 0 mold hours. */
+    /** One text line for each mold fact of the card: none without a mold value, [NONE] alone for 0 mold hours. */
     fun lines(room: MoldRoomSummary): List<String> =
-        if (room.totalHours == 0) listOf(NONE) else listOf(
+        if (room.totalHours == null) emptyList() else if (room.totalHours == 0) listOf(NONE) else listOf(
             "Schimmelstunden: ${MoldSummary.totalText(room)}",
             "Tage mit Schimmel: ${MoldSummary.daysText(room)}",
             "Schlimmster Tag: ${MoldSummary.worstText(room)}"
@@ -100,11 +100,8 @@ object DaysMoldCards {
         return if (hours.isEmpty()) null else "Trocken ${hours.sum()} h"
     }
 
-    /** `Heat <N> h` (sum of the heat hours of [sensor] over [rows]), or null when no row holds a heat value. */
-    fun heatLine(rows: List<DaysRow>, sensor: Int): String? {
-        val hours = rows.mapNotNull { it.sensors[sensor].heatHours }
-        return if (hours.isEmpty()) null else "Heat ${hours.sum()} h"
-    }
+    /** `Hitzestunden: <N> h` (sum of the heat hours of the room), or `Hitzestunden: --` when no row holds a heat value. */
+    fun heatLine(room: MoldRoomSummary): String = "Hitzestunden: ${MoldSummary.heatText(room)}"
 }
 
 @Composable
@@ -204,7 +201,7 @@ fun DaysScreen(
                         Text(room.name, style = MaterialTheme.typography.titleMedium)
                         DaysMoldCards.lines(room).forEach { Text(it, style = MaterialTheme.typography.bodyMedium) }
                         DaysMoldCards.dryLine(state.rows, room.sensor)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
-                        DaysMoldCards.heatLine(state.rows, room.sensor)?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
+                        Text(DaysMoldCards.heatLine(room), style = MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
