@@ -202,6 +202,6 @@ class TodayReplyTest {
     fun heatText() {
         val row = TodayRow(0, "onboard", 5, 1.0, 2.0, 1.5, 1.0, 2.0, 1.5, 3, 0, 2)
         assertEquals("Heat 2 h", com.rlcdpanel.watch.TodayScreenText.heat(row))
-        assertEquals("Heat -- h", com.rlcdpanel.watch.TodayScreenText.heat(row.copy(heatHours = null)))
+        assertNull(com.rlcdpanel.watch.TodayScreenText.heat(row.copy(heatHours = null)))
     }
 }
