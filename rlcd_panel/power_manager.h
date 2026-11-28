@@ -427,6 +427,30 @@ struct PersistentState {
     return true;
   }
 
+  // Console SLOT REPLACE: takes the new config (slot<N>_mac plus the default offsets and gain of the slot, already
+  // written to config.ini) and clears the reading, the reception history, the JumpGuard packet and the latch bits of slot
+  // `index` (0 to 9). The slot name, both 24-hour histories and the week days stay: the room keeps its data. Records one
+  // SLOT_ASSIGN event (slot number in the high byte, BleFormat::WOIO in the low byte: the format of the new sensor is
+  // unknown until the next scan). Call it inside the registry lock. No card access; the next save writes the state.
+  // False for a bad index (no change). applyConfig runs as for SET slot<N>_mac: another slot whose reading holds the new
+  // MAC loses its reading and histories (the sensor belongs to slot `index` now), like after a KEY wakeup.
+  bool replaceSlotByUser(size_t index, const DeviceConfig& next, bool from_sd, const ConfigRejects& rejects,
+                         const RtcTime& now) {
+    if (index >= MAX_SWITCHBOT_SENSORS) {
+      return false;
+    }
+    const HumidityHistory kept_humidity = history.slots[1 + index];
+    const TemperatureHistory kept_temperature = history.temperatures[1 + index];
+    const WeekHistory kept_week = week;
+    applyConfig(next, from_sd, rejects);
+    resetSlot(index); // also when the MAC text did not change
+    history.slots[1 + index] = kept_humidity;
+    history.temperatures[1 + index] = kept_temperature;
+    week.copySensor(kept_week, 1 + index);
+    events.record(now, EventCode::SLOT_ASSIGN, static_cast<uint16_t>(((index + 1) << 8) | static_cast<uint8_t>(BleFormat::WOIO)));
+    return true;
+  }
+
   // Result of swapSlotsByUser.
   enum class SlotSwap : uint8_t { OK, FIXED_MAC, SLOT_OFF, BAD_ARG };
 

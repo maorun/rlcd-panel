@@ -27466,6 +27466,222 @@ void testSerialSlotSwapCommand() {
 }
 
 
+void testSerialSlotReplaceCommand() {
+  SerialCommand cmd;
+  assert(parseText("SLOT REPLACE 2 AA:BB:CC:DD:EE:02", cmd) == SerialParseStatus::OK &&
+         cmd.kind == SerialCommandKind::SLOT_REPLACE && cmd.reference == 2 &&
+         std::string(cmd.set_value) == "AA:BB:CC:DD:EE:02");
+  assert(parseText("SLOT REPLACE 10 aa:bb:cc:dd:ee:0a\r\n", cmd) == SerialParseStatus::OK && cmd.reference == 10);
+  // a bad MAC or number gives ERR BAD_ARG
+  const char* bad[] = {"SLOT REPLACE", "SLOT REPLACE ", "SLOT REPLACE 2", "SLOT REPLACE 2 ", "SLOT REPLACE 0 AA:BB:CC:DD:EE:02",
+                       "SLOT REPLACE 11 AA:BB:CC:DD:EE:02", "SLOT REPLACE 02 AA:BB:CC:DD:EE:02", "SLOT REPLACE 2 AA:BB:CC:DD:EE",
+                       "SLOT REPLACE 2 AA:BB:CC:DD:EE:0G", "SLOT REPLACE 2 AABBCCDDEE02", "SLOT REPLACE 2 00:00:00:00:00:00",
+                       "SLOT REPLACE 2  AA:BB:CC:DD:EE:02", "SLOT REPLACE 2 AA:BB:CC:DD:EE:02 3", "SLOT REPLACE 2AA:BB:CC:DD:EE:02"};
+  for (const char* line : bad) {
+    assert(parseText(line, cmd) == SerialParseStatus::BAD_ARG && cmd.kind == SerialCommandKind::NONE);
+  }
+  assert(parseText("SLOT REPLACEX 2 AA:BB:CC:DD:EE:02", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("SLOT CLEAR 2", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::SLOT_CLEAR);
+
+  const std::string old_config =
+      "# keep\nslot2_name=KITCHEN\nslot2_mac=AA:BB:CC:DD:EE:01\nslot2_temp_offset_c=0.5\nslot2_rh_offset_pct=-2.0\n"
+      "slot2_rh_gain=1.02\nslot3_mac=AA:BB:CC:DD:EE:03\nslot3_temp_offset_c=0.7\n";
+  auto mk = [](uint8_t last) {
+    SwitchBotReading r;
+    r.valid = true;
+    memset(r.mac, 0, 6);
+    r.mac[0] = 0xAA; r.mac[1] = 0xBB; r.mac[2] = 0xCC; r.mac[3] = 0xDD; r.mac[4] = 0xEE;
+    r.mac[5] = last;
+    r.temperature_c = 21.0f;
+    r.humidity_pct = 50;
+    r.battery_pct = 80;
+    return r;
+  };
+  const RtcTime now = localTime(2026, 11, 21, 9);
+  auto prepare = [&](PersistentState& st) {
+    DeviceConfig loaded;
+    const ConfigParseResult pr = DeviceConfigParser::parse(old_config.c_str(), old_config.size(), loaded);
+    st.applyConfig(loaded, pr.file_ok, pr.rejects());
+    assert(st.week.advance(now, st.history, true));
+    assert(st.registry.upsert(mk(1), BleFormat::ATC)); // MAC of slot 2 (fixed): takes slot 2
+    BleFormat taken = BleFormat::WOIO;
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      st.registry.takeAssigned(i, taken);
+    }
+    SwitchBotReading jump = mk(1); // same MAC as slot 2, 14 C above the stored reading: JumpGuard holds it
+    jump.temperature_c = 35.0f;
+    assert(!st.registry.upsert(jump, BleFormat::ATC) && st.registry.hasPending(1));
+    st.history.slots[2].push(432);
+    st.history.temperatures[2].push(205);
+    st.week.setDay(2, 0, true, 150, 250, true, 400, 600, 3, 4, 5);
+    uint32_t before[MAX_SWITCHBOT_SENSORS] = {};
+    st.reception.recordScan(st.registry, before);
+    st.reception.recordScan(st.registry, nullptr);
+    st.stale_slots = 0b10;
+    st.sensor_battery_latch = 0b10;
+    st.ventilate_tiles = 0b100;
+    st.dry_tiles = 0b100;
+    st.wall_tiles = 0b100;
+    st.heat_tiles = 0b100;
+    st.window_tiles = 0b100;
+    st.drift_tiles = 0b100;
+    st.stuck_tiles = 0b100;
+    st.reception_low = 0b10;
+  };
+  auto runReplace = [&](PersistentState& st, FakeConsoleStorage& storage, FakeSink& sink, const SerialCommand& c, int& applied) {
+    return TestRunner::replaceSlot(storage, sink, c, [&](const char* text, size_t len) {
+      DeviceConfig loaded;
+      const ConfigParseResult pr = DeviceConfigParser::parse(text, len, loaded);
+      assert(st.replaceSlotByUser(static_cast<size_t>(c.reference) - 1, loaded, pr.file_ok, pr.rejects(), now));
+      ++applied;
+    });
+  };
+
+  // good replace: one file write, defaults, kept histories, cleared slot state, one SLOT_ASSIGN event
+  {
+    PersistentState st;
+    prepare(st);
+    FakeConsoleStorage storage;
+    storage.has_config = true;
+    storage.config_text = old_config;
+    FakeSink sink;
+    assert(parseText("SLOT REPLACE 2 AA:BB:CC:DD:EE:02", cmd) == SerialParseStatus::OK);
+    assert(st.reception.scans(1) == 2 && st.history.slots[2].size() == 1);
+    const size_t events_before = st.events.size();
+    int applied = 0;
+    assert(runReplace(st, storage, sink, cmd, applied));
+    assert(applied == 1 && sink.out == "OK SLOT REPLACE 2\n");
+    assert(storage.mounts == 1 && storage.unmounts == 1 && !storage.has_tmp);
+    DeviceConfig written;
+    DeviceConfigParser::parse(storage.config_text.c_str(), storage.config_text.size(), written);
+    assert(written.slot_mac[1][5] == 0x02 && written.slot_temp_offset_c[1] == 0.0f && written.slot_rh_offset_pct[1] == 0.0f &&
+           written.slot_rh_gain[1] == 1.0f);
+    assert(std::string(written.slot_name[1]) == "KITCHEN"); // the name stays
+    assert(written.slot_mac[2][5] == 0x03 && written.slot_temp_offset_c[2] > 0.69f); // slot 3 untouched
+    assert(storage.config_text.find("# keep") == 0);
+    assert(st.config.slot_mac[1][5] == 0x02 && !st.registry.slot(1).valid);
+    assert(st.reception.scans(1) == 0 && st.reception.mask(1) == 0 && !st.registry.hasPending(1));
+    assert((st.stale_slots & 0b10) == 0 && (st.sensor_battery_latch & 0b10) == 0);
+    assert((st.ventilate_tiles & 0b100) == 0 && (st.dry_tiles & 0b100) == 0 && (st.wall_tiles & 0b100) == 0 &&
+           (st.heat_tiles & 0b100) == 0 && (st.window_tiles & 0b100) == 0 && (st.drift_tiles & 0b100) == 0 &&
+           (st.stuck_tiles & 0b100) == 0 && (st.reception_low & 0b10) == 0);
+    assert(st.history.slots[2].size() == 1 && st.history.slots[2].at(0) == 432);
+    assert(st.history.temperatures[2].size() == 1 && st.history.temperatures[2].at(0) == 205);
+    assert(st.week.hasTemperature(2, 0) && st.week.temperatureMin(2, 0) == 150 && st.week.temperatureMax(2, 0) == 250 &&
+           st.week.hasMoldHours(2, 0) && st.week.moldHours(2, 0) == 3);
+    assert(st.week.hasDryHours(2, 0) && st.week.dryHours(2, 0) == 4 && st.week.hasHeatHours(2, 0) && st.week.heatHours(2, 0) == 5);
+    assert(st.events.size() == events_before + 1);
+    assert(st.events.at(events_before).code == EventCode::SLOT_ASSIGN &&
+           st.events.at(events_before).detail == ((2u << 8) | static_cast<uint8_t>(BleFormat::WOIO)));
+    // the new sensor takes the slot at the next scan
+    assert(st.registry.upsert(mk(2), BleFormat::WOIO) && st.registry.slot(1).mac[5] == 2);
+  }
+  // duplicate MAC: ERR DUPLICATE_MAC, file and state unchanged
+  {
+    PersistentState st;
+    prepare(st);
+    uint8_t original[PowerManager::SERIALIZED_SIZE];
+    assert(PowerManager::serialize(st, original, sizeof(original)));
+    FakeConsoleStorage storage;
+    storage.has_config = true;
+    storage.config_text = old_config;
+    FakeSink sink;
+    assert(parseText("SLOT REPLACE 2 AA:BB:CC:DD:EE:03", cmd) == SerialParseStatus::OK);
+    int applied = 0;
+    assert(!runReplace(st, storage, sink, cmd, applied));
+    assert(sink.out == "ERR DUPLICATE_MAC\n" && applied == 0 && storage.config_text == old_config && !storage.has_tmp);
+    assert(storage.mounts == 1 && storage.unmounts == 1);
+    uint8_t after[PowerManager::SERIALIZED_SIZE];
+    assert(PowerManager::serialize(st, after, sizeof(after)) && memcmp(original, after, sizeof(after)) == 0);
+    // the own MAC of the slot is no duplicate
+    FakeSink own;
+    assert(parseText("SLOT REPLACE 2 AA:BB:CC:DD:EE:01", cmd) == SerialParseStatus::OK);
+    assert(runReplace(st, storage, own, cmd, applied) && own.out == "OK SLOT REPLACE 2\n" && applied == 1);
+  }
+  // a hand-built bad command (defense in depth): ERR BAD_ARG, the card stays unmounted
+  {
+    PersistentState st;
+    FakeConsoleStorage storage;
+    FakeSink sink;
+    SerialCommand bad_cmd;
+    bad_cmd.kind = SerialCommandKind::SLOT_REPLACE;
+    bad_cmd.reference = 11;
+    snprintf(bad_cmd.set_value, sizeof(bad_cmd.set_value), "AA:BB:CC:DD:EE:02");
+    int applied = 0;
+    assert(!runReplace(st, storage, sink, bad_cmd, applied));
+    assert(sink.out == "ERR BAD_ARG\n" && applied == 0 && storage.mounts == 0);
+    bad_cmd.reference = 2;
+    snprintf(bad_cmd.set_value, sizeof(bad_cmd.set_value), "not a mac");
+    FakeSink sink2;
+    assert(!runReplace(st, storage, sink2, bad_cmd, applied));
+    assert(sink2.out == "ERR BAD_ARG\n" && applied == 0 && storage.mounts == 0);
+  }
+  // a failed write, a failed read and a missing card: no apply, no state change, old file kept
+  const FakeConsoleStorage::Fail fails[] = {FakeConsoleStorage::Fail::WRITE, FakeConsoleStorage::Fail::REMOVE,
+                                            FakeConsoleStorage::Fail::RENAME, FakeConsoleStorage::Fail::READ};
+  for (FakeConsoleStorage::Fail f : fails) {
+    PersistentState st;
+    prepare(st);
+    uint8_t original[PowerManager::SERIALIZED_SIZE];
+    assert(PowerManager::serialize(st, original, sizeof(original)));
+    FakeConsoleStorage storage;
+    storage.has_config = true;
+    storage.config_text = old_config;
+    storage.fail = f;
+    FakeSink sink;
+    assert(parseText("SLOT REPLACE 2 AA:BB:CC:DD:EE:02", cmd) == SerialParseStatus::OK);
+    int applied = 0;
+    assert(!runReplace(st, storage, sink, cmd, applied));
+    assert(sink.out == "ERR WRITE_FAILED\n" && applied == 0 && storage.config_text == old_config && !storage.has_tmp);
+    assert(storage.unmounts == 1);
+    uint8_t after[PowerManager::SERIALIZED_SIZE];
+    assert(PowerManager::serialize(st, after, sizeof(after)) && memcmp(original, after, sizeof(after)) == 0);
+  }
+  // an oversized config.ini: ERR TOO_LARGE, no apply, no state change, card unmounted
+  {
+    PersistentState st;
+    prepare(st);
+    uint8_t original[PowerManager::SERIALIZED_SIZE];
+    assert(PowerManager::serialize(st, original, sizeof(original)));
+    FakeConsoleStorage storage;
+    storage.has_config = true;
+    storage.config_text.assign(DeviceConfigParser::MAX_FILE_SIZE + 8, '#');
+    FakeSink sink;
+    assert(parseText("SLOT REPLACE 2 AA:BB:CC:DD:EE:02", cmd) == SerialParseStatus::OK);
+    int applied = 0;
+    assert(!runReplace(st, storage, sink, cmd, applied));
+    assert(sink.out == "ERR TOO_LARGE\n" && applied == 0 && storage.unmounts == 1 && !storage.has_tmp);
+    uint8_t after[PowerManager::SERIALIZED_SIZE];
+    assert(PowerManager::serialize(st, after, sizeof(after)) && memcmp(original, after, sizeof(after)) == 0);
+  }
+  {
+    PersistentState st;
+    prepare(st);
+    FakeConsoleStorage storage;
+    storage.card = false;
+    FakeSink sink;
+    assert(parseText("SLOT REPLACE 2 AA:BB:CC:DD:EE:02", cmd) == SerialParseStatus::OK);
+    int applied = 0;
+    assert(!runReplace(st, storage, sink, cmd, applied));
+    assert(sink.out == "ERR NO_CARD\n" && applied == 0 && st.config.slot_mac[1][5] == 0x01);
+  }
+  // execute() ignores it; BLE: read only at level 1, allowed at level 2
+  FakeConsoleStorage storage;
+  FakeSink exec;
+  assert(parseText("SLOT REPLACE 2 AA:BB:CC:DD:EE:02", cmd) == SerialParseStatus::OK);
+  TestRunner::execute(storage, exec, cmd);
+  assert(storage.mounts == 0 && exec.out.empty());
+  assert(std::string(BleConsoleBridge::gate(cmd, 1)) == "ERR READ_ONLY\n");
+  assert(std::string(BleConsoleBridge::gate(cmd, 2)).empty());
+  BleConsoleBridge bridge;
+  bridge.setLevel(1);
+  bridge.onConnect();
+  BleNotifier n;
+  assert(bleConsoleRun(bridge, "SLOT REPLACE 2 AA:BB:CC:DD:EE:02\n", 185, n, &storage) == "ERR READ_ONLY\n");
+  assert(storage.mounts == 0);
+}
+
+
 void testBleConsoleIngressQueue() {
   using I = BleConsoleIngress;
   const uint8_t ab[] = {'A', 'B'};
@@ -30294,6 +30510,7 @@ int main() {
   testSnoozeRtcRoundTrip();
   testSerialSlotClearCommand();
   testSerialSlotSwapCommand();
+  testSerialSlotReplaceCommand();
   testSerialAckCommand();
   testSerialAckAllCommand();
   testBleConsoleIngressQueue();

@@ -3,6 +3,7 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "audio_alert.h"
@@ -40,14 +41,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST, SPREAD, TAIL, TODAY, DAYS, RECEPTION, ALERTS };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, SLOT_REPLACE, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST, SPREAD, TAIL, TODAY, DAYS, RECEPTION, ALERTS };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CONFIG CHANGED with extra text (CHANGEDX, CHANGED 1); DAYS with 0, above 31, a leading zero, a non-digit, no number or extra text; CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, with a window outside 3 to 24, a leading zero, a non-digit or extra text; SELFTEST with extra text; RECEPTION and ALERTS with extra text; TODAY with a sensor above 10, a leading zero, a non-digit or extra text; SPREAD with a number outside 6 to 24, a leading zero, a non-digit or extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
+  BAD_ARG,  // CONFIG CHANGED with extra text (CHANGEDX, CHANGED 1); DAYS with 0, above 31, a leading zero, a non-digit, no number or extra text; CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SLOT REPLACE without a slot number 1 to 10 and one MAC of the form AA:BB:CC:DD:EE:FF (not all zero), with a leading zero, a second space or extra text; SCREEN and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, with a window outside 3 to 24, a leading zero, a non-digit or extra text; SELFTEST with extra text; RECEPTION and ALERTS with extra text; TODAY with a sensor above 10, a leading zero, a non-digit or extra text; SPREAD with a number outside 6 to 24, a leading zero, a non-digit or extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '='); CONFIG <key> with an unknown key
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv to daily_v7_YYYY.csv or events_v1_YYYY.csv
@@ -84,7 +85,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "CONFIG <key>", "CONFIG CHANGED", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "FRSI 0..10 0..10 3..24", "SPREAD", "SPREAD 6..24", "TODAY", "TODAY 0..10", "TAIL 1..72", "DAYS 1..31", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "RECEPTION", "ALERTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv|daily_v5_YYYY.csv|daily_v6_YYYY.csv|daily_v7_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "CONFIG <key>", "CONFIG CHANGED", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "FRSI 0..10 0..10 3..24", "SPREAD", "SPREAD 6..24", "TODAY", "TODAY 0..10", "TAIL 1..72", "DAYS 1..31", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "RECEPTION", "ALERTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SLOT REPLACE 1..10 <MAC>", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv|daily_v5_YYYY.csv|daily_v6_YYYY.csv|daily_v7_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -217,7 +218,7 @@ public:
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "SLOT")) {
-      // exactly "SLOT CLEAR <N>" or "SLOT SWAP <A> <B>" with numbers 1 to 10
+      // exactly "SLOT CLEAR <N>", "SLOT SWAP <A> <B>" or "SLOT REPLACE <N> <MAC>" with numbers 1 to 10
       static const char clear_prefix[] = "SLOT CLEAR";
       static const char swap_prefix[] = "SLOT SWAP";
       const size_t clear_len = sizeof(clear_prefix) - 1;
@@ -226,8 +227,42 @@ public:
                             (len == clear_len || line[clear_len] == ' ');
       const bool is_swap = len >= swap_len && memcmp(line, swap_prefix, swap_len) == 0 &&
                            (len == swap_len || line[swap_len] == ' ');
+      static const char replace_prefix[] = "SLOT REPLACE";
+      const size_t replace_len = sizeof(replace_prefix) - 1;
+      const bool is_replace = len >= replace_len && memcmp(line, replace_prefix, replace_len) == 0 &&
+                              (len == replace_len || line[replace_len] == ' ');
+      if (is_replace) {
+        // "SLOT REPLACE <N> <MAC>": N 1 to 10 without a leading zero, then one space and a MAC of 17 characters
+        if (len <= replace_len + 1) {
+          return SerialParseStatus::BAD_ARG;
+        }
+        const char* q = line + replace_len + 1;
+        size_t left = len - (replace_len + 1);
+        int slot = 0;
+        size_t digits = 0;
+        if (left >= 2 && q[0] == '1' && q[1] == '0') {
+          slot = 10;
+          digits = 2;
+        } else if (left >= 1 && q[0] >= '1' && q[0] <= '9') {
+          slot = q[0] - '0';
+          digits = 1;
+        } else {
+          return SerialParseStatus::BAD_ARG;
+        }
+        q += digits;
+        left -= digits;
+        uint8_t mac[DeviceConfig::MAC_BYTES];
+        if (left < 2 || q[0] != ' ' || !DeviceConfigParser::parseMac(q + 1, left - 1, mac) || DeviceConfig::macIsZero(mac)) {
+          return SerialParseStatus::BAD_ARG;
+        }
+        out.kind = SerialCommandKind::SLOT_REPLACE;
+        out.reference = static_cast<uint8_t>(slot);
+        memcpy(out.set_value, q + 1, left - 1);
+        out.set_value[left - 1] = '\0';
+        return SerialParseStatus::OK;
+      }
       if (!is_clear && !is_swap) {
-        return SerialParseStatus::UNKNOWN; // only "SLOT CLEAR" and "SLOT SWAP" exist (a bare "SLOT" is no known command, like a bare "RTC")
+        return SerialParseStatus::UNKNOWN; // only "SLOT CLEAR", "SLOT SWAP" and "SLOT REPLACE" exist (a bare "SLOT" is no known command, like a bare "RTC")
       }
       const size_t prefix_len = is_clear ? clear_len : swap_len;
       if (len <= prefix_len + 1 || line[prefix_len] != ' ') {
@@ -999,8 +1034,8 @@ struct SelfTestChecks {
 // Line side of the BLE console. The RX characteristic feeds feed(); a complete line goes through
 // the same SerialConsole parser as on USB. The bridge only decides what a central may run:
 //   ble_console 0: nothing (the service does not run)
-//   ble_console 1: the read commands; SET, MUTE, SNOOZE, ACK, SLOT CLEAR, TIME SET and RTC TRIM reply "ERR READ_ONLY"
-//   ble_console 2: also SET, MUTE, SNOOZE, ACK, SLOT CLEAR, TIME SET and RTC TRIM
+//   ble_console 1: the read commands; SET, MUTE, SNOOZE, ACK, SLOT CLEAR, SLOT SWAP, SLOT REPLACE, TIME SET and RTC TRIM reply "ERR READ_ONLY"
+//   ble_console 2: also SET, MUTE, SNOOZE, ACK, SLOT CLEAR, SLOT SWAP, SLOT REPLACE, TIME SET and RTC TRIM
 //   DUMP (a monthly file is too large for BLE), SCREEN (15,000 bytes), SCAN (the scan stops the BLE stack that carries
 //   the console) and NTP SYNC (the Wi-Fi sync blocks the loop and shares the radio with the console) reply "ERR NOT_OVER_BLE" at each level.
 // Only one central connects. A disconnect clears the partial line.
@@ -1074,7 +1109,8 @@ public:
     }
     const bool writes = command.kind == SerialCommandKind::SET || command.kind == SerialCommandKind::MUTE || command.kind == SerialCommandKind::SNOOZE ||
                         command.kind == SerialCommandKind::RTC_TRIM || command.kind == SerialCommandKind::SLOT_CLEAR ||
-                        command.kind == SerialCommandKind::SLOT_SWAP || command.kind == SerialCommandKind::ACK ||
+                        command.kind == SerialCommandKind::SLOT_SWAP || command.kind == SerialCommandKind::SLOT_REPLACE ||
+                        command.kind == SerialCommandKind::ACK ||
                         (command.kind == SerialCommandKind::TIME && command.time_set);
     if (writes && level < 2) {
       return "ERR READ_ONLY\n";
@@ -1277,6 +1313,13 @@ struct SerialStatusSnapshot {
 //   reading, both 24-hour histories, reception mask, week days and the battery, ventilation, dry air and stale latch bits; one SLOT_ASSIGN
 //   event for each occupied slot. A slot with a fixed MAC gives "ERR FIXED_MAC", a disabled slot "ERR SLOT_OFF", an equal or bad number
 //   "ERR BAD_ARG"; no change in these cases. No card access; ERR READ_ONLY on BLE with ble_console 1. RTC layout and STATE_VERSION do not change.
+//   SLOT REPLACE N MAC -> "OK SLOT REPLACE <N>" after /sdcard/config.ini got slot<N>_mac=<MAC> and the default of slot<N>_temp_offset_c (0.0),
+//   slot<N>_rh_offset_pct (0.0) and slot<N>_rh_gain (1.0) in one file write (DeviceConfigEditor, like SET), and PersistentState::replaceSlotByUser
+//   took the new config: reading, reception mask, JumpGuard packet and latch bits of the slot are cleared; the slot name, both 24-hour
+//   histories and the week days stay. One SLOT_ASSIGN event (slot number in the high byte, BleFormat::WOIO in the low byte: the format
+//   of the new sensor is unknown until the next scan). "ERR DUPLICATE_MAC" when another slot of the file holds the MAC, "ERR BAD_ARG" for a bad
+//   number or MAC, "ERR NO_CARD", "ERR WRITE_FAILED" and "ERR TOO_LARGE" without any RTC change; ERR READ_ONLY on BLE with ble_console 1.
+//   RTC layout and STATE_VERSION do not change. replaceSlot() mounts the card itself: execute() ignores SLOT_REPLACE.
 //   MUTE N -> "OK MUTE <N>" after the mute flag of the RTC state is set (0 or 1); setMute() needs no card: execute() ignores MUTE.
 //   IDENTIFY -> "OK IDENTIFY <4 hex digits>" after the identify screen (RLCD plus the last 4 hex digits of the BLE MAC, version,
 //   transport) is flushed and one short note played under the BEEP rules; identify() needs no card: execute() ignores IDENTIFY.
@@ -3369,6 +3412,129 @@ public:
     send(sink, line);
   }
 
+  // Owner of one malloc block (freed on each exit of the scope).
+  class HeapBuffer {
+  public:
+    explicit HeapBuffer(size_t size) : data_(static_cast<char*>(malloc(size))) {}
+    ~HeapBuffer() { free(data_); }
+    HeapBuffer(const HeapBuffer&) = delete;
+    HeapBuffer& operator=(const HeapBuffer&) = delete;
+    char* get() const { return data_; }
+
+  private:
+    char* data_;
+  };
+
+  // One scratch buffer of the config commands (0 or 1). Static and shared by SET and SLOT REPLACE: 8 KB buffers do not fit
+  // the 8 KB loop task stack, and a third static buffer overflows the DRAM segment. One console command runs at a time.
+  static char* configScratch(size_t which) {
+    static char buffers[2][DeviceConfigParser::MAX_FILE_SIZE + 1];
+    return buffers[which % 2];
+  }
+
+  // Writes `next` as /sdcard/config.ini through config.tmp: the old file stays when a step fails. Unmounts the card on
+  // each path and sends "ERR WRITE_FAILED" for a failure. `current` is the old text (exists: the file was there).
+  static bool commitConfig(Storage& storage, Sink& sink, const char* current, size_t current_len, bool exists,
+                           const char* next, size_t next_len) {
+    bool failed = false;
+    if (!storage.writeTemp(next, next_len)) {
+      storage.removeTemp();
+      failed = true; // the old file is untouched
+    } else if (exists && !storage.removeConfig()) {
+      storage.removeTemp();
+      failed = true; // the old file is untouched
+    } else if (!storage.renameTemp()) {
+      if (exists && !storage.restoreConfig(current, current_len)) {
+        storage.unmount(); // the old file is gone: config.tmp holds the new text and stays
+        send(sink, "ERR WRITE_FAILED\n");
+        return false;
+      }
+      storage.removeTemp();
+      failed = true;
+    }
+    storage.unmount();
+    if (failed) {
+      send(sink, "ERR WRITE_FAILED\n");
+      return false;
+    }
+    return true;
+  }
+
+  // Console SLOT REPLACE <N> <MAC>: writes slot<N>_mac and the default offsets and gain of the slot to /sdcard/config.ini in
+  // one file write. `apply(const char* text, size_t len)` runs after the new file is in place and takes the new config over
+  // (PersistentState::replaceSlotByUser); the reply "OK SLOT REPLACE <N>" follows it. "ERR DUPLICATE_MAC" when the file gives
+  // the MAC to another slot, "ERR NO_CARD", "ERR WRITE_FAILED" or "ERR TOO_LARGE": no apply, no state change. True on success.
+  template <typename Apply>
+  static bool replaceSlot(Storage& storage, Sink& sink, const SerialCommand& command, Apply apply) {
+    uint8_t mac[DeviceConfig::MAC_BYTES];
+    if (command.kind != SerialCommandKind::SLOT_REPLACE || command.reference < 1 || command.reference > DeviceConfig::SLOT_COUNT ||
+        !DeviceConfigParser::parseMac(command.set_value, strlen(command.set_value), mac) || DeviceConfig::macIsZero(mac)) {
+      reject(sink, SerialParseStatus::BAD_ARG); // defense in depth: the parser already checks the arguments
+      return false;
+    }
+    if (!storage.mount()) {
+      send(sink, "ERR NO_CARD\n");
+      return false;
+    }
+    char* const current = configScratch(0);
+    char* const buf_a = configScratch(1);
+    HeapBuffer scratch_b(DeviceConfigParser::MAX_FILE_SIZE + 1); // only SLOT REPLACE needs a third buffer: heap, freed on each exit
+    char* const buf_b = scratch_b.get();
+    if (buf_b == nullptr) {
+      storage.unmount();
+      send(sink, "ERR WRITE_FAILED\n");
+      return false;
+    }
+    size_t current_len = 0;
+    bool exists = false;
+    if (!storage.readConfig(current, DeviceConfigParser::MAX_FILE_SIZE + 1, current_len, exists)) {
+      storage.unmount();
+      send(sink, "ERR WRITE_FAILED\n");
+      return false;
+    }
+    if (current_len > DeviceConfigParser::MAX_FILE_SIZE) {
+      storage.unmount();
+      send(sink, "ERR TOO_LARGE\n");
+      return false;
+    }
+    const size_t index = static_cast<size_t>(command.reference) - 1;
+    DeviceConfig before;
+    DeviceConfigParser::parse(current, current_len, before);
+    if (before.macFixedElsewhere(mac, index)) {
+      storage.unmount();
+      send(sink, "ERR DUPLICATE_MAC\n");
+      return false;
+    }
+    char keys[4][24];
+    snprintf(keys[0], sizeof(keys[0]), "slot%u_mac", static_cast<unsigned>(command.reference));
+    snprintf(keys[1], sizeof(keys[1]), "slot%u_temp_offset_c", static_cast<unsigned>(command.reference));
+    snprintf(keys[2], sizeof(keys[2]), "slot%u_rh_offset_pct", static_cast<unsigned>(command.reference));
+    snprintf(keys[3], sizeof(keys[3]), "slot%u_rh_gain", static_cast<unsigned>(command.reference));
+    const char* values[4] = {command.set_value, "0.0", "0.0", "1.0"};
+    const char* from = current;
+    size_t from_len = current_len;
+    char* targets[2] = {buf_a, buf_b};
+    size_t to_len = 0;
+    for (size_t k = 0; k < 4; ++k) {
+      char* to = targets[k % 2];
+      if (DeviceConfigEditor::set(from, from_len, keys[k], values[k], to, to_len) != DeviceConfigEditor::Result::OK) {
+        storage.unmount();
+        send(sink, "ERR TOO_LARGE\n");
+        return false;
+      }
+      from = to;
+      from_len = to_len;
+    }
+    if (!commitConfig(storage, sink, current, current_len, exists, from, from_len)) {
+      return false;
+    }
+    apply(from, from_len);
+    char line[40];
+    snprintf(line, sizeof(line), "OK SLOT REPLACE %u\n", static_cast<unsigned>(command.reference));
+    send(sink, line);
+    return true;
+  }
+
   // Changes one key of /sdcard/config.ini. `apply(const char* text, size_t len)` runs after the new file is in place and
   // takes over the new config (PersistentState::applyConfig); the reply "OK SET <key>" follows it. Returns true on success.
   // With `events` set, one CONFIG_SET event follows the apply step (detail: key index, transport in the high byte).
@@ -3390,43 +3556,24 @@ public:
       send(sink, "ERR NO_CARD\n");
       return false;
     }
-    // Static: two 8 KB buffers do not fit the 8 KB loop task stack. One console command runs at a time.
-    static char current[DeviceConfigParser::MAX_FILE_SIZE + 1];
-    static char next[DeviceConfigParser::MAX_FILE_SIZE + 1];
+    char* const current = configScratch(0);
+    char* const next = configScratch(1);
     size_t current_len = 0;
     size_t next_len = 0;
     bool exists = false;
-    const char* reply = nullptr;
-    bool done = false;
-    if (!storage.readConfig(current, sizeof(current), current_len, exists)) {
-      reply = "ERR WRITE_FAILED\n";
-    } else if (current_len > DeviceConfigParser::MAX_FILE_SIZE) {
-      reply = "ERR TOO_LARGE\n";
-    } else if (DeviceConfigEditor::set(current, current_len, command.set_key, command.set_value, next, next_len) !=
-               DeviceConfigEditor::Result::OK) {
-      reply = "ERR TOO_LARGE\n";
-    } else if (!storage.writeTemp(next, next_len)) {
-      storage.removeTemp();
-      reply = "ERR WRITE_FAILED\n"; // the old file is untouched
-    } else if (exists && !storage.removeConfig()) {
-      storage.removeTemp();
-      reply = "ERR WRITE_FAILED\n"; // the old file is untouched
-    } else if (!storage.renameTemp()) {
-      if (exists) {
-        if (!storage.restoreConfig(current, current_len)) {
-          storage.unmount(); // the old file is gone: config.tmp holds the new text and stays
-          send(sink, "ERR WRITE_FAILED\n");
-          return false;
-        }
-      }
-      storage.removeTemp();
-      reply = "ERR WRITE_FAILED\n";
-    } else {
-      done = true;
+    if (!storage.readConfig(current, DeviceConfigParser::MAX_FILE_SIZE + 1, current_len, exists)) {
+      storage.unmount();
+      send(sink, "ERR WRITE_FAILED\n");
+      return false;
     }
-    storage.unmount();
-    if (!done) {
-      send(sink, reply);
+    if (current_len > DeviceConfigParser::MAX_FILE_SIZE ||
+        DeviceConfigEditor::set(current, current_len, command.set_key, command.set_value, next, next_len) !=
+            DeviceConfigEditor::Result::OK) {
+      storage.unmount();
+      send(sink, "ERR TOO_LARGE\n");
+      return false;
+    }
+    if (!commitConfig(storage, sink, current, current_len, exists, next, next_len)) {
       return false;
     }
     apply(static_cast<const char*>(next), next_len);
@@ -3456,7 +3603,7 @@ public:
         command.kind == SerialCommandKind::SCREEN || command.kind == SerialCommandKind::SET ||
         command.kind == SerialCommandKind::RTC_TRIM || command.kind == SerialCommandKind::WEEK ||
         command.kind == SerialCommandKind::SLOT_CLEAR || command.kind == SerialCommandKind::SLOT_SWAP ||
-        command.kind == SerialCommandKind::REJECTS || command.kind == SerialCommandKind::ACK ||
+        command.kind == SerialCommandKind::SLOT_REPLACE || command.kind == SerialCommandKind::REJECTS || command.kind == SerialCommandKind::ACK ||
         command.kind == SerialCommandKind::IDENTIFY || command.kind == SerialCommandKind::SNOOZE ||
         command.kind == SerialCommandKind::NTP_SYNC || command.kind == SerialCommandKind::FRSI ||
         command.kind == SerialCommandKind::SELFTEST || command.kind == SerialCommandKind::SPREAD ||
@@ -3490,6 +3637,7 @@ public:
       case SerialCommandKind::WEEK:
       case SerialCommandKind::SLOT_CLEAR:
       case SerialCommandKind::SLOT_SWAP:
+      case SerialCommandKind::SLOT_REPLACE:
       case SerialCommandKind::REJECTS:
       case SerialCommandKind::ACK:
       case SerialCommandKind::IDENTIFY:

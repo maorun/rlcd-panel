@@ -1858,6 +1858,22 @@ void setup() {
           static_cast<size_t>(command.reference) - 1, static_cast<size_t>(command.reference_b) - 1, swap_now);
       portEXIT_CRITICAL(&g_registry_mux);
       Runner::slotSwapReply(sink, swapped, command.reference, command.reference_b);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SLOT_REPLACE) {
+      // New config.ini first (one file write); the RTC state changes only after a successful write.
+      RtcTime replace_now = g_rtc_time; // read the clock again (I2C, outside the lock), like SET
+      if (!g_rtc.readTime(replace_now)) {
+        replace_now = g_rtc_time;
+      }
+      Runner::replaceSlot(console_storage, sink, command, [&replace_now, &command](const char* text, size_t len) {
+        DeviceConfig loaded;
+        const ConfigParseResult parsed = DeviceConfigParser::parse(text, len, loaded);
+        portENTER_CRITICAL(&g_registry_mux); // the BLE callback writes the registry
+        g_state.replaceSlotByUser(static_cast<size_t>(command.reference) - 1, loaded, parsed.file_ok, parsed.rejects(),
+                                  replace_now);
+        portEXIT_CRITICAL(&g_registry_mux);
+        setSdStatusLogged(SdStatus::OK, replace_now);
+        g_power_config = PowerManager::powerConfig(config(), g_state.battery, quietHours(), g_rtc_time);
+      });
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::BEEP) {
       Es8311Hal beep_hal;
       Runner::beep(sink, beep_hal, command.reference,
