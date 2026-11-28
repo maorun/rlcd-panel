@@ -616,6 +616,9 @@ public struct ConfigReply: Equatable {
                         reasons.append(nil)
                     }
                 }
+            } else if line.hasPrefix("WARN ") {
+                // "WARN key=<key> reason=<REASON>" of the firmware: no setting, the parser ignores it.
+                continue
             } else if let eq = line.firstIndex(of: "=") {
                 let k = String(line[..<eq])
                 if values[k] == nil { keys.append(k) }

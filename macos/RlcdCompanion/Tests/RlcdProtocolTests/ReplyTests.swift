@@ -664,6 +664,17 @@ struct ReplyParserTests {
 }
 
 struct ConfigRejectedLineFormTests {
+    @Test func ignoresWarnLines() throws {
+        let reply = try ConfigReply.parse(lines: [
+            "temp_unit=C", "SOURCE SD", "REJECTED line=7 reason=BAD_VALUE",
+            "WARN key=wall_frsi_pct reason=WALL_WITHOUT_OUTDOOR",
+        ])
+        #expect(reply.values.count == 1)
+        #expect(reply.values["WARN key"] == nil)
+        #expect(reply.keys == ["temp_unit"])
+        #expect(reply.rejectedLines == [7])
+    }
+
     @Test func parsesOldAndNewRejectedLineForms() throws {
         let reply = try ConfigReply.parse(lines: [
             "temp_unit=C", "SOURCE SD", "REJECTED line=7",

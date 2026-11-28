@@ -80,6 +80,15 @@ class ConsoleWireTest {
     }
 
     @Test
+    fun ignoresWarnLines() {
+        val parsed = PanelConfig.parseConfigReply(
+            listOf("temp_unit=C", "SOURCE SD", "WARN key=wall_frsi_pct reason=WALL_WITHOUT_OUTDOOR"),
+        )
+        assertEquals("temp_unit=C\n", parsed.text)
+        assertEquals(emptyList<Int>(), parsed.rejectedLines)
+    }
+
+    @Test
     fun parsesOldAndNewRejectedLineForms() {
         val parsed = PanelConfig.parseConfigReply(
             listOf("temp_unit=C", "SOURCE SD", "REJECTED line=7", "REJECTED line=9 reason=UNKNOWN_KEY", "REJECTED line=12 reason=DUPLICATE_MAC"),

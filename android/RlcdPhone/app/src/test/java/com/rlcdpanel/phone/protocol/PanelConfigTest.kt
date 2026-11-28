@@ -111,6 +111,11 @@ class PanelConfigTest {
 
         val parsed = PanelConfig.parseConfigReply(listOf("slot1_name=Ok", "Evil Key=1", "x=\u0001", "SOURCE SD"))
         assertEquals("slot1_name=Ok\n", parsed.text)
+        val warned = PanelConfig.parseConfigReply(
+            listOf("slot1_name=Ok", "SOURCE SD", "WARN key=wall_frsi_pct reason=WALL_WITHOUT_OUTDOOR"),
+        )
+        assertEquals("slot1_name=Ok\n", warned.text)
+        assertEquals(emptyList<Int>(), warned.rejectedLines)
         val huge = List(600) { "slot1_name=" + "a".repeat(20) }
         assertEquals("", PanelConfig.parseConfigReply(huge).text)
     }

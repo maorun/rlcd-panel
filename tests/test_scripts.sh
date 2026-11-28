@@ -22,6 +22,7 @@ printf 'chime_volume_pct=40\nslot1_mac=AA:BB:CC:DD:EE:01\nslot3_mac=\n' > "${TMP
 run_check "${TMP}/valid.ini"
 expect "valid config exit 0" "$([[ ${status} -eq 0 ]]; echo $?)"
 expect "valid config 0 rejected" "$(grep -q '^REJECTED count=0$' <<<"${out}"; echo $?)"
+expect "valid config no WARN line" "$(! grep -q '^WARN' <<<"${out}"; echo $?)"
 
 # A duplicate MAC (slot 1 and slot 3, other case) prints the key and DUPLICATE_MAC.
 printf 'slot1_mac=AA:BB:CC:DD:EE:01\nslot3_mac=aa:bb:cc:dd:ee:01\n' > "${TMP}/dup.ini"
@@ -40,6 +41,13 @@ printf 'chime_volume_pct=abc\n' > "${TMP}/bad.ini"
 run_check "${TMP}/bad.ini"
 expect "bad value exit 1" "$([[ ${status} -eq 1 ]]; echo $?)"
 expect "bad value reason" "$(grep -q '^REJECTED line=1 key=chime_volume_pct reason=BAD_VALUE$' <<<"${out}"; echo $?)"
+
+# A warning only: WARN line, REJECTED count=0 and exit 0 (the warning does not change the exit code).
+printf 'wall_frsi_pct=70\n' > "${TMP}/warn.ini"
+run_check "${TMP}/warn.ini"
+expect "warning only exit 0" "$([[ ${status} -eq 0 ]]; echo $?)"
+expect "warning only WARN line" "$(grep -q '^WARN key=wall_frsi_pct reason=WALL_WITHOUT_OUTDOOR$' <<<"${out}"; echo $?)"
+expect "warning only 0 rejected" "$(grep -q '^REJECTED count=0$' <<<"${out}"; echo $?)"
 
 # The sample file stays valid.
 run_check "${REPO_ROOT}/tools/sample_config.ini"

@@ -4450,3 +4450,13 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - Mutation check: when the CRC comparison is removed from `ReplyAssembler.swift`, the drop, flip and body tests fail.
 - The Android phone and the Wear OS test files are equal except for the `package` line.
 - Validation: `swift test` and `swift build -c release` in `macos/RlcdCompanion`, `./scripts/check-protocol-sync.sh` and `./tests/test_scripts.sh`. The Gradle runs need the Android SDK and Java.
+
+## Warnings for conflicting config.ini keys
+
+- **Code:** `DeviceConfigWarnings` in `rlcd_panel/device_config.h`, `SerialConsoleRunner::showConfig` in `rlcd_panel/serial_console.h`, `DeviceConfigCheck` and `tools/check_config.cpp`.
+- `DeviceConfigWarnings::collect(config)` finds valid keys that do not work together. The rule order is fixed: `DOOR_IS_OUTDOOR` (`door_ref_slot` equals `outdoor_slot`, both not 0), `WALL_WITHOUT_OUTDOOR` (`wall_frsi_pct` set and `outdoor_slot` 0), `NIGHT_SHORTER` (`night_wake_interval_s` set and below `wake_interval_s`) and `OUTDOOR_ALERTS` (the bit of `outdoor_slot` is set in `climate_alert_tiles`).
+- The console command `CONFIG` sends one line `WARN key=<key> reason=<REASON>` for each warning after the `REJECTED` lines and before `CRC32`. The reply for `CONFIG <key>` and `CONFIG CHANGED` does not change.
+- `scripts/check-config.sh` prints the same lines after `REJECTED count=<N>`. A warning does not change the exit code.
+- No RTC state and no `STATE_VERSION` change: each command calculates the warnings from the config. `tests/fixtures/config_reply_sample.txt` stays without a `WARN` line.
+- The macOS `ConfigReply.parse` ignores `WARN` lines. The Kotlin parsers ignore them because the line is no `key=value` line.
+- Validation: host tests (`testDeviceConfigWarnings`, `testSerialConfigWarnLines`), `./tests/test_scripts.sh`, `swift test` and `arduino-cli compile rlcd_panel`.
