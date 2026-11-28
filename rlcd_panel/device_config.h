@@ -1523,9 +1523,65 @@ public:
   }
 };
 
+// Warnings for valid keys that do not work together. `collect` reads only the DeviceConfig, so each
+// command calculates them again: no RTC state, no card access, no change of the accepted values.
+// The CONFIG reply and tools/check_config.cpp send one line "WARN key=<key> reason=<REASON>" for each warning.
+class DeviceConfigWarnings {
+public:
+  static constexpr size_t MAX_WARNINGS = 4;
+  // Longest line: "WARN key=night_wake_interval_s reason=WALL_WITHOUT_OUTDOOR\n" is below 64 bytes.
+  static constexpr size_t MAX_LINE_SIZE = 64;
+  static constexpr size_t MAX_TEXT_SIZE = MAX_WARNINGS * MAX_LINE_SIZE;
+
+  struct Warning {
+    const char* key = "";
+    const char* reason = "";
+  };
+
+  // Fills `out` in the fixed rule order and returns the count (0 to MAX_WARNINGS).
+  static size_t collect(const DeviceConfig& c, Warning (&out)[MAX_WARNINGS]) {
+    size_t n = 0;
+    if (c.door_ref_slot != 0 && c.door_ref_slot == c.outdoor_slot) {
+      out[n++] = Warning{"door_ref_slot", "DOOR_IS_OUTDOOR"};
+    }
+    if (c.wall_frsi_pct != 0 && c.outdoor_slot == 0) {
+      out[n++] = Warning{"wall_frsi_pct", "WALL_WITHOUT_OUTDOOR"};
+    }
+    if (c.night_wake_interval_s != 0 && c.night_wake_interval_s < c.wake_interval_s) {
+      out[n++] = Warning{"night_wake_interval_s", "NIGHT_SHORTER"};
+    }
+    // Bit 0 of climate_alert_tiles is the onboard tile, bit i is slot i.
+    if (c.outdoor_slot != 0 && c.outdoor_slot <= DeviceConfig::MAX_OUTDOOR_SLOT &&
+        ((c.climate_alert_tiles >> c.outdoor_slot) & 1u) != 0) {
+      out[n++] = Warning{"climate_alert_tiles", "OUTDOOR_ALERTS"};
+    }
+    return n;
+  }
+
+  // Writes the WARN lines to `out` (terminated, empty for no warning) and returns the length.
+  static size_t format(const DeviceConfig& c, char* out, size_t cap) {
+    if (out == nullptr || cap == 0) {
+      return 0;
+    }
+    out[0] = '\0';
+    Warning w[MAX_WARNINGS];
+    const size_t n = collect(c, w);
+    size_t pos = 0;
+    for (size_t i = 0; i < n && pos < cap; ++i) {
+      const int len = snprintf(out + pos, cap - pos, "WARN key=%s reason=%s\n", w[i].key, w[i].reason);
+      if (len < 0 || static_cast<size_t>(len) >= cap - pos) {
+        out[pos] = '\0';
+        break;
+      }
+      pos += static_cast<size_t>(len);
+    }
+    return pos;
+  }
+};
+
 // Host check of a config.ini text (tools/check_config.cpp). It runs DeviceConfigParser with the
 // firmware rules and writes the report: the accepted values as DeviceConfigText, then one line
-// "REJECTED line=<N> key=<key> reason=<UNKNOWN_KEY|BAD_VALUE|DUPLICATE_MAC>" for each recorded line and "REJECTED count=<N>". The exit code is 0 for no
+// "REJECTED line=<N> key=<key> reason=<UNKNOWN_KEY|BAD_VALUE|DUPLICATE_MAC>" for each recorded line, "REJECTED count=<N>" and one "WARN key=<key> reason=<REASON>" line for each DeviceConfigWarnings entry. The exit code is 0 for no
 // rejected line, 1 for rejected lines and 2 for a file above DeviceConfigParser::MAX_FILE_SIZE
 // (the report is then one ERROR line). The code needs no Arduino header.
 class DeviceConfigCheck {
@@ -1534,7 +1590,7 @@ public:
   static constexpr int EXIT_REJECTED = 1;
   static constexpr int EXIT_UNUSABLE = 2;
   // Enough for the longest report: the values, four line numbers and the count.
-  static constexpr size_t MAX_REPORT_SIZE = DeviceConfigText::MAX_SIZE + 384;
+  static constexpr size_t MAX_REPORT_SIZE = DeviceConfigText::MAX_SIZE + 384 + DeviceConfigWarnings::MAX_TEXT_SIZE;
 
   // Returns the exit code. `out` always holds a terminated string, empty when `cap` is 0.
   static int run(const char* data, size_t len, char* out, size_t cap) {
@@ -1558,7 +1614,11 @@ public:
       pos += n < 0 ? 0 : static_cast<size_t>(n);
     }
     if (pos < cap) {
-      append(out, cap, pos, "REJECTED count=%u\n", static_cast<unsigned>(rejects.count));
+      pos += append(out, cap, pos, "REJECTED count=%u\n", static_cast<unsigned>(rejects.count));
+    }
+    // The WARN lines come last and never change the exit code.
+    if (pos < cap) {
+      DeviceConfigWarnings::format(cfg, out + pos, cap - pos);
     }
     return rejects.count == 0 ? EXIT_OK : EXIT_REJECTED;
   }

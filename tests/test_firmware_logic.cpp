@@ -11918,6 +11918,121 @@ void testSerialConfigRejectedLines() {
   assert(clean.out.find("REJECTED") == std::string::npos);
 }
 
+void testDeviceConfigWarnings() {
+  using W = DeviceConfigWarnings;
+  W::Warning w[W::MAX_WARNINGS];
+  // Clean default config: no warning, no WARN line.
+  assert(W::collect(DeviceConfig{}, w) == 0);
+  char text[W::MAX_TEXT_SIZE];
+  assert(W::format(DeviceConfig{}, text, sizeof(text)) == 0 && text[0] == '\0');
+  FakeSink clean;
+  TestRunner::showConfig(clean, DeviceConfig{}, true);
+  assert(clean.out.find("WARN") == std::string::npos);
+  // DOOR_IS_OUTDOOR
+  DeviceConfig door;
+  door.outdoor_slot = 3;
+  door.door_ref_slot = 3;
+  door.climate_alert_tiles = 0x07FF & ~(1u << 3);
+  assert(W::collect(door, w) == 1 && std::string(w[0].key) == "door_ref_slot" && std::string(w[0].reason) == "DOOR_IS_OUTDOOR");
+  door.door_ref_slot = 2; // different slot: no warning
+  assert(W::collect(door, w) == 0);
+  // door_ref_slot 0 and outdoor_slot 0 are both off: no warning
+  assert(W::collect(DeviceConfig{}, w) == 0);
+  // WALL_WITHOUT_OUTDOOR
+  DeviceConfig wall;
+  wall.wall_frsi_pct = 70;
+  assert(W::collect(wall, w) == 1 && std::string(w[0].key) == "wall_frsi_pct" && std::string(w[0].reason) == "WALL_WITHOUT_OUTDOOR");
+  wall.outdoor_slot = 2;
+  wall.climate_alert_tiles = 0x07FF & ~(1u << 2);
+  assert(W::collect(wall, w) == 0);
+  // NIGHT_SHORTER: shorter warns, equal and off do not
+  DeviceConfig night;
+  night.wake_interval_s = 120;
+  night.night_wake_interval_s = 60;
+  assert(W::collect(night, w) == 1 && std::string(w[0].key) == "night_wake_interval_s" && std::string(w[0].reason) == "NIGHT_SHORTER");
+  night.night_wake_interval_s = 120;
+  assert(W::collect(night, w) == 0);
+  night.night_wake_interval_s = 0;
+  assert(W::collect(night, w) == 0);
+  // OUTDOOR_ALERTS: the bit of the outdoor slot is set; a clear bit and outdoor_slot 0 give none
+  DeviceConfig alerts;
+  alerts.outdoor_slot = 4;
+  assert(W::collect(alerts, w) == 1 && std::string(w[0].key) == "climate_alert_tiles" && std::string(w[0].reason) == "OUTDOOR_ALERTS");
+  alerts.climate_alert_tiles = 1u << 3; // slot 3 only
+  assert(W::collect(alerts, w) == 0);
+  alerts.climate_alert_tiles = 1u << 4;
+  assert(W::collect(alerts, w) == 1);
+  alerts.outdoor_slot = 0;
+  alerts.climate_alert_tiles = 0x07FF;
+  assert(W::collect(alerts, w) == 0);
+  // Boundary: slot 10 uses bit 10, the highest bit of climate_alert_tiles
+  DeviceConfig top;
+  top.outdoor_slot = 10;
+  assert(W::collect(top, w) == 1 && std::string(w[0].reason) == "OUTDOOR_ALERTS");
+  top.climate_alert_tiles = 0x07FF & ~(1u << 10);
+  assert(W::collect(top, w) == 0);
+  top.door_ref_slot = 5;
+  assert(W::collect(top, w) == 0);
+  // Rule order: DOOR_IS_OUTDOOR, WALL_WITHOUT_OUTDOOR, NIGHT_SHORTER, OUTDOOR_ALERTS.
+  // WALL_WITHOUT_OUTDOOR needs outdoor_slot 0, the door and alert rules need it set: three rules at most together.
+  DeviceConfig order;
+  order.outdoor_slot = 2;
+  order.door_ref_slot = 2;
+  order.wake_interval_s = 300;
+  order.night_wake_interval_s = 60;
+  assert(W::collect(order, w) == 3);
+  assert(std::string(w[0].reason) == "DOOR_IS_OUTDOOR" && std::string(w[1].reason) == "NIGHT_SHORTER" &&
+         std::string(w[2].reason) == "OUTDOOR_ALERTS");
+  DeviceConfig wall_night;
+  wall_night.wall_frsi_pct = 70;
+  wall_night.wake_interval_s = 300;
+  wall_night.night_wake_interval_s = 60;
+  assert(W::collect(wall_night, w) == 2);
+  assert(std::string(w[0].reason) == "WALL_WITHOUT_OUTDOOR" && std::string(w[1].reason) == "NIGHT_SHORTER");
+  // format writes one line for each warning in the same order
+  char lines[W::MAX_TEXT_SIZE];
+  const size_t len = W::format(order, lines, sizeof(lines));
+  assert(std::string(lines) == "WARN key=door_ref_slot reason=DOOR_IS_OUTDOOR\n"
+                               "WARN key=night_wake_interval_s reason=NIGHT_SHORTER\n"
+                               "WARN key=climate_alert_tiles reason=OUTDOOR_ALERTS\n" && len == strlen(lines));
+}
+
+void testSerialConfigWarnLines() {
+  // Line order: settings, SOURCE, REJECTED, WARN, CRC32; the CRC32 covers the WARN lines.
+  ConfigParseResult r;
+  DeviceConfig cfg = parseText("chime_volume_pct=x\nwall_frsi_pct=70\nwake_interval_s=300\nnight_wake_interval_s=60\n", &r);
+  FakeSink sink;
+  TestRunner::showConfig(sink, cfg, true, r.rejects());
+  const std::string& out = sink.out;
+  const size_t source_at = out.find("SOURCE SD\n");
+  const size_t crc_at = out.rfind("CRC32 ");
+  assert(source_at != std::string::npos && crc_at != std::string::npos);
+  assert(out.substr(source_at, crc_at - source_at) ==
+         "SOURCE SD\nREJECTED line=1 reason=BAD_VALUE\n"
+         "WARN key=wall_frsi_pct reason=WALL_WITHOUT_OUTDOOR\nWARN key=night_wake_interval_s reason=NIGHT_SHORTER\n");
+  SerialCrc32 crc;
+  crc.update(reinterpret_cast<const uint8_t*>(out.data()), crc_at);
+  char expected[16];
+  snprintf(expected, sizeof(expected), "%08lx", static_cast<unsigned long>(crc.value()));
+  assert(out.substr(crc_at + 6, 8) == expected);
+  // DeviceConfigCheck prints the same lines after "REJECTED count" and keeps the exit code at 0
+  const char* ini = "wall_frsi_pct=70\n";
+  static char report[DeviceConfigCheck::MAX_REPORT_SIZE];
+  assert(DeviceConfigCheck::run(ini, strlen(ini), report, sizeof(report)) == DeviceConfigCheck::EXIT_OK);
+  const std::string rep(report);
+  const size_t count_at = rep.find("REJECTED count=0\n");
+  assert(count_at != std::string::npos);
+  assert(rep.substr(count_at) == "REJECTED count=0\nWARN key=wall_frsi_pct reason=WALL_WITHOUT_OUTDOOR\n");
+  // A rejected line and a warning: exit code 1 from the reject, WARN still printed
+  const char* both = "chime_volume_pct=abc\nwall_frsi_pct=70\n";
+  assert(DeviceConfigCheck::run(both, strlen(both), report, sizeof(report)) == DeviceConfigCheck::EXIT_REJECTED);
+  assert(std::string(report).find("WARN key=wall_frsi_pct") != std::string::npos);
+  // A clean file has no WARN line
+  const char* ok = "chime_volume_pct=40\n";
+  assert(DeviceConfigCheck::run(ok, strlen(ok), report, sizeof(report)) == DeviceConfigCheck::EXIT_OK);
+  assert(std::string(report).find("WARN") == std::string::npos);
+}
+
 static std::array<SwitchBotReading, 3> slotsOf(const SwitchBotRegistry& r) {
   return {r.slot(0), r.slot(1), r.slot(2)};
 }
@@ -30343,6 +30458,8 @@ testDeviceConfigEditor();
 testSerialSetConfigFlow();
 testSerialConfigRoundTrip();
 testSerialConfigRejectedLines();
+testDeviceConfigWarnings();
+testSerialConfigWarnLines();
 testSerialConfigStopsOnShortWrite();
 testSerialStatusParser();
 testSerialStatusEmptyAndMissingValues();
