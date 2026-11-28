@@ -40,11 +40,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Config key boot_display_mode for the view after a power-on
-  - **Location:** `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/button_handler.h`, `docs/config.example.ini`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigSchema.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigSchema.kt`, `tests/test_firmware_logic.cpp`, `FEATURES.md`
-  - **Goal:** Let the user select the first view after a power-on. Add `boot_display_mode` (0 to 5, default 0 `DASHBOARD`, `AUDIO_SPECTRUM` 3 is rejected because it needs the microphone). A power-on sets the display mode to this value. A `KEY` wakeup and a timer wakeup keep the stored mode. Add the key to the three app schemas.
-  - **Acceptance:** Host tests cover each value, the rejected value 3 and a timer wakeup. `testConfigExampleTemplateInSync`, the three schema tests and `arduino-cli compile rlcd_panel` pass.
-  - **Rank:** [Total: 27, Use: 5, Setup: 5, Harmony: 7, Safety: 10, Effort: S]
 - [ ] Monthly heat summary in the three apps
   - **Location:** `macos/RlcdCompanion/Sources/RlcdProtocol/MoldSummary.swift`, `macos/RlcdCompanion/Sources/RlcdCompanion/DailyChartView.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/MoldSummary.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/DaysScreen.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/MoldSummary.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/MoldSummaryScreen.kt`, the matching test files, `FEATURES.md`
   - **Goal:** Show the heat hours of each month like the mold hours. Add the sum of the `heat_h` columns for each room and month. Count a day only when the field has a value. Show `--` for a month without a heat value, for example a `daily_v6` month.

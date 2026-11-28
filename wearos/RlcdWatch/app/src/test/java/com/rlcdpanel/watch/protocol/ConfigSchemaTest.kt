@@ -99,6 +99,13 @@ class ConfigSchemaTest {
     }
 
     @Test
+    fun bootDisplayModeAcceptsZeroToFiveWithoutThree() {
+        for (ok in listOf("0", "1", "2", "4", "5")) assertNull("boot_display_mode=$ok", ConfigSchema.validate("boot_display_mode", ok))
+        for (bad in listOf("3", "6", "-1", "x", "")) assertNotNull("boot_display_mode=$bad", ConfigSchema.validate("boot_display_mode", bad))
+        assertEquals("0", ConfigSchema.entry("boot_display_mode")!!.defaultValue)
+    }
+
+    @Test
     fun delayKeysAcceptOffAndOneToTwelve() {
         for (key in listOf("heat_alert_delay_h", "dry_alert_delay_h", "mold_alert_delay_h")) {
             for (ok in listOf("0", "1", "12")) assertNull("$key=$ok", ConfigSchema.validate(key, ok))

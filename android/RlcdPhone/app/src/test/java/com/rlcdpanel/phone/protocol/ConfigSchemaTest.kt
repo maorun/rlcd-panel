@@ -66,6 +66,13 @@ class ConfigSchemaTest {
     }
 
     @Test
+    fun bootDisplayModeAcceptsZeroToFiveWithoutThree() {
+        for (ok in listOf("0", "1", "2", "4", "5")) assertNull("boot_display_mode=$ok", ConfigSchema.validate("boot_display_mode", ok))
+        for (bad in listOf("3", "6", "-1", "x", "")) assertNotNull("boot_display_mode=$bad", ConfigSchema.validate("boot_display_mode", bad))
+        assertEquals("0", ConfigSchema.entry("boot_display_mode")!!.defaultValue)
+    }
+
+    @Test
     fun receptionLowPctAcceptsOffAndThirtyToEighty() {
         assertNull(ConfigSchema.validate("reception_low_pct", "0"))
         assertNull(ConfigSchema.validate("reception_low_pct", "30"))

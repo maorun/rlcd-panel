@@ -690,7 +690,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 88;
+  static constexpr uint8_t STATE_VERSION = 89;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -724,7 +724,7 @@ public:
   // The offset arrays keep one entry for each of the slots. Each slot has offset keys.
   // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
   // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, door ref slot, ventilate limit, sensor battery limit, display invert, climate alert tiles (uint16), battery offset (int16), slot release hours, night wake interval (uint16), temperature unit (one byte, 'C' or 'F'), chime repeat hours, heat alert limit, dry alert limit, wall FRSI percent, BLE broadcast enabled, BLE console, USB temperature offset (int8), RH gain and one RH gain for each slot (int8 in 0.002 steps around 1.00), RH offset (float), one temperature offset and one RH offset for each slot (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), slot enabled mask (uint16), the rejected line count and the line numbers of the first four rejected lines (uint16 each), auto assign minimum RSSI (int8), mold alert delay hours, reception low percent, dry alert delay hours, jump limit in tenths of C, jump limit in %RH, drift limit in tenths of C, drift limit in tenths of %RH.
-  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + (1 + DeviceConfig::SLOT_COUNT) + 2 * DeviceConfig::SLOT_COUNT * 4 + NAMES_SIZE + MACS_SIZE + 1 + 2 + REJECTS_SIZE + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1;
+  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + (1 + DeviceConfig::SLOT_COUNT) + 2 * DeviceConfig::SLOT_COUNT * 4 + NAMES_SIZE + MACS_SIZE + 1 + 2 + REJECTS_SIZE + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1;
   // Header: magic, version, mode, chart sensor, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -796,6 +796,20 @@ public:
   // so the card stays unmounted in the normal cycle.
   static bool needsConfigLoad(WakeupCause cause) {
     return cause == WakeupCause::POWER_ON || cause == WakeupCause::KEY_BUTTON;
+  }
+
+  static_assert(DeviceConfig::MAX_BOOT_DISPLAY_MODE + 1 == DISPLAY_MODE_COUNT, "boot_display_mode must cover each DisplayMode");
+
+  // View of this wake cycle before a KEY press: a power-on takes `boot_display_mode` (a value that valid() rejects,
+  // 3 AUDIO_SPECTRUM or above 5, gives DASHBOARD); a KEY wakeup and a timer wakeup keep the stored mode.
+  static DisplayMode startMode(WakeupCause cause, DisplayMode stored, uint8_t boot_display_mode) {
+    if (cause != WakeupCause::POWER_ON) {
+      return stored;
+    }
+    if (!DeviceConfig::bootDisplayModeValid(boot_display_mode)) {
+      return DisplayMode::DASHBOARD;
+    }
+    return static_cast<DisplayMode>(boot_display_mode);
   }
 
   // While the protection is set, the wake cycle skips the BLE scan, the audio (chimes, microphones), the MicroSD card and Wi-Fi. Only the battery read, the warning and the sleep run.
@@ -1086,6 +1100,7 @@ public:
     out[pos++] = state.config.heat_alert_delay_h;
     out[pos++] = state.config.freeze_alert_delay_h;
     out[pos++] = state.config.stuck_alert_h;
+    out[pos++] = state.config.boot_display_mode;
     out[pos++] = static_cast<uint8_t>(state.events.size());
     out[pos++] = static_cast<uint8_t>(state.events.dropped() & 0xFF);
     out[pos++] = static_cast<uint8_t>(state.events.dropped() >> 8);
@@ -1505,6 +1520,7 @@ public:
     s.config.heat_alert_delay_h = data[pos++];
     s.config.freeze_alert_delay_h = data[pos++];
     s.config.stuck_alert_h = data[pos++];
+    s.config.boot_display_mode = data[pos++];
     if ((config_flags & ~1u) != 0 || !s.config.valid() || !rejectsValid(s.config_rejects)) {
       return false; // a corrupt record never reaches the alert limits
     }
