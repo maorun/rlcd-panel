@@ -334,4 +334,112 @@ struct DailyLogTests {
         #expect(rows.count == 1)
         #expect(rows[0].noisePeakDb == 71)
     }
+
+    // MARK: - monthSummary
+
+    private func stats(_ min: Double?, _ max: Double?, _ mean: Double?) -> DailySensorStats {
+        DailySensorStats(tempMinC: min, tempMaxC: max, tempMeanC: mean,
+                         rhMin: min.map { $0 + 20 }, rhMax: max.map { $0 + 20 }, rhMean: mean.map { $0 + 20 })
+    }
+
+    private func day(_ date: String, _ s: DailySensorStats, mold: Int? = nil, dry: Int? = nil, heat: Int? = nil) -> DailyRow {
+        DailyRow(date: date, sensors: [s], noiseMinDb: nil, noiseMaxDb: nil, noisePeakDb: nil, noisePeakHour: nil,
+                 noiseEventsSum: nil, moldHours: [mold], dryHours: [dry], heatHours: [heat])
+    }
+
+    @Test func monthSummaryOfFullYear() {
+        var rows: [DailyRow] = []
+        for m in 1...12 {
+            let t = Double(m)
+            rows.append(day(String(format: "2026-%02d-01", m), stats(t, t + 5, t + 2), mold: 1, dry: 2, heat: 3))
+            rows.append(day(String(format: "2026-%02d-15", m), stats(t - 1, t + 8, t + 4), mold: 4, dry: 0, heat: 6))
+        }
+        let months = DailyLog.monthSummary(rows: rows, sensor: 0)
+        #expect(months.count == 12)
+        #expect(months.map(\.month).first == "2026-01")
+        #expect(months.map(\.month).last == "2026-12")
+        #expect(months.allSatisfy { !$0.isGap && $0.days == 2 })
+        let march = months[2]
+        #expect(march.tempMinC == 2) // smaller of 3 and 2
+        #expect(march.tempMaxC == 11) // larger of 8 and 11
+        #expect(march.tempMeanC == 6) // mean of 5 and 7
+        #expect(march.rhMin == 22)
+        #expect(march.rhMax == 31)
+        #expect(march.rhMean == 26)
+        #expect(march.moldHours == 5)
+        #expect(march.dryHours == 2)
+        #expect(march.heatHours == 9)
+    }
+
+    @Test func monthWithoutRowIsGap() {
+        let rows = [day("2026-01-10", stats(1, 5, 3), mold: 2), day("2026-04-02", stats(8, 12, 10), mold: 0)]
+        let months = DailyLog.monthSummary(rows: rows, sensor: 0)
+        #expect(months.map(\.month) == ["2026-01", "2026-02", "2026-03", "2026-04"])
+        #expect(months[1].isGap && months[2].isGap)
+        #expect(months[1].tempMinC == nil && months[1].moldHours == nil && months[1].heatHours == nil)
+        #expect(months[3].moldHours == 0) // a sum of 0 stays 0
+        #expect(months[3].heatHours == nil)
+    }
+
+    @Test func monthSummaryOfNoRowsIsEmpty() {
+        #expect(DailyLog.monthSummary(rows: [], sensor: 0).isEmpty)
+    }
+
+    @Test func monthSummaryOfNegativeSensorIsGaps() {
+        let months = DailyLog.monthSummary(rows: [day("2026-05-10", stats(3, 4, 3.5))], sensor: -1)
+        #expect(months.count == 1 && months[0].isGap)
+    }
+
+    @Test func monthSummaryIgnoresMalformedDates() {
+        let rows = [day("2026-00-10", stats(1, 2, 1.5)), day("2026-13-10", stats(1, 2, 1.5)),
+                    day("1999-05-10", stats(1, 2, 1.5)), day("bad", stats(1, 2, 1.5)), day("2026-05-10", stats(3, 4, 3.5))]
+        let months = DailyLog.monthSummary(rows: rows, sensor: 0)
+        #expect(months.map(\.month) == ["2026-05"])
+    }
+
+    @Test func monthSummaryKeepsEveryMonthOfALongSpan() {
+        let rows = [day("2025-01-10", stats(1, 2, 1.5)), day("2026-03-10", stats(1, 2, 1.5))]
+        let months = DailyLog.monthSummary(rows: rows, sensor: 0)
+        #expect(months.count == 15)
+        #expect(months.dropFirst().dropLast().allSatisfy { $0.isGap })
+        #expect(Array(months.suffix(12)).first?.month == "2025-04")
+    }
+
+    @Test func monthSummaryYearChangeSensorRangeAndOrder() {
+        // A year change gives one month each; a sensor beyond the row width or an empty sensor is a gap.
+        let rows = [day("2025-12-31", stats(1, 2, 1.5)), day("2026-01-01", stats(nil, nil, nil))]
+        #expect(DailyLog.monthSummary(rows: rows, sensor: 0).map(\.month) == ["2025-12", "2026-01"])
+        #expect(DailyLog.monthSummary(rows: rows, sensor: 0)[1].isGap)
+        #expect(DailyLog.monthSummary(rows: rows, sensor: 3).allSatisfy { $0.isGap })
+        // Unsorted input gives the same result.
+        #expect(DailyLog.monthSummary(rows: rows.reversed(), sensor: 0) == DailyLog.monthSummary(rows: rows, sensor: 0))
+    }
+
+    @Test func monthSummaryOfMixedV5ToV7Files() throws {
+        let empty = Array(repeating: "", count: 6).joined(separator: ",")
+        let moldEmpty = Array(repeating: "", count: 10).joined(separator: ",")
+        let blank = Array(repeating: "", count: 10)
+        func base(_ date: String, _ t: String) -> String {
+            "\(date),\(t),24.0,\(t),40.0,55.5,47.0" + String(repeating: ",\(empty)", count: 10) + ",35,62,71,18,12"
+        }
+        let v5 = base("2026-01-10", "10.0") + ",3,\(moldEmpty)"
+        let v6 = base("2026-02-10", "12.0") + ",4,\(moldEmpty)," + (["5"] + blank).joined(separator: ",")
+        let v7 = base("2026-02-20", "8.0") + ",6,\(moldEmpty)," + (["1"] + blank).joined(separator: ",") + ","
+            + (["7"] + blank).joined(separator: ",")
+        let rows = try DailyLog.parse(text: headerV5() + "\n" + v5 + "\n").rows
+            + DailyLog.parse(text: headerV6() + "\n" + v6 + "\n").rows
+            + DailyLog.parse(text: headerV7() + "\n" + v7 + "\n").rows
+        let months = DailyLog.monthSummary(rows: rows, sensor: 0)
+        #expect(months.map(\.month) == ["2026-01", "2026-02"])
+        #expect(months[0].moldHours == 3)
+        #expect(months[0].dryHours == nil) // daily_v5 has no dry or heat columns
+        #expect(months[0].heatHours == nil)
+        #expect(months[1].days == 2)
+        #expect(months[1].tempMinC == 8)
+        #expect(months[1].tempMaxC == 24)
+        #expect(months[1].tempMeanC == 10)
+        #expect(months[1].moldHours == 10)
+        #expect(months[1].dryHours == 6)
+        #expect(months[1].heatHours == 7) // only the daily_v7 row holds heat hours
+    }
 }
