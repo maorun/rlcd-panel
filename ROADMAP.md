@@ -37,11 +37,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Goal:** Let the user replace a sensor from a scan row. Needs the entry "Console command SLOT REPLACE for a new sensor in a slot". Add the menu item `Replace sensor in slot <N>` for a scanned MAC without a slot. Ask for a confirmation that names the offsets that go back to the default. Send `SLOT REPLACE`, then `STATUS`. Map each `ERR` reply to a text.
   - **Acceptance:** Unit tests cover the command text, the menu rules and the error texts. `swift test` passes. The CI job of the phone passes.
   - **Rank:** [Total: 31, Use: 6, Setup: 9, Harmony: 8, Safety: 8, Effort: M]
-- [ ] Batch mode for the console command SET
-  - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/device_config.h`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigBatch.kt`, `tests/test_firmware_logic.cpp`, `FEATURES.md`
-  - **Goal:** Write a batch of keys to the card in one file write. Add `SET BEGIN`, `SET ABORT` and `SET COMMIT`. After `SET BEGIN`, each `SET` checks the value and keeps it in RAM (reply `OK QUEUED <key>`, at most 32 keys). `SET COMMIT` writes all keys through one `config.tmp` write, applies the config and records one `CONFIG_SET` event for each key. A link loss, 60 s without a line or `SET ABORT` drops the queue. The apps use the batch mode when the reply to `SET BEGIN` is `OK`, else the old single `SET` lines.
-  - **Acceptance:** Host tests cover queue, commit, abort, the timeout, a full queue and a failed write without a state change. App tests cover both paths. The host test command, `arduino-cli compile rlcd_panel` and `swift test` pass.
-  - **Rank:** [Total: 30, Use: 4, Setup: 8, Harmony: 9, Safety: 9, Effort: M]
 
 ## Priority 3: Display and Logging (Score 22–27)
 

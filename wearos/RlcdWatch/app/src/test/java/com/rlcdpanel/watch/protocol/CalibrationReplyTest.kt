@@ -97,7 +97,7 @@ class CalibrationReplyTest {
         assertEquals(listOf("temp_offset_c", "usb_temp_offset_c"), reply.proposals.map { it.key })
         val sent = mutableListOf<String>()
         var result: CalibrationBatch.Result? = null
-        CalibrationBatch(reply.proposals).run(
+        CalibrationBatch(reply.proposals, batchMode = false).run(
             send = { cmd, done ->
                 sent.add(cmd)
                 done(if (cmd == "CONFIG") ConsoleReply.Frame(emptyList()) else ConsoleReply.Status("OK SET"))

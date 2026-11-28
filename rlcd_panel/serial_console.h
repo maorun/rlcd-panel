@@ -41,7 +41,7 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, SLOT_REPLACE, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST, SPREAD, TAIL, TODAY, DAYS, RECEPTION, ALERTS, HELP, VERIFY };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, SLOT_REPLACE, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST, SPREAD, TAIL, TODAY, DAYS, RECEPTION, ALERTS, HELP, VERIFY, SET_BEGIN, SET_ABORT, SET_COMMIT };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
@@ -107,6 +107,9 @@ struct SerialCommandRules {
       {"HISTORY", "HISTORY", SerialCommandKind::HISTORY, false, 1, false, false},
       {"VERSION", "VERSION", SerialCommandKind::VERSION, false, 1, false, false},
       {"SET", "SET display_invert=0", SerialCommandKind::SET, false, 2, true, true},
+      {"SET BEGIN", "SET BEGIN", SerialCommandKind::SET_BEGIN, false, 2, true, false},
+      {"SET ABORT", "SET ABORT", SerialCommandKind::SET_ABORT, false, 2, true, false},
+      {"SET COMMIT", "SET COMMIT", SerialCommandKind::SET_COMMIT, false, 2, true, true},
       {"EVENTS", "EVENTS", SerialCommandKind::EVENTS, false, 1, false, false},
       {"PATTERN", "PATTERN 0", SerialCommandKind::PATTERN, false, 1, false, false},
       {"SCAN", "SCAN", SerialCommandKind::SCAN, false, 0, false, false},
@@ -146,6 +149,94 @@ struct SerialCommandRules {
     }
     return nullptr;
   }
+};
+
+// Queue of the console batch mode ("SET BEGIN", then "SET <key>=<value>" lines, then "SET COMMIT" or "SET ABORT"). It keeps the
+// checked pairs in RAM only (no RTC state, no card access) until one file write. At most MAX_KEYS keys: a repeated key keeps one
+// entry with the newest value. The queue drops itself after TIMEOUT_MS without a line (`expire`), and the caller clears it when
+// the link of the owner is lost (`transport`: 0 USB, 1 BLE). The clock is the unsigned 32-bit difference, so a clock wrap is safe.
+class SetBatch {
+public:
+  static constexpr size_t MAX_KEYS = 32;
+  static constexpr uint32_t TIMEOUT_MS = 60000;
+  enum class Queue : uint8_t { OK = 0, NOT_ACTIVE, FULL, BAD_KEY };
+  struct Entry {
+    uint8_t key_index = 0; // index in DeviceConfigParser::KEYS
+    char value[SET_VALUE_SIZE] = {0};
+  };
+
+  bool active() const { return active_; }
+  // True for a running queue that this transport started: only its owner queues, commits and aborts.
+  bool ownedBy(uint8_t transport) const { return active_ && transport_ == transport; }
+  size_t count() const { return count_; }
+  uint8_t transport() const { return transport_; }
+  const Entry& at(size_t i) const { return entries_[i]; }
+
+  // Starts an empty queue; a running queue is dropped first.
+  void begin(uint32_t now_ms, uint8_t transport) {
+    clear();
+    active_ = true;
+    last_ms_ = now_ms;
+    transport_ = transport;
+  }
+  void clear() {
+    active_ = false;
+    count_ = 0;
+  }
+  // Any received line keeps the queue alive.
+  void touch(uint32_t now_ms) {
+    if (active_) {
+      last_ms_ = now_ms;
+    }
+  }
+  // True when the queue just dropped because TIMEOUT_MS passed without a line.
+  bool expire(uint32_t now_ms) {
+    if (active_ && static_cast<uint32_t>(now_ms - last_ms_) >= TIMEOUT_MS) {
+      clear();
+      return true;
+    }
+    return false;
+  }
+  Queue add(const char* key, const char* value, uint32_t now_ms) {
+    if (!active_) {
+      return Queue::NOT_ACTIVE;
+    }
+    size_t index = DeviceConfigParser::KEY_COUNT;
+    for (size_t i = 0; i < DeviceConfigParser::KEY_COUNT; ++i) {
+      if (strcmp(key, DeviceConfigParser::KEYS[i]) == 0) {
+        index = i;
+        break;
+      }
+    }
+    if (index == DeviceConfigParser::KEY_COUNT) {
+      return Queue::BAD_KEY;
+    }
+    size_t slot = count_;
+    for (size_t i = 0; i < count_; ++i) {
+      if (entries_[i].key_index == index) {
+        slot = i;
+        break;
+      }
+    }
+    if (slot == count_) {
+      if (count_ >= MAX_KEYS) {
+        return Queue::FULL;
+      }
+      ++count_;
+    }
+    entries_[slot].key_index = static_cast<uint8_t>(index);
+    strncpy(entries_[slot].value, value, SET_VALUE_SIZE - 1);
+    entries_[slot].value[SET_VALUE_SIZE - 1] = '\0';
+    last_ms_ = now_ms;
+    return Queue::OK;
+  }
+
+private:
+  bool active_ = false;
+  uint8_t count_ = 0;
+  uint8_t transport_ = 0;
+  uint32_t last_ms_ = 0;
+  Entry entries_[MAX_KEYS];
 };
 
 // One log file as the storage reports it.
@@ -215,6 +306,19 @@ public:
       return SerialParseStatus::OK;
     }
     if (matches(line, cmd_len, "SET")) {
+      // Batch mode: "SET BEGIN", "SET ABORT" and "SET COMMIT" (no '=' and no argument)
+      if (len == cmd_len + 6 && memcmp(line + cmd_len + 1, "BEGIN", 5) == 0) {
+        out.kind = SerialCommandKind::SET_BEGIN;
+        return SerialParseStatus::OK;
+      }
+      if (len == cmd_len + 6 && memcmp(line + cmd_len + 1, "ABORT", 5) == 0) {
+        out.kind = SerialCommandKind::SET_ABORT;
+        return SerialParseStatus::OK;
+      }
+      if (len == cmd_len + 7 && memcmp(line + cmd_len + 1, "COMMIT", 6) == 0) {
+        out.kind = SerialCommandKind::SET_COMMIT;
+        return SerialParseStatus::OK;
+      }
       // "SET <key>=<value>": one key of DeviceConfigParser::KEYS and a value that its rules accept
       if (len < cmd_len + 2) {
         return SerialParseStatus::BAD_KEY;
@@ -3758,8 +3862,140 @@ public:
     return true;
   }
 
+  // Console "SET BEGIN": starts an empty queue (a running queue of the same transport is dropped). Reply "OK SET BEGIN".
+  // "ERR BATCH_BUSY" while the other transport owns a running queue: USB and BLE can run together, and the owner keeps its
+  // queue. The other transport then sends single SET lines. No card access. True when the queue started.
+  static bool batchBegin(Sink& sink, SetBatch& batch, uint32_t now_ms, uint8_t transport = 0) {
+    if (batch.active() && !batch.ownedBy(transport)) {
+      send(sink, "ERR BATCH_BUSY\n");
+      return false;
+    }
+    batch.begin(now_ms, transport);
+    send(sink, "OK SET BEGIN\n");
+    return true;
+  }
+
+  // Console "SET ABORT": drops the queue. Reply "OK SET ABORT", "ERR NO_BATCH" without a queue or for a queue of the other transport.
+  static void batchAbort(Sink& sink, SetBatch& batch, uint8_t transport = 0) {
+    if (!batch.ownedBy(transport)) {
+      send(sink, "ERR NO_BATCH\n");
+      return;
+    }
+    batch.clear();
+    send(sink, "OK SET ABORT\n");
+  }
+
+  // "SET <key>=<value>" while a queue runs: `queueSet` checks the pair again and keeps it in RAM. Reply
+  // "OK QUEUED <key>", "ERR BATCH_FULL" for a 33rd distinct key (the queue stays), "ERR BAD_KEY" or "ERR BAD_VALUE". True when queued.
+  static bool queueSet(Sink& sink, SetBatch& batch, const SerialCommand& command, uint32_t now_ms) {
+    const DeviceConfigParser::SettingCheck check =
+        command.kind == SerialCommandKind::SET
+            ? DeviceConfigParser::checkSetting(command.set_key, strlen(command.set_key), command.set_value,
+                                               strlen(command.set_value))
+            : DeviceConfigParser::SettingCheck::BAD_KEY;
+    if (check != DeviceConfigParser::SettingCheck::OK) {
+      reject(sink, check == DeviceConfigParser::SettingCheck::BAD_VALUE ? SerialParseStatus::BAD_VALUE
+                                                                        : SerialParseStatus::BAD_KEY);
+      return false;
+    }
+    const SetBatch::Queue result = batch.add(command.set_key, command.set_value, now_ms);
+    if (result == SetBatch::Queue::FULL) {
+      send(sink, "ERR BATCH_FULL\n");
+      return false;
+    }
+    if (result == SetBatch::Queue::NOT_ACTIVE) {
+      send(sink, "ERR NO_BATCH\n");
+      return false;
+    }
+    if (result != SetBatch::Queue::OK) {
+      reject(sink, SerialParseStatus::BAD_KEY);
+      return false;
+    }
+    char line[SET_KEY_SIZE + 16];
+    snprintf(line, sizeof(line), "OK QUEUED %s\n", command.set_key);
+    send(sink, line);
+    return true;
+  }
+
+  // Console "SET COMMIT": writes every queued key to /sdcard/config.ini in one file write through config.tmp. `apply` runs
+  // after the new file is in place (like setConfig); then one CONFIG_SET event follows for each key (with `events` and `now`)
+  // and the queue clears. Reply "OK SET COMMIT <N>". "ERR NO_BATCH" without a queue of this transport, "ERR NO_CARD", "ERR TOO_LARGE" or
+  // "ERR WRITE_FAILED": no apply, no event and no RTC state change; the queue stays, so SET COMMIT can run again or SET ABORT
+  // can drop it. An empty queue commits nothing ("OK SET COMMIT 0", no card access). True on success.
+  template <typename Apply>
+  static bool commitBatch(Storage& storage, Sink& sink, SetBatch& batch, Apply apply, EventRing* events = nullptr,
+                          const RtcTime* now = nullptr, uint8_t transport = 0) {
+    if (!batch.ownedBy(transport)) { // no queue, or a queue of the other transport (USB and BLE can run together)
+      send(sink, "ERR NO_BATCH\n");
+      return false;
+    }
+    const size_t count = batch.count();
+    if (count == 0) {
+      batch.clear();
+      send(sink, "OK SET COMMIT 0\n");
+      return true;
+    }
+    if (!storage.mount()) {
+      send(sink, "ERR NO_CARD\n");
+      return false;
+    }
+    char* const current = configScratch(0);
+    char* const buf_a = configScratch(1);
+    HeapBuffer scratch_b(DeviceConfigParser::MAX_FILE_SIZE + 1); // third buffer: heap, freed on each exit
+    char* const buf_b = scratch_b.get();
+    if (buf_b == nullptr) {
+      storage.unmount();
+      send(sink, "ERR WRITE_FAILED\n");
+      return false;
+    }
+    size_t current_len = 0;
+    bool exists = false;
+    if (!storage.readConfig(current, DeviceConfigParser::MAX_FILE_SIZE + 1, current_len, exists)) {
+      storage.unmount();
+      send(sink, "ERR WRITE_FAILED\n");
+      return false;
+    }
+    if (current_len > DeviceConfigParser::MAX_FILE_SIZE) {
+      storage.unmount();
+      send(sink, "ERR TOO_LARGE\n");
+      return false;
+    }
+    const char* from = current;
+    size_t from_len = current_len;
+    char* targets[2] = {buf_a, buf_b};
+    size_t to_len = 0;
+    for (size_t k = 0; k < count; ++k) {
+      char* to = targets[k % 2];
+      const SetBatch::Entry& entry = batch.at(k);
+      if (DeviceConfigEditor::set(from, from_len, DeviceConfigParser::KEYS[entry.key_index], entry.value, to, to_len) !=
+          DeviceConfigEditor::Result::OK) {
+        storage.unmount();
+        send(sink, "ERR TOO_LARGE\n");
+        return false;
+      }
+      from = to;
+      from_len = to_len;
+    }
+    if (!commitConfig(storage, sink, current, current_len, exists, from, from_len)) {
+      return false;
+    }
+    apply(from, from_len);
+    if (events != nullptr && now != nullptr) {
+      for (size_t k = 0; k < count; ++k) {
+        events->record(*now, EventCode::CONFIG_SET, static_cast<uint16_t>((transport << 8) | batch.at(k).key_index));
+      }
+    }
+    batch.clear();
+    char line[40];
+    snprintf(line, sizeof(line), "OK SET COMMIT %u\n", static_cast<unsigned>(count));
+    send(sink, line);
+    return true;
+  }
+
   static void execute(Storage& storage, Sink& sink, const SerialCommand& command) {
     if (command.kind == SerialCommandKind::NONE || command.kind == SerialCommandKind::CONFIG ||
+        command.kind == SerialCommandKind::SET_BEGIN || command.kind == SerialCommandKind::SET_ABORT ||
+        command.kind == SerialCommandKind::SET_COMMIT ||
         command.kind == SerialCommandKind::CALIB || command.kind == SerialCommandKind::SALT ||
         command.kind == SerialCommandKind::STATUS ||
         command.kind == SerialCommandKind::BEEP || command.kind == SerialCommandKind::TIME ||
@@ -3821,6 +4057,9 @@ public:
       case SerialCommandKind::HELP:
       case SerialCommandKind::VERSION:
       case SerialCommandKind::SET:
+      case SerialCommandKind::SET_BEGIN:
+      case SerialCommandKind::SET_ABORT:
+      case SerialCommandKind::SET_COMMIT:
       default: break;
     }
     storage.unmount();

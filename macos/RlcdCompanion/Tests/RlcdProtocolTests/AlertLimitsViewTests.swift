@@ -109,7 +109,7 @@ private func config(_ pairs: [String: String]) -> ConfigReply { ConfigReply(valu
             edits: ["mold_alert_limit_rh": "60", "dry_alert_delay_h": "3"], config: config([:])) else {
             Issue.record("expected commands"); return
         }
-        var batch = ConfigBatch(commands: commands)
+        var batch = ConfigBatch(commands: commands, batchMode: false)
         var lines: [String] = []
         while let next = batch.next() {
             lines.append(next.line ?? "")
@@ -120,7 +120,7 @@ private func config(_ pairs: [String: String]) -> ConfigReply { ConfigReply(valu
     }
 
     @Test func firstErrStopsTheRemainingSets() {
-        var batch = ConfigBatch(commands: [.set(key: "mold_alert_limit_rh", value: "60"), .set(key: "dry_alert_delay_h", value: "3")])
+        var batch = ConfigBatch(commands: [.set(key: "mold_alert_limit_rh", value: "60"), .set(key: "dry_alert_delay_h", value: "3")], batchMode: false)
         _ = batch.next()
         batch.receive(status: "ERR BAD_VALUE")
         #expect(batch.next() == .config)

@@ -1953,7 +1953,7 @@ final class AppModel: ConsoleLinkDelegate {
                 finishDownload(cmd, text: "rejected: \(e)")
                 batch?.receive(status: "ERR CORRUPT")
             case (_, let .status(text)):
-                message = text
+                if cmd != .setBegin { message = text } // an ERR to SET BEGIN only selects the single SET lines
                 if case .ack = cmd { message = ConsoleCommand.ackMessage(text) }
                 if cmd == .ackAll { message = ConsoleCommand.ackMessage(text) }
                 if cmd == .identify {
@@ -2014,6 +2014,7 @@ final class AppModel: ConsoleLinkDelegate {
                     message = "Older firmware: reading the full HISTORY"
                 } else if Self.isSaltHistory(cmd), text.hasPrefix("ERR") { stopSaltWatch(.replyFailed) }
                 if case .set = cmd { configChanged = nil } // any SET (form, assistant, calibration) makes the list old
+                if cmd == .setCommit { configChanged = nil }
                 batch?.receive(status: text)
                 if text.hasPrefix("ERR"), !keepQueue { queue.removeAll() }
                 if let retry = todayRetry { queue = [retry] }
@@ -2175,7 +2176,7 @@ final class AppModel: ConsoleLinkDelegate {
             case (.dump, _):
                 queue.removeAll()
                 finishDownload(cmd, text: "unexpected reply")
-            case (.set, .frame): batch?.receive(status: "ERR UNEXPECTED_REPLY")
+            case (.set, .frame), (.setBegin, .frame), (.setCommit, .frame), (.setAbort, .frame): batch?.receive(status: "ERR UNEXPECTED_REPLY")
             case (.timeSet, .frame), (.beep, .frame), (.pattern, .frame), (.mute, .frame), (.snooze, .frame), (.ack, .frame), (.ackAll, .frame), (.rtcTrim, .frame), (.ntpSync, .frame), (.identify, .frame), (.slotClear, .frame), (.slotSwap, .frame):
                 message = "Unexpected frame reply"
             }

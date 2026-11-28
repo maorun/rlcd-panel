@@ -117,7 +117,7 @@ class TwoPointCalibrationTest {
     fun resultGoesThroughTheBatchInOrder() {
         val r = TwoPointCalibration.compute(reply("slot2", 70.0, 75.4), reply("slot2", 30.0, 32.8), emptyMap())
         val sent = mutableListOf<String>()
-        CalibrationBatch(r.proposals).run(
+        CalibrationBatch(r.proposals, batchMode = false).run(
             { command, callback -> sent.add(command); callback(ConsoleReply.Status("OK")) },
             {}
         )
@@ -201,7 +201,7 @@ class TwoPointCalibrationTest {
         assertEquals("1.066", r.gain)
         assertEquals("0.8", r.offset)
         val sent = mutableListOf<String>()
-        CalibrationBatch(r.proposals).run(
+        CalibrationBatch(r.proposals, batchMode = false).run(
             { command, callback -> sent.add(command); callback(ConsoleReply.Status("OK")) },
             {}
         )
@@ -223,7 +223,7 @@ class TwoPointCalibrationTest {
         val r = TwoPointCalibration.compute(salt("slot2", 70.0, 20.0, 75.4), salt("slot2", 30.0, 20.0, 32.8), emptyMap())
         val sent = mutableListOf<String>()
         var result: CalibrationBatch.Result? = null
-        CalibrationBatch(r.proposals).run(
+        CalibrationBatch(r.proposals, batchMode = false).run(
             { command, callback -> sent.add(command); callback(ConsoleReply.Status("ERR READ_ONLY")) },
             { result = it }
         )

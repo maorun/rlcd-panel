@@ -116,7 +116,7 @@ class TwoPointCalibrationTest {
     fun resultGoesThroughTheBatchInOrder() {
         val r = TwoPointCalibration.compute(reply("slot2", 70.0, 75.4), reply("slot2", 30.0, 32.8), emptyMap())
         val sent = mutableListOf<String>()
-        CalibrationBatch(r.proposals).run(
+        CalibrationBatch(r.proposals, batchMode = false).run(
             { command, callback -> sent.add(command); callback(ConsoleReply.Status("OK")) },
             {}
         )
@@ -171,7 +171,7 @@ class TwoPointCalibrationTest {
     fun watchBatchSendsTheSetLinesOfSlot3() {
         val r = TwoPointCalibration.compute(reply("slot3", 70.0, 75.4), reply("slot3", 30.0, 32.8), emptyMap())
         val sent = mutableListOf<String>()
-        CalibrationBatch(r.proposals).run(
+        CalibrationBatch(r.proposals, batchMode = false).run(
             { command, callback -> sent.add(command); callback(ConsoleReply.Status("OK")) },
             {}
         )

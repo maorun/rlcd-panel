@@ -411,50 +411,114 @@ public enum ConfigSchema {
     }
 }
 
-/// Runs a batch: the `SET` commands one after the other, then one `CONFIG`. The first `ERR` reply to a
-/// `SET` drops the remaining `SET` commands. The final `CONFIG` still runs, so the form shows the panel state.
+/// Runs a batch: the `SET` commands, then one `CONFIG`. With two to `maxBatchKeys` keys the batch asks for the firmware batch
+/// mode first (`SET BEGIN`). On `OK` each `SET` only queues (`OK QUEUED <key>`) and `SET COMMIT` writes all keys in one file
+/// write; the keys count as applied after the `OK SET COMMIT` reply. On `ERR` (an older firmware, or `ERR READ_ONLY`) the
+/// old single `SET` lines follow. The first `ERR` reply to a `SET` drops the remaining `SET` commands (in batch mode
+/// `SET ABORT` drops the queue). The final `CONFIG` still runs, so the form shows the panel state.
 public struct ConfigBatch: Equatable {
+    /// The firmware queue holds 32 keys.
+    public static let maxBatchKeys = 32
+
     public private(set) var pending: [ConsoleCommand]
     public private(set) var applied: [String] = []
-    /// Key and reply text of the first failed `SET`.
+    /// Key and reply text of the first failed `SET` (`SET COMMIT` for a failed commit).
     public private(set) var failure: (key: String, reply: String)?
+    /// True after `OK` to `SET BEGIN`: the keys queue on the panel until `SET COMMIT`.
+    public private(set) var usesBatchMode = false
     private var current: ConsoleCommand?
+    private var allowBatchMode: Bool
+    private var started = false
+    private var queuedKeys: [String] = []
+    private var commitSent = false
 
     public static func == (l: ConfigBatch, r: ConfigBatch) -> Bool {
         l.pending == r.pending && l.applied == r.applied && l.current == r.current && l.configFailed == r.configFailed
             && l.failure?.key == r.failure?.key && l.failure?.reply == r.failure?.reply
+            && l.usesBatchMode == r.usesBatchMode && l.queuedKeys == r.queuedKeys && l.commitSent == r.commitSent
+            && l.started == r.started && l.allowBatchMode == r.allowBatchMode
     }
 
-    public init(changes: [ConfigChange]) {
+    public init(changes: [ConfigChange], batchMode: Bool = true) {
         pending = ConfigSchema.batch(for: changes) + [.config]
+        allowBatchMode = batchMode
     }
 
     /// A batch of ready `SET` commands in the given order, then one `CONFIG`.
-    public init(commands: [ConsoleCommand]) {
+    public init(commands: [ConsoleCommand], batchMode: Bool = true) {
         pending = commands + [.config]
+        allowBatchMode = batchMode
     }
 
     public var isFinished: Bool { pending.isEmpty && current == nil }
 
+    private var setCount: Int {
+        pending.filter { if case .set = $0 { return true } else { return false } }.count
+    }
+
     /// The next command to send, or `nil` when the batch is done or a reply is open.
     public mutating func next() -> ConsoleCommand? {
         guard current == nil, !pending.isEmpty else { return nil }
+        if !started {
+            started = true
+            if allowBatchMode, (2...Self.maxBatchKeys).contains(setCount) {
+                current = .setBegin
+                return current
+            }
+        }
+        if usesBatchMode, !commitSent, failure == nil, pending.first == .config {
+            commitSent = true
+            current = .setCommit
+            return current
+        }
         current = pending.removeFirst()
         return current
     }
 
-    /// Takes the status reply (`OK SET <key>` or `ERR <reason>`) of the running `SET`.
+    /// Takes the status reply (`OK SET <key>`, `OK QUEUED <key>` or `ERR <reason>`) of the running command.
     public mutating func receive(status: String) {
         if current == .config {
             current = nil
             if status.hasPrefix("ERR") { configFailed = true }
             return
         }
+        if current == .setBegin {
+            current = nil
+            if status.hasPrefix("OK") {
+                usesBatchMode = true
+            } else if status == "ERR CORRUPT" || status == "ERR UNEXPECTED_REPLY" {
+                // The reply is lost: the panel may hold a queue, and single SET lines would only queue there.
+                if failure == nil { failure = ("SET BEGIN", status) }
+                pending = [.setAbort, .config]
+            } // any other status: the single SET lines follow
+            return
+        }
+        if current == .setAbort {
+            current = nil // the queue is gone or times out on the panel
+            return
+        }
+        if current == .setCommit {
+            current = nil
+            if status.hasPrefix("ERR") || !status.hasPrefix("OK") {
+                if failure == nil { failure = ("SET COMMIT", status) }
+                pending = [.setAbort, .config] // a failed write keeps the queue on the panel
+            } else {
+                applied = queuedKeys
+            }
+            return
+        }
         guard case let .set(key, _)? = current else { return }
         current = nil
         if status.hasPrefix("ERR") {
             if failure == nil { failure = (key, status) }
-            pending = pending.filter { $0 == .config }
+            pending = usesBatchMode ? [.setAbort, .config] : pending.filter { $0 == .config }
+        } else if usesBatchMode != status.hasPrefix("OK QUEUED") {
+            // Batch mode needs `OK QUEUED`: a plain `OK SET` means the queue expired and the key was written alone.
+            // Single mode must not see `OK QUEUED`: a queue of an earlier run is open and nothing was written.
+            if failure == nil { failure = (key, "ERR BATCH_STATE") }
+            pending = [.setAbort, .config]
+        } else if usesBatchMode {
+            if !queuedKeys.contains(key) { queuedKeys.append(key) } // applied only after SET COMMIT
         } else {
             applied.append(key)
         }

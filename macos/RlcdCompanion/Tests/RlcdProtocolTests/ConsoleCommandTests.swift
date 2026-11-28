@@ -30,7 +30,7 @@ import Testing
         .configChanged, .selfTest, .list, .dump("climate_v5_202601.csv"), .time,
         .timeSet(Date(timeIntervalSince1970: 1_800_000_000)), .beep(1), .pattern(1), .mute(true), .snooze(5),
         .ack(1), .ackAll, .rtcTrim, .ntpSync, .identify, .slotClear(1), .slotSwap(1, 2),
-        .set(key: "display_invert", value: "0"), .calib(1), .salt(1), .saltMagnesium(1),
+        .set(key: "display_invert", value: "0"), .setBegin, .setCommit, .setAbort, .calib(1), .salt(1), .saltMagnesium(1),
         .frsi(room: 0, wall: 1, hours: 6), .spread(hours: 12), .tail(3), .days(3), .today, .todaySensor(1), .help,
     ]
 
@@ -55,7 +55,7 @@ import Testing
     /// The `ble` rule of each command word (0 not over BLE, 1 each level, 2 only with `ble_console` 2), in fixture order.
     static let expectedBle: [(String, Int)] = [
         ("LIST", 1), ("INFO", 1), ("CONFIG", 1), ("CALIB", 1), ("STATUS", 1), ("BEEP", 1), ("TIME", 1), ("TIME SET", 2),
-        ("HISTORY", 1), ("VERSION", 1), ("SET", 2), ("EVENTS", 1), ("PATTERN", 1), ("SCAN", 0), ("MUTE", 2), ("SCREEN", 0),
+        ("HISTORY", 1), ("VERSION", 1), ("SET", 2), ("SET BEGIN", 2), ("SET ABORT", 2), ("SET COMMIT", 2), ("EVENTS", 1), ("PATTERN", 1), ("SCAN", 0), ("MUTE", 2), ("SCREEN", 0),
         ("SALT", 1), ("RTC TRIM", 2), ("WEEK", 1), ("SLOT CLEAR", 2), ("SLOT SWAP", 2), ("SLOT REPLACE", 2), ("REJECTS", 1),
         ("ACK", 2), ("IDENTIFY", 1), ("SNOOZE", 2), ("NTP SYNC", 0), ("FRSI", 1), ("SELFTEST", 1), ("SPREAD", 1),
         ("TAIL", 1), ("TODAY", 1), ("DAYS", 1), ("RECEPTION", 1), ("ALERTS", 1), ("DUMP", 0), ("VERIFY", 0), ("HELP", 1),
