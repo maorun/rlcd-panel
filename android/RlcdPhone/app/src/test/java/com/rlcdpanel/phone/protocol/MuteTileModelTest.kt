@@ -50,7 +50,8 @@ class MuteTileModelTest {
 
     @Test
     fun readOnlyPrefixNeedsAWordBoundary() {
-        assertEquals("Panel meldet: ERR READ_ONLYX", ChimeCommand.tileFailureText(ConsoleReply.Status("ERR READ_ONLYX"), ::fallback))
+        // The tile text needs the exact word; another line falls through to the common text of failureText.
+        assertEquals(ChimeCommand.READ_ONLY_TEXT, ChimeCommand.tileFailureText(ConsoleReply.Status("ERR READ_ONLYX"), ::fallback))
     }
 
     @Test
