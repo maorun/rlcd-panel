@@ -898,7 +898,7 @@ void testBatteryOffsetMv() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 31;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 31;
   assert(buf[pos] == 100 && buf[pos + 1] == 0);
   auto seal = [&]() {
     const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
@@ -912,7 +912,7 @@ void testBatteryOffsetMv() {
   bad[pos] = 0xD3; bad[pos + 1] = 0xFE; // -301 mV
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 33; // old state version without the offset
   seal();
@@ -1352,7 +1352,7 @@ void testComfortZone() {
   assert(memcmp(ok_fb.data(), cold_fb.data(), RLCD_BUFFER_SIZE) != 0);
 
   // No RTC state change
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
 }
 
 void testAbsHumidityStats() {
@@ -1381,7 +1381,7 @@ void testAbsHumidityStats() {
   assert(strcmp(text, "AH 8.6G") == 0);
   DashboardView::formatAbsHumidity(text, sizeof(text), SwitchBotReading{}, now);
   assert(strcmp(text, "AH --") == 0);
-  assert(PowerManager::STATE_VERSION == 87); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 88); // no RTC state change
 
   // Rendering: right edge at x = 392, line y + 54, no overlap with the widest record text
   BatteryReading battery;
@@ -1629,7 +1629,7 @@ void testFeelsLikeStats() {
   DashboardView::renderSensorStats(dashed, battery, slots, MAX_SWITCHBOT_SENSORS, "12:00", now, false, nullptr,
                                    nullptr, &config);
   assert(memcmp(fb.data(), dashed.data(), RLCD_BUFFER_SIZE) != 0);
-  assert(PowerManager::STATE_VERSION == 87); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 88); // no RTC state change
 }
 
 void testReceptionStats() {
@@ -1868,7 +1868,7 @@ void testMoldHoursStats() {
     }
     assert(i == 2 ? !differs : differs); // empty slot shows "MOLD --" in both renders
   }
-  assert(PowerManager::STATE_VERSION == 87); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 88); // no RTC state change
 }
 
 void testDashboardStatsDryHours() {
@@ -1989,7 +1989,7 @@ void testDashboardStatsDryHours() {
       assert(plain.getPixel(x, y) == plain_off.getPixel(x, y)); // nullptr config and limit 0 draw no DRY text
     }
   }
-  assert(PowerManager::STATE_VERSION == 87); // no RTC state change
+  assert(PowerManager::STATE_VERSION == 88); // no RTC state change
 }
 
 void testDashboardClimateLine() {
@@ -2345,7 +2345,7 @@ void testBleSignalStrength() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.registry.slot(0).rssi == -75);
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(buf));
   old[4] = 18;
@@ -3243,7 +3243,7 @@ void testRecordsPersistence() {
   memcpy(old, buf, sizeof(old));
   old[4] = 13;
   reseal(old);
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 }
 
@@ -3673,7 +3673,7 @@ void testHistoryPersistence() {
   assert(rejected.history.slots[0].size() == 0);
 
   // Each corrupt field with a valid CRC is rejected: head, sample range, sampled flag
-  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE - PowerManager::BATTERY_HISTORY_SIZE - PowerManager::NOISE_HISTORY_SIZE - 1;
+  const size_t sampled_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE - PowerManager::BATTERY_HISTORY_SIZE - PowerManager::NOISE_HISTORY_SIZE - 1;
   // Sample bytes: low byte at ring_pos + 2, high byte at ring_pos + 3 (little endian)
   const size_t cases[5][2] = {
       {ring_pos + 1, 24}, {ring_pos + 3, 0x7F}, {sampled_pos, 2}, {ring_pos + 3, 0xFF}, {ring_pos + 3, 0x04}};
@@ -3886,7 +3886,7 @@ void testNoiseHistoryPersistence() {
   }
 
   // The previous state version gives a clean start
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 8;
@@ -4089,7 +4089,7 @@ void testSdLogSchedule() {
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(r.last_log_ms == 123456 && r.has_logged);
-  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - 14 - 1] = 2; // has_logged precedes the 5-byte daily stamp, the 4-byte noise summary and the 5-byte SD status
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - 14 - 1] = 2; // has_logged precedes the 5-byte daily stamp, the 4-byte noise summary and the 5-byte SD status
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -4239,7 +4239,7 @@ void testSensorLostAlert() {
     }
   }
   // State encoding: audio byte = muted | mask << 1 | band << 6
-  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 5;
+  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 5;
   s.muted = false;
   s.alert_mask = ALERT_SENSOR_LOST;
   s.noise_band = NoiseBand::MODERATE;
@@ -4649,7 +4649,7 @@ void testAudioStatePersistence() {
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(!r.muted && r.alert_mask == ALERT_HUMIDITY);
   // No reserved bit is left: the band value 3 with a valid CRC is rejected
-  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 5] = 0xC0;
+  buf[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 5] = 0xC0;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
@@ -5625,7 +5625,7 @@ void testNoiseStatePersistence() {
     assert(r.noise_band == band && r.muted && r.alert_mask == ALERT_HUMIDITY);
   }
   // Band value 3 does not exist and is rejected even with a valid CRC
-  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 5;
+  const size_t audio_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 5;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   buf[audio_pos] = static_cast<uint8_t>(3 << 6);
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
@@ -5818,13 +5818,13 @@ void testNtpStatePersistence() {
   PersistentState d;
   assert(!d.ntp.has_attempted && NtpSchedule::due(d.ntp, 0, 24));
   // The previous format (version 4) is rejected, even with a valid CRC
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   buf[4] = 4;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(buf, sizeof(buf), r));
   // Reserved flag bit, success without attempt, and too many failures are rejected
-  const size_t flags_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE + 4;
+  const size_t flags_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE + 4;
   const uint8_t bad_flags[3][2] = {{4, 0}, {2, 0}, {1, NtpSchedule::MAX_FAILURES + 1}};
   for (const auto& b : bad_flags) {
     assert(PowerManager::serialize(s, buf, sizeof(buf)));
@@ -6494,7 +6494,7 @@ void testDeviceConfigRtcRoundTrip() {
 
   // A corrupt record is rejected, with a bad checksum and with a valid checksum
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
+  const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
   bad[cfg_pos + 8] ^= 0x40;
@@ -6645,7 +6645,7 @@ void testShtc3HumidityOffset() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && approxEqual(r.config.rh_offset_pct, -4.25f));
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   buf[4] = 16;
   const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
   for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -6852,7 +6852,7 @@ void testSlotCalibrationOffsets() {
     assert(r.config.slot_temp_offset_c[i] == s.config.slot_temp_offset_c[i]);
     assert(r.config.slot_rh_offset_pct[i] == s.config.slot_rh_offset_pct[i]);
   }
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   uint8_t old[PowerManager::SERIALIZED_SIZE];
   memcpy(old, buf, sizeof(old));
   old[4] = 17;
@@ -7042,7 +7042,7 @@ void testSensorNames() {
   assert(DeviceConfigText::format(defaults, text, sizeof(text)) > 0 && strstr(text, "_name") == nullptr);
 
   // RTC round trip, state version 21, and rejection of a corrupt name
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   PersistentState s;
   s.config = round;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -7922,7 +7922,7 @@ void testRtcDriftPersistence() {
   assert(PowerManager::deserialize(buf, sizeof(buf), r));
   assert(!r.rtc_drift.has_sync && !r.rtc_drift.has_drift);
   // Corrupt records are rejected, even with a valid CRC
-  const size_t drift_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - 17;
+  const size_t drift_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - 17;
   auto reseal = [&]() {
     const uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
     for (int i = 0; i < 4; ++i) buf[sizeof(buf) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -9112,7 +9112,7 @@ void testStatsPageRenderAndState() {
   assert(memcmp(a.data(), base.data(), St7305Framebuffer::BYTE_COUNT) != 0);
 
   // RTC state: the page byte round-trips, 2 is rejected, and the old version 50 is rejected
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   PersistentState st;
   st.stats_page = 1;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -9180,7 +9180,7 @@ void testClimateChartKeyHandling() {
 }
 
 void testClimateChartRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   PersistentState s;
   s.mode = DisplayMode::CLIMATE_CHART;
   s.chart_sensor = 5;
@@ -9711,7 +9711,7 @@ void testWeekHistoryInvalidTimeSkipsShift() {
 }
 
 void testWeekChartRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   const ClimateHistory history = weekKnownHistory();
   PersistentState s;
   s.mode = DisplayMode::WEEK_CHART;
@@ -9755,7 +9755,7 @@ void testWeekChartRtcRoundTrip() {
 
   // A corrupt week block is rejected behind a valid checksum: minimum above maximum, one gap byte only,
   // a humidity above 100 %RH, an impossible stamp date
-  const size_t week_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE;
+  const size_t week_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE;
   const size_t day_pos = week_pos + (1 * WeekHistory::DAYS + 0) * WeekHistory::DAY_SIZE; // sensor 1, day 0
   memcpy(bad, buf, sizeof(bad));
   bad[day_pos] = 200;
@@ -10787,7 +10787,7 @@ void testBatteryHistoryCorruptStamps() {
   }
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE -
+  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE -
                       PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE -
                       PowerManager::BATTERY_HISTORY_SIZE;
   const size_t stamps = base + 2 + BatteryHistory::CAPACITY * 2;
@@ -10821,7 +10821,7 @@ void testBatteryHistoryPersistence() {
   assert(s.battery_history.slope(a) && r.battery_history.slope(b) && a == b);
 
   // A flipped byte fails the checksum
-  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE -
+  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE -
                       PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - PowerManager::SD_LOG_SIZE -
                       PowerManager::BATTERY_HISTORY_SIZE;
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -12125,7 +12125,7 @@ void testChimeRepeat() {
   assert(AlertEvaluator::repeatableBits(static_cast<uint8_t>(ALERT_FREEZER | ALERT_CHARGE_FULL)) == ALERT_FREEZER);
 
   // RTC round trip: stamp, key and state version
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   PersistentState st;
   st.last_chime_ms = 0xFFFFFF00u;
   st.config.chime_repeat_h = 24;
@@ -12258,7 +12258,7 @@ void testSlotRelease() {
   PersistentState s;
   s.config.slot_release_h = 77;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 33;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 33;
   assert(buf[pos] == 77);
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   auto seal = [&]() {
@@ -12269,7 +12269,7 @@ void testSlotRelease() {
   bad[pos] = 169;
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 34; // old state version without the key
   seal();
@@ -12365,7 +12365,7 @@ void testNightWakeInterval() {
   PersistentState st;
   st.config.night_wake_interval_s = 0x0258; // 600
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 34;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 34;
   assert(buf[pos] == 0x58 && buf[pos + 1] == 0x02);
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   auto seal = [&]() {
@@ -12380,7 +12380,7 @@ void testNightWakeInterval() {
   bad[pos] = 0x09; bad[pos + 1] = 0x07; // 1801 s: above range
   seal();
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   memcpy(bad, buf, sizeof(bad));
   bad[4] = 35; // old state version without the key
   seal();
@@ -12582,7 +12582,7 @@ void testBleReceptionHistory() {
   assert(!PowerManager::deserialize(old, sizeof(old), out));
 
   // A count above 24, and a mask beyond the counted scans, are rejected behind a valid checksum.
-  const size_t rx = sizeof(buf) - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE;
+  const size_t rx = sizeof(buf) - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE;
   for (int variant = 0; variant < 3; ++variant) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
     memcpy(bad, buf, sizeof(buf));
@@ -13458,7 +13458,7 @@ void testAutoAssignMinRssi() {
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.auto_assign_min_rssi == -70 &&
          r.registry.minAssignRssi() == -70);
   // The byte sits at the end of the config trailer; a value outside the range is rejected with a valid CRC
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 11;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 11;
   assert(buf[pos] == static_cast<uint8_t>(-70));
   for (const int8_t bad_value : {static_cast<int8_t>(-101), static_cast<int8_t>(-39), static_cast<int8_t>(5)}) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -14330,7 +14330,7 @@ void testAwakeStatsStatusLine() {
 }
 
 void testAwakeStatsRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   assert(PowerManager::AWAKE_SIZE == 6);
   PersistentState s;
   for (int i = 0; i < 9; ++i) s.awake.record(4000 + 100 * static_cast<uint32_t>(i));
@@ -14341,7 +14341,7 @@ void testAwakeStatsRtcRoundTrip() {
   assert(out.awake.samples() == 9 && out.awake.lastMs() == 4800 && out.awake.maxMs() == 4800 &&
          out.awake.meanMs() == s.awake.meanMs());
   // The block sits just before the checksum: last, max, packed mean and count (little endian).
-  const size_t at = sizeof(buf) - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE;
+  const size_t at = sizeof(buf) - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE;
   assert(buf[at] == (4800 & 0xFF) && buf[at + 1] == (4800 >> 8) && buf[at + 2] == buf[at] && buf[at + 3] == buf[at + 1]);
   assert((buf[at + 4] & 0x1F) == 9);
 
@@ -14391,7 +14391,7 @@ void testAwakeStatsRtcRoundTrip() {
 }
 
 void testShtc3RtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   PersistentState s;
   s.shtc3.nack = 513;
   s.shtc3.short_reads = 65535;
@@ -14404,7 +14404,7 @@ void testShtc3RtcRoundTrip() {
   assert(out.shtc3.nack == 513 && out.shtc3.short_reads == 65535 && out.shtc3.crc == 7 && out.shtc3.run == 5);
 
   // The block sits just before the checksum: nack, short, crc (little endian), run.
-  const size_t at = sizeof(buf) - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - Shtc3Health::SERIALIZED_SIZE;
+  const size_t at = sizeof(buf) - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - Shtc3Health::SERIALIZED_SIZE;
   assert(buf[at] == 0x01 && buf[at + 1] == 0x02 && buf[at + 2] == 0xFF && buf[at + 3] == 0xFF &&
          buf[at + 4] == 7 && buf[at + 5] == 0 && buf[at + 6] == 5);
 
@@ -14998,7 +14998,7 @@ void testRtcDriftIntervalPersistence() {
   assert(PowerManager::serialize(fresh, buf, sizeof(buf)) && PowerManager::deserialize(buf, sizeof(buf), r));
   assert(r.rtc_drift.interval_s == 0);
   // A corrupt interval is rejected even with a valid CRC: a figure needs at least RtcDrift::MIN_INTERVAL_S.
-  const size_t interval_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE -
+  const size_t interval_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE -
                               PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 1 -
                               PowerManager::CONFIG_SIZE - 4;
   auto reseal = [&]() {
@@ -16471,7 +16471,7 @@ void testRejectLogState() {
   assert(back.reject_log.size() == 2 && back.reject_log.entries[1].format == BleFormat::THERMOPRO);
   assert(back.reject_log.entries[0].reason == RejectReason::FULL && back.reject_log.entries[0].mac[5] == 30);
   // the log sits just before the checksum; a bad entry is rejected after a new checksum
-  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - RejectLog::SERIALIZED_SIZE;
+  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - RejectLog::SERIALIZED_SIZE;
   auto seal = [&](uint8_t* b) {
     const uint32_t c = PowerManager::crc32(b, PowerManager::SERIALIZED_SIZE - 4);
     for (int i = 0; i < 4; ++i) b[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(c >> (8 * i));
@@ -16506,7 +16506,7 @@ void testRejectLogState() {
   bad[base + 2 * RejectLog::ENTRY_SIZE] = 1; // unused entry with a stray byte
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), out));
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
 }
 
 void testRejectLogMixedReasonMerge() {
@@ -17244,7 +17244,7 @@ void testClimateHistoryUsbMaskRtcRoundTrip() {
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
   // The mask sits as 3 bytes little-endian just before the checksum
-  const size_t mask_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE;
+  const size_t mask_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE;
   assert(buf[mask_pos] == 5 && buf[mask_pos + 1] == 0 && buf[mask_pos + 2] == 0);
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.history.usb_mask == 5u);
@@ -19628,7 +19628,7 @@ void testNoiseAlertStatePersistence() {
   // A limit outside the range is rejected, even with a valid CRC
   s.alert_mask = ALERT_NONE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t cfg_start = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
+  const size_t cfg_start = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   const size_t limit_pos = cfg_start + 17;
   const uint8_t bad_limits[] = {1, 39, 101, 255};
   for (uint8_t limit : bad_limits) {
@@ -19642,7 +19642,7 @@ void testNoiseAlertStatePersistence() {
   // An invalid band value in the audio byte is rejected
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
-  bad[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 5] = 0xC0;
+  bad[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 5] = 0xC0;
   const uint32_t crc = PowerManager::crc32(bad, sizeof(bad) - 4);
   for (int i = 0; i < 4; ++i) bad[sizeof(bad) - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
@@ -19880,7 +19880,7 @@ void testVentilationStatePersistence() {
   // An out-of-range slot is rejected, even with a valid CRC
   s.config.outdoor_slot = 3;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t cfg_start = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
+  const size_t cfg_start = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   for (uint8_t bad_slot : {uint8_t{11}, uint8_t{255}}) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
     memcpy(bad, buf, sizeof(bad));
@@ -19897,7 +19897,7 @@ void testVentilationStatePersistence() {
   // The flag byte (bit 0 ventilate, bit 1 sensor battery) precedes the audio byte; a value above 7 is rejected, even with a valid CRC
   s.alert_mask = ALERT_VENTILATE;
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t vent_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 6;
+  const size_t vent_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 6;
   assert(buf[vent_pos] == 1);
   for (uint8_t bad_vent : {uint8_t{8}, uint8_t{255}}) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -20784,7 +20784,7 @@ void testDailySummaryStateRoundTrip() {
 
   // Corrupt stamp fields with a valid CRC are rejected.
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t daily_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE -
+  const size_t daily_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE -
                            PowerManager::AUDIO_SIZE - 14; // daily stamp (5), noise summary (4) and SD status (5)
   assert(buf[daily_pos] == 1 && buf[daily_pos + 1] == (2026 & 0xFF));
   const size_t bad[5][3] = {{daily_pos, 2, 0}, {daily_pos + 3, 13, 0}, {daily_pos + 3, 0, 0}, {daily_pos + 4, 32, 0}, {daily_pos + 3, 2, 31}};
@@ -20923,7 +20923,7 @@ void testDailyNoisePeakRtcRoundTrip() {
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && !r.daily.noise.hasReading());
 
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t noise_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE -
+  const size_t noise_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE -
                            PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - PowerManager::AUDIO_SIZE - 9;
   assert(buf[noise_pos] == 81 && buf[noise_pos + 1] == 22);
   // peak above 140 (not NO_PEAK), hour above 23, and a sum without a peak.
@@ -21400,10 +21400,10 @@ void testSlotMacRtcRoundTrip() {
   const uint8_t other[6] = {1, 2, 3, 4, 5, 6};
   assert(!r.registry.upsert(macReading(other)));
   assert(r.registry.upsert(macReading(MAC_C)) && memcmp(r.registry.slot(2).mac, MAC_C, 6) == 0);
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
 
   // A valid checksum with the same MAC in two keys is rejected
-  const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 7 - 1 - 1 - 1 - PowerManager::REJECTS_SIZE - 2 - 1 - PowerManager::MACS_SIZE;
+  const size_t mac_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 7 - 1 - 1 - 1 - PowerManager::REJECTS_SIZE - 2 - 1 - PowerManager::MACS_SIZE;
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
   memcpy(bad + mac_pos + 6, MAC_A, 6);
@@ -21931,7 +21931,7 @@ void testDryLatchRtcRoundTrip() {
   // A latch bit for a tile above 10 is rejected behind a valid checksum
   st.dry_tiles = 1;
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
-  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE;
+  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE;
   assert(buf[latch_pos] == 1 && buf[latch_pos + 1] == 0);
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
@@ -22051,7 +22051,7 @@ void testVentilateLatchRtcRoundTrip() {
   PersistentState bad;
   st.ventilate_tiles = 1;
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
-  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 2;
+  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 2;
   assert(buf[latch_pos] == 1 && buf[latch_pos + 1] == 0);
   buf[latch_pos + 1] = 0x08;
   uint32_t crc = PowerManager::crc32(buf, sizeof(buf) - 4);
@@ -22357,13 +22357,13 @@ void testSensorBatteryLatchRtcRoundTrip() {
     }
   }
   // The version is increased
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   // Corrupt records: latch bit above bit 4, flag byte above 7, limit above 50, old version
   st.sensor_battery_latch = 1;
   st.alert_mask = ALERT_NONE;
   st.config.sensor_battery_limit_pct = 10;
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
-  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 4;
+  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE - 4;
   assert(buf[latch_pos] == 1 && buf[latch_pos + 1] == 0);
   auto reseal = [](uint8_t* b) {
     const uint32_t crc = PowerManager::crc32(b, PowerManager::SERIALIZED_SIZE - 4);
@@ -22379,7 +22379,7 @@ void testSensorBatteryLatchRtcRoundTrip() {
   reseal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
   memcpy(bad, buf, sizeof(bad));
-  bad[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 27] = 51; // the limit follows the ventilate limit (byte 26)
+  bad[PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE + 27] = 51; // the limit follows the ventilate limit (byte 26)
   reseal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
   memcpy(bad, buf, sizeof(bad));
@@ -22580,7 +22580,7 @@ void testSensorStaleMinConfig() {
 
   // RTC round trip, corrupt values and the version bump
   PersistentState st;
-  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 87);
+  assert(st.config.sensor_stale_min == 30 && PowerManager::STATE_VERSION == 88);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(5), uint16_t(30), uint16_t(240)}) {
@@ -22665,7 +22665,7 @@ void testDisplayInvert() {
 
   // RTC round trip, corrupt value and version bump
   PersistentState st;
-  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 87);
+  assert(st.config.display_invert == 0 && PowerManager::STATE_VERSION == 88);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint8_t v : {uint8_t(0), uint8_t(1)}) {
@@ -22804,7 +22804,7 @@ void testClimateAlertTiles() {
 
   // RTC round trip, corrupt value and the old state version
   PersistentState st;
-  assert(st.config.climate_alert_tiles == 2047 && PowerManager::STATE_VERSION == 87);
+  assert(st.config.climate_alert_tiles == 2047 && PowerManager::STATE_VERSION == 88);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState out;
   for (uint16_t v : {uint16_t(0), uint16_t(5), uint16_t(63), uint16_t(2047)}) {
@@ -23065,7 +23065,7 @@ void testSdCardStatus() {
   assert(sample.substr(crc_at) == std::string("CRC32 ") + crc_text + "\n");
 
   // RTC round trip, a corrupt status byte and the old state version
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   PersistentState st;
   st.setSdStatus(SdStatus::FULL, 4242);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
@@ -23082,7 +23082,7 @@ void testSdCardStatus() {
   {
     uint8_t low[PowerManager::SERIALIZED_SIZE];
     memcpy(low, buf, sizeof(low));
-    const size_t free_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE;
+    const size_t free_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE;
     const uint32_t minus_two = static_cast<uint32_t>(-2);
     for (int i = 0; i < 4; ++i) low[free_pos + i] = static_cast<uint8_t>(minus_two >> (8 * i));
     const uint32_t crc = PowerManager::crc32(low, PowerManager::SERIALIZED_SIZE - 4);
@@ -23090,7 +23090,7 @@ void testSdCardStatus() {
     PersistentState low_out;
     assert(!PowerManager::deserialize(low, sizeof(low), low_out) && low_out.sd_free_mb == -1);
   }
-  const size_t sd_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE -
+  const size_t sd_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE - PowerManager::NTP_SIZE -
                         PowerManager::AUDIO_SIZE - 5;
   assert(buf[sd_pos] == static_cast<uint8_t>(SdStatus::FULL));
   auto reseal = [](uint8_t* b) {
@@ -23123,7 +23123,7 @@ void testSdCardStatus() {
 }
 
 void testEventLog() {
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   const RtcTime t1 = localTime(2026, 11, 14, 9, 30);
   const RtcTime bad_time{}; // invalid
   // Empty ring and one event
@@ -23253,7 +23253,7 @@ void testEventLog() {
 
   // Corrupt ring: each case is rejected, and `out` keeps its defaults
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
-  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE;
+  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE;
   auto reseal = [](uint8_t* b) {
     const uint32_t crc = PowerManager::crc32(b, PowerManager::SERIALIZED_SIZE - 4);
     for (int i = 0; i < 4; ++i) b[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -23401,7 +23401,7 @@ void testResetAndSlotEvents() {
   assert(PowerManager::serialize(save, buf, sizeof(buf)));
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.events.at(0).code == EventCode::SLOT_RELEASE);
-  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE;
+  const size_t base = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE;
   buf[base + 3 + 8] = 29;
   const uint32_t crc = PowerManager::crc32(buf, PowerManager::SERIALIZED_SIZE - 4);
   for (int i = 0; i < 4; ++i) buf[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -23606,7 +23606,7 @@ void testMoldAlertDelayConfig() {
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.mold_alert_delay_h == 7);
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 10;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 10;
   assert(buf[pos] == 7 && buf[pos + 1] == 50);
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
@@ -23872,7 +23872,7 @@ void testWallDryAirEvents() {
 
 void testSensorDriftLatch() {
   static_assert(static_cast<uint8_t>(EventCode::SENSOR_DRIFT) == 26, "SENSOR_DRIFT is event 26");
-  assert(EventRing::MAX_CODE == 28 && PowerManager::STATE_VERSION == 87);
+  assert(EventRing::MAX_CODE == 28 && PowerManager::STATE_VERSION == 88);
   assert(std::string(SdLogCodec::eventName(EventCode::SENSOR_DRIFT)) == "SENSOR_DRIFT");
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 25; t1.hour = 9; t1.minute = 0; t1.second = 0;
@@ -24219,7 +24219,7 @@ void testSensorDriftLatch() {
   assert(PowerManager::serialize(rt, buf, sizeof(buf)));
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.drift_tiles == 0x0006);
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE;
   auto resign = [&](uint8_t* b_) {
     const uint32_t crc = PowerManager::crc32(b_, PowerManager::SERIALIZED_SIZE - 4);
     for (int i = 0; i < 4; ++i) b_[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -24257,7 +24257,7 @@ void testSensorDriftLatch() {
 
 void testHeatLatch() {
   static_assert(static_cast<uint8_t>(EventCode::HEAT_TILE) == 27, "HEAT_TILE is event 27");
-  assert(EventRing::MAX_CODE == 28 && PowerManager::STATE_VERSION == 87);
+  assert(EventRing::MAX_CODE == 28 && PowerManager::STATE_VERSION == 88);
   assert(std::string(SdLogCodec::eventName(EventCode::HEAT_TILE)) == "HEAT_TILE");
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 27; t1.hour = 14; t1.minute = 0; t1.second = 0;
@@ -24365,7 +24365,7 @@ void testHeatLatch() {
   assert(PowerManager::serialize(rt, buf, sizeof(buf)));
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.heat_tiles == 0x0006);
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE;
   assert(PowerManager::HEAT_SIZE == 2);
   auto resign = [&](uint8_t* b_) {
     const uint32_t crc = PowerManager::crc32(b_, PowerManager::SERIALIZED_SIZE - 4);
@@ -24415,7 +24415,7 @@ void testHeatLatch() {
 
 void testWindowLatchRtcRoundTrip() {
   PersistentState st;
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   assert(st.config.window_drop_c == 0.0f && st.window_tiles == 0 && st.window_anchors.ref[0] == WindowLatch::NO_REF);
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   PersistentState r;
@@ -24442,7 +24442,7 @@ void testWindowLatchRtcRoundTrip() {
   // A bit above bit 10 is rejected behind a valid checksum
   st.window_tiles = 1;
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
-  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - (PowerManager::WINDOW_SIZE - 1);
+  const size_t latch_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - (PowerManager::WINDOW_SIZE - 1);
   assert(buf[latch_pos] == 1 && buf[latch_pos + 1] == 0);
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   auto seal = [&]() {
@@ -24689,7 +24689,7 @@ void testWallLatchLogic() {
 }
 
 void testWallTilesRtcAndPreview() {
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   PersistentState st;
   uint8_t buf[PowerManager::SERIALIZED_SIZE];
   st.wall_tiles = 0x403;
@@ -24699,7 +24699,7 @@ void testWallTilesRtcAndPreview() {
   // A bit above bit 10 is rejected
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
   memcpy(bad, buf, sizeof(bad));
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE;
   bad[pos + 1] = 0x08; // bit 11
   const uint32_t crc = PowerManager::crc32(bad, PowerManager::SERIALIZED_SIZE - 4);
   for (int i = 0; i < 4; ++i) bad[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -25169,7 +25169,7 @@ void testHeatBadge() {
 // ---- Frozen reading latch (StuckLatch, stuck_alert_h, F badge, SENSOR_STUCK) ----
 void testStuckLatch() {
   static_assert(static_cast<uint8_t>(EventCode::SENSOR_STUCK) == 28, "SENSOR_STUCK is event 28");
-  assert(EventRing::MAX_CODE == 28 && PowerManager::STATE_VERSION == 87 && DeviceConfigParser::KEY_COUNT == 106);
+  assert(EventRing::MAX_CODE == 28 && PowerManager::STATE_VERSION == 88 && DeviceConfigParser::KEY_COUNT == 106);
   assert(std::string(SdLogCodec::eventName(EventCode::SENSOR_STUCK)) == "SENSOR_STUCK");
   RtcTime t1;
   t1.valid = true; t1.year = 2026; t1.month = 11; t1.day = 28; t1.hour = 9; t1.minute = 0; t1.second = 0;
@@ -25308,7 +25308,7 @@ void testStuckLatch() {
   PersistentState back;
   assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.stuck_tiles == 0x0006 && back.config.stuck_alert_h == 24);
   assert(PowerManager::STUCK_SIZE == 2);
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE;
   auto resign = [&](uint8_t* b_) {
     const uint32_t crc = PowerManager::crc32(b_, PowerManager::SERIALIZED_SIZE - 4);
     for (int i = 0; i < 4; ++i) b_[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -25340,7 +25340,7 @@ void testStuckLatch() {
     // serialize clamps nothing: a stored bad value must fail the read
     PersistentState valid_state;
     assert(PowerManager::serialize(valid_state, bytes, sizeof(bytes)));
-    const size_t cfg_pos2 = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 1;
+    const size_t cfg_pos2 = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 1;
     bytes[cfg_pos2] = v;
     resign(bytes);
     PersistentState out;
@@ -25439,7 +25439,7 @@ void testStuckBadge() {
 
 void testScanFaultEvents() {
   assert(static_cast<uint8_t>(EventCode::SCAN_FAULT) == 21 && EventRing::MAX_CODE == 28);
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   RtcTime t;
   t.valid = true;
   t.year = 2026;
@@ -25476,7 +25476,7 @@ void testScanFaultEvents() {
   assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.scan_fault == 1);
 
   // a stored scan_fault of 2 is rejected, also with a valid checksum
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE;
   buf[pos] = 2;
   const uint32_t crc = PowerManager::crc32(buf, PowerManager::SERIALIZED_SIZE - 4);
   for (size_t i = 0; i < 4; ++i) {
@@ -25677,7 +25677,7 @@ void testSlotStaleEvents() {
   assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.stale_slots == 0x0001);
 
   // Reject bit 10 and a bit of an empty slot
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE;
   auto resign = [&](uint8_t* b_) {
     const uint32_t crc = PowerManager::crc32(b_, PowerManager::SERIALIZED_SIZE - 4);
     for (int i = 0; i < 4; ++i) b_[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -25692,6 +25692,292 @@ void testSlotStaleEvents() {
   bad[pos] = 0x01 | 0x08; // bit 3: slot 4 is empty
   resign(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+}
+
+// SPREAD QUICK: 5-minute means on USB power, 12 samples for each sensor, console reply equal to SPREAD
+void testQuickSpread() {
+  static_assert(QuickSpread::SAMPLES == 12 && QuickSpread::WINDOW_MS == 300000UL, "12 samples of 5 minutes");
+  assert(PowerManager::STATE_VERSION == 88 && PowerManager::QUICK_SPREAD_SIZE == QuickSpread::SERIALIZED_SIZE);
+  int16_t t[QuickSpread::SENSORS] = {};
+  int16_t h[QuickSpread::SENSORS] = {};
+  const auto set = [&](size_t i, int16_t tt, int16_t hh) { t[i] = tt; h[i] = hh; };
+
+  // 5-minute gate: readings inside a window only add up, the window closes at 300000 ms and pushes the rounded mean
+  {
+    QuickSpread q;
+    set(0, 200, 500);
+    assert(!q.update(1000, true, 1, t, h) && q.maxCount() == 0 && q.has_window);
+    set(0, 201, 501);
+    assert(!q.update(1000 + 299999, true, 1, t, h) && q.maxCount() == 0);
+    set(0, 203, 504);
+    assert(q.update(1000 + 300000, true, 1, t, h) && q.count[0] == 1);
+    assert(q.temp[0][0] == 201 && q.rh[0][0] == 502); // (200 + 201 + 203) / 3 = 201.33, (500 + 501 + 504) / 3 = 501.67
+    assert(q.readings[0] == 0 && q.sum_temp[0] == 0 && q.window_start_ms == 1000 + 300000);
+    // a sensor without a reading in the window loses its samples (a gap breaks the one-hour span)
+    set(1, 210, 510);
+    q.update(1000 + 300001, true, 3, t, h);
+    assert(q.update(1000 + 600000, true, 3, t, h));
+    assert(q.count[0] == 2 && q.count[1] == 1);
+    assert(!q.update(1000 + 700000, true, 1, t, h));
+    assert(q.update(1000 + 900000, true, 1, t, h) && q.count[0] == 3 && q.count[1] == 0);
+    // the ring keeps the newest 12 samples: 12 windows fill it and later windows drop the oldest
+    QuickSpread r;
+    uint32_t now = 0;
+    for (int w = 0; w < 14; ++w) {
+      set(0, static_cast<int16_t>(200 + w), 500);
+      r.update(now, true, 1, t, h);
+      now += QuickSpread::WINDOW_MS;
+      r.update(now, true, 0, t, h);
+      assert(r.count[0] == (w + 1 < 12 ? w + 1 : 12));
+    }
+    assert(r.temp[0][0] == 202 && r.temp[0][11] == 213);
+  }
+
+  // clear on battery power
+  {
+    QuickSpread q;
+    set(0, 200, 500);
+    q.update(0, true, 1, t, h);
+    q.update(QuickSpread::WINDOW_MS, true, 1, t, h);
+    assert(q.count[0] == 1);
+    assert(!q.update(QuickSpread::WINDOW_MS + 10, false, 1, t, h));
+    assert(q.maxCount() == 0 && !q.has_window && q.readings[0] == 0 && q.sum_temp[0] == 0);
+    // after a battery cycle the window starts new: a USB reading a day later does not close an old window
+    assert(!q.update(90000000UL, true, 1, t, h) && q.maxCount() == 0 && q.window_start_ms == 90000000UL);
+  }
+
+  // a window open for twice its length (a long gap between wake cycles) clears the buffer and starts again
+  {
+    QuickSpread q;
+    set(0, 200, 500);
+    q.update(0, true, 1, t, h);
+    assert(q.update(QuickSpread::WINDOW_MS, true, 1, t, h) && q.count[0] == 1);
+    // the next window is 2 * WINDOW_MS - 1 old: it closes and adds a second sample
+    assert(q.update(QuickSpread::WINDOW_MS + 2 * QuickSpread::WINDOW_MS - 1, true, 1, t, h) && q.count[0] == 2);
+    // a window that is 2 * WINDOW_MS old: the buffer clears, the reading opens a new window, no sample is pushed
+    QuickSpread g;
+    g.update(0, true, 1, t, h);
+    assert(g.update(QuickSpread::WINDOW_MS, true, 1, t, h) && g.count[0] == 1);
+    assert(!g.update(QuickSpread::WINDOW_MS + 2 * QuickSpread::WINDOW_MS, true, 1, t, h) && g.maxCount() == 0 &&
+           g.window_start_ms == 3 * QuickSpread::WINDOW_MS && g.readings[0] == 1 && g.sum_temp[0] == 200);
+    // a gap of exactly one window length still closes the window with a sample
+    QuickSpread w;
+    w.update(0, true, 1, t, h);
+    assert(w.update(QuickSpread::WINDOW_MS, true, 1, t, h) && w.count[0] == 1);
+    // the 32-bit clock wraps: the unsigned difference keeps the gate correct
+    QuickSpread c;
+    c.update(0xFFFFFF00u, true, 1, t, h);
+    assert(!c.update(0xFFFFFF00u + 1000u, true, 1, t, h) && c.maxCount() == 0);
+    assert(c.update(0xFFFFFF00u + QuickSpread::WINDOW_MS, true, 1, t, h) && c.count[0] == 1);
+  }
+
+  // collect(): onboard with a valid reading, a slot only with a packet in this wake cycle and not stale
+  {
+    SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+    for (size_t i = 0; i < 3; ++i) {
+      slots[i].valid = true;
+      slots[i].temperature_c = 20.0f + static_cast<float>(i);
+      slots[i].humidity_pct = static_cast<uint8_t>(50 + i);
+      slots[i].updated_ms = 100000;
+    }
+    int16_t ct[QuickSpread::SENSORS] = {};
+    int16_t ch[QuickSpread::SENSORS] = {};
+    // slot 1 and 3 got a packet (bits 0 and 2); slot 2 holds an old reading
+    const uint16_t mask = QuickSpread::collect(true, 19.5f, 45.0f, slots, MAX_SWITCHBOT_SENSORS, 0b101, 100000, 1800000, ct, ch);
+    assert(mask == (1u | 2u | 8u));
+    assert(ct[0] == 195 && ch[0] == 450 && ct[1] == 200 && ch[1] == 500 && ct[2] == 0 && ct[3] == 220 && ch[3] == 520);
+    // a stale slot with a packet bit stays out, an invalid onboard reading stays out
+    assert(QuickSpread::collect(false, 0.0f, 0.0f, slots, MAX_SWITCHBOT_SENSORS, 0b101, 100000 + 1800001, 1800000, ct, ch) == 0);
+    // no packet bits: only the onboard sensor
+    assert(QuickSpread::collect(true, 19.5f, 45.0f, slots, MAX_SWITCHBOT_SENSORS, 0, 100000, 1800000, ct, ch) == 1);
+    // a slot count above MAX_SWITCHBOT_SENSORS is bounded
+    assert(QuickSpread::collect(false, 0.0f, 0.0f, slots, 99, 0xFFFF, 100000, 1800000, ct, ch) == (2u | 4u | 8u));
+  }
+
+  // swapSensors moves samples, sums and counts; clearSensor ignores an index out of range
+  {
+    QuickSpread q;
+    q.count[1] = 2; q.temp[1][1] = 210; q.rh[1][1] = 510; q.sum_temp[1] = 420; q.sum_rh[1] = 1020; q.readings[1] = 2;
+    q.count[2] = 1; q.temp[2][0] = 220; q.rh[2][0] = 520;
+    q.swapSensors(1, 2);
+    assert(q.count[1] == 1 && q.temp[1][0] == 220 && q.rh[1][0] == 520 && q.sum_temp[1] == 0 && q.readings[1] == 0);
+    assert(q.count[2] == 2 && q.temp[2][1] == 210 && q.rh[2][1] == 510 && q.sum_temp[2] == 420 && q.sum_rh[2] == 1020 &&
+           q.readings[2] == 2);
+    q.swapSensors(3, 3);
+    q.swapSensors(0, QuickSpread::SENSORS);
+    q.clearSensor(QuickSpread::SENSORS);
+    assert(q.count[1] == 1 && q.count[2] == 2);
+    PersistentState st;
+    st.quick_spread.count[1] = 1; st.quick_spread.temp[1][0] = 210; st.quick_spread.rh[1][0] = 510;
+    st.quick_spread.count[3] = 3; st.quick_spread.temp[3][2] = 230; st.quick_spread.rh[3][2] = 530;
+    // SLOT SWAP: registry slots 0 and 2 (sensors 1 and 3); both slots hold a reading
+    SwitchBotReading r0, r2;
+    r0.valid = r2.valid = true;
+    memset(r0.mac, 0, 6); memset(r2.mac, 0, 6);
+    r0.mac[5] = 1; r2.mac[5] = 3;
+    r0.temperature_c = r2.temperature_c = 20.0f;
+    r0.humidity_pct = r2.humidity_pct = 50;
+    r0.battery_pct = r2.battery_pct = 80;
+    assert(st.registry.upsert(r0) && st.registry.upsert(r2));
+    RtcTime now;
+    assert(st.swapSlotsByUser(0, 2, now) == PersistentState::SlotSwap::OK);
+    assert(st.quick_spread.count[1] == 3 && st.quick_spread.temp[1][2] == 230 && st.quick_spread.count[3] == 1 &&
+           st.quick_spread.temp[3][0] == 210);
+  }
+
+  // RTC round trip and restore checks
+  {
+    PersistentState st;
+    for (size_t k = 0; k < QuickSpread::SAMPLES; ++k) {
+      st.quick_spread.temp[0][k] = static_cast<int16_t>(200 + k);
+      st.quick_spread.rh[0][k] = static_cast<int16_t>(500 + k);
+    }
+    st.quick_spread.count[0] = 12;
+    st.quick_spread.has_window = true;
+    st.quick_spread.window_start_ms = 1234;
+    st.quick_spread.sum_temp[0] = 400;
+    st.quick_spread.sum_rh[0] = 1000;
+    st.quick_spread.readings[0] = 2;
+    uint8_t buf[PowerManager::SERIALIZED_SIZE];
+    assert(PowerManager::serialize(st, buf, sizeof(buf)));
+    PersistentState back;
+    assert(PowerManager::deserialize(buf, sizeof(buf), back));
+    assert(back.quick_spread.count[0] == 12 && back.quick_spread.temp[0][11] == 211 && back.quick_spread.rh[0][0] == 500);
+    assert(back.quick_spread.has_window && back.quick_spread.window_start_ms == 1234 && back.quick_spread.readings[0] == 2 &&
+           back.quick_spread.sum_temp[0] == 400);
+    const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE;
+    auto resign = [&](uint8_t* b_) {
+      const uint32_t crc = PowerManager::crc32(b_, PowerManager::SERIALIZED_SIZE - 4);
+      for (int i = 0; i < 4; ++i) b_[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
+    };
+    uint8_t bad[PowerManager::SERIALIZED_SIZE];
+    PersistentState rejected;
+    const size_t sensor0 = pos + 1 + 4; // first sensor: count, then 12 temperature samples
+    // a count above 12
+    memcpy(bad, buf, sizeof(bad)); bad[sensor0] = 13; resign(bad);
+    assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+    // a nonzero sample beyond the count
+    memcpy(bad, buf, sizeof(bad)); bad[sensor0] = 11; resign(bad);
+    assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+    // a temperature above 100.0 C (1001 = 0x03E9) in sample 0
+    memcpy(bad, buf, sizeof(bad)); bad[sensor0 + 1] = 0xE9; bad[sensor0 + 2] = 0x03; resign(bad);
+    assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+    // a humidity above 100 %RH (1001) in sample 0
+    memcpy(bad, buf, sizeof(bad)); bad[sensor0 + 1 + 24] = 0xE9; bad[sensor0 + 2 + 24] = 0x03; resign(bad);
+    assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+    // a window flag above 1
+    memcpy(bad, buf, sizeof(bad)); bad[pos] = 2; resign(bad);
+    assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+    // readings without a window
+    memcpy(bad, buf, sizeof(bad)); bad[pos] = 0; bad[pos + 1] = bad[pos + 2] = bad[pos + 3] = bad[pos + 4] = 0; resign(bad);
+    assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+    // a humidity window sum above readings * 100 %RH
+    memcpy(bad, buf, sizeof(bad)); bad[sensor0 + 1 + 48 + 4] = 0xFF; bad[sensor0 + 1 + 48 + 5] = 0xFF; resign(bad);
+    assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+    // a count without a window (clear() zeroes both, so the pair shows corruption)
+    {
+      PersistentState nowin;
+      nowin.quick_spread.count[0] = 1;
+      nowin.quick_spread.temp[0][0] = 200;
+      nowin.quick_spread.rh[0][0] = 500;
+      uint8_t nbuf[PowerManager::SERIALIZED_SIZE];
+      assert(PowerManager::serialize(nowin, nbuf, sizeof(nbuf)));
+      assert(!PowerManager::deserialize(nbuf, sizeof(nbuf), rejected));
+    }
+    // a start stamp without a window
+    memcpy(bad, buf, sizeof(bad)); bad[pos] = 0; resign(bad);
+    assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+    // a temperature window sum below readings * -100.0 C (readings 2: sum -2001 = 0xFFFFF82F)
+    memcpy(bad, buf, sizeof(bad));
+    bad[sensor0 + 1 + 48] = 0x2F; bad[sensor0 + 1 + 49] = 0xF8; bad[sensor0 + 1 + 50] = 0xFF; bad[sensor0 + 1 + 51] = 0xFF; resign(bad);
+    assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+    // a reading count above the bound (5001 = 0x1389)
+    memcpy(bad, buf, sizeof(bad)); bad[sensor0 + 1 + 56] = 0x89; bad[sensor0 + 1 + 57] = 0x13; resign(bad);
+    assert(!PowerManager::deserialize(bad, sizeof(bad), rejected));
+    // an empty state restores
+    PersistentState empty;
+    assert(PowerManager::serialize(empty, buf, sizeof(buf)) && PowerManager::deserialize(buf, sizeof(buf), back) &&
+           back.quick_spread.maxCount() == 0 && !back.quick_spread.has_window);
+  }
+
+  // resetSlot clears the samples of a slot
+  {
+    PersistentState st;
+    st.quick_spread.count[1] = 1; st.quick_spread.temp[1][0] = 210; st.quick_spread.rh[1][0] = 510;
+    st.quick_spread.count[2] = 2; st.quick_spread.temp[2][1] = 220; st.quick_spread.rh[2][1] = 520;
+    st.resetSlot(0);
+    assert(st.quick_spread.count[1] == 0 && st.quick_spread.temp[1][0] == 0 && st.quick_spread.count[2] == 2);
+  }
+
+  // Command parser: SPREAD QUICK
+  {
+    SerialCommand c;
+    assert(parseText("SPREAD QUICK", c) == SerialParseStatus::OK && c.kind == SerialCommandKind::SPREAD && c.spread_quick &&
+           c.reference == 12);
+    assert(parseText("SPREAD", c) == SerialParseStatus::OK && !c.spread_quick && c.reference == 6);
+    assert(parseText("SPREAD 12", c) == SerialParseStatus::OK && !c.spread_quick && c.reference == 12);
+    assert(parseText("SPREAD QUICK ", c) == SerialParseStatus::BAD_ARG);
+    assert(parseText("SPREAD QUICKX", c) == SerialParseStatus::BAD_ARG);
+    assert(parseText("SPREAD QUICK 1", c) == SerialParseStatus::BAD_ARG);
+    assert(parseText("SPREAD quick", c) == SerialParseStatus::BAD_ARG);
+    assert(parseText("SPREAD  QUICK", c) == SerialParseStatus::BAD_ARG);
+    for (uint8_t level = 0; level <= 2; ++level) {
+      assert(parseText("SPREAD QUICK", c) == SerialParseStatus::OK);
+      assert(std::string(BleConsoleBridge::gate(c, level)).empty());
+    }
+  }
+
+  // Reply: SKIP samples=<n> below 12 samples, then a reply equal to SPREAD for equal samples
+  {
+    QuickSpread q;
+    FakeSink skip;
+    TestRunner::showSpreadQuick(skip, q, DeviceConfig{}, SwitchBotRegistry{}, 0);
+    SerialCrc32 crc;
+    crc.update(reinterpret_cast<const uint8_t*>("SKIP samples=0\n"), 15);
+    char want[64];
+    snprintf(want, sizeof(want), "SKIP samples=0\nCRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    assert(skip.out == want);
+    q.count[0] = 11; // the largest count of any sensor decides
+    q.count[2] = 4;
+    FakeSink skip11;
+    TestRunner::showSpreadQuick(skip11, q, DeviceConfig{}, SwitchBotRegistry{}, 0);
+    assert(skip11.out.rfind("SKIP samples=11\nCRC32 ", 0) == 0);
+
+    // the data of tests/fixtures/spread_reply_sample.txt, 12 samples of the three sensors
+    QuickSpread full;
+    for (size_t k = 0; k < QuickSpread::SAMPLES; ++k) {
+      for (size_t s = 0; s < 3; ++s) {
+        full.temp[s][k] = s == 2 ? 210 : 200;
+        full.rh[s][k] = s == 2 ? 550 : 500;
+      }
+    }
+    for (size_t s = 0; s < 3; ++s) full.count[s] = 12;
+    FakeSink quick_out;
+    TestRunner::showSpreadQuick(quick_out, full, DeviceConfig{}, SwitchBotRegistry{}, 0);
+    ClimateHistory same;
+    for (size_t s = 0; s < 3; ++s) {
+      fillSpread(same, s, 12, s == 2 ? 21.0f : 20.0f, s == 2 ? 55.0f : 50.0f);
+    }
+    assert(quick_out.out == spreadOutput(same, DeviceConfig{}, SwitchBotRegistry{}, 0, 12));
+    const std::string fixture = readRepoFile("tests/fixtures/spread_quick_reply_sample.txt");
+    assert(quick_out.out == fixture);
+    assert(fixture.find("SPREAD sensors=3 temp_median=20.0 rh_median=50.0\n") == 0);
+    assert(fixture.find("SENSOR slot2 temp_dev=1.0 rh_dev=5.0 OUTLIER\nslot2_temp_offset_c=-1.0 slot2_rh_offset_pct=-5.0\n") !=
+           std::string::npos);
+    // a sensor with 11 samples drops out: no SENSOR line, not in sensors=, like a sensor with too few hourly samples
+    QuickSpread eleven = full;
+    eleven.count[3] = 11;
+    eleven.temp[3][0] = 300; eleven.rh[3][0] = 900; // would be an OUTLIER, but the sensor does not count
+    FakeSink eleven_out;
+    TestRunner::showSpreadQuick(eleven_out, eleven, DeviceConfig{}, SwitchBotRegistry{}, 0);
+    assert(eleven_out.out == quick_out.out);
+    // only two sensors with 12 samples: the SPREAD rule SKIP sensors=<n> applies
+    QuickSpread two;
+    for (size_t s = 0; s < 2; ++s) { two.count[s] = 12; }
+    FakeSink two_out;
+    TestRunner::showSpreadQuick(two_out, two, DeviceConfig{}, SwitchBotRegistry{}, 0);
+    assert(two_out.out.rfind("SKIP sensors=2\nCRC32 ", 0) == 0);
+  }
 }
 
 void testReceptionLowPctConfig() {
@@ -25851,7 +26137,7 @@ void testReceptionLowEvents() {
   assert(PowerManager::deserialize(buf, sizeof(buf), back) && back.reception_low == 0x0002);
 
   // Reject bit 10 and a bit of an empty slot
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE;
   auto resign = [&](uint8_t* b_) {
     const uint32_t crc = PowerManager::crc32(b_, PowerManager::SERIALIZED_SIZE - 4);
     for (int i = 0; i < 4; ++i) b_[PowerManager::SERIALIZED_SIZE - 4 + i] = static_cast<uint8_t>(crc >> (8 * i));
@@ -26106,9 +26392,9 @@ void testTempUnitRtcRoundTrip() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.temp_unit == 'C' && r.config.isDefault());
   // The unit byte follows the night wake interval in the config trailer
-  const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
+  const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   assert(buf[cfg_pos + 36] == 'C');
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
 }
 
 // ---- BLE telemetry broadcast (BleTelemetryCodec, ble_broadcast_enabled) ----
@@ -26539,7 +26825,7 @@ void testBleBroadcastRtcRoundTrip() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.ble_broadcast_enabled == 1);
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 7 -
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 7 -
                          1 - 1 - 1 - 1 - PowerManager::REJECTS_SIZE - 2 - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 2 * DeviceConfig::SLOT_COUNT * 4 - 4 - (1 + DeviceConfig::SLOT_COUNT) - 1 - 1 - 1 - 1 - 1;
   assert(buf[pos] == 1);
   auto seal = [](uint8_t* b) {
@@ -26557,7 +26843,7 @@ void testBleBroadcastRtcRoundTrip() {
   bad[4] = 43; // old state version without the key
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
 }
 
 
@@ -26647,7 +26933,7 @@ void testBleConsoleRtcRoundTrip() {
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.ble_console == 2);
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 7 -
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 7 -
                         1 - 1 - 1 - 1 - PowerManager::REJECTS_SIZE - 2 - PowerManager::MACS_SIZE - PowerManager::NAMES_SIZE - 2 * DeviceConfig::SLOT_COUNT * 4 - 4 - (1 + DeviceConfig::SLOT_COUNT) - 1 - 1 - 1 - 1;
   assert(buf[pos] == 2);
   auto seal = [](uint8_t* b) {
@@ -26665,7 +26951,7 @@ void testBleConsoleRtcRoundTrip() {
   bad[4] = 44; // old state version without the key
   seal(bad);
   assert(!PowerManager::deserialize(bad, sizeof(bad), r));
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
 }
 
 void testBleConsoleGate() {
@@ -27022,7 +27308,7 @@ void testStatusChimeSnoozeLine() {
 }
 
 void testSnoozeRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 87 && PowerManager::SNOOZE_SIZE == 6);
+  assert(PowerManager::STATE_VERSION == 88 && PowerManager::SNOOZE_SIZE == 6);
   PersistentState st;
   assert(st.snooze.minutes == 0 && st.snooze.start_ms == 0); // a power-on sets both to 0
   st.snooze.start(0x12345678u, 720);
@@ -27032,7 +27318,7 @@ void testSnoozeRtcRoundTrip() {
   assert(PowerManager::deserialize(buf, sizeof(buf), back));
   assert(back.snooze.start_ms == 0x12345678u && back.snooze.minutes == 720);
   // layout: 6 bytes just before the checksum, after the wall latch
-  const size_t at = sizeof(buf) - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE;
+  const size_t at = sizeof(buf) - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE;
   assert(buf[at] == 0x78 && buf[at + 1] == 0x56 && buf[at + 2] == 0x34 && buf[at + 3] == 0x12 && buf[at + 4] == 0xD0 && buf[at + 5] == 0x02);
   auto resign = [](uint8_t* b) {
     const uint32_t crc = PowerManager::crc32(b, PowerManager::SERIALIZED_SIZE - 4);
@@ -27883,7 +28169,7 @@ void testHeatAlertRtcRoundTrip() {
   }
   // A corrupt limit (26, 46) is rejected even with a valid CRC; 0 and 27 are accepted
   assert(PowerManager::serialize(s, buf, sizeof(buf)));
-  const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
+  const size_t cfg_pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - PowerManager::CONFIG_SIZE;
   assert(buf[cfg_pos + 38] == 33);
   for (uint8_t v : {uint8_t{26}, uint8_t{46}, uint8_t{0}, uint8_t{27}, uint8_t{45}}) {
     uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -28032,7 +28318,7 @@ void testFrameRefreshPatternInvalidates() {
 }
 
 void testFrameRefreshRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   assert(PowerManager::FRAME_SIZE == 5);
   PersistentState s;
   s.frame.recordFlush(0xDEADBEEFU);
@@ -28044,7 +28330,7 @@ void testFrameRefreshRtcRoundTrip() {
   assert(PowerManager::deserialize(buf, sizeof(buf), out));
   assert(out.frame.crc == 0xDEADBEEFU && out.frame.skips == 2);
   // The block sits just before the checksum: CRC-32 little endian, then the skip counter.
-  const size_t at = sizeof(buf) - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE;
+  const size_t at = sizeof(buf) - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE;
   assert(buf[at] == 0xEF && buf[at + 1] == 0xBE && buf[at + 2] == 0xAD && buf[at + 3] == 0xDE && buf[at + 4] == 2);
 
   auto resign = [](uint8_t* b, size_t n) {
@@ -28371,7 +28657,7 @@ void testFiveSlotRegistryAndFixedMac() {
 }
 
 void testFiveSlotRtcRoundTrip() {
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   PersistentState s;
   DeviceConfig cfg;
   strcpy(cfg.slot_name[3], "GARAGE");
@@ -29672,7 +29958,7 @@ void testDryAlertDelayConfig() {
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.dry_alert_delay_h == 7);
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 10;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 10;
   assert(buf[pos] == 3 && buf[pos + 1] == 45 && buf[pos + 2] == 7);
   // A corrupt value is rejected, also with a valid checksum
   uint8_t bad[PowerManager::SERIALIZED_SIZE];
@@ -29834,7 +30120,7 @@ void testJumpLimitConfig() {
   r.registry.upsert(jumpReading(29.0f, 50, 3000));
   assert(r.registry.upsert(jumpReading(37.0f, 90, 3500)) && !r.registry.hasPending(0));
   // The two bytes follow dry_alert_delay_h: tenths of jump_limit_c, then jump_limit_rh.
-  const size_t tail = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 7;
+  const size_t tail = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 7;
   assert(buf[tail] == 100 && buf[tail + 1] == 0);
   // A trailer byte outside the range is rejected, also with a valid checksum.
   auto reseal = [](uint8_t* b) {
@@ -29977,7 +30263,7 @@ void testHeatAlertDelayConfig() {
   assert(DeviceConfigParser::checkSetting("heat_alert_delay_h", 18, "4", 1) == DeviceConfigParser::SettingCheck::OK);
   assert(DeviceConfigParser::checkSetting("heat_alert_delay_h", 18, "13", 2) == DeviceConfigParser::SettingCheck::BAD_VALUE);
   assert(DeviceConfigParser::KEY_COUNT == 106 && std::string(DeviceConfigParser::KEYS[103]) == "heat_alert_delay_h");
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   // RTC round trip: the byte follows drift_limit_rh
   PersistentState st;
   st.config.heat_alert_delay_h = 6;
@@ -29986,7 +30272,7 @@ void testHeatAlertDelayConfig() {
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.heat_alert_delay_h == 6);
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 2;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 2;
   assert(buf[pos - 1] == 6);
   // A corrupt value is rejected, also with a valid checksum
   buf[pos - 1] = 13;
@@ -30111,7 +30397,7 @@ void testFreezeAlertDelayConfig() {
   assert(DeviceConfigParser::checkSetting("freeze_alert_delay_h", 20, "4", 1) == DeviceConfigParser::SettingCheck::OK);
   assert(DeviceConfigParser::checkSetting("freeze_alert_delay_h", 20, "13", 2) == DeviceConfigParser::SettingCheck::BAD_VALUE);
   assert(DeviceConfigParser::KEY_COUNT == 106 && std::string(DeviceConfigParser::KEYS[104]) == "freeze_alert_delay_h");
-  assert(PowerManager::STATE_VERSION == 87);
+  assert(PowerManager::STATE_VERSION == 88);
   // RTC round trip: the byte is the last byte of the config trailer, after heat_alert_delay_h
   PersistentState st;
   st.config.freeze_alert_delay_h = 7;
@@ -30120,7 +30406,7 @@ void testFreezeAlertDelayConfig() {
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
   PersistentState r;
   assert(PowerManager::deserialize(buf, sizeof(buf), r) && r.config.freeze_alert_delay_h == 7 && r.config.heat_alert_delay_h == 6);
-  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 2;
+  const size_t pos = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 2;
   assert(buf[pos] == 7 && buf[pos - 1] == 6);
   // A corrupt value is rejected, also with a valid checksum
   buf[pos] = 13;
@@ -30232,7 +30518,7 @@ void testDriftLimitConfig() {
   assert(PowerManager::serialize(st, buf, sizeof(buf)));
   PersistentState rest;
   assert(PowerManager::deserialize(buf, sizeof(buf), rest) && rest.config.drift_limit_c == 1.0f && rest.config.drift_limit_rh == 3.5f);
-  const size_t tail = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 5;
+  const size_t tail = PowerManager::SERIALIZED_SIZE - 4 - PowerManager::QUICK_SPREAD_SIZE - PowerManager::STUCK_SIZE - PowerManager::HEAT_SIZE - PowerManager::REJECT_REASONS_SIZE - PowerManager::DRIFT_SIZE - PowerManager::RECEPTION_LOW_SIZE - PowerManager::SNOOZE_SIZE - PowerManager::WALL_SIZE - PowerManager::WINDOW_SIZE - PowerManager::SCAN_FAULT_SIZE - PowerManager::SD_FREE_SIZE - PowerManager::STALE_SIZE - PowerManager::ALERT_ACK_SIZE - PowerManager::REJECT_LOG_SIZE - PowerManager::USB_MASK_SIZE - PowerManager::WEEK_SIZE - PowerManager::DRY_SIZE - PowerManager::RECEPTION_SIZE - PowerManager::FRAME_SIZE - PowerManager::AWAKE_SIZE - PowerManager::SHTC3_SIZE - PowerManager::EVENTS_SIZE - 5;
   assert(buf[tail] == 10 && buf[tail + 1] == 35);
   // A trailer byte outside the range is rejected, also with a valid checksum.
   auto reseal = [](uint8_t* b) {
@@ -30912,6 +31198,7 @@ testSerialConfigNegativeSmallOffset();
   testHeatBadge();
   testStuckLatch();
   testStuckBadge();
+  testQuickSpread();
   testReceptionLowPctConfig();
   testReceptionLowPctLatch();
   testDryAlertDelayConfig();

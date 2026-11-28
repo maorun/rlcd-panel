@@ -127,6 +127,7 @@ struct PersistentState {
   uint16_t drift_tiles = 0;     // sensor drift latch, bit 0 onboard, bits 1..10 slots (DriftLatch)
   uint16_t heat_tiles = 0;      // heat badge latch, bit 0 onboard, bits 1..10 slots (HeatLatch)
   uint16_t stuck_tiles = 0;     // frozen reading latch, bit 0 onboard, bits 1..10 slots (StuckLatch)
+  QuickSpread quick_spread;     // 5-minute means of the last hour for SPREAD QUICK (USB power only; battery power clears it)
   uint16_t reception_low = 0;      // low reception latch, bits 0..9 are the registry slots (recordReceptionChanges)
   static constexpr uint8_t RECEPTION_LOW_MIN_SCANS = 12; // counted scans before the latch may set
   uint16_t stale_slots = 0;        // stale latch, bits 0..9 are the registry slots (recordStaleChanges)
@@ -478,6 +479,7 @@ struct PersistentState {
     swapBit(drift_tiles, a, b, 1);
     swapBit(heat_tiles, a, b, 1);
     swapBit(stuck_tiles, a, b, 1);
+    quick_spread.swapSensors(1 + a, 1 + b);
     std::swap(window_anchors.ref[1 + a], window_anchors.ref[1 + b]);
     std::swap(window_anchors.prev[1 + a], window_anchors.prev[1 + b]);
     std::swap(window_anchors.stamp_ms[1 + a], window_anchors.stamp_ms[1 + b]);
@@ -538,6 +540,7 @@ struct PersistentState {
     drift_tiles = static_cast<uint16_t>(drift_tiles & ~(2u << index));
     heat_tiles = static_cast<uint16_t>(heat_tiles & ~(2u << index));
     stuck_tiles = static_cast<uint16_t>(stuck_tiles & ~(2u << index));
+    quick_spread.clearSensor(1 + index);
     window_anchors.clearTile(1 + index);
     stale_slots = static_cast<uint16_t>(stale_slots & ~(1u << index));
     reception_low = static_cast<uint16_t>(reception_low & ~(1u << index));
@@ -687,7 +690,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 87;
+  static constexpr uint8_t STATE_VERSION = 88;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -763,9 +766,11 @@ public:
   static constexpr size_t HEAT_SIZE = 2;
   // Frozen reading latch (uint16, bits 0..10, the last field before the checksum).
   static constexpr size_t STUCK_SIZE = 2;
+  // Short samples of SPREAD QUICK (just before the checksum, after the stuck latch).
+  static constexpr size_t QUICK_SPREAD_SIZE = QuickSpread::SERIALIZED_SIZE;
   // Reasons of the rejected config.ini lines (just before the checksum): one CheckReason byte for each of the four lines.
   static constexpr size_t REJECT_REASONS_SIZE = ConfigRejects::MAX_LINES;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + WINDOW_SIZE + WALL_SIZE + SNOOZE_SIZE + RECEPTION_LOW_SIZE + DRIFT_SIZE + REJECT_REASONS_SIZE + HEAT_SIZE + STUCK_SIZE + 4;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + WINDOW_SIZE + WALL_SIZE + SNOOZE_SIZE + RECEPTION_LOW_SIZE + DRIFT_SIZE + REJECT_REASONS_SIZE + HEAT_SIZE + STUCK_SIZE + QUICK_SPREAD_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -1164,6 +1169,8 @@ public:
     out[pos++] = static_cast<uint8_t>((state.heat_tiles >> 8) & 0xFF);
     out[pos++] = static_cast<uint8_t>(state.stuck_tiles & 0xFF);
     out[pos++] = static_cast<uint8_t>((state.stuck_tiles >> 8) & 0xFF);
+    state.quick_spread.serialize(out + pos);
+    pos += QUICK_SPREAD_SIZE;
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -1670,6 +1677,10 @@ public:
         return false; // a stuck bit of an empty slot is corrupt
       }
     }
+    if (!s.quick_spread.restore(data + pos)) {
+      return false; // a bad count, sample, window sum or window state is corrupt
+    }
+    pos += QUICK_SPREAD_SIZE;
     s.registry.setAutoAssign(s.config.slot_auto_assign != 0);
     s.registry.setMinAssignRssi(s.config.auto_assign_min_rssi);
     s.registry.setJumpLimits(s.config.jump_limit_c, s.config.jump_limit_rh);

@@ -71,6 +71,7 @@ struct SerialCommand {
   bool events_newest = false; // EVENTS: true for "EVENTS <N>"; `reference` then holds N 1 to 16
   bool ack_all = false; // ACK: true for "ACK ALL" (every active repeatable alert bit that is not acknowledged)
   bool config_changed = false; // CONFIG: true for "CONFIG CHANGED" (only the keys that differ from the default)
+  bool spread_quick = false; // SPREAD: true for "SPREAD QUICK" (the 12 five-minute samples of QuickSpread; `reference` holds 12)
   bool salt_mgcl2 = false; // SALT: true for "SALT N MGCL2" (magnesium chloride reference, no proposal line)
   bool time_set = false; // TIME: true for "TIME SET <time>"; `time` then holds the parsed local time
   RtcTime time;
@@ -367,6 +368,12 @@ public:
     if (matches(line, cmd_len, "SPREAD")) {
       // "SPREAD" (6 hours) or "SPREAD <H>", H 6 to 24, no leading zero
       unsigned hours = static_cast<unsigned>(SpreadMath::HOURS);
+      if (cmd_len != len && len - cmd_len == 6 && memcmp(line + cmd_len, " QUICK", 6) == 0) {
+        out.kind = SerialCommandKind::SPREAD;
+        out.spread_quick = true;
+        out.reference = static_cast<uint8_t>(QuickSpread::SAMPLES);
+        return SerialParseStatus::OK;
+      }
       if (cmd_len != len) {
         const size_t digits = len - cmd_len - 1;
         if (line[cmd_len] != ' ' || digits < 1 || digits > 2 || (digits > 1 && line[cmd_len + 1] == '0')) {
@@ -1377,6 +1384,11 @@ struct SerialStatusSnapshot {
 //   A stale slot does not count (no SENSOR line, not in sensors= and in the median). The outdoor slot (`outdoor_slot`) does not count either.
 //   Fewer than 3 such sensors give "SKIP sensors=<n>" and the CRC32 line, a number outside 6 to 24, a leading zero, a non-digit or extra text gives "ERR BAD_ARG". showSpread() works on
 //   the RTC copy and the registry: no card access, no state change, so execute() ignores SPREAD. USB and BLE at each ble_console level.
+//   SPREAD QUICK -> the same lines over the 12 five-minute samples of QuickSpread (PersistentState::quick_spread, filled on USB power
+//   only, cleared on battery power) instead of the hourly histories, so one hour of co-location is enough. Fewer than 12 samples give
+//   "SKIP samples=<n>" (n is the largest sample count of any sensor) and the CRC32 line. With 12 samples the rules of SPREAD apply
+//   (stale and outdoor slot out, "SKIP sensors=<n>" below 3 sensors). The proposal lines are the same. Any other text after SPREAD
+//   than " <H>" or " QUICK" gives "ERR BAD_ARG". RTC copy only: no card access, no state change, execute() ignores it.
 //   TODAY -> "BEGIN TODAY", the header "sensor,name,hours,temp_min_c,temp_max_c,temp_mean_c,rh_min_pct,rh_max_pct,rh_mean_pct,mold_h,dry_h" (11 columns), one row for
 //   each sensor (0 onboard, 1 to 10 a slot) that holds at least one hourly sample, and "CRC32 <8 hex digits>". The row covers the hourly
 //   samples of the RTC ClimateHistory since the last local midnight of the RTC time: the newest sample is as old as the time since
@@ -1941,6 +1953,30 @@ public:
     char line[24];
     snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
     send(sink, line);
+  }
+
+  // SPREAD QUICK: the same maths and reply lines as SPREAD, over the 12 five-minute samples of `quick` (one hour, USB power
+  // only) instead of the hourly histories. Fewer than QuickSpread::SAMPLES samples in every sensor give "SKIP samples=<n>"
+  // (n is the largest sample count) and the CRC32 line; with 12 samples the SKIP sensors=<n> rule of SPREAD applies.
+  static void showSpreadQuick(Sink& sink, const QuickSpread& quick, const DeviceConfig& config,
+                              const SwitchBotRegistry& registry, uint32_t now_ms) {
+    if (quick.maxCount() < QuickSpread::SAMPLES) {
+      char text[40];
+      const size_t len = static_cast<size_t>(
+          snprintf(text, sizeof(text), "SKIP samples=%u\n", static_cast<unsigned>(quick.maxCount())));
+      SerialCrc32 crc;
+      crc.update(reinterpret_cast<const uint8_t*>(text), len);
+      if (!put(sink, reinterpret_cast<const uint8_t*>(text), len)) {
+        return;
+      }
+      char line[24];
+      snprintf(line, sizeof(line), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+      send(sink, line);
+      return;
+    }
+    ClimateHistory samples;
+    quick.toHistory(samples);
+    showSpread(sink, samples, config, registry, now_ms, QuickSpread::SAMPLES);
   }
 
   // Minimum, maximum and mean of the hourly samples of each sensor since the last local midnight of `now` (see TODAY above). `now_ms`
