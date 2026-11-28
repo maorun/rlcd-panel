@@ -68,4 +68,21 @@ status=0
 "${PHONE}" --help >/dev/null 2>&1 || status=$?
 expect "install-phone-apk help exit 0" "$([[ ${status} -eq 0 ]]; echo $?)"
 
+# The self-test of dump-logs.sh checks the file names and the VERIFY reply check against tests/fixtures/verify_reply_sample.txt.
+DUMP="${REPO_ROOT}/scripts/dump-logs.sh"
+status=0
+out="$("${DUMP}" --self-test 2>&1)" || status=$?
+expect "dump-logs self-test exit 0" "$([[ ${status} -eq 0 ]]; echo $?)"
+expect "dump-logs self-test checks the VERIFY sample" "$(grep -q 'VERIFY sample accepted' <<<"${out}"; echo $?)"
+# A changed fixture (wrong CRC) fails the self-test: run a copy of the script against a copy of the repository layout.
+mkdir -p "${TMP}/verify/scripts" "${TMP}/verify/tests/fixtures"
+cp "${DUMP}" "${TMP}/verify/scripts/dump-logs.sh"
+cp "${REPO_ROOT}/tests/fixtures/verify_reply_sample.txt" "${TMP}/verify/tests/fixtures/verify_reply_sample.txt"
+sed -i.bak 's/^CRC32 .*/CRC32 00000000/' "${TMP}/verify/tests/fixtures/verify_reply_sample.txt"
+status=0
+"${TMP}/verify/scripts/dump-logs.sh" --self-test >/dev/null 2>&1 || status=$?
+expect "dump-logs self-test fails for a wrong VERIFY CRC" "$([[ ${status} -eq 1 ]]; echo $?)"
+grep -q -- '--verify' "${DUMP}"
+expect "dump-logs usage lists --verify" "$?"
+
 exit "${fail}"

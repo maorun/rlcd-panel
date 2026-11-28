@@ -16758,7 +16758,8 @@ void testSerialHelpTableMatchesParser() {
     const bool mounts_card = r.kind == SerialCommandKind::LIST || r.kind == SerialCommandKind::INFO ||
                              r.kind == SerialCommandKind::DUMP || r.kind == SerialCommandKind::SET ||
                              r.kind == SerialCommandKind::SLOT_REPLACE || r.kind == SerialCommandKind::SELFTEST ||
-                             r.kind == SerialCommandKind::TAIL || r.kind == SerialCommandKind::DAYS;
+                             r.kind == SerialCommandKind::TAIL || r.kind == SerialCommandKind::DAYS ||
+                             r.kind == SerialCommandKind::VERIFY;
     assert(r.card == mounts_card);
   }
 }
@@ -16768,7 +16769,7 @@ void testSerialHelpGateClosedWithoutRow() {
   assert(none.kind == SerialCommandKind::NONE);
   assert(std::string(BleConsoleBridge::gate(none, 1)).empty());
   SerialCommand unknown;
-  unknown.kind = static_cast<SerialCommandKind>(static_cast<uint8_t>(SerialCommandKind::HELP) + 1); // a kind without a row
+  unknown.kind = static_cast<SerialCommandKind>(static_cast<uint8_t>(SerialCommandKind::VERIFY) + 1); // a kind without a row
   assert(SerialCommandRules::find(unknown) == nullptr);
   for (uint8_t level = 0; level < 3; ++level) {
     assert(std::string(BleConsoleBridge::gate(unknown, level)) == "ERR NOT_OVER_BLE\n");
@@ -16834,6 +16835,313 @@ void testSerialHelpReply() {
     }
     assert(action == BleConsoleBridge::Action::RUN && command.kind == SerialCommandKind::HELP);
   }
+}
+
+// ---- Console command VERIFY ----
+namespace {
+std::string verifyClimateRow(int minute, size_t columns = SdLogCodec::CLIMATE_COLUMNS) {
+  char ts[32];
+  snprintf(ts, sizeof(ts), "2026-11-26 10:%02d:00", minute);
+  std::string row = ts;
+  for (size_t i = 1; i < columns; ++i) {
+    row += i == 1 ? ",80" : (i == 4 ? ",21.5" : ",");
+  }
+  return row + "\n";
+}
+
+std::string verifyClimateHeader() {
+  char header[1024];
+  assert(SdLogCodec::formatHeader(header, sizeof(header)) > 0);
+  return header;
+}
+
+// A header line with the first column name and `columns` columns in total.
+std::string verifyHeader(const char* first, size_t columns) {
+  std::string header = first;
+  for (size_t i = 1; i < columns; ++i) {
+    header += ",c" + std::to_string(i);
+  }
+  return header + "\n";
+}
+
+size_t verifyCountColumns(const std::string& line) {
+  size_t columns = 1;
+  for (const char c : line) {
+    columns += c == ',' ? 1 : 0;
+  }
+  return columns;
+}
+
+std::string verifyDailyRow(const char* date, size_t columns) {
+  std::string row = date;
+  for (size_t i = 1; i < columns; ++i) {
+    row += ",";
+  }
+  return row + "\n";
+}
+
+std::string runVerify(FakeConsoleStorage& storage, const char* name) {
+  SerialCommand cmd;
+  const std::string text = std::string("VERIFY ") + name;
+  assert(parseText(text.c_str(), cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::VERIFY);
+  FakeSink sink;
+  TestRunner::execute(storage, sink, cmd);
+  return sink.out;
+}
+
+std::string verifyReply(const std::string& name, unsigned rows, unsigned bad, const std::string& first) {
+  const std::string body = "VERIFY name=" + name + " rows=" + std::to_string(rows) + " bad=" + std::to_string(bad) +
+                           " first_bad=" + first + "\n";
+  return body + historyCrcLine(body) + "\n";
+}
+} // namespace
+
+void testSerialVerifyParser() {
+  SerialCommand cmd;
+  assert(parseText("VERIFY climate_v6_202611.csv", cmd) == SerialParseStatus::OK);
+  assert(cmd.kind == SerialCommandKind::VERIFY && strcmp(cmd.file, "climate_v6_202611.csv") == 0);
+  assert(parseText("VERIFY daily_v7_2026.csv", cmd) == SerialParseStatus::OK && strcmp(cmd.file, "daily_v7_2026.csv") == 0);
+  assert(parseText("VERIFY events_v1_2026.csv", cmd) == SerialParseStatus::OK);
+  assert(parseText("VERIFY climate_v2_202611.csv", cmd) == SerialParseStatus::OK);
+  // the same names as DUMP, and nothing else
+  assert(parseText("VERIFY", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("VERIFY ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("VERIFY x", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("VERIFY ../climate_v6_202611.csv", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("VERIFY /climate_v6_202611.csv", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("VERIFY climate_v7_202611.csv", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("VERIFY climate_v6_202613.csv", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("VERIFY daily_v8_2026.csv", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("VERIFY climate_v6_202611.csv extra", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("VERIFY  climate_v6_202611.csv", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("VERIFY climate_v6_202611.csv ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("VERIFYX", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("verify climate_v6_202611.csv", cmd) == SerialParseStatus::UNKNOWN);
+  // every name that DUMP accepts is accepted
+  static const char* const NAMES[] = {"climate_v2_202601.csv", "climate_v3_202601.csv", "climate_v4_202601.csv",
+                                      "climate_v5_202601.csv", "climate_v6_202601.csv", "daily_v1_2026.csv",
+                                      "daily_v2_2026.csv",     "daily_v3_2026.csv",     "daily_v4_2026.csv",
+                                      "daily_v5_2026.csv",     "daily_v6_2026.csv",     "daily_v7_2026.csv",
+                                      "events_v1_2026.csv"};
+  for (const char* name : NAMES) {
+    const std::string dump = std::string("DUMP ") + name;
+    const std::string verify = std::string("VERIFY ") + name;
+    assert(parseText(dump.c_str(), cmd) == SerialParseStatus::OK);
+    assert(parseText(verify.c_str(), cmd) == SerialParseStatus::OK && strcmp(cmd.file, name) == 0);
+  }
+  // USB only: VERIFY is not over BLE at each level
+  assert(parseText("VERIFY climate_v6_202611.csv", cmd) == SerialParseStatus::OK);
+  for (uint8_t level = 0; level < 3; ++level) {
+    assert(std::string(BleConsoleBridge::gate(cmd, level)) == "ERR NOT_OVER_BLE\n");
+  }
+}
+
+void testSerialVerifyGoodFile() {
+  FakeConsoleStorage storage;
+  const std::string data = verifyClimateHeader() + verifyClimateRow(0) + verifyClimateRow(1) + verifyClimateRow(2);
+  storage.add("climate_v6_202611.csv", data);
+  const std::string reply = runVerify(storage, "climate_v6_202611.csv");
+  assert(reply == verifyReply("climate_v6_202611.csv", 3, 0, "--"));
+  assert(storage.mounts == 1 && storage.unmounts == 1 && !storage.open);
+  // a file without any row, and an empty file
+  FakeConsoleStorage header_only;
+  header_only.add("climate_v6_202611.csv", verifyClimateHeader());
+  assert(runVerify(header_only, "climate_v6_202611.csv") == verifyReply("climate_v6_202611.csv", 0, 0, "--"));
+  FakeConsoleStorage empty;
+  empty.add("climate_v6_202611.csv", "");
+  assert(runVerify(empty, "climate_v6_202611.csv") == verifyReply("climate_v6_202611.csv", 0, 0, "--"));
+  // CRLF line ends are no damage
+  std::string crlf;
+  for (const char c : data) {
+    if (c == '\n') {
+      crlf += '\r';
+    }
+    crlf += c;
+  }
+  FakeConsoleStorage windows;
+  windows.add("climate_v6_202611.csv", crlf);
+  assert(runVerify(windows, "climate_v6_202611.csv") == verifyReply("climate_v6_202611.csv", 3, 0, "--"));
+  // the block size of the read does not change the result
+  for (const size_t block : {size_t(1), size_t(7), size_t(255), size_t(256), size_t(1000)}) {
+    FakeConsoleStorage blocks;
+    blocks.add("climate_v6_202611.csv", data);
+    blocks.max_read = block;
+    assert(runVerify(blocks, "climate_v6_202611.csv") == verifyReply("climate_v6_202611.csv", 3, 0, "--"));
+  }
+}
+
+void testSerialVerifyBadRows() {
+  const std::string name = "climate_v6_202611.csv";
+  // line 1 header, line 2 good, line 3 one column short, line 4 good, line 5 a bad timestamp, line 6 an empty line
+  std::string bad_stamp = verifyClimateRow(4);
+  bad_stamp[5] = 'x';
+  const std::string data = verifyClimateHeader() + verifyClimateRow(0) +
+                           verifyClimateRow(1, SdLogCodec::CLIMATE_COLUMNS - 1) + verifyClimateRow(2) + bad_stamp + "\n";
+  FakeConsoleStorage storage;
+  storage.add(name.c_str(), data);
+  assert(runVerify(storage, name.c_str()) == verifyReply(name, 5, 3, "3"));
+  assert(storage.unmounts == 1 && !storage.open);
+  // a damaged header is a bad row 1
+  FakeConsoleStorage no_header;
+  no_header.add(name.c_str(), std::string("timestam\n") + verifyClimateRow(0));
+  assert(runVerify(no_header, name.c_str()) == verifyReply(name, 2, 1, "1"));
+  // zero bytes in place of a row (a lost sector)
+  FakeConsoleStorage zeros;
+  zeros.add(name.c_str(), verifyClimateHeader() + verifyClimateRow(0) + std::string(40, '\0') + "\n" + verifyClimateRow(1));
+  assert(runVerify(zeros, name.c_str()) == verifyReply(name, 3, 1, "3"));
+  // a line above the buffer is one bad row, and the next row is still found
+  FakeConsoleStorage longer;
+  longer.add(name.c_str(), verifyClimateHeader() + std::string(SdLogCodec::VERIFY_LINE_SIZE + 500, 'a') + "\n" + verifyClimateRow(0));
+  longer.max_read = 100;
+  assert(runVerify(longer, name.c_str()) == verifyReply(name, 2, 1, "2"));
+}
+
+void testSerialVerifyPartialLastLine() {
+  const std::string name = "climate_v6_202611.csv";
+  const std::string row = verifyClimateRow(2);
+  // a cut row at the end
+  FakeConsoleStorage cut;
+  cut.add(name.c_str(), verifyClimateHeader() + verifyClimateRow(0) + verifyClimateRow(1) + row.substr(0, row.size() / 2));
+  assert(runVerify(cut, name.c_str()) == verifyReply(name, 3, 1, "4"));
+  // a complete row without the newline is also a cut write
+  FakeConsoleStorage no_newline;
+  no_newline.add(name.c_str(), verifyClimateHeader() + verifyClimateRow(0) + row.substr(0, row.size() - 1));
+  assert(runVerify(no_newline, name.c_str()) == verifyReply(name, 2, 1, "3"));
+  // a header without the newline is bad too
+  FakeConsoleStorage header_cut;
+  std::string header = verifyClimateHeader();
+  header.pop_back();
+  header_cut.add(name.c_str(), header);
+  assert(runVerify(header_cut, name.c_str()) == verifyReply(name, 1, 1, "1"));
+}
+
+void testSerialVerifyFormats() {
+  // events_v1: three columns, an empty time is allowed
+  FakeConsoleStorage events;
+  events.add("events_v1_2026.csv", "time,event,detail\n2026-11-26 10:00:00,CONFIG_SET,3\n,SD_FAULT,1\n"
+                                   "2026-11-26 10:00:00,EVENTS_DROPPED,12\n");
+  assert(runVerify(events, "events_v1_2026.csv") == verifyReply("events_v1_2026.csv", 3, 0, "--"));
+  FakeConsoleStorage events_bad;
+  events_bad.add("events_v1_2026.csv", "time,event,detail\n2026-11-26 10:00:00,CONFIG_SET,3\n"
+                                       "2026-11-26 10:00:00,config_set,3\n"      // lower case name
+                                       "2026-11-26 10:00:00,CONFIG_SET,70000\n"  // detail above 65535
+                                       "2026-11-26 10:00:00,CONFIG_SET\n"        // two columns
+                                       "2026-11-26T10:00:00,CONFIG_SET,3\n"      // wrong separator
+                                       "2026-11-26 10:00:00,CONFIG_SET,3,4\n"    // four columns
+                                       "2026-11-26 10:00:00,CONFIG_SET,\n");     // no detail
+  assert(runVerify(events_bad, "events_v1_2026.csv") == verifyReply("events_v1_2026.csv", 7, 6, "3"));
+
+  // daily_v7 (105 columns), daily_v6 (94) and daily_v5 (83) use parseDailyRow with the exact column count
+  const size_t v7 = SdLogCodec::DAILY_COLUMNS;
+  FakeConsoleStorage daily;
+  daily.add("daily_v7_2026.csv", verifyHeader("date", v7) + verifyDailyRow("2026-11-25", v7) +
+                                     verifyDailyRow("2026-11-26", v7));
+  assert(runVerify(daily, "daily_v7_2026.csv") == verifyReply("daily_v7_2026.csv", 2, 0, "--"));
+  FakeConsoleStorage daily_bad;
+  daily_bad.add("daily_v7_2026.csv", verifyHeader("date", v7) + verifyDailyRow("2026-11-25", v7) +
+                                         verifyDailyRow("2026-11-26", v7 - 1) +    // one column short
+                                         verifyDailyRow("2026-13-26", v7) +        // month 13
+                                         verifyDailyRow("2026-11-27", SdLogCodec::DAILY_COLUMNS_V6)); // a v6 row in a v7 file
+  assert(runVerify(daily_bad, "daily_v7_2026.csv") == verifyReply("daily_v7_2026.csv", 4, 3, "3"));
+  FakeConsoleStorage daily_v6;
+  daily_v6.add("daily_v6_2026.csv", verifyHeader("date", SdLogCodec::DAILY_COLUMNS_V6) + verifyDailyRow("2026-11-25", SdLogCodec::DAILY_COLUMNS_V6));
+  assert(runVerify(daily_v6, "daily_v6_2026.csv") == verifyReply("daily_v6_2026.csv", 1, 0, "--"));
+  FakeConsoleStorage daily_v5;
+  daily_v5.add("daily_v5_2026.csv", verifyHeader("date", SdLogCodec::DAILY_COLUMNS_V5) + verifyDailyRow("2026-11-25", SdLogCodec::DAILY_COLUMNS_V5));
+  assert(runVerify(daily_v5, "daily_v5_2026.csv") == verifyReply("daily_v5_2026.csv", 1, 0, "--"));
+
+  // the older formats: the exact column count and the date at the start
+  FakeConsoleStorage old_climate;
+  old_climate.add("climate_v5_202611.csv", verifyHeader("timestamp", 27) + verifyClimateRow(0, 27) + verifyClimateRow(1, 26) + verifyClimateRow(2, 27));
+  assert(runVerify(old_climate, "climate_v5_202611.csv") == verifyReply("climate_v5_202611.csv", 3, 1, "3"));
+  FakeConsoleStorage old_v2;
+  old_v2.add("climate_v2_202611.csv", verifyHeader("timestamp", 18) + verifyClimateRow(0, 18));
+  assert(runVerify(old_v2, "climate_v2_202611.csv") == verifyReply("climate_v2_202611.csv", 1, 0, "--"));
+  FakeConsoleStorage old_daily;
+  old_daily.add("daily_v4_2026.csv", verifyHeader("date", 48) + verifyDailyRow("2026-11-25", 48) + verifyDailyRow("2026-11-26", 42));
+  assert(runVerify(old_daily, "daily_v4_2026.csv") == verifyReply("daily_v4_2026.csv", 2, 1, "3"));
+  // daily_v1 to daily_v3: one good row, one row with a wrong column count
+  static const size_t OLD_DAILY_COLUMNS[3] = {27, 30, 42};
+  for (unsigned version = 1; version <= 3; ++version) {
+    const size_t columns = OLD_DAILY_COLUMNS[version - 1];
+    const std::string file = "daily_v" + std::to_string(version) + "_2026.csv";
+    FakeConsoleStorage old;
+    old.add(file.c_str(), verifyHeader("date", columns) + verifyDailyRow("2026-11-25", columns) +
+                              verifyDailyRow("2026-11-26", columns + 1));
+    assert(runVerify(old, file.c_str()) == verifyReply(file, 2, 1, "3"));
+  }
+  // climate_v3 and climate_v4: the same check
+  FakeConsoleStorage old_v3;
+  old_v3.add("climate_v3_202611.csv", verifyHeader("timestamp", 19) + verifyClimateRow(0, 19) + verifyClimateRow(1, 18));
+  assert(runVerify(old_v3, "climate_v3_202611.csv") == verifyReply("climate_v3_202611.csv", 2, 1, "3"));
+  FakeConsoleStorage old_v4;
+  old_v4.add("climate_v4_202611.csv", verifyHeader("timestamp", 21) + verifyClimateRow(0, 21) + verifyClimateRow(1, 22));
+  assert(runVerify(old_v4, "climate_v4_202611.csv") == verifyReply("climate_v4_202611.csv", 2, 1, "3"));
+  // the hard-coded header text and column counts match the writers
+  char header[SdLogCodec::DAILY_HEADER_SIZE];
+  assert(SdLogCodec::formatHeader(header, sizeof(header)) > 0);
+  assert(strncmp(header, "timestamp,", 10) == 0 && verifyCountColumns(header) == SdLogCodec::CLIMATE_COLUMNS);
+  assert(SdLogCodec::formatDailyHeader(header, sizeof(header)) > 0);
+  assert(strncmp(header, "date,", 5) == 0 && verifyCountColumns(header) == SdLogCodec::DAILY_COLUMNS);
+  assert(SdLogCodec::formatEventsHeader(header, sizeof(header)) > 0);
+  assert(strncmp(header, "time,event,detail", 17) == 0 && verifyCountColumns(header) == 3);
+  // a truncated header (right text, too few columns) is a bad row 1
+  FakeConsoleStorage short_header;
+  short_header.add("climate_v6_202611.csv", std::string("timestamp,battery_pct\n") + verifyClimateRow(0));
+  assert(runVerify(short_header, "climate_v6_202611.csv") == verifyReply("climate_v6_202611.csv", 2, 1, "1"));
+  // a climate_v6 file with a 27-column row is bad: the format decides the count
+  FakeConsoleStorage mixed;
+  mixed.add("climate_v6_202611.csv", verifyClimateHeader() + verifyClimateRow(0, 27));
+  assert(runVerify(mixed, "climate_v6_202611.csv") == verifyReply("climate_v6_202611.csv", 1, 1, "2"));
+}
+
+void testSerialVerifyFailures() {
+  SerialCommand cmd;
+  assert(parseText("VERIFY climate_v6_202611.csv", cmd) == SerialParseStatus::OK);
+  // no card
+  FakeConsoleStorage no_card;
+  no_card.card = false;
+  FakeSink nocard_sink;
+  TestRunner::execute(no_card, nocard_sink, cmd);
+  assert(nocard_sink.out == "ERR NO_CARD\n" && no_card.mounts == 1);
+  // missing file
+  FakeConsoleStorage storage;
+  storage.add("climate_v6_202610.csv", verifyClimateHeader());
+  FakeSink missing;
+  TestRunner::execute(storage, missing, cmd);
+  assert(missing.out == "ERR NO_FILE\n" && storage.unmounts == 1 && !storage.open);
+  // read error: no result line and no CRC line
+  storage.add("climate_v6_202611.csv", verifyClimateHeader() + verifyClimateRow(0));
+  storage.fail_read = true;
+  FakeSink broken;
+  TestRunner::execute(storage, broken, cmd);
+  assert(broken.out == "ERR READ_FAILED\n" && storage.unmounts == 2 && !storage.open);
+  // a short write of the sink ends the reply without a CRC line
+  storage.fail_read = false;
+  FakeSink cut;
+  cut.limit = 10;
+  TestRunner::execute(storage, cut, cmd);
+  assert(cut.out.find("CRC32") == std::string::npos);
+}
+
+void testSerialVerifyReplySample() {
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  std::ifstream in(root + "tests/fixtures/verify_reply_sample.txt");
+  assert(in.good());
+  const std::string fixture((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  // the sample file: header, two good rows, a short row at line 4, a good row and a cut last row
+  const std::string name = "climate_v6_202611.csv";
+  const std::string row = verifyClimateRow(3);
+  FakeConsoleStorage storage;
+  storage.add(name.c_str(), verifyClimateHeader() + verifyClimateRow(0) + verifyClimateRow(1) +
+                                verifyClimateRow(2, SdLogCodec::CLIMATE_COLUMNS - 1) + verifyClimateRow(3) +
+                                row.substr(0, 20));
+  const std::string reply = runVerify(storage, name.c_str());
+  assert(reply == fixture);
+  assert(reply.rfind("VERIFY name=climate_v6_202611.csv rows=5 bad=2 first_bad=4\n", 0) == 0);
+  assert(reply == verifyReply(name, 5, 2, "4"));
 }
 
 void testSerialReceptionParserAndGate() {
@@ -31137,6 +31445,13 @@ int main() {
   testSerialHelpTableMatchesParser();
   testSerialHelpGateClosedWithoutRow();
   testSerialHelpReply();
+  testSerialVerifyParser();
+  testSerialVerifyGoodFile();
+  testSerialVerifyBadRows();
+  testSerialVerifyPartialLastLine();
+  testSerialVerifyFormats();
+  testSerialVerifyFailures();
+  testSerialVerifyReplySample();
   testSerialReceptionRows();
   testSerialReceptionFullWindowAndCrc();
   testSerialReceptionFixture();
