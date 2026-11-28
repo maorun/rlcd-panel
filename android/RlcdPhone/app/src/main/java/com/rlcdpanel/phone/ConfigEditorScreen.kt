@@ -75,6 +75,8 @@ fun ConfigEditorScreen(
     val plan = ConfigSchema.plan(edits.toMap(), panelConfig.values)
     val problems = (plan as? ConfigPlan.Invalid)?.problems.orEmpty()
     val commands = (plan as? ConfigPlan.Commands)?.commands.orEmpty()
+    // Warnings never block the apply button: they only name a conflict between valid values.
+    val warnings = ConfigSchema.warnings(panelConfig.values + edits.filterKeys { it in ConfigSchema.keys })
     pendingReset?.let { reset ->
         AlertDialog(
             onDismissRequest = { pendingReset = null },
@@ -152,6 +154,9 @@ fun ConfigEditorScreen(
                                 singleLine = true,
                                 enabled = writable && !state.isBusy
                             )
+                            warnings.filter { it.key == entry.key }.forEach {
+                                Text("⚠ ${it.text}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.tertiary)
+                            }
                             // Preview only: reads the last STATUS and sends no command.
                             if (entry.key == "night_wake_interval_s") {
                                 // Without a STATUS read or a cached CONFIG the schedule is unknown: show `Laufzeit --`.

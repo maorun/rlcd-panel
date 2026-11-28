@@ -925,6 +925,12 @@ final class AppModel: ConsoleLinkDelegate {
         return ConfigSchema.diff(old: config.values, new: merged)
     }
 
+    /// Conflict warnings for the form values. They never block the batch.
+    var configWarnings: [ConfigWarning] {
+        guard let config else { return [] }
+        return ConfigSchema.warnings(config: config, draft: draft)
+    }
+
     /// Problem text by key for the changed values.
     var problems: [String: String] { ConfigSchema.problems(changes: changes, allValues: config?.values ?? [:]) }
 

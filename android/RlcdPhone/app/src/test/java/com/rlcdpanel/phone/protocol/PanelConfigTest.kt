@@ -21,6 +21,45 @@ class PanelConfigTest {
     }
 
     @Test
+    fun parsesWarnLines() {
+        val parsed = PanelConfig.parseConfigReply(
+            listOf(
+                "temp_unit=C", "WARN key=wall_frsi_pct reason=WALL_WITHOUT_OUTDOOR",
+                "WARN reason=NIGHT_SHORTER key=night_wake_interval_s", "WARN key=only_key", "WARN key= reason=X", "WARN",
+            ),
+        )
+        assertEquals(
+            listOf(ConfigWarning("wall_frsi_pct", "WALL_WITHOUT_OUTDOOR"), ConfigWarning("night_wake_interval_s", "NIGHT_SHORTER")),
+            parsed.warnings,
+        )
+        assertEquals("temp_unit=C\n", parsed.text)
+    }
+
+    @Test
+    fun replyWithoutWarnLinesHasNoWarnings() {
+        val parsed = PanelConfig.parseConfigReply(listOf("temp_unit=C", "SOURCE SD", "REJECTED line=7 reason=BAD_VALUE"))
+        assertTrue(parsed.warnings.isEmpty())
+    }
+
+    @Test
+    fun sharedFixtureWithoutWarnLinesHasNoWarnings() {
+        val frame = sampleReply() as ConsoleReply.Frame
+        val parsed = PanelConfig.parseConfigReply(frame.lines)
+        assertTrue(parsed.warnings.isEmpty())
+        // outdoor_slot=3 with the default tile mask: the sample has no climate_alert_tiles key, so the form uses the default mask and warns. The reply holds no WARN line.
+        assertEquals(listOf("OUTDOOR_ALERTS"), ConfigSchema.warnings(PanelConfig.parseText(parsed.text).values).map { it.reason })
+    }
+
+    @Test
+    fun sharedWarnFixtureParsesAndMatchesTheRules() {
+        val reply = ReplyAssembler().append(Fixtures.file("config_reply_warn_sample.txt").readBytes()) as ConsoleReply.Frame
+        val parsed = PanelConfig.parseConfigReply(reply.lines)
+        assertEquals(listOf("DOOR_IS_OUTDOOR", "NIGHT_SHORTER", "OUTDOOR_ALERTS"), parsed.warnings.map { it.reason })
+        assertEquals(listOf(12, 31), parsed.rejectedLines)
+        assertEquals(parsed.warnings, ConfigSchema.warnings(PanelConfig.parseText(parsed.text).values))
+    }
+
+    @Test
     fun toleratesMalformedRejectedLine() {
         val parsed = PanelConfig.parseConfigReply(
             listOf("temp_unit=C", "REJECTED line=9 reason=", "REJECTED line=x", "REJECTED line=11 reason=BAD_VALUE extra=1"),

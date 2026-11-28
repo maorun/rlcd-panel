@@ -110,6 +110,7 @@ data class PanelConfig(
             val settings = mutableListOf<String>()
             val rejected = mutableListOf<Int>()
             val reasons = mutableListOf<String?>()
+            val warnings = mutableListOf<ConfigWarning>()
             var source: String? = null
             var size = 0
             for (raw in lines) {
@@ -128,10 +129,17 @@ data class PanelConfig(
                         }
                     }
                     line.startsWith("REJECTED ") -> {}
+                    line.startsWith("WARN ") -> {
+                        // "WARN key=<key> reason=<REASON>": no setting. A line without both fields is dropped.
+                        val fields = line.removePrefix("WARN ").split(' ').filter { it.isNotEmpty() }
+                        val key = fields.firstOrNull { it.startsWith("key=") }?.removePrefix("key=").orEmpty()
+                        val reason = fields.firstOrNull { it.startsWith("reason=") }?.removePrefix("reason=").orEmpty()
+                        if (key.isNotEmpty() && reason.isNotEmpty()) warnings.add(ConfigWarning(key, reason))
+                    }
                     KEY_VALUE.matches(line) -> settings.add(line)
                 }
             }
-            return ConfigReply(settings.joinToString("\n", postfix = "\n").takeIf { settings.isNotEmpty() } ?: "", source, rejected, reasons)
+            return ConfigReply(settings.joinToString("\n", postfix = "\n").takeIf { settings.isNotEmpty() } ?: "", source, rejected, reasons, warnings)
         }
 
         /** Reads the cache first, then the external file, then the bundled asset. */
@@ -174,6 +182,8 @@ data class ConfigReply(
     val rejectedLines: List<Int>,
     /** Reason of each rejected line (`UNKNOWN_KEY`, `BAD_VALUE`, `DUPLICATE_MAC`); `null` for an old firmware line without a reason. */
     val rejectedReasons: List<String?> = emptyList(),
+    /** `WARN key=<key> reason=<REASON>` lines in reply order; empty for an old firmware. */
+    val warnings: List<ConfigWarning> = emptyList(),
 )
 
 /** Cache state for the screen: when the panel config was read and which lines the panel rejected. */

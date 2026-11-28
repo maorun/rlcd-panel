@@ -65,6 +65,30 @@ public struct ConfigChange: Equatable, Sendable {
     public var text: String { "\(key): \(old.isEmpty ? "(empty)" : old) -> \(new.isEmpty ? "(empty)" : new)" }
 }
 
+/// One warning for valid keys that conflict (`DeviceConfigWarnings` of the firmware). It never blocks a `SET`.
+public struct ConfigWarning: Equatable, Sendable, Identifiable {
+    public var id: String { key + " " + reason }
+    /// Key that the editor shows the warning beside.
+    public let key: String
+    /// `DOOR_IS_OUTDOOR`, `WALL_WITHOUT_OUTDOOR`, `NIGHT_SHORTER`, `OUTDOOR_ALERTS` or the text of a newer firmware.
+    public let reason: String
+
+    public init(key: String, reason: String) {
+        self.key = key
+        self.reason = reason
+    }
+
+    public var text: String {
+        switch reason {
+        case "DOOR_IS_OUTDOOR": return "door_ref_slot is the outdoor slot. Choose another reference slot."
+        case "WALL_WITHOUT_OUTDOOR": return "WALL needs outdoor_slot. Set outdoor_slot or set wall_frsi_pct to 0."
+        case "NIGHT_SHORTER": return "Shorter than wake_interval_s. The night scan then wakes more often."
+        case "OUTDOOR_ALERTS": return "The outdoor tile feeds the freezer and mold alerts. Clear its bit."
+        default: return "Conflict: \(reason)"
+        }
+    }
+}
+
 /// Schema of all keys of `DeviceConfigParser::KEYS`.
 /// The array order is the fixed order of the batch `SET`. `ble_console` stands last: a lower level
 /// makes the console read-only, so no `SET` may follow it.
@@ -339,6 +363,45 @@ public enum ConfigSchema {
     public static func unboundNameWarning(slot: Int) -> String {
         "Name of slot \(slot) has no MAC. Assign the sensor in the scanner."
     }
+
+    /// The four rules of `DeviceConfigWarnings::collect` in the firmware order, on `values` (a key that the map
+    /// lacks has the schema default). A value that is no whole number skips its rules. No rule blocks a `SET`.
+    public static func warnings(values: [String: String]) -> [ConfigWarning] {
+        func int(_ key: String) -> Int? {
+            let v = current(key, values)
+            guard let d = parseNumber(v), d == d.rounded(), abs(d) < 1e9 else { return nil }
+            return Int(d)
+        }
+        var out: [ConfigWarning] = []
+        let outdoor = int("outdoor_slot"), door = int("door_ref_slot")
+        if let door, let outdoor, door != 0, door == outdoor {
+            out.append(ConfigWarning(key: "door_ref_slot", reason: "DOOR_IS_OUTDOOR"))
+        }
+        if let wall = int("wall_frsi_pct"), let outdoor, wall != 0, outdoor == 0 {
+            out.append(ConfigWarning(key: "wall_frsi_pct", reason: "WALL_WITHOUT_OUTDOOR"))
+        }
+        if let night = int("night_wake_interval_s"), let wake = int("wake_interval_s"), night != 0, night < wake {
+            out.append(ConfigWarning(key: "night_wake_interval_s", reason: "NIGHT_SHORTER"))
+        }
+        // Bit 0 of climate_alert_tiles is the onboard tile, bit i is slot i.
+        if let outdoor, let tiles = int("climate_alert_tiles"), (1...10).contains(outdoor), tiles >= 0,
+           (tiles >> outdoor) & 1 == 1 {
+            out.append(ConfigWarning(key: "climate_alert_tiles", reason: "OUTDOOR_ALERTS"))
+        }
+        return out
+    }
+
+    /// Warnings of the form: the four rules on the edited values. With no edit, `WARN` lines of the reply with a
+    /// reason that this schema does not know (a newer firmware) join them, because only the firmware can calculate those.
+    /// `draft` holds only values that differ from the reply (the editor drops an equal edit).
+    public static func warnings(config: ConfigReply, draft: [String: String]) -> [ConfigWarning] {
+        let own = warnings(values: config.values.merging(draft) { _, new in new })
+        guard draft.isEmpty else { return own }
+        let known = Set(knownWarningReasons)
+        return own + config.warnings.filter { !known.contains($0.reason) && !own.contains($0) }
+    }
+
+    static let knownWarningReasons = ["DOOR_IS_OUTDOOR", "WALL_WITHOUT_OUTDOOR", "NIGHT_SHORTER", "OUTDOOR_ALERTS"]
 
     /// `SET` commands for the changes, in the fixed schema order.
     public static func batch(for changes: [ConfigChange]) -> [ConsoleCommand] {

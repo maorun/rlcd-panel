@@ -266,4 +266,65 @@ class ConfigSchemaTest {
         assertTrue(result!!.ok)
         assertEquals("CONFIG gelesen", result!!.summary)
     }
+
+    private fun reasons(values: Map<String, String>) = ConfigSchema.warnings(values).map { it.reason }
+
+    @Test
+    fun warningRuleDoorIsOutdoor() {
+        val noTiles = "climate_alert_tiles" to "0"
+        assertEquals(listOf("DOOR_IS_OUTDOOR"), reasons(mapOf("door_ref_slot" to "3", "outdoor_slot" to "3", noTiles)))
+        assertTrue(reasons(mapOf("door_ref_slot" to "0", "outdoor_slot" to "0", noTiles)).isEmpty())
+        assertTrue(reasons(mapOf("door_ref_slot" to "2", "outdoor_slot" to "3", noTiles)).isEmpty())
+    }
+
+    @Test
+    fun warningRuleWallWithoutOutdoor() {
+        assertEquals(listOf("WALL_WITHOUT_OUTDOOR"), reasons(mapOf("wall_frsi_pct" to "70")))
+        assertTrue(reasons(mapOf("wall_frsi_pct" to "70", "outdoor_slot" to "2", "climate_alert_tiles" to "0")).isEmpty())
+        assertTrue(reasons(mapOf("wall_frsi_pct" to "0")).isEmpty())
+    }
+
+    @Test
+    fun warningRuleNightShorter() {
+        assertEquals(listOf("night_wake_interval_s"), ConfigSchema.warnings(mapOf("night_wake_interval_s" to "60", "wake_interval_s" to "120")).map { it.key })
+        assertTrue(reasons(mapOf("night_wake_interval_s" to "120", "wake_interval_s" to "120")).isEmpty())
+        assertTrue(reasons(mapOf("night_wake_interval_s" to "0", "wake_interval_s" to "120")).isEmpty())
+        // wake_interval_s missing: the schema default 60 applies.
+        assertTrue(reasons(mapOf("night_wake_interval_s" to "60")).isEmpty())
+    }
+
+    @Test
+    fun warningRuleOutdoorAlerts() {
+        // The default mask 2047 holds every tile, so an outdoor slot alone warns.
+        assertEquals(listOf("OUTDOOR_ALERTS"), reasons(mapOf("outdoor_slot" to "3")))
+        assertTrue(reasons(mapOf("outdoor_slot" to "3", "climate_alert_tiles" to "2039")).isEmpty()) // bit 3 cleared
+        assertTrue(reasons(mapOf("outdoor_slot" to "0")).isEmpty())
+        assertEquals(listOf("OUTDOOR_ALERTS"), reasons(mapOf("outdoor_slot" to "10", "climate_alert_tiles" to "1024")))
+    }
+
+    @Test
+    fun warningsKeepFirmwareOrderAndSkipBadNumbers() {
+        val all = reasons(mapOf("door_ref_slot" to "3", "outdoor_slot" to "3", "night_wake_interval_s" to "60", "wake_interval_s" to "120", "climate_alert_tiles" to "2047"))
+        assertEquals(listOf("DOOR_IS_OUTDOOR", "NIGHT_SHORTER", "OUTDOOR_ALERTS"), all)
+        assertTrue(reasons(mapOf("door_ref_slot" to "x", "outdoor_slot" to "x")).isEmpty())
+        assertTrue(reasons(mapOf("outdoor_slot" to "3", "climate_alert_tiles" to "99999999999999999999")).isEmpty())
+    }
+
+    @Test
+    fun warningsFollowTheEditsAndDoNotBlockThePlan() {
+        val current = mapOf("outdoor_slot" to "3", "climate_alert_tiles" to "2039")
+        assertTrue(ConfigSchema.warnings(current).isEmpty())
+        val edits = mapOf("climate_alert_tiles" to "2047")
+        assertEquals(listOf("OUTDOOR_ALERTS"), ConfigSchema.warnings(current + edits).map { it.reason })
+        val plan = ConfigSchema.plan(edits, current)
+        assertTrue(plan is ConfigPlan.Commands)
+        assertEquals(listOf("SET climate_alert_tiles=2047"), (plan as ConfigPlan.Commands).commands)
+    }
+
+    @Test
+    fun wholeNumbersWithZeroFractionCountLikeOnMacos() {
+        assertEquals(listOf("DOOR_IS_OUTDOOR"), reasons(mapOf("door_ref_slot" to "3.0", "outdoor_slot" to "+3", "climate_alert_tiles" to "0")))
+        assertTrue(reasons(mapOf("door_ref_slot" to "3.5", "outdoor_slot" to "3.5", "climate_alert_tiles" to "0")).isEmpty())
+        assertTrue(reasons(mapOf("door_ref_slot" to " 3", "outdoor_slot" to "3", "climate_alert_tiles" to "0")).isEmpty())
+    }
 }

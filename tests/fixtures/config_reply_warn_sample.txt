@@ -1,0 +1,22 @@
+temp_offset_c=-1.9
+onboard_name=Office
+slot1_name=Wohnzimmer
+slot1_mac=B0:E9:FE:00:00:01
+slot2_name=Keller
+slot2_mac=B0:E9:FE:00:00:02
+slot3_name=Balkon
+slot3_mac=B0:E9:FE:00:00:03
+outdoor_slot=3
+door_ref_slot=3
+wall_frsi_pct=70
+wake_interval_s=120
+night_wake_interval_s=60
+climate_alert_tiles=2047
+sensor_battery_limit_pct=10
+SOURCE SD
+REJECTED line=12 reason=BAD_VALUE
+REJECTED line=31 reason=DUPLICATE_MAC
+WARN key=door_ref_slot reason=DOOR_IS_OUTDOOR
+WARN key=night_wake_interval_s reason=NIGHT_SHORTER
+WARN key=climate_alert_tiles reason=OUTDOOR_ALERTS
+CRC32 79dab8aa

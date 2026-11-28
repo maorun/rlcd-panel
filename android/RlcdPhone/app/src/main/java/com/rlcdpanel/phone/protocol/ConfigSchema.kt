@@ -15,6 +15,19 @@ data class SchemaEntry(
     val description: String
 )
 
+/** One warning for valid keys that conflict (`DeviceConfigWarnings` of the firmware). It never blocks a `SET`. */
+data class ConfigWarning(val key: String, val reason: String) {
+    /** Text of the editor beside [key]. */
+    val text: String
+        get() = when (reason) {
+            "DOOR_IS_OUTDOOR" -> "door_ref_slot ist der Außen-Slot. Anderen Referenz-Slot wählen."
+            "WALL_WITHOUT_OUTDOOR" -> "WALL braucht outdoor_slot. outdoor_slot setzen oder wall_frsi_pct auf 0 setzen."
+            "NIGHT_SHORTER" -> "Kürzer als wake_interval_s. Der Nacht-Scan weckt dann öfter."
+            "OUTDOOR_ALERTS" -> "Die Außen-Kachel speist die Frost- und Schimmelalarme. Ihr Bit löschen."
+            else -> "Konflikt: $reason"
+        }
+}
+
 /** A checked `SET` list or the reason why the input is refused. A refused input sends no command. */
 sealed class ConfigPlan {
     data class Commands(val commands: List<String>, val changes: List<ConfigChange>) : ConfigPlan()
@@ -152,6 +165,33 @@ object ConfigSchema {
     /** Problem text by key: a failed validation, a duplicate fixed MAC or a `SET` line above [MAX_LINE_BYTES] bytes. */
     fun problems(changes: List<ConfigChange>, allValues: Map<String, String> = emptyMap()): Map<String, String> =
         ConfigKeys.problems(changes, allValues)
+
+    /**
+     * The four rules of `DeviceConfigWarnings::collect` in the firmware order on [values]; a key that the map lacks has
+     * the schema default. A value that is no whole number skips its rules. No rule blocks a `SET`.
+     */
+    fun warnings(values: Map<String, String>): List<ConfigWarning> {
+        fun int(key: String): Int? {
+            val text = (values[key] ?: byKey[key]?.defaultValue).orEmpty()
+            // Same grammar as `parseNumber` of the macOS schema: at most 15 characters, no white space.
+            return if (text.length <= 15 && Regex("^[+-]?[0-9]{1,9}(\\.0+)?$").matches(text)) text.substringBefore('.').toInt() else null
+        }
+        val out = mutableListOf<ConfigWarning>()
+        val outdoor = int("outdoor_slot")
+        val door = int("door_ref_slot")
+        if (door != null && outdoor != null && door != 0 && door == outdoor) out.add(ConfigWarning("door_ref_slot", "DOOR_IS_OUTDOOR"))
+        val wall = int("wall_frsi_pct")
+        if (wall != null && outdoor != null && wall != 0 && outdoor == 0) out.add(ConfigWarning("wall_frsi_pct", "WALL_WITHOUT_OUTDOOR"))
+        val night = int("night_wake_interval_s")
+        val wake = int("wake_interval_s")
+        if (night != null && wake != null && night != 0 && night < wake) out.add(ConfigWarning("night_wake_interval_s", "NIGHT_SHORTER"))
+        // Bit 0 of climate_alert_tiles is the onboard tile, bit i is slot i.
+        val tiles = int("climate_alert_tiles")
+        if (outdoor != null && tiles != null && outdoor in 1..10 && tiles >= 0 && (tiles shr outdoor) and 1 == 1) {
+            out.add(ConfigWarning("climate_alert_tiles", "OUTDOOR_ALERTS"))
+        }
+        return out
+    }
 
     /**
      * Plan for the [edits] (key to input text) against the cached [current] values. One problem refuses the whole
