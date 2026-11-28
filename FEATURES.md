@@ -4469,3 +4469,13 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The badge intervals of the alert timelines (`AlertTimeline.badges`) pair `HEAT_TILE` set and clear rows with the badge letter `H`, like `DRY_AIR`. A row with an invalid detail is ignored.
 - Tests: `EventTextTests`, `EventFilterTests` and `BadgeIntervalTests` (macOS) and `EventTextTest`, `EventFilterTest` and `AlertTimelineTest` (phone and watch) cover both states, a bad detail, the filter category and one interval.
 - Validation: `swift test` (910 tests) and `swift build -c release` pass in `macos/RlcdCompanion`; `./scripts/check-protocol-sync.sh` passes. The Gradle runs need the Android SDK and run in CI.
+
+## Frozen reading notification and texts in the three apps
+
+- **Code:** `StuckWatch.swift`, `Diagnostics.swift` (`LatchMetrics.stuck`, `hasStuck`), `EventText.swift`, `EventFilter.swift`, `AppModel.swift` and `DiagnosticsView.swift` of `macos/RlcdCompanion`; `StuckWatch.kt`, `StatusReply.kt` (`LatchState.stuck`, `hasStuck`), `EventText.kt`, `EventFilter.kt`, `MainActivity.kt` and `SensorHealthScreen.kt` of `android/RlcdPhone` and `wearos/RlcdWatch`; `scripts/check-protocol-sync.sh` lists `StuckWatch.kt`.
+- Parser: the three apps read `stuck=<3 hex digits>` of the `STATUS` line `LATCH` (bit 0 onboard, bits 1 to 10 slots). A missing field gives `nil` or `null`. A bad value (not 3 hex digits, above `7FF`) is a parse error.
+- Texts: `EventText.describe` shows `SENSOR_STUCK` 28 as `Sensor frozen (<room>)` for the high byte 1 and `Sensor good again (<room>)` for the high byte 0. A tile above 10 or a high byte above 1 shows the raw text. `EventFilter` puts the event in the category `sensors`.
+- Notifications: `StuckWatch` reports each bit that rose since the previous `STATUS` read. The first read is the baseline, a falling bit and a missing field give no tile, and a missing field keeps the state. macOS (`rlcd_panel_stuck_<tile>`) and Android (id 2500 + tile) post one notification for each new bit. The watch posts the notification and vibrates once.
+- Sensor health: the three lists show the frozen mark for each flagged tile (macOS snowflake icon, `Sensor frozen` text on Android and Wear OS).
+- Tests: `StuckWatchTests`, `DiagnosticsTests` and `EventTextTests` (macOS); `StuckWatchTest`, `StatusReplyTest`, `EventTextTest` and `SensorHealthTextTest` (phone and watch).
+- Validation: `swift test` (920 tests) and `./scripts/check-protocol-sync.sh` pass. The Gradle runs need the Android SDK and run in CI.

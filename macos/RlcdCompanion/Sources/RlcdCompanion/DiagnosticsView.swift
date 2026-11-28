@@ -447,6 +447,11 @@ struct DiagnosticsView: View {
                             .help("Hot room (heat badge)")
                             .accessibilityLabel("Hot room")
                     }
+                    if model.diagnostics?.latch?.hasStuck(sensor: r.slot) == true {
+                        Image(systemName: "snowflake").foregroundStyle(.orange)
+                            .help("Frozen reading: the sensor sends the same values (stuck badge)")
+                            .accessibilityLabel("Frozen reading")
+                    }
                     Text(r.verdict.rawValue).font(.caption.bold())
                         .foregroundStyle(r.verdict == .good ? Color.green : r.verdict == .empty ? Color.secondary : Color.orange)
                     Text(r.advice).font(.caption).foregroundStyle(.secondary)

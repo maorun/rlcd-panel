@@ -439,8 +439,8 @@ public struct WakeMetrics: Equatable {
     }
 }
 
-/// `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex> [wall=<3 hex> window=<3 hex> rxlow=<3 hex> drift=<3 hex> heat=<3 hex>]`: the badge
-/// latches of the panel. `wall`, `window`, `rxlow`, `drift` and `heat` come from newer firmware only.
+/// `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex> [wall=<3 hex> window=<3 hex> rxlow=<3 hex> drift=<3 hex> heat=<3 hex> stuck=<3 hex>]`: the badge
+/// latches of the panel. `wall`, `window`, `rxlow`, `drift`, `heat` and `stuck` come from newer firmware only.
 /// `vent`, `dry`, `wall` and `window` use bit 0 for the onboard tile and bits 1 to 10 for the slots; `batlow` and `stale`
 /// use bits 0 to 9 for the slots 1 to 10.
 public struct LatchMetrics: Equatable {
@@ -459,6 +459,8 @@ public struct LatchMetrics: Equatable {
     public let drift: Int?
     /// Heat mask (`heat=`): bit 0 onboard, bits 1 to 10 slots. `nil` when older firmware sends no field.
     public let heat: Int?
+    /// Frozen reading mask (`stuck=`): bit 0 onboard, bits 1 to 10 slots. `nil` when older firmware sends no field.
+    public let stuck: Int?
 
     public var hasBadges: Bool {
         ventilate != 0 || dry != 0 || batteryLow != 0 || stale != 0 || (wall ?? 0) != 0 || (window ?? 0) != 0
@@ -475,6 +477,12 @@ public struct LatchMetrics: Equatable {
     public func hasHeat(sensor: Int) -> Bool {
         guard (0..<Self.sensorCount).contains(sensor) else { return false }
         return (heat ?? 0) >> sensor & 1 == 1
+    }
+
+    /// True when sensor 0 (onboard) or 1 to 10 (slot) sends a frozen reading (`stuck=` bit `sensor`). Other numbers give false.
+    public func hasStuck(sensor: Int) -> Bool {
+        guard (0..<Self.sensorCount).contains(sensor) else { return false }
+        return (stuck ?? 0) >> sensor & 1 == 1
     }
 
     /// True when slot 1 to 10 has a weak BLE signal (`rxlow=` bit `slot - 1`). Other numbers give false.
@@ -503,7 +511,7 @@ public struct LatchMetrics: Equatable {
             batteryLow: try mask("batlow", max: 0x3ff), stale: try mask("stale", max: 0x3ff),
             wall: try optionalMask("wall"), window: try optionalMask("window"),
             receptionLow: try optionalMask("rxlow", max: 0x3ff), drift: try optionalMask("drift"),
-            heat: try optionalMask("heat"))
+            heat: try optionalMask("heat"), stuck: try optionalMask("stuck"))
     }
 
     /// Badge texts of sensor 0 (onboard) or 1 to 10 (slot), in the order `V`, `D`, `Wall`, `Window`, `BAT LOW`, `STALE`, `RX LOW`.

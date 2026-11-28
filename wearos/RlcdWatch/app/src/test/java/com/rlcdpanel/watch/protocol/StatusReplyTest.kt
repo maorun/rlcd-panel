@@ -192,6 +192,25 @@ class StatusReplyTest {
     }
 
     @Test
+    fun parsesStuckMask() {
+        val latch = StatusReply.parse(fixtureLines()).latch!!
+        assertEquals(0x000, latch.stuck)
+        assertEquals(false, latch.hasStuck(0))
+        assertEquals(true, LatchState(0, 0, 0, 0, stuck = 0x402).hasStuck(10))
+        assertEquals(false, LatchState(0, 0, 0, 0, stuck = 0x7FF).hasStuck(11))
+        val old = replace("LATCH ", "LATCH vent=002 dry=000 batlow=008 stale=004 heat=001").latch!!
+        assertNull(old.stuck)
+        assertEquals(false, old.hasStuck(0))
+        for (extra in listOf("stuck=800", "stuck=", "stuck=00g", "stuck=1")) {
+            try {
+                replace("LATCH ", "LATCH vent=002 dry=000 batlow=008 stale=004 $extra")
+                fail("expected ParseException for $extra")
+            } catch (e: ParseException) {
+            }
+        }
+    }
+
+    @Test
     fun parsesHeatMask() {
         val latch = StatusReply.parse(fixtureLines()).latch!!
         assertEquals(0x001, latch.heat)
@@ -323,7 +342,7 @@ class StatusReplyTest {
     @Test
     fun parsesLatchLine() {
         val latch = StatusReply.parse(fixtureLines()).latch!!
-        assertEquals(LatchState(0x002, 0x000, 0x008, 0x004, 0x002, 0x402, 0x202, 0x002, 0x001), latch)
+        assertEquals(LatchState(0x002, 0x000, 0x008, 0x004, 0x002, 0x402, 0x202, 0x002, 0x001, 0x000), latch)
         assertEquals(0x202, latch.receptionLow)
         assertEquals(0x002, latch.wall)
         assertEquals(0x402, latch.window)

@@ -154,9 +154,9 @@ data class WakeState(val cause: String, val boots: Long, val batteryIntervalSeco
 }
 
 /**
- * `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex> [wall=<3 hex>] [window=<3 hex>] [rxlow=<3 hex>] [drift=<3 hex>] [heat=<3 hex>]`: the badge
+ * `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex> [wall=<3 hex>] [window=<3 hex>] [rxlow=<3 hex>] [drift=<3 hex>] [heat=<3 hex>] [stuck=<3 hex>]`: the badge
  * latches of the panel. `vent`, `dry`, `wall` and `window` use bit 0 for the onboard tile and bits 1 to 10
- * for the slots (`drift` and `heat` too); `batlow`, `stale` and `rxlow` use bits 0 to 9 for the slots 1 to 10. `wall`, `window`, `rxlow`, `drift` and `heat` are
+ * for the slots (`drift`, `heat` and `stuck` too); `batlow`, `stale` and `rxlow` use bits 0 to 9 for the slots 1 to 10. `wall`, `window`, `rxlow`, `drift`, `heat` and `stuck` are
  * null for a panel firmware that does not send them.
  */
 data class LatchState(
@@ -168,7 +168,8 @@ data class LatchState(
     val window: Int? = null,
     val receptionLow: Int? = null,
     val drift: Int? = null,
-    val heat: Int? = null
+    val heat: Int? = null,
+    val stuck: Int? = null
 ) {
     /**
      * Badge texts of sensor 0 (onboard) or 1 to 10 (slot), in the order `V`, `D`, `Wand`, `Fenster`,
@@ -192,6 +193,10 @@ data class LatchState(
     /** True for a tile (0 onboard, 1 to 10 slots) whose `heat` bit is set; false for an unknown tile and a missing field. */
     fun hasHeat(sensor: Int): Boolean =
         heat != null && sensor in 0 until SENSOR_COUNT && heat shr sensor and 1 == 1
+
+    /** True for a tile (0 onboard, 1 to 10 slots) whose `stuck` bit is set; false for an unknown tile and a missing field. */
+    fun hasStuck(sensor: Int): Boolean =
+        stuck != null && sensor in 0 until SENSOR_COUNT && stuck shr sensor and 1 == 1
 
     /** True for a slot 1 to 10 whose `rxlow` bit is set; false for the onboard sensor, an unknown sensor and a missing field. */
     fun hasWeakSignal(sensor: Int): Boolean =
@@ -450,8 +455,8 @@ data class StatusReply(
         }
 
         /**
-         * `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex>` with the optional `wall`, `window`, `rxlow`, `drift` and `heat`; a value
-         * that is not 3 hex digits or above its limit throws, a missing `wall`, `window`, `rxlow`, `drift` or `heat` gives null.
+         * `LATCH vent=<3 hex> dry=<3 hex> batlow=<3 hex> stale=<3 hex>` with the optional `wall`, `window`, `rxlow`, `drift`, `heat` and `stuck`; a value
+         * that is not 3 hex digits or above its limit throws, a missing `wall`, `window`, `rxlow`, `drift`, `heat` or `stuck` gives null.
          */
         private fun parseLatch(line: String): LatchState {
             val f = fields(line)
@@ -467,7 +472,8 @@ data class StatusReply(
                 if (f.containsKey("window")) mask("window", LatchState.MAX_TILE_MASK) else null,
                 if (f.containsKey("rxlow")) mask("rxlow", LatchState.MAX_SLOT_MASK) else null,
                 if (f.containsKey("drift")) mask("drift", LatchState.MAX_TILE_MASK) else null,
-                if (f.containsKey("heat")) mask("heat", LatchState.MAX_TILE_MASK) else null
+                if (f.containsKey("heat")) mask("heat", LatchState.MAX_TILE_MASK) else null,
+                if (f.containsKey("stuck")) mask("stuck", LatchState.MAX_TILE_MASK) else null
             )
         }
 

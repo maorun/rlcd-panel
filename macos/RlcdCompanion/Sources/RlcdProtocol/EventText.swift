@@ -125,6 +125,11 @@ public enum EventText {
             guard let (tile, hot) = tileState(d) else { return raw }
             let room = roomName(tile: tile, config: config)
             return hot == 1 ? "Heat (\(room))" : "Heat good again (\(room))"
+        case "SENSOR_STUCK":
+            // Low byte is the tile (0 onboard, 1 to 10 slots); the high byte 1 marks a frozen reading, 0 good again.
+            guard let (tile, stuck) = tileState(d) else { return raw }
+            let room = roomName(tile: tile, config: config)
+            return stuck == 1 ? "Sensor frozen (\(room))" : "Sensor good again (\(room))"
         case "CONFIG_SET":
             let index = d & 0xFF, transport = d >> 8
             guard (0...0xFFFF).contains(d), transport <= 1 else { return raw }
@@ -139,7 +144,7 @@ public enum EventText {
     }
 
     /// Tile (0 onboard, 1 to 10 slots) and state (1 set, 0 clear) of a detail value of `WINDOW_OPEN`, `WALL_DAMP`,
-    /// `DRY_AIR`, `SENSOR_DRIFT` or `HEAT_TILE`: low byte tile, high byte state. `nil` for a value that these rules reject.
+    /// `DRY_AIR`, `SENSOR_DRIFT`, `HEAT_TILE` or `SENSOR_STUCK`: low byte tile, high byte state. `nil` for a value that these rules reject.
     public static func tileState(_ detail: Int) -> (tile: Int, state: Int)? {
         guard (0...0xFFFF).contains(detail), detail & 0xFF <= 10, detail >> 8 <= 1 else { return nil }
         return (detail & 0xFF, detail >> 8)

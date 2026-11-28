@@ -23,6 +23,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.rlcdpanel.phone.protocol.DriftWatch
+import com.rlcdpanel.phone.protocol.StuckWatch
 import com.rlcdpanel.phone.protocol.RtcTrimReply
 import com.rlcdpanel.phone.protocol.JumpAdvice
 import com.rlcdpanel.phone.protocol.LatchState
@@ -162,6 +163,9 @@ object SensorHealthText {
         row.heatHours?.let { (if (it > 0) "⚠ " else "") + "Hitze $it h" } ?: "Hitze --"
     /** Heat mark of one tile (0 onboard, 1 to 10 slots); null without a `LATCH` line, without `heat` and for an unflagged tile. */
     fun heatMark(latch: LatchState?, tile: Int): String? = if (latch?.hasHeat(tile) == true) "⚠ Heat" else null
+
+    /** Frozen reading mark of one tile (0 onboard, 1 to 10 slots); null without a `LATCH` line, without `stuck` and for an unflagged tile. */
+    fun stuckMark(latch: LatchState?, tile: Int): String? = if (latch?.hasStuck(tile) == true) "⚠ ${StuckWatch.TEXT}" else null
 
     fun isHeat(row: SensorHealth): Boolean = (row.heatHours ?: 0) > 0
     fun trendSymbol(trend: SensorTrend?): String = trend?.symbol ?: "–"
@@ -398,6 +402,9 @@ fun SensorHealthScreen(
                             SensorHealthText.heatMark(state.status?.latch, 0)?.let {
                                 Text("$it: ${panelConfig.tileName(0)}", color = MaterialTheme.colorScheme.error)
                             }
+                            SensorHealthText.stuckMark(state.status?.latch, 0)?.let {
+                                Text("$it: ${panelConfig.tileName(0)}", color = MaterialTheme.colorScheme.error)
+                            }
                             for ((warn, text) in lines) {
                                 Text(
                                     (if (warn) "⚠ " else "") + text,
@@ -419,6 +426,9 @@ fun SensorHealthScreen(
                             Text("⚠ ${DriftWatch.TEXT}", color = MaterialTheme.colorScheme.error)
                         }
                         SensorHealthText.heatMark(state.status?.latch, row.slot)?.let {
+                            Text(it, color = MaterialTheme.colorScheme.error)
+                        }
+                        SensorHealthText.stuckMark(state.status?.latch, row.slot)?.let {
                             Text(it, color = MaterialTheme.colorScheme.error)
                         }
                         Text(SensorHealthText.rssi(row))

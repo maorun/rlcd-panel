@@ -176,6 +176,16 @@ object EventText {
                 if (d !in 0..0xFFFF || tile > 10 || drift > 1) raw
                 else "Sensor drift ${if (drift == 1) "" else "gone "}(${if (tile == 0) "Onboard" else "tile $tile"})"
             }
+            "SENSOR_STUCK" -> {
+                // Low byte is the tile (0 onboard, 1 to 10 slots); the high byte 1 marks a frozen reading, 0 good again.
+                val tile = d and 0xFF
+                val stuck = d shr 8
+                if (d !in 0..0xFFFF || tile > 10 || stuck > 1) raw
+                else {
+                    val room = if (tile == 0) "Onboard" else "tile $tile"
+                    if (stuck == 1) "Sensor frozen ($room)" else "Sensor good again ($room)"
+                }
+            }
             "SD_FAULT" -> SD_STATUSES[d]?.let { if (d == 1) "SD card OK" else "SD card fault: $it" } ?: raw
             else -> raw
         }
