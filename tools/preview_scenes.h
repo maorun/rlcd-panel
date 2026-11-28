@@ -36,9 +36,10 @@ struct PreviewScene {
   bool weak = false;          // weak BLE signal: slot 1 shows the "R" badge
   bool drift = false;         // sensor drift: the onboard tile and slot 1 show the "S" badge
   bool heat = false;          // heat: the onboard tile and slot 1 show the "H" badge
+  bool stuck = false;         // frozen reading: the onboard tile and slot 1 show the "F" badge
 };
 
-constexpr uint8_t PREVIEW_SCENE_COUNT = 24;
+constexpr uint8_t PREVIEW_SCENE_COUNT = 25;
 
 constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_dashboard", DisplayMode::DASHBOARD, false, false},
@@ -65,6 +66,7 @@ constexpr PreviewScene PREVIEW_SCENES[PREVIEW_SCENE_COUNT] = {
     {"display_preview_weak_signal", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, false, false, false, false, false, true},
     {"display_preview_drift", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, false, false, false, false, false, false, true},
     {"display_preview_heat", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, false, false, false, false, false, false, false, true},
+    {"display_preview_stuck", DisplayMode::DASHBOARD, false, false, false, false, false, false, 0, 0, false, false, false, false, false, false, false, false, true},
 };
 
 // Renders one mode with the fixed sample data used for all documentation previews.
@@ -73,7 +75,7 @@ inline void renderScene(
     bool long_runtime = false, bool battery_empty = false, bool ventilate = false,
     bool invert = false, uint8_t tiles = 0, uint8_t stats_page = 0, bool dry = false,
     bool muted = false, bool window = false, bool wall = false, bool identify = false, bool weak = false,
-    bool drift = false, bool heat = false) {
+    bool drift = false, bool heat = false, bool stuck = false) {
   if (identify) {
     DashboardView::renderIdentify(fb, 0x3F2A, "1.0.0", "USB");
     return;
@@ -288,6 +290,9 @@ inline void renderScene(
   }
   if (drift) {
     info.drift_tiles = 0x3; // the onboard tile and slot 1 drift from the median
+  }
+  if (stuck) {
+    info.stuck_tiles = 0x3; // the onboard tile and slot 1 send frozen readings
   }
   if (heat) {
     info.heat_tiles = 0x3; // the onboard tile and slot 1 feel hotter than the limit

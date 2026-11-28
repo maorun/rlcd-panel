@@ -62,6 +62,7 @@ object ConfigKeys {
         add(dec("drift_limit_rh", 2.0, 10.0, "3.0"))
         add(int("heat_alert_delay_h", 1, 12, "0", off = 0))
         add(int("freeze_alert_delay_h", 1, 12, "0", off = 0))
+        add(int("stuck_alert_h", 6, 48, "0", off = 0))
         add(int("heat_alert_limit_c", 27, 45, "0", off = 0))
         add(int("dry_alert_limit_rh", 20, 45, "0", off = 0))
         add(dec("window_drop_c", 1.0, 5.0, "0", off = 0.0))

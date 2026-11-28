@@ -20,6 +20,7 @@
 #include "sparkline.h"
 #include "drift_latch.h"
 #include "heat_latch.h"
+#include "stuck_latch.h"
 #include "dry_latch.h"
 #include "wall_latch.h"
 #include "window_latch.h"
@@ -125,6 +126,7 @@ struct PersistentState {
   uint8_t scan_fault = 0;          // 1: the last BLE scan start failed (recordScanResult); a power-on sets 0
   uint16_t drift_tiles = 0;     // sensor drift latch, bit 0 onboard, bits 1..10 slots (DriftLatch)
   uint16_t heat_tiles = 0;      // heat badge latch, bit 0 onboard, bits 1..10 slots (HeatLatch)
+  uint16_t stuck_tiles = 0;     // frozen reading latch, bit 0 onboard, bits 1..10 slots (StuckLatch)
   uint16_t reception_low = 0;      // low reception latch, bits 0..9 are the registry slots (recordReceptionChanges)
   static constexpr uint8_t RECEPTION_LOW_MIN_SCANS = 12; // counted scans before the latch may set
   uint16_t stale_slots = 0;        // stale latch, bits 0..9 are the registry slots (recordStaleChanges)
@@ -344,6 +346,11 @@ struct PersistentState {
     recordTileChanges(EventCode::SENSOR_DRIFT, previous, current, DriftLatch::ALL_MASK, DriftLatch::TILE_COUNT, now);
   }
 
+  // Records one SENSOR_STUCK event for each changed bit between two stuck_tiles values: same detail layout as WALL_DAMP.
+  void recordStuckChanges(uint16_t previous, uint16_t current, const RtcTime& now) {
+    recordTileChanges(EventCode::SENSOR_STUCK, previous, current, StuckLatch::ALL_MASK, StuckLatch::TILE_COUNT, now);
+  }
+
   // Records one HEAT_TILE event for each changed bit between two heat_tiles values: same detail layout as WALL_DAMP.
   void recordHeatChanges(uint16_t previous, uint16_t current, const RtcTime& now) {
     recordTileChanges(EventCode::HEAT_TILE, previous, current, HeatLatch::ALL_MASK, HeatLatch::TILE_COUNT, now);
@@ -446,6 +453,7 @@ struct PersistentState {
     swapBit(wall_tiles, a, b, 1);
     swapBit(drift_tiles, a, b, 1);
     swapBit(heat_tiles, a, b, 1);
+    swapBit(stuck_tiles, a, b, 1);
     std::swap(window_anchors.ref[1 + a], window_anchors.ref[1 + b]);
     std::swap(window_anchors.prev[1 + a], window_anchors.prev[1 + b]);
     std::swap(window_anchors.stamp_ms[1 + a], window_anchors.stamp_ms[1 + b]);
@@ -505,6 +513,7 @@ struct PersistentState {
     wall_tiles = static_cast<uint16_t>(wall_tiles & ~(2u << index));
     drift_tiles = static_cast<uint16_t>(drift_tiles & ~(2u << index));
     heat_tiles = static_cast<uint16_t>(heat_tiles & ~(2u << index));
+    stuck_tiles = static_cast<uint16_t>(stuck_tiles & ~(2u << index));
     window_anchors.clearTile(1 + index);
     stale_slots = static_cast<uint16_t>(stale_slots & ~(1u << index));
     reception_low = static_cast<uint16_t>(reception_low & ~(1u << index));
@@ -654,7 +663,7 @@ private:
 class PowerManager {
 public:
   static constexpr uint32_t STATE_MAGIC = 0x52504C43; // 'RPLC'
-  static constexpr uint8_t STATE_VERSION = 86;
+  static constexpr uint8_t STATE_VERSION = 87;
   static constexpr uint64_t MIN_SLEEP_US = 1000000ULL;
   // Sleep time while the empty battery protection is set: one hour, then the voltage is checked.
   static constexpr uint64_t PROTECTED_SLEEP_US = 3600ULL * 1000000ULL;
@@ -688,7 +697,7 @@ public:
   // The offset arrays keep one entry for each of the slots. Each slot has offset keys.
   // Config trailer: temp offset, freeze limit (floats), mold limit, volume, quiet start hour,
   // quiet end hour, SPL offset (float), log retention months, noise alert limit, chime alert mask, NTP sync interval, wake interval (uint16), sensor stale minutes (uint16), outdoor slot, door ref slot, ventilate limit, sensor battery limit, display invert, climate alert tiles (uint16), battery offset (int16), slot release hours, night wake interval (uint16), temperature unit (one byte, 'C' or 'F'), chime repeat hours, heat alert limit, dry alert limit, wall FRSI percent, BLE broadcast enabled, BLE console, USB temperature offset (int8), RH gain and one RH gain for each slot (int8 in 0.002 steps around 1.00), RH offset (float), one temperature offset and one RH offset for each slot (floats), the sensor names, the fixed MACs, flags (bit 0 loaded from the card), slot enabled mask (uint16), the rejected line count and the line numbers of the first four rejected lines (uint16 each), auto assign minimum RSSI (int8), mold alert delay hours, reception low percent, dry alert delay hours, jump limit in tenths of C, jump limit in %RH, drift limit in tenths of C, drift limit in tenths of %RH.
-  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + (1 + DeviceConfig::SLOT_COUNT) + 2 * DeviceConfig::SLOT_COUNT * 4 + NAMES_SIZE + MACS_SIZE + 1 + 2 + REJECTS_SIZE + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1;
+  static constexpr size_t CONFIG_SIZE = 4 + 4 + 1 + 1 + 1 + 1 + 4 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 1 + 1 + 1 + 1 + 2 + 2 + 1 + 2 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + (1 + DeviceConfig::SLOT_COUNT) + 2 * DeviceConfig::SLOT_COUNT * 4 + NAMES_SIZE + MACS_SIZE + 1 + 2 + REJECTS_SIZE + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1 + 1;
   // Header: magic, version, mode, chart sensor, battery flags, battery pct, battery voltage, boot_count,
   // last_scan_ms. Trailer: CRC-32 over all earlier bytes.
   static constexpr size_t HEADER_SIZE = 4 + 1 + 1 + 1 + 1 + 1 + 1 + 4 + 4 + 4;
@@ -728,9 +737,11 @@ public:
   static constexpr size_t DRIFT_SIZE = 2;
   // Heat badge latch (uint16, bits 0..10, the last field before the checksum).
   static constexpr size_t HEAT_SIZE = 2;
+  // Frozen reading latch (uint16, bits 0..10, the last field before the checksum).
+  static constexpr size_t STUCK_SIZE = 2;
   // Reasons of the rejected config.ini lines (just before the checksum): one CheckReason byte for each of the four lines.
   static constexpr size_t REJECT_REASONS_SIZE = ConfigRejects::MAX_LINES;
-  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + WINDOW_SIZE + WALL_SIZE + SNOOZE_SIZE + RECEPTION_LOW_SIZE + DRIFT_SIZE + REJECT_REASONS_SIZE + HEAT_SIZE + 4;
+  static constexpr size_t SERIALIZED_SIZE = HEADER_SIZE + MAX_SWITCHBOT_SENSORS * SLOT_SIZE + HISTORY_SIZE + NOISE_HISTORY_SIZE + BATTERY_HISTORY_SIZE + SD_LOG_SIZE + AUDIO_SIZE + NTP_SIZE + CONFIG_SIZE + EVENTS_SIZE + SHTC3_SIZE + AWAKE_SIZE + FRAME_SIZE + RECEPTION_SIZE + DRY_SIZE + WEEK_SIZE + USB_MASK_SIZE + REJECT_LOG_SIZE + ALERT_ACK_SIZE + STALE_SIZE + SD_FREE_SIZE + SCAN_FAULT_SIZE + WINDOW_SIZE + WALL_SIZE + SNOOZE_SIZE + RECEPTION_LOW_SIZE + DRIFT_SIZE + REJECT_REASONS_SIZE + HEAT_SIZE + STUCK_SIZE + 4;
 
   static WakeupCause decodeWakeupCause(int esp_cause) {
     // Values of esp_sleep_source_t; the ESP-only wrapper asserts them against the SDK.
@@ -1045,6 +1056,7 @@ public:
     out[pos++] = static_cast<uint8_t>(DeviceConfig::driftLimitTenths(state.config.drift_limit_rh));
     out[pos++] = state.config.heat_alert_delay_h;
     out[pos++] = state.config.freeze_alert_delay_h;
+    out[pos++] = state.config.stuck_alert_h;
     out[pos++] = static_cast<uint8_t>(state.events.size());
     out[pos++] = static_cast<uint8_t>(state.events.dropped() & 0xFF);
     out[pos++] = static_cast<uint8_t>(state.events.dropped() >> 8);
@@ -1126,6 +1138,8 @@ public:
     }
     out[pos++] = static_cast<uint8_t>(state.heat_tiles & 0xFF);
     out[pos++] = static_cast<uint8_t>((state.heat_tiles >> 8) & 0xFF);
+    out[pos++] = static_cast<uint8_t>(state.stuck_tiles & 0xFF);
+    out[pos++] = static_cast<uint8_t>((state.stuck_tiles >> 8) & 0xFF);
     putU32(out, pos, crc32(out, pos));
     return pos == SERIALIZED_SIZE;
   }
@@ -1459,6 +1473,7 @@ public:
     pos += 2;
     s.config.heat_alert_delay_h = data[pos++];
     s.config.freeze_alert_delay_h = data[pos++];
+    s.config.stuck_alert_h = data[pos++];
     if ((config_flags & ~1u) != 0 || !s.config.valid() || !rejectsValid(s.config_rejects)) {
       return false; // a corrupt record never reaches the alert limits
     }
@@ -1619,6 +1634,16 @@ public:
     for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
       if ((s.heat_tiles & (2u << i)) != 0 && !s.registry.slot(i).valid) {
         return false; // a heat bit of an empty slot is corrupt
+      }
+    }
+    s.stuck_tiles = static_cast<uint16_t>(data[pos] | (data[pos + 1] << 8));
+    pos += 2;
+    if ((s.stuck_tiles & ~StuckLatch::ALL_MASK) != 0) {
+      return false; // a bit above bit 10 is corrupt
+    }
+    for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
+      if ((s.stuck_tiles & (2u << i)) != 0 && !s.registry.slot(i).valid) {
+        return false; // a stuck bit of an empty slot is corrupt
       }
     }
     s.registry.setAutoAssign(s.config.slot_auto_assign != 0);
