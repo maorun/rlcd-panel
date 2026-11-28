@@ -760,6 +760,8 @@ public enum ConsoleCommand: Equatable {
     case tail(Int)
     /// `DAYS N` (N 1 to 31): the newest N daily summary rows from the MicroSD card (USB and BLE).
     case days(Int)
+    /// `HELP`: the transport rules of each command word (no card access; USB and BLE at each `ble_console` level).
+    case help
     /// `TODAY`: minimum, maximum and mean of each sensor since local midnight (RTC copy only, USB and BLE).
     case today
     /// `TODAY N` (N 0 to 10): the row of one sensor only. An older firmware answers `ERR BAD_ARG`.
@@ -887,6 +889,7 @@ public enum ConsoleCommand: Equatable {
         case let .spread(hours):
             guard (ConsoleCommand.spreadMinHours...ConsoleCommand.spreadMaxHours).contains(hours) else { return nil }
             return hours == ConsoleCommand.spreadMinHours ? "SPREAD" : "SPREAD \(hours)"
+        case .help: return "HELP"
         case .today: return "TODAY"
         case let .todaySensor(n): return (0...10).contains(n) ? "TODAY \(n)" : nil
         case let .tail(rows): return (1...72).contains(rows) ? "TAIL \(rows)" : nil
