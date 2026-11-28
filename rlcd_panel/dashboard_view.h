@@ -1724,8 +1724,13 @@ public:
         n += snprintf(text + n, sizeof(text) - static_cast<size_t>(n), "%s%s", first ? " " : ",", title);
         first = false;
       }
-      text[ALERT_LINE_CHARS] = '\0'; // cut at the line width (the buffer holds more glyphs)
-      snprintf(lines[shown], sizeof(lines[shown]), "%s", text);
+      // Cut at the line width (the buffer holds more glyphs). memcpy keeps GCC's -Wformat-truncation quiet.
+      size_t len = strlen(text);
+      if (len > ALERT_LINE_CHARS) {
+        len = ALERT_LINE_CHARS;
+      }
+      memcpy(lines[shown], text, len);
+      lines[shown][len] = '\0';
       ++shown;
     }
     size_t count = shown;
