@@ -27,12 +27,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Wear OS sensor battery forecast in the tile
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/tile/ClimateTileModel.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/tile/ClimateTileService.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/ClimateTileModelTest.kt`, `FEATURES.md`
-  - **Goal:** Show the next battery change in the watch tile. Keep the last forecast of the tail screen in `TelemetryCache` (slot, date). Show `Battery: <name> <date>` below the alert names when the date is within 30 days. Show nothing for an older or missing forecast.
-  - **Acceptance:** A unit test checks the line for a date 10 days ahead. A unit test checks no line for a date 40 days ahead and for an empty cache. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 25, Use: 6, Setup: 2, Harmony: 7, Safety: 10, Effort: S]
-
 - [ ] Badges in the Android panel preview
   - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/PanelRenderer.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/PanelPreviewScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/PanelRendererTest.kt`, `FEATURES.md`
   - **Goal:** Show the `V`, `D`, `W`, `C`, `R` and `S` badges in the phone preview. The preview has no badges because the telemetry frame does not carry them. Read the badge masks from the last `STATUS` `LATCH` line in memory when it exists. Draw each badge with the positions of `dashboard_view.h`. Keep the label `Preview from telemetry, not the panel image`.

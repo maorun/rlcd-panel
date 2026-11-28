@@ -14,8 +14,10 @@ import androidx.wear.tiles.TileService
 import com.google.common.util.concurrent.Futures
 import com.google.common.util.concurrent.ListenableFuture
 import com.rlcdpanel.watch.MainActivity
+import com.rlcdpanel.watch.protocol.CachedBatteryForecast
 import com.rlcdpanel.watch.protocol.CachedOutdoor
 import com.rlcdpanel.watch.protocol.CachedTelemetry
+import com.rlcdpanel.watch.protocol.PanelClock
 import com.rlcdpanel.watch.protocol.PanelConfig
 import com.rlcdpanel.watch.protocol.TelemetryCache
 import com.rlcdpanel.watch.protocol.TelemetryFrame
@@ -36,7 +38,9 @@ data class ClimateTileModel(
     val age: String,
     val hint: String?,
     val isEmpty: Boolean,
-    val advice: String? = null
+    val advice: String? = null,
+    /** `Battery: <name> <date>` or null when the tile shows no battery forecast. */
+    val batteryLine: String? = null
 ) {
     companion object {
         const val OPEN_HINT = "Open the app"
@@ -59,7 +63,8 @@ data class ClimateTileModel(
             config: PanelConfig,
             nowMillis: Long,
             outdoor: CachedOutdoor? = null,
-            outdoorCached: CachedTelemetry? = cached
+            outdoorCached: CachedTelemetry? = cached,
+            forecast: CachedBatteryForecast? = null
         ): ClimateTileModel {
             val name = config.tileName(focusedRoom)
             if (cached == null || cached.isStale(nowMillis)) {
@@ -80,7 +85,8 @@ data class ClimateTileModel(
                 age = formatAge(cached.ageMillis(nowMillis)),
                 hint = null,
                 isEmpty = false,
-                advice = adviceTitle(tile.temperatureC, tile.humidityPct, focusedRoom, outdoor, outdoorCached, nowMillis)
+                advice = adviceTitle(tile.temperatureC, tile.humidityPct, focusedRoom, outdoor, outdoorCached, nowMillis),
+                batteryLine = batteryLine(forecast, config, nowMillis)
             )
         }
 
@@ -99,6 +105,25 @@ data class ClimateTileModel(
         ): String? {
             return VentilationGuide.advise(indoorTempC, indoorRhPct, focusedRoom, outdoor, outdoorCached, nowMillis)?.titel
         }
+
+        /**
+         * `Battery: <name> <date>` when the forecast date is at most 30 days ahead. A date more than
+         * 1 day in the past counts as old. No line for a missing forecast.
+         */
+        fun batteryLine(forecast: CachedBatteryForecast?, config: PanelConfig, nowMillis: Long): String? {
+            if (forecast == null) {
+                return null
+            }
+            val ahead = forecast.dateMillis - nowMillis
+            if (ahead < -DAY_MILLIS || ahead > FORECAST_WINDOW_DAYS * DAY_MILLIS) {
+                return null
+            }
+            val date = PanelClock.format(forecast.dateMillis)?.substring(0, 10) ?: return null
+            return "Battery: ${config.tileName(forecast.slotIndex)} $date"
+        }
+
+        const val FORECAST_WINDOW_DAYS = 30L
+        private const val DAY_MILLIS = 86_400_000L
 
         fun formatAge(ageMillis: Long): String {
             val minutes = ageMillis / 60_000L
@@ -126,7 +151,8 @@ class ClimateTileService : TileService() {
             config = PanelConfig.load(this),
             nowMillis = System.currentTimeMillis(),
             outdoor = outdoor,
-            outdoorCached = if (outdoorPage == focusedPage) cached else cache.read(page = outdoorPage)
+            outdoorCached = if (outdoorPage == focusedPage) cached else cache.read(page = outdoorPage),
+            forecast = cache.readBatteryForecast()
         )
         val tile = TileBuilders.Tile.Builder()
             .setResourcesVersion(RESOURCES_VERSION)
@@ -170,6 +196,9 @@ class ClimateTileService : TileService() {
             column.addContent(text(model.hint, 14f, WHITE))
         } else {
             column.addContent(text(model.alerts, 12f, ALERT))
+            if (model.batteryLine != null) {
+                column.addContent(text(model.batteryLine, 11f, GREY, maxLines = 1))
+            }
             column.addContent(text(model.age, 11f, GREY))
         }
 

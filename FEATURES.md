@@ -4402,3 +4402,11 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `DailyRow.heatHours` holds one `Int?` for each sensor (`daily_v7`). An empty field gives `nil`. A `daily_v1` to `daily_v6` row gives `[]`.
 - `DailyChartView` shows one red bar chart (0 to 24 h) of the heat hours below the mold and dry hours chart of each sensor. The chart does not appear when all values are `nil` or the rows have no heat hours.
 - Tests: `DailyLogTests` check `heatHours` of a `daily_v7` row and `[]` for a `daily_v6` row. `DaysReplyTests` check 11 `nil` values in `tests/fixtures/days_reply_v7_sample.txt`.
+
+## Sensor battery forecast in the Wear OS tile
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/TelemetryCache.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/tile/ClimateTileService.kt` (`ClimateTileModel`), `TailScreen.kt`, `MainActivity.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/tile/ClimateTileModelTest.kt`.
+- Each successful `TAIL` read of the tail screen calls `TailScreenText.nextForecast`. It picks the slot with the earliest `BatteryForecast.estimate`. `TelemetryCache.saveBatteryForecast` stores the slot (tile index) and the date. A read without a forecast calls `clearBatteryForecast`. The tile then refreshes.
+- `ClimateTileModel.batteryLine` gives `Battery: <name> <date>` (`PanelConfig.tileName`, date `YYYY-MM-DD`) when the date is at most 30 days ahead and at most 1 day in the past. The tile shows it below the alert names. It shows nothing for an older, a later or a missing forecast.
+- The firmware and the console protocol do not change.
+- Tests: `ClimateTileModelTest` checks the line for a date 10 days ahead, no line for a date 40 days ahead, for an old date and for an empty cache.
