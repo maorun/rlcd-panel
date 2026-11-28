@@ -91,6 +91,8 @@ final class AppModel: ConsoleLinkDelegate {
     var frsiHours = ConsoleCommand.frsiDefaultHours
     private(set) var frsiReplyHours = ConsoleCommand.frsiDefaultHours
     var spread: SpreadReply?
+    /// Time of the last good read of each part of the calibration report (`exportCalibrationReport`).
+    private var calibrationReadLog = CalibrationReadLog()
     var today: [TodayRow]?
     /// Room of the `Today` picker: `nil` is `All` (`TODAY`), 0 to 10 sends `TODAY N`.
     var todayRoom: Int?
@@ -578,6 +580,7 @@ final class AppModel: ConsoleLinkDelegate {
         diagnostics = nil
         diagnosticsConfig = nil
         version = nil
+        spread = nil; salt = nil; saltMagnesium = nil // the results belong to the old panel; the report must not mix them
         scanResult = nil; panelImage = nil; configChanged = nil; rejectsResult = nil; alertsResult = nil; alertsError = nil; receptionResult = nil; tailResult = nil; daysResult = nil; today = nil; selfTestResult = nil; selfTestLines = []
         calibration = nil
         clearArchive()
@@ -1247,6 +1250,32 @@ final class AppModel: ConsoleLinkDelegate {
             message = "Backup saved: \(url.lastPathComponent)"
         } catch {
             message = "Backup failed: \(error.localizedDescription)"
+        }
+    }
+
+    /// The Markdown calibration report of the replies read so far; a part that was not read shows `--`.
+    func calibrationReportText(now: Date = Date()) -> String {
+        let log = calibrationReadLog
+        return CalibrationReport.render(
+            generated: now,
+            version: .init(version, date: log.date(.version)),
+            changed: .init(configChanged, date: log.date(.configChanged)),
+            spread: .init(spread, date: log.date(.spread)),
+            salt: .init(salt, date: log.date(.salt)),
+            saltMagnesium: .init(saltMagnesium, date: log.date(.saltMagnesium)))
+    }
+
+    /// Saves the calibration report as a Markdown file. Runs only on a user action; sends no command.
+    func saveCalibrationReport() {
+        let panel = NSSavePanel()
+        panel.nameFieldStringValue = "calibration-report.md"
+        panel.canCreateDirectories = true
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        do {
+            try Data(calibrationReportText().utf8).write(to: url, options: .atomic)
+            message = "Report saved: \(url.lastPathComponent)"
+        } catch {
+            message = "Report failed: \(error.localizedDescription)"
         }
     }
 
@@ -2019,6 +2048,7 @@ final class AppModel: ConsoleLinkDelegate {
             case let (.version, .frame(lines)):
                 version = nil
                 version = try VersionReply.parse(lines: lines)
+                calibrationReadLog.record(.version, at: Date())
             case let (.history, .frame(lines)): history = try HistoryReply.parse(lines: lines)
             case let (.historySensor(n), .frame(lines)), let (.historySensorHours(n, _), .frame(lines)):
                 // The watch reads its own reply; the shared history rows stay as they are.
@@ -2042,6 +2072,7 @@ final class AppModel: ConsoleLinkDelegate {
             case let (.configChanged, .frame(lines)):
                 configChanged = nil // a reply that fails to parse must not leave the old keys
                 configChanged = try ConfigChangedReply.parse(lines: lines)
+                calibrationReadLog.record(.configChanged, at: Date())
             case (.configChanged, .file): message = "Unexpected file reply"
             case let (.rejects, .frame(lines)):
                 rejectsResult = nil // a reply that fails to parse must not leave the old rows
@@ -2099,9 +2130,11 @@ final class AppModel: ConsoleLinkDelegate {
                 if runningCheck?.command == cmd { finishCalibrationCheck(cmd, salt: parsed); break }
                 salt = nil
                 salt = parsed
+                calibrationReadLog.record(.salt, at: Date())
             case let (.saltMagnesium, .frame(lines)):
                 saltMagnesium = nil
                 saltMagnesium = try SaltReply.parse(lines: lines)
+                calibrationReadLog.record(.saltMagnesium, at: Date())
             case let (.today, .frame(lines)), let (.todaySensor, .frame(lines)):
                 today = nil // a reply that fails to parse must not leave the old rows
                 today = TodayReply.keepOnly(try TodayReply.parse(lines: lines), sensor: todayKeepOnly)
@@ -2112,6 +2145,7 @@ final class AppModel: ConsoleLinkDelegate {
                 if runningCheck?.command == cmd { finishCalibrationCheck(cmd, spread: parsed); break }
                 spread = nil
                 spread = parsed
+                calibrationReadLog.record(.spread, at: Date())
             case let (.frsi, .frame(lines)):
                 frsi = nil
                 frsi = try FrsiReply.parse(lines: lines)
