@@ -44,6 +44,7 @@ struct CalibrationView: View {
                     }
                 }
                 if let s = model.batchSummary { Text(s).font(.caption).foregroundStyle(.secondary) }
+                checkSection
                 Divider()
                 spreadSection
                 Divider()
@@ -52,7 +53,33 @@ struct CalibrationView: View {
                 frsiSection
             }.frame(maxWidth: .infinity, alignment: .leading)
         }
+        .onAppear { model.loadCalibrationChecks() }
         .onDisappear { model.stopSaltWatch(.viewClosed) }
+    }
+
+    /// Result check of the applied proposals: after the wait of its record the button sends the same command again.
+    @ViewBuilder private var checkSection: some View {
+        if !model.calibrationCheckRecords.isEmpty {
+            let _ = model.now // the 30 s tick of the model refreshes the wait text
+            Divider()
+            Text("Result check").font(.headline)
+            ForEach(model.calibrationCheckRecords, id: \.sensor) { record in
+                HStack {
+                    Text("\(record.sensor): \(record.changes.map { "\($0.key) \($0.old) -> \($0.new)" }.joined(separator: ", "))")
+                        .font(.system(.caption, design: .monospaced))
+                    if let hours = model.calibrationChecks.status(of: record) {
+                        Text("Check in \(hours) h").font(.caption).foregroundStyle(.secondary)
+                    } else {
+                        Button("Check result") { model.checkCalibration(sensor: record.sensor) }
+                            .disabled(!model.isIdle)
+                    }
+                    if let result = model.calibrationCheckResults[record.sensor],
+                       !(model.calibrationChecks.status(of: record) == nil && { if case .tooEarly = result { return true } else { return false } }()) {
+                        Text(result.text).font(.caption).foregroundStyle(result == .good ? .green : .orange)
+                    }
+                }
+            }
+        }
     }
 
     /// Co-location check: all sensors at one place for 6 hours, then `SPREAD` shows the deviation of each sensor.

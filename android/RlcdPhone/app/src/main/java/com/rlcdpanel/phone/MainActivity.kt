@@ -40,6 +40,11 @@ import com.rlcdpanel.phone.protocol.AlertLimits
 import com.rlcdpanel.phone.protocol.ConfigChangedReply
 import com.rlcdpanel.phone.protocol.ConfigSchema
 import com.rlcdpanel.phone.protocol.CalibrationBatch
+import com.rlcdpanel.phone.protocol.CalibrationCheck
+import com.rlcdpanel.phone.protocol.CalibrationCheckRecord
+import com.rlcdpanel.phone.protocol.CalibrationCheckResult
+import com.rlcdpanel.phone.protocol.CalibrationCheckStore
+import com.rlcdpanel.phone.protocol.CheckPrefs
 import com.rlcdpanel.phone.protocol.ChimeCommand
 import com.rlcdpanel.phone.protocol.ChimeText
 import com.rlcdpanel.phone.protocol.CalibrationProposal
@@ -210,6 +215,7 @@ class MainActivity : ComponentActivity() {
     // Kept after the health screen closes, so the dashboard tiles keep their protocol badges.
     private var sourceBadges by mutableStateOf<Map<Int, String>>(emptyMap())
     private lateinit var prefs: SharedPreferences
+    private lateinit var calibChecks: CalibrationCheckStore
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -234,6 +240,12 @@ class MainActivity : ComponentActivity() {
             SharedLocationPrefs(getSharedPreferences(OutdoorLocationStore.PREFS_NAME, Context.MODE_PRIVATE))
         )
         outdoorLocation = locationStore.load()
+        val checkPrefs = getSharedPreferences(CalibrationCheckStore.PREFS_NAME, Context.MODE_PRIVATE)
+        calibChecks = CalibrationCheckStore(object : CheckPrefs {
+            override fun getString(key: String): String? = checkPrefs.getString(key, null)
+            override fun putString(key: String, value: String?) { checkPrefs.edit().putString(key, value).apply() }
+        }, System::currentTimeMillis)
+        calibState = calibState.copy(checks = calibChecks.records())
         outdoorSource = outdoorLocation.toSource()
         panelConfig = PanelConfig.load(this)
         configState = ConfigReadState(info = ConfigCache.info(filesDir))
@@ -403,6 +415,8 @@ class MainActivity : ComponentActivity() {
                     onPickSpreadHours = { calibState = calibState.copy(spreadHours = it, spread = null, message = null, isError = false) },
                     onSpread = { withConsolePermission { readSpread() } },
                     onApplySpread = { proposal -> withConsolePermission { applySpread(proposal) } },
+                    clock = calibChecks::nowMs,
+                    onCheck = { sensor -> if (!calibState.isBusy && !calibState.isWatching && !showCheckTooEarly(sensor)) withConsolePermission { runCheck(sensor) } },
                     onBack = { closeCalibration() }
                 )
                 BackHandler { closeCalibration() }
@@ -1736,7 +1750,7 @@ class MainActivity : ComponentActivity() {
         stopSaltWatch(SaltProgress.StopReason.VIEW_CLOSED)
         consoleClient.cancel()
         pendingConsoleAction = null
-        calibState = CalibrationState(reference = calibState.reference, frsiRoom = calibState.frsiRoom, frsiWall = calibState.frsiWall, frsiHours = calibState.frsiHours, spreadHours = calibState.spreadHours)
+        calibState = CalibrationState(reference = calibState.reference, frsiRoom = calibState.frsiRoom, frsiWall = calibState.frsiWall, frsiHours = calibState.frsiHours, spreadHours = calibState.spreadHours, checks = calibState.checks, checkResults = calibState.checkResults)
         showCalib = false
         showHealth = true
     }
@@ -1958,14 +1972,23 @@ class MainActivity : ComponentActivity() {
      * `ERR READ_ONLY` shows the text for `ble_console` 1.
      */
     private fun applySpread(proposal: SpreadReply.Proposal) {
+        val oldValues = panelConfig.values // before the first SET
         stopBleScan()
         calibState = calibState.copy(isBusy = true, isError = false, message = null)
+        val appliedKeys = mutableListOf<CalibrationProposal>()
         fun fail(text: String) {
+            // The SET commands that went through already changed the panel.
+            if (appliedKeys.isNotEmpty()) recordCheck(CalibrationCheckRecord.Source.SPREAD, calibState.spreadReplyHours, appliedKeys, oldValues)
             calibState = calibState.copy(isBusy = false, isError = true, message = text)
         }
+        val proposals = listOf(
+            CalibrationProposal(proposal.tempKey, proposal.tempOffset.toString()),
+            CalibrationProposal(proposal.rhKey, proposal.rhOffset.toString())
+        )
         fun step(commands: List<String>) {
             if (commands.isEmpty()) {
                 val hours = calibState.spreadReplyHours
+                recordCheck(CalibrationCheckRecord.Source.SPREAD, hours, appliedKeys, oldValues)
                 consoleClient.send(SpreadCommand.line(hours)) { reply ->
                     calibState = when (reply) {
                         is ConsoleReply.Frame -> try {
@@ -1984,13 +2007,59 @@ class MainActivity : ComponentActivity() {
             consoleClient.send(commands.first()) { reply ->
                 val status = (reply as? ConsoleReply.Status)?.line
                 when {
-                    status != null && status.startsWith("OK") -> step(commands.drop(1))
+                    status != null && status.startsWith("OK") -> {
+                        proposals.firstOrNull { commands.first() == "SET ${it.key}=${it.value}" }?.let { appliedKeys.add(it) }
+                        step(commands.drop(1))
+                    }
                     status != null -> fail(CalibrationBatch.failureText(status))
                     else -> fail(CalibrationBatch.UNKNOWN_STATE)
                 }
             }
         }
         step(proposal.setCommands)
+    }
+
+    /** Stores the check record of a clean apply and drops the old verdict of its sensors. */
+    private fun recordCheck(source: CalibrationCheckRecord.Source, argument: Int, applied: List<CalibrationProposal>, old: Map<String, String>) {
+        calibChecks.recordApplied(source, argument, applied, old)
+        val sensors = applied.mapNotNull { CalibrationCheckRecord.sensorName(it.key) }.toSet()
+        calibState = calibState.copy(checks = calibChecks.records(), checkResults = calibState.checkResults - sensors)
+    }
+
+    /** `Too early: <h> h` without a console command. Returns true when the check must wait. */
+    private fun showCheckTooEarly(sensor: String): Boolean {
+        val record = calibChecks.record(sensor)
+        if (record == null) {
+            calibState = calibState.copy(checks = calibChecks.records())
+            return true
+        }
+        val wait = CalibrationCheck.hoursToWait(record, calibChecks.nowMs()) ?: return false
+        calibState = calibState.copy(checkResults = calibState.checkResults + (sensor to CalibrationCheckResult.TooEarly(wait)))
+        return true
+    }
+
+    /** Sends the command of the stored apply again and compares the reply with the limits. Runs only after a tap. */
+    private fun runCheck(sensor: String) {
+        val record = calibChecks.record(sensor) ?: return
+        val line = record.commandLine ?: return
+        stopBleScan()
+        calibState = calibState.copy(isBusy = true, isError = false, message = null)
+        consoleClient.send(line) { reply ->
+            val result: CalibrationCheckResult = when (reply) {
+                is ConsoleReply.Frame -> try {
+                    val now = calibChecks.nowMs()
+                    when (record.source) {
+                        CalibrationCheckRecord.Source.CALIB -> CalibrationCheck.evaluate(record, now, calib = CalibrationReply.parse(reply.lines))
+                        CalibrationCheckRecord.Source.SPREAD -> CalibrationCheck.evaluate(record, now, spread = SpreadReply.parse(reply.lines))
+                        CalibrationCheckRecord.Source.SALT -> CalibrationCheck.evaluate(record, now, salt = SaltReply.parse(reply.lines))
+                    }
+                } catch (e: ParseException) {
+                    CalibrationCheckResult.Unavailable("Antwort nicht lesbar: ${e.line.take(80)}")
+                }
+                else -> CalibrationCheckResult.Unavailable(BleConsoleClient.errorText(reply))
+            }
+            calibState = calibState.copy(isBusy = false, checkResults = calibState.checkResults + (sensor to result))
+        }
     }
 
     /** Sends `SET wall_frsi_pct=<N>`, then `CONFIG`. */
@@ -2001,18 +2070,21 @@ class MainActivity : ComponentActivity() {
 
     /** Sends the selected proposals as `SET`, then `CONFIG`. The first `ERR` stops the batch and skips `CONFIG`. */
     private fun applyCalibration() {
-        runBatch(calibState.chosen, clearReply = true)
+        runBatch(calibState.chosen, clearReply = true, source = CalibrationCheckRecord.Source.CALIB, argument = calibState.reference)
     }
 
     /** Sends `SET` for the gain, `SET` for the offset, then `CONFIG`. */
     private fun applyTwoPoint() {
         val current = panelConfig.values.takeIf { it.isNotEmpty() }
         val result = TwoPointCalibration.evaluate(calibState.naCl, calibState.mgCl2, current).result ?: return
-        runBatch(result.proposals, clearReply = false)
+        val measured = (calibState.naCl?.outcome as? SaltReply.Outcome.Measured)?.measurement?.name
+        val sensor = measured?.let { CalibrationCheckRecord.sensorNumber(it) }
+        runBatch(result.proposals, clearReply = false, source = sensor?.let { CalibrationCheckRecord.Source.SALT }, argument = sensor ?: 0)
     }
 
-    private fun runBatch(chosen: List<CalibrationProposal>, clearReply: Boolean) {
+    private fun runBatch(chosen: List<CalibrationProposal>, clearReply: Boolean, source: CalibrationCheckRecord.Source? = null, argument: Int = 0) {
         if (chosen.isEmpty()) return
+        val oldValues = panelConfig.values // before the first SET
         stopBleScan()
         calibState = calibState.copy(isBusy = true, message = null)
         CalibrationBatch(chosen).run(consoleClient::send) { result ->
@@ -2028,6 +2100,9 @@ class MainActivity : ComponentActivity() {
             // The values changed on the panel, so the old proposals and salt checks are stale. A new read gives fresh ones.
             val ok = result.failure == null && !result.configFailed
             val changed = result.applied.isNotEmpty()
+            if (source != null && changed) { // a later failed SET leaves the earlier applied keys on the panel
+                recordCheck(source, argument, chosen.filter { it.key in result.applied }, oldValues)
+            }
             calibState = calibState.copy(
                 isBusy = false, message = result.summary, isError = !ok,
                 reply = if (changed || (clearReply && result.failure == null)) null else calibState.reply,

@@ -24,6 +24,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,6 +38,9 @@ import com.rlcdpanel.phone.protocol.FrsiCommand
 import com.rlcdpanel.phone.protocol.FrsiReply
 import com.rlcdpanel.phone.protocol.FrsiText
 import com.rlcdpanel.phone.protocol.SaltReply
+import com.rlcdpanel.phone.protocol.CalibrationCheck
+import com.rlcdpanel.phone.protocol.CalibrationCheckRecord
+import com.rlcdpanel.phone.protocol.CalibrationCheckResult
 import com.rlcdpanel.phone.protocol.SaltText
 import com.rlcdpanel.phone.protocol.SpreadCommand
 import com.rlcdpanel.phone.protocol.SpreadReply
@@ -74,7 +78,11 @@ data class CalibrationState(
     /** True while the salt watch sends `HISTORY N 6` every 10 minutes. */
     val isWatching: Boolean = false,
     /** Progress text or stop reason of the salt watch; null before the first start. */
-    val watchText: String? = null
+    val watchText: String? = null,
+    /** Stored applies that the user can check after the wait of the record, one for each sensor. */
+    val checks: List<CalibrationCheckRecord> = emptyList(),
+    /** Verdict of the last check for each sensor name. */
+    val checkResults: Map<String, CalibrationCheckResult> = emptyMap()
 ) {
     /** Picks another reference sensor. A change drops the reply, the selection and both salt checks. */
     fun selectReference(sensor: Int): CalibrationState =
@@ -134,8 +142,19 @@ fun CalibrationScreen(
     onPickSpreadHours: (Int) -> Unit,
     onSpread: () -> Unit,
     onApplySpread: (SpreadReply.Proposal) -> Unit,
+    onCheck: (String) -> Unit,
+    /** Time of the injected clock for the wait text of the result check. */
+    clock: () -> Long,
     onBack: () -> Unit
 ) {
+    // The injected clock ticks every 30 s, so the wait text and the Check result button follow the 6 hour mark.
+    var nowMs by remember { mutableStateOf(clock()) }
+    LaunchedEffect(Unit) {
+        while (true) {
+            kotlinx.coroutines.delay(30_000L)
+            nowMs = clock()
+        }
+    }
     val evaluation = remember(state.naCl, state.mgCl2, currentConfig) {
         TwoPointCalibration.evaluate(state.naCl, state.mgCl2, currentConfig.takeIf { it.isNotEmpty() })
     }
@@ -179,6 +198,29 @@ fun CalibrationScreen(
                     "Sendet CALIB über die BLE-Konsole. Zum Anwenden braucht das Panel USB-Strom und ble_console 2.",
                     style = MaterialTheme.typography.bodySmall
                 )
+            }
+            if (state.checks.isNotEmpty()) {
+                item { Text("Result check", style = MaterialTheme.typography.titleMedium) }
+                items(state.checks, key = { it.sensor }) { record ->
+                    val wait = CalibrationCheck.hoursToWait(record, nowMs)
+                    Card(modifier = Modifier.fillMaxWidth()) {
+                        Column(modifier = Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(record.sensor, style = MaterialTheme.typography.titleSmall)
+                            for (c in record.changes) Text("${c.key}: ${c.old.ifEmpty { "(empty)" }} -> ${c.new}")
+                            if (wait != null) {
+                                Text("Check in $wait h", style = MaterialTheme.typography.bodySmall)
+                            } else {
+                                Button(onClick = { onCheck(record.sensor) }, enabled = !state.isBusy && !state.isWatching) { Text("Check result") }
+                            }
+                            state.checkResults[record.sensor]?.takeUnless { wait == null && it is CalibrationCheckResult.TooEarly }?.let { result ->
+                                Text(
+                                    result.text,
+                                    color = if (result == CalibrationCheckResult.Good) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+                                )
+                            }
+                        }
+                    }
+                }
             }
             item { Text("Salt check", style = MaterialTheme.typography.titleMedium) }
             item {
