@@ -32,6 +32,7 @@ import Foundation
         #expect(EventFilter.category(of: "WINDOW_OPEN") == .climate)
         #expect(EventFilter.category(of: "WALL_DAMP") == .climate)
         #expect(EventFilter.category(of: "DRY_AIR") == .climate)
+        #expect(EventFilter.category(of: "HEAT_TILE") == .climate)
         #expect(EventFilter.apply(rows, [.climate]).count == 1)
     }
 

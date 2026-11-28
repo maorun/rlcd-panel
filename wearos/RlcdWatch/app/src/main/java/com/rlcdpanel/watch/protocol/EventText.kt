@@ -162,6 +162,13 @@ object EventText {
                 else if (row.event == "WALL_DAMP") (if (set == 1) "Wall damp ($room)" else "Wall dry again ($room)")
                 else (if (set == 1) "Dry air ($room)" else "Air humidity good ($room)")
             }
+            "HEAT_TILE" -> {
+                // Low byte is the tile (0 onboard, 1 to 10 slots); the high byte 1 marks a hot tile, 0 a good one.
+                val tile = d and 0xFF
+                val hot = d shr 8
+                if (d !in 0..0xFFFF || tile > 10 || hot > 1) raw
+                else "Heat${if (hot == 1) "" else " good again"} (${if (tile == 0) "Onboard" else "tile $tile"})"
+            }
             "SENSOR_DRIFT" -> {
                 // Low byte is the tile (0 onboard, 1 to 10 slots); the high byte 1 marks a drifting sensor, 0 a good one.
                 val tile = d and 0xFF

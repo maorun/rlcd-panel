@@ -23,7 +23,7 @@ public struct BadgeInterval: Equatable {
         self.event = event; self.tile = tile; self.start = start; self.end = end
         self.isOpen = isOpen; self.startUnknown = startUnknown
     }
-    /// Event code: `WINDOW_OPEN`, `WALL_DAMP`, `DRY_AIR` or `SENSOR_DRIFT`.
+    /// Event code: `WINDOW_OPEN`, `WALL_DAMP`, `DRY_AIR`, `SENSOR_DRIFT` or `HEAT_TILE`.
     public let event: String
     /// Tile 0 (onboard) to 10 (slot 10), the low byte of the detail.
     public let tile: Int
@@ -42,7 +42,7 @@ public struct BadgeInterval: Equatable {
 
 public enum AlertTimeline {
     /// Events that set and clear a tile badge, with the panel badge letter.
-    static let badgeLetters = ["WINDOW_OPEN": "W", "WALL_DAMP": "C", "DRY_AIR": "D", "SENSOR_DRIFT": "S"]
+    static let badgeLetters = ["WINDOW_OPEN": "W", "WALL_DAMP": "C", "DRY_AIR": "D", "SENSOR_DRIFT": "S", "HEAT_TILE": "H"]
 
     /// Panel local time of an event row (`YYYY-MM-DD hh:mm:ss`); nil for an empty or bad time. The panel RTC holds
     /// local time without a zone, so the Mac time zone reads it. A panel in another zone shifts the bars.
@@ -112,7 +112,7 @@ public enum AlertTimeline {
         .sorted { ($0.start, $0.alert) < ($1.start, $1.alert) }
     }
 
-    /// Pairs each set row of `WINDOW_OPEN`, `WALL_DAMP`, `DRY_AIR` and `SENSOR_DRIFT` with the next clear row of the
+    /// Pairs each set row of `WINDOW_OPEN`, `WALL_DAMP`, `DRY_AIR`, `SENSOR_DRIFT` and `HEAT_TILE` with the next clear row of the
     /// same badge and tile. The detail low byte is the tile (0 to 10), the high byte the state (1 set, 0 clear). A
     /// badge without a clear row stays open until `now`. A clear row without a set row starts at the first row with
     /// a valid time and has `startUnknown`; an `EVENTS_DROPPED` row sets `startUnknown` on each interval that is open

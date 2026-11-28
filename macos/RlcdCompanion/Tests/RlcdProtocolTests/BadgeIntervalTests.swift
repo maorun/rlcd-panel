@@ -23,6 +23,19 @@ private func date(_ time: String) -> Date { AlertTimeline.parse(time: time)! }
         #expect(intervals.first?.badge == "D")
     }
 
+    @Test func heatTileSetAndClearGiveOneInterval() {
+        // HEAT_TILE detail 0x0103: hot for tile 3, then 0x0003: good again; 0x020B is a bad detail.
+        let intervals = AlertTimeline.badges(rows: [
+            row("2026-01-01 08:00:00", "HEAT_TILE", 259),
+            row("2026-01-01 09:00:00", "HEAT_TILE", 3),
+            row("2026-01-01 09:30:00", "HEAT_TILE", 523),
+        ], now: now)
+        #expect(intervals == [BadgeInterval(
+            event: "HEAT_TILE", tile: 3, start: date("2026-01-01 08:00:00"), end: date("2026-01-01 09:00:00"),
+            isOpen: false, startUnknown: false)])
+        #expect(intervals.first?.badge == "H")
+    }
+
     @Test func windowOpenWithoutClearEndsAtNow() {
         let intervals = AlertTimeline.badges(rows: [row("2026-01-01 10:00:00", "WINDOW_OPEN", 257)], now: now)
         #expect(intervals == [BadgeInterval(

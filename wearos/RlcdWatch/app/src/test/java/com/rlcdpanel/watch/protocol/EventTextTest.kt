@@ -55,6 +55,16 @@ class EventTextTest {
     }
 
     @Test
+    fun heatTileGivesHotAndGood() {
+        assertEquals("Heat (tile 10)", EventText.describe(row("HEAT_TILE", 0x010A)))
+        assertEquals("Heat (Onboard)", EventText.describe(row("HEAT_TILE", 0x0100)))
+        assertEquals("Heat good again (tile 1)", EventText.describe(row("HEAT_TILE", 0x0001)))
+        assertEquals("HEAT_TILE,11", EventText.describe(row("HEAT_TILE", 0x000B)))
+        assertEquals("HEAT_TILE,267", EventText.describe(row("HEAT_TILE", 0x010B)))
+        assertEquals("HEAT_TILE,512", EventText.describe(row("HEAT_TILE", 0x0200)))
+    }
+
+    @Test
     fun scanFaultGivesFailedAndBack() {
         assertEquals("BLE scan start failed", EventText.describe(row("SCAN_FAULT", 1)))
         assertEquals("BLE scan works again", EventText.describe(row("SCAN_FAULT", 0)))

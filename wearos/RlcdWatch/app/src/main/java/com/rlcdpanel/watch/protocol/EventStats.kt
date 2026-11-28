@@ -22,7 +22,7 @@ data class AlertMonthStat(
 
 /** Sets and active hours of one tile badge in one calendar month. */
 data class BadgeMonthStat(
-    /** Event code: `WINDOW_OPEN`, `WALL_DAMP`, `DRY_AIR` or `SENSOR_DRIFT`. */
+    /** Event code: `WINDOW_OPEN`, `WALL_DAMP`, `DRY_AIR`, `SENSOR_DRIFT` or `HEAT_TILE`. */
     val event: String,
     /** Tile 0 (onboard) to 10 (slot 10). */
     val tile: Int,

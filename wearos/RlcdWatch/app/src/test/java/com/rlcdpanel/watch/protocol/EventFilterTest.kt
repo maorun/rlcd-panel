@@ -38,6 +38,7 @@ class EventFilterTest {
 
     @Test
     fun filtersFixtureByCategories() {
+        assertEquals(EventFilter.Category.CLIMATE, EventFilter.category("HEAT_TILE"))
         val log = EventsReply.parse(fixtureLines())
         assertEquals(23, log.rows.size)
         assertEquals(0, log.dropped)
