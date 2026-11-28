@@ -58,7 +58,7 @@ import Testing
         ("HISTORY", 1), ("VERSION", 1), ("SET", 2), ("EVENTS", 1), ("PATTERN", 1), ("SCAN", 0), ("MUTE", 2), ("SCREEN", 0),
         ("SALT", 1), ("RTC TRIM", 2), ("WEEK", 1), ("SLOT CLEAR", 2), ("SLOT SWAP", 2), ("SLOT REPLACE", 2), ("REJECTS", 1),
         ("ACK", 2), ("IDENTIFY", 1), ("SNOOZE", 2), ("NTP SYNC", 0), ("FRSI", 1), ("SELFTEST", 1), ("SPREAD", 1),
-        ("TAIL", 1), ("TODAY", 1), ("DAYS", 1), ("RECEPTION", 1), ("ALERTS", 1), ("DUMP", 0), ("HELP", 1),
+        ("TAIL", 1), ("TODAY", 1), ("DAYS", 1), ("RECEPTION", 1), ("ALERTS", 1), ("DUMP", 0), ("VERIFY", 0), ("HELP", 1),
     ]
 
     @Test func fixtureRowsKeepOrderAndBleRules() throws {
