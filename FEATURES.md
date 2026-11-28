@@ -4594,3 +4594,13 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The three apps know the key (`ConfigSchema`, enumeration `0 1 2 4 5`, default `0`; the phone and the watch also in `ConfigKeys` and in the `CONFIG_SET` key list of `EventText`). The `docs/config.example.ini` template has a short comment (`# First view, no 3`) because the file must stay below 8192 bytes with room for the template check.
 - Tests: `testBootDisplayMode` covers each valid value, the rejected values 3 and 6, a power-on, a timer wakeup, a `KEY` wakeup, the RTC round trip and a corrupt stored byte. The old RTC offset tests moved by one byte. `testConfigExampleTemplateInSync`, `ConfigSchemaTests` (macOS), `ConfigSchemaTest` (phone and watch) and `arduino-cli compile rlcd_panel` cover the key and the template.
 - Validation: host tests (245 suites), `swift test` (971 tests) with the testing plugin path, `arduino-cli compile rlcd_panel`. The Gradle runs need the Android SDK and run in CI.
+
+## Firmware version line in the panel diagnostics view
+
+- **Code:** `DashboardView::formatFirmwareLine`, `DashboardView::firmwareLineX`, `DashboardView::FW_Y`, `DashboardView::FW_RIGHT`, `SystemInfo::show_firmware` (`rlcd_panel/dashboard_view.h`), `FIRMWARE_VERSION` and `RLCD_GIT_HASH` (`rlcd_panel/firmware_version.h`).
+- The user could read the build identity only through the console command `VERSION`. The diagnostics view now draws `FW <version> <hash>` at scale 1, for example `FW 1.0.0 3665d64`. The version keeps at most 12 characters and the hash 7. A hash with the suffix `-dirty` (see `scripts/flash-firmware.sh`) shows `*` after the 7 characters. A build without `-DRLCD_GIT_HASH` shows `unknown`.
+- Position: the text ends at x = 392 on the heap line (y = 127 to 133). It lies right of `HEAP: <N> KB FREE` and below the fourth alert line (ends y = 123). The widest text has 24 glyphs and starts at x = 248.
+- The text depends only on the build, so `FrameRefresh` still skips an unchanged frame. No RTC state, `STATE_VERSION` does not change.
+- `SystemInfo::show_firmware` (default true) lets a test render the view without the line.
+- Tests: `testDiagnosticsFirmwareLine` checks the text for a clean, a dirty, a long and an empty hash, the version limit and a small buffer. It renders the view with and without the line and checks that only the box of the line differs and that the box with a margin of 1 px holds no other text (worst case: widest `SHTC3 ERR`, long cycle count, all alerts). The fixed CRC-32 of the diagnostics preview scene changed. `docs/display_preview_diagnostics.png` and `docs/display_preview_runtime.png` show the line.
+- Validation: host tests (245 suites), `./scripts/generate-display-preview.sh`, `arduino-cli compile rlcd_panel`.

@@ -14,6 +14,7 @@
 #include "pcf85063_rtc.h"
 #include "sd_logger.h"
 #include "es7210_mic.h"
+#include "firmware_version.h"
 #include "ntp_sync.h"
 #include "shtc3_sensor.h"
 #include "sparkline.h"
@@ -49,6 +50,7 @@ struct SystemInfo {
   uint16_t drift_tiles = 0;     // PersistentState::drift_tiles: bit 0 onboard, bits 1 to 10 slots, shows the "S" badge
   uint16_t heat_tiles = 0;      // PersistentState::heat_tiles: bit 0 onboard, bits 1 to 10 slots, shows the "H" badge
   uint16_t stuck_tiles = 0;     // PersistentState::stuck_tiles: bit 0 onboard, bits 1 to 10 slots, shows the "F" badge
+  bool show_firmware = true;   // diagnostics view draws the "FW <version> <hash>" line (tests switch it off)
   bool config_from_sd = false; // true: settings come from /sdcard/config.ini
   uint8_t config_rejected = 0; // rejected config.ini lines; above 0 shows "(N ERR)"
   LoopbackResult loopback;     // last speaker to microphone test of this wake cycle
@@ -179,6 +181,14 @@ public:
   static constexpr uint16_t ALERT_PITCH = 12;
   static constexpr size_t ALERT_MAX_LINES = 3;   // alert lines; a further alert gives "+<N> MORE"
   static constexpr size_t ALERT_LINE_CHARS = 29; // glyphs of one line at scale 1
+  // Diagnostics: build identity "FW <version> <hash>" (scale 1, 7 px high) right-aligned to x = 392 on the heap
+  // line (y = 124 to 137), right of "HEAP: 9999 KB FREE" (17 glyphs, ends x = 214) and below the fourth alert line
+  // (ends y = 123). Widest: "FW " + 12 version glyphs + space + 7 hash glyphs + "*" = 24 glyphs = 144 px (x = 248).
+  static constexpr uint16_t FW_RIGHT = 392;
+  static constexpr uint16_t FW_Y = 127;
+  static constexpr size_t FW_VERSION_CHARS = 12;
+  static constexpr size_t FW_HASH_CHARS = 7;
+  static constexpr size_t FW_LINE_CHARS = 24;
   static constexpr uint16_t LOOPBACK_Y = 260; // diagnostics: speaker to microphone test line
   static constexpr uint16_t MIC_TEST_Y = 224; // diagnostics: microphone self-test line
   static constexpr uint16_t PERCENTILE_X = 240; // diagnostics: "L10/L90" text (scale 1) right of "SD FREE"
@@ -1741,6 +1751,45 @@ public:
     return count;
   }
 
+  // "FW <version> <hash>": the version keeps at most 12 characters, the hash 7. A "-dirty" suffix of the hash
+  // (see scripts/flash-firmware.sh) becomes "*". Returns the text length; out has FW_LINE_CHARS + 1 bytes at least.
+  static size_t formatFirmwareLine(const char* version, const char* hash, char* out, size_t capacity) {
+    if (out == nullptr || capacity == 0) return 0;
+    static constexpr char DIRTY[] = "-dirty";
+    static constexpr size_t DIRTY_LEN = sizeof(DIRTY) - 1;
+    const char* v = (version != nullptr && version[0] != '\0') ? version : "--";
+    const char* h = (hash != nullptr && hash[0] != '\0') ? hash : "--";
+    size_t hash_len = strlen(h);
+    bool dirty = false;
+    if (hash_len >= DIRTY_LEN && strcmp(h + hash_len - DIRTY_LEN, DIRTY) == 0) {
+      dirty = true;
+      hash_len -= DIRTY_LEN;
+    }
+    if (hash_len > FW_HASH_CHARS) hash_len = FW_HASH_CHARS;
+    size_t version_len = strlen(v);
+    if (version_len > FW_VERSION_CHARS) version_len = FW_VERSION_CHARS;
+    const int n = snprintf(
+        out,
+        capacity,
+        "FW %.*s %.*s%s",
+        static_cast<int>(version_len),
+        v,
+        static_cast<int>(hash_len),
+        h,
+        dirty ? "*" : "");
+    if (n < 0) {
+      out[0] = '\0';
+      return 0;
+    }
+    return static_cast<size_t>(n) < capacity ? static_cast<size_t>(n) : capacity - 1;
+  }
+
+  // Left edge of the firmware line of a text with `length` glyphs (6 px each).
+  static uint16_t firmwareLineX(size_t length) {
+    const size_t width = length * 6;
+    return static_cast<uint16_t>(width >= FW_RIGHT ? 0 : FW_RIGHT - width);
+  }
+
   static void renderDiagnostics(
       St7305Framebuffer& fb,
       const BatteryReading& battery,
@@ -1907,6 +1956,12 @@ public:
       snprintf(line, sizeof(line), "%s: --", events_label);
     }
     drawLine(fb, config_err ? EVENTS_ERR_X : EVENTS_X, EVENTS_Y, line);
+
+    if (info.show_firmware) {
+      char fw[FW_LINE_CHARS + 1];
+      const size_t fw_len = formatFirmwareLine(FIRMWARE_VERSION, RLCD_GIT_HASH, fw, sizeof(fw));
+      fb.drawText(firmwareLineX(fw_len), FW_Y, fw, 1, true);
+    }
 
     // Active alerts (scale 1) in the free column right of the cycle, battery and runtime lines.
     char alert_lines[ALERT_TEXT_LINES][ALERT_LINE_CHARS + 1];

@@ -4963,6 +4963,83 @@ void testNoisePercentilesText() {
   assert(strcmp(line, "L10/L90: 140/140 DBA") == 0 && strlen(line) == 20);
 }
 
+void testDiagnosticsFirmwareLine() {
+  char fw[DashboardView::FW_LINE_CHARS + 1];
+  assert(DashboardView::formatFirmwareLine("1.0.0", "3665d64", fw, sizeof(fw)) == 16);
+  assert(strcmp(fw, "FW 1.0.0 3665d64") == 0);
+  DashboardView::formatFirmwareLine("1.0.0", "3665d64-dirty", fw, sizeof(fw));
+  assert(strcmp(fw, "FW 1.0.0 3665d64*") == 0);
+  DashboardView::formatFirmwareLine("1.0.0", "3665d64abcdef", fw, sizeof(fw)); // longer hash: 7 characters
+  assert(strcmp(fw, "FW 1.0.0 3665d64") == 0);
+  DashboardView::formatFirmwareLine("1.0.0", "unknown", fw, sizeof(fw));
+  assert(strcmp(fw, "FW 1.0.0 unknown") == 0);
+  DashboardView::formatFirmwareLine("1.0.0", "", fw, sizeof(fw));
+  assert(strcmp(fw, "FW 1.0.0 --") == 0);
+  DashboardView::formatFirmwareLine("123456789.123456", "1234567-dirty", fw, sizeof(fw)); // widest text
+  assert(strcmp(fw, "FW 123456789.12 1234567*") == 0 && strlen(fw) == DashboardView::FW_LINE_CHARS);
+  DashboardView::formatFirmwareLine("1.0.0", "-dirty", fw, sizeof(fw)); // a hash of the suffix only
+  assert(strcmp(fw, "FW 1.0.0 *") == 0);
+  char tiny[6];
+  assert(DashboardView::formatFirmwareLine("1.0.0", "3665d64", tiny, sizeof(tiny)) == 5);
+  assert(strcmp(tiny, "FW 1.") == 0);
+
+  // The build text of this host test shows in the view and nothing else changes: the box lies in free space.
+  BatteryReading battery;
+  battery.valid = true;
+  battery.voltage_v = 3.9f;
+  battery.percentage = 70;
+  SystemInfo off, on;
+  off.show_firmware = false;
+  // Worst case for the neighbours: widest SHTC3 text, long cycle text, all alerts.
+  off.shtc3.nack = 65535;
+  off.shtc3.crc = 65535;
+  off.shtc3.short_reads = 65535;
+  off.cycle_tenths = 99999;
+  off.alert_mask = 0xFF;
+  on = off;
+  on.show_firmware = true;
+  St7305Framebuffer a, b;
+  DashboardView::renderDiagnostics(a, battery, off, "12:00");
+  DashboardView::renderDiagnostics(b, battery, on, "12:00");
+  char text[DashboardView::FW_LINE_CHARS + 1];
+  const size_t len = DashboardView::formatFirmwareLine(FIRMWARE_VERSION, RLCD_GIT_HASH, text, sizeof(text));
+  assert(strcmp(text, "FW 1.0.0 unknown") == 0);
+  const uint16_t x0 = DashboardView::firmwareLineX(len);
+  const uint16_t x1 = static_cast<uint16_t>(x0 + len * 6);
+  const uint16_t y0 = DashboardView::FW_Y, y1 = y0 + 7;
+  assert(x1 <= St7305Framebuffer::WIDTH - 8 && x0 > 190);
+  size_t ink = 0;
+  for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+    for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+      const bool inside = x >= x0 && x < x1 && y >= y0 && y < y1;
+      if (inside) {
+        ink += b.getPixel(x, y) ? 1 : 0;
+      } else {
+        assert(a.getPixel(x, y) == b.getPixel(x, y)); // the line draws only inside its box
+      }
+      // The box with a 1 px margin holds no other text.
+      const bool margin = x + 1 >= x0 && x < x1 + 1 && y + 1 >= y0 && y < y1 + 1;
+      if (margin) assert(!a.getPixel(x, y));
+    }
+  }
+  assert(ink > 40);
+  // The box holds exactly the glyphs of the text: compare with a reference render of the same text.
+  St7305Framebuffer ref;
+  ref.clear(false);
+  ref.drawText(x0, y0, text, 1, true);
+  for (uint16_t y = y0; y < y1; ++y) {
+    for (uint16_t x = x0; x < x1; ++x) {
+      assert(b.getPixel(x, y) == ref.getPixel(x, y));
+    }
+  }
+
+  // The widest text starts right of "HEAP: 9999 KB FREE" (ends x = 214); the box lies between the alert block
+  // (ends y = 123) and the percentile line.
+  assert(DashboardView::firmwareLineX(DashboardView::FW_LINE_CHARS) > 10 + 17 * 12);
+  assert(DashboardView::FW_Y > DashboardView::ALERT_Y + 3 * DashboardView::ALERT_PITCH + 7);
+  assert(DashboardView::FW_Y + 7 <= DashboardView::PERCENTILE_Y);
+}
+
 void testDiagnosticsPercentileLineBounds() {
   BatteryReading battery;
   battery.valid = true;
@@ -7806,7 +7883,7 @@ void testDiagnosticsNtpLine() {
           preview::PREVIEW_SCENES[i].muted, preview::PREVIEW_SCENES[i].window, preview::PREVIEW_SCENES[i].wall, preview::PREVIEW_SCENES[i].identify, preview::PREVIEW_SCENES[i].weak);
     }
   }
-  assert(scene.crc32() == 0x444e01ccu);
+  assert(scene.crc32() == 0x2628b641u); // includes the "FW 1.0.0 unknown" line
 }
 
 void testDiagnosticsSdFreeLine() {
@@ -31594,6 +31671,7 @@ int main() {
   testNoisePercentilesFailedWindow();
   testNoisePercentilesText();
   testDiagnosticsPercentileLineBounds();
+  testDiagnosticsFirmwareLine();
   testSdLogPercentileColumns();
   testSdLogV4FileNames();
   testSdLogNoiseColumns();
