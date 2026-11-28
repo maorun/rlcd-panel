@@ -4496,3 +4496,13 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - RTC layout: `PersistentState::quick_spread` (`PowerManager::QUICK_SPREAD_SIZE`, 654 bytes just before the checksum, after the stuck latch: window flag and start stamp, then for each of the 11 sensors the count, 12 temperature and 12 humidity samples, the window sums and the reading count). The restore rejects a count above 12, a sample outside -100.0 to 100.0 C or 0 to 100 %RH, a sample beyond the count, window sums that the reading count cannot explain, samples or readings without a window, a start stamp without a window and a flag above 1. `resetSlot` clears and `swapSlotsByUser` swaps the samples of a slot. `STATE_VERSION` is 88.
 - `tests/fixtures/spread_quick_reply_sample.txt` holds a sample (the data of `spread_reply_sample.txt` as 12 samples: the reply equals the `SPREAD` reply for equal samples). The apps ignore the command until they send it.
 - Validation: host tests (`testQuickSpread`) and `arduino-cli compile rlcd_panel`.
+
+## Active alert lines in the panel diagnostics view
+
+- **Code:** `rlcd_panel/dashboard_view.h`, `rlcd_panel/rlcd_panel.ino`, `tools/preview_scenes.h`.
+- The diagnostics view shows the cause of each active alert. `DashboardView::formatAlertLines` makes one line for each active bit of `SystemInfo::alert_mask` in the order of the console command `ALERTS`: the alert name and the tile names of its trigger tiles (`SystemInfo::alert_tiles` from `AlertEvaluator::triggerTiles`; `SENSOR BAT` uses `sensor_battery_latch`). A tile name is the configured name, else `ONBOARD SHTC3` or `SENSOR <n>`.
+- At most 3 lines (`ALERT_MAX_LINES`), then `+<N> MORE`. A line is cut at 29 glyphs (`ALERT_LINE_CHARS`). A held alert without a trigger tile shows the name only. Without an active bit the view shows `NO ALERTS`.
+- The block uses scale 1 at x = 222, y = 80 (`ALERT_X`, `ALERT_Y`, pitch 12 px), right of the battery and runtime lines, above the heap line. No existing line moves.
+- `rlcd_panel.ino` fills `SystemInfo::alert_mask` and `alert_tiles` on each render. Calculated on each render, no RTC state, `STATE_VERSION` does not change.
+- `docs/display_preview_diagnostics.png` shows two alert lines (`HUMIDITY GARTEN`, `SENSOR BAT GARTEN`).
+- Validation: host tests (`testDiagnosticsAlertLines`: zero, one and four active alerts) and `arduino-cli compile rlcd_panel`.

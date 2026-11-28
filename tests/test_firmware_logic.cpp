@@ -5600,6 +5600,112 @@ void testDiagnosticsMicSelfTestLine() {
   assert(memcmp(a.data(), b.data(), RLCD_BUFFER_SIZE) == 0);
 }
 
+void testDiagnosticsAlertLines() {
+  using Lines = char[DashboardView::ALERT_TEXT_LINES][DashboardView::ALERT_LINE_CHARS + 1];
+  SwitchBotReading slots[MAX_SWITCHBOT_SENSORS];
+  slots[0].valid = true;
+  slots[0].mac[5] = 1;
+  DeviceConfig config;
+  snprintf(config.onboard_name, sizeof(config.onboard_name), "HALL");
+
+  // Zero active alerts: no line, the view draws "NO ALERTS".
+  SystemInfo none;
+  Lines lines;
+  assert(DashboardView::formatAlertLines(none, slots, MAX_SWITCHBOT_SENSORS, &config, lines) == 0);
+
+  // One active alert: the name and the tile names.
+  SystemInfo one;
+  one.alert_mask = ALERT_FREEZER;
+  one.alert_tiles.freezer = 0x3; // onboard and slot 1
+  assert(DashboardView::formatAlertLines(one, slots, MAX_SWITCHBOT_SENSORS, &config, lines) == 1);
+  assert(std::string(lines[0]) == "FREEZER HALL,SENSOR 1");
+
+  // A held alert without a trigger tile shows the name only.
+  one.alert_tiles.freezer = 0;
+  assert(DashboardView::formatAlertLines(one, slots, MAX_SWITCHBOT_SENSORS, &config, lines) == 1);
+  assert(std::string(lines[0]) == "FREEZER");
+
+  // Four active alerts: three lines (console order) and "+1 MORE".
+  SystemInfo four;
+  four.alert_mask = ALERT_FREEZER | ALERT_HUMIDITY | ALERT_SENSOR_LOST | ALERT_HEAT;
+  four.alert_tiles.humidity = 0x1;
+  assert(DashboardView::formatAlertLines(four, slots, MAX_SWITCHBOT_SENSORS, &config, lines) == 4);
+  assert(std::string(lines[0]) == "FREEZER");
+  assert(std::string(lines[1]) == "HUMIDITY HALL");
+  assert(std::string(lines[2]) == "SENSOR LOST");
+  assert(std::string(lines[3]) == "+1 MORE");
+
+  // All eight alerts: three lines and "+5 MORE".
+  SystemInfo all;
+  all.alert_mask = 0xFF;
+  assert(DashboardView::formatAlertLines(all, slots, MAX_SWITCHBOT_SENSORS, &config, lines) == 4);
+  assert(std::string(lines[0]) == "FREEZER" && std::string(lines[1]) == "HUMIDITY" && std::string(lines[2]) == "NOISE");
+  assert(std::string(lines[3]) == "+5 MORE");
+
+  // A long tile list is cut at the line width.
+  SystemInfo wide;
+  wide.alert_mask = ALERT_HUMIDITY;
+  wide.alert_tiles.humidity = 0x7FF;
+  assert(DashboardView::formatAlertLines(wide, slots, MAX_SWITCHBOT_SENSORS, &config, lines) == 1);
+  assert(std::string(lines[0]) == "HUMIDITY HALL,SENSOR 1,SENSOR");
+  assert(strlen(lines[0]) == DashboardView::ALERT_LINE_CHARS);
+
+  // The latch of a low sensor battery names its slots (bit 0 is slot 1).
+  SystemInfo bat;
+  bat.alert_mask = ALERT_SENSOR_BATTERY;
+  bat.sensor_battery_latch = 0x1;
+  assert(DashboardView::formatAlertLines(bat, slots, MAX_SWITCHBOT_SENSORS, &config, lines) == 1);
+  assert(std::string(lines[0]) == "SENSOR BAT SENSOR 1");
+
+  // Render: the alert block holds exactly the expected text (a reference frame with the block cleared and the lines
+  // drawn again must equal the frame), and the rest of the frame equals the render without alerts.
+  // Four lines of 7 px glyphs at the pitch: the block ends at y = 122, above the heap line (y = 124).
+  constexpr uint16_t BLOCK_H = (DashboardView::ALERT_TEXT_LINES - 1) * DashboardView::ALERT_PITCH + 7;
+  auto blockEquals = [&](const St7305Framebuffer& fb, std::initializer_list<const char*> expected) {
+    St7305Framebuffer ref = fb;
+    ref.fillRect(DashboardView::ALERT_X, DashboardView::ALERT_Y,
+                 static_cast<uint16_t>(St7305Framebuffer::WIDTH - DashboardView::ALERT_X), BLOCK_H, false);
+    uint16_t y = DashboardView::ALERT_Y;
+    for (const char* text : expected) {
+      ref.drawText(DashboardView::ALERT_X, y, text, 1, true);
+      y = static_cast<uint16_t>(y + DashboardView::ALERT_PITCH);
+    }
+    return memcmp(ref.data(), fb.data(), RLCD_BUFFER_SIZE) == 0;
+  };
+  auto outsideBlockEquals = [&](const St7305Framebuffer& l, const St7305Framebuffer& r) {
+    for (uint16_t y = 0; y < St7305Framebuffer::HEIGHT; ++y) {
+      for (uint16_t x = 0; x < St7305Framebuffer::WIDTH; ++x) {
+        const bool in_block = x >= DashboardView::ALERT_X && y >= DashboardView::ALERT_Y && y < DashboardView::ALERT_Y + BLOCK_H;
+        if (!in_block && l.getPixel(x, y) != r.getPixel(x, y)) {
+          return false;
+        }
+      }
+    }
+    return true;
+  };
+  Shtc3Reading onboard;
+  BatteryReading battery;
+  St7305Framebuffer a, b;
+  DashboardView::renderMode(a, DisplayMode::SYSTEM_DIAGNOSTICS, onboard, battery, nullptr, 0, none, "12:34", 0);
+  DashboardView::renderMode(b, DisplayMode::SYSTEM_DIAGNOSTICS, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, four, "12:34", 0, nullptr, nullptr, &config);
+  assert(blockEquals(a, {"NO ALERTS"}));
+  assert(!blockEquals(a, {"FREEZER"}));
+  assert(blockEquals(b, {"FREEZER", "HUMIDITY HALL", "SENSOR LOST", "+1 MORE"}));
+  assert(!blockEquals(b, {"HUMIDITY HALL", "FREEZER", "SENSOR LOST", "+1 MORE"})); // the order counts
+  assert(outsideBlockEquals(a, b));
+  // The tile names come from the slots and the config through renderMode.
+  St7305Framebuffer named;
+  one.alert_tiles.freezer = 0x3;
+  DashboardView::renderMode(named, DisplayMode::SYSTEM_DIAGNOSTICS, onboard, battery, slots, MAX_SWITCHBOT_SENSORS, one, "12:34", 0, nullptr, nullptr, &config);
+  assert(blockEquals(named, {"FREEZER HALL,SENSOR 1"}));
+  assert(outsideBlockEquals(a, named));
+
+  // The preview scene shows two alert lines: the humid garden tile and the low sensor battery of the same tile.
+  St7305Framebuffer scene;
+  preview::renderScene(scene, DisplayMode::SYSTEM_DIAGNOSTICS, false);
+  assert(blockEquals(scene, {"HUMIDITY GARTEN", "SENSOR BAT GARTEN"}));
+}
+
 void testPreviewDiagnosticsShowsSelfTest() {
   St7305Framebuffer fb;
   preview::renderScene(fb, DisplayMode::SYSTEM_DIAGNOSTICS, false);
@@ -7700,7 +7806,7 @@ void testDiagnosticsNtpLine() {
           preview::PREVIEW_SCENES[i].muted, preview::PREVIEW_SCENES[i].window, preview::PREVIEW_SCENES[i].wall, preview::PREVIEW_SCENES[i].identify, preview::PREVIEW_SCENES[i].weak);
     }
   }
-  assert(scene.crc32() == 0x02727b14u);
+  assert(scene.crc32() == 0x444e01ccu);
 }
 
 void testDiagnosticsSdFreeLine() {
@@ -30755,6 +30861,7 @@ int main() {
   testNoiseSamplerWithSelfTest();
   testDiagnosticsMicSelfTestLine();
   testPreviewDiagnosticsShowsSelfTest();
+  testDiagnosticsAlertLines();
   testMicSplConversionAndClamp();
   testDerivedBandLimitsWithHysteresis();
   testLongPressDetection();

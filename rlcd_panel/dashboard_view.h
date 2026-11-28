@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <string.h>
 #include "battery_monitor.h"
+#include "audio_alert.h"
 #include "audio_loopback.h"
 #include "audio_spectrum.h"
 #include "board_pins.h"
@@ -65,6 +66,8 @@ struct SystemInfo {
   bool ntp_credentials = false; // Wi-Fi credentials exist; without them the line shows "NTP: --"
   uint32_t now_ms = 0;         // RTC-backed clock (nowMs()) for the age of the last sync
   const ReceptionHistory* reception = nullptr; // BLE reception rate of each slot for the stats view; null shows "RX --"
+  uint8_t alert_mask = 0;      // PersistentState::alert_mask: the diagnostics view draws one line for each active bit
+  AlertEvaluator::TriggerTiles alert_tiles; // AlertEvaluator::triggerTiles of this render: the tiles behind each bit
 };
 
 class DashboardView {
@@ -168,6 +171,14 @@ public:
   // "SHTC3 ERR: 196605" = 17 glyphs = 204 px, from x = 190 to x = 394. The inverted box adds 2 px.
   static constexpr uint16_t SHTC3_X = 190;
   static constexpr uint16_t SHTC3_Y = 44;
+  // Diagnostics: active alert lines (scale 1) right of the battery and runtime lines. x = 222 is right of
+  // "BAT: 3.92 V 100 %" (ends x = 214); the block starts at y = 80, below the cycle line (ends y = 78), and its
+  // fourth line ends at y = 123, above the heap line (y = 124). 29 glyphs end at x = 396.
+  static constexpr uint16_t ALERT_X = 222;
+  static constexpr uint16_t ALERT_Y = 80;
+  static constexpr uint16_t ALERT_PITCH = 12;
+  static constexpr size_t ALERT_MAX_LINES = 3;   // alert lines; a further alert gives "+<N> MORE"
+  static constexpr size_t ALERT_LINE_CHARS = 29; // glyphs of one line at scale 1
   static constexpr uint16_t LOOPBACK_Y = 260; // diagnostics: speaker to microphone test line
   static constexpr uint16_t MIC_TEST_Y = 224; // diagnostics: microphone self-test line
   static constexpr uint16_t PERCENTILE_X = 240; // diagnostics: "L10/L90" text (scale 1) right of "SD FREE"
@@ -1667,11 +1678,77 @@ public:
     drawLine(fb, 10, 270, line);
   }
 
+  // Text of the active alert lines of the diagnostics view: for each active bit of `info.alert_mask` (order of the
+  // console command ALERTS) the alert name and the tile names of its trigger tiles (AlertEvaluator::triggerTiles,
+  // SENSOR_BATTERY: the latch), cut to ALERT_LINE_CHARS. At most ALERT_MAX_LINES lines, then "+<N> MORE" for the rest.
+  // Returns the line count; 0 means no active alert (the view draws "NO ALERTS"). A held alert without a trigger tile
+  // shows the name only. Calculated on each render, no RTC state.
+  static constexpr size_t ALERT_TEXT_LINES = ALERT_MAX_LINES + 1;
+  static size_t formatAlertLines(const SystemInfo& info, const SwitchBotReading* slots, size_t slot_count,
+                                 const DeviceConfig* config, char (&lines)[ALERT_TEXT_LINES][ALERT_LINE_CHARS + 1]) {
+    struct Row {
+      const char* name;
+      uint8_t bit;
+      uint16_t tiles;
+    };
+    const uint16_t battery_tiles = SensorBatteryLatch::tileMask(info.sensor_battery_latch);
+    const Row rows[8] = {
+        {"FREEZER", ALERT_FREEZER, info.alert_tiles.freezer},
+        {"HUMIDITY", ALERT_HUMIDITY, info.alert_tiles.humidity},
+        {"NOISE", ALERT_NOISE_HIGH, 0},
+        {"SENSOR LOST", ALERT_SENSOR_LOST, info.alert_tiles.sensor_lost},
+        {"CHARGE FULL", ALERT_CHARGE_FULL, 0},
+        {"VENTILATE", ALERT_VENTILATE, info.alert_tiles.ventilate},
+        {"SENSOR BAT", ALERT_SENSOR_BATTERY, battery_tiles},
+        {"HEAT", ALERT_HEAT, info.alert_tiles.heat},
+    };
+    size_t active = 0;
+    size_t shown = 0;
+    for (const Row& row : rows) {
+      if ((info.alert_mask & row.bit) == 0) {
+        continue;
+      }
+      ++active;
+      if (shown >= ALERT_MAX_LINES) {
+        continue;
+      }
+      char text[96];
+      int n = snprintf(text, sizeof(text), "%s", row.name);
+      bool first = true;
+      for (size_t tile = 0; tile <= MAX_SWITCHBOT_SENSORS && n > 0 && static_cast<size_t>(n) < sizeof(text); ++tile) {
+        if ((row.tiles & (1u << tile)) == 0) {
+          continue;
+        }
+        char title[40];
+        tileTitle(title, sizeof(title), config, tile, tile == 0 ? nullptr : slotActiveMac(slots, slot_count, config, tile - 1));
+        n += snprintf(text + n, sizeof(text) - static_cast<size_t>(n), "%s%s", first ? " " : ",", title);
+        first = false;
+      }
+      // Cut at the line width (the buffer holds more glyphs). memcpy keeps GCC's -Wformat-truncation quiet.
+      size_t len = strlen(text);
+      if (len > ALERT_LINE_CHARS) {
+        len = ALERT_LINE_CHARS;
+      }
+      memcpy(lines[shown], text, len);
+      lines[shown][len] = '\0';
+      ++shown;
+    }
+    size_t count = shown;
+    if (active > shown) {
+      snprintf(lines[count], sizeof(lines[count]), "+%u MORE", static_cast<unsigned>(active - shown));
+      ++count;
+    }
+    return count;
+  }
+
   static void renderDiagnostics(
       St7305Framebuffer& fb,
       const BatteryReading& battery,
       const SystemInfo& info,
-      const char* clock_text) {
+      const char* clock_text,
+      const SwitchBotReading* switchbot_slots = nullptr,
+      size_t switchbot_count = 0,
+      const DeviceConfig* config = nullptr) {
     renderHeader(fb, "SYSTEM DIAGNOSTICS", battery, clock_text, info.quiet_hours, false, info.muted);
 
     char line[40];
@@ -1830,6 +1907,16 @@ public:
       snprintf(line, sizeof(line), "%s: --", events_label);
     }
     drawLine(fb, config_err ? EVENTS_ERR_X : EVENTS_X, EVENTS_Y, line);
+
+    // Active alerts (scale 1) in the free column right of the cycle, battery and runtime lines.
+    char alert_lines[ALERT_TEXT_LINES][ALERT_LINE_CHARS + 1];
+    const size_t alert_count = formatAlertLines(info, switchbot_slots, switchbot_count, config, alert_lines);
+    if (alert_count == 0) {
+      fb.drawText(ALERT_X, ALERT_Y, "NO ALERTS", 1, true);
+    }
+    for (size_t i = 0; i < alert_count; ++i) {
+      fb.drawText(ALERT_X, static_cast<uint16_t>(ALERT_Y + i * ALERT_PITCH), alert_lines[i], 1, true);
+    }
   }
 
   // Pixel height of a bar level (0 to 100): 2 px per level step.
@@ -2186,7 +2273,7 @@ public:
         renderSensorStats(fb, battery, switchbot_slots, switchbot_count, clock_text, now_ms, info.quiet_hours, noise_history, history, config, info.stats_page, info.muted, info.reception);
         break;
       case DisplayMode::SYSTEM_DIAGNOSTICS:
-        renderDiagnostics(fb, battery, info, clock_text);
+        renderDiagnostics(fb, battery, info, clock_text, switchbot_slots, switchbot_count, config);
         break;
       case DisplayMode::AUDIO_SPECTRUM:
         renderSpectrum(fb, battery, info, clock_text);

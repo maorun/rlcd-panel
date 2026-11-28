@@ -298,6 +298,13 @@ inline void renderScene(
     info.heat_tiles = 0x3; // the onboard tile and slot 1 feel hotter than the limit
   }
   info.sensor_battery_latch = SensorBatteryLatch::update(0, slots, MAX_SWITCHBOT_SENSORS, now_ms, DeviceConfig::DEFAULT_SENSOR_BATTERY_LIMIT_PCT);
+  // Two active alerts: the humid garden sensor (limit 65 %RH) and the low sensor battery of the same slot.
+  {
+    AlertLimits alert_limits;
+    alert_limits.humidity_trigger_pct = 65.0f;
+    info.alert_tiles = AlertEvaluator::triggerTiles(onboard, slots, MAX_SWITCHBOT_SENSORS, now_ms, alert_limits);
+    info.alert_mask = static_cast<uint8_t>(ALERT_HUMIDITY | ALERT_SENSOR_BATTERY);
+  }
   info.config_from_sd = true;
   info.config_rejected = 2; // two rejected config.ini lines
   info.rtc_drift.has_sync = true;
