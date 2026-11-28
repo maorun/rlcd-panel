@@ -27,14 +27,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-
-
-- [ ] Parser fuzz test for the console reply assemblers
-  - **Location:** `macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyAssemblerTests.swift`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/ReplyAssemblerTest.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ReplyAssemblerTest.kt`, `FEATURES.md`
-  - **Goal:** Make sure that a damaged BLE reply never crashes an app. Feed each fixture of `tests/fixtures` through the `ReplyAssembler` of each app with fixed seeds: drop one byte, flip one byte, cut the reply at each position of the first 200 bytes. The assembler must give a CRC error or an incomplete reply, never an exception other than the parse error types. Use a fixed seed list so the test is repeatable.
-  - **Acceptance:** The new tests pass in the three apps. A test fails when you remove the CRC check of the assembler. `swift test` and `swift build -c release` in `macos/RlcdCompanion` pass. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 24, Use: 2, Setup: 3, Harmony: 9, Safety: 10, Effort: M]
-
 ## Rules for ranking
 
 Rate each entry with the feature model. The model has four criteria. Each criterion has a value from 0 to 10. The total score is the sum, with a maximum of 40.

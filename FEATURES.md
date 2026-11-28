@@ -4428,3 +4428,14 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `--self-test` also checks one unlisted equal pair (exit 1), one unlisted different pair (exit 0) and the listed files (exit 0).
 - The CI job `Host tests` runs the check and the self-test, no change in `.github/workflows/ci.yml`.
 - Validation: `./scripts/check-protocol-sync.sh`, `./scripts/check-protocol-sync.sh --self-test` and `./tests/test_scripts.sh` pass.
+
+## Parser fuzz test for the console reply assemblers
+
+- **Code:** `macos/RlcdCompanion/Tests/RlcdProtocolTests/ReplyAssemblerTests.swift`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/ReplyAssemblerTest.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/ReplyAssemblerTest.kt`
+- Each test reads each fixture of `tests/fixtures` that the `ReplyAssembler` accepts as one frame (the check `fixturesAreFound` needs at least 20). It feeds the damaged bytes in BLE chunks of 20 bytes.
+- Three kinds of damage: a cut at each position of the first 200 bytes, one dropped byte and one flipped bit. The drop and the flip use the fixed seed list `1, 7, 42, 1234, 99991, 0xC0FFEE, 0xBADF00D, 20261128` with 40 positions for each seed and fixture. The generator is SplitMix64, so each host gives the same positions.
+- A damaged reply may give no reply (incomplete), a corrupt reply (CRC error) or the original frame. It never gives a frame with other lines, a file or a status line. The assembler throws no exception.
+- The test `flippedBodyByteGivesCorruptReply` (`flippedBodyByteGivesNoWrongFrame` on Android) changes the first capital letter of each fixture.
+- Mutation check: when the CRC comparison is removed from `ReplyAssembler.swift`, the drop, flip and body tests fail.
+- The Android phone and the Wear OS test files are equal except for the `package` line.
+- Validation: `swift test` and `swift build -c release` in `macos/RlcdCompanion`, `./scripts/check-protocol-sync.sh` and `./tests/test_scripts.sh`. The Gradle runs need the Android SDK and Java.
