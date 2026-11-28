@@ -33,12 +33,6 @@ Do the work in priority order, unless the maintainer gives a different order.
   - **Acceptance:** A unit test checks the line for a date 10 days ahead. A unit test checks no line for a date 40 days ahead and for an empty cache. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
   - **Rank:** [Total: 25, Use: 6, Setup: 2, Harmony: 7, Safety: 10, Effort: S]
 
-- [ ] Wear OS heat hours of the day on the today screen
-  - **Location:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/TodayScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/TodayScreenTextTest.kt`, `FEATURES.md`
-  - **Goal:** Show the heat hours of the current day on the watch. Depends on `App parsers for the TODAY heat hours column`. Add `Heat <N> h` to the room row after the dry hours. Show no text for `null`. Show a warning color above 0.
-  - **Acceptance:** A unit test checks the row text for `heatHours` 2. A unit test checks no heat text for `null`. `gradle testDebugUnitTest assembleDebug` in `wearos/RlcdWatch` passes.
-  - **Rank:** [Total: 25, Use: 6, Setup: 1, Harmony: 8, Safety: 10, Effort: S]
-
 - [ ] Badges in the Android panel preview
   - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/PanelRenderer.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/PanelPreviewScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/PanelRendererTest.kt`, `FEATURES.md`
   - **Goal:** Show the `V`, `D`, `W`, `C`, `R` and `S` badges in the phone preview. The preview has no badges because the telemetry frame does not carry them. Read the badge masks from the last `STATUS` `LATCH` line in memory when it exists. Draw each badge with the positions of `dashboard_view.h`. Keep the label `Preview from telemetry, not the panel image`.

@@ -52,8 +52,11 @@ object TodayScreenText {
     /** Mold and dry hours of the day, for example `Mold 3 h · Dry -- h`. */
     fun moldDry(row: TodayRow): String = "Mold ${count(row.moldHours)} · Dry ${count(row.dryHours)}"
 
-    /** Heat hours of the day, for example `Heat 2 h`; `Heat -- h` for null. */
-    fun heat(row: TodayRow): String = "Heat ${count(row.heatHours)}"
+    /** Heat hours of the day, for example `Heat 2 h`; null (no text) for null. */
+    fun heat(row: TodayRow): String? = row.heatHours?.let { "Heat $it h" }
+
+    /** True when the day holds heat hours above 0. */
+    fun heatWarning(row: TodayRow): Boolean = (row.heatHours ?: 0) > 0
 
     private fun count(v: Int?): String = if (v == null) "-- h" else "$v h"
 
@@ -142,7 +145,14 @@ fun TodayScreen(
                         Text(TodayScreenText.temperature(row), fontSize = 10.sp, maxLines = 1)
                         Text(TodayScreenText.humidity(row), fontSize = 10.sp, maxLines = 1)
                         Text(TodayScreenText.moldDry(row), fontSize = 10.sp, maxLines = 1)
-                        Text(TodayScreenText.heat(row), fontSize = 10.sp, maxLines = 1)
+                        TodayScreenText.heat(row)?.let { heat ->
+                            Text(
+                                heat,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                color = if (TodayScreenText.heatWarning(row)) Color(0xFFFFB74D) else Color.Unspecified
+                            )
+                        }
                     }
                 }
             }

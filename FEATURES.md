@@ -3159,6 +3159,13 @@ The console command `STATUS` shows the line `WAKE cause=<POWER_ON|TIMER|KEY|OTHE
 - `TodayCommandTest` covers `TODAY 3` and `TODAY`, the rejected numbers 11 and -1, the fallback decision, the row filter and `tests/fixtures/today_one_reply_sample.txt`.
 - Validation: `./scripts/check-protocol-sync.sh` passes. The local host has no Android SDK, so `gradle testDebugUnitTest assembleDebug` runs in CI only.
 
+## Heat hours of the day on the Wear OS today screen
+
+- **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/TodayScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/TodayScreenTextTest.kt`
+- `TodayScreenText.heat(row)` gives `Heat <N> h` from `TodayRow.heatHours`. It gives `null` for `null`, so the card shows no heat line.
+- `TodayScreenText.heatWarning(row)` is true above 0. The heat line then uses a warning color.
+- `TodayScreenTextTest` checks `Heat 2 h`, no text for `null`, and the warning flag.
+
 ## Monthly mold summary screen on the Wear OS watch
 
 - **Code:** `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/DaysReply.kt`, `protocol/EventCsv.kt`, `protocol/MoldSummary.kt`, `MoldSummaryScreen.kt`, `MainActivity.kt`, `SensorHealthScreen.kt`, `wearos/RlcdWatch/app/src/test/java/com/rlcdpanel/watch/protocol/DaysReplyTest.kt`, `scripts/check-protocol-sync.sh`
