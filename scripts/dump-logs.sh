@@ -6,7 +6,8 @@
 #        ./scripts/dump-logs.sh --set-time [port] sets the RTC to the local time of this host (TIME SET command; accuracy is about 1 s)
 #        ./scripts/dump-logs.sh --history [port]  writes the 24-hour histories from the RTC copy to sd_logs/history_<host time>.csv (HISTORY command, no card needed)
 #        ./scripts/dump-logs.sh --events [port]   prints the event ring from the RTC copy (EVENTS command, no card needed)
-#        ./scripts/dump-logs.sh --self-test       checks the log file name pattern against fixed names (no serial port, exit 0 or 1)
+#        ./scripts/dump-logs.sh --verify [port]   checks the rows of each log file on the card without a download (VERIFY command; exit 1 for a bad row or an error)
+#        ./scripts/dump-logs.sh --self-test       checks the log file name pattern and the VERIFY reply check against fixed samples (no serial port, exit 0 or 1)
 # The board answers on USB power only, while it is awake. Press KEY to wake it first.
 set -euo pipefail
 umask 077
@@ -37,6 +38,10 @@ if [[ "${1:-}" == "--events" ]]; then
   MODE=events
   shift
 fi
+if [[ "${1:-}" == "--verify" ]]; then
+  MODE=verify
+  shift
+fi
 if [[ "${1:-}" == "--self-test" ]]; then
   MODE=self-test
   shift
@@ -63,11 +68,12 @@ if [[ "${MODE}" != "self-test" ]]; then
   chmod 0700 "${OUT_DIR}"
 fi
 
-exec python3 -I - "${PORT}" "${BAUD}" "${OUT_DIR}" "${TIMEOUT_S}" "${MODE}" <<'PY'
+exec python3 -I - "${PORT}" "${BAUD}" "${OUT_DIR}" "${TIMEOUT_S}" "${MODE}" "${REPO_ROOT}" <<'PY'
 import os, re, subprocess, sys, time, zlib
 
 port, baud, out_dir, timeout_s = sys.argv[1], int(sys.argv[2]), sys.argv[3], float(sys.argv[4])
 mode = sys.argv[5]
+repo_root = sys.argv[6]
 # One shared pattern for the file names; keep it in sync with LogArchive.swift.
 NAME_PATTERN = r"(?:climate_v[2-6]_20\d\d(?:0[1-9]|1[0-2])|daily_v[1-7]_20\d\d|events_v1_20\d\d)\.csv"
 NAME = re.compile(f"^{NAME_PATTERN}\\Z")
@@ -75,6 +81,21 @@ FILE_LINE = re.compile(f"^FILE ({NAME_PATTERN}) (\\d{{1,9}})\\Z")
 FILE_ANY = re.compile(r"^FILE ([A-Za-z0-9_.\-]{1,64}) (\d{1,9})$")
 BEGIN_LINE = re.compile(f"^BEGIN ({NAME_PATTERN}) (\\d{{1,9}})\\Z")
 MAX_FILE_BYTES = 16 * 1024 * 1024
+# VERIFY reply: one result line, then the CRC32 line over that line (including its newline).
+VERIFY_LINE = re.compile(f"^VERIFY name=({NAME_PATTERN}) rows=(\\d{{1,10}}) bad=(\\d{{1,10}}) first_bad=(--|[1-9]\\d{{0,9}})\\Z")
+
+def check_verify(name, head, tail):
+    """Returns (rows, bad, first_bad) for a good VERIFY reply, else raises ValueError."""
+    match = VERIFY_LINE.match(head)
+    if not match or match.group(1) != name:
+        raise ValueError(f"bad VERIFY line ({head!r})")
+    rows, bad, first = int(match.group(2)), int(match.group(3)), match.group(4)
+    if bad > rows or (bad == 0) != (first == "--"):
+        raise ValueError(f"inconsistent VERIFY counts ({head!r})")
+    expected = f"CRC32 {zlib.crc32((head + chr(10)).encode('ascii')) & 0xFFFFFFFF:08x}"
+    if tail != expected:
+        raise ValueError(f"CRC mismatch ({tail} / {expected})")
+    return rows, bad, first
 
 if mode == "self-test":
     good = ["climate_v6_202611.csv", "daily_v5_2026.csv", "daily_v6_2026.csv", "daily_v7_2026.csv", "climate_v2_202501.csv", "events_v1_2026.csv"]
@@ -83,10 +104,32 @@ if mode == "self-test":
     errors += [f"not rejected: {n}" for n in bad if NAME.match(n) or FILE_LINE.match(f"FILE {n} 10") or BEGIN_LINE.match(f"BEGIN {n} 10")]
     if not FILE_ANY.match("FILE climate_v7_202611.csv 10") or FILE_ANY.match("FILE bad\x1b[2Jname 10"):
         errors.append("FILE_ANY check failed")
+    # The VERIFY reply check reads the fixture of the firmware tests and rejects damaged replies.
+    with open(os.path.join(repo_root, "tests", "fixtures", "verify_reply_sample.txt"), "rb") as handle:
+        sample = handle.read().decode("ascii").split("\n")
+    try:
+        if check_verify("climate_v6_202611.csv", sample[0], sample[1]) != (5, 2, "4"):
+            errors.append("VERIFY sample values differ")
+    except ValueError as error:
+        errors.append(f"VERIFY sample: {error}")
+    verify_bad = [
+        ("climate_v6_202611.csv", sample[0], "CRC32 00000000"),
+        ("climate_v6_202610.csv", sample[0], sample[1]),
+        ("climate_v6_202611.csv", sample[0].replace("first_bad=4", "first_bad=0"), sample[1]),
+        ("climate_v6_202611.csv", sample[0].replace("bad=2", "bad=0"), sample[1]),
+        ("climate_v6_202611.csv", sample[0].replace("rows=5", "rows=1"), sample[1]),
+        ("climate_v6_202611.csv", sample[0].replace("name=", "name=../"), sample[1]),
+    ]
+    for name, head, tail in verify_bad:
+        try:
+            check_verify(name, head, tail)
+            errors.append(f"VERIFY reply not rejected: {head!r} {tail!r}")
+        except ValueError:
+            pass
     for e in errors:
         print("FAIL " + e, file=sys.stderr)
     if not errors:
-        print(f"OK {len(good)} names accepted, {len(bad)} names rejected")
+        print(f"OK {len(good)} names accepted, {len(bad)} names rejected, VERIFY sample accepted, {len(verify_bad)} VERIFY replies rejected")
     sys.exit(1 if errors else 0)
 
 subprocess.run(["stty", "-f" if sys.platform == "darwin" else "-F", port, str(baud), "raw", "-echo"], check=True)
@@ -255,7 +298,7 @@ while True:
         if unknown:
             print(f"SKIP {unknown.group(1)}", file=sys.stderr)
         continue
-    if int(match.group(2)) <= MAX_FILE_BYTES:
+    if int(match.group(2)) <= MAX_FILE_BYTES or mode == "verify":
         files.append((match.group(1), int(match.group(2))))
     else:
         print(f"{match.group(1)}: skipped, larger than {MAX_FILE_BYTES} bytes", file=sys.stderr)
@@ -264,6 +307,35 @@ while True:
 if not files:
     print("No log files on the card.")
     sys.exit(1 if skipped else 0)
+
+if mode == "verify":
+    # VERIFY reads each file on the card and checks its rows: no download, so no size limit and no file is written.
+    damaged = 0
+    errors = 0
+    for name, _ in files:
+        command("VERIFY " + name)
+        deadline = time.time() + 120  # a month file has about 40000 rows
+        while True:
+            text = line(deadline)
+            if text.startswith(("VERIFY name=", "ERR ")):
+                break
+        if text.startswith("ERR "):
+            print(f"{name}: {text}", file=sys.stderr)
+            errors += 1
+            continue
+        tail = line(deadline)
+        try:
+            rows, bad, first = check_verify(name, text, tail)
+        except ValueError as error:
+            print(f"{name}: {error}", file=sys.stderr)
+            drain()
+            errors += 1
+            continue
+        print(f"{name}: rows={rows} bad={bad} first_bad={first}")
+        if bad:
+            damaged += 1
+    print(f"{len(files)} files checked, {damaged} with bad rows, {errors} errors")
+    sys.exit(1 if damaged or errors or skipped else 0)
 
 failed = skipped
 for name, listed_size in files:

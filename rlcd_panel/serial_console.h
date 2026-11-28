@@ -41,14 +41,14 @@ private:
   uint32_t crc_ = 0xFFFFFFFFU;
 };
 
-enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, SLOT_REPLACE, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST, SPREAD, TAIL, TODAY, DAYS, RECEPTION, ALERTS, HELP };
+enum class SerialCommandKind : uint8_t { NONE = 0, LIST, DUMP, INFO, CONFIG, CALIB, STATUS, BEEP, TIME, HISTORY, VERSION, SET, EVENTS, PATTERN, SCAN, MUTE, SCREEN, SALT, RTC_TRIM, WEEK, SLOT_CLEAR, SLOT_SWAP, SLOT_REPLACE, REJECTS, ACK, IDENTIFY, SNOOZE, NTP_SYNC, FRSI, SELFTEST, SPREAD, TAIL, TODAY, DAYS, RECEPTION, ALERTS, HELP, VERIFY };
 
 enum class SerialParseStatus : uint8_t {
   OK = 0,
   EMPTY,    // blank line: ignored without a reply
   UNKNOWN,  // unknown command, extra argument or non-printable byte
   TOO_LONG, // line above MAX_LINE_SIZE
-  BAD_ARG,  // CONFIG CHANGED with extra text (CHANGEDX, CHANGED 1); DAYS with 0, above 31, a leading zero, a non-digit, no number or extra text; CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SLOT REPLACE without a slot number 1 to 10 and one MAC of the form AA:BB:CC:DD:EE:FF (not all zero), with a leading zero, a second space or extra text; SCREEN, HELP and IDENTIFY with extra text; NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, with a window outside 3 to 24, a leading zero, a non-digit or extra text; SELFTEST with extra text; RECEPTION and ALERTS with extra text; TODAY with a sensor above 10, a leading zero, a non-digit or extra text; SPREAD with a number outside 6 to 24, a leading zero, a non-digit or extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
+  BAD_ARG,  // CONFIG CHANGED with extra text (CHANGEDX, CHANGED 1); DAYS with 0, above 31, a leading zero, a non-digit, no number or extra text; CONFIG <key> with extra text; CALIB without a reference, with a reference above 10 or with extra text; BEEP and ACK without a bit, above 7 or with extra text; TIME with an argument other than SET, TIME SET with a bad format or date or a year outside 2025 to 2099; EVENTS with a number outside 1 to 16, a leading zero, a non-digit or extra text; PATTERN without a digit, above 2, negative or with extra text; SCAN with extra text; MUTE without a digit, above 1 or with extra text; SNOOZE without a number, above 720, with a non-digit, a sign or extra text; SLOT CLEAR without a slot number, with a number outside 1 to 10 or with extra text; SLOT SWAP without two different slot numbers 1 to 10 or with extra text; SLOT REPLACE without a slot number 1 to 10 and one MAC of the form AA:BB:CC:DD:EE:FF (not all zero), with a leading zero, a second space or extra text; SCREEN, HELP and IDENTIFY with extra text; VERIFY without a name or with a name that DUMP rejects (a path, a wrong pattern, a second word); NTP SYNC with extra text; FRSI without a room number 0 to 10 and a different wall slot 1 to 10, with a window outside 3 to 24, a leading zero, a non-digit or extra text; SELFTEST with extra text; RECEPTION and ALERTS with extra text; TODAY with a sensor above 10, a leading zero, a non-digit or extra text; SPREAD with a number outside 6 to 24, a leading zero, a non-digit or extra text; TAIL without a number, with a number outside 1 to 72, with a leading zero, a non-digit or extra text; HISTORY with a sensor above 10, a non-digit or extra text; SALT without a reference, with a reference above 10, with a salt other than MGCL2 or with extra text
   BAD_KEY,   // SET without a key of DeviceConfigParser::KEYS (also a missing '='); CONFIG <key> with an unknown key
   BAD_VALUE, // SET with a value that the DeviceConfigParser rules reject
   BAD_NAME, // DUMP without a name, or a name that is not climate_v5_YYYYMM.csv, climate_v4_YYYYMM.csv, climate_v3_YYYYMM.csv, climate_v2_YYYYMM.csv, daily_v1_YYYY.csv to daily_v7_YYYY.csv or events_v1_YYYY.csv
@@ -132,6 +132,7 @@ struct SerialCommandRules {
       {"RECEPTION", "RECEPTION", SerialCommandKind::RECEPTION, false, 1, false, false},
       {"ALERTS", "ALERTS", SerialCommandKind::ALERTS, false, 1, false, false},
       {"DUMP", "DUMP climate_v5_202601.csv", SerialCommandKind::DUMP, false, 0, false, true},
+      {"VERIFY", "VERIFY climate_v6_202601.csv", SerialCommandKind::VERIFY, false, 0, false, true},
       {"HELP", "HELP", SerialCommandKind::HELP, false, 1, false, false},
   };
   static constexpr size_t COUNT = sizeof(ROWS) / sizeof(ROWS[0]);
@@ -154,7 +155,7 @@ struct SerialLogEntry {
 };
 
 // Line-based parser for the USB serial console. It has no Arduino dependency. The grammar is
-// "LIST", "INFO", "CONFIG", "CONFIG <key>", "CONFIG CHANGED", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "FRSI 0..10 0..10 3..24", "SPREAD", "SPREAD 6..24", "TODAY", "TODAY 0..10", "TAIL 1..72", "DAYS 1..31", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "RECEPTION", "ALERTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SLOT REPLACE 1..10 <MAC>", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "HELP", "SET <key>=<value>" and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv|daily_v5_YYYY.csv|daily_v6_YYYY.csv|daily_v7_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
+// "LIST", "INFO", "CONFIG", "CONFIG <key>", "CONFIG CHANGED", "STATUS", "CALIB 0..10", "SALT 0..10", "SALT 0..10 MGCL2", "FRSI 0..10 0..10", "FRSI 0..10 0..10 3..24", "SPREAD", "SPREAD 6..24", "TODAY", "TODAY 0..10", "TAIL 1..72", "DAYS 1..31", "BEEP 0..7", "ACK 0..7", "TIME", "TIME SET YYYY-MM-DDTHH:MM:SS", "HISTORY", "HISTORY 0..10", "REJECTS", "RECEPTION", "ALERTS", "EVENTS", "EVENTS 1..16", "PATTERN 0..2", "MUTE 0..1", "SLOT CLEAR 1..10", "SLOT SWAP 1..10 1..10", "SLOT REPLACE 1..10 <MAC>", "SCAN", "SELFTEST", "SCREEN", "IDENTIFY", "VERSION", "HELP", "SET <key>=<value>", "VERIFY <name>" (a name that DUMP accepts) and "DUMP climate_v5_YYYYMM.csv" (or the old v4, v3 and v2 names) or "DUMP daily_v1_YYYY.csv|daily_v2_YYYY.csv|daily_v3_YYYY.csv|daily_v4_YYYY.csv|daily_v5_YYYY.csv|daily_v6_YYYY.csv|daily_v7_YYYY.csv" or "DUMP events_v1_YYYY.csv": uppercase commands, single spaces, no path.
 class SerialConsole {
 public:
   static constexpr size_t MAX_LINE_SIZE = 40;
@@ -739,6 +740,25 @@ public:
       out.kind = SerialCommandKind::DUMP;
       return SerialParseStatus::OK;
     }
+    if (matches(line, cmd_len, "VERIFY")) {
+      // exactly one name that DUMP accepts; every other text is BAD_ARG (the name is an argument, not a path)
+      if (cmd_len == len || len - cmd_len < 2) {
+        return SerialParseStatus::BAD_ARG;
+      }
+      const size_t name_len = len - cmd_len - 1;
+      if (name_len + 1 > sizeof(out.file)) {
+        return SerialParseStatus::BAD_ARG;
+      }
+      char copy[SdLogCodec::LOG_NAME_SIZE];
+      memcpy(copy, line + cmd_len + 1, name_len);
+      copy[name_len] = '\0';
+      if (!SdLogCodec::isConsoleFileName(copy)) {
+        return SerialParseStatus::BAD_ARG;
+      }
+      memcpy(out.file, copy, name_len + 1);
+      out.kind = SerialCommandKind::VERIFY;
+      return SerialParseStatus::OK;
+    }
     if (matches(line, cmd_len, "BEEP")) {
       // exactly one digit 0 to 7 (the bit number of ALERT_FREEZER to ALERT_HEAT)
       if (len != cmd_len + 2 || line[cmd_len + 1] < '0' || line[cmd_len + 1] > '7') {
@@ -1118,7 +1138,7 @@ struct SelfTestChecks {
 //   ble_console 0: nothing (the service does not run)
 //   ble_console 1: the read commands; SET, MUTE, SNOOZE, ACK, SLOT CLEAR, SLOT SWAP, SLOT REPLACE, TIME SET and RTC TRIM reply "ERR READ_ONLY"
 //   ble_console 2: also SET, MUTE, SNOOZE, ACK, SLOT CLEAR, SLOT SWAP, SLOT REPLACE, TIME SET and RTC TRIM
-//   DUMP (a monthly file is too large for BLE), SCREEN (15,000 bytes), SCAN (the scan stops the BLE stack that carries
+//   DUMP (a monthly file is too large for BLE), VERIFY (it reads a whole log file from the card), SCREEN (15,000 bytes), SCAN (the scan stops the BLE stack that carries
 //   the console) and NTP SYNC (the Wi-Fi sync blocks the loop and shares the radio with the console) reply "ERR NOT_OVER_BLE" at each level.
 // Only one central connects. A disconnect clears the partial line.
 class BleConsoleBridge {
@@ -1486,6 +1506,13 @@ struct SerialStatusSnapshot {
 //   newline and a bad line are skipped). "ERR NO_CARD" without a card, "ERR NO_FILE" without a valid RTC time or without both files,
 //   "ERR READ_FAILED" for a read error (after the BEGIN line it takes the place of the CRC32 line, like DUMP), "ERR BAD_ARG" for 0, a number above 72, a non-digit, a leading zero, no number or extra text.
 //   showTail() mounts and unmounts the card itself, so execute() ignores TAIL. No state change. USB and BLE at each ble_console level.
+//   VERIFY <name> -> "VERIFY name=<name> rows=<N> bad=<N> first_bad=<line|-->" and "CRC32 <8 hex digits>" over that line. <name> is a name that
+//   DUMP accepts. The file is read in blocks of CHUNK_SIZE bytes without a download; each line after the header is a row and is checked with the
+//   rule of its format (SdLogCodec::RowVerifier): climate_v6 with parseClimateRow, daily_v5 to daily_v7 with parseDailyRow, the older formats with the
+//   exact column count and the date shape, events_v1 with its three columns. A last line without a newline is a row and bad. A line above
+//   VERIFY_LINE_SIZE bytes is bad. first_bad is the 1-based line number in the file (the header is line 1), "--" for none. "ERR NO_CARD" without a card,
+//   "ERR NO_FILE" for a missing file, "ERR READ_FAILED" for a read error, "ERR BAD_ARG" for a missing name or a name that DUMP rejects. USB only
+//   (ERR NOT_OVER_BLE on BLE). No state change, no RTC layout change. tests/fixtures/verify_reply_sample.txt holds a sample.
 //   DAYS <N> -> "BEGIN DAYS <n>", the CSV header of daily_v7 (105 columns), the newest rows (N 1 to 31) oldest first and "CRC32 <8 hex digits>". <n> is
 //   the row count sent. The rows come from the last 16384 bytes of the current year file daily_v7_YYYY.csv (a missing file falls back to
 //   daily_v6_YYYY.csv and then daily_v5_YYYY.csv of the same year; each daily_v6 row gets 11 empty heat_h fields, each daily_v5 row 22 empty
@@ -3759,6 +3786,7 @@ public:
       case SerialCommandKind::LIST: list(storage, sink); break;
       case SerialCommandKind::INFO: info(storage, sink); break;
       case SerialCommandKind::DUMP: dump(storage, sink, command.file); break;
+      case SerialCommandKind::VERIFY: verify(storage, sink, command.file); break;
       case SerialCommandKind::NONE:
       case SerialCommandKind::CONFIG:
       case SerialCommandKind::CALIB:
@@ -3900,6 +3928,61 @@ private:
              static_cast<unsigned long long>(storage.totalBytes()),
              static_cast<unsigned long long>(storage.usedBytes()), static_cast<unsigned>(count));
     send(sink, line);
+  }
+
+  // VERIFY <name>: reads the file in blocks and checks each row with the rule of its format (SdLogCodec::RowVerifier).
+  // Reply "VERIFY name=<name> rows=<N> bad=<N> first_bad=<line|-->" and the CRC32 line over that line. "ERR NO_FILE" for a
+  // missing file, "ERR READ_FAILED" for a read error (no result line then). The card is mounted by execute().
+  static void verify(Storage& storage, Sink& sink, const char* name) {
+    uint32_t size = 0;
+    if (!SdLogCodec::isConsoleFileName(name) || !storage.openLog(name, size)) {
+      send(sink, "ERR NO_FILE\n");
+      return;
+    }
+    // Static: the line buffer would use much of the loop task stack, and the console runs one command at a time.
+    static char row_buffer[SdLogCodec::VERIFY_LINE_SIZE];
+    SdLogCodec::RowVerifier verifier;
+    if (!verifier.begin(name, row_buffer, sizeof(row_buffer))) {
+      storage.closeLog();
+      send(sink, "ERR BAD_ARG\n");
+      return;
+    }
+    uint8_t chunk[CHUNK_SIZE];
+    uint32_t done = 0;
+    while (done < size) {
+      const size_t want = (size - done) < CHUNK_SIZE ? (size - done) : CHUNK_SIZE;
+      const size_t got = storage.read(chunk, want);
+      if (got == 0 || got > want) {
+        storage.closeLog();
+        send(sink, "ERR READ_FAILED\n");
+        return;
+      }
+      verifier.feed(chunk, got);
+      done += static_cast<uint32_t>(got);
+    }
+    storage.closeLog();
+    verifier.finish();
+    char first[12];
+    if (verifier.first_bad == 0) {
+      snprintf(first, sizeof(first), "--");
+    } else {
+      snprintf(first, sizeof(first), "%lu", static_cast<unsigned long>(verifier.first_bad));
+    }
+    char line[SdLogCodec::LOG_NAME_SIZE + 64];
+    const int n = snprintf(line, sizeof(line), "VERIFY name=%s rows=%lu bad=%lu first_bad=%s\n", name,
+                           static_cast<unsigned long>(verifier.rows), static_cast<unsigned long>(verifier.bad), first);
+    if (n <= 0 || static_cast<size_t>(n) >= sizeof(line)) {
+      send(sink, "ERR READ_FAILED\n");
+      return;
+    }
+    SerialCrc32 crc;
+    crc.update(reinterpret_cast<const uint8_t*>(line), static_cast<size_t>(n));
+    if (!send(sink, line)) {
+      return;
+    }
+    char end[24];
+    snprintf(end, sizeof(end), "CRC32 %08lx\n", static_cast<unsigned long>(crc.value()));
+    send(sink, end);
   }
 
   static void dump(Storage& storage, Sink& sink, const char* name) {

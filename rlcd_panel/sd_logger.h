@@ -1029,6 +1029,226 @@ public:
     return added;
   }
 
+  // ---- Console command VERIFY: the row check of one log file ----
+
+  // Line buffer of the verifier: the longest header (daily file) fits; a longer line counts as bad.
+  static constexpr size_t VERIFY_LINE_SIZE = DAILY_HEADER_SIZE;
+
+  // The row rule of one log file name. `columns` is the exact column count of a row; `parsed` selects the full row
+  // parser of the format (climate_v6, daily_v5 to daily_v7); the old formats get the column count and the date shape.
+  struct VerifyRule {
+    enum class Kind : uint8_t { CLIMATE, DAILY, EVENTS };
+    Kind kind = Kind::CLIMATE;
+    size_t columns = 0;
+    bool parsed = false;
+    const char* header = ""; // the first line is a header when it starts with this text
+  };
+
+  // Fills `rule` for a name that isConsoleFileName accepts. False for any other name.
+  static bool verifyRuleFor(const char* name, VerifyRule& rule) {
+    if (!isConsoleFileName(name)) {
+      return false;
+    }
+    if (isEventsFileName(name)) {
+      rule.kind = VerifyRule::Kind::EVENTS;
+      rule.columns = 3;
+      rule.parsed = true;
+      rule.header = "time,event,detail";
+      return true;
+    }
+    if (isDailyFileName(name)) { // "daily_vN_YYYY.csv": the version digit is at index 7
+      static const size_t COLUMNS[8] = {0, 27, 30, 42, 48, DAILY_COLUMNS_V5, DAILY_COLUMNS_V6, DAILY_COLUMNS};
+      const unsigned version = static_cast<unsigned>(name[7] - '0');
+      rule.kind = VerifyRule::Kind::DAILY;
+      rule.columns = COLUMNS[version];
+      rule.parsed = version >= 5;
+      rule.header = "date,";
+      return true;
+    }
+    // "climate_vN_YYYYMM.csv": the version digit is at index 9
+    static const size_t COLUMNS[7] = {0, 0, 18, 19, 21, 27, CLIMATE_COLUMNS};
+    const unsigned version = static_cast<unsigned>(name[9] - '0');
+    rule.kind = VerifyRule::Kind::CLIMATE;
+    rule.columns = COLUMNS[version];
+    rule.parsed = version == 6;
+    rule.header = "timestamp,";
+    return true;
+  }
+
+  // Streaming row check for the console command VERIFY. The caller feeds the file in blocks of any size.
+  // Line 1 is the header when it starts with the header text of the format; it is no row. Every other line is a
+  // row, also a last line without a newline (a cut write): that one is always bad. A line longer than the buffer is bad.
+  // `first_bad` is the 1-based line number in the file (the header is line 1), 0 for none.
+  struct RowVerifier {
+    VerifyRule rule;
+    uint32_t rows = 0;
+    uint32_t bad = 0;
+    uint32_t first_bad = 0;
+
+    bool begin(const char* name, char* buffer, size_t capacity) {
+      if (buffer == nullptr || capacity < 2 || !verifyRuleFor(name, rule)) {
+        return false;
+      }
+      line_ = buffer;
+      capacity_ = capacity;
+      len_ = 0;
+      overflow_ = false;
+      line_no_ = 0;
+      rows = 0;
+      bad = 0;
+      first_bad = 0;
+      return true;
+    }
+
+    void feed(const uint8_t* data, size_t n) {
+      for (size_t i = 0; i < n; ++i) {
+        if (data[i] == '\n') {
+          endLine(true);
+        } else if (len_ < capacity_) {
+          line_[len_++] = static_cast<char>(data[i]);
+        } else {
+          overflow_ = true; // keep counting the line, drop its bytes
+        }
+      }
+    }
+
+    // Call once after the last block: a pending line has no newline.
+    void finish() {
+      if (len_ > 0 || overflow_) {
+        endLine(false);
+      }
+    }
+
+  private:
+    char* line_ = nullptr;
+    size_t capacity_ = 0;
+    size_t len_ = 0;
+    bool overflow_ = false;
+    uint32_t line_no_ = 0;
+
+    void endLine(bool complete) {
+      ++line_no_;
+      const bool intact = complete && !overflow_;
+      if (line_no_ == 1 && intact && isHeader()) {
+        reset();
+        return;
+      }
+      ++rows;
+      if (!intact || !rowOk()) {
+        ++bad;
+        if (first_bad == 0) {
+          first_bad = line_no_;
+        }
+      }
+      reset();
+    }
+
+    void reset() {
+      len_ = 0;
+      overflow_ = false;
+    }
+
+    // The header text and the full column count of the format: a truncated header is a bad row 1.
+    bool isHeader() const {
+      const size_t n = strlen(rule.header);
+      if (len_ < n || memcmp(line_, rule.header, n) != 0) {
+        return false;
+      }
+      size_t columns = 1;
+      for (size_t i = 0; i < trimmed(line_, len_); ++i) {
+        columns += line_[i] == ',' ? 1 : 0;
+      }
+      return columns == rule.columns;
+    }
+
+    static size_t trimmed(const char* s, size_t n) {
+      while (n > 0 && s[n - 1] == '\r') {
+        --n;
+      }
+      return n;
+    }
+
+    // "YYYY-MM-DD" at the start: four digits, a dash, two digits, a dash, two digits.
+    static bool dateShape(const char* s, size_t n) {
+      static const char PATTERN[] = "dddd-dd-dd";
+      if (n < 10) {
+        return false;
+      }
+      for (size_t i = 0; i < 10; ++i) {
+        const bool digit = s[i] >= '0' && s[i] <= '9';
+        if (PATTERN[i] == 'd' ? !digit : s[i] != '-') {
+          return false;
+        }
+      }
+      return true;
+    }
+
+    bool rowOk() const {
+      const size_t n = trimmed(line_, len_);
+      size_t columns = 1;
+      size_t first_end = n;
+      for (size_t i = 0; i < n; ++i) {
+        if (line_[i] == ',') {
+          if (columns == 1) {
+            first_end = i;
+          }
+          ++columns;
+        }
+      }
+      if (columns != rule.columns) {
+        return false;
+      }
+      switch (rule.kind) {
+        case VerifyRule::Kind::CLIMATE: {
+          ClimateHistory::RestoreRow row;
+          return rule.parsed ? parseClimateRow(line_, n, row) : dateShape(line_, first_end) && (first_end == 10 || first_end == 19);
+        }
+        case VerifyRule::Kind::DAILY: {
+          WeekHistory::RestoreRow row;
+          return rule.parsed ? parseDailyRow(line_, n, row) : dateShape(line_, first_end) && first_end == 10;
+        }
+        case VerifyRule::Kind::EVENTS:
+          return eventsRowOk(line_, n, first_end);
+      }
+      return false;
+    }
+
+    // "<YYYY-MM-DD hh:mm:ss or empty>,<NAME>,<detail 0 to 65535>"
+    static bool eventsRowOk(const char* s, size_t n, size_t first_end) {
+      if (first_end != 0 && (first_end != 19 || !dateShape(s, first_end) || s[10] != ' ' || s[13] != ':' || s[16] != ':')) {
+        return false;
+      }
+      for (size_t i = 11; first_end == 19 && i < 19; ++i) {
+        if (i != 13 && i != 16 && (s[i] < '0' || s[i] > '9')) {
+          return false;
+        }
+      }
+      const size_t name_start = first_end + 1;
+      size_t name_end = name_start;
+      while (name_end < n && s[name_end] != ',') {
+        if (s[name_end] != '_' && (s[name_end] < 'A' || s[name_end] > 'Z')) {
+          return false;
+        }
+        ++name_end;
+      }
+      if (name_end == name_start || name_end >= n) {
+        return false;
+      }
+      const size_t digits = n - name_end - 1;
+      if (digits < 1 || digits > 5) {
+        return false;
+      }
+      unsigned detail = 0;
+      for (size_t i = name_end + 1; i < n; ++i) {
+        if (s[i] < '0' || s[i] > '9') {
+          return false;
+        }
+        detail = detail * 10 + static_cast<unsigned>(s[i] - '0');
+      }
+      return detail <= 65535;
+    }
+  };
+
   // ---- Console command TAIL: the newest rows of the climate files ----
 
   static constexpr size_t TAIL_MAX_ROWS = 72;     // largest N of "TAIL <N>"

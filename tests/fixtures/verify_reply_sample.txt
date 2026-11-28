@@ -1,0 +1,2 @@
+VERIFY name=climate_v6_202611.csv rows=5 bad=2 first_bad=4
+CRC32 c29cb6d4

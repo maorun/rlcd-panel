@@ -45,11 +45,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Console command VERIFY for a log file
-  - **Location:** `rlcd_panel/serial_console.h`, `rlcd_panel/sd_logger.h`, `scripts/dump-logs.sh`, `tests/test_firmware_logic.cpp`, `tests/fixtures/verify_reply_sample.txt`, `FEATURES.md`
-  - **Goal:** Find damaged rows on the card without a download. Add `VERIFY <name>` for each name that `DUMP` accepts. Read the file in blocks and check each row with the parser of its format. Reply `VERIFY name=<name> rows=<N> bad=<N> first_bad=<line|-->` and the `CRC32` line. Reply `ERR NO_CARD`, `ERR NO_FILE` or `ERR BAD_ARG`. USB only. Add `--verify` to `scripts/dump-logs.sh`.
-  - **Acceptance:** Host tests cover a good file, a file with a bad row, a partial last line and a bad name. The host test command and `tests/test_scripts.sh` pass.
-  - **Rank:** [Total: 27, Use: 3, Setup: 6, Harmony: 8, Safety: 10, Effort: S]
 - [ ] Config key boot_display_mode for the view after a power-on
   - **Location:** `rlcd_panel/device_config.h`, `rlcd_panel/power_manager.h`, `rlcd_panel/button_handler.h`, `docs/config.example.ini`, `macos/RlcdCompanion/Sources/RlcdProtocol/ConfigSchema.swift`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/ConfigSchema.kt`, `wearos/RlcdWatch/app/src/main/java/com/rlcdpanel/watch/protocol/ConfigSchema.kt`, `tests/test_firmware_logic.cpp`, `FEATURES.md`
   - **Goal:** Let the user select the first view after a power-on. Add `boot_display_mode` (0 to 5, default 0 `DASHBOARD`, `AUDIO_SPECTRUM` 3 is rejected because it needs the microphone). A power-on sets the display mode to this value. A `KEY` wakeup and a timer wakeup keep the stored mode. Add the key to the three app schemas.
