@@ -16713,6 +16713,129 @@ std::string receptionReply(PersistentState& st) {
   return sink.out;
 }
 
+// The HELP tests: one rule table that the parser tests and BleConsoleBridge::gate share.
+void testSerialHelpTableMatchesParser() {
+  // every command kind has a row; each row sample parses to its kind and starts with its word
+  const uint8_t last = static_cast<uint8_t>(SerialCommandKind::HELP);
+  for (uint8_t k = 1; k <= last; ++k) {
+    bool found = false;
+    for (size_t i = 0; i < SerialCommandRules::COUNT; ++i) {
+      found = found || static_cast<uint8_t>(SerialCommandRules::ROWS[i].kind) == k;
+    }
+    assert(found);
+  }
+  for (size_t i = 0; i < SerialCommandRules::COUNT; ++i) {
+    const SerialCommandRule& r = SerialCommandRules::ROWS[i];
+    SerialCommand cmd;
+    assert(parseText(r.sample, cmd) == SerialParseStatus::OK);
+    assert(cmd.kind == r.kind);
+    assert((cmd.kind == SerialCommandKind::TIME && cmd.time_set) == r.time_set);
+    assert(strncmp(r.sample, r.word, strlen(r.word)) == 0);
+    assert(SerialCommandRules::find(cmd) == &r);
+    for (size_t j = i + 1; j < SerialCommandRules::COUNT; ++j) {
+      assert(strcmp(SerialCommandRules::ROWS[j].word, r.word) != 0); // one row for each word
+    }
+    // the gate follows the row at each level the console runs
+    for (uint8_t level = 1; level < 3; ++level) {
+      const std::string gate = BleConsoleBridge::gate(cmd, level);
+      if (r.ble == 0) {
+        assert(gate == "ERR NOT_OVER_BLE\n");
+      } else if (r.ble == 2 && level < 2) {
+        assert(gate == "ERR READ_ONLY\n");
+      } else {
+        assert(gate.empty());
+      }
+    }
+    // a card row mounts the card in execute() only for the commands that execute() runs itself
+    FakeConsoleStorage storage;
+    FakeSink sink;
+    TestRunner::execute(storage, sink, cmd);
+    if (storage.mounts > 0) {
+      assert(r.card);
+    }
+    assert(r.write == (r.ble == 2)); // a command that writes is READ_ONLY at ble_console 1
+    // the card flag is exact: the commands that mount the card in execute() or in the sketch
+    const bool mounts_card = r.kind == SerialCommandKind::LIST || r.kind == SerialCommandKind::INFO ||
+                             r.kind == SerialCommandKind::DUMP || r.kind == SerialCommandKind::SET ||
+                             r.kind == SerialCommandKind::SLOT_REPLACE || r.kind == SerialCommandKind::SELFTEST ||
+                             r.kind == SerialCommandKind::TAIL || r.kind == SerialCommandKind::DAYS;
+    assert(r.card == mounts_card);
+  }
+}
+
+void testSerialHelpGateClosedWithoutRow() {
+  SerialCommand none;
+  assert(none.kind == SerialCommandKind::NONE);
+  assert(std::string(BleConsoleBridge::gate(none, 1)).empty());
+  SerialCommand unknown;
+  unknown.kind = static_cast<SerialCommandKind>(static_cast<uint8_t>(SerialCommandKind::HELP) + 1); // a kind without a row
+  assert(SerialCommandRules::find(unknown) == nullptr);
+  for (uint8_t level = 0; level < 3; ++level) {
+    assert(std::string(BleConsoleBridge::gate(unknown, level)) == "ERR NOT_OVER_BLE\n");
+  }
+}
+
+void testSerialHelpReply() {
+  SerialCommand cmd;
+  assert(parseText("HELP", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::HELP);
+  assert(parseText("HELP 1", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("HELP ", cmd) == SerialParseStatus::BAD_ARG);
+  assert(parseText("HELPX", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("help", cmd) == SerialParseStatus::UNKNOWN);
+  assert(parseText("HELP", cmd) == SerialParseStatus::OK);
+  for (uint8_t level = 0; level < 3; ++level) {
+    assert(std::string(BleConsoleBridge::gate(cmd, level)).empty());
+  }
+  FakeConsoleStorage storage;
+  FakeSink ignored;
+  TestRunner::execute(storage, ignored, cmd);
+  assert(ignored.out.empty() && storage.mounts == 0); // execute() ignores HELP: no card access
+  PersistentState state;
+  uint8_t before[PowerManager::SERIALIZED_SIZE];
+  uint8_t after[PowerManager::SERIALIZED_SIZE];
+  assert(PowerManager::serialize(state, before, sizeof(before)));
+  FakeSink sink;
+  TestRunner::showHelp(sink);
+  assert(PowerManager::serialize(state, after, sizeof(after)));
+  assert(memcmp(before, after, sizeof(before)) == 0);
+  const size_t crc_at = sink.out.rfind("CRC32 ");
+  assert(crc_at != std::string::npos);
+  const std::string body = sink.out.substr(0, crc_at);
+  assert(sink.out == body + historyCrcLine(body) + "\n");
+  assert(body.rfind("BEGIN HELP\ncommand,usb,ble,write,card\n", 0) == 0);
+  size_t rows = 0;
+  for (const char c : body) {
+    rows += c == '\n' ? 1 : 0;
+  }
+  assert(rows == SerialCommandRules::COUNT + 2);
+  std::string here = __FILE__;
+  const size_t cut = here.rfind("tests/");
+  const std::string root = cut == std::string::npos ? std::string() : here.substr(0, cut);
+  std::ifstream in(root + "tests/fixtures/help_reply_sample.txt");
+  assert(in.good());
+  const std::string fixture((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  assert(sink.out == fixture);
+  for (size_t limit = 0; limit < crc_at; ++limit) {
+    FakeSink cut_sink;
+    cut_sink.limit = limit;
+    TestRunner::showHelp(cut_sink);
+    assert(cut_sink.out.size() == limit && cut_sink.out.find("CRC32") == std::string::npos);
+  }
+  // over BLE the bridge runs HELP at each level
+  for (uint8_t level = 1; level < 3; ++level) {
+    BleConsoleBridge bridge;
+    bridge.setLevel(level);
+    assert(bridge.onConnect());
+    SerialCommand command;
+    const char* reply = "";
+    BleConsoleBridge::Action action = BleConsoleBridge::Action::NONE;
+    for (const char c : std::string("HELP\n")) {
+      action = bridge.feed(static_cast<uint8_t>(c), command, reply);
+    }
+    assert(action == BleConsoleBridge::Action::RUN && command.kind == SerialCommandKind::HELP);
+  }
+}
+
 void testSerialReceptionParserAndGate() {
   SerialCommand cmd;
   assert(parseText("RECEPTION", cmd) == SerialParseStatus::OK && cmd.kind == SerialCommandKind::RECEPTION);
@@ -31011,6 +31134,9 @@ int main() {
   testSerialRejectsParserAndGate();
   testSerialRejectsReplyAndFixture();
   testSerialReceptionParserAndGate();
+  testSerialHelpTableMatchesParser();
+  testSerialHelpGateClosedWithoutRow();
+  testSerialHelpReply();
   testSerialReceptionRows();
   testSerialReceptionFullWindowAndCrc();
   testSerialReceptionFixture();

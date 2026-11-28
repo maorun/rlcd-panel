@@ -1622,6 +1622,9 @@ void setup() {
         events_now = g_rtc_time;
       }
       Runner::showEvents(sink, g_state.events, events_now, command.events_newest ? command.reference : 0);
+    } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::HELP) {
+      // The rule table answers: no card access, no state change, so the console keeps running.
+      Runner::showHelp(sink);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::VERSION) {
       // Constants answer: no card access, so the console keeps running.
       Runner::showVersion(sink, FIRMWARE_VERSION, RLCD_GIT_HASH,

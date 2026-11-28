@@ -4518,3 +4518,13 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - The Wear OS app has the same parser and schema copy (`scripts/check-protocol-sync.sh`) but no editor.
 - Tests: `ConfigSchemaTests`, `ConfigRejectedLineFormTests` and `ConfigWarningSharedFixtureTests` (macOS); `ConfigSchemaTest` and `PanelConfigTest` (phone). Each rule, the parser and a reply without `WARN` lines have a test.
 - Validation: `swift test` (945 tests) and `./scripts/check-protocol-sync.sh` pass. The Gradle runs need the Android SDK and run in CI.
+
+## Console command HELP with the transport rules of each command
+
+- **Code:** `SerialCommandRules` and `SerialCommandRule` in `rlcd_panel/serial_console.h`, `SerialConsoleRunner::showHelp`, `BleConsoleBridge::gate`, the dispatch in `rlcd_panel/rlcd_panel.ino`, `ConsoleCommand.help` in `Replies.swift`.
+- The user could find the commands only in the documentation. The new console command `HELP` sends the transport rules of each command word.
+- One table (`SerialCommandRules::ROWS`) holds one row for each command word: `word`, one `sample` line that the parser accepts, the `SerialCommandKind`, `ble` (0 not over BLE, 1 each `ble_console` level, 2 only with `ble_console` 2), `write` and `card`. `TIME` and `TIME SET` have two rows. `BleConsoleBridge::gate` reads `ble` from the table, so the `ERR NOT_OVER_BLE` and `ERR READ_ONLY` replies and the `HELP` rows cannot differ.
+- Reply: `BEGIN HELP`, the header `command,usb,ble,write,card`, one row for each word (`usb` is 1 for each word, `write` and `card` are 0 or 1) and the `CRC32` line. `HELP` with extra text gives `ERR BAD_ARG`. The command mounts no card, changes no state and does not change the RTC layout or `STATE_VERSION`. It runs on USB and on BLE at each `ble_console` level; `execute()` ignores it.
+- `tests/fixtures/help_reply_sample.txt` holds the reply.
+- Tests: `testSerialHelpTableMatchesParser` (each `SerialCommandKind` has a row, each `sample` parses to its kind, the gate follows the row at each level, a command that mounts the card has `card` 1) and `testSerialHelpReply` (parser, reply bytes, fixture, short sinks, BLE at each level). macOS: `ConsoleCommandTests` checks that each `ConsoleCommand` word has a row in the fixture and the `ble` rule of the transport-limited words.
+- Validation: the host tests (244 suites) and `swift build` pass. `swift test` does not run on this host (no `TestingMacros` plugin without Xcode) and runs in CI. The apps do not send `HELP` yet.
