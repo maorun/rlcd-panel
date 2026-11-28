@@ -52,6 +52,9 @@ jobs:
       - name: Self-test the install-watch-apk target resolution
         run: ./scripts/install-watch-apk.sh --self-test
 
+      - name: Self-test the install-phone-apk target resolution
+        run: ./scripts/install-phone-apk.sh --self-test
+
       - name: Self-test the update-watch artifact download
         run: ./scripts/update-watch.sh --self-test
 
