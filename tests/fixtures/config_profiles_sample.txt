@@ -1,0 +1,7 @@
+P	Winter
+K	freeze_alert_limit_c	2.0
+K	mold_alert_limit_rh	65
+P	Summer
+K	heat_alert_limit_c	30
+K	future_key	1
+K	mold_alert_limit_rh	99

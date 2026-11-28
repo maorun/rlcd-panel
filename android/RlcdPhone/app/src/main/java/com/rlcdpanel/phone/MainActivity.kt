@@ -38,6 +38,8 @@ import com.rlcdpanel.phone.finder.SlotAssignment
 import com.rlcdpanel.phone.protocol.AckCommand
 import com.rlcdpanel.phone.protocol.AlertLimits
 import com.rlcdpanel.phone.protocol.ConfigChangedReply
+import com.rlcdpanel.phone.protocol.ConfigProfileStorage
+import com.rlcdpanel.phone.protocol.ConfigProfileStore
 import com.rlcdpanel.phone.protocol.ConfigSchema
 import com.rlcdpanel.phone.protocol.CalibrationBatch
 import com.rlcdpanel.phone.protocol.CalibrationCheck
@@ -216,6 +218,7 @@ class MainActivity : ComponentActivity() {
     private var sourceBadges by mutableStateOf<Map<Int, String>>(emptyMap())
     private lateinit var prefs: SharedPreferences
     private lateinit var calibChecks: CalibrationCheckStore
+    private lateinit var profileStore: ConfigProfileStore
 
     private val permissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
@@ -246,6 +249,11 @@ class MainActivity : ComponentActivity() {
             override fun putString(key: String, value: String?) { checkPrefs.edit().putString(key, value).apply() }
         }, System::currentTimeMillis)
         calibState = calibState.copy(checks = calibChecks.records())
+        val profilePrefs = getSharedPreferences("rlcd_config_profiles", Context.MODE_PRIVATE)
+        profileStore = ConfigProfileStore(object : ConfigProfileStorage {
+            override fun read(): String? = profilePrefs.getString("profiles", null)
+            override fun write(text: String) { profilePrefs.edit().putString("profiles", text).apply() }
+        })
         outdoorSource = outdoorLocation.toSource()
         panelConfig = PanelConfig.load(this)
         configState = ConfigReadState(info = ConfigCache.info(filesDir))
@@ -471,6 +479,7 @@ class MainActivity : ComponentActivity() {
                     panelConfig = panelConfig,
                     status = healthState.status,
                     measuredConfig = healthState.measuredConfig,
+                    profileStore = profileStore,
                     onRead = { withConsolePermission { applyConfigEditor(emptyList()) } },
                     onApply = { commands -> withConsolePermission { applyConfigEditor(commands) } },
                     onReadChanged = { withConsolePermission { readConfigChanged() } },

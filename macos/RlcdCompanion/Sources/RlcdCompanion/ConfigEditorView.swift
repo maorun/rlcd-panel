@@ -27,6 +27,7 @@ struct ConfigEditorView: View {
                         Button("Save backup…") { model.saveBackup() }
                         Button("Restore backup…") { model.loadBackup() }
                     }
+                    profilesSection
                     if !model.canSet {
                         Text("SET needs ble_console=2 or the USB serial link.").font(.caption).foregroundStyle(.secondary)
                     }
@@ -42,6 +43,7 @@ struct ConfigEditorView: View {
         .disabled(model.batch != nil) // a running batch must not lose edits
         .sheet(isPresented: $model.showDiff) { diffSheet }
         .sheet(isPresented: $model.showRestore) { restoreSheet }
+        .sheet(isPresented: Binding(get: { model.profileReview != nil }, set: { if !$0 { model.closeProfileReview() } })) { profileSheet }
         .onChange(of: model.showRestore) { _, shown in if !shown { model.restore = nil; model.restoreFileName = nil } }
     }
 
@@ -136,6 +138,70 @@ struct ConfigEditorView: View {
                 Button("Cancel") { model.showDiff = false }
                 Button("Apply") { model.showDiff = false; model.applyChanges() }
                     .disabled(!model.canApply).keyboardShortcut(.defaultAction)
+            }
+        }
+        .padding().frame(minWidth: 420)
+    }
+
+
+    /// Named key sets, for example Winter and Summer. A profile keeps the changed keys of the form without
+    /// names, MACs, offsets and gains. Apply shows the diff against the panel first.
+    @ViewBuilder private var profilesSection: some View {
+        DisclosureGroup("Profiles (\(model.profileList.count))") {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    TextField("Profile name", text: $model.profileName).textFieldStyle(.roundedBorder).frame(width: 180)
+                    Button("Save changes as profile") { model.saveProfile(name: model.profileName) }
+                        .disabled(model.profileName.isEmpty || model.changes.isEmpty || !model.problems.isEmpty || !model.alertLimitEdits.isEmpty)
+                }
+                if !model.alertLimitEdits.isEmpty {
+                    Text("Edits of the alert limit view are not part of a profile. Apply or discard them first.").font(.caption2).foregroundStyle(.orange)
+                }
+                Text("A profile holds the changed keys of the form. Names, MACs, offsets and gains are never saved.")
+                    .font(.caption2).foregroundStyle(.secondary)
+                ForEach(model.profileList, id: \.name) { profile in
+                    HStack {
+                        Text(profile.name).frame(width: 140, alignment: .leading)
+                        Text("\(profile.values.count) keys").font(.caption).foregroundStyle(.secondary)
+                        Button("Review…") { model.reviewProfile(profile) }
+                        Button("Delete") { model.deleteProfile(profile.name) }
+                    }
+                }
+            }
+        }
+    }
+
+    private var profileSheet: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Apply profile \(model.profileReview?.name ?? "")").font(.headline)
+            if let plan = model.profilePlan {
+                if plan.changes.isEmpty {
+                    Text("The panel already holds these values.").foregroundStyle(.secondary)
+                } else {
+                    Text("Changes to apply").font(.subheadline)
+                    ForEach(plan.changes, id: \.key) { c in
+                        Text(c.text).font(.system(.body, design: .monospaced))
+                    }
+                }
+                ForEach(plan.problems.keys.sorted(), id: \.self) { key in
+                    Text("\(key): \(plan.problems[key] ?? "")").foregroundStyle(.red)
+                }
+                if !plan.skipped.isEmpty {
+                    Text("Skipped (unknown or not allowed in a profile): " + plan.skipped.joined(separator: ", "))
+                        .font(.caption).foregroundStyle(.orange)
+                }
+            }
+            if let w = model.profileWarning { Text(w).foregroundStyle(.orange) }
+            if !model.draft.isEmpty {
+                Text("Apply is off while the form holds unsaved edits. Apply or discard them first.").font(.caption).foregroundStyle(.secondary)
+            }
+            if !model.canSet {
+                Text("SET needs ble_console=2 or the USB serial link.").font(.caption).foregroundStyle(.secondary)
+            }
+            HStack {
+                Button("Cancel") { model.closeProfileReview() }
+                Button("Apply") { model.applyProfile() }
+                    .disabled(!model.canApplyProfile).keyboardShortcut(.defaultAction)
             }
         }
         .padding().frame(minWidth: 420)
