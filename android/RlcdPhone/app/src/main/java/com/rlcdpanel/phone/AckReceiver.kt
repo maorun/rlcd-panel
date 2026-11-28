@@ -31,7 +31,7 @@ class AckReceiver : BroadcastReceiver() {
             return
         }
         val notificationId = if (snooze) BleScanService.SNOOZE_NOTIFICATION_ID else BleScanService.ackNotificationId(bit)
-        if (!hasBluetoothPermissions(context)) {
+        if (!BluetoothPermissions.hasConsolePermissions(context)) {
             showResult(context.applicationContext, notificationId, "Bluetooth permission missing")
             return
         }
@@ -69,14 +69,6 @@ class AckReceiver : BroadcastReceiver() {
         if (reply == null) return "Keine Antwort vom Panel"
         return ChimeCommand.failureText(reply) { BleConsoleClient.errorText(it) }
             ?: ChimeCommand.okText((reply as ConsoleReply.Status).line)
-    }
-
-    /** `BleConsoleClient` needs both permissions on SDK 31 and later; it does not guard `connectGatt`. */
-    private fun hasBluetoothPermissions(context: Context): Boolean {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) return true
-        return listOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT).all {
-            ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
-        }
     }
 
     private fun showResult(context: Context, notificationId: Int, text: String) {
