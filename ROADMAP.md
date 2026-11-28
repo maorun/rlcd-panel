@@ -27,11 +27,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 
 ## Priority 3: Display and Logging (Score 22–27)
 
-- [ ] Badges in the Android panel preview
-  - **Location:** `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/protocol/PanelRenderer.kt`, `android/RlcdPhone/app/src/main/java/com/rlcdpanel/phone/PanelPreviewScreen.kt`, `android/RlcdPhone/app/src/test/java/com/rlcdpanel/phone/protocol/PanelRendererTest.kt`, `FEATURES.md`
-  - **Goal:** Show the `V`, `D`, `W`, `C`, `R` and `S` badges in the phone preview. The preview has no badges because the telemetry frame does not carry them. Read the badge masks from the last `STATUS` `LATCH` line in memory when it exists. Draw each badge with the positions of `dashboard_view.h`. Keep the label `Preview from telemetry, not the panel image`.
-  - **Acceptance:** A unit test renders a frame with the `vent` bit of tile 1 and checks the inverted badge pixels against a reference from `tools/render_display_preview.cpp`. A unit test checks no badge without a `STATUS` reply. `gradle testDebugUnitTest assembleDebug` in `android/RlcdPhone` passes.
-  - **Rank:** [Total: 25, Use: 4, Setup: 3, Harmony: 8, Safety: 10, Effort: M]
 
 - [ ] Self-test script for install-phone-apk.sh
   - **Location:** `scripts/install-phone-apk.sh`, `.github/workflows/ci.yml`, `tests/test_scripts.sh`, `FEATURES.md`

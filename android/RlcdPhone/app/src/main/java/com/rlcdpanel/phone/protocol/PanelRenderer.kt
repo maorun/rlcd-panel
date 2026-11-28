@@ -189,8 +189,9 @@ private object PanelFont {
  * Draws the climate dashboard of the panel (`DashboardView::render`, up to 6 tiles) from one telemetry frame.
  *
  * The frame holds the temperature and humidity of each tile and the cell percentage of the panel, nothing
- * else: the 24-hour curves, the trend marks, the badges, the clock and the stale age of the real screen need
- * panel state that the broadcast does not carry, so the preview leaves them out.
+ * else: the 24-hour curves, the trend marks, the clock and the stale age of the real screen need
+ * panel state that the broadcast does not carry, so the preview leaves them out. The badges `V`, `D`, `W`,
+ * `C`, `R` and `S` come from the `LATCH` line of the last `STATUS` reply; without it no badge is drawn.
  */
 object PanelRenderer {
     const val HEADER_HEIGHT = 28
@@ -295,13 +296,38 @@ object PanelRenderer {
         return 1
     }
 
+    private const val BADGE_SIZE = 9
+    private const val BADGE_STEP = 10
+
+    /** Badge letters of one tile in the firmware order `V D W C R S`; empty without a `LATCH` line. */
+    fun badgeLetters(latch: LatchState?, tile: Int): String {
+        if (latch == null || tile !in 0 until LatchState.SENSOR_COUNT) return ""
+        fun bit(mask: Int?) = mask != null && (mask shr tile) and 1 == 1
+        val sb = StringBuilder()
+        if (bit(latch.ventilate)) sb.append('V')
+        if (bit(latch.dry)) sb.append('D')
+        if (bit(latch.window)) sb.append('W')
+        if (bit(latch.wall)) sb.append('C')
+        if (tile >= 1 && bit(latch.receptionLow?.let { it shl 1 })) sb.append('R')
+        if (bit(latch.drift)) sb.append('S')
+        return sb.toString()
+    }
+
+    private fun drawBadges(fb: PanelFramebuffer, letters: String, firstX: Int, y: Int, direction: Int) {
+        letters.forEachIndexed { n, c ->
+            val bx = firstX + direction * n * BADGE_STEP
+            fb.fillRect(bx, y, BADGE_SIZE, BADGE_SIZE, true)
+            fb.drawText(bx + 2, y + 1, c.toString(), 1, false)
+        }
+    }
+
     private fun title(index: Int, config: PanelConfig): String {
         if (index == 0) return config.values["onboard_name"]?.takeIf { it.isNotBlank() } ?: "ONBOARD SHTC3"
         return config.nameForMac(config.slotMac(index)) ?: "SENSOR $index"
     }
 
     /** Renders the panel for [frame]; tile names, the temperature unit and the slot rules come from [config]. */
-    fun render(frame: TelemetryFrame, config: PanelConfig): PanelFramebuffer {
+    fun render(frame: TelemetryFrame, config: PanelConfig, latch: LatchState? = null): PanelFramebuffer {
         val fb = PanelFramebuffer()
         val indices = allTileIndices(frame, config)
         val headerTitle = if (indices.size > MAX_TILES) "RLCD CLIMATE 1/2" else "RLCD CLIMATE PANEL"
@@ -315,7 +341,8 @@ object PanelRenderer {
             renderTile(
                 fb, rects[position], title(index, config), valid,
                 tile?.temperatureC?.toFloat() ?: 0f, tile?.humidityPct?.toFloat() ?: 0f,
-                if (index == 0) frame.cellPercent else null, unit, if (index == 0) "I2C" else null
+                if (index == 0) frame.cellPercent else null, unit, if (index == 0) "I2C" else null,
+                badgeLetters(latch, index)
             )
         }
         return fb
@@ -358,20 +385,20 @@ object PanelRenderer {
 
     private fun renderTile(
         fb: PanelFramebuffer, r: TileRect, title: String, valid: Boolean, tempC: Float, humidityPct: Float,
-        batteryPct: Int?, unit: Char, formatBadge: String?
+        batteryPct: Int?, unit: Char, formatBadge: String?, badges: String = ""
     ) {
         drawTileFrame(fb, r, title, formatBadge)
         val tempLine = "${format1(toDisplay(tempC, unit))} ${if (unit == 'F') 'F' else 'C'}"
         when (tileStyle(r.w, r.h)) {
-            TileStyle.COMPACT -> renderCompact(fb, r, valid, tempLine, humidityPct, batteryPct, tempC, unit)
-            TileStyle.LARGE -> renderLarge(fb, r, valid, tempLine, tempC, humidityPct, batteryPct, unit)
-            TileStyle.STANDARD -> renderStandard(fb, r, valid, tempLine, tempC, humidityPct, batteryPct, unit)
+            TileStyle.COMPACT -> renderCompact(fb, r, valid, tempLine, humidityPct, batteryPct, tempC, unit, badges)
+            TileStyle.LARGE -> renderLarge(fb, r, valid, tempLine, tempC, humidityPct, batteryPct, unit, badges)
+            TileStyle.STANDARD -> renderStandard(fb, r, valid, tempLine, tempC, humidityPct, batteryPct, unit, badges)
         }
     }
 
     private fun renderStandard(
         fb: PanelFramebuffer, r: TileRect, valid: Boolean, tempLine: String, tempC: Float, humidityPct: Float,
-        batteryPct: Int?, unit: Char
+        batteryPct: Int?, unit: Char, badges: String
     ) {
         if (!valid) {
             fb.drawText(r.x + 12, r.y + 56, "NO SIGNAL", 2, true)
@@ -381,6 +408,7 @@ object PanelRenderer {
         fb.drawText(r.x + 12, r.y + 40, "T: $tempLine", 2, true)
         fb.drawText(r.x + 12, r.y + 68, "H: ${format0(humidityPct)} %", 2, true)
         drawClimateLine(fb, r, true, tempC, humidityPct, unit)
+        drawBadges(fb, badges, r.x + 108, r.y + 56, 1)
         batteryText(batteryPct)?.let {
             val scale = fitScale(it, r.w - 16, 2)
             fb.drawText(r.x + 12, r.y + if (scale == 2) 96 else 99, it, scale, true)
@@ -394,7 +422,7 @@ object PanelRenderer {
 
     private fun renderCompact(
         fb: PanelFramebuffer, r: TileRect, valid: Boolean, tempLine: String, humidityPct: Float,
-        batteryPct: Int?, tempC: Float, unit: Char
+        batteryPct: Int?, tempC: Float, unit: Char, badges: String
     ) {
         val narrow = r.w < 160
         val pad = if (narrow) 8 else 12
@@ -404,6 +432,7 @@ object PanelRenderer {
         }
         fb.drawText(r.x + pad, r.y + 30, tempLine, 2, true)
         fb.drawText(r.x + pad, r.y + 48, "${format0(humidityPct)} %", 2, true)
+        if (narrow) drawBadges(fb, badges, r.x + r.w - 22, r.y + 50, -1) else drawBadges(fb, badges, r.x + 92, r.y + 50, 1)
         if (narrow) {
             fb.drawText(r.x + 6, r.y + 106, climateLine(true, tempC, humidityPct, unit), 1, true)
         }
@@ -412,7 +441,7 @@ object PanelRenderer {
 
     private fun renderLarge(
         fb: PanelFramebuffer, r: TileRect, valid: Boolean, tempLine: String, tempC: Float, humidityPct: Float,
-        batteryPct: Int?, unit: Char
+        batteryPct: Int?, unit: Char, badges: String
     ) {
         if (!valid) {
             fb.drawText(r.x + 12, r.y + r.h / 2 - 7, "NO SIGNAL", 2, true)
@@ -428,7 +457,9 @@ object PanelRenderer {
         var cy = r.y + 24 + gap
         fb.drawText(r.x + pad, cy, tempLine, ts, true)
         cy += textH + gap + sparkH + gap
-        fb.drawText(r.x + pad, cy, "${format0(humidityPct)} %", ts, true)
+        val humidityText = "${format0(humidityPct)} %"
+        fb.drawText(r.x + pad, cy, humidityText, ts, true)
+        drawBadges(fb, badges, r.x + pad + humidityText.length * 6 * ts + 4 * 4 + 7, cy + (textH - BADGE_SIZE) / 2, 1)
         cy += textH + gap + sparkH + gap
         fb.drawText(r.x + pad, cy, climateLine(true, tempC, humidityPct, unit), 1, true)
         cy += 7 + gap

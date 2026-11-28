@@ -401,4 +401,69 @@ class PanelRendererTest {
         // Fixed CRC-32 (IEEE) of 15,000 zero bytes (zlib.crc32).
         assertEquals(CRC_OF_15000_ZERO_BYTES, PanelFramebuffer().crc32())
     }
+
+    // --- Badges from the STATUS LATCH line ---
+
+    /**
+     * Reference from `DashboardView::renderTile` (tools/render_display_preview.cpp, same calls): the
+     * 9 x 9 "V" badge of tile 1 in the 4-tile layout at x = 204 + 108, y = 36 + 56; '#' is black.
+     */
+    private val ventBadgeReference = listOf(
+        "#########",
+        "##.###.##",
+        "##.###.##",
+        "##.###.##",
+        "##.###.##",
+        "##.###.##",
+        "###.#.###",
+        "####.####",
+        "#########"
+    )
+
+    private fun badgeRows(fb: PanelFramebuffer, x: Int, y: Int): List<String> =
+        (0 until 9).map { dy -> (0 until 9).joinToString("") { dx -> if (fb.isBlack(x + dx, y + dy)) "#" else "." } }
+
+    @Test
+    fun ventBitOfTileOneDrawsTheInvertedBadgeOfTheFirmware() {
+        val frame = frameWithTiles(listOf(true, true, true, true))
+        val latch = LatchState(ventilate = 0b10, dry = 0, batteryLow = 0, stale = 0)
+        val fb = PanelRenderer.render(frame, PanelConfig(), latch)
+        val r = PanelRenderer.layoutTiles(4)[1]
+        assertEquals(ventBadgeReference, badgeRows(fb, r.x + 108, r.y + 56))
+        // Tile 0 has no bit: its badge area stays white.
+        val r0 = PanelRenderer.layoutTiles(4)[0]
+        assertTrue(badgeRows(fb, r0.x + 108, r0.y + 56).none { it.contains('#') })
+    }
+
+    @Test
+    fun noStatusReplyDrawsNoBadge() {
+        val frame = frameWithTiles(listOf(true, true, true, true))
+        val plain = PanelRenderer.render(frame, PanelConfig())
+        assertEquals(plain.crc32(), PanelRenderer.render(frame, PanelConfig(), null).crc32())
+        val r = PanelRenderer.layoutTiles(4)[1]
+        assertTrue(badgeRows(plain, r.x + 108, r.y + 56).none { it.contains('#') })
+    }
+
+    @Test
+    fun badgeLettersFollowTheFirmwareOrderAndMaskRules() {
+        val latch = LatchState(
+            ventilate = 0b10, dry = 0b10, batteryLow = 0, stale = 0,
+            wall = 0b10, window = 0b10, receptionLow = 0b1, drift = 0b10, heat = 0b10
+        )
+        assertEquals("VDWCRS", PanelRenderer.badgeLetters(latch, 1))
+        assertEquals("", PanelRenderer.badgeLetters(latch, 0))
+        assertEquals("", PanelRenderer.badgeLetters(null, 1))
+        assertEquals("", PanelRenderer.badgeLetters(latch, 11))
+    }
+
+    @Test
+    fun secondBadgeSitsOnePixelRightOfTheFirst() {
+        val frame = frameWithTiles(listOf(true, true, true, true))
+        val latch = LatchState(ventilate = 0b10, dry = 0b10, batteryLow = 0, stale = 0)
+        val fb = PanelRenderer.render(frame, PanelConfig(), latch)
+        val r = PanelRenderer.layoutTiles(4)[1]
+        assertEquals(ventBadgeReference, badgeRows(fb, r.x + 108, r.y + 56))
+        assertTrue(fb.isBlack(r.x + 118, r.y + 56))
+        assertTrue(fb.isBlack(r.x + 126, r.y + 64))
+    }
 }
