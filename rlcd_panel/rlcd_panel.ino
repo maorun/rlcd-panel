@@ -989,6 +989,17 @@ void refreshSensors() {
   for (size_t i = 0; i < MAX_SWITCHBOT_SENSORS; ++i) {
     tiles[i] = calibrated.slot(i);
   }
+  // SPREAD QUICK samples: one 5-minute mean for the onboard sensor and each slot that got a packet in this wake cycle
+  // (`g_packet_mask`, like the frozen reading latch: a held reading must not enter the mean), on USB power only.
+  {
+    int16_t quick_temp[QuickSpread::SENSORS] = {};
+    int16_t quick_rh[QuickSpread::SENSORS] = {};
+    const uint16_t quick_mask = QuickSpread::collect(
+        g_onboard_reading.valid, g_onboard_reading.temperature_c, g_onboard_reading.humidity_pct, tiles,
+        MAX_SWITCHBOT_SENSORS, g_packet_mask, nowMs(), config().staleTimeoutMs(), quick_temp, quick_rh);
+    g_state.quick_spread.update(nowMs(), g_state.battery.valid && g_state.battery.usb_powered, quick_mask, quick_temp,
+                                quick_rh);
+  }
   g_state.ventilate_tiles = VentilateLatch::update(
       g_state.ventilate_tiles, g_onboard_reading, tiles, MAX_SWITCHBOT_SENSORS, nowMs(),
       config().ventilate_limit_rh, config().staleTimeoutMs(), config().door_ref_slot);
@@ -1546,8 +1557,12 @@ void setup() {
                        nowMs(), command.frsi_hours);
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::SPREAD) {
       // The RTC histories answer: no card access, no state change, so the console keeps running.
-      Runner::showSpread(sink, g_state.history, g_state.config, g_state.registry, nowMs(),
-                         command.reference);
+      if (command.spread_quick) {
+        Runner::showSpreadQuick(sink, g_state.quick_spread, g_state.config, g_state.registry, nowMs());
+      } else {
+        Runner::showSpread(sink, g_state.history, g_state.config, g_state.registry, nowMs(),
+                           command.reference);
+      }
     } else if (status == SerialParseStatus::OK && command.kind == SerialCommandKind::TODAY) {
       // The RTC histories answer: no card access, no state change, so the console keeps running.
       RtcTime today_now = g_rtc_time; // the wakeup time is old in a long USB session: read the clock again
