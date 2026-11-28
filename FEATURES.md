@@ -4411,3 +4411,12 @@ The `BLE reception` group of the diagnostics view showed only a rate for each sl
 - `ClimateTileModel.batteryLine` gives `Battery: <name> <date>` (`PanelConfig.tileName`, date `YYYY-MM-DD`) when the date is at most 30 days ahead and at most 1 day in the past. The tile shows it below the alert names. It shows nothing for an older, a later or a missing forecast.
 - The firmware and the console protocol do not change.
 - Tests: `ClimateTileModelTest` checks the line for a date 10 days ahead, no line for a date 40 days ahead, for an old date and for an empty cache.
+
+## Self-test of install-phone-apk.sh
+
+- **Code:** `scripts/install-phone-apk.sh`, `tests/test_scripts.sh`, `.github/workflows/ci.yml`
+- `RLCD_ADB_BIN` selects the adb program (default `adb`). `-h`/`--help` shows the usage, the examples and the exit codes. An unknown option or a third argument exits with 4.
+- `--self-test` runs the script with a fake adb and checks the logged adb calls: no argument (no `-s`), a serial (`-s <serial>`), `host:port` (`connect`, then `-s <host:port>`), `RLCD_PHONE_TARGET`, a failed connect (exit 3), a missing APK (exit 2), a missing adb (exit 1), a bad option and too many arguments (exit 4), and `--help`. It exits 0 when all cases pass and 1 for a broken resolution.
+- `tests/test_scripts.sh` runs the self-test (exit 0), runs a copy with a broken `-s` argument (exit 1) and checks `--help`.
+- The CI job `Host tests` runs `./scripts/install-phone-apk.sh --self-test`.
+- Validation: `./scripts/install-phone-apk.sh --self-test`, `./tests/test_scripts.sh` and `./scripts/check-protocol-sync.sh` pass.

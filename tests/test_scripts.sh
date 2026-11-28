@@ -45,4 +45,19 @@ expect "bad value reason" "$(grep -q '^REJECTED line=1 key=chime_volume_pct reas
 run_check "${REPO_ROOT}/tools/sample_config.ini"
 expect "sample config exit 0" "$([[ ${status} -eq 0 ]]; echo $?)"
 
+# The self-test of install-phone-apk.sh passes, and a broken target resolution fails it.
+PHONE="${REPO_ROOT}/scripts/install-phone-apk.sh"
+status=0
+"${PHONE}" --self-test >/dev/null 2>&1 || status=$?
+expect "install-phone-apk self-test exit 0" "$([[ ${status} -eq 0 ]]; echo $?)"
+mkdir -p "${TMP}/broken/scripts"
+sed 's/ADB=("${ADB_BIN}" -s "${TARGET}")/ADB=("${ADB_BIN}")/' "${PHONE}" > "${TMP}/broken/scripts/install-phone-apk.sh"
+chmod +x "${TMP}/broken/scripts/install-phone-apk.sh"
+status=0
+"${TMP}/broken/scripts/install-phone-apk.sh" --self-test >/dev/null 2>&1 || status=$?
+expect "broken install-phone-apk resolution exit 1" "$([[ ${status} -eq 1 ]]; echo $?)"
+status=0
+"${PHONE}" --help >/dev/null 2>&1 || status=$?
+expect "install-phone-apk help exit 0" "$([[ ${status} -eq 0 ]]; echo $?)"
+
 exit "${fail}"

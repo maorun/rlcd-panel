@@ -28,12 +28,6 @@ Do the work in priority order, unless the maintainer gives a different order.
 ## Priority 3: Display and Logging (Score 22–27)
 
 
-- [ ] Self-test script for install-phone-apk.sh
-  - **Location:** `scripts/install-phone-apk.sh`, `.github/workflows/ci.yml`, `tests/test_scripts.sh`, `FEATURES.md`
-  - **Goal:** Test the target resolution of the phone install script like `install-watch-apk.sh`. Add `--self-test` with fake `adb` through `RLCD_ADB_BIN`: a serial, `host:port` and no argument. Check the `adb -s` arguments. Add `-h`/`--help`. Run the self-test in the CI job `Host tests`.
-  - **Acceptance:** `./scripts/install-phone-apk.sh --self-test` exits 0. A broken resolution exits 1. `tests/test_scripts.sh` passes.
-  - **Rank:** [Total: 24, Use: 1, Setup: 5, Harmony: 8, Safety: 10, Effort: S]
-
 - [ ] Self-test of check-protocol-sync.sh against an unlisted shared file
   - **Location:** `scripts/check-protocol-sync.sh`, `.github/workflows/ci.yml`, `FEATURES.md`
   - **Goal:** Find a protocol file that exists in both apps but is not in `FILES`. Add a check: list the `.kt` files with the same name in both `protocol` directories, remove the package line, and print `UNLISTED <name>` for an equal pair outside `FILES`. Exit 1 for an unlisted equal pair. Keep a different pair outside `FILES` as no error.
